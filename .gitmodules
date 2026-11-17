@@ -1,0 +1,4 @@
+[submodule "engine/pumpkin"]
+	path = engine/pumpkin
+	url = https://github.com/Pumpkin-MC/Pumpkin.git
+	ignore = dirty

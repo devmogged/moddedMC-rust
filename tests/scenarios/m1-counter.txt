@@ -1,0 +1,71 @@
+# M1: demo:counter, placed and used by a player, keeps its identity and state
+# across a chunk reload and a restart. Needs the debug moddedmc-bot build.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt -RunDir run\m1 -Fresh
+# The counter sits at 1025 100 1025 (chunk 64,64), far from spawn.
+mods target\wasm32-wasip2\release\counter.wasm
+start
+wait 1
+expect registered block demo:counter \(stand-in minecraft:barrel\)
+
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd tp tester 1025.5 101 1023.5
+wait 3
+cmd setblock 1025 99 1025 minecraft:stone
+cmd setblock 1027 100 1025 minecraft:barrel
+wait 1
+
+# Place it from the item, like a player would.
+bot cmd counter
+wait 1
+bot use 1025 99 1025
+wait 5
+cmd moddedmc dump demo:counter
+wait 0.5
+# One live counter (the vanilla barrel next to it is not tagged) that has ticked ~4 times.
+expect moddedmc dump: 1 live demo:counter
+expect demo:counter at 1025 100 1025 state=0[3-6]00000000000000
+
+# Use it: the mod answers in the action bar instead of opening the barrel.
+bot use 1025 100 1025
+wait 1
+expect \[bot\] chat: .*Counter: [3-7]
+
+# Chunk reload: the player leaves, the chunk unloads, the player comes back.
+cmd tp tester 9025.5 120 9025.5
+wait 8
+cmd moddedmc dump demo:counter
+wait 0.5
+expect moddedmc dump: 0 live demo:counter
+cmd tp tester 1025.5 101 1023.5
+wait 4
+cmd moddedmc dump demo:counter
+wait 0.5
+expect moddedmc dump: 1 live demo:counter
+# It resumed from its saved count (no reset to 0) and did not tick while unloaded (< 0x0f).
+expect demo:counter at 1025 100 1025 state=0[5-9a-e]00000000000000
+
+# Restart: identity and count survive a save and a cold start.
+bot quit
+stop
+start
+wait 1
+expect registered block demo:counter
+cmd forceload add 1025 1025
+wait 3
+cmd moddedmc dump demo:counter
+wait 0.5
+expect moddedmc dump: 1 live demo:counter
+expect demo:counter at 1025 100 1025 state=(0[6-9a-f]|1[0-9a-f])00000000000000
+
+# Breaking it drops the custom item and removes it from the host.
+cmd setblock 1025 100 1025 minecraft:air destroy
+wait 1
+expect broke demo:counter at
+cmd moddedmc dump demo:counter
+wait 0.5
+expect moddedmc dump: 0 live demo:counter
+reject (?i)panic|trapped|invalid tick batch
+stop

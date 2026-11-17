@@ -4,7 +4,7 @@
 
 `moddedMC-rust` is an experimental project from [devmogged](https://github.com/devmogged) focused on bringing modded Minecraft gameplay to a Rust-based server environment. The idea is to explore native Rust implementations of features from Minecraft mods while taking advantage of the performance and efficiency of Rust.
 
-The project is inspired by [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin), an open-source Minecraft server written in Rust. Pumpkin is a potential foundation, not an architecture decision or a dependency we've committed to.
+It builds on [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin), an open-source Minecraft server written in Rust, pinned to one upstream commit plus a small patch. Mods are WASM components that run entirely on the server, so players join with an unmodified Minecraft Java 26.3 client.
 
 ## Why Rust?
 
@@ -12,9 +12,24 @@ Rust offers memory safety without a garbage collector, fine-grained control over
 
 ## Current status
 
-**Early concept — no working implementation yet.** This repository is a starting point for experimentation and collaboration. No particular architecture, mod format, or compatibility layer has been selected.
+**M1 done: one custom block, end to end.** A content mod (`mods/counter`) registers `demo:counter` through the `moddedmc:mods` WIT API. Players place it, it ticks, they use it, and it keeps its identity and state across chunk reloads and restarts. 10,000 of them add about 1–1.5 ms to the median tick. Details and numbers: [docs/STATUS.md](docs/STATUS.md). Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Existing Fabric, Forge, or NeoForge mods **do not automatically run** on a Rust Minecraft server. Bringing their functionality over may require substantial reimplementation, and some modded experiences may also need client-side changes. Performance improvements are a goal to investigate, not a benchmarked claim.
+Next: a playable hand-ported mod (Waystones-style teleporting), then the first Fabric JAR through the recompiler, then the host app with a tunnel.
+
+### Build and run (Windows, PowerShell)
+
+```powershell
+git submodule update --init
+# Pumpkin's build reads vanilla data from Mojang's 26.3 server jar.
+$env:PUMPKIN_MINECRAFT_SERVER_JAR = "<path to the 26.3 server.jar>"
+scripts\engine.ps1 build                                     # apply patches\pumpkin.patch, build the server
+cargo build --release --target wasm32-wasip2 -p counter     # build the demo mod
+scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt -RunDir run\m1 -Fresh
+```
+
+The scenario test needs the headless test client: `cargo build -p moddedmc-bot` in `engine\pumpkin`.
+
+Existing Fabric, Forge, or NeoForge mods **do not automatically run** on a Rust Minecraft server. Bringing their functionality over may require substantial reimplementation, and some modded experiences may also need client-side changes. Comparisons against Fabric servers have not been benchmarked yet.
 
 ## Collaboration
 

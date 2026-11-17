@@ -1,0 +1,4 @@
+[toolchain]
+# Pinned for reproducible mod builds; engine/pumpkin keeps its own `stable` file.
+channel = "1.100.0"
+targets = ["wasm32-wasip2"]
