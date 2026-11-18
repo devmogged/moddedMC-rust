@@ -149,6 +149,18 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           { id: "1794940000", created: 1794940000, files: 405, bytes: 176 * 2 ** 20, stored: 151 * 2 ** 20 },
         ];
       if (path.includes("/backups")) return null;
+      if (path.endsWith("/pregen") && method === "GET") {
+        const t = ((Date.now() / 1000) % 60) / 60;
+        return {
+          state: "running",
+          world: "minecraft:overworld",
+          chunks: Math.round(16129 * t),
+          percent: t * 100,
+          eta_secs: Math.round(30 * (1 - t)),
+          rate: 543,
+        };
+      }
+      if (path.includes("/pregen")) return null;
       const match = path.match(/^\/v1\/servers\/([^/]+)\/(\w+)$/);
       if (match && method === "POST") {
         const [, name, action] = match;

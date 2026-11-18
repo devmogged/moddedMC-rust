@@ -121,6 +121,16 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 const agent = <T>(device: string, method: "GET" | "POST" | "DELETE", path: string, body?: unknown) =>
   call<T>("agent", { device, method, path, body });
 
+/** A pregeneration task on a server with the Chunky port. */
+export type Pregen = {
+  state: "idle" | "running" | "paused" | "finished" | "cancelled";
+  world: string | null;
+  chunks: number | null;
+  percent: number | null;
+  eta_secs: number | null;
+  rate: number | null;
+};
+
 /** A snapshot of a server folder in the device's backup store. */
 export type Backup = { id: string; created: number; files: number; bytes: number; stored: number };
 
@@ -197,6 +207,15 @@ export const api = {
     agent<void>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/backups/${id}/restore`),
   removeBackup: (device: string, server: string, id: string) =>
     agent<void>(device, "DELETE", `/v1/servers/${encodeURIComponent(server)}/backups/${id}`),
+  pregen: (device: string, server: string) =>
+    agent<Pregen>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/pregen`),
+  startPregen: (
+    device: string,
+    server: string,
+    task: { radius: number; center_x: number; center_z: number; circle: boolean },
+  ) => agent<void>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/pregen`, task),
+  pregenAction: (device: string, server: string, action: "pause" | "continue" | "cancel") =>
+    agent<void>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/pregen/${action}`),
   pickModFile: async (): Promise<string | null> => {
     if (mock) return "C:/mods/counter.mmc";
     const { open } = await import("@tauri-apps/plugin-dialog");

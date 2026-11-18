@@ -1,16 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Archive, History, Play, Plus, RotateCw, Square, Trash2, Upload } from "lucide-react";
+import { Archive, Grid3x3, History, Pause, Play, Plus, RotateCw, Square, Trash2, Upload } from "lucide-react";
 import { api, minecraftAddress, type Backup, type Device, type ServerInfo, type Stats } from "./api";
 import { ServerCluster, ServerIcon, bytes, duration, packLine, usePoll } from "./ui";
 import { ConfirmDialog, DeployDialog } from "./dialogs";
 
-type Tab = "console" | "performance" | "mods" | "backups";
+type Tab = "console" | "performance" | "mods" | "backups" | "pregen";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "console", label: "Console" },
   { id: "performance", label: "Performance" },
   { id: "mods", label: "Mods" },
   { id: "backups", label: "Backups" },
+  { id: "pregen", label: "Pregen" },
 ];
 
 export function ServerPane({
@@ -139,8 +140,10 @@ export function ServerPane({
             <Performance device={device.id} server={server} />
           ) : tab === "mods" ? (
             <Mods device={device.id} server={server} onError={onError} />
-          ) : (
+          ) : tab === "backups" ? (
             <Backups device={device.id} server={server} onError={onError} />
+          ) : (
+            <Pregen device={device.id} server={server} onError={onError} />
           )}
         </>
       )}
@@ -360,6 +363,170 @@ function Mods({
           {value && value.length === 0 ? <p className="row-line">None</p> : null}
         </div>
       </section>
+    </div>
+  );
+}
+
+const COUNT = new Intl.NumberFormat();
+
+function Pregen({
+  device,
+  server,
+  onError,
+}: {
+  device: string;
+  server: ServerInfo;
+  onError: (err: unknown) => void;
+}) {
+  const up = server.state === "running";
+  const { value, refresh } = usePoll(up ? () => api.pregen(device, server.name) : null, 2000, [
+    device,
+    server.name,
+    up,
+  ]);
+  const [radius, setRadius] = useState("1000");
+  const [centerX, setCenterX] = useState("0");
+  const [centerZ, setCenterZ] = useState("0");
+  const [circle, setCircle] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const act = async (run: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await run();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+
+  if (!up) return <div className="pane-body row-line">Start the server to pregenerate.</div>;
+  const active = value?.state === "running" || value?.state === "paused";
+  const r = Number(radius);
+  const valid = Number.isInteger(r) && r > 0 && [centerX, centerZ].every((v) => Number.isInteger(Number(v)));
+
+  return (
+    <div className="pane-body">
+      {active && value ? (
+        <section className="block">
+          <div className="block-head">
+            <span>{value.state === "paused" ? "Paused" : "Generating"}</span>
+            <div className="actions">
+              <button
+                className="button"
+                disabled={busy}
+                onClick={() =>
+                  act(() =>
+                    api.pregenAction(device, server.name, value.state === "paused" ? "continue" : "pause"),
+                  )
+                }
+              >
+                {value.state === "paused" ? <Play /> : <Pause />}
+                {value.state === "paused" ? "Continue" : "Pause"}
+              </button>
+              <button
+                className="button"
+                disabled={busy}
+                onClick={() => act(() => api.pregenAction(device, server.name, "cancel"))}
+              >
+                <Square />
+                Cancel
+              </button>
+            </div>
+          </div>
+          <div className="stat-value">
+            {(value.percent ?? 0).toFixed(1)}
+            <small>%</small>
+          </div>
+          <div
+            className="progress"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={value.percent ?? 0}
+          >
+            <span style={{ width: `${value.percent ?? 0}%` }} />
+          </div>
+          <p className="row-line">
+            {[
+              value.chunks != null ? `${COUNT.format(value.chunks)} chunks` : null,
+              value.rate != null && value.state === "running" ? `${Math.round(value.rate)} per second` : null,
+              value.eta_secs != null && value.state === "running" ? `${duration(value.eta_secs)} left` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </section>
+      ) : (
+        <section className="block">
+          <form
+            id="pregen-form"
+            className="pregen-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!valid) return;
+              act(() =>
+                api.startPregen(device, server.name, {
+                  radius: r,
+                  center_x: Number(centerX),
+                  center_z: Number(centerZ),
+                  circle,
+                }),
+              );
+            }}
+          >
+            <label className="field">
+              <span>Radius</span>
+              <input
+                className="input"
+                inputMode="numeric"
+                value={radius}
+                onChange={(e) => setRadius(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Center X</span>
+              <input
+                className="input"
+                inputMode="numeric"
+                value={centerX}
+                onChange={(e) => setCenterX(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Center Z</span>
+              <input
+                className="input"
+                inputMode="numeric"
+                value={centerZ}
+                onChange={(e) => setCenterZ(e.target.value)}
+              />
+            </label>
+            <div className="field">
+              <span>Shape</span>
+              <div className="segmented" role="group" aria-label="Shape">
+                <button type="button" aria-pressed={!circle} onClick={() => setCircle(false)}>
+                  Square
+                </button>
+                <button type="button" aria-pressed={circle} onClick={() => setCircle(true)}>
+                  Circle
+                </button>
+              </div>
+            </div>
+          </form>
+          <div className="actions">
+            <button className="button primary" type="submit" form="pregen-form" disabled={busy || !valid}>
+              <Grid3x3 />
+              Pregenerate
+            </button>
+            {value?.state === "finished" && value.chunks != null ? (
+              <span className="row-line">Last run: {COUNT.format(value.chunks)} chunks</span>
+            ) : null}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
