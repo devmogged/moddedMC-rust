@@ -29,7 +29,7 @@ pub struct Meta {
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum ModSpec {
-    /// A crate on disk: a drop-in mod (cdylib) or a compiled-in port.
+    /// A crate on disk: a drop-in mod (cdylib).
     Path { path: PathBuf },
     /// A built `.mmc` file.
     File { mmc: PathBuf },
@@ -42,8 +42,6 @@ pub enum ModSpec {
 pub enum Kind {
     /// Built as a library and shipped as `<id>.mmc` in the server's `mods/`.
     DropIn { package: String, lib: String },
-    /// Linked into the pack server; `lib::builtin()` registers it.
-    Port { package: String, lib: String },
     /// A `.mmc` someone else built.
     Prebuilt,
 }
@@ -135,31 +133,19 @@ fn resolve_crate(id: &str, dir: &Path) -> Result<Resolved, String> {
         .and_then(|t| t.get("name"))
         .and_then(Value::as_str)
         .map_or_else(|| name.replace('-', "_"), str::to_owned);
-    let is_port = package
-        .get("metadata")
-        .and_then(|m| m.get("moddedmc"))
-        .and_then(|m| m.get("kind"))
-        .and_then(Value::as_str)
-        == Some("port");
     let is_cdylib = lib_table
         .and_then(|t| t.get("crate-type"))
         .and_then(Value::as_array)
         .is_some_and(|types| types.iter().any(|t| t.as_str() == Some("cdylib")));
-    let kind = if is_port {
-        Kind::Port {
-            package: name.to_string(),
-            lib,
-        }
-    } else if is_cdylib {
-        Kind::DropIn {
-            package: name.to_string(),
-            lib,
-        }
-    } else {
+    if !is_cdylib {
         return Err(format!(
-            "{id}: {} is neither a drop-in mod (crate-type cdylib) nor a port ([package.metadata.moddedmc] kind = \"port\")",
+            "{id}: {} is not a drop-in mod (expected crate-type cdylib)",
             manifest.display()
         ));
+    }
+    let kind = Kind::DropIn {
+        package: name.to_string(),
+        lib,
     };
     Ok(Resolved {
         id: id.to_string(),

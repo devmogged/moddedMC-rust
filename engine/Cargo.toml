@@ -1,14 +1,9 @@
 # The engine workspace: the content host, the test bot and the pack servers, built against our
 # Pumpkin fork (engine/pumpkin, devmogged/Pumpkin branch moddedmc) through path dependencies.
 #
-# Two kinds of mods exist (see docs/MOD-ABI.md and docs/PORTS.md):
-#   - drop-in mods (repo root workspace, `api/`): .mmc files loaded from mods/ at runtime.
-#   - compiled-in ports (`ports/*`): Rust crates linked into a pack server here, with full
-#     access to the engine. Big ports (Create, bosses, dragons) are this kind.
-# Pack servers (`packs/*`) are the binaries: Pumpkin + the host + a set of compiled-in ports.
 [workspace]
 resolver = "3"
-members = ["moddedmc-host", "moddedmc-bot", "packs/*", "ports/*"]
+members = ["moddedmc-host", "moddedmc-bot", "packs/*"]
 exclude = ["pumpkin"]
 
 [workspace.package]
@@ -142,7 +137,7 @@ strip = false
 [profile.dev]
 debug = false
 
-# Day-to-day pack builds: optimized, but incremental and without fat LTO, so changing a port
+# Day-to-day pack builds: optimized, but incremental and without fat LTO, so changing the host
 # rebuilds in seconds to a minute instead of the release profile's ~17 minutes. Deploys to
 # players use `release` (the app runs it in the background).
 [profile.pack]

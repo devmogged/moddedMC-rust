@@ -1,5 +1,4 @@
-//! Building one pack for its targets: drop-in mods into `.mmc` files, compiled-in ports into a
-//! generated pack server crate, and a `pack.lock` that says exactly what went in.
+//! Building a pack for its targets: the stock server, `.mmc` files and a `pack.lock`.
 
 use std::{
     fmt::Write as _,
@@ -11,7 +10,6 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
-use toml::{Table, Value};
 
 use crate::manifest::{self, Kind, Resolved, hex};
 
@@ -106,6 +104,9 @@ pub fn build(options: &Options) -> Result<(), String> {
         if !options.force
             && !engine_dirty
             && binary.exists()
+            && mods
+                .iter()
+                .all(|m| out.join("mods").join(format!("{}.mmc", m.id)).is_file())
             && fs::read_to_string(&key_file).is_ok_and(|k| k == key)
         {
             println!("{name}: up to date ({})", out.display());
@@ -137,22 +138,10 @@ pub fn build(options: &Options) -> Result<(), String> {
                     fs::copy(&m.path, mods_dir.join(format!("{}.mmc", m.id)))
                         .map_err(|e| format!("{}: can't copy {}: {e}", m.id, m.path.display()))?;
                 }
-                Kind::Port { .. } => {}
             }
         }
 
-        let ports: Vec<&Resolved> = mods
-            .iter()
-            .filter(|m| matches!(m.kind, Kind::Port { .. }))
-            .collect();
-        let built = build_server(
-            &repo,
-            &host,
-            &platform,
-            &options.profile,
-            &pack.pack.id,
-            &ports,
-        )?;
+        let built = build_server(&repo, &host, &platform, &options.profile)?;
         fs::copy(&built, &binary).map_err(|e| {
             format!(
                 "can't copy {} to {}: {e}",
@@ -163,13 +152,10 @@ pub fn build(options: &Options) -> Result<(), String> {
         fs::write(out.join("pack.lock"), &lock).map_err(|e| e.to_string())?;
         fs::write(&key_file, &key).map_err(|e| e.to_string())?;
         println!(
-            "{name}: built {} in {:.1}s ({} drop-in, {} compiled in)",
+            "{name}: built {} in {:.1}s ({} mods)",
             out.display(),
             started.elapsed().as_secs_f32(),
-            mods.iter()
-                .filter(|m| !matches!(m.kind, Kind::Port { .. }))
-                .count(),
-            ports.len()
+            mods.len()
         );
     }
     Ok(())
@@ -240,14 +226,10 @@ fn lock_text(pack: &manifest::Pack, mods: &[Resolved], repo: &Path, profile: &st
     let _ = writeln!(text, "pumpkin = {pumpkin:?}");
     let _ = writeln!(text, "moddedmc = {platform:?}");
     for m in mods {
-        let kind = match m.kind {
-            Kind::DropIn { .. } | Kind::Prebuilt => "drop-in",
-            Kind::Port { .. } => "port",
-        };
         let _ = writeln!(text, "\n[[mod]]");
         let _ = writeln!(text, "id = {:?}", m.id);
         let _ = writeln!(text, "version = {:?}", m.version);
-        let _ = writeln!(text, "kind = {kind:?}");
+        let _ = writeln!(text, "kind = {:?}", "drop-in");
         let _ = writeln!(text, "sha256 = {:?}", m.hash);
     }
     text
@@ -341,102 +323,25 @@ fn write_mmc(
     written.map_err(|e| format!("can't write {}: {e}", out.display()))
 }
 
-/// The stock `pack-dev` server when nothing is compiled in, else a generated pack crate.
+/// All packs use the same server for a given target and profile.
 fn build_server(
     repo: &Path,
     host: &str,
     platform: &Platform,
     profile: &str,
-    id: &str,
-    ports: &[&Resolved],
 ) -> Result<PathBuf, String> {
     let engine = repo.join("engine");
-    let (mut command, bin) = if ports.is_empty() {
-        let mut command = cargo(&engine, host, platform);
-        command.args(["-p", "pack-dev"]);
-        (command, "pack-dev".to_string())
-    } else {
-        let dir = generate(&engine, id, ports)?;
-        let mut command = cargo(&dir, host, platform);
-        // Share the engine's build output so only the pack crate and its ports compile.
-        command.env("CARGO_TARGET_DIR", engine.join("target"));
-        (command, format!("pack-{id}"))
-    };
-    command.args(["--profile", profile]);
-    run(command, &bin)?;
+    let mut command = cargo(&engine, host, platform);
+    command.args(["-p", "pack-dev", "--profile", profile]);
+    run(command, "pack-dev")?;
     let binary =
-        target_dir(&engine, host, platform, profile).join(format!("{bin}{}", platform.exe_ext));
+        target_dir(&engine, host, platform, profile).join(format!("pack-dev{}", platform.exe_ext));
     if binary.exists() {
         Ok(binary)
     } else {
-        Err(format!("{bin} built, but {} is missing", binary.display()))
+        Err(format!(
+            "pack-dev built, but {} is missing",
+            binary.display()
+        ))
     }
-}
-
-/// `engine/target/packs/<id>/`: a crate of its own (never committed) that links the ports.
-/// It copies the engine's profiles and lockfile so it reuses the engine's compiled crates.
-fn generate(engine: &Path, id: &str, ports: &[&Resolved]) -> Result<PathBuf, String> {
-    let dir = engine.join("target").join("packs").join(id);
-    fs::create_dir_all(dir.join("src")).map_err(|e| e.to_string())?;
-
-    let engine_manifest: Table = fs::read_to_string(engine.join("Cargo.toml"))
-        .map_err(|e| e.to_string())?
-        .parse()
-        .map_err(|e| format!("engine/Cargo.toml: {e}"))?;
-    let path = |p: &Path| Value::String(p.to_string_lossy().replace('\\', "/"));
-
-    let mut manifest = Table::new();
-    let mut package = Table::new();
-    package.insert("name".into(), Value::String(format!("pack-{id}")));
-    package.insert("version".into(), Value::String("0.0.0".into()));
-    package.insert("edition".into(), Value::String("2024".into()));
-    package.insert("publish".into(), Value::Boolean(false));
-    manifest.insert("package".into(), Value::Table(package));
-    manifest.insert("workspace".into(), Value::Table(Table::new()));
-
-    let mut deps = Table::new();
-    let dep = |p: PathBuf| {
-        let mut t = Table::new();
-        t.insert("path".into(), path(&p));
-        Value::Table(t)
-    };
-    deps.insert(
-        "pumpkin".into(),
-        dep(engine.join("pumpkin").join("crates").join("pumpkin")),
-    );
-    deps.insert("moddedmc-host".into(), dep(engine.join("moddedmc-host")));
-    let mut main = String::from(
-        "// Generated by moddedmc-pack. Edit pack.toml, not this file.\nfn main() {\n",
-    );
-    main.push_str("    let mut launch = pumpkin::Launch::default().on_server_created(moddedmc_host::attach);\n");
-    for port in ports {
-        let Kind::Port { package, lib } = &port.kind else {
-            continue;
-        };
-        deps.insert(package.clone(), dep(port.path.clone()));
-        let _ = writeln!(main, "    launch.builtin_plugins.push({lib}::builtin());");
-    }
-    main.push_str("    pumpkin::run(launch);\n}\n");
-    manifest.insert("dependencies".into(), Value::Table(deps));
-    if let Some(profiles) = engine_manifest.get("profile") {
-        manifest.insert("profile".into(), profiles.clone());
-    }
-
-    let text = toml::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
-    write_if_changed(
-        &dir.join("Cargo.toml"),
-        &format!("# Generated by moddedmc-pack.\n{text}"),
-    )?;
-    write_if_changed(&dir.join("src").join("main.rs"), &main)?;
-    // Same versions as the engine build, so nothing recompiles for a version bump.
-    fs::copy(engine.join("Cargo.lock"), dir.join("Cargo.lock")).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-/// Rewriting an unchanged file would make cargo rebuild the pack crate.
-fn write_if_changed(path: &Path, text: &str) -> Result<(), String> {
-    if fs::read_to_string(path).is_ok_and(|old| old == text) {
-        return Ok(());
-    }
-    fs::write(path, text).map_err(|e| format!("can't write {}: {e}", path.display()))
 }

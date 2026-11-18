@@ -1,5 +1,5 @@
 # Builds a pack server: Pumpkin (engine/pumpkin, our fork devmogged/Pumpkin, branch moddedmc) with
-# the content host and the pack's compiled-in ports, plus the test bot.
+# the content host, plus the test bot.
 #   scripts\engine.ps1 build [-Pack dev] [-Profile pack|release|dev]
 #     pack     (default) optimized, incremental, no fat LTO: fast rebuilds while working
 #     release  fat LTO, for deploys and benchmarks (slow: start it in the background)
