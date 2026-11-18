@@ -4,7 +4,7 @@
 //! only the chunks that no earlier snapshot has.
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, BTreeSet, HashSet},
     io::{Read, Write},
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -19,6 +19,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::{
@@ -34,6 +35,42 @@ const MAX_CHUNK: usize = 256 << 10;
 const ZSTD_LEVEL: i32 = 3;
 /// How long a running server gets to finish `save-all flush`.
 const SAVE_TIMEOUT: Duration = Duration::from_secs(120);
+/// How often the agent checks whether a scheduled backup is due.
+const SCHEDULE_TICK: Duration = Duration::from_secs(60);
+const MAX_EVERY_MINUTES: u32 = 7 * 24 * 60;
+const MAX_KEEP: u32 = 1000;
+
+/// Taking and restoring snapshots read and add blobs; garbage collection removes the ones no
+/// manifest names yet, so it must not run while a snapshot is half written.
+static STORE: RwLock<()> = RwLock::const_new(());
+/// Servers with a backup or restore in progress.
+static BUSY: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+
+struct Busy(String);
+
+impl Busy {
+    fn claim(server: &str) -> Result<Self, (StatusCode, String)> {
+        let mut busy = BUSY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if busy.insert(server.to_string()) {
+            Ok(Self(server.to_string()))
+        } else {
+            Err((
+                StatusCode::CONFLICT,
+                format!("a backup of {server} is already running"),
+            ))
+        }
+    }
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        BUSY.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.0);
+    }
+}
 
 /// Not part of a server's state: logs, live stats, lock and temporary files.
 fn skipped(relative: &Path) -> bool {
@@ -68,6 +105,9 @@ struct Manifest {
     bytes: u64,
     /// What this snapshot added to the store, compressed.
     stored: u64,
+    /// Taken by the schedule, so retention may remove it.
+    #[serde(default)]
+    scheduled: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -85,6 +125,38 @@ pub struct Snapshot {
     files: usize,
     bytes: u64,
     stored: u64,
+    scheduled: bool,
+}
+
+impl Snapshot {
+    fn new(id: String, m: &Manifest) -> Self {
+        Self {
+            id,
+            created: m.created,
+            files: m.files.len(),
+            bytes: m.bytes,
+            stored: m.stored,
+            scheduled: m.scheduled,
+        }
+    }
+}
+
+/// When a server is backed up on its own, and how many of those backups stay.
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub struct Schedule {
+    every_minutes: u32,
+    keep: u32,
+}
+
+fn schedules_path() -> PathBuf {
+    root().join("schedules.json")
+}
+
+fn read_schedules() -> BTreeMap<String, Schedule> {
+    std::fs::read(schedules_path())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -130,14 +202,19 @@ fn store_chunk(hash: &str, data: &[u8]) -> std::io::Result<u64> {
     Ok(compressed.len() as u64)
 }
 
-fn take(dir: &Path) -> std::io::Result<Manifest> {
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+fn take(dir: &Path, scheduled: bool) -> std::io::Result<Manifest> {
     let mut manifest = Manifest {
-        created: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs()),
+        created: now(),
         files: Vec::new(),
         bytes: 0,
         stored: 0,
+        scheduled,
     };
     for relative in walk(dir)? {
         let file = std::fs::File::open(dir.join(&relative))?;
@@ -249,6 +326,26 @@ fn internal(err: impl std::fmt::Display) -> Response {
     error(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }
 
+/// Every snapshot of a server, newest first.
+fn snapshots(server: &str) -> Vec<Snapshot> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(snapshots_dir(server))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let file = entry.file_name().to_string_lossy().into_owned();
+        let Some(id) = file.strip_suffix(".json") else {
+            continue;
+        };
+        if let Some(m) = read_manifest(server, id) {
+            out.push(Snapshot::new(id.to_string(), &m));
+        }
+    }
+    out.sort_by(|a, b| b.created.cmp(&a.created).then(b.id.cmp(&a.id)));
+    out
+}
+
 pub async fn list(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) -> Response {
     if let Some(response) = bad_name(&name) {
         return response;
@@ -256,68 +353,44 @@ pub async fn list(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) -
     if app.servers.folder(&name).await.is_none() {
         return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
     }
-    let found = tokio::task::spawn_blocking(move || {
-        let mut out = Vec::new();
-        for entry in std::fs::read_dir(snapshots_dir(&name))
-            .into_iter()
-            .flatten()
-            .flatten()
-        {
-            let file = entry.file_name().to_string_lossy().into_owned();
-            let Some(id) = file.strip_suffix(".json") else {
-                continue;
-            };
-            if let Some(m) = read_manifest(&name, id) {
-                out.push(Snapshot {
-                    id: id.to_string(),
-                    created: m.created,
-                    files: m.files.len(),
-                    bytes: m.bytes,
-                    stored: m.stored,
-                });
-            }
-        }
-        out.sort_by(|a, b| b.created.cmp(&a.created).then(b.id.cmp(&a.id)));
-        out
-    })
-    .await
-    .unwrap_or_default();
+    let found = tokio::task::spawn_blocking(move || snapshots(&name))
+        .await
+        .unwrap_or_default();
     Json(found).into_response()
 }
 
+fn internal_error(err: impl std::fmt::Display) -> (StatusCode, String) {
+    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+}
+
 /// Takes a snapshot. A running server saves first and doesn't write while the files are read.
-pub async fn create(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) -> Response {
-    if let Some(response) = bad_name(&name) {
-        return response;
-    }
-    let Some(dir) = app.servers.folder(&name).await else {
-        return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
-    };
-    let running = app.servers.is_running(&name).await;
+async fn back_up(app: &App, name: &str, scheduled: bool) -> Result<Snapshot, (StatusCode, String)> {
+    let dir = app
+        .servers
+        .folder(name)
+        .await
+        .ok_or((StatusCode::NOT_FOUND, format!("no server named {name}")))?;
+    let _busy = Busy::claim(name)?;
+    let running = app.servers.is_running(name).await;
     if running {
-        if let Err((status, message)) = app.servers.command(&name, "save-off").await {
-            return error(status, message);
-        }
+        app.servers.command(name, "save-off").await?;
         let saved = app
             .servers
-            .command_until(&name, "save-all flush", "Saved the game", SAVE_TIMEOUT)
+            .command_until(name, "save-all flush", "Saved the game", SAVE_TIMEOUT)
             .await;
-        if let Err((status, message)) = saved {
-            let _ = app.servers.command(&name, "save-on").await;
-            return error(status, message);
+        if let Err(err) = saved {
+            let _ = app.servers.command(name, "save-on").await;
+            return Err(err);
         }
     }
-    let taken = tokio::task::spawn_blocking(move || take(&dir)).await;
+    let store = STORE.read().await;
+    let taken = tokio::task::spawn_blocking(move || take(&dir, scheduled)).await;
     if running {
-        let _ = app.servers.command(&name, "save-on").await;
+        let _ = app.servers.command(name, "save-on").await;
     }
-    let manifest = match taken {
-        Ok(Ok(manifest)) => manifest,
-        Ok(Err(err)) => return internal(err),
-        Err(err) => return internal(err),
-    };
-    let server = name.clone();
-    let written = tokio::task::spawn_blocking(move || {
+    let manifest = taken.map_err(internal_error)?.map_err(internal_error)?;
+    let server = name.to_string();
+    let snapshot = tokio::task::spawn_blocking(move || {
         let dir = snapshots_dir(&server);
         std::fs::create_dir_all(&dir)?;
         let mut id = manifest.created.to_string();
@@ -330,25 +403,26 @@ pub async fn create(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>)
         let partial = dir.join(format!(".{id}.partial"));
         std::fs::write(&partial, json)?;
         std::fs::rename(&partial, dir.join(format!("{id}.json")))?;
-        Ok::<_, std::io::Error>(Snapshot {
-            id,
-            created: manifest.created,
-            files: manifest.files.len(),
-            bytes: manifest.bytes,
-            stored: manifest.stored,
-        })
+        Ok::<_, std::io::Error>(Snapshot::new(id, &manifest))
     })
-    .await;
-    match written {
-        Ok(Ok(snapshot)) => {
-            info!(
-                "{name}: backup {} ({} files, {} bytes, {} new)",
-                snapshot.id, snapshot.files, snapshot.bytes, snapshot.stored
-            );
-            (StatusCode::CREATED, Json(snapshot)).into_response()
-        }
-        Ok(Err(err)) => internal(err),
-        Err(err) => internal(err),
+    .await
+    .map_err(internal_error)?
+    .map_err(internal_error)?;
+    drop(store);
+    info!(
+        "{name}: backup {} ({} files, {} bytes, {} new)",
+        snapshot.id, snapshot.files, snapshot.bytes, snapshot.stored
+    );
+    Ok(snapshot)
+}
+
+pub async fn create(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) -> Response {
+    if let Some(response) = bad_name(&name) {
+        return response;
+    }
+    match back_up(&app, &name, false).await {
+        Ok(snapshot) => (StatusCode::CREATED, Json(snapshot)).into_response(),
+        Err((status, message)) => error(status, message),
     }
 }
 
@@ -362,6 +436,11 @@ pub async fn restore_one(
     if !valid_name(&id) {
         return error(StatusCode::BAD_REQUEST, format!("bad backup id {id:?}"));
     }
+    let _busy = match Busy::claim(&name) {
+        Ok(busy) => busy,
+        Err((status, message)) => return error(status, message),
+    };
+    let _store = STORE.read().await;
     let result = app
         .servers
         .with_stopped(&name, async |dir: &Path| {
@@ -385,6 +464,19 @@ pub async fn restore_one(
     }
 }
 
+/// Removes snapshots, then the blobs nothing names any more.
+async fn remove(server: String, ids: Vec<String>) -> std::io::Result<u64> {
+    let _store = STORE.write().await;
+    tokio::task::spawn_blocking(move || {
+        for id in &ids {
+            std::fs::remove_file(snapshots_dir(&server).join(format!("{id}.json")))?;
+        }
+        collect_garbage()
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
 pub async fn delete(
     State(app): State<Arc<App>>,
     UrlPath((name, id)): UrlPath<(String, String)>,
@@ -398,23 +490,123 @@ pub async fn delete(
     if app.servers.folder(&name).await.is_none() {
         return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
     }
-    let result = tokio::task::spawn_blocking(move || {
-        std::fs::remove_file(snapshots_dir(&name).join(format!("{id}.json")))?;
-        collect_garbage()
-    })
-    .await;
-    match result {
-        Ok(Ok(freed)) => {
+    match remove(name, vec![id]).await {
+        Ok(freed) => {
             info!("removed a backup, freed {freed} bytes");
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(Err(err)) if err.kind() == std::io::ErrorKind::NotFound => {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             error(StatusCode::NOT_FOUND, "no such backup".into())
         }
-        Ok(Err(err)) => {
+        Err(err) => {
             warn!("removing a backup: {err}");
             internal(err)
         }
+    }
+}
+
+pub async fn get_schedule(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) -> Response {
+    if let Some(response) = bad_name(&name) {
+        return response;
+    }
+    if app.servers.folder(&name).await.is_none() {
+        return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
+    }
+    let schedules = tokio::task::spawn_blocking(read_schedules)
+        .await
+        .unwrap_or_default();
+    Json(schedules.get(&name).copied()).into_response()
+}
+
+/// Sets a server's schedule; `null` turns scheduled backups off.
+pub async fn put_schedule(
+    State(app): State<Arc<App>>,
+    UrlPath(name): UrlPath<String>,
+    Json(schedule): Json<Option<Schedule>>,
+) -> Response {
+    if let Some(response) = bad_name(&name) {
+        return response;
+    }
+    if app.servers.folder(&name).await.is_none() {
+        return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
+    }
+    if let Some(s) = schedule
+        && (!(1..=MAX_EVERY_MINUTES).contains(&s.every_minutes)
+            || !(1..=MAX_KEEP).contains(&s.keep))
+    {
+        return error(
+            StatusCode::BAD_REQUEST,
+            format!("every_minutes must be 1 to {MAX_EVERY_MINUTES} and keep 1 to {MAX_KEEP}"),
+        );
+    }
+    let _store = STORE.write().await;
+    let written = tokio::task::spawn_blocking(move || {
+        let mut schedules = read_schedules();
+        match schedule {
+            Some(s) => schedules.insert(name, s),
+            None => schedules.remove(&name),
+        };
+        std::fs::create_dir_all(root())?;
+        let json = serde_json::to_vec_pretty(&schedules).map_err(std::io::Error::other)?;
+        let partial = root().join(".schedules.partial");
+        std::fs::write(&partial, json)?;
+        std::fs::rename(&partial, schedules_path())
+    })
+    .await;
+    match written {
+        Ok(Ok(())) => Json(schedule).into_response(),
+        Ok(Err(err)) => internal(err),
         Err(err) => internal(err),
+    }
+}
+
+/// Backs up running servers on their schedule and keeps the newest `keep` scheduled backups.
+/// Backups taken by hand are never removed here.
+pub async fn run_schedules(app: Arc<App>) {
+    let mut tick = tokio::time::interval(SCHEDULE_TICK);
+    loop {
+        tick.tick().await;
+        let schedules = tokio::task::spawn_blocking(read_schedules)
+            .await
+            .unwrap_or_default();
+        for (name, schedule) in schedules {
+            if !app.servers.is_running(&name).await {
+                continue;
+            }
+            let server = name.clone();
+            let scheduled: Vec<Snapshot> = tokio::task::spawn_blocking(move || {
+                snapshots(&server)
+                    .into_iter()
+                    .filter(|s| s.scheduled)
+                    .collect()
+            })
+            .await
+            .unwrap_or_default();
+            let due = scheduled.first().is_none_or(|last| {
+                now().saturating_sub(last.created) >= u64::from(schedule.every_minutes) * 60
+            });
+            if !due {
+                continue;
+            }
+            let taken = match back_up(&app, &name, true).await {
+                Ok(snapshot) => snapshot,
+                Err((_, message)) => {
+                    warn!("{name}: scheduled backup failed: {message}");
+                    continue;
+                }
+            };
+            let keep = usize::try_from(schedule.keep).unwrap_or(usize::MAX);
+            let old: Vec<String> = std::iter::once(taken.id)
+                .chain(scheduled.into_iter().map(|s| s.id))
+                .skip(keep)
+                .collect();
+            if old.is_empty() {
+                continue;
+            }
+            match remove(name.clone(), old).await {
+                Ok(freed) => info!("{name}: retention freed {freed} bytes"),
+                Err(err) => warn!("{name}: retention: {err}"),
+            }
+        }
     }
 }

@@ -71,6 +71,10 @@ async fn main() {
             get(backups::list).post(backups::create),
         )
         .route(
+            "/v1/servers/{name}/backups/schedule",
+            get(backups::get_schedule).put(backups::put_schedule),
+        )
+        .route(
             "/v1/servers/{name}/backups/{id}",
             axum::routing::delete(backups::delete),
         )
@@ -102,6 +106,8 @@ async fn main() {
             "no Tailscale address; listening on loopback only (use SSH to reach this machine)"
         ),
     }
+
+    tokio::spawn(backups::run_schedules(app.clone()));
 
     let mut tasks = Vec::new();
     for addr in addrs {
