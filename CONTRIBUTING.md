@@ -43,6 +43,7 @@ Unrequested PRs of this kind are closed, however good the code is.
 ## Project rules
 
 - **Never edit `engine/pumpkin` in git.** It is a submodule pinned to upstream. Make engine changes in the checkout, then `scripts\engine.ps1 save` to update `patches/pumpkin.patch`. `scripts\engine.ps1 apply` resets the checkout to the pin plus the patch. Prefer fixes in our own crates over engine changes.
+- **New engine features for mods go in named interfaces** (`moddedmc:<area>/<version>`, see [docs/MOD-ABI.md](docs/MOD-ABI.md)), not as more functions on `HostApi`. Design an interface around what a real mod needs, with batched calls on hot paths.
 - **The mod ABI is a promise.** Mods built today must load on tomorrow's server. In `api/src/abi.rs`: append new fields to the end of `HostApi` and `ModApi`, never reorder, remove or change existing ones. A breaking change bumps `ABI_VERSION` and needs a maintainer's yes first. Update [docs/MOD-ABI.md](docs/MOD-ABI.md) in the same PR.
 - **Mods stay outside the server build.** Crates in `api/`, `mods/` and `recompiler/fabric-host` must not depend on Pumpkin crates. Everything they need goes through the ABI.
 - **No panics across the boundary.** Host functions must not unwind into a mod, and SDK callbacks catch panics before returning to the server.

@@ -17,8 +17,8 @@ use std::{
 };
 
 use moddedmc_api::abi::{
-    ABI_SYMBOL, ABI_VERSION, BlockCall, ENTRY_SYMBOL, HostApi, ID_SYMBOL, MenuButton, ModApi,
-    PlayerRef, Pos, Reg, Sink, Str, TickEntry, code, level,
+    self, ABI_SYMBOL, ABI_VERSION, BlockCall, BlockWrite, ENTRY_SYMBOL, HostApi, ID_SYMBOL,
+    MenuButton, ModApi, PlayerRef, Pos, Reg, Sink, Str, TickEntry, WorldV1, code, level,
 };
 use pumpkin_core::{
     command::{
@@ -31,11 +31,13 @@ use pumpkin_core::{
     server::Server,
     world::World,
 };
+use pumpkin_data::{Block, BlockStateId};
 use pumpkin_protocol::java::client::dialog::{ActionButton, Dialog, DialogAction, DialogBody};
 use pumpkin_util::{
     math::{position::BlockPos, vector3::Vector3},
     text::TextComponent,
 };
+use pumpkin_world::world::BlockFlags;
 use sha2::{Digest, Sha256};
 
 use crate::Staging;
@@ -260,6 +262,7 @@ fn host_api(id: &str) -> HostApi {
         show_menu,
         tick_count,
         dimension,
+        query_interface,
     }
 }
 
@@ -503,6 +506,140 @@ unsafe extern "C" fn dimension(index: usize) -> Str {
         .map_or(Str::EMPTY, Str::from)
 }
 
+// ---------------------------------------------------------------- interfaces
+
+unsafe extern "C" fn query_interface(name: Str) -> *const c_void {
+    // SAFETY: borrowed for the call.
+    match unsafe { name.str() } {
+        abi::WORLD_V1 => std::ptr::from_ref(&WORLD).cast(),
+        _ => std::ptr::null(),
+    }
+}
+
+static WORLD: WorldV1 = WorldV1 {
+    size: size_of::<WorldV1>(),
+    get_blocks,
+    set_blocks,
+    state_id,
+    state_name,
+};
+
+fn world(dimension: &str) -> Option<Arc<World>> {
+    SERVER.get().and_then(|s| {
+        s.worlds
+            .load()
+            .iter()
+            .find(|w| w.dimension.minecraft_name == dimension)
+            .cloned()
+    })
+}
+
+const fn block_pos(p: &Pos) -> BlockPos {
+    BlockPos(Vector3::new(p.x, p.y, p.z))
+}
+
+unsafe extern "C" fn get_blocks(
+    dimension: Str,
+    positions: *const Pos,
+    count: usize,
+    out: *mut u32,
+) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some(world) = world(unsafe { dimension.str() }) else {
+        return false;
+    };
+    if count == 0 {
+        return true;
+    }
+    // SAFETY: the mod passes `count` positions and room for `count` ids.
+    let (positions, out) = unsafe {
+        (
+            std::slice::from_raw_parts(positions, count),
+            std::slice::from_raw_parts_mut(out, count),
+        )
+    };
+    for (pos, out) in positions.iter().zip(out) {
+        *out = world
+            .get_block_state_id_if_loaded(&block_pos(pos))
+            .map_or(abi::NO_STATE, |s| u32::from(s.as_u16()));
+    }
+    true
+}
+
+unsafe extern "C" fn set_blocks(dimension: Str, writes: *const BlockWrite, count: usize) -> usize {
+    // SAFETY: borrowed for the call.
+    let Some(world) = world(unsafe { dimension.str() }) else {
+        return 0;
+    };
+    if count == 0 {
+        return 0;
+    }
+    // SAFETY: the mod passes `count` writes.
+    let writes = unsafe { std::slice::from_raw_parts(writes, count) };
+    let mut written = 0;
+    for write in writes {
+        let pos = block_pos(&write.pos);
+        let Some(state) = u16::try_from(write.state).ok().and_then(BlockStateId::new) else {
+            continue;
+        };
+        if world.get_block_state_id_if_loaded(&pos).is_none() {
+            continue;
+        }
+        world.set_block_state(&pos, state, BlockFlags::NOTIFY_ALL);
+        written += 1;
+    }
+    written
+}
+
+/// `minecraft:oak_log[axis=x]` to a state id.
+fn parse_state(name: &str) -> Option<BlockStateId> {
+    let (block, props) = match name.split_once('[') {
+        Some((block, rest)) => (block, rest.strip_suffix(']')?),
+        None => (name, ""),
+    };
+    let block = Block::from_name(block.strip_prefix("minecraft:").unwrap_or(block))?;
+    let props = props
+        .split(',')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let (key, value) = p.split_once('=')?;
+            block.parse_property(key.trim(), value.trim()).ok()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(block.apply_properties(block.default_state.id, &props))
+}
+
+unsafe extern "C" fn state_id(name: Str) -> u32 {
+    // SAFETY: borrowed for the call.
+    parse_state(unsafe { name.str() }).map_or(abi::NO_STATE, |s| u32::from(s.as_u16()))
+}
+
+/// A state's full name, e.g. `minecraft:oak_log[axis=x]`.
+fn full_name(state: BlockStateId) -> String {
+    let block = Block::from_state_id(state);
+    let props: Vec<String> = block
+        .properties(state)
+        .map_or_else(Vec::new, |p| p.to_props())
+        .iter()
+        .map(|p| format!("{}={}", p.key().to_str(), p.value_str()))
+        .collect();
+    if props.is_empty() {
+        format!("minecraft:{}", block.name)
+    } else {
+        format!("minecraft:{}[{}]", block.name, props.join(","))
+    }
+}
+
+unsafe extern "C" fn state_name(state: u32, out: Sink) -> bool {
+    let Some(state) = u16::try_from(state).ok().and_then(BlockStateId::new) else {
+        return false;
+    };
+    let name = full_name(state);
+    // SAFETY: the mod's sink copies before returning.
+    unsafe { (out.put)(out.ctx, 0, Str::from(name.as_str())) };
+    true
+}
+
 // ---------------------------------------------------------------- commands
 
 /// Registers a mod's root command; running it calls the mod's `command`.
@@ -634,5 +771,31 @@ impl Native {
     pub fn menu_click(self, player: &Arc<Player>, action: &str) {
         // SAFETY: see above; the player is kept alive by the caller.
         unsafe { (self.api.menu_click)(self.api.instance, player_ref(player), Str::from(action)) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{full_name, parse_state};
+
+    #[test]
+    fn state_names_round_trip() {
+        let log = parse_state("minecraft:oak_log[axis=x]");
+        assert!(log.is_some());
+        assert_eq!(
+            log.map(full_name).as_deref(),
+            Some("minecraft:oak_log[axis=x]")
+        );
+        // Left-out properties take the default; the prefix is optional.
+        assert_eq!(
+            parse_state("oak_log"),
+            parse_state("minecraft:oak_log[axis=y]")
+        );
+        assert_eq!(
+            parse_state("minecraft:stone").map(full_name).as_deref(),
+            Some("minecraft:stone")
+        );
+        assert_eq!(parse_state("minecraft:oak_log[axis=q]"), None);
+        assert_eq!(parse_state("minecraft:no_such_block"), None);
     }
 }

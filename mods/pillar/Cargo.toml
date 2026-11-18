@@ -1,0 +1,12 @@
+[package]
+name = "pillar"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Demo of the moddedmc:world/1 interface: /pillar builds a column of sideways logs above you and reads it back."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true

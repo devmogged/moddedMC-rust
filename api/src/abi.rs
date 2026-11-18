@@ -207,7 +207,54 @@ pub struct HostApi {
     pub tick_count: unsafe extern "C" fn() -> u64,
     /// The n-th loaded dimension, or an empty string past the end. Static.
     pub dimension: unsafe extern "C" fn(index: usize) -> Str,
+    // ---- 1.1 ----
+    /// A named, versioned interface table such as [`WORLD_V1`], or null if this server does not
+    /// offer it. Tables live for the whole process and start with their own `size`. Check
+    /// `HostApi::size` before calling: servers older than 1.1 do not have this field.
+    pub query_interface: unsafe extern "C" fn(name: Str) -> *const c_void,
 }
+
+/// `HostApi` size of ABI 1.0, before `query_interface`.
+pub const HOST_API_V1_0_SIZE: usize = std::mem::offset_of!(HostApi, query_interface);
+
+/// [`WorldV1`]: batched block reads and writes.
+pub const WORLD_V1: &str = "moddedmc:world/1";
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct BlockWrite {
+    pub pos: Pos,
+    pub state: u32,
+}
+
+/// Block states are vanilla state ids: fast to compare and pass around, valid for this Minecraft
+/// version only. Save names (`state_name`), never ids.
+#[repr(C)]
+pub struct WorldV1 {
+    pub size: usize,
+    /// State ids of `count` positions in one dimension, written to `out`. Positions in unloaded
+    /// chunks or outside the world read [`NO_STATE`]. False if there is no such dimension.
+    pub get_blocks: unsafe extern "C" fn(
+        dimension: Str,
+        positions: *const Pos,
+        count: usize,
+        out: *mut u32,
+    ) -> bool,
+    /// Writes blocks in order, with neighbor and client updates like a player placing them.
+    /// Unloaded or out-of-world positions and unknown states are skipped. Returns how many were
+    /// written.
+    pub set_blocks:
+        unsafe extern "C" fn(dimension: Str, writes: *const BlockWrite, count: usize) -> usize,
+    /// `minecraft:oak_log[axis=x]` to a state id; properties left out take the block's default.
+    /// [`NO_STATE`] if the block or a property is unknown.
+    pub state_id: unsafe extern "C" fn(name: Str) -> u32,
+    /// A state id to its full name (`minecraft:oak_log[axis=x]`), through `out` with key 0.
+    /// False if unknown.
+    pub state_name: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
+}
+
+/// "No block state": unloaded, outside the world, or unknown.
+pub const NO_STATE: u32 = u32::MAX;
 
 /// A mod, as seen by the server. Returned by `moddedmc_mod`; lives for the whole process. Calls
 /// may come from several threads at once.
@@ -241,6 +288,9 @@ pub struct ModApi {
     /// Every mod sees every menu click; act only on your own action ids.
     pub menu_click: unsafe extern "C" fn(instance: *const c_void, player: PlayerRef, action: Str),
 }
+
+// SAFETY: interface tables are immutable and their functions are thread-safe.
+unsafe impl Sync for WorldV1 {}
 
 // SAFETY: a ModApi is immutable after creation and its instance is `Send + Sync` (see `Mod`).
 unsafe impl Send for ModApi {}
@@ -279,11 +329,13 @@ mod layout {
             (offset_of!(HostApi, show_menu), 120),
             (offset_of!(HostApi, tick_count), 128),
             (offset_of!(HostApi, dimension), 136),
+            (offset_of!(HostApi, query_interface), 144),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "HostApi field #{i} moved");
         }
-        assert!(size_of::<HostApi>() >= 144);
+        assert_eq!(HOST_API_V1_0_SIZE, 144);
+        assert!(size_of::<HostApi>() >= 152);
     }
 
     #[test]
@@ -314,5 +366,20 @@ mod layout {
         assert_eq!(size_of::<BlockCall>(), 56);
         assert_eq!(size_of::<CommandCall>(), 32);
         assert_eq!(size_of::<MenuButton>(), 48);
+        assert_eq!(size_of::<BlockWrite>(), 16);
+    }
+
+    #[test]
+    fn world_v1() {
+        let fields = [
+            (offset_of!(WorldV1, size), 0),
+            (offset_of!(WorldV1, get_blocks), 8),
+            (offset_of!(WorldV1, set_blocks), 16),
+            (offset_of!(WorldV1, state_id), 24),
+            (offset_of!(WorldV1, state_name), 32),
+        ];
+        for (i, (actual, expected)) in fields.into_iter().enumerate() {
+            assert_eq!(actual, expected, "WorldV1 field #{i} moved");
+        }
     }
 }

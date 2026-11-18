@@ -1,0 +1,25 @@
+# moddedmc:world/1 through the pillar mod, next to counter.mmc built against ABI 1.0
+# (before query_interface existed): both must load on this server.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\abi-world.txt -RunDir run\abi-world -Fresh
+mods target\mods\pillar.mmc target\mods\counter.mmc
+start
+wait 1
+# Mods load in file-name order: counter first.
+expect registered block demo:counter
+expect registered command /pillar
+
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd tp tester 2049.5 101 2049.5
+wait 3
+cmd fill 2045 99 2045 2055 110 2055 minecraft:air
+cmd setblock 2049 100 2049 minecraft:stone
+wait 2
+bot cmd pillar
+wait 1
+expect \[bot\] chat: .*pillar: wrote 3 at 2049 10[2-3] 2049: minecraft:oak_log\[axis=x\], minecraft:oak_log\[axis=x\], minecraft:oak_log\[axis=x\]
+reject (?i)panic|panicked
+bot quit
+stop

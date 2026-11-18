@@ -67,6 +67,7 @@ What the SDK offers:
 | `Mod::menu_click` | A player picked a button of a menu (`Player::show_menu`). Every mod sees every click: check the action id is yours. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
+| `world::get()` | The `moddedmc:world/1` interface, if the server has it: `get_blocks`, `set_blocks` (batched, any vanilla block state), `state_id("minecraft:oak_log[axis=x]")`, `state_name(id)`. State ids are valid for this Minecraft version only: keep them in memory, save names. |
 
 Rules:
 
@@ -76,7 +77,7 @@ Rules:
 - Block entity state is opaque bytes, at most 64 KiB, saved with the chunk. Bump `state_version` when its layout changes; the server will not hand old-layout state to the new code.
 - You do not need the server's source, compiler version or build to build a mod. Any Rust toolchain that builds `api/` works.
 
-`mods/counter` (a ticking block) and `mods/wayshrine` (blocks, a menu, teleport, saved data) are complete examples.
+`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data) and `mods/pillar` (the world interface) are complete examples.
 
 ## The ABI
 
@@ -102,7 +103,16 @@ Ownership and lifetimes:
 Versioning:
 
 - `ABI_VERSION` changes only for breaking changes (a changed signature, a removed function, different meaning). Old mods then need a rebuild.
-- New host functions and new mod callbacks are appended to the end of their table, and `size` (the table's byte size) grows. A mod built against a newer SDK refuses to start on a server whose `HostApi` is smaller than the one it was built with; an older mod runs on a newer server.
+- New host functions and new mod callbacks are appended to the end of their table, and `size` (the table's byte size) grows. An older mod runs on a newer server. A newer mod runs on an older server as long as that server has ABI 1.0's functions; the SDK checks `size` before using anything newer and treats a missing function as "not offered".
+- Bigger features come as **named interfaces** (since 1.1): `HostApi::query_interface("moddedmc:world/1")` returns a table, or null if the server does not offer it. Each interface is versioned on its own: a breaking change to one ships as `.../2` next to `.../1`, which the server keeps offering, so mods built against `/1` keep working. Every table starts with its own `size`.
+
+Interfaces:
+
+| Name | Since | What |
+| --- | --- | --- |
+| `moddedmc:world/1` | 1.1 | Batched block reads and writes by vanilla state id; state names to ids and back. |
+
+Planned, in the order a Create kinetics port needs them (see [DECISIONS.md](DECISIONS.md)): `moddedmc:blocks/1` (real modded blocks with states, shapes, items and interactions), more of `world` (ordered block, neighbor, redstone and chunk events), then `entities/1`, `menus/1` and `worldgen/1`.
 
 Packaging (`.mmc`): a zip with
 

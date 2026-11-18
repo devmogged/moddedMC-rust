@@ -1,6 +1,6 @@
 # moddedMC-rust
 
-Modded Minecraft Java 26.3 on Pumpkin, a Rust server. Players use a stock client; mods run on the server. Server owners install mods by dropping `.mmc` (Rust) or `.jar` (Fabric) files into `mods/`. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/MOD-ABI.md](docs/MOD-ABI.md) before changing the host, the API or a mod. [CONTRIBUTING.md](CONTRIBUTING.md) has the project rules; they apply to you too.
+Modded Minecraft Java 26.3 on Pumpkin, a Rust server. Players use a stock client; mods run on the server. Server owners install mods by dropping `.mmc` (Rust) or `.jar` (Fabric) files into `mods/`. Read [docs/DECISIONS.md](docs/DECISIONS.md) first, then [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/MOD-ABI.md](docs/MOD-ABI.md) before changing the host, the API or a mod. [CONTRIBUTING.md](CONTRIBUTING.md) has the project rules; they apply to you too.
 
 What we never compromise on:
 

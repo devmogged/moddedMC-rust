@@ -20,6 +20,7 @@
 //! ```
 
 pub mod abi;
+pub mod world;
 
 use std::{
     ffi::c_void,
@@ -75,6 +76,37 @@ pub fn dimensions() -> impl Iterator<Item = &'static str> {
     (0..)
         .map(|i| unsafe { (host().dimension)(i).str() })
         .take_while(|d| !d.is_empty())
+}
+
+/// A named interface table (e.g. [`abi::WORLD_V1`]) as `T`, if the server offers it with at least
+/// the fields `T` has. Every interface table starts with its own byte size.
+fn interface<T: Sync + 'static>(name: &str) -> Option<&'static T> {
+    let host = host();
+    if host.size <= abi::HOST_API_V1_0_SIZE {
+        return None; // a 1.0 server: no interfaces
+    }
+    // SAFETY: the field exists (checked above); the name is borrowed for the call.
+    let table = unsafe { (host.query_interface)(s(name)) };
+    if table.is_null() {
+        return None;
+    }
+    // SAFETY: interface tables live for the process and start with their size as a `usize`.
+    let size = unsafe { *table.cast::<usize>() };
+    // SAFETY: the server's table has at least the fields `T` declares.
+    (size >= size_of::<T>()).then(|| unsafe { &*table.cast::<T>() })
+}
+
+/// Runs `call` with a sink that hands every value to `on_put` (key, bytes) as it arrives.
+fn with_sink<R>(call: impl FnOnce(Sink) -> R, mut on_put: impl FnMut(u64, &[u8])) -> R {
+    unsafe extern "C" fn put(ctx: *mut c_void, key: u64, value: Str) {
+        // SAFETY: `ctx` is the `&mut dyn FnMut` below, live for the call; `value` is borrowed.
+        unsafe { (*ctx.cast::<&mut dyn FnMut(u64, &[u8])>())(key, value.bytes()) };
+    }
+    let mut on_put: &mut dyn FnMut(u64, &[u8]) = &mut on_put;
+    call(Sink {
+        ctx: std::ptr::from_mut(&mut on_put).cast(),
+        put,
+    })
 }
 
 /// A block entity type. Its state is opaque bytes owned by the mod; the server saves them with
@@ -549,7 +581,8 @@ pub fn export<M: Mod>(
     version: &'static str,
     make: fn() -> M,
 ) -> *const ModApi {
-    if host.abi_version != ABI_VERSION || host.size < size_of::<HostApi>() {
+    // Functions added after 1.0 are checked against `host.size` where they are used.
+    if host.abi_version != ABI_VERSION || host.size < abi::HOST_API_V1_0_SIZE {
         return std::ptr::null();
     }
     let _ = HOST.set(host);
