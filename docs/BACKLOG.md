@@ -58,7 +58,7 @@ Everything else depends on these.
 
 | # | Task | Status |
 | --- | --- | --- |
-| A1 | Device agent: runs on a device, lists installed and running servers, installs pack builds, start and stop, console stream, stats (MSPT, RSS, players, disk), backups. Listens on loopback and tailnet, trusts the owner's Tailscale identity; LAN through SSH. | todo |
+| A1 | Device agent ([DEVICES.md](DEVICES.md)): runs on a device, lists installed and running servers, installs pack builds, start and stop, console stream, stats (MSPT, RSS, players, disk), backups. Listens on loopback and tailnet, trusts the owner's Tailscale identity; LAN through SSH. | doing (claude): `agent/` has device info, server folders, start/stop/restart, stats (RSS, CPU), console WebSocket, owner check. Next: build upload, mods, backups, MSPT stats, external server detection, SSH install. |
 | A2 | Desktop app (Tauri 2 + React): devices, servers, mod browser, pack editor, deploy, console, stats, backups, pregen. Design with the impeccable skill. | todo |
 | A3 | Join exe: detect launchers, install the companion profile and assets, add the server to the server list; zip fallback. | todo |
 | A4 | Brand: name, favicon, app icon, server-list icon (owner decides the name). | todo |
