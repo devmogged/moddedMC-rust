@@ -84,7 +84,9 @@ pub fn build(options: &Options) -> Result<(), String> {
     };
     let host = host_triple(&repo)?;
     let lock = lock_text(&pack, &mods, &repo, &options.profile);
-    let engine_dirty = git_dirty(&repo.join("engine"));
+    // `.gitmodules` ignores changes inside the Pumpkin submodule, so ask it directly.
+    let engine_dirty =
+        git_dirty(&repo.join("engine")) || git_dirty(&repo.join("engine").join("pumpkin"));
 
     for name in &names {
         let triple = pack
