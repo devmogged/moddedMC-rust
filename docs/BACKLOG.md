@@ -30,7 +30,7 @@ Everything else depends on these.
 | E8 | Nether, End, portals, dragon fight. | todo |
 | E9 | Enchanting, brewing, anvils, smithing. | todo |
 | E10 | Advancements, statistics, remaining commands. | todo |
-| E11 | Chunk pipeline scaling: pregen keeps 4.8 of 32 threads busy. Generation uses `cpus / 2` threads (at most 16) and 32 tasks in flight, driven by one `Schedule` thread. Raising both to all threads and 4x tasks gave 14.8 busy threads but only 12% more speed, so the limit is the scheduler (locking or its 5 ms receive loop), not threads. Profile it, fix it, and report chunks/s and MSPT on the laptop and the Pi before and after. | todo |
+| E11 | Chunk pipeline scaling: pregen keeps about 5 of 32 threads busy. Generation uses `cpus / 2` threads (at most 16) and 32 tasks in flight. Counters showed the `Schedule` thread is not the limit (resort, GC and sort take 3 to 5% of its time, 31 of 32 generation tasks always running, 400 to 600 queued), so the generation tasks themselves wait: likely a contended lock or I/O inside generation. Raising to all threads and 4x tasks gave 15 busy threads but only 12% more speed, which fits lock contention. Find the lock (per-stage wall time against CPU time, or a sampling profiler), remove it, and report chunks/s and MSPT on the laptop and the Pi before and after. | todo |
 
 ## World and storage
 
