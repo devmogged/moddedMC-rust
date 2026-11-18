@@ -1,7 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["mods/*", "recompiler/fabric-host"]
-# fabric-host only links with a TeaVM object (recompiler/build-mod.ps1).
+members = ["mods/*", "recompiler/fabric-host", "host"]
+# Mods build for wasm32-wasip2; fabric-host only links with a TeaVM object (recompiler/build-mod.ps1),
+# and the native host app builds with -p moddedmc.
 default-members = ["mods/*"]
 exclude = ["engine"]
 

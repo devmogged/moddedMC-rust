@@ -100,7 +100,7 @@ Not verified: a real 26.3 client rendering the dialog. The dialog NBT uses field
 
 p50 5.3–5.6 ms, p95 10.6–11.0 ms, p99 11.5–12.6 ms; RSS 330 MB; CPU 0.86%. No regression against M1 (p50 6.3–6.4 ms).
 
-## M3 — first Fabric JAR on Pumpkin (2026-11-18, corpus still open)
+## M3 — first Fabric JAR on Pumpkin (2026-11-18)
 
 ### Verified (headless bot, release build)
 
@@ -114,3 +114,19 @@ p50 5.3–5.6 ms, p95 10.6–11.0 ms, p99 11.5–12.6 ms; RSS 330 MB; CPU 0.86%.
 ### Corpus
 
 Top 500 server-capable Fabric 26.3 mods are frozen in `recompiler/corpus/top500.tsv`. Of the 455 with code, 378 use Mixin, 60 depend on another mod, and 17 are self-contained (the shim's target). Details: `recompiler/corpus/report.md`.
+
+## M4 — host app with a tunnel (2026-11-18)
+
+`host/` builds `moddedmc` (300 KB, one dependency: serde_json). `moddedmc run` creates the folder with telemetry off, starts Pumpkin with the console passed through, and with `--tunnel playit` finds the account's Minecraft Java tunnel to port 25565, prints its address and runs the playit agent (0.15.26) until the server stops.
+
+### Verified (`scripts\host-check.ps1`, release build)
+
+- `-Tunnel none`: the bot joins on 127.0.0.1, `stop` typed into `moddedmc` stops Pumpkin, exit 0. Server ready about 0.3 s after launch.
+- `-Tunnel playit`: passed once in four runs made within a few minutes. In the pass, the bot joined through the public playit address (about 16 s), the server logged the join, and `stop` also ended the agent. In the other three, the edge accepted the TCP connection but the agent never got it; the agent logs showed playit API rate limits (`TooManyRequests`) during these runs. Not yet known whether a single run after a cool-down is reliable. The agent uses 18–50 MB working set.
+- playit's shared Minecraft tunnels route on the host name in the handshake, so a client must dial the tunnel's domain. The bot now sends the host it dialed, as a real client does (it sent `127.0.0.1` before).
+- Not verified: Tailscale (not signed in on this machine) and a real 26.3 client.
+
+### Notes
+
+- Repeated agent restarts get playit API rate limits (`TooManyRequests`); a second agent on the same key steals the tunnel. The check kills leftover processes when it fails.
+- On Windows, killing `moddedmc` itself does not stop Pumpkin; Ctrl+C reaches both because they share the console.

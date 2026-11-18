@@ -4,11 +4,11 @@
 //!   use <x> <y> <z>        right-click the top face of a block with the main hand
 //!   click <action-id>      press a dialog button whose action is a custom click
 //!   quit
-//! Usage: moddedmc-bot <addr> <name>
+//! Usage: moddedmc-bot <host:port> <name>
 
 mod bot;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use pumpkin_data::packet::CURRENT_MC_VERSION;
 use pumpkin_protocol::{
@@ -40,9 +40,8 @@ type Writer = Arc<Mutex<TCPNetworkEncoder<BufWriter<pumpkin_core::net::java::Jav
 async fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     let [_, addr, name] = args.as_slice() else {
-        return Err("usage: moddedmc-bot <addr> <name>".into());
+        return Err("usage: moddedmc-bot <host:port> <name>".into());
     };
-    let addr: SocketAddr = addr.parse().map_err(|e| format!("bad address: {e}"))?;
     let bot = bot::HeadlessBot::connect_and_join(addr, name).await?;
     println!("[bot] joined as {name} at {:?}", bot.position);
     let writer: Writer = Arc::new(Mutex::new(bot.writer));

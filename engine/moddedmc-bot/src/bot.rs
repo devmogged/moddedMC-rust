@@ -1,6 +1,6 @@
 //! Join flow copied from Pumpkin `tools/pumpkin-tester/src/bot.rs` (GPL-3.0) at the pinned commit.
 
-use std::{net::SocketAddr, time::Duration};
+use std::time::Duration;
 
 use bytes::Bytes;
 use pumpkin_core::net::java::{JavaReadHalf, JavaWriteHalf};
@@ -71,18 +71,25 @@ impl HeadlessBot {
         }
     }
 
-    pub async fn connect_and_join(addr: SocketAddr, name: &str) -> Result<Self, String> {
+    /// `addr` is `host:port`. Like a real client, the handshake carries the host it dialed;
+    /// playit's shared Minecraft tunnels route on it.
+    pub async fn connect_and_join(addr: &str, name: &str) -> Result<Self, String> {
+        let (host, port) = addr
+            .rsplit_once(':')
+            .and_then(|(host, port)| Some((host, port.parse().ok()?)))
+            .ok_or_else(|| format!("bad address {addr}, expected host:port"))?;
         let stream = TcpStream::connect(addr)
             .await
             .map_err(|err| format!("Bot '{name}' failed to connect to {addr}: {err}"))?;
         let _ = stream.set_nodelay(true);
         let (read_half, write_half) = stream.into_split();
-        Self::join(Box::new(read_half), Box::new(write_half), addr.port(), name).await
+        Self::join(Box::new(read_half), Box::new(write_half), host, port, name).await
     }
 
     pub async fn join(
         read_half: JavaReadHalf,
         write_half: JavaWriteHalf,
+        host: &str,
         port: u16,
         name: &str,
     ) -> Result<Self, String> {
@@ -98,7 +105,7 @@ impl HeadlessBot {
         // 1. Handshake -> Login
         bot.send_packet(&SHandShake {
             protocol_version: VarInt(CURRENT_MC_VERSION.protocol_version()),
-            server_address: "127.0.0.1".into(),
+            server_address: host.into(),
             server_port: port,
             next_state: ConnectionState::Login,
         })

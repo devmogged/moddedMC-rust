@@ -16,9 +16,17 @@ Rust offers memory safety without a garbage collector, fine-grained control over
 
 **M2 done: a playable hand port.** `mods/wayshrine` adds discoverable fast-travel shrines with a Java dialog menu, persistence and break handling, tested end to end with a headless bot.
 
-**M3 in progress: an unchanged Fabric JAR runs on Pumpkin.** The `sethome` fixture JAR goes through TeaVM to C, then to a WASM plugin, and passes the same scenario on Pumpkin as on a real Fabric 26.3 server. See [recompiler/README.md](recompiler/README.md). Remaining in M3: the top-500 Modrinth corpus report.
+**M3 done: an unchanged Fabric JAR runs on Pumpkin.** The `sethome` fixture JAR goes through TeaVM to C, then to a WASM plugin, and passes the same scenario on Pumpkin as on a real Fabric 26.3 server. See [recompiler/README.md](recompiler/README.md). The frozen top-500 Modrinth corpus shows the limit: 83% of mods with code use Mixin, which the shim cannot run.
 
-Next: the host app with a tunnel (M4).
+**M4: the host app.** `moddedmc run` starts a server folder, forwards its console, and opens a tunnel so friends can join:
+
+```powershell
+cargo build -p moddedmc --release
+target\release\moddedmc.exe run --dir myserver --server engine\pumpkin\target\release\pumpkin.exe --tunnel playit
+# [moddedmc] players join <name>.tun.ply.gg (or <ip>:<port>)
+```
+
+`--tunnel playit` uses a linked playit agent (run `playit` once to link it) and the account's Minecraft Java tunnel to `127.0.0.1:25565`. `--tunnel tailscale` prints this machine's tailnet address. Mods go in `<dir>\plugins`. A new folder gets telemetry off.
 
 ### Build and run (Windows, PowerShell)
 
