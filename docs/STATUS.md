@@ -122,7 +122,7 @@ Top 500 server-capable Fabric 26.3 mods are frozen in `recompiler/corpus/top500.
 ### Verified (`scripts\host-check.ps1`, release build)
 
 - `-Tunnel none`: the bot joins on 127.0.0.1, `stop` typed into `moddedmc` stops Pumpkin, exit 0. Server ready about 0.3 s after launch.
-- `-Tunnel playit`: passed once in four runs made within a few minutes. In the pass, the bot joined through the public playit address (about 16 s), the server logged the join, and `stop` also ended the agent. In the other three, the edge accepted the TCP connection but the agent never got it; the agent logs showed playit API rate limits (`TooManyRequests`) during these runs. Not yet known whether a single run after a cool-down is reliable. The agent uses 18–50 MB working set.
+- `-Tunnel playit`: passed once in four runs made within a few minutes. In the pass, the bot joined through the public playit address (about 16 s), the server logged the join, and `stop` also ended the agent. In the other three, the edge accepted the TCP connection but the agent never got it; the agent logs showed playit API rate limits (`TooManyRequests`) during these runs. A run after a 10-minute cool-down passed: joined through the tunnel, clean stop, no leftover agent. So restarting the agent repeatedly within minutes is the failure mode, not the tunnel itself. The agent uses 18–50 MB working set.
 - playit's shared Minecraft tunnels route on the host name in the handshake, so a client must dial the tunnel's domain. The bot now sends the host it dialed, as a real client does (it sent `127.0.0.1` before).
 - Not verified: Tailscale (not signed in on this machine) and a real 26.3 client.
 
