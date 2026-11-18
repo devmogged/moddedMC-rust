@@ -1,15 +1,22 @@
 [workspace]
 resolver = "3"
-# Native mods (mods/*) and the Fabric host (recompiler/fabric-host) are members of the server
-# workspace (engine/pumpkin): a .dll plugin must come from the same build as the server.
-members = ["host"]
+# The server (engine/pumpkin) is its own workspace. Everything here talks to it only through the
+# stable mod ABI in api/, so none of it has to match the server's build.
+members = ["host", "api", "mods/*", "recompiler/fabric-host"]
 exclude = ["engine"]
 
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
+[workspace.dependencies]
+moddedmc-api = { path = "api" }
+
 [profile.release]
-opt-level = "s"
 lto = true
+codegen-units = 1
 strip = true
+
+# The launcher is small, not hot.
+[profile.release.package.moddedmc]
+opt-level = "s"

@@ -4,7 +4,16 @@
 
 `moddedMC-rust` is an experimental project from [devmogged](https://github.com/devmogged) focused on bringing modded Minecraft gameplay to a Rust-based server environment. The idea is to explore native Rust implementations of features from Minecraft mods while taking advantage of the performance and efficiency of Rust.
 
-It builds on [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin), an open-source Minecraft server written in Rust, pinned to one upstream commit plus a small patch. Mods are native Rust plugins (`.dll`/`.so`) that run entirely on the server, so players join with an unmodified Minecraft Java 26.3 client.
+It builds on [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin), an open-source Minecraft server written in Rust, pinned to one upstream commit plus a small patch. Mods run entirely on the server, so players join with an unmodified Minecraft Java 26.3 client. Installing one works like on any modded server: drop the file into `mods/` and restart.
+
+```
+myserver/
+  mods/
+    wayshrine.mmc     a Rust mod (native code, one file for every platform)
+    sethome.jar       an unchanged Fabric mod, converted to native code on first start
+```
+
+Rust mods talk to the server through a small, stable C ABI, so a mod built once keeps working when the server is updated, and it is about 100–200 KB. See [docs/MOD-ABI.md](docs/MOD-ABI.md) for server owners and mod authors.
 
 ## Why Rust?
 
@@ -12,11 +21,11 @@ Rust offers memory safety without a garbage collector, fine-grained control over
 
 ## Current status
 
-**M1 done: one custom block, end to end.** A content mod (`mods/counter`) registers `demo:counter` through the `moddedmc:mods` WIT API. Players place it, it ticks, they use it, and it keeps its identity and state across chunk reloads and restarts. 10,000 of them add about 1–1.5 ms to the median tick. Details and numbers: [docs/STATUS.md](docs/STATUS.md). Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**M1 done: one custom block, end to end.** A content mod (`mods/counter`) registers `demo:counter` through the mod API. Players place it, it ticks, they use it, and it keeps its identity and state across chunk reloads and restarts. 10,000 of them add about 1–1.5 ms to the median tick. Details and numbers: [docs/STATUS.md](docs/STATUS.md). Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 **M2 done: a playable hand port.** `mods/wayshrine` adds discoverable fast-travel shrines with a Java dialog menu, persistence and break handling, tested end to end with a headless bot.
 
-**M3 done: an unchanged Fabric JAR runs on Pumpkin.** The `sethome` fixture JAR goes through TeaVM to C, then to a native plugin, and passes the same scenario on Pumpkin as on a real Fabric 26.3 server. See [recompiler/README.md](recompiler/README.md). The frozen top-500 Modrinth corpus shows the limit: 83% of mods with code use Mixin, which the shim cannot run.
+**M3 done: an unchanged Fabric JAR runs on Pumpkin.** Drop the `sethome` fixture JAR into `mods/`: on first start the server converts it (TeaVM to C to a native mod) and it passes the same scenario on Pumpkin as on a real Fabric 26.3 server. See [recompiler/README.md](recompiler/README.md). The frozen top-500 Modrinth corpus shows the limit: 83% of mods with code use Mixin, which the shim cannot run.
 
 **M4: the host app.** `moddedmc run` starts a server folder, forwards its console, and opens a tunnel so friends can join:
 
@@ -26,7 +35,7 @@ target\release\moddedmc.exe run --dir myserver --server engine\pumpkin\target\re
 # [moddedmc] players join <name>.tun.ply.gg (or <ip>:<port>)
 ```
 
-`--tunnel playit` uses a linked playit agent (run `playit` once to link it) and the account's Minecraft Java tunnel to `127.0.0.1:25565`. `--tunnel tailscale` prints this machine's tailnet address. Mods go in `<dir>\plugins`. A new folder gets telemetry off.
+`--tunnel playit` uses a linked playit agent (run `playit` once to link it) and the account's Minecraft Java tunnel to `127.0.0.1:25565`. `--tunnel tailscale` prints this machine's tailnet address. Mods go in `<dir>\mods`. A new folder gets telemetry off.
 
 ### Build and run (Windows, PowerShell)
 
@@ -34,7 +43,8 @@ target\release\moddedmc.exe run --dir myserver --server engine\pumpkin\target\re
 git submodule update --init
 # Pumpkin's build reads vanilla data from Mojang's 26.3 server jar.
 $env:PUMPKIN_MINECRAFT_SERVER_JAR = "<path to the 26.3 server.jar>"
-scripts\engine.ps1 build                                     # apply patches\pumpkin.patch, build the server and mods
+scripts\engine.ps1 build                                     # apply patches\pumpkin.patch, build the server
+scripts\pack-mod.ps1 -Crate counter                          # build a mod -> target\mods\counter.mmc
 scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt -RunDir run\m1 -Fresh
 ```
 
@@ -44,7 +54,7 @@ Existing Fabric, Forge, or NeoForge mods **do not automatically run** on a Rust 
 
 ## Collaboration
 
-Discussion, experimentation, and contributions are welcome. The details will be decided together as the project develops.
+Bug reports, bug fixes and new mods are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: features and changes to the mod ABI or the engine patch start as an issue.
 
 ## Acknowledgements
 

@@ -1,6 +1,6 @@
 # 10,000 demo:counter blocks (barrel stand-ins ticking once a second through the content host).
 # scripts\scenario.ps1 -Scenario tests\bench\m1-counters.txt -RunDir run\bench-counters -Fresh
-mods engine\pumpkin\target\release\counter.dll
+mods target\mods\counter.mmc
 start
 # A player at the centre keeps the 9x9 chunks around it loaded and ticking on every build
 # (stock /forceload never loads chunks).

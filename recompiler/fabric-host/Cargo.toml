@@ -1,18 +1,12 @@
 [package]
 name = "fabric-host"
-version = "0.2.0"
+version = "0.3.0"
 edition.workspace = true
-license = "GPL-3.0-only"
-description = "Native Pumpkin plugin that runs one Fabric mod recompiled to C by TeaVM. Built by recompiler/build-mod.ps1."
-# Native plugin: built in the server's workspace so types match the server exactly.
-workspace = "../../engine/pumpkin"
+license.workspace = true
+description = "Runs one Fabric mod recompiled to C by TeaVM as a moddedMC mod (stable ABI). Built by recompiler/build-mod.ps1."
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
 moddedmc-api.workspace = true
-tracing.workspace = true
-
-[lints]
-workspace = true

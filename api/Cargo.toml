@@ -1,0 +1,9 @@
+[package]
+name = "moddedmc-api"
+version = "1.0.0"
+description = "Stable mod ABI and Rust SDK for moddedMC-rust mods. No server code inside: a mod built once runs on every server with the same ABI major version."
+edition.workspace = true
+license.workspace = true
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

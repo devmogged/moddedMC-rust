@@ -1,17 +1,17 @@
 //! moddedMC-rust content host.
 //!
-//! Content mods are native Pumpkin plugins (`.dll`/`.so`) that hand a
-//! [`moddedmc_api::ContentMod`] to the [`ContentHost`] service in `on_load`.
+//! Content mods are libraries in the server's `mods/` folder that speak the stable mod ABI
+//! (see [`native`] and docs/MOD-ABI.md), so they need not come from the server's build.
 //! The host owns the registry, keeps each placed block's identity and state as
 //! custom data on a vanilla stand-in block entity (saved by Pumpkin with the
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
 mod console;
+mod native;
 mod stats;
 
 use std::{
     collections::{HashMap, HashSet},
-    panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Arc, LazyLock, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard,
         Weak,
@@ -19,16 +19,15 @@ use std::{
     time::Instant,
 };
 
-use moddedmc_api::{
-    BlockDef, BlockEntityDef, BreakInput, ContentHost, ContentMod as ModApi, PlaceInput,
-    RegistrationError, TickEntry, UseInput, Vector3, dialog::Dialog,
-};
+use moddedmc_api::abi::{self, Str, code};
+use native::{BlockArgs, Native};
 use pumpkin_core::{
-    entity::{EntityBase, player::Player},
+    entity::player::Player,
     net::ClientPlatform,
     plugin::{
         BoxFuture, Cancellable, EventHandler, EventPriority,
         block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent},
+        dialog::dialog_click_action::DialogClickActionEvent,
         player::player_interact_event::PlayerInteractEvent,
         server::{server_command::ServerCommandEvent, server_tick_start::ServerTickStartEvent},
     },
@@ -40,7 +39,11 @@ use pumpkin_inventory::Inventory;
 use pumpkin_nbt::tag::NbtTag;
 use pumpkin_protocol::{
     ConnectionState, IdOr,
-    java::client::{config::CConfigShowDialog, dialog::DialogNBT, play::CPlayShowDialog},
+    java::client::{
+        config::CConfigShowDialog,
+        dialog::{Dialog, DialogNBT},
+        play::CPlayShowDialog,
+    },
 };
 use pumpkin_util::{math::position::BlockPos, text::TextComponent};
 
@@ -58,7 +61,7 @@ const DISCOVERY_INTERVAL: i32 = 20;
 const MAX_STATE_BYTES: usize = 64 * 1024;
 
 struct ContentMod {
-    module: Arc<dyn ModApi>,
+    module: Native,
     registered: bool,
 }
 
@@ -90,11 +93,13 @@ impl Registry {
 }
 
 /// Definitions a mod adds during its `register` call, committed only if it succeeds.
-struct Staging<'a> {
+pub struct Staging<'a> {
     registry: &'a Registry,
     mod_idx: usize,
     entity_types: Vec<EntityType>,
     blocks: Vec<BlockType>,
+    /// (name, description, tag)
+    commands: Vec<(String, String, u64)>,
 }
 
 /// Loaded custom blocks of one world.
@@ -134,42 +139,38 @@ fn write<T>(m: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     m.write().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Hooks the host into the server's tick and block events and offers the [`ContentHost`]
-/// service. Call before plugins load.
+/// Hooks the host into the server's tick and block events and loads the mods in `mods/`.
+/// Call before the server starts ticking.
 pub fn attach(server: &Arc<Server>) {
+    let _ = native::SERVER.set(server.clone());
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
     pm.register::<BlockPlaceEvent, _>(Arc::new(PlaceHandler), EventPriority::Normal, true);
     pm.register::<BlockBreakEvent, _>(Arc::new(BreakHandler), EventPriority::Normal, true);
     pm.register::<PlayerInteractEvent, _>(Arc::new(UseHandler), EventPriority::Normal, true);
+    pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
     pm.register::<ServerCommandEvent, _>(
         Arc::new(console::ConsoleHandler),
         EventPriority::Normal,
         true,
     );
-    let service = Arc::new(ContentHost {
-        add_mod,
-        give_block,
-        teleport,
-        show_dialog,
-    });
-    // Nothing else holds the lock before plugins load.
-    if let Ok(mut services) = pm.services.try_write() {
-        services.insert(moddedmc_api::SERVICE.into(), service);
-    } else {
-        tracing::error!("moddedmc: plugin services busy; content mods cannot attach");
+    let started = Instant::now();
+    let mods = native::load_all(std::path::Path::new("mods"));
+    if !mods.is_empty() {
+        tracing::info!(
+            "moddedmc: loaded {} mods in {:?}",
+            mods.len(),
+            started.elapsed()
+        );
     }
+    lock(&HOST.mods).extend(mods.into_iter().map(|module| ContentMod {
+        module,
+        registered: false,
+    }));
     stats::attach(server);
 }
 
-fn add_mod(module: Arc<dyn ModApi>) {
-    lock(&HOST.mods).push(ContentMod {
-        module,
-        registered: false,
-    });
-}
-
-fn give_block(player: &Arc<Player>, block_id: &str) -> bool {
+fn give_block(player: &Player, block_id: &str) -> bool {
     let stack = {
         let registry = read(&HOST.registry);
         registry
@@ -185,11 +186,7 @@ fn give_block(player: &Arc<Player>, block_id: &str) -> bool {
     true
 }
 
-fn teleport(player: &Arc<Player>, world: Arc<World>, pos: Vector3<f64>) {
-    player.teleport(pos, None, None, world);
-}
-
-fn show_dialog(player: &Arc<Player>, dialog: &Dialog) {
+fn show_dialog(player: &Player, dialog: &Dialog) {
     let ClientPlatform::Java(client) = player.client.as_ref() else {
         return;
     };
@@ -202,76 +199,73 @@ fn show_dialog(player: &Arc<Player>, dialog: &Dialog) {
     };
 }
 
-/// Runs mod code; a panic is logged and yields `None` instead of unwinding into the server.
-fn guard<R>(mod_idx: usize, what: &str, call: impl FnOnce() -> R) -> Option<R> {
-    catch_unwind(AssertUnwindSafe(call))
-        .inspect_err(|_| tracing::error!("moddedmc: content mod #{mod_idx} panicked in {what}"))
-        .ok()
-}
-
-fn module(mod_idx: usize) -> Option<Arc<dyn ModApi>> {
-    lock(&HOST.mods).get(mod_idx).map(|m| m.module.clone())
+fn module(mod_idx: usize) -> Option<Native> {
+    lock(&HOST.mods).get(mod_idx).map(|m| m.module)
 }
 
 // ---------------------------------------------------------------- registry
 
-impl moddedmc_api::Registry for Staging<'_> {
-    fn add_block_entity(&mut self, def: BlockEntityDef) -> Result<u32, RegistrationError> {
-        if !valid_id(&def.id) || def.tick_interval == Some(0) {
-            return Err(RegistrationError::InvalidDefinition);
-        }
-        if def.initial_state.len() > MAX_STATE_BYTES {
-            return Err(RegistrationError::InvalidDefinition);
+impl Staging<'_> {
+    /// Errors are ABI result codes.
+    fn add_block_entity(
+        &mut self,
+        id: String,
+        state_version: u32,
+        initial_state: Vec<u8>,
+        tick_interval: Option<u32>,
+    ) -> Result<u32, i32> {
+        if !valid_id(&id) || tick_interval == Some(0) || initial_state.len() > MAX_STATE_BYTES {
+            return Err(code::INVALID_DEFINITION);
         }
         if self
             .registry
             .entity_types
             .iter()
             .chain(&self.entity_types)
-            .any(|t| t.id == def.id)
+            .any(|t| t.id == id)
         {
-            return Err(RegistrationError::DuplicateId);
+            return Err(code::DUPLICATE_ID);
         }
         let index = self.registry.entity_types.len() + self.entity_types.len();
         self.entity_types.push(EntityType {
-            id: def.id,
+            id,
             mod_idx: self.mod_idx,
-            state_version: def.state_version,
-            initial_state: def.initial_state,
-            tick_interval: def.tick_interval,
+            state_version,
+            initial_state,
+            tick_interval,
         });
-        u32::try_from(index).map_err(|_| RegistrationError::InvalidDefinition)
+        u32::try_from(index).map_err(|_| code::INVALID_DEFINITION)
     }
 
-    fn add_block(&mut self, def: BlockDef) -> Result<(), RegistrationError> {
-        if !valid_id(&def.id) {
-            return Err(RegistrationError::InvalidDefinition);
+    fn add_block(
+        &mut self,
+        id: String,
+        display_name: String,
+        stand_in: &str,
+        entity_id: &str,
+    ) -> Result<(), i32> {
+        if !valid_id(&id) {
+            return Err(code::INVALID_DEFINITION);
         }
-        if self.registry.block(&def.id).is_some() || self.blocks.iter().any(|b| b.id == def.id) {
-            return Err(RegistrationError::DuplicateId);
+        if self.registry.block(&id).is_some() || self.blocks.iter().any(|b| b.id == id) {
+            return Err(code::DUPLICATE_ID);
         }
-        let stand_in_name = def
-            .stand_in
-            .strip_prefix("minecraft:")
-            .unwrap_or(&def.stand_in);
+        let stand_in_name = stand_in.strip_prefix("minecraft:").unwrap_or(stand_in);
         let stand_in = STAND_INS
             .contains(&stand_in_name)
             .then(|| Block::from_name(stand_in_name))
             .flatten()
-            .ok_or(RegistrationError::UnsupportedStandIn)?;
+            .ok_or(code::UNSUPPORTED_STAND_IN)?;
         // Identity lives on the stand-in's block entity, so every block needs one.
-        let entity_id = def
-            .block_entity
-            .ok_or(RegistrationError::InvalidDefinition)?;
         let entity_type = self
             .entity_types
             .iter()
             .position(|t| t.id == entity_id)
             .map(|i| i + self.registry.entity_types.len())
-            .ok_or(RegistrationError::UnknownEntityType)?;
+            .ok_or(code::UNKNOWN_ENTITY_TYPE)?;
         self.blocks.push(BlockType {
-            id: def.id,
-            display_name: def.display_name,
+            id,
+            display_name,
             stand_in,
             entity_type,
         });
@@ -279,17 +273,22 @@ impl moddedmc_api::Registry for Staging<'_> {
     }
 }
 
+const fn ns_char(c: char) -> bool {
+    c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '-' | '.')
+}
+
+/// A resource-location namespace other than `minecraft`; also what mod ids must be.
+fn valid_namespace(namespace: &str) -> bool {
+    !namespace.is_empty() && namespace != "minecraft" && namespace.chars().all(ns_char)
+}
+
 /// `namespace:path`, lowercase resource-location characters, and not the vanilla namespace.
 fn valid_id(id: &str) -> bool {
-    let Some((namespace, path)) = id.split_once(':') else {
-        return false;
-    };
-    let ns_ok = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-.".contains(c);
-    !namespace.is_empty()
-        && !path.is_empty()
-        && namespace != "minecraft"
-        && namespace.chars().all(ns_ok)
-        && path.chars().all(|c| ns_ok(c) || c == '/')
+    id.split_once(':').is_some_and(|(namespace, path)| {
+        valid_namespace(namespace)
+            && !path.is_empty()
+            && path.chars().all(|c| ns_char(c) || c == '/')
+    })
 }
 
 // ---------------------------------------------------------------- tick
@@ -303,7 +302,7 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
         event: &'a mut ServerTickStartEvent,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            register_new_mods();
+            register_new_mods(server);
             apply_pending_places();
             console::run_queued(server);
             if event.tick % DISCOVERY_INTERVAL == 0 {
@@ -316,52 +315,60 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
     }
 }
 
-fn register_new_mods() {
-    let pending: Vec<(usize, Arc<dyn ModApi>)> = {
+fn register_new_mods(server: &Server) {
+    let pending: Vec<(usize, Native)> = {
         let mut mods = lock(&HOST.mods);
         mods.iter_mut()
             .enumerate()
             .filter(|(_, m)| !m.registered)
             .map(|(i, m)| {
                 m.registered = true;
-                (i, m.module.clone())
+                (i, m.module)
             })
             .collect()
     };
     for (mod_idx, module) in pending {
-        let (result, entity_types, blocks) = {
+        let (result, entity_types, blocks, commands) = {
             let registry = read(&HOST.registry);
             let mut staging = Staging {
                 registry: &registry,
                 mod_idx,
                 entity_types: Vec::new(),
                 blocks: Vec::new(),
+                commands: Vec::new(),
             };
-            let result = guard(mod_idx, "register", || module.register(&mut staging));
-            (result, staging.entity_types, staging.blocks)
+            let result = module.register(&mut staging);
+            (
+                result,
+                staging.entity_types,
+                staging.blocks,
+                staging.commands,
+            )
         };
-        match result {
-            Some(Ok(())) => {
-                let mut registry = write(&HOST.registry);
-                for t in &entity_types {
-                    tracing::info!("moddedmc: registered block entity {}", t.id);
-                }
-                for b in &blocks {
-                    tracing::info!(
-                        "moddedmc: registered block {} (stand-in minecraft:{})",
-                        b.id,
-                        b.stand_in.name
-                    );
-                }
-                registry.entity_types.extend(entity_types);
-                registry.blocks.extend(blocks);
-            }
-            Some(Err(error)) => {
-                tracing::error!(
-                    "moddedmc: content mod #{mod_idx} rejected its registration: {error:?}"
-                );
-            }
-            None => {}
+        if result != code::OK {
+            tracing::error!(
+                "moddedmc: {} failed to register (code {result}); its content is disabled",
+                module.id
+            );
+            continue;
+        }
+        let mut registry = write(&HOST.registry);
+        for t in &entity_types {
+            tracing::info!("moddedmc: registered block entity {}", t.id);
+        }
+        for b in &blocks {
+            tracing::info!(
+                "moddedmc: registered block {} (stand-in minecraft:{})",
+                b.id,
+                b.stand_in.name
+            );
+        }
+        registry.entity_types.extend(entity_types);
+        registry.blocks.extend(blocks);
+        drop(registry);
+        for (name, description, tag) in commands {
+            tracing::info!("moddedmc: registered command /{name} ({})", module.id);
+            native::register_command(server, module, name, description, tag);
         }
     }
 }
@@ -408,14 +415,14 @@ fn notify_placed(
     let Some(module) = module(mod_idx) else {
         return;
     };
-    let input = PlaceInput {
-        entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
+    let returned = module.place_block(&BlockArgs {
+        entity_type,
         pos,
         world,
         state: &state,
         player,
-    };
-    if let Some(Some(state)) = guard(mod_idx, "place_block", || module.place_block(input))
+    });
+    if let Some((_, state)) = returned.into_iter().find(|(key, _)| *key == 0)
         && state.len() <= MAX_STATE_BYTES
     {
         write_state(world, &pos, &state);
@@ -558,7 +565,8 @@ fn discover(server: &Arc<Server>) {
 struct Batch {
     world: Arc<World>,
     mod_idx: usize,
-    entries: Vec<TickEntry>,
+    /// (entity type, position, state)
+    entries: Vec<(usize, BlockPos, Vec<u8>)>,
 }
 
 fn tick_due(tick: i32) {
@@ -568,29 +576,38 @@ fn tick_due(tick: i32) {
     let started = Instant::now();
     let batches = collect_batches(tick);
     stats::TIMING.add_collect(started, batches.iter().map(|b| b.entries.len()).sum());
-    for mut batch in batches {
+    for batch in batches {
         let Some(module) = module(batch.mod_idx) else {
             continue;
         };
+        let entries: Vec<abi::TickEntry> = batch
+            .entries
+            .iter()
+            .map(|(entity_type, pos, state)| abi::TickEntry {
+                entity_type: u32::try_from(*entity_type).unwrap_or(u32::MAX),
+                pos: native::pos(*pos),
+                state: Str::new(state),
+            })
+            .collect();
         let started = Instant::now();
-        let ok = guard(batch.mod_idx, "tick", || {
-            module.tick(tick, &batch.world, &mut batch.entries);
-        });
+        let changed = module.tick(tick, &batch.world, &entries);
         stats::TIMING.add_call(started);
-        if ok.is_none() {
-            continue; // the batch is discarded
-        }
         let started = Instant::now();
-        for entry in batch.entries.iter().filter(|e| e.changed) {
-            if entry.state.len() > MAX_STATE_BYTES {
+        for (index, state) in changed {
+            let Some((_, pos, _)) = usize::try_from(index)
+                .ok()
+                .and_then(|i| batch.entries.get(i))
+            else {
+                continue;
+            };
+            if state.len() > MAX_STATE_BYTES {
                 tracing::error!(
-                    "moddedmc: content mod #{} returned an oversized state at {:?}; discarded",
-                    batch.mod_idx,
-                    entry.pos
+                    "moddedmc: {} returned an oversized state at {pos:?}; discarded",
+                    module.id
                 );
                 continue;
             }
-            write_state(&batch.world, &entry.pos, &entry.state);
+            write_state(&batch.world, pos, &state);
         }
         stats::TIMING.add_apply(started);
     }
@@ -634,12 +651,7 @@ fn collect_batches(tick: u64) -> Vec<Batch> {
                 let Some(state) = read_state(&world, pos) else {
                     continue;
                 };
-                batch.entries.push(TickEntry {
-                    entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
-                    pos: *pos,
-                    state,
-                    changed: false,
-                });
+                batch.entries.push((entity_type, *pos, state));
             }
         }
     }
@@ -770,14 +782,13 @@ fn notify_broken(world: &Arc<World>, pos: BlockPos, id: &str, player: Option<&Ar
         return;
     };
     let state = read_state(world, &pos).unwrap_or_default();
-    let input = BreakInput {
-        entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
+    module.break_block(&BlockArgs {
+        entity_type,
         pos,
         world,
         state: &state,
         player,
-    };
-    guard(mod_idx, "break_block", || module.break_block(input));
+    });
 }
 
 /// The item that places `block`: its stand-in item tagged with the block id.
@@ -834,23 +845,40 @@ impl EventHandler<PlayerInteractEvent> for UseHandler {
             let Some(module) = module(mod_idx) else {
                 return;
             };
-            let input = UseInput {
-                entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
+            let returned = module.use_block(&BlockArgs {
+                entity_type,
                 pos,
                 world: &world,
                 state: &state,
-                player: &event.player,
-            };
-            let Some(result) = guard(mod_idx, "use_block", || module.use_block(input)) else {
-                return;
-            };
-            if let Some(state) = result.state.filter(|s| s.len() <= MAX_STATE_BYTES) {
-                write_state(&world, &pos, &state);
+                player: Some(&event.player),
+            });
+            for (key, value) in returned {
+                match key {
+                    0 if value.len() <= MAX_STATE_BYTES => write_state(&world, &pos, &value),
+                    1 => event.player.send_system_message_raw(
+                        &TextComponent::text(String::from_utf8_lossy(&value).into_owned()),
+                        true,
+                    ),
+                    _ => {}
+                }
             }
-            if let Some(message) = result.message {
-                event
-                    .player
-                    .send_system_message_raw(&TextComponent::text(message), true);
+        })
+    }
+}
+
+/// Menu clicks go to every mod; each acts only on its own action ids.
+struct MenuHandler;
+
+impl EventHandler<DialogClickActionEvent> for MenuHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut DialogClickActionEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let mods: Vec<Native> = lock(&HOST.mods).iter().map(|m| m.module).collect();
+            for module in mods {
+                module.menu_click(&event.player, &event.id);
             }
         })
     }

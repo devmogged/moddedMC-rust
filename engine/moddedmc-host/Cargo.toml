@@ -1,7 +1,7 @@
 [package]
 name = "moddedmc-host"
 version = "0.1.0"
-description = "moddedMC-rust content host: registry, persistence and batched ticks for native content mods."
+description = "moddedMC-rust content host: loads mods from mods/ through the stable mod ABI; registry, persistence and batched ticks."
 edition.workspace = true
 license = "GPL-3.0-only"
 # Built as a member of the pinned Pumpkin workspace (see ../pumpkin/Cargo.toml).
@@ -17,6 +17,10 @@ moddedmc-api.workspace = true
 pumpkin-protocol.workspace = true
 pumpkin-world.workspace = true
 tracing.workspace = true
+libloading.workspace = true
+zip.workspace = true
+sha2.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

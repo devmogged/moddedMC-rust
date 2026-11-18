@@ -7,29 +7,11 @@
 
 mod shrines;
 
-use std::{
-    path::PathBuf,
-    sync::{Arc, LazyLock, Mutex, OnceLock, PoisonError},
-};
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 use moddedmc_api::{
-    BlockDef, BlockEntityDef, BlockPos, BreakInput, ContentHost, ContentMod, PlaceInput,
-    RegistrationError, Registry, SERVICE, TextComponent, UseInput, UseResult, Vector3,
-    dialog::{ActionButton, Dialog, DialogAction, DialogBody},
-    pumpkin_core::{
-        command::{
-            argument_builder::{ArgumentBuilder, command},
-            context::CommandContext,
-            node::{CommandExecutor, CommandExecutorResult},
-        },
-        entity::player::Player,
-        plugin::{
-            BoxFuture, Context, EventHandler, EventPriority, Plugin, PluginFuture,
-            dialog::dialog_click_action::DialogClickActionEvent,
-        },
-        server::Server,
-        world::World,
-    },
+    Block, BlockDef, BlockEntityDef, Command, Menu, MenuButton, Mod, Player, Pos,
+    RegistrationError, Registry, UseResult,
 };
 use shrines::{Shrine, Shrines, Site};
 
@@ -38,15 +20,13 @@ const STATE_VERSION: u32 = 1;
 const GO_PREFIX: &str = "wayshrine:go/";
 
 static SHRINES: LazyLock<Mutex<Shrines>> = LazyLock::new(Mutex::default);
-static FILE: OnceLock<PathBuf> = OnceLock::new();
-static HOST: OnceLock<Arc<ContentHost>> = OnceLock::new();
 
-fn site(world: &World, pos: &BlockPos) -> Site {
+fn site(dimension: &str, pos: Pos) -> Site {
     Site {
-        dimension: world.dimension.minecraft_name.to_owned(),
-        x: pos.0.x,
-        y: pos.0.y,
-        z: pos.0.z,
+        dimension: dimension.to_owned(),
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
     }
 }
 
@@ -56,10 +36,12 @@ fn update(f: impl FnOnce(&mut Shrines) -> bool) {
     if !f(&mut shrines) {
         return;
     }
-    if let Some(path) = FILE.get()
-        && let Err(error) = std::fs::write(path, shrines.save())
-    {
-        tracing::error!("wayshrine: could not save {}: {error}", path.display());
+    let path = moddedmc_api::data_dir().join("shrines.txt");
+    if let Err(error) = std::fs::write(&path, shrines.save()) {
+        moddedmc_api::error(&format!(
+            "wayshrine: could not save {}: {error}",
+            path.display()
+        ));
     }
 }
 
@@ -67,36 +49,22 @@ fn with_shrines<R>(f: impl FnOnce(&Shrines) -> R) -> R {
     f(&SHRINES.lock().unwrap_or_else(PoisonError::into_inner))
 }
 
-fn menu(here_name: &str, known: &[Shrine]) -> Dialog {
-    let buttons = known
-        .iter()
-        .map(|s| ActionButton {
-            text: TextComponent::text(s.name.clone()),
-            tooltip: Some(TextComponent::text(format!(
-                "{} {} {} in {}",
-                s.site.x, s.site.y, s.site.z, s.site.dimension
-            ))),
-            width: None,
-            action: DialogAction::Custom {
+fn menu(here_name: &str, known: &[Shrine]) -> Menu {
+    Menu {
+        title: "Wayshrines".into(),
+        body: format!("You are at {here_name}. Choose a destination."),
+        buttons: known
+            .iter()
+            .map(|s| MenuButton {
+                label: s.name.clone(),
+                tooltip: format!(
+                    "{} {} {} in {}",
+                    s.site.x, s.site.y, s.site.z, s.site.dimension
+                ),
                 // A resource location allows one ':', so the dimension's own ':' becomes '/'.
-                id: format!("{GO_PREFIX}{}", s.site.key().replacen(':', "/", 1)),
-                payload: None,
-            },
-        })
-        .collect();
-    Dialog {
-        r#type: "minecraft:multi_action".into(),
-        title: TextComponent::text("Wayshrines"),
-        body: vec![DialogBody::PlainMessage {
-            contents: TextComponent::text(format!("You are at {here_name}. Choose a destination.")),
-        }],
-        inputs: vec![],
-        buttons,
-        links: vec![],
-        exit_action: None,
-        after_action: Some("pop".into()),
-        can_close_with_escape: true,
-        external_title: None,
+                action: format!("{GO_PREFIX}{}", s.site.key().replacen(':', "/", 1)),
+            })
+            .collect(),
     }
 }
 
@@ -109,8 +77,11 @@ const fn message(text: String) -> UseResult {
 
 struct Wayshrine;
 
-impl ContentMod for Wayshrine {
-    fn register(&self, registry: &mut dyn Registry) -> Result<(), RegistrationError> {
+impl Mod for Wayshrine {
+    fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
+        let saved = std::fs::read_to_string(moddedmc_api::data_dir().join("shrines.txt"))
+            .unwrap_or_default();
+        *SHRINES.lock().unwrap_or_else(PoisonError::into_inner) = Shrines::load(&saved);
         registry.add_block_entity(BlockEntityDef {
             id: BLOCK_ID.into(),
             state_version: STATE_VERSION,
@@ -121,31 +92,35 @@ impl ContentMod for Wayshrine {
             id: BLOCK_ID.into(),
             display_name: "Wayshrine".into(),
             stand_in: "minecraft:barrel".into(),
-            block_entity: Some(BLOCK_ID.into()),
-        })
+            block_entity: BLOCK_ID.into(),
+        })?;
+        registry.add_command("wayshrine", "Give yourself a wayshrine", 0)
     }
 
-    fn place_block(&self, input: PlaceInput<'_>) -> Option<Vec<u8>> {
-        let here = site(input.world, &input.pos);
-        let owner = input
+    fn place_block(&self, block: Block<'_>) -> Option<Vec<u8>> {
+        let here = site(block.dimension, block.pos);
+        let owner = block
             .player
-            .map_or_else(String::new, |p| p.gameprofile.name.clone());
+            .map_or_else(String::new, |p| p.name().to_owned());
         update(|s| {
             let name = s.add(here.clone(), owner);
-            tracing::info!("wayshrine: placed {name} at {}", here.key());
+            moddedmc_api::info(&format!("wayshrine: placed {name} at {}", here.key()));
             true
         });
         None
     }
 
-    fn break_block(&self, input: BreakInput<'_>) {
-        let here = site(input.world, &input.pos);
+    fn break_block(&self, block: Block<'_>) {
+        let here = site(block.dimension, block.pos);
         update(|s| s.remove(&here));
     }
 
-    fn use_block(&self, input: UseInput<'_>) -> UseResult {
-        let here = site(input.world, &input.pos);
-        let player_name = &input.player.gameprofile.name;
+    fn use_block(&self, block: Block<'_>) -> UseResult {
+        let here = site(block.dimension, block.pos);
+        let Some(player) = block.player else {
+            return UseResult::default();
+        };
+        let player_name = player.name();
         let mut newly = false;
         update(|s| {
             newly = s.discover(player_name, &here);
@@ -168,105 +143,48 @@ impl ContentMod for Wayshrine {
                 format!("{name}: you know no other shrines.")
             });
         }
-        let Some(host) = HOST.get() else {
-            return message("Could not open the wayshrine menu.".into());
-        };
-        (host.show_dialog)(input.player, &menu(&name, &known));
+        player.show_menu(&menu(&name, &known));
         message(if newly {
             format!("Discovered {name}.")
         } else {
             name
         })
     }
-}
 
-/// Teleports a player who picked a destination, if they really know that shrine.
-struct TravelHandler;
-
-impl EventHandler<DialogClickActionEvent> for TravelHandler {
-    fn handle<'a>(
-        &'a self,
-        server: &'a Arc<Server>,
-        event: &'a DialogClickActionEvent,
-    ) -> BoxFuture<'a, ()> {
-        Box::pin(async move { travel(server, &event.player, &event.id) })
-    }
-}
-
-fn travel(server: &Arc<Server>, player: &Arc<Player>, id: &str) {
-    let Some(path) = id.strip_prefix(GO_PREFIX) else {
-        return;
-    };
-    let key = path.replacen('/', ":", 1);
-    let player_name = &player.gameprofile.name;
-    // The click comes from the client: only shrines this player has discovered are valid.
-    let Some(target) = with_shrines(|s| s.travel_target(player_name, &key)) else {
-        tracing::warn!("wayshrine: {player_name} asked for unknown destination {key}");
-        return;
-    };
-    let worlds = server.worlds.load();
-    let Some(world) = worlds
-        .iter()
-        .find(|w| w.dimension.minecraft_name == target.site.dimension)
-    else {
-        return;
-    };
-    let Some(host) = HOST.get() else { return };
-    let pos = Vector3::new(
-        f64::from(target.site.x) + 0.5,
-        f64::from(target.site.y) + 1.0,
-        f64::from(target.site.z) + 0.5,
-    );
-    (host.teleport)(player, world.clone(), pos);
-    tracing::info!("wayshrine: {player_name} travelled to {}", target.name);
-}
-
-struct GiveShrine;
-
-impl CommandExecutor for GiveShrine {
-    fn execute(&self, context: &CommandContext) -> CommandExecutorResult {
-        let (Some(player), Some(host)) = (context.source.as_player(), HOST.get()) else {
-            return Ok(0);
+    /// Teleports a player who picked a destination, if they really know that shrine.
+    fn menu_click(&self, player: Player<'_>, action: &str) {
+        let Some(path) = action.strip_prefix(GO_PREFIX) else {
+            return;
         };
-        Ok(i32::from((host.give_block)(&player, BLOCK_ID)))
+        let key = path.replacen('/', ":", 1);
+        let player_name = player.name();
+        // The click comes from the client: only shrines this player has discovered are valid.
+        let Some(target) = with_shrines(|s| s.travel_target(player_name, &key)) else {
+            moddedmc_api::warn(&format!(
+                "wayshrine: {player_name} asked for unknown destination {key}"
+            ));
+            return;
+        };
+        let site = &target.site;
+        if player.teleport(
+            &site.dimension,
+            f64::from(site.x) + 0.5,
+            f64::from(site.y) + 1.0,
+            f64::from(site.z) + 0.5,
+            None,
+        ) {
+            moddedmc_api::info(&format!(
+                "wayshrine: {player_name} travelled to {}",
+                target.name
+            ));
+        }
+    }
+
+    fn command(&self, _tag: u64, command: Command<'_>) -> i32 {
+        command
+            .player
+            .map_or(0, |p| i32::from(p.give_block(BLOCK_ID)))
     }
 }
 
-struct WayshrinePlugin;
-
-impl Plugin for WayshrinePlugin {
-    fn on_load(&self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
-        Box::pin(async move {
-            // This library has its own copy of tracing; route it to the server log.
-            context.init_log();
-            let host = context
-                .get_service::<ContentHost>(SERVICE)
-                .await
-                .ok_or("moddedmc content host is not running")?;
-            let folder = context.get_data_folder();
-            std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
-            let path = folder.join("shrines.txt");
-            let saved = std::fs::read_to_string(&path).unwrap_or_default();
-            *SHRINES.lock().unwrap_or_else(PoisonError::into_inner) = Shrines::load(&saved);
-            let _ = FILE.set(path);
-            let _ = HOST.set(host.clone());
-            (host.add_mod)(Arc::new(Wayshrine));
-            context.register_event::<DialogClickActionEvent, _>(
-                Arc::new(TravelHandler),
-                EventPriority::Normal,
-                false,
-            );
-            context.register_command(
-                command("wayshrine", "Give yourself a wayshrine").executes(GiveShrine),
-                "minecraft:command.help",
-            );
-            Ok(())
-        })
-    }
-}
-
-moddedmc_api::export_plugin!(
-    WayshrinePlugin,
-    "wayshrine",
-    "Discoverable fast-travel shrines"
-);
+moddedmc_api::export_mod!(Wayshrine);

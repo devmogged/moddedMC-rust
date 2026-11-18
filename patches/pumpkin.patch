@@ -1,48 +1,14 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 4cc8486ee..60f4c9715 100644
+index 4cc8486ee..5bad33215 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -717,6 +717,13 @@ version = "1.0.0"
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
- 
-+[[package]]
-+name = "counter"
-+version = "0.2.0"
-+dependencies = [
-+ "moddedmc-api",
-+]
-+
- [[package]]
- name = "cpp_demangle"
- version = "0.5.1"
-@@ -1377,6 +1384,14 @@ dependencies = [
-  "pin-project-lite",
- ]
- 
-+[[package]]
-+name = "fabric-host"
-+version = "0.2.0"
-+dependencies = [
-+ "moddedmc-api",
-+ "tracing",
-+]
-+
- [[package]]
- name = "fastrand"
- version = "2.5.0"
-@@ -2336,6 +2351,43 @@ dependencies = [
+@@ -2336,6 +2336,42 @@ dependencies = [
   "windows-sys 0.61.2",
  ]
  
 +[[package]]
 +name = "moddedmc-api"
-+version = "0.2.0"
-+dependencies = [
-+ "pumpkin-core",
-+ "pumpkin-protocol",
-+ "pumpkin-util",
-+]
++version = "1.0.0"
 +
 +[[package]]
 +name = "moddedmc-bot"
@@ -61,6 +27,7 @@ index 4cc8486ee..60f4c9715 100644
 +name = "moddedmc-host"
 +version = "0.1.0"
 +dependencies = [
++ "libloading",
 + "moddedmc-api",
 + "pumpkin-core",
 + "pumpkin-data",
@@ -69,13 +36,16 @@ index 4cc8486ee..60f4c9715 100644
 + "pumpkin-protocol",
 + "pumpkin-util",
 + "pumpkin-world",
++ "serde_json",
++ "sha2 0.11.1",
 + "tracing",
++ "zip",
 +]
 +
  [[package]]
  name = "multiversion_no_op"
  version = "1.0.0"
-@@ -2945,6 +2997,7 @@ name = "pumpkin"
+@@ -2945,6 +2981,7 @@ name = "pumpkin"
  version = "0.2.2+26.3-26.63"
  dependencies = [
   "console-subscriber",
@@ -83,45 +53,26 @@ index 4cc8486ee..60f4c9715 100644
   "pumpkin-config",
   "pumpkin-core",
   "pumpkin-data",
-@@ -5588,6 +5641,14 @@ dependencies = [
-  "wasmtime",
- ]
- 
-+[[package]]
-+name = "wayshrine"
-+version = "0.2.0"
-+dependencies = [
-+ "moddedmc-api",
-+ "tracing",
-+]
-+
- [[package]]
- name = "web-sys"
- version = "0.3.107"
 diff --git a/Cargo.toml b/Cargo.toml
-index d4fe77a5f..a0c664027 100644
+index d4fe77a5f..4c9858843 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -27,6 +27,13 @@ members = [
+@@ -27,6 +27,9 @@ members = [
      "tools/pumpkin-codegen",
      "tools/pumpkin-fuzzer",
      "tools/pumpkin-tester",
 +    # moddedMC-rust host, kept outside this checkout
 +    "../moddedmc-host",
 +    "../moddedmc-bot",
-+    "../moddedmc-api",
-+    "../../mods/counter",
-+    "../../mods/wayshrine",
-+    "../../recompiler/fabric-host",
  ]
  
  # [workspace.lints.rust]
-@@ -214,6 +221,8 @@ pumpkin-codecs = { path = "crates/pumpkin-codecs", default-features = false }
+@@ -214,6 +217,8 @@ pumpkin-codecs = { path = "crates/pumpkin-codecs", default-features = false }
  pumpkin-command = { path = "crates/pumpkin-command", default-features = false }
  pumpkin-config = { path = "crates/pumpkin-config", default-features = false }
  pumpkin-core = { path = "crates/pumpkin-core", default-features = false }
 +moddedmc-host = { path = "../moddedmc-host" }
-+moddedmc-api = { path = "../moddedmc-api" }
++moddedmc-api = { path = "../../api" }
  pumpkin-data = { path = "crates/pumpkin-data", default-features = false }
  pumpkin-gametest = { path = "crates/pumpkin-gametest", default-features = false }
  pumpkin-inventory = { path = "crates/pumpkin-inventory", default-features = false }
@@ -213,20 +164,6 @@ index 4fdd48b97..f435e7054 100644
 +    }
 +    chunk_loading.send_change();
 +}
-diff --git a/crates/pumpkin-core/src/plugin/mod.rs b/crates/pumpkin-core/src/plugin/mod.rs
-index 8b23b60ca..1fa66cb11 100644
---- a/crates/pumpkin-core/src/plugin/mod.rs
-+++ b/crates/pumpkin-core/src/plugin/mod.rs
-@@ -193,7 +193,8 @@ pub struct PluginManager {
-     pub java_versions: Arc<JavaVersions>,
-     pub bedrock_versions: Arc<BedrockVersions>,
-     unloaded_files: RwLock<HashSet<PathBuf>>,
--    services: Arc<RwLock<HashMap<String, Arc<dyn Payload>>>>,
-+    // moddedMC-rust: the content host registers its service before any plugin loads.
-+    pub services: Arc<RwLock<HashMap<String, Arc<dyn Payload>>>>,
-     // Plugin state tracking
-     plugin_states: RwLock<HashMap<String, PluginState>>,
-     // Notification for plugin state changes
 diff --git a/crates/pumpkin-core/src/world/mod.rs b/crates/pumpkin-core/src/world/mod.rs
 index bf658e514..78fa95205 100644
 --- a/crates/pumpkin-core/src/world/mod.rs

@@ -1,6 +1,6 @@
 # Boots the pinned Pumpkin build in a run dir, optionally with mods, and records
 # startup time, resident memory and CPU use at idle. Usage:
-#   scripts\boot-measure.ps1 -RunDir run\baseline [-Mods engine\pumpkin\target\release\counter.dll] [-IdleSeconds 60] [-Commands counter]
+#   scripts\boot-measure.ps1 -RunDir run\baseline [-Mods target\mods\counter.mmc] [-IdleSeconds 60] [-Commands counter]
 param(
     [Parameter(Mandatory)] [string]$RunDir,
     [string[]]$Mods = @(),
@@ -11,8 +11,8 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $exe = Join-Path $root 'engine\pumpkin\target\release\pumpkin.exe'
 $RunDir = Join-Path $root $RunDir
-New-Item -ItemType Directory -Force (Join-Path $RunDir 'plugins') | Out-Null
-foreach ($m in $Mods) { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'plugins') -Force }
+New-Item -ItemType Directory -Force (Join-Path $RunDir 'mods') | Out-Null
+foreach ($m in $Mods) { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'mods') -Force }
 
 $psi = [Diagnostics.ProcessStartInfo]::new($exe)
 $psi.WorkingDirectory = $RunDir

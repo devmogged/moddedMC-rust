@@ -1,0 +1,74 @@
+name: Bug report
+description: Something is broken, crashes, regressed, or is much slower than it should be.
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One problem per report. Search existing issues first.
+        Security problems go to the private channel in SECURITY.md, not here.
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps, from a fresh server folder if you can.
+      placeholder: |
+        1. Put wayshrine.mmc in mods/
+        2. Start the server, place two shrines
+        3. Use one and pick the other
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: mods
+    attributes:
+      label: Mods
+      description: Every file in mods/ (name and version). For a .jar, its Modrinth or CurseForge link.
+      placeholder: wayshrine.mmc 0.2.0, sethome-1.0.0.jar
+
+  - type: input
+    id: version
+    attributes:
+      label: Server version
+      description: The commit you built from (`git rev-parse --short HEAD`), and your OS.
+      placeholder: e951fb7, Windows 11
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Server log
+      description: The relevant part of the server log. Remove anything private (IP addresses, player names you do not want public).
+      render: text
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Server crashes or will not start
+        - A mod does not work at all
+        - Wrong behavior, occasional failure
+        - Performance
+        - Cosmetic
+    validations:
+      required: true

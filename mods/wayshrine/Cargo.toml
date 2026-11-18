@@ -2,17 +2,12 @@
 name = "wayshrine"
 version = "0.2.0"
 edition.workspace = true
-license = "GPL-3.0-only"
+license.workspace = true
 description = "Wayshrines: discover shrines by using them, then travel between the ones you know (M2 hand port)."
-# Native plugin: built in the server's workspace so types match the server exactly.
-workspace = "../../engine/pumpkin"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
 moddedmc-api.workspace = true
-tracing.workspace = true
 
-[lints]
-workspace = true

@@ -1,0 +1,31 @@
+# Area labels by changed path (.github/workflows/pr-labels.yml).
+abi:
+  - changed-files:
+      - any-glob-to-any-file: api/src/abi.rs
+"area:api":
+  - changed-files:
+      - any-glob-to-any-file: api/**
+"area:host":
+  - changed-files:
+      - any-glob-to-any-file: engine/moddedmc-host/**
+"area:engine":
+  - changed-files:
+      - any-glob-to-any-file: [patches/**, engine/pumpkin]
+"area:mods":
+  - changed-files:
+      - any-glob-to-any-file: mods/**
+"area:recompiler":
+  - changed-files:
+      - any-glob-to-any-file: recompiler/**
+"area:host-app":
+  - changed-files:
+      - any-glob-to-any-file: host/**
+"area:tests":
+  - changed-files:
+      - any-glob-to-any-file: [tests/**, engine/moddedmc-bot/**, scripts/scenario.ps1, scripts/boot-measure.ps1]
+"area:docs":
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.md", docs/**]
+"area:ci":
+  - changed-files:
+      - any-glob-to-any-file: .github/**

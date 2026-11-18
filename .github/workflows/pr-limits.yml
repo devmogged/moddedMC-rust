@@ -1,0 +1,85 @@
+name: PR Limits
+
+# The PR rules from CONTRIBUTING.md:
+# - an author outside .github/TRIAGE_EXEMPTIONS.td may have 3 open PRs; a fourth is closed;
+# - a PR that conflicts with main gets needs-rebase; 7 days later without activity it is closed.
+#
+# Nothing is labeled, commented on or closed until the repository variable PR_LIMITS_ENFORCE is
+# "true". Until then every run only logs what it would do.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  limits:
+    name: Enforce PR limits
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: pr-limits
+      cancel-in-progress: false
+    steps:
+      # Only the trusted exemption list from the default branch; never PR code.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/TRIAGE_EXEMPTIONS.td
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          DRY_RUN: ${{ vars.PR_LIMITS_ENFORCE != 'true' }}
+        with:
+          script: |
+            const fs = require("node:fs");
+            const dryRun = process.env.DRY_RUN === "true";
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            const exempt = new Set(
+              fs.readFileSync(".github/TRIAGE_EXEMPTIONS.td", "utf8")
+                .split("\n").map((l) => l.trim().toLowerCase()).filter((l) => l && !l.startsWith("#")),
+            );
+            const isExempt = (pr) => exempt.has(pr.user.login.toLowerCase()) || pr.user.type === "Bot";
+            const act = async (what, fn) => {
+              core.info(`${dryRun ? "[dry run] would " : ""}${what}`);
+              if (!dryRun) await fn();
+            };
+            const close = (pr, body) =>
+              act(`close #${pr.number}: ${body}`, async () => {
+                await github.rest.issues.createComment({ ...repo, issue_number: pr.number, body });
+                await github.rest.pulls.update({ ...repo, pull_number: pr.number, state: "closed" });
+              });
+
+            const open = await github.paginate(github.rest.pulls.list, { ...repo, state: "open", per_page: 100 });
+
+            if (context.eventName === "pull_request_target") {
+              const pr = context.payload.pull_request;
+              if (isExempt(pr)) return;
+              const mine = open.filter((p) => p.user.login === pr.user.login);
+              if (mine.length > 3) {
+                await close(pr, "Closing: CONTRIBUTING.md allows 3 open PRs per author. Get one merged or closed, then reopen this.");
+              }
+              return;
+            }
+
+            const week = 7 * 24 * 60 * 60 * 1000;
+            for (const listed of open) {
+              if (isExempt(listed)) continue;
+              const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: listed.number });
+              const labeled = pr.labels.some((l) => l.name === "needs-rebase");
+              if (pr.mergeable === false && !labeled) {
+                await act(`label #${pr.number} needs-rebase`, () =>
+                  github.rest.issues.addLabels({ ...repo, issue_number: pr.number, labels: ["needs-rebase"] }));
+              } else if (pr.mergeable === true && labeled) {
+                await act(`unlabel #${pr.number} needs-rebase`, () =>
+                  github.rest.issues.removeLabel({ ...repo, issue_number: pr.number, name: "needs-rebase" }));
+              } else if (pr.mergeable === false && Date.now() - Date.parse(pr.updated_at) > week) {
+                await close(pr, "Closing: this PR has conflicted with main for 7 days without activity. Rebase and reopen it when you are ready.");
+              }
+            }

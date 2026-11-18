@@ -1,7 +1,7 @@
 # Runs a console scenario against the built server and checks the log.
 #   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh]
 # Scenario lines (blank lines and # comments ignored):
-#   mods <path.dll> [...]    copy mods into the run dir's plugins/ (before the first start)
+#   mods <path> [...]        copy mods (.mmc, .jar, .dll) into the run dir's mods/ (before the first start)
 #   start                    start the server and wait until it is ready
 #   cmd <console line>       send a console line
 #   wait <seconds>
@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $RunDir = Join-Path $root $RunDir
 if ($Fresh -and (Test-Path $RunDir)) { Get-ChildItem $RunDir | Remove-Item -Recurse -Force }
-New-Item -ItemType Directory -Force (Join-Path $RunDir 'plugins') | Out-Null
+New-Item -ItemType Directory -Force (Join-Path $RunDir 'mods') | Out-Null
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 
 $script:log = [Collections.Concurrent.ConcurrentQueue[string]]::new()
@@ -52,13 +52,15 @@ function Start-Server {
     Register-ObjectEvent $script:p ErrorDataReceived -Action $handler -MessageData $script:log | Out-Null
     $script:p.Start() | Out-Null
     $script:p.BeginOutputReadLine(); $script:p.BeginErrorReadLine()
-    $deadline = (Get-Date).AddSeconds(120)
+    # Expectations after a start search from its first line: mods may register before "Started server".
+    $first = $script:all.Count
+    $deadline = (Get-Date).AddSeconds(600)  # a new .jar in mods/ is converted on the first start
     while ((Get-Date) -lt $deadline -and -not $script:p.HasExited) {
         Start-Sleep -Milliseconds 100
         $new = @(Get-NewLines)
         for ($i = 0; $i -lt $new.Count; $i++) {
             # Pumpkin, or a vanilla/Fabric server.
-            if ($new[$i] -match 'Started server; took|Done \(') { $script:cursor += $i + 1; return }
+            if ($new[$i] -match 'Started server; took|Done \(') { $script:cursor = $first; return }
         }
     }
     throw "server did not start"
@@ -96,7 +98,7 @@ foreach ($raw in Get-Content $Scenario) {
     $verb, $arg = $line -split '\s+', 2
     Write-Host "> $line"
     switch ($verb) {
-        'mods' { foreach ($m in $arg -split '\s+') { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'plugins') -Force } }
+        'mods' { foreach ($m in $arg -split '\s+') { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'mods') -Force } }
         'start' { Start-Server }
         'cmd' { $script:p.StandardInput.WriteLine($arg) }
         'botstart' {

@@ -1,3 +1,4 @@
 [toolchain]
-# Pinned for reproducible builds; engine/pumpkin (server and native mods) keeps its own `stable` file.
+# Pinned for reproducible builds; engine/pumpkin (the server) keeps its own `stable` file.
 channel = "1.100.0"
+components = ["clippy", "rustfmt"]

@@ -2,10 +2,8 @@
 name = "counter"
 version = "0.2.0"
 edition.workspace = true
-license = "GPL-3.0-only"
+license.workspace = true
 description = "demo:counter, the M1 content fixture: a block whose block entity counts seconds."
-# Native plugin: built in the server's workspace so types match the server exactly.
-workspace = "../../engine/pumpkin"
 
 [lib]
 crate-type = ["cdylib"]
@@ -13,5 +11,3 @@ crate-type = ["cdylib"]
 [dependencies]
 moddedmc-api.workspace = true
 
-[lints]
-workspace = true

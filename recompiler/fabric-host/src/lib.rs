@@ -1,31 +1,17 @@
-//! Native Pumpkin plugin around one Fabric mod that `TeaVM` compiled to C (recompiler/README.md).
-//! The Java side (recompiler/fabric-shim) calls the `mmc_*` functions below through
-//! `@Import`; we call its `@Export`s. Strings cross as UTF-8 (pointer, length). Player handle
-//! 0 is "whoever ran the command"; handle n > 0 is the n-th player of the current call.
+//! A moddedMC mod (stable ABI) around one Fabric mod that `TeaVM` compiled to C
+//! (recompiler/README.md). The Java side (recompiler/fabric-shim) calls the `mmc_*` functions
+//! below through `@Import`; we call its `@Export`s. Strings cross as UTF-8 (pointer, length).
+//! Player handle 0 is "whoever ran the command"; handle n > 0 is the n-th player of the call.
 //!
 //! `TeaVM`'s runtime is single-threaded, so every entry into Java holds [`JAVA`]. The `mmc_*`
 //! callbacks run on the same thread inside that call and read its context from [`CALL`].
 
 use std::{
     cell::RefCell,
-    path::PathBuf,
-    sync::{Arc, Mutex, OnceLock, PoisonError, atomic::Ordering},
+    sync::{Mutex, OnceLock, PoisonError},
 };
 
-use moddedmc_api::{
-    TextComponent, Vector3,
-    pumpkin_core::{
-        command::{
-            CommandSource,
-            argument_builder::{ArgumentBuilder, command},
-            context::CommandContext,
-            node::{CommandExecutor, CommandExecutorResult},
-        },
-        entity::{EntityBase, player::Player},
-        plugin::{Context, Plugin, PluginFuture},
-        server::Server,
-    },
-};
+use moddedmc_api::{Command, Mod, Player, RegistrationError, Registry};
 
 #[cfg(teavm)]
 unsafe extern "C" {
@@ -34,7 +20,7 @@ unsafe extern "C" {
     fn mmc_run_command(player: i32, input: *const u8, len: i32) -> i32;
 }
 
-// Built without a TeaVM object (workspace builds, clippy): nothing to run.
+// Built without a TeaVM object (plain workspace builds): nothing to run.
 #[cfg(not(teavm))]
 const unsafe fn teavm_main(_: i32, _: *const *const u8) -> i32 {
     -1
@@ -46,17 +32,16 @@ const unsafe fn mmc_run_command(_: i32, _: *const u8, _: i32) -> i32 {
 
 /// Serializes every call into the Java runtime.
 static JAVA: Mutex<()> = Mutex::new(());
-static SERVER: OnceLock<Arc<Server>> = OnceLock::new();
-/// Fabric's `config/`, inside the plugin's data folder.
+/// Fabric's `config/`: the parent of this mod's own data folder.
 static CONFIG_DIR: OnceLock<String> = OnceLock::new();
 
-/// What the `mmc_*` callbacks may touch during one call into Java.
+/// What the `mmc_*` callbacks may touch during one call into Java. Everything in it is valid
+/// only while that call runs; [`enter`] clears it afterwards.
 #[derive(Default)]
 struct Call {
-    context: Option<Arc<Context>>,
-    /// The command's source; valid for the duration of the call only.
-    source: Option<*const CommandSource>,
-    players: Vec<Arc<Player>>,
+    registry: Option<*mut Registry<'static>>,
+    command: Option<*const Command<'static>>,
+    players: Vec<Player<'static>>,
 }
 
 thread_local! {
@@ -80,9 +65,9 @@ unsafe fn read(ptr: *const u8, len: i32) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-fn player(handle: i32) -> Option<Arc<Player>> {
+fn player(handle: i32) -> Option<Player<'static>> {
     let index = usize::try_from(handle).ok()?.checked_sub(1)?;
-    CALL.with_borrow(|call| call.players.get(index).cloned())
+    CALL.with_borrow(|call| call.players.get(index).copied())
 }
 
 #[unsafe(no_mangle)]
@@ -94,27 +79,29 @@ const extern "C" fn mmc_never() -> i32 {
 unsafe extern "C" fn mmc_register_command(name: *const u8, len: i32) {
     // SAFETY: Java passes a live UTF-8 byte array and its length.
     let name = unsafe { read(name, len) };
-    let Some(context) = CALL.with_borrow(|call| call.context.clone()) else {
-        tracing::warn!("fabric-host: command {name} registered after load; ignored");
+    let Some(registry) = CALL.with_borrow(|call| call.registry) else {
+        moddedmc_api::warn(&format!(
+            "fabric-host: command {name} registered after load; ignored"
+        ));
         return;
     };
-    // Fabric commands without .requires() are open to every player.
     // shortcut: root literal only, so arguments never reach Brigadier; add a greedy tail when a corpus mod needs one.
-    let node = command(name.clone(), "").executes(Forward { input: name });
-    context.register_command(node, "minecraft:command.help");
+    // SAFETY: set by `register` for exactly the duration of this call.
+    if let Err(e) = unsafe { &mut *registry }.add_command(&name, "", 0) {
+        moddedmc_api::warn(&format!("fabric-host: command {name}: {e:?}"));
+    }
 }
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn mmc_text(op: i32, handle: i32, buffer: *mut u8, capacity: i32) -> i32 {
     let text = match op {
-        1 => player(handle).map(|p| p.gameprofile.name.clone()),
-        2 => player(handle).map(|p| p.world().dimension.minecraft_name.to_owned()),
+        1 => player(handle).map(|p| p.name().to_owned()),
+        2 => player(handle).map(|p| p.dimension().to_owned()),
         3 => CONFIG_DIR.get().cloned(),
-        4 => SERVER.get().and_then(|s| {
-            let worlds = s.worlds.load();
-            let world = worlds.get(usize::try_from(handle).ok()?)?;
-            Some(world.dimension.minecraft_name.to_owned())
-        }),
+        4 => usize::try_from(handle)
+            .ok()
+            .and_then(|i| moddedmc_api::dimensions().nth(i))
+            .map(str::to_owned),
         _ => None,
     };
     let Some(text) = text else {
@@ -129,14 +116,13 @@ unsafe extern "C" fn mmc_text(op: i32, handle: i32, buffer: *mut u8, capacity: i
 #[unsafe(no_mangle)]
 extern "C" fn mmc_player_num(handle: i32, field: i32) -> f64 {
     player(handle).map_or(0.0, |p| {
-        let entity = &p.living_entity.entity;
-        let pos = entity.pos.load();
+        let pos = p.position();
         match field {
             0 => pos.x,
             1 => pos.y,
             2 => pos.z,
-            3 => f64::from(entity.yaw.load()),
-            4 => f64::from(entity.pitch.load()),
+            3 => f64::from(pos.yaw),
+            4 => f64::from(pos.pitch),
             _ => 0.0,
         }
     })
@@ -145,14 +131,14 @@ extern "C" fn mmc_player_num(handle: i32, field: i32) -> f64 {
 #[unsafe(no_mangle)]
 unsafe extern "C" fn mmc_send_message(handle: i32, text: *const u8, len: i32) {
     // SAFETY: Java passes a live UTF-8 byte array and its length.
-    let text = TextComponent::text(unsafe { read(text, len) });
+    let text = unsafe { read(text, len) };
     if handle == 0 {
-        if let Some(source) = CALL.with_borrow(|call| call.source) {
-            // SAFETY: set by `Forward::execute` for exactly the duration of this call.
-            unsafe { &*source }.send_message(text);
+        if let Some(command) = CALL.with_borrow(|call| call.command) {
+            // SAFETY: set by `command` for exactly the duration of this call.
+            unsafe { &*command }.reply(&text);
         }
     } else if let Some(p) = player(handle) {
-        p.send_system_message(&text);
+        p.send_message(&text);
     }
 }
 
@@ -169,88 +155,72 @@ unsafe extern "C" fn mmc_teleport(
 ) {
     // SAFETY: Java passes a live UTF-8 byte array and its length.
     let dimension = unsafe { read(dimension, len) };
-    let world = SERVER.get().and_then(|s| {
-        s.worlds
-            .load()
-            .iter()
-            .find(|w| w.dimension.minecraft_name == dimension)
-            .cloned()
-    });
-    let Some(world) = world else {
-        tracing::warn!("fabric-host: cannot teleport to unknown world {dimension}");
-        return;
-    };
-    if let Some(p) = player(handle) {
-        p.teleport(Vector3::new(x, y, z), Some(yaw), Some(pitch), world);
+    if let Some(p) = player(handle)
+        && !p.teleport(&dimension, x, y, z, Some((yaw, pitch)))
+    {
+        moddedmc_api::warn(&format!(
+            "fabric-host: cannot teleport to unknown world {dimension}"
+        ));
     }
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn mmc_tick_count() -> i32 {
-    SERVER
-        .get()
-        .map_or(0, |s| s.tick_count.load(Ordering::Relaxed))
+    // Wraps like Java's int tick counter.
+    #[expect(clippy::cast_possible_truncation, reason = "wraps like Java's int")]
+    let ticks = moddedmc_api::tick_count() as i32;
+    ticks
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn mmc_world_count() -> i32 {
-    SERVER
-        .get()
-        .map_or(0, |s| i32::try_from(s.worlds.load().len()).unwrap_or(0))
-}
-
-/// Hands one Pumpkin command to the mod's Brigadier dispatcher.
-struct Forward {
-    input: String,
-}
-
-impl CommandExecutor for Forward {
-    fn execute(&self, context: &CommandContext) -> CommandExecutorResult {
-        let player = context.source.as_player();
-        let handle = i32::from(player.is_some());
-        let call = Call {
-            context: None,
-            source: Some(std::ptr::from_ref(&context.source)),
-            players: player.into_iter().collect(),
-        };
-        let len = i32::try_from(self.input.len()).unwrap_or(0);
-        // SAFETY: `input` outlives the call; the runtime lock is held by `enter`.
-        Ok(enter(call, || unsafe {
-            mmc_run_command(handle, self.input.as_ptr(), len)
-        }))
-    }
+    i32::try_from(moddedmc_api::dimensions().count()).unwrap_or(0)
 }
 
 struct FabricMod;
 
-impl Plugin for FabricMod {
-    fn on_load(&self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
-        Box::pin(async move {
-            context.init_log();
-            // A Fabric server always has config/, so mods may write into it without creating it.
-            let config: PathBuf = context.get_data_folder().join("config");
-            std::fs::create_dir_all(&config)
-                .map_err(|e| format!("cannot create {}: {e}", config.display()))?;
-            let _ = CONFIG_DIR.set(config.to_string_lossy().replace('\\', "/"));
-            let _ = SERVER.set(context.server.clone());
-            // Runs the mod's onInitialize and the command registration callbacks.
-            let call = Call {
-                context: Some(context.clone()),
-                ..Call::default()
-            };
-            // SAFETY: called once, under the runtime lock; TeaVM's main ignores argv when argc is 0.
-            let status = enter(call, || unsafe { teavm_main(0, std::ptr::null()) });
-            if status == 0 {
-                Ok(())
-            } else {
-                Err(format!("Java runtime exited with {status}"))
-            }
+impl Mod for FabricMod {
+    fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
+        // A Fabric server always has config/, so mods may write into it without creating it.
+        let data = moddedmc_api::data_dir();
+        let config = data.parent().unwrap_or(data);
+        // Absolute: TeaVM's Files.createDirectories throws on an existing one-level relative path.
+        let config = std::path::absolute(config).unwrap_or_else(|_| config.to_path_buf());
+        let _ = CONFIG_DIR.set(config.to_string_lossy().replace('\\', "/"));
+        // Runs the mod's onInitialize and its command registration callbacks.
+        let call = Call {
+            registry: Some(std::ptr::from_mut(registry).cast()),
+            ..Call::default()
+        };
+        // SAFETY: called once, under the runtime lock; TeaVM's main ignores argv when argc is 0.
+        let status = enter(call, || unsafe { teavm_main(0, std::ptr::null()) });
+        if status == 0 {
+            Ok(())
+        } else {
+            moddedmc_api::error(&format!("fabric-host: Java runtime exited with {status}"));
+            Err(RegistrationError::InvalidDefinition)
+        }
+    }
+
+    fn command(&self, _tag: u64, command: Command<'_>) -> i32 {
+        let handle = i32::from(command.player.is_some());
+        let call = Call {
+            registry: None,
+            command: Some(std::ptr::from_ref(&command).cast()),
+            // SAFETY: lifetime erasure only; `enter` clears `CALL` before `command` is dropped.
+            players: command
+                .player
+                .map(|p| unsafe { std::mem::transmute::<Player<'_>, Player<'static>>(p) })
+                .into_iter()
+                .collect(),
+        };
+        let input = command.input;
+        let len = i32::try_from(input.len()).unwrap_or(0);
+        // SAFETY: `input` outlives the call; the runtime lock is held by `enter`.
+        enter(call, || unsafe {
+            mmc_run_command(handle, input.as_ptr(), len)
         })
     }
 }
 
-moddedmc_api::export_plugin!(
-    FabricMod,
-    env!("MODDEDMC_MOD_ID"),
-    "Fabric mod recompiled by TeaVM"
-);
+moddedmc_api::export_mod!(FabricMod, id = env!("MODDEDMC_MOD_ID"));

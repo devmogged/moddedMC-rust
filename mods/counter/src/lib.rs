@@ -1,20 +1,8 @@
 //! `demo:counter`: the M1 content fixture. A barrel stand-in whose block entity
 //! counts up once a second; right-click shows the count. `/counter` gives one.
 
-use std::sync::Arc;
-
 use moddedmc_api::{
-    BlockDef, BlockEntityDef, ContentHost, ContentMod, RegistrationError, Registry, SERVICE,
-    TickEntry, UseInput, UseResult,
-    pumpkin_core::{
-        command::{
-            argument_builder::{ArgumentBuilder, command},
-            context::CommandContext,
-            node::{CommandExecutor, CommandExecutorResult},
-        },
-        plugin::{Context, Plugin, PluginFuture},
-        world::World,
-    },
+    Block, BlockDef, BlockEntityDef, Command, Mod, RegistrationError, Registry, Tick, UseResult,
 };
 
 const BLOCK_ID: &str = "demo:counter";
@@ -27,8 +15,8 @@ fn count(state: &[u8]) -> u64 {
 
 struct Counter;
 
-impl ContentMod for Counter {
-    fn register(&self, registry: &mut dyn Registry) -> Result<(), RegistrationError> {
+impl Mod for Counter {
+    fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         registry.add_block_entity(BlockEntityDef {
             id: BLOCK_ID.into(),
             state_version: STATE_VERSION,
@@ -39,57 +27,32 @@ impl ContentMod for Counter {
             id: BLOCK_ID.into(),
             display_name: "Counter".into(),
             stand_in: "minecraft:barrel".into(),
-            block_entity: Some(BLOCK_ID.into()),
-        })
+            block_entity: BLOCK_ID.into(),
+        })?;
+        registry.add_command("counter", "Give yourself a demo:counter", 0)
     }
 
-    fn tick(&self, _tick: u64, _world: &Arc<World>, entries: &mut [TickEntry]) {
-        for entry in entries {
-            let next = count(&entry.state) + 1;
-            entry.state = next.to_le_bytes().to_vec();
-            entry.changed = true;
+    fn tick(&self, tick: &Tick<'_>) {
+        for entry in tick.entries() {
+            tick.set_state(entry.index, &(count(entry.state) + 1).to_le_bytes());
         }
     }
 
-    fn use_block(&self, input: UseInput<'_>) -> UseResult {
+    fn use_block(&self, block: Block<'_>) -> UseResult {
         UseResult {
             state: None,
-            message: Some(format!("Counter: {}", count(input.state))),
+            message: Some(format!("Counter: {}", count(block.state))),
         }
     }
-}
 
-struct GiveCounter(Arc<ContentHost>);
-
-impl CommandExecutor for GiveCounter {
-    fn execute(&self, context: &CommandContext) -> CommandExecutorResult {
-        let Some(player) = context.source.as_player() else {
-            return Ok(0);
-        };
-        Ok(i32::from((self.0.give_block)(&player, BLOCK_ID)))
+    fn command(&self, _tag: u64, command: Command<'_>) -> i32 {
+        command
+            .player
+            .map_or(0, |p| i32::from(p.give_block(BLOCK_ID)))
     }
 }
 
-struct CounterPlugin;
-
-impl Plugin for CounterPlugin {
-    fn on_load(&self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
-        Box::pin(async move {
-            let host = context
-                .get_service::<ContentHost>(SERVICE)
-                .await
-                .ok_or("moddedmc content host is not running")?;
-            (host.add_mod)(Arc::new(Counter));
-            context.register_command(
-                command("counter", "Give yourself a demo:counter").executes(GiveCounter(host)),
-                "minecraft:command.help",
-            );
-            Ok(())
-        })
-    }
-}
-
-moddedmc_api::export_plugin!(CounterPlugin, "counter", "demo:counter content fixture");
+moddedmc_api::export_mod!(Counter);
 
 #[cfg(test)]
 mod tests {

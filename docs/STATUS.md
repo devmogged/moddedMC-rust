@@ -155,3 +155,33 @@ Host stages per tick at 500 due entries: mod call 0.04–0.05 ms (WASM was 0.38�
 
 - A release mod `.dll` is 41–43 MB: each carries its own optimized copy of Pumpkin's core. Linking one takes about 5 minutes (fat LTO).
 - Mods are trusted, unsandboxed code, and must be rebuilt whenever the server is.
+
+## Drop-in mods: stable mod ABI (2026-11-18)
+
+Mods no longer have to come from the server's build. They talk to the host through a C ABI (`api/src/abi.rs`, [MOD-ABI.md](MOD-ABI.md)) and are loaded by the host from the server's `mods/` folder: `.mmc` packages (zip of `mod.json` plus one library per platform), Fabric `.jar` files (converted on the first start and cached in `mods/.cache/`), or bare libraries. This replaces the native-plugin setup above, whose costs (41 MB mods, rebuild with every server build) are gone. Pumpkin's own plugin loader and `plugins/` are untouched; our patch no longer needs `PluginManager::services` public (patch now 16.6 KB).
+
+The ABI design was reviewed by GPT-6.2 Sol before it was built. Adopted: player, command and registry handles are bound to the calling thread (not `Send`), teleport reports "accepted", old `plugins/<id>` data moves to `config/<id>`, the converted-jar cache is keyed by the server version, and the published struct layout is pinned by tests that CI runs on Windows, Linux and macOS. Deferred: host functions do not catch panics of their own (a panic in server code called by a mod still unwinds to the `extern "C"` boundary and aborts), menu clicks go to every mod rather than to the mod that showed the menu, and tick results are written without rechecking that the block was not replaced during the call.
+
+### Verified (headless bot, release build)
+
+- **M1** (`tests/scenarios/m1-counter.txt`) passes with `target/mods/counter.mmc`.
+- **M2** (`tests/scenarios/m2-wayshrine.txt`) passes with `target/mods/wayshrine.mmc`.
+- **M3 drop-in**: the unchanged `sethome-1.0.0.jar` copied into `mods/` is converted on the first start and passes `tests/oracle/sethome.txt`, restart included.
+
+### Size and startup
+
+| | Before (Rust-typed plugins) | Now |
+| --- | --- | --- |
+| Mod library | 41–43 MB | 112 KB (counter), 202 KB (wayshrine), 1.5 MB (sethome incl. its Java runtime) |
+| Packed mod | | 58 KB `counter.mmc`, 97 KB `wayshrine.mmc` |
+| Building one mod | ~5 min link, needs the server's build | ~4 s, any Rust toolchain |
+| Loading mods at start | | 67 ms first start (extracts), 2.3 ms after |
+| A new Fabric jar | manual `build-mod.ps1`, ~5 min | automatic on first start, 9.6–10.8 s; 61–76 ms after |
+| Server start with mods | 84–179 ms | 81–162 ms |
+
+The 10,000-counter benchmark was not rerun after the ABI change; the per-tick mod call now copies changed states through a sink instead of editing `Vec`s in place.
+
+### Repository
+
+`CONTRIBUTING.md`, `AGENTS.md` (with `CLAUDE.md` pointing to it), issue forms, a PR template, `SECURITY.md`, a triage playbook for agents, CI for the root workspace on three OSes, and label automation (area, size, `abi`, needs-rebase, needs more info, PR limits in dry-run until `PR_LIMITS_ENFORCE` is set), modeled on the T3 Code repository.
+

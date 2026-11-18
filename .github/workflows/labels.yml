@@ -1,0 +1,57 @@
+name: Labels
+
+# Keeps the labels that templates, automation and CONTRIBUTING.md rely on in sync with this list.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/labels.yml
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    name: Sync labels
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const labels = [
+              ["bug", "d73a4a", "Something is broken or behaving incorrectly."],
+              ["idea", "a2eeef", "A proposed feature or change. Needs a maintainer's yes before code."],
+              ["needs-triage", "fbca04", "Not yet reviewed by a maintainer."],
+              ["needs more info", "d4c5f9", "Waiting on the reporter. Closed after 7 days without a reply."],
+              ["needs-rebase", "e99695", "Conflicts with main. Closed after 7 days without activity."],
+              ["accepted", "0e8a16", "A maintainer agreed to this idea; a PR is welcome."],
+              ["abi", "5319e7", "Touches the stable mod ABI (api/src/abi.rs). Needs extra care."],
+              ["area:api", "c5def5", "Mod ABI and Rust SDK (api/)."],
+              ["area:host", "c5def5", "Content host and mod loader (engine/moddedmc-host)."],
+              ["area:engine", "c5def5", "Pumpkin patch (patches/, engine/pumpkin)."],
+              ["area:mods", "c5def5", "Rust mods (mods/)."],
+              ["area:recompiler", "c5def5", "Fabric JAR converter (recompiler/)."],
+              ["area:host-app", "c5def5", "The moddedmc host app and tunnels (host/)."],
+              ["area:tests", "c5def5", "Scenarios, benchmarks, the test bot (tests/, engine/moddedmc-bot)."],
+              ["area:docs", "c5def5", "Documentation."],
+              ["area:ci", "c5def5", "GitHub workflows and repository automation."],
+              ["size:XS", "0e8a16", "0-9 changed lines."],
+              ["size:S", "5ebd3e", "10-29 changed lines."],
+              ["size:M", "fbca04", "30-99 changed lines."],
+              ["size:L", "fe7d37", "100-499 changed lines."],
+              ["size:XL", "d93f0b", "500-999 changed lines."],
+              ["size:XXL", "b60205", "1,000+ changed lines."],
+            ];
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            for (const [name, color, description] of labels) {
+              try {
+                const { data } = await github.rest.issues.getLabel({ ...repo, name });
+                if (data.color !== color || (data.description ?? "") !== description) {
+                  await github.rest.issues.updateLabel({ ...repo, name, color, description });
+                }
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ ...repo, name, color, description });
+              }
+            }

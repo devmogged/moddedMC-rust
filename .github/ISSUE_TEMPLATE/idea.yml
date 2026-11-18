@@ -1,0 +1,27 @@
+name: Idea
+description: Propose a feature, an ABI addition, or another change. Wait for a yes before writing code.
+title: "[Idea]: "
+labels:
+  - idea
+  - needs-triage
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Who runs into it and when. A real mod or server setup that needs it is the strongest case.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The smallest change that solves it. For an ABI addition, the function signatures you would add.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

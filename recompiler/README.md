@@ -1,18 +1,21 @@
 # Recompiler (M3)
 
-Goal: take an unchanged Fabric 26.3 mod JAR and produce a native moddedMC-rust mod (`.dll`), AOT.
+Goal: take an unchanged Fabric 26.3 mod JAR and produce a native moddedMC-rust mod, AOT. Server owners just drop the JAR into `mods/`; the server runs this pipeline on the first start with that JAR and caches the result in `mods/.cache/<name>-<hash>.dll`.
 
 ## Pipeline
 
 1. TeaVM 0.16 C backend (`generateC`) turns JVM bytecode into C with its own GC.
    A Java `@Import(module, name)` becomes a plain C call to `name`.
 2. The system clang (LLVM 22) compiles that C to a native object (`-Dmain=teavm_main`).
-3. `fabric-host` links the object into a native Pumpkin plugin and implements the imports.
+3. `fabric-host` links the object into a moddedMC mod that speaks the stable mod ABI
+   ([docs/MOD-ABI.md](../docs/MOD-ABI.md)) and implements the imports.
 
 Until 2026-11-18 this produced a `wasm32-wasip2` component through wasi-sdk; the project
 moved to native plugins for speed, and the WASM path was removed.
 
-Toolchain (all in the ignored `cache/` except LLVM): Temurin JDK 25, Gradle 9.9.1, LLVM clang.
+Toolchain (all in the ignored `cache/` except LLVM and Rust): Temurin JDK 25, Gradle 9.9.1,
+LLVM clang, cargo. The server finds `recompiler/build-mod.ps1` in a checkout above its own
+binary, or at `MODDEDMC_CONVERTER`.
 
 ## Fixture and oracle
 
@@ -34,9 +37,9 @@ per client tick and kicks otherwise).
 
 ## Fabric JAR on Pumpkin (done for the fixture)
 
-    scripts\engine.ps1 build      # the plugin must come from the server's own build
+    # Either drop the JAR into the server's mods\ (converted on first start), or convert ahead of time:
     recompiler\build-mod.ps1 -Jar recompiler\fixtures\sethome\build\libs\sethome-1.0.0.jar
-    # -> target\fabric-mods\sethome.dll; copy into plugins\ and run tests\oracle\sethome.txt
+    # -> target\fabric-mods\sethome.dll, which also loads from mods\
 
 The unchanged `sethome-1.0.0.jar` passes the same oracle scenario on Pumpkin as on Fabric.
 
@@ -47,11 +50,12 @@ The unchanged `sethome-1.0.0.jar` passes the same oracle scenario on Pumpkin as 
   (generated as plain constructor calls; TeaVM has no reflection), fires
   `CommandRegistrationCallback` and registers each root literal with Pumpkin.
   `@Export mmc_run_command` runs a command through the mod's Brigadier dispatcher.
-- `fabric-host/` is a native Pumpkin plugin in the server's workspace. It links the TeaVM
-  object and implements the `mmc_*` imports directly on Pumpkin's types. TeaVM's runtime is
-  single-threaded, so every call into Java holds one lock.
-- TeaVM's `main` is renamed `teavm_main` and called once from `on_load`; exports are then
-  callable any number of times.
+- `fabric-host/` is a moddedMC mod (root workspace, no server code inside). It links the TeaVM
+  object and implements the `mmc_*` imports over the mod SDK. TeaVM's runtime is
+  single-threaded, so every call into Java holds one lock. The result is about 130 KB plus the
+  mod's own code and builds in seconds.
+- TeaVM's `main` is renamed `teavm_main` and called once from `register` (the mod's commands
+  are registered then); exports are then callable any number of times.
 
 Found on the way:
 
