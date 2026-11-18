@@ -5,6 +5,7 @@ mod auth;
 mod builds;
 mod config;
 mod device;
+mod external;
 mod pumpkin_config;
 mod servers;
 

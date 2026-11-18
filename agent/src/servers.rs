@@ -128,6 +128,10 @@ pub struct ServerInfo {
     uptime_secs: Option<u64>,
     exit_code: Option<i32>,
     health: Option<Health>,
+    /// Running on this machine, but not started by the agent: shown, not controlled.
+    external: bool,
+    /// The external server's program (`java`, `pack-buja`).
+    program: Option<String>,
 }
 
 /// Tick health and players, from the `stats.json` the pack server writes every two seconds.
@@ -196,6 +200,12 @@ impl Servers {
             .clone()
     }
 
+    /// The managed entry for a server folder that exists, so unknown names make no entries.
+    async fn existing(&self, name: &str) -> Option<Arc<Mutex<Managed>>> {
+        read_server_file(&self.root.join(name)).await?;
+        Some(self.entry(name).await)
+    }
+
     async fn list(&self) -> Vec<ServerInfo> {
         let mut out = Vec::new();
         let Ok(mut dir) = tokio::fs::read_dir(&self.root).await else {
@@ -228,9 +238,37 @@ impl Servers {
                     .map(|r| r.started.elapsed().as_secs()),
                 exit_code: managed.exit_code,
                 health,
+                external: false,
+                program: None,
             });
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let ours: std::collections::HashSet<u32> = out.iter().filter_map(|s| s.pid).collect();
+        let mut names: std::collections::HashSet<String> =
+            out.iter().map(|s| s.name.clone()).collect();
+        for found in crate::external::scan(&ours).await {
+            // Names key the app's rows, so a clash with a managed server gets the port added.
+            let name = if names.contains(&found.name) {
+                format!("{}:{}", found.name, found.port)
+            } else {
+                found.name
+            };
+            names.insert(name.clone());
+            out.push(ServerInfo {
+                name,
+                state: ServerState::Running,
+                // The version the server reports ("Paper 1.21.4") stands in for a pack.
+                pack: found.version,
+                port: Some(found.port),
+                pid: Some(found.pid),
+                uptime_secs: None,
+                exit_code: None,
+                health: None,
+                external: true,
+                program: Some(found.program),
+            });
+        }
         out
     }
 
@@ -562,7 +600,9 @@ pub async fn stats(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) 
     if let Some(response) = bad_name(&name) {
         return response;
     }
-    let managed = app.servers.entry(&name).await;
+    let Some(managed) = app.servers.existing(&name).await else {
+        return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
+    };
     let (state, pid, uptime) = {
         let managed = managed.lock().await;
         (
@@ -614,7 +654,9 @@ pub async fn console(
     if let Some(response) = bad_name(&name) {
         return response;
     }
-    let managed = app.servers.entry(&name).await;
+    let Some(managed) = app.servers.existing(&name).await else {
+        return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
+    };
     upgrade.on_upgrade(move |socket| console_session(socket, managed))
 }
 

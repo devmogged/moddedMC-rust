@@ -32,7 +32,7 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
 | Method | Path | What |
 | --- | --- | --- |
 | GET | `/v1/device` | Name, OS, arch, CPU count, RAM, disk free, agent version, Tailscale name. |
-| GET | `/v1/servers` | Every server folder: name, pack, state (`stopped`, `starting`, `running`, `stopping`, `crashed`), PID, port, players online. Also lists Minecraft servers running on the machine that the agent didn't start (a Java or Pumpkin process listening on a port), marked `external`. |
+| GET | `/v1/servers` | Every server folder: name, pack, state (`stopped`, `starting`, `running`, `stopping`, `crashed`), PID, port, players online. Also lists Minecraft servers running on the machine that the agent didn't start: a Java (`*.jar` or `nogui`) or Pumpkin process with a listening TCP port that answers the status ping, marked `external: true` with `program`. Scanned at most every 10 s. Servers that are installed but not running aren't found yet. |
 | POST | `/v1/servers` | Create a server: `{name, exe, port, pack}`. A new folder gets a `pumpkin.toml` with that port, offline mode, telemetry off and no Bedrock listener. |
 | POST | `/v1/servers/<name>/start`, `/stop`, `/restart` | Lifecycle. `stop` sends `stop` on the console and waits; kill only after a timeout. |
 | GET | `/v1/servers/<name>/stats` | Now: state, RSS, CPU, uptime, and `health` (MSPT mean and max over the last 100 ticks, TPS, tick rate, players) for pack servers. Planned: `?window=60` time series with p95/p99, chunks loaded, network bytes. |
@@ -51,6 +51,6 @@ Stats come from the server itself: pack servers started with `MODDEDMC_STATS=1` 
 The app installs the agent:
 
 - Local: it runs the bundled binary as a user service.
-- Over SSH: it copies the binary for that machine's target (`aarch64-unknown-linux-gnu` on the Pi), writes `agent.toml` with the owner set to the app user's Tailscale login, and enables a systemd user service (`loginctl enable-linger` so it runs without a login session).
+- Over SSH (`app/src-tauri/src/install.rs`, offered when Add device can't reach an agent): it reads `uname -sm`, copies the agent built for that target (`aarch64-unknown-linux-gnu` on the Pi; from `MODDEDMC_AGENT_DIR/<triple>/` or the checkout's `target/<triple>/release/`), writes `agent.toml` with the owner set to the app user's Tailscale login unless one exists, runs `loginctl enable-linger` so it runs without a login session, and enables the `moddedmc-agent` systemd user service. Linux only. The script was run under WSL with systemd stubbed; it hasn't run against a real Pi yet.
 
 Nothing else is installed on the device. Pack builds are made on the laptop and pushed.
