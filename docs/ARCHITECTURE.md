@@ -1,31 +1,34 @@
 # Architecture
 
-moddedMC-rust is Pumpkin (a Rust Minecraft Java server) plus a content host. Mods are native libraries in the server's `mods/` folder that talk to the host through a stable C ABI, so a mod built once keeps working when the server is rebuilt or updated. Players join with a stock 26.3 client; all mod gameplay runs on the server.
+moddedMC-rust is Pumpkin (a Rust Minecraft Java server, our fork) plus a content host. Mods come in two kinds that run in the same server ([PORTS.md](PORTS.md)): **drop-in mods**, native libraries in the server's `mods/` folder that talk to the host through a stable C ABI, so a mod built once keeps working when the server is rebuilt or updated; and **compiled-in ports**, crates linked into a pack server that use the engine directly, for big mods the ABI can't express. Players join with a stock 26.3 client; all mod gameplay runs on the server. The plan for the rest (client companion, storage, app, agent) is in [ROADMAP.md](ROADMAP.md).
 
 ## Layout
 
 | Path | What | License |
 | --- | --- | --- |
-| `engine/pumpkin` | Pumpkin, git submodule pinned to an upstream commit. Never edited in git; our changes are `patches/pumpkin.patch`. | GPL-3.0 |
-| `patches/pumpkin.patch` | The engine patch stack (see below). `scripts/engine.ps1 apply\|save\|build`. | GPL-3.0 |
+| `engine/pumpkin` | Our Pumpkin fork: submodule on `devmogged/Pumpkin`, branch `moddedmc`. Engine changes are commits there. | GPL-3.0 |
+| `engine/Cargo.toml` | The engine workspace: Pumpkin as path dependencies, Pumpkin's lints and profiles, and the fast `pack` profile. | GPL-3.0 |
 | `engine/moddedmc-host` | Content host linked into the server: mod loader, host side of the ABI, registry, persistence, batched ticks, block events. | GPL-3.0 |
 | `engine/moddedmc-bot` | Headless Java client for scenario tests (join flow from Pumpkin's `pumpkin-tester`). | GPL-3.0 |
-| `api/` | `moddedmc-api`: the stable C ABI (`api/src/abi.rs`) and the Rust SDK mods use. No server code inside. | MIT OR Apache-2.0 |
-| `mods/*` | Rust mods (`cdylib`), packed to `.mmc` by `scripts/pack-mod.ps1`. | MIT OR Apache-2.0 |
+| `engine/packs/*` | Pack servers: Pumpkin + the host + a set of compiled-in ports. `pack-dev` is the default server. | GPL-3.0 |
+| `engine/ports/*` | Compiled-in ports (none yet; Create is first). | per mod |
+| `api/` | `moddedmc-api`: the stable C ABI (`api/src/abi.rs`) and the Rust SDK drop-in mods use. No server code inside. | MIT OR Apache-2.0 |
+| `mods/*` | Drop-in Rust mods (`cdylib`), packed to `.mmc` by `scripts/pack-mod.ps1`. | MIT OR Apache-2.0 |
 | `recompiler/` | Fabric JAR converter: `fabric-shim` (Java), `fabric-host` (the ABI mod that runs TeaVM output), `build-mod.ps1`. | MIT OR Apache-2.0 |
 | `host/` | `moddedmc`, the host app (server folder + tunnel). | MIT OR Apache-2.0 |
-| `scripts/` | `engine.ps1`, `pack-mod.ps1`, `scenario.ps1` (console + bot test runner), `host-check.ps1`, `boot-measure.ps1`. | |
+| `scripts/` | `engine.ps1 build`, `pack-mod.ps1`, `scenario.ps1` (console + bot test runner), `host-check.ps1`, `boot-measure.ps1`. | |
 | `tests/scenarios`, `tests/bench`, `tests/oracle` | Scenario files for acceptance tests, benchmarks and the Fabric oracle. | |
 
-There are two Cargo workspaces. `engine/pumpkin` (with `engine/moddedmc-*` as members) builds the server with Pumpkin's compiler, lockfile, profile and lints. The root workspace builds everything that only talks to the server through the ABI: `api`, `mods/*`, `recompiler/fabric-host` and `host`. Nothing in the root workspace has to match the server's build.
+There are two Cargo workspaces. `engine/` builds the server with Pumpkin's lints and profiles; `scripts\engine.ps1 build` produces `engine\target\pack\pack-dev.exe`. The root workspace builds everything that only talks to the server through the ABI: `api`, `mods/*`, `recompiler/fabric-host` and `host`. Nothing in the root workspace has to match the server's build.
 
-## Engine patch
+## Engine changes (devmogged/Pumpkin, branch `moddedmc`)
 
-1. **Wiring** (`crates/pumpkin`): `moddedmc_host::attach(&server)` before plugins load; the workspace lists our crates and uses `api/` by path.
-2. **`/forceload` fix**: forced chunks also take a chunk-load ticket (upstream only marked them active, so they never loaded). Upstreamable as is.
-3. **Dialog serialization** (`pumpkin-protocol/src/java/client/dialog.rs`): plugin-built Java dialogs are written in vanilla's network form (field names read from the 26.3 `net.minecraft.server.dialog` classes). Upstream returned an error that `try_send_packet` dropped. Inputs and item bodies are still left out.
-4. **Custom data write-through** (`World::set_block_entity_custom_data`): a write also updates the chunk's saved block-entity NBT and marks the chunk dirty. Upstream copies live block entities back into the chunk only in `save_block_entities`, and on player-leave unload the chunk has often already been written and dropped by then, so changes were lost. The same race still affects vanilla block-entity data (e.g. barrel contents); that is an upstream issue to report.
-5. **Client information** (`pumpkin-protocol`): reads `particle_status`, which 1.21.2+ clients send.
+1. **Embedding** (`crates/pumpkin`): the server is a library. `pumpkin::run(Launch)` starts it; `Launch` carries hooks that run once the server exists (`moddedmc_host::attach`) and built-in plugins compiled into the binary (compiled-in ports). The stock `pumpkin` binary is `pumpkin::run(Launch::default())`.
+2. **Built-in plugins** (`plugin/mod.rs`, `plugin/loader/builtin.rs`): `PluginManager::load_builtin_plugin` runs the normal plugin lifecycle for a plugin that is already in the process.
+3. **`/forceload` fix**: forced chunks also take a chunk-load ticket (upstream only marked them active, so they never loaded). Upstreamable as is.
+4. **Dialog serialization** (`pumpkin-protocol/src/java/client/dialog.rs`): plugin-built Java dialogs are written in vanilla's network form (field names read from the 26.3 `net.minecraft.server.dialog` classes). Upstream returned an error that `try_send_packet` dropped. Inputs and item bodies are still left out.
+5. **Custom data write-through** (`World::set_block_entity_custom_data`): a write also updates the chunk's saved block-entity NBT and marks the chunk dirty. Upstream copies live block entities back into the chunk only in `save_block_entities`, and on player-leave unload the chunk has often already been written and dropped by then, so changes were lost. The same race still affects vanilla block-entity data (e.g. barrel contents); that is an upstream issue to report.
+6. **Client information** (`pumpkin-protocol`): reads `particle_status`, which 1.21.2+ clients send.
 
 ## Mods
 

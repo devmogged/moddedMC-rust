@@ -1,0 +1,51 @@
+# Compiled-in ports
+
+There are two kinds of mods. Pick the one that fits the mod:
+
+| | Drop-in mod (`.mmc`) | Compiled-in port |
+| --- | --- | --- |
+| Lives in | `mods/<id>` (root workspace), see [MOD-ABI.md](MOD-ABI.md) | `engine/ports/<id>` (engine workspace) |
+| Talks to the server through | the stable C ABI in `api/` | Pumpkin's Rust API, directly |
+| Installed by | dropping the file into `mods/` | building a pack server that links it |
+| Builds in | seconds, any toolchain | the engine workspace, `pack` profile |
+| Good for | small mods: commands, simple blocks, menus, Fabric jars | big mods that need the whole engine: Create, Saints Dragons, Cataclysm |
+
+If the ABI can express a mod, make it a drop-in mod. If a mod needs real block states, entities and AI, worldgen, menus or direct world access, make it a compiled-in port. Don't grow the ABI to cover the whole engine. Both kinds run in the same server at once.
+
+## Layout
+
+```
+engine/
+  Cargo.toml          engine workspace: profiles, lints, Pumpkin path deps
+  pumpkin/            our fork (devmogged/Pumpkin, branch moddedmc)
+  moddedmc-host/      content host: drop-in mod loader, registry, ticks
+  packs/<pack>/       a pack server binary: Pumpkin + host + the pack's ports
+  ports/<id>/         a compiled-in port (library crate)
+```
+
+A port is a library crate that depends on `pumpkin-core` (and any other Pumpkin crate it needs). It exposes one function that its pack server calls:
+
+```rust
+// engine/ports/<id>/src/lib.rs
+pub fn builtin() -> (pumpkin_core::plugin::PluginMetadata, std::sync::Arc<dyn pumpkin_core::plugin::Plugin>) { ... }
+```
+
+```rust
+// engine/packs/<pack>/src/main.rs
+fn main() {
+    let mut launch = pumpkin::Launch::default().on_server_created(moddedmc_host::attach);
+    launch.builtin_plugins.push(create::builtin());
+    pumpkin::run(launch);
+}
+```
+
+`Launch` (in `engine/pumpkin/crates/pumpkin/src/lib.rs`) runs `on_server_created` hooks first, then loads built-in plugins in order, then the plugin folder. Block, item and entity behavior that doesn't fit the plugin API belongs in the engine as a generic hook (a commit in the fork), not in a port. See [CONTENT.md](CONTENT.md) for the content model ports build on.
+
+## Build times
+
+Compiled-in ports share one build with Pumpkin, so build time matters for everyone. The rules:
+
+- **Work with the `pack` profile** (`scripts\engine.ps1 build`, the default): optimized, incremental, no fat LTO. Measured numbers are in [STATUS.md](STATUS.md).
+- **`release`** (fat LTO, one codegen unit) is only for deploys and benchmarks. The app builds it in the background before deploying.
+- **Keep ports independent.** A port depends on Pumpkin crates and its own small dependencies, not on other ports unless the original mod does. Changing one port then rebuilds only that port and the pack binary.
+- **Don't put big generated tables in a port crate.** Data (models, recipes, loot tables) is loaded at startup from the port's data files, not compiled in.

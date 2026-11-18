@@ -17,7 +17,7 @@ Open an issue with the **Idea** form and wait for a yes before you write code fo
 
 - New features or new ABI functions
 - Changes to the mod ABI (`api/src/abi.rs`) or the `.mmc` format
-- Changes to the engine patch (`patches/pumpkin.patch`)
+- Engine changes beyond bug fixes (commits in `devmogged/Pumpkin`)
 - Architecture changes (new crates, new runtimes, new loaders, new platforms)
 - New dependencies
 
@@ -42,9 +42,10 @@ Unrequested PRs of this kind are closed, however good the code is.
 
 ## Project rules
 
-- **Never edit `engine/pumpkin` in git.** It is a submodule pinned to upstream. Make engine changes in the checkout, then `scripts\engine.ps1 save` to update `patches/pumpkin.patch`. `scripts\engine.ps1 apply` resets the checkout to the pin plus the patch. Prefer fixes in our own crates over engine changes.
+- **Engine changes are commits in `devmogged/Pumpkin`** (branch `moddedmc`, checked out at `engine/pumpkin`). Commit and push there, then update the submodule pointer here. We merge upstream Pumpkin often, so keep engine changes small, generic and in the Pumpkin style, and put big new systems in new crates.
 - **The mod ABI is a promise.** Mods built today must load on tomorrow's server. In `api/src/abi.rs`: append new fields to the end of `HostApi` and `ModApi`, never reorder, remove or change existing ones. A breaking change bumps `ABI_VERSION` and needs a maintainer's yes first. Update [docs/MOD-ABI.md](docs/MOD-ABI.md) in the same PR.
-- **Mods stay outside the server build.** Crates in `api/`, `mods/` and `recompiler/fabric-host` must not depend on Pumpkin crates. Everything they need goes through the ABI.
+- **Drop-in mods stay outside the server build.** Crates in `api/`, `mods/` and `recompiler/fabric-host` must not depend on Pumpkin crates. Everything they need goes through the ABI.
+- **Compiled-in ports use the engine directly.** Crates in `engine/ports/` depend on Pumpkin and link into pack servers (`engine/packs/`). Use them for ports the ABI can't express. See [docs/PORTS.md](docs/PORTS.md).
 - **No panics across the boundary.** Host functions must not unwind into a mod, and SDK callbacks catch panics before returning to the server.
 - **Unsafe code needs a `// SAFETY:` comment** saying why it is sound. The engine workspace's lints enforce this; follow it everywhere.
 - **No copyrighted game files in git.** Minecraft jars, Mojang assets and downloaded mod jars stay in the ignored `cache/`.

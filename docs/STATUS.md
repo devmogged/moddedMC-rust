@@ -6,7 +6,7 @@
 
 | What | Value |
 | --- | --- |
-| Pumpkin | upstream `87f8822ac36da62102350977be2f62f155a303dc` (2026-11-16), submodule `engine/pumpkin`; since M1 plus `patches/pumpkin.patch` |
+| Pumpkin | our fork `devmogged/Pumpkin`, branch `moddedmc` (upstream `729ddb509`, 2026-11-18, plus our commits), submodule `engine/pumpkin` |
 | Pumpkin version | `0.2.2+26.3-26.63` |
 | Minecraft Java | 26.3, protocol 777 |
 | Vanilla server jar (build-time data) | SHA-1 `33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`, from Mojang, kept in ignored `cache/`, passed via `PUMPKIN_MINECRAFT_SERVER_JAR` |
@@ -185,3 +185,18 @@ The 10,000-counter benchmark was not rerun after the ABI change; the per-tick mo
 
 `CONTRIBUTING.md`, `AGENTS.md` (with `CLAUDE.md` pointing to it), issue forms, a PR template, `SECURITY.md`, a triage playbook for agents, CI for the root workspace on three OSes, and label automation (area, size, `abi`, needs-rebase, needs more info, PR limits in dry-run until `PR_LIMITS_ENFORCE` is set), modeled on the T3 Code repository.
 
+
+## Hybrid mods and pack servers (2026-11-19)
+
+Drop-in mods (`.mmc`, stable ABI) and compiled-in ports now share one server. The engine patch became commits on `devmogged/Pumpkin` (`moddedmc`): Pumpkin is a library (`pumpkin::run(Launch)`), built-in plugins load before the plugin folder, and `pumpkin-core`'s build script watches the real git dir. The old one watched `.git/HEAD`, which doesn't exist in a submodule, so Cargo rebuilt `pumpkin-core` and everything above it on every build. `engine/` is its own workspace and builds `engine/target/pack/pack-dev.exe`.
+
+Build times, `pack` profile (optimized, incremental, no fat LTO), 20-core laptop:
+
+| Build | Time |
+| --- | --- |
+| Cold (first build on a machine) | 12 min 14 s |
+| Content host or port source changed | 5 s |
+| Change inside Pumpkin (before the fix, includes `pumpkin-core`) | 5 min 29 s |
+| Two drop-in mods packed (`pack-mod.ps1`) | 5 s |
+
+M1 (`m1-counter.txt`) and M2 (`m2-wayshrine.txt`) pass on `pack-dev` with the `.mmc` mods.
