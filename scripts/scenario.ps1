@@ -15,8 +15,8 @@ param(
     [Parameter(Mandatory)] [string]$Scenario,
     [string]$RunDir = 'run\scenario',
     [switch]$Fresh,
-    [string]$Exe = 'engine\pumpkin\target\release\pumpkin.exe',
-    [string]$BotExe = 'engine\pumpkin\target\debug\moddedmc-bot.exe',
+    [string]$Exe = 'engine\target\pack\pack-dev.exe',
+    [string]$BotExe = 'engine\target\pack\moddedmc-bot.exe',
     [string]$ExeArgs = ''   # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
 )
 $ErrorActionPreference = 'Stop'

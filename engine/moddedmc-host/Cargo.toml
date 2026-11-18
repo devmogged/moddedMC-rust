@@ -4,8 +4,6 @@ version = "0.1.0"
 description = "moddedMC-rust content host: loads mods from mods/ through the stable mod ABI; registry, persistence and batched ticks."
 edition.workspace = true
 license = "GPL-3.0-only"
-# Built as a member of the pinned Pumpkin workspace (see ../pumpkin/Cargo.toml).
-workspace = "../pumpkin"
 
 [dependencies]
 pumpkin-core.workspace = true

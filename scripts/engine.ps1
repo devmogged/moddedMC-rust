@@ -1,40 +1,26 @@
-# Manages our patch stack on the pinned Pumpkin submodule.
-#   scripts\engine.ps1 apply   reset engine/pumpkin to the pinned commit and apply patches\pumpkin.patch
-#   scripts\engine.ps1 save    write the current engine/pumpkin changes to patches\pumpkin.patch
-#   scripts\engine.ps1 build   apply, then cargo build --release the server (mods build on their own: scripts\pack-mod.ps1)
-# The submodule pointer always stays at the upstream commit; our changes live only in the patch.
-param([Parameter(Mandatory)][ValidateSet('apply', 'save', 'build')] [string]$Action)
+# Builds a pack server: Pumpkin (engine/pumpkin, our fork devmogged/Pumpkin, branch moddedmc) with
+# the content host and the pack's compiled-in ports, plus the test bot.
+#   scripts\engine.ps1 build [-Pack dev] [-Profile pack|release|dev]
+#     pack     (default) optimized, incremental, no fat LTO: fast rebuilds while working
+#     release  fat LTO, for deploys and benchmarks (slow: start it in the background)
+#     dev      unoptimized debug build
+# Output: engine\target\<profile dir>\pack-<name>.exe and moddedmc-bot.exe.
+# Engine changes are ordinary commits in engine/pumpkin (push them to devmogged/Pumpkin).
+param(
+    [Parameter(Mandatory)][ValidateSet('build')] [string]$Action,
+    [string]$Pack = 'dev',
+    [ValidateSet('pack', 'release', 'dev')] [string]$Profile = 'pack'
+)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$engine = Join-Path $root 'engine\pumpkin'
-$patch = Join-Path $root 'patches\pumpkin.patch'
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
-
-function Invoke-Git { git -c core.safecrlf=false -C $engine @args; if ($LASTEXITCODE) { throw "git $args failed" } }
-
-switch ($Action) {
-    'save' {
-        # Intent-to-add makes new files show up in the diff.
-        Invoke-Git add -N .
-        $diff = git -c core.safecrlf=false -C $engine diff --binary
-        New-Item -ItemType Directory -Force (Split-Path $patch) | Out-Null
-        [IO.File]::WriteAllText($patch, (($diff -join "`n") + "`n"))
-        Invoke-Git reset -q
-        "saved $((Get-Item $patch).Length) bytes to patches\pumpkin.patch"
-    }
-    { $_ -in 'apply', 'build' } {
-        Invoke-Git reset -q --hard
-        Invoke-Git clean -fdq
-        Invoke-Git apply --whitespace=nowarn $patch
-        "applied patches\pumpkin.patch on $(git -C $engine rev-parse --short HEAD)"
-        if ($Action -eq 'build') {
-            if (-not $env:PUMPKIN_MINECRAFT_SERVER_JAR) {
-                $env:PUMPKIN_MINECRAFT_SERVER_JAR = Join-Path $root 'cache\mc-26.3\server.jar'
-            }
-            Push-Location $engine
-
-            try { cargo build --release -p pumpkin; if ($LASTEXITCODE) { throw 'build failed' } }
-            finally { Pop-Location }
-        }
-    }
+if (-not $env:PUMPKIN_MINECRAFT_SERVER_JAR) {
+    $jar = Join-Path $root 'cache\mc-26.3\server.jar'
+    if (Test-Path $jar) { $env:PUMPKIN_MINECRAFT_SERVER_JAR = $jar }
 }
+Push-Location (Join-Path $root 'engine')
+try {
+    cargo build --profile $Profile -p "pack-$Pack" -p moddedmc-bot
+    if ($LASTEXITCODE) { throw 'build failed' }
+}
+finally { Pop-Location }

@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Headless Java client for moddedMC-rust scenario tests. Join/handshake code from Pumpkin's pumpkin-tester."
 edition.workspace = true
 license = "GPL-3.0-only"
-workspace = "../pumpkin"
 
 [dependencies]
 bytes.workspace = true
