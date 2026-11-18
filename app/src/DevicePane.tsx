@@ -74,7 +74,7 @@ export function DevicePane({
                         <span className="row-name">{server.name}</span>
                         <span className="row-line">{server.pack ?? "No pack"}</span>
                       </span>
-                      <ServerCluster state={server.state} />
+                      <ServerCluster device={device} server={server} />
                     </button>
                   ))}
                 </div>

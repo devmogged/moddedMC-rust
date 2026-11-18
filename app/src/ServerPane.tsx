@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Play, RotateCw, Square } from "lucide-react";
 import { api, minecraftAddress, type Device, type ServerInfo, type Stats } from "./api";
-import { ServerCluster, ServerIcon, bytes, duration, usePlayers, usePoll } from "./ui";
+import { ServerCluster, ServerIcon, bytes, duration, usePoll } from "./ui";
 
 type Tab = "console" | "performance";
 
@@ -16,9 +16,11 @@ export function ServerPane({
   onChanged: () => void;
   onError: (err: unknown) => void;
 }) {
-  const [tab, setTab] = useState<Tab>("console");
+  // Dev previews can open a tab directly: #server/pi/survival/performance.
+  const [tab, setTab] = useState<Tab>(
+    import.meta.env.DEV && location.hash.endsWith("/performance") ? "performance" : "console",
+  );
   const [busy, setBusy] = useState(false);
-  const players = usePlayers(device, server);
 
   const act = async (action: "start" | "stop" | "restart") => {
     setBusy(true);
@@ -52,7 +54,7 @@ export function ServerPane({
             <h1 className="row-name">{server.name}</h1>
             <p className="row-line">{line}</p>
           </div>
-          <ServerCluster state={server.state} players={players?.players_online} max={players?.players_max} />
+          <ServerCluster device={device} server={server} />
         </div>
         <div className="actions">
           {up || moving ? (
@@ -240,10 +242,35 @@ function Performance({ device, server }: { device: string; server: ServerInfo })
   const latest = value;
   const memory = samples.map((s) => s.rss_bytes ?? 0);
   const cpu = samples.map((s) => s.cpu_percent ?? 0);
+  const mspt = samples.map((s) => s.health?.mspt ?? 0);
+  const health = latest?.health;
 
   return (
     <div className="pane-body">
       <div className="stats">
+        {health ? (
+          <>
+            <div className="stat">
+              <div className="stat-label">Tick time</div>
+              <div className="stat-value">
+                {health.mspt.toFixed(1)}
+                <small>ms</small>
+              </div>
+              <Spark values={mspt} min={0} max={1000 / health.tickrate} />
+            </div>
+            <div className="stat">
+              <div className="stat-label">TPS</div>
+              <div className="stat-value">{health.tps.toFixed(1)}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Players</div>
+              <div className="stat-value">
+                {health.players}
+                <small>of {health.max_players}</small>
+              </div>
+            </div>
+          </>
+        ) : null}
         <div className="stat">
           <div className="stat-label">Memory</div>
           <div className="stat-value">{bytes(latest?.rss_bytes)}</div>

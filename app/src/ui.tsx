@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, minecraftAddress, type Device, type ServerInfo, type ServerState } from "./api";
+import { api, minecraftAddress, type Device, type Health, type ServerInfo } from "./api";
 
 /* ---------- polling ---------- */
 
@@ -137,28 +137,39 @@ export function pingBars(ms: number): number {
   return 1;
 }
 
-/** The status cluster for a hosted server. Tick health shows once the agent reports MSPT. */
-export function ServerCluster({
-  state,
-  players,
-  max,
-}: {
-  state: ServerState;
-  players?: number | null;
-  max?: number | null;
-}) {
-  switch (state) {
-    case "running":
+/**
+ * Tick health as the list's five bars: all five while ticks use under half their budget,
+ * then one fewer at 80% and at 100% of it, two when TPS falls under 75% of the tick rate.
+ */
+export function healthBars(health: Health): { lit: number; tone: BarsTone } {
+  const budget = 1000 / health.tickrate;
+  if (health.tps < health.tickrate * 0.75) return { lit: 1, tone: "bad" };
+  if (health.mspt >= budget) return { lit: 2, tone: "warn" };
+  if (health.mspt >= budget * 0.8) return { lit: 3, tone: "warn" };
+  if (health.mspt >= budget * 0.5) return { lit: 4, tone: "ok" };
+  return { lit: 5, tone: "ok" };
+}
+
+/** The status cluster for a hosted server: tick health and players while it runs. */
+export function ServerCluster({ device, server }: { device: Device; server: ServerInfo }) {
+  const live = useLive(device, server);
+  switch (server.state) {
+    case "running": {
+      const bars = live.health ? healthBars(live.health) : { lit: 5, tone: "unknown" as const };
+      const label = live.health
+        ? `${live.health.mspt.toFixed(1)} ms per tick, ${live.health.tps.toFixed(1)} TPS`
+        : "Running";
       return (
         <span className="cluster">
-          <Bars lit={5} tone="unknown" label="Running" />
-          {players != null && max != null ? (
+          <Bars lit={bars.lit} tone={bars.tone} label={label} />
+          {live.players != null && live.max != null ? (
             <span>
-              {players}/{max}
+              {live.players}/{live.max}
             </span>
           ) : null}
         </span>
       );
+    }
     case "starting":
       return (
         <span className="cluster">
@@ -249,9 +260,15 @@ export function duration(secs: number | null | undefined): string {
 
 export const routeLabel = { local: "Local", tailscale: "Tailscale", ssh: "SSH" } as const;
 
-/** Player counts come from the server itself, the same ping the game's list sends. */
-export function usePlayers(device: Device, server: ServerInfo) {
-  const address = server.state === "running" ? minecraftAddress(device, server) : null;
+/**
+ * Health and players for a running server. Pack servers report both to the agent; any other
+ * server gets the game's server-list ping for its player count.
+ */
+export function useLive(device: Device, server: ServerInfo) {
+  const health = server.state === "running" ? server.health : null;
+  const address = server.state === "running" && !health ? minecraftAddress(device, server) : null;
   const { value } = usePoll(address ? () => api.ping(address) : null, 5000, [address]);
-  return address ? value : null;
+  if (health) return { health, players: health.players, max: health.max_players };
+  const ping = address ? value : null;
+  return { health: null, players: ping?.players_online ?? null, max: ping?.players_max ?? null };
 }

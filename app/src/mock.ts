@@ -18,6 +18,18 @@ const log = [
   "[00:05:40] INFO noel joined the game",
 ];
 
+function health(base: number) {
+  const mspt = base + Math.sin(Date.now() / 5000) * base * 0.15;
+  return {
+    mspt,
+    mspt_max: mspt * 1.8,
+    tps: Math.min(20, 1000 / mspt),
+    tickrate: 20,
+    players: 3,
+    max_players: 20,
+  };
+}
+
 function servers(device: string) {
   if (device === "pi") {
     return [
@@ -29,6 +41,7 @@ function servers(device: string) {
         pid: 812,
         uptime_secs: (Date.now() - started) / 1000 + 86000,
         exit_code: null,
+        health: health(14),
       },
       {
         name: "boss-rush",
@@ -38,6 +51,7 @@ function servers(device: string) {
         pid: null,
         uptime_secs: null,
         exit_code: 101,
+        health: state["boss-rush"] === "running" ? health(41) : null,
       },
     ];
   }
@@ -50,6 +64,7 @@ function servers(device: string) {
       pid: null,
       uptime_secs: null,
       exit_code: 0,
+      health: state.create === "running" ? health(6) : null,
     },
   ];
 }
@@ -92,6 +107,7 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           rss_bytes: 612 * 2 ** 20 + Math.sin(Date.now() / 9000) * 40 * 2 ** 20,
           cpu_percent: 18 + Math.sin(Date.now() / 4000) * 9,
           uptime_secs: (Date.now() - started) / 1000 + 86000,
+          health: state[match[1]] === "running" ? health(match[1] === "survival" ? 14 : 41) : null,
         };
       return null;
     }

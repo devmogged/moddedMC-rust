@@ -33,6 +33,16 @@ export interface ServerInfo {
   pid: number | null;
   uptime_secs: number | null;
   exit_code: number | null;
+  health: Health | null;
+}
+
+export interface Health {
+  mspt: number;
+  mspt_max: number;
+  tps: number;
+  tickrate: number;
+  players: number;
+  max_players: number;
 }
 
 export interface Stats {
@@ -40,6 +50,7 @@ export interface Stats {
   rss_bytes: number | null;
   cpu_percent: number | null;
   uptime_secs: number | null;
+  health: Health | null;
 }
 
 export interface Friend {
