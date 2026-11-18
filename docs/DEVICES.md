@@ -33,16 +33,18 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
 | --- | --- | --- |
 | GET | `/v1/device` | Name, OS, arch, CPU count, RAM, disk free, agent version, Tailscale name. |
 | GET | `/v1/servers` | Every server folder: name, pack, state (`stopped`, `starting`, `running`, `stopping`, `crashed`), PID, port, players online. Also lists Minecraft servers running on the machine that the agent didn't start (a Java or Pumpkin process listening on a port), marked `external`. |
-| POST | `/v1/servers` | Create a server from a build: `{name, build, port}`. |
+| POST | `/v1/servers` | Create a server: `{name, exe, port, pack}`. A new folder gets a `pumpkin.toml` with that port, offline mode, telemetry off and no Bedrock listener. |
 | POST | `/v1/servers/<name>/start`, `/stop`, `/restart` | Lifecycle. `stop` sends `stop` on the console and waits; kill only after a timeout. |
-| GET | `/v1/servers/<name>/stats?window=60` | Time series: MSPT p50/p95/p99, TPS, RSS, CPU, players, chunks loaded, network bytes in and out. |
+| GET | `/v1/servers/<name>/stats` | Now: state, RSS, CPU, uptime, and `health` (MSPT mean and max over the last 100 ticks, TPS, tick rate, players) for pack servers. Planned: `?window=60` time series with p95/p99, chunks loaded, network bytes. |
 | WS | `/v1/servers/<name>/console` | Log lines out (with the last 500 on connect), console commands in. |
-| PUT | `/v1/builds/<pack>-<hash>` | Upload a pack build (tar.zst). Idempotent: an existing hash returns 200 at once. |
+| POST | `/v1/builds/<pack>-<key>` | Upload a pack build: a zip of a `moddedmc-pack` output folder (up to 1 GiB). An id that is already there returns 200 at once. |
+| GET | `/v1/builds` | Uploaded builds: id, pack, version. |
+| POST | `/v1/servers/<name>/deploy` | `{build}`: a stopped server runs that build from now on, and its `mods/*.mmc` are replaced with the build's. |
 | PUT | `/v1/servers/<name>/mods/<file>`, DELETE likewise | Drop-in mods. |
 | POST | `/v1/servers/<name>/backups`, GET likewise | Take and list snapshots. |
 | POST | `/v1/servers/<name>/pregen` | Start pregeneration with `{radius, center}`; progress comes over the console socket. |
 
-Stats come from the server itself: pack servers print one machine-readable stats line per second when started with `MODDEDMC_STATS=1` (the host already has `stats::attach`). The agent never polls with game commands.
+Stats come from the server itself: pack servers started with `MODDEDMC_STATS=1` write `stats.json` every two seconds (`engine/moddedmc-host/src/live_stats.rs`). The agent never polls with game commands.
 
 ## Install
 

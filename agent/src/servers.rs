@@ -163,7 +163,7 @@ async fn read_health(dir: &Path) -> Option<Health> {
 }
 
 /// A folder name is a server name: letters, digits, `-`, `_`, `.`, no path tricks.
-fn valid_name(name: &str) -> bool {
+pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && !name.starts_with('.')
@@ -365,10 +365,96 @@ impl Servers {
             let _ = self.stop(&name).await;
         }
     }
+
+    /// Points a stopped server at a build and replaces its drop-in mods with the build's.
+    async fn deploy(
+        &self,
+        name: &str,
+        build: &Path,
+        exe: PathBuf,
+        pack: String,
+    ) -> Result<(), (StatusCode, String)> {
+        let dir = self.root.join(name);
+        let mut file = read_server_file(&dir)
+            .await
+            .ok_or((StatusCode::NOT_FOUND, format!("no server named {name}")))?;
+        let managed = self.entry(name).await;
+        // Held to the end, so nobody starts the server halfway through.
+        let guard = managed.lock().await;
+        if guard.running.is_some() {
+            return Err((StatusCode::CONFLICT, format!("stop {name} first")));
+        }
+        let internal = |e: std::io::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+        let mods = dir.join("mods");
+        tokio::fs::create_dir_all(&mods).await.map_err(internal)?;
+        let mut old = tokio::fs::read_dir(&mods).await.map_err(internal)?;
+        while let Some(entry) = old.next_entry().await.map_err(internal)? {
+            if entry.path().extension().is_some_and(|e| e == "mmc") {
+                tokio::fs::remove_file(entry.path())
+                    .await
+                    .map_err(internal)?;
+            }
+        }
+        if let Ok(mut new) = tokio::fs::read_dir(build.join("mods")).await {
+            while let Some(entry) = new.next_entry().await.map_err(internal)? {
+                if entry.path().extension().is_some_and(|e| e == "mmc") {
+                    tokio::fs::copy(entry.path(), mods.join(entry.file_name()))
+                        .await
+                        .map_err(internal)?;
+                }
+            }
+        }
+        file.exe = exe;
+        file.pack = Some(pack);
+        let json = serde_json::to_string_pretty(&file)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        tokio::fs::write(dir.join("server.json"), json)
+            .await
+            .map_err(internal)?;
+        drop(guard);
+        info!("{name} now runs {}", build.display());
+        Ok(())
+    }
 }
 
 fn error(status: StatusCode, message: String) -> Response {
     (status, message).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct Deploy {
+    build: String,
+}
+
+pub async fn deploy(
+    State(app): State<Arc<App>>,
+    UrlPath(name): UrlPath<String>,
+    Json(body): Json<Deploy>,
+) -> Response {
+    if let Some(response) = bad_name(&name) {
+        return response;
+    }
+    if !valid_name(&body.build) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            format!("bad build id {:?}", body.build),
+        );
+    }
+    let build = crate::builds::root().join(&body.build);
+    let Some((pack, version, exe)) = crate::builds::describe(&build).await else {
+        return error(
+            StatusCode::NOT_FOUND,
+            format!("no build named {}", body.build),
+        );
+    };
+    match app
+        .servers
+        .deploy(&name, &build, exe, format!("{pack} {version}"))
+        .await
+    {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err((status, message)) => error(status, message),
+    }
 }
 
 pub async fn list(State(app): State<Arc<App>>) -> Json<Vec<ServerInfo>> {

@@ -2,6 +2,7 @@
 //! them. See docs/DEVICES.md for the contract.
 
 mod auth;
+mod builds;
 mod config;
 mod device;
 mod pumpkin_config;
@@ -10,7 +11,9 @@ mod servers;
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    Router, middleware,
+    Router,
+    extract::DefaultBodyLimit,
+    middleware,
     routing::{get, post},
 };
 use tokio::net::TcpListener;
@@ -52,6 +55,12 @@ async fn main() {
         .route("/v1/servers/{name}/restart", post(servers::restart))
         .route("/v1/servers/{name}/stats", get(servers::stats))
         .route("/v1/servers/{name}/console", get(servers::console))
+        .route("/v1/servers/{name}/deploy", post(servers::deploy))
+        .route("/v1/builds", get(builds::list))
+        .route(
+            "/v1/builds/{id}",
+            post(builds::upload).layer(DefaultBodyLimit::max(builds::MAX_UPLOAD)),
+        )
         .layer(middleware::from_fn_with_state(
             app.clone(),
             auth::require_owner,
