@@ -102,7 +102,13 @@ Ownership and lifetimes:
 Versioning:
 
 - `ABI_VERSION` changes only for breaking changes (a changed signature, a removed function, different meaning). Old mods then need a rebuild.
-- New host functions and new mod callbacks are appended to the end of their table, and `size` (the table's byte size) grows. A mod built against a newer SDK refuses to start on a server whose `HostApi` is smaller than the one it was built with; an older mod runs on a newer server.
+- New host functions and new mod callbacks are appended to the end of their table, and `size` (the table's byte size) grows. The SDK reads the original ABI 1 prefix on any ABI 1 host. A mod that requires an unavailable extension refuses to start.
+
+## Interfaces
+
+`HostApi::get_interface(name, version)` returns a process-lifetime table for the exact namespaced name and version, or null. Each table is `#[repr(C)]`, begins with its byte size (`usize`), and uses C ABI functions. Append fields without changing existing offsets or behavior. A breaking change gets a new interface version, and the host can serve both versions.
+
+The Rust SDK checks the host's size before reading `get_interface` and checks the returned table's size before using its functions. Require interfaces in `Mod::start` to refuse startup with a log line naming the missing interface.
 
 Packaging (`.mmc`): a zip with
 

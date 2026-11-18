@@ -17,7 +17,7 @@ pub const ABI_SYMBOL: &[u8] = b"MODDEDMC_ABI\0";
 /// `static MODDEDMC_ID: Str`, the mod's id: namespace of everything it adds and name of its
 /// data folder. Read before the mod is started.
 pub const ID_SYMBOL: &[u8] = b"MODDEDMC_ID\0";
-/// `extern "C" fn moddedmc_mod(host: &'static HostApi) -> *const ModApi`, null on failure.
+/// `extern "C" fn moddedmc_mod(host: *const HostApi) -> *const ModApi`, null on failure.
 pub const ENTRY_SYMBOL: &[u8] = b"moddedmc_mod\0";
 
 /// Borrowed bytes (UTF-8 where a string is meant). Valid for the call it is passed in, unless
@@ -207,6 +207,8 @@ pub struct HostApi {
     pub tick_count: unsafe extern "C" fn() -> u64,
     /// The n-th loaded dimension, or an empty string past the end. Static.
     pub dimension: unsafe extern "C" fn(index: usize) -> Str,
+    /// Finds a process-lifetime interface table by exact name and version, or returns null.
+    pub get_interface: unsafe extern "C" fn(name: Str, version: u32) -> *const c_void,
 }
 
 /// A mod, as seen by the server. Returned by `moddedmc_mod`; lives for the whole process. Calls
@@ -279,11 +281,12 @@ mod layout {
             (offset_of!(HostApi, show_menu), 120),
             (offset_of!(HostApi, tick_count), 128),
             (offset_of!(HostApi, dimension), 136),
+            (offset_of!(HostApi, get_interface), 144),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "HostApi field #{i} moved");
         }
-        assert!(size_of::<HostApi>() >= 144);
+        assert!(size_of::<HostApi>() >= 152);
     }
 
     #[test]

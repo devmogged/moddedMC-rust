@@ -26,18 +26,25 @@ use std::{
     marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
     path::Path,
-    sync::OnceLock,
+    sync::atomic::{AtomicPtr, Ordering},
 };
 
 pub use abi::{ABI_VERSION, Pos};
 use abi::{HostApi, ModApi, PlayerRef, Reg, Sink, Str, code};
 
-static HOST: OnceLock<&'static HostApi> = OnceLock::new();
+static HOST: AtomicPtr<HostApi> = AtomicPtr::new(std::ptr::null_mut());
 
-fn host() -> &'static HostApi {
-    HOST.get()
-        .copied()
-        .expect("moddedmc: host API used before the mod was loaded")
+// Read individual fields. An older ABI 1 server owns only the published prefix.
+macro_rules! host_field {
+    ($field:ident) => {{
+        let host = HOST.load(Ordering::Acquire);
+        assert!(
+            !host.is_null(),
+            "moddedmc: host API used before the mod was loaded"
+        );
+        // SAFETY: export checks the prefix size, and callers check any appended field.
+        (&raw const (*host).$field).read()
+    }};
 }
 
 fn s(text: &str) -> Str {
@@ -46,35 +53,76 @@ fn s(text: &str) -> Str {
 
 pub fn info(message: &str) {
     // SAFETY: host functions accept any borrowed string.
-    unsafe { (host().log)(abi::level::INFO, s(message)) }
+    unsafe { (host_field!(log))(abi::level::INFO, s(message)) }
 }
 pub fn warn(message: &str) {
     // SAFETY: as above.
-    unsafe { (host().log)(abi::level::WARN, s(message)) }
+    unsafe { (host_field!(log))(abi::level::WARN, s(message)) }
 }
 pub fn error(message: &str) {
     // SAFETY: as above.
-    unsafe { (host().log)(abi::level::ERROR, s(message)) }
+    unsafe { (host_field!(log))(abi::level::ERROR, s(message)) }
 }
 
 /// `<server>/config/<mod id>`, already created.
 pub fn data_dir() -> &'static Path {
     // SAFETY: the host documents `data_dir` as static.
-    Path::new(unsafe { host().data_dir.str() })
+    Path::new(unsafe { host_field!(data_dir).str() })
 }
 
 /// Server ticks since start.
 pub fn tick_count() -> u64 {
     // SAFETY: no arguments.
-    unsafe { (host().tick_count)() }
+    unsafe { (host_field!(tick_count))() }
 }
 
 /// Loaded dimensions, e.g. `minecraft:overworld`.
 pub fn dimensions() -> impl Iterator<Item = &'static str> {
     // SAFETY: the host documents dimension names as static.
     (0..)
-        .map(|i| unsafe { (host().dimension)(i).str() })
+        .map(|i| unsafe { (host_field!(dimension))(i).str() })
         .take_while(|d| !d.is_empty())
+}
+
+/// A required interface is missing, or its table is shorter than this SDK needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InterfaceUnavailable {
+    pub name: &'static str,
+    pub version: u32,
+}
+
+impl std::fmt::Display for InterfaceUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "missing required interface {} version {}",
+            self.name, self.version
+        )
+    }
+}
+
+impl std::error::Error for InterfaceUnavailable {}
+
+/// # Safety
+/// T must be the published table for this name/version, starting with a usize size.
+pub unsafe fn require_interface<T>(
+    name: &'static str,
+    version: u32,
+) -> Result<&'static T, InterfaceUnavailable> {
+    let unavailable = InterfaceUnavailable { name, version };
+    // SAFETY: size is part of the checked ABI 1 prefix.
+    if unsafe { host_field!(size) } < size_of::<HostApi>() {
+        return Err(unavailable);
+    }
+    // SAFETY: the size check includes get_interface and the name is borrowed for the call.
+    let table = unsafe { (host_field!(get_interface))(s(name), version) };
+    // SAFETY: a non-null result points to a static, aligned table with a leading size.
+    let size = unsafe { table.cast::<usize>().as_ref() }.ok_or(unavailable)?;
+    if *size < size_of::<T>() {
+        return Err(unavailable);
+    }
+    // SAFETY: the caller identifies T and the checked table contains all its fields.
+    Ok(unsafe { &*table.cast::<T>() })
 }
 
 /// A block entity type. Its state is opaque bytes owned by the mod; the server saves them with
@@ -141,7 +189,7 @@ impl Registry<'_> {
         let mut index = 0;
         // SAFETY: `reg` is live for this registration; strings are borrowed for the call.
         let code = unsafe {
-            (host().add_block_entity)(
+            (host_field!(add_block_entity))(
                 self.reg,
                 s(&def.id),
                 def.state_version,
@@ -156,7 +204,7 @@ impl Registry<'_> {
     pub fn add_block(&mut self, def: BlockDef) -> Result<(), RegistrationError> {
         // SAFETY: as above.
         RegistrationError::from_code(unsafe {
-            (host().add_block)(
+            (host_field!(add_block))(
                 self.reg,
                 s(&def.id),
                 s(&def.display_name),
@@ -175,7 +223,7 @@ impl Registry<'_> {
     ) -> Result<(), RegistrationError> {
         // SAFETY: as above.
         RegistrationError::from_code(unsafe {
-            (host().add_command)(self.reg, s(name), s(description), tag)
+            (host_field!(add_command))(self.reg, s(name), s(description), tag)
         })
     }
 }
@@ -207,18 +255,18 @@ impl<'a> Player<'a> {
 
     pub fn name(&self) -> &'a str {
         // SAFETY: the name lives as long as the player reference.
-        unsafe { (host().player_name)(self.raw).str() }
+        unsafe { (host_field!(player_name))(self.raw).str() }
     }
 
     pub fn dimension(&self) -> &'static str {
         // SAFETY: dimension names are static.
-        unsafe { (host().player_dimension)(self.raw).str() }
+        unsafe { (host_field!(player_dimension))(self.raw).str() }
     }
 
     pub fn position(&self) -> Position {
         let mut out = [0.0; 5];
         // SAFETY: `out` is the 5 doubles the host writes.
-        unsafe { (host().player_position)(self.raw, &raw mut out) };
+        unsafe { (host_field!(player_position))(self.raw, &raw mut out) };
         #[expect(
             clippy::cast_possible_truncation,
             reason = "yaw and pitch are f32 on the server"
@@ -234,18 +282,18 @@ impl<'a> Player<'a> {
 
     pub fn send_message(&self, text: &str) {
         // SAFETY: borrowed for the call.
-        unsafe { (host().send_message)(self.raw, s(text), false) }
+        unsafe { (host_field!(send_message))(self.raw, s(text), false) }
     }
 
     pub fn action_bar(&self, text: &str) {
         // SAFETY: borrowed for the call.
-        unsafe { (host().send_message)(self.raw, s(text), true) }
+        unsafe { (host_field!(send_message))(self.raw, s(text), true) }
     }
 
     /// Puts the item that places `block_id` in the player's hand. False if no such block.
     pub fn give_block(&self, block_id: &str) -> bool {
         // SAFETY: borrowed for the call.
-        unsafe { (host().give_block)(self.raw, s(block_id)) }
+        unsafe { (host_field!(give_block))(self.raw, s(block_id)) }
     }
 
     /// Moves the player, across dimensions if needed. `rotation` is (yaw, pitch); `None` keeps it.
@@ -259,7 +307,7 @@ impl<'a> Player<'a> {
     ) -> bool {
         let (yaw, pitch) = rotation.unwrap_or((f32::NAN, f32::NAN));
         // SAFETY: borrowed for the call.
-        unsafe { (host().teleport)(self.raw, s(dimension), x, y, z, yaw, pitch) }
+        unsafe { (host_field!(teleport))(self.raw, s(dimension), x, y, z, yaw, pitch) }
     }
 
     /// Shows a menu of buttons; a pick arrives in [`Mod::menu_click`] with the button's action.
@@ -275,7 +323,7 @@ impl<'a> Player<'a> {
             .collect();
         // SAFETY: everything is borrowed for the call.
         unsafe {
-            (host().show_menu)(
+            (host_field!(show_menu))(
                 self.raw,
                 s(&menu.title),
                 s(&menu.body),
@@ -364,13 +412,18 @@ impl Command<'_> {
     /// Answers whoever ran the command.
     pub fn reply(&self, text: &str) {
         // SAFETY: `source` is live for this call.
-        unsafe { (host().reply)(self.source, s(text)) }
+        unsafe { (host_field!(reply))(self.source, s(text)) }
     }
 }
 
 /// Implemented by a mod. Calls can arrive from several threads at once. A panic is caught,
 /// logged, and treated as "did nothing".
 pub trait Mod: Send + Sync + 'static {
+    /// Check required interfaces at library startup, before worlds load.
+    fn start(&self) -> Result<(), InterfaceUnavailable> {
+        Ok(())
+    }
+
     /// Called once, on the server's first tick.
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError>;
 
@@ -544,16 +597,35 @@ unsafe extern "C" fn menu_click<M: Mod>(inst: *const c_void, player: PlayerRef, 
 
 /// Used by [`export_mod!`].
 #[doc(hidden)]
-pub fn export<M: Mod>(
-    host: &'static HostApi,
+/// # Safety
+/// The host points to the process-lifetime ABI header and the advertised table bytes.
+pub unsafe fn export<M: Mod>(
+    host: *const HostApi,
     version: &'static str,
     make: fn() -> M,
 ) -> *const ModApi {
-    if host.abi_version != ABI_VERSION || host.size < size_of::<HostApi>() {
+    // SAFETY: the loader supplies the ABI header even when only the original prefix exists.
+    if host.is_null()
+        || unsafe { (&raw const (*host).abi_version).read() } != ABI_VERSION
+        || unsafe { (&raw const (*host).size).read() }
+            < std::mem::offset_of!(HostApi, get_interface)
+    {
         return std::ptr::null();
     }
-    let _ = HOST.set(host);
-    let Some(module) = guard("startup", None, || Some(make())) else {
+    let _ = HOST.compare_exchange(
+        std::ptr::null_mut(),
+        host.cast_mut(),
+        Ordering::Release,
+        Ordering::Relaxed,
+    );
+    let Some(module) = guard("startup", None, || {
+        let module = make();
+        if let Err(err) = module.start() {
+            error(&err.to_string());
+            return None;
+        }
+        Some(module)
+    }) else {
         return std::ptr::null();
     };
     let api = ModApi {
@@ -591,10 +663,13 @@ macro_rules! export_mod {
         pub static MODDEDMC_ID: $crate::abi::Str = $crate::abi::Str::new($id.as_bytes());
 
         #[unsafe(no_mangle)]
-        pub extern "C" fn moddedmc_mod(
-            host: &'static $crate::abi::HostApi,
+        /// # Safety
+        /// The loader passes a process-lifetime host ABI table.
+        pub unsafe extern "C" fn moddedmc_mod(
+            host: *const $crate::abi::HostApi,
         ) -> *const $crate::abi::ModApi {
-            $crate::export(host, env!("CARGO_PKG_VERSION"), || $make)
+            // SAFETY: the loader supplies the table described by the ABI.
+            unsafe { $crate::export(host, env!("CARGO_PKG_VERSION"), || $make) }
         }
     };
 }

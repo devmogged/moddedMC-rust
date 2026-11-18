@@ -213,11 +213,11 @@ fn load(path: &Path) -> Result<Native, String> {
             return Err(format!("invalid mod id {id:?}"));
         }
         let entry = library
-            .get::<extern "C" fn(&'static HostApi) -> *const ModApi>(ENTRY_SYMBOL)
+            .get::<unsafe extern "C" fn(*const HostApi) -> *const ModApi>(ENTRY_SYMBOL)
             .map_err(|_| "not a moddedMC mod (no moddedmc_mod)".to_owned())?;
         let api = entry(Box::leak(Box::new(host_api(id))));
         if api.is_null() {
-            return Err("the mod refused to start (wrong ABI or a panic)".into());
+            return Err("the mod refused to start".into());
         }
         Native { api: &*api, id }
     };
@@ -260,7 +260,12 @@ fn host_api(id: &str) -> HostApi {
         show_menu,
         tick_count,
         dimension,
+        get_interface,
     }
+}
+
+unsafe extern "C" fn get_interface(_name: Str, _version: u32) -> *const c_void {
+    std::ptr::null()
 }
 
 /// # Safety
