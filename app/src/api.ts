@@ -37,6 +37,8 @@ export interface ServerInfo {
   /** Running on the device, but not started by its agent: shown, not controlled. */
   external: boolean;
   program: string | null;
+  /** Where an external server lives. */
+  folder: string | null;
 }
 
 export interface Health {

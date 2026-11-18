@@ -44,6 +44,7 @@ function servers(device: string) {
         health: health(14),
         external: false,
         program: null,
+        folder: null,
       },
       {
         name: "boss-rush",
@@ -56,6 +57,7 @@ function servers(device: string) {
         health: state["boss-rush"] === "running" ? health(41) : null,
         external: false,
         program: null,
+        folder: null,
       },
     ];
   }
@@ -71,6 +73,7 @@ function servers(device: string) {
       health: state.create === "running" ? health(6) : null,
       external: false,
       program: null,
+      folder: null,
     },
     {
       name: "old-paper",
@@ -83,6 +86,20 @@ function servers(device: string) {
       health: null,
       external: true,
       program: "java",
+      folder: "D:/servers/old-paper",
+    },
+    {
+      name: "fabric-test",
+      state: "stopped",
+      pack: "fabric-server-launch",
+      port: 25590,
+      pid: null,
+      uptime_secs: null,
+      exit_code: null,
+      health: null,
+      external: true,
+      program: null,
+      folder: "D:/servers/fabric-test",
     },
   ];
 }

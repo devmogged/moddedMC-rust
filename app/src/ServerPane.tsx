@@ -88,12 +88,26 @@ export function ServerPane({
       {server.external ? (
         <div className="pane-body ruled">
           <dl className="facts">
-            <dt>Program</dt>
-            <dd>{server.program ?? "–"}</dd>
-            <dt>Process</dt>
-            <dd>{server.pid ?? "–"}</dd>
+            {server.program ? (
+              <>
+                <dt>Program</dt>
+                <dd>{server.program}</dd>
+              </>
+            ) : null}
+            {server.pid != null ? (
+              <>
+                <dt>Process</dt>
+                <dd>{server.pid}</dd>
+              </>
+            ) : null}
             <dt>Address</dt>
             <dd>{minecraftAddress(device, server)}</dd>
+            {server.folder ? (
+              <>
+                <dt>Folder</dt>
+                <dd className="mono">{server.folder}</dd>
+              </>
+            ) : null}
           </dl>
         </div>
       ) : (
