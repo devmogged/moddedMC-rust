@@ -30,16 +30,17 @@ Everything else depends on these.
 | E8 | Nether, End, portals, dragon fight. | todo |
 | E9 | Enchanting, brewing, anvils, smithing. | todo |
 | E10 | Advancements, statistics, remaining commands. | todo |
+| E11 | Chunk pipeline scaling: pregen keeps 4.8 of 32 threads busy. Generation uses `cpus / 2` threads (at most 16) and 32 tasks in flight, driven by one `Schedule` thread. Raising both to all threads and 4x tasks gave 14.8 busy threads but only 12% more speed, so the limit is the scheduler (locking or its 5 ms receive loop), not threads. Profile it, fix it, and report chunks/s and MSPT on the laptop and the Pi before and after. | todo |
 
 ## World and storage
 
 | # | Task | Status |
 | --- | --- | --- |
-| W1 | Measure `pump`, Anvil and Linear on a real pregenerated world (size, write speed, load speed). | todo |
+| W1 | Measure `pump`, Anvil and Linear on a real pregenerated world (size, write speed, load speed). | todo. First number: 16,129 chunks pregenerated with seed 12345 take 376 MB as `pump` against 197 MB of vanilla Anvil. |
 | W2 | Compact format: palette packing, zstd with a trained dictionary, per-chunk content hash. | todo |
 | W3 | Content-addressed chunk store with incremental, deduplicated snapshots; restore any point. | doing (claude): the agent's backups are a content-addressed store of FastCDC chunks of whole files, format-agnostic. Next: measure dedup on a real pregenerated world (W1), and cut by chunk instead of by bytes if region rewrites defeat it. |
 | W4 | Lossless Anvil export and import (modded content round-trips through stand-ins plus data). | todo |
-| W5 | Chunky port: parallel pregen on all cores, radius or shape, pause and resume, progress to the app. | todo |
+| W5 | Chunky port: parallel pregen on all cores, radius or shape, pause and resume, progress to the app. | doing (claude): `engine/ports/chunky` (`packs/pregen`): `/chunky center|radius|shape square|circle|start|pause|continue|cancel|progress`, Chunky's selection and progress lines. Against Fabric 26.3 + Chunky 1.5.66 (-Xmx4G), seed 12345, laptop (16 cores, 32 threads), `pack` profile: radius 500 (4,225 chunks) 7.4 s / 495 MB peak vs 32.8 s / 2,674 MB; radius 1000 (16,129 chunks) 29.7 s / 589 MB vs 105.6 s / 2,263 MB, so 3.6 to 4.4 times faster at a quarter of the RAM. Not checked: that Pumpkin generates every feature vanilla does (E2). Next: E11 for a far bigger margin, resume after restart, agent endpoint and app progress, Pi numbers. |
 | W6 | Untouched-chunk elision (only after E3 proves determinism). | todo |
 
 ## Client companion and network

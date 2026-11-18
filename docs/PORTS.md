@@ -12,6 +12,12 @@ There are two kinds of mods. Pick the one that fits the mod:
 
 If the ABI can express a mod, make it a drop-in mod. If a mod needs real block states, entities and AI, worldgen, menus or direct world access, make it a compiled-in port. Don't grow the ABI to cover the whole engine. Both kinds run in the same server at once.
 
+## The bar: far faster than the Java mod
+
+A port exists to beat the Java mod it replaces by a margin that justifies the rewrite: several times the throughput and a fraction of the RAM. Behaving the same and running a little faster isn't enough. Design for throughput and low RAM from the start (work spread over cores, bounded memory, no needless allocation or disk round trips). Every port records its numbers against the Java mod on a Java server with the same seed and settings: throughput where it applies (chunks/s, machines/tick), MSPT and RSS. A port that is only slightly ahead isn't done: profile it and redesign the hot path until the gap is large.
+
+Numbers so far are in [BACKLOG.md](BACKLOG.md) next to each port (W5 for Chunky).
+
 ## Layout
 
 ```
