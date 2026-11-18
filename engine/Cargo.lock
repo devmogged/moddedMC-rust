@@ -2474,6 +2474,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "port-chunky"
+version = "0.1.0"
+dependencies = [
+ "pumpkin-core",
+ "pumpkin-util",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "port-example"
 version = "0.1.0"
 dependencies = [

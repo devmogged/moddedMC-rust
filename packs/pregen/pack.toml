@@ -1,0 +1,13 @@
+# Pregeneration only: the Chunky port on the stock pack server.
+# Build: cargo run -p moddedmc-pack -- build packs/pregen/pack.toml
+[pack]
+id = "pregen"
+name = "Pregen"
+version = "1"
+
+[mods]
+port-chunky = { path = "../../engine/ports/chunky" }
+
+[targets]
+laptop = "x86_64-pc-windows-msvc"
+pi = "aarch64-unknown-linux-gnu"
