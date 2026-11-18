@@ -979,3 +979,20 @@ dialog::backdrop {
     transition: none;
   }
 }
+
+.schedule-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.field.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field.inline .input {
+  width: 64px;
+}

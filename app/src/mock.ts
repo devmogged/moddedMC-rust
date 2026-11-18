@@ -104,6 +104,7 @@ function servers(device: string) {
   ];
 }
 
+let mockSchedule: { every_minutes: number; keep: number } | null = { every_minutes: 360, keep: 8 };
 const serverMods: Record<string, { file: string; id: string; version: string; bytes: number }[]> = {};
 
 export async function mockInvoke(command: string, args: Record<string, any> = {}): Promise<unknown> {
@@ -116,7 +117,7 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
         { id: "nas", name: "Basement box", route: "ssh", host: "noel@192.168.1.20", port: 25599 },
       ];
     case "agent": {
-      const { device, method, path } = args as { device: string; method: string; path: string };
+      const { device, method, path, body } = args as { device: string; method: string; path: string; body?: unknown };
       if (device === "nas") throw "Can't reach Basement box. Is the agent running there?";
       if (path === "/v1/device")
         return {
@@ -145,9 +146,13 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
       }
       if (path.endsWith("/backups") && method === "GET")
         return [
-          { id: "1795030000", created: 1795030000, files: 412, bytes: 182 * 2 ** 20, stored: 3.1 * 2 ** 20 },
-          { id: "1794940000", created: 1794940000, files: 405, bytes: 176 * 2 ** 20, stored: 151 * 2 ** 20 },
+          { id: "1795030000", created: 1795030000, files: 412, bytes: 182 * 2 ** 20, stored: 3.1 * 2 ** 20, scheduled: true },
+          { id: "1794940000", created: 1794940000, files: 405, bytes: 176 * 2 ** 20, stored: 151 * 2 ** 20, scheduled: false },
         ];
+      if (path.endsWith("/backups/schedule")) {
+        if (method === "PUT") mockSchedule = (body as typeof mockSchedule) ?? null;
+        return mockSchedule;
+      }
       if (path.includes("/backups")) return null;
       if (path.endsWith("/pregen") && method === "GET") {
         const t = ((Date.now() / 1000) % 60) / 60;

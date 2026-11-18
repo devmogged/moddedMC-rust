@@ -118,7 +118,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   }
 }
 
-const agent = <T>(device: string, method: "GET" | "POST" | "DELETE", path: string, body?: unknown) =>
+const agent = <T>(device: string, method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
   call<T>("agent", { device, method, path, body });
 
 /** A pregeneration task on a server with the Chunky port. */
@@ -132,7 +132,8 @@ export type Pregen = {
 };
 
 /** A snapshot of a server folder in the device's backup store. */
-export type Backup = { id: string; created: number; files: number; bytes: number; stored: number };
+export type Backup = { id: string; created: number; files: number; bytes: number; stored: number; scheduled: boolean };
+export type BackupSchedule = { every_minutes: number; keep: number };
 
 /** A drop-in mod in a server's `mods/`. */
 export type ServerMod = { file: string; id: string | null; version: string | null; bytes: number };
@@ -203,6 +204,15 @@ export const api = {
     agent<Backup[]>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/backups`),
   backUp: (device: string, server: string) =>
     agent<Backup>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/backups`),
+  backupSchedule: (device: string, server: string) =>
+    agent<BackupSchedule | null>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/backups/schedule`),
+  setBackupSchedule: (device: string, server: string, schedule: BackupSchedule | null) =>
+    agent<BackupSchedule | null>(
+      device,
+      "PUT",
+      `/v1/servers/${encodeURIComponent(server)}/backups/schedule`,
+      schedule,
+    ),
   restoreBackup: (device: string, server: string, id: string) =>
     agent<void>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/backups/${id}/restore`),
   removeBackup: (device: string, server: string, id: string) =>

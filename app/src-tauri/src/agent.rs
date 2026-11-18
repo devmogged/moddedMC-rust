@@ -49,6 +49,7 @@ pub async fn agent(
     let request = match method.as_str() {
         "GET" => HTTP.get(&url),
         "POST" => HTTP.post(&url).json(&body.unwrap_or(Value::Null)),
+        "PUT" => HTTP.put(&url).json(&body.unwrap_or(Value::Null)),
         "DELETE" => HTTP.delete(&url),
         _ => return Err("bad agent method".into()),
     };

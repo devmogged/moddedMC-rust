@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Archive, Grid3x3, History, Pause, Play, Plus, RotateCw, Square, Trash2, Upload } from "lucide-react";
-import { api, minecraftAddress, type Backup, type Device, type ServerInfo, type Stats } from "./api";
+import { api, minecraftAddress, type Backup, type BackupSchedule, type Device, type ServerInfo, type Stats } from "./api";
 import { ServerCluster, ServerIcon, bytes, duration, packLine, usePoll } from "./ui";
 import { ConfirmDialog, DeployDialog } from "./dialogs";
 
@@ -565,6 +565,7 @@ function Backups({
   if (error && !value) return <div className="pane-body error-line">{error}</div>;
   return (
     <div className="pane-body">
+      <BackupSchedulePicker device={device} server={server.name} onError={onError} />
       <section className="block">
         <div className="block-head">
           <span>{value ? `${value.length} ${value.length === 1 ? "backup" : "backups"}` : null}</span>
@@ -579,6 +580,7 @@ function Backups({
               <div className="row-text">
                 <div className="row-name">{WHEN.format(b.created * 1000)}</div>
                 <div className="row-line">
+                  {b.scheduled ? "Automatic · " : null}
                   {b.files} files · {bytes(b.bytes)} · {bytes(b.stored)} new
                 </div>
               </div>
@@ -631,6 +633,100 @@ function Backups({
         }}
       />
     </div>
+  );
+}
+
+const SCHEDULES = [
+  { label: "Off", every: 0, keep: 0 },
+  { label: "Hourly", every: 60, keep: 24 },
+  { label: "Every 6 hours", every: 360, keep: 8 },
+  { label: "Daily", every: 1440, keep: 7 },
+];
+
+// Scheduled backups run while the server is running; retention only removes those, never ones taken by hand.
+function BackupSchedulePicker({
+  device,
+  server,
+  onError,
+}: {
+  device: string;
+  server: string;
+  onError: (err: unknown) => void;
+}) {
+  const [schedule, setSchedule] = useState<BackupSchedule | null | undefined>(undefined);
+  const [keep, setKeep] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    api
+      .backupSchedule(device, server)
+      .then((s) => {
+        if (!live) return;
+        setSchedule(s);
+        setKeep(s ? String(s.keep) : "");
+      })
+      .catch(onError);
+    return () => {
+      live = false;
+    };
+  }, [device, server]);
+
+  const save = async (next: BackupSchedule | null) => {
+    const before = schedule;
+    setSchedule(next);
+    setKeep(next ? String(next.keep) : "");
+    try {
+      await api.setBackupSchedule(device, server, next);
+    } catch (err) {
+      setSchedule(before);
+      setKeep(before ? String(before.keep) : "");
+      onError(err);
+    }
+  };
+
+  const commitKeep = () => {
+    const n = Number(keep);
+    if (!schedule || !Number.isInteger(n) || n < 1 || n > 1000) {
+      setKeep(schedule ? String(schedule.keep) : "");
+      return;
+    }
+    if (n !== schedule.keep) save({ ...schedule, keep: n });
+  };
+
+  if (schedule === undefined) return null;
+  return (
+    <section className="block">
+      <div className="block-head">
+        <span>Automatic backups</span>
+      </div>
+      <div className="schedule-row">
+        <div className="segmented" role="group" aria-label="Automatic backups">
+          {SCHEDULES.map((s) => (
+            <button
+              key={s.every}
+              type="button"
+              aria-pressed={(schedule?.every_minutes ?? 0) === s.every}
+              onClick={() => save(s.every === 0 ? null : { every_minutes: s.every, keep: s.keep })}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {schedule ? (
+          <label className="field inline">
+            <span>Keep</span>
+            <input
+              className="input"
+              inputMode="numeric"
+              value={keep}
+              onChange={(e) => setKeep(e.target.value.replace(/\D/g, ""))}
+              onBlur={commitKeep}
+              onKeyDown={(e) => e.key === "Enter" && commitKeep()}
+            />
+          </label>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
