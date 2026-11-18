@@ -3,13 +3,14 @@
 //! the console every few seconds as `[Chunky] Task running for <world>. Processed: ...`, which
 //! the device agent and the app read.
 //!
-//! Chunks that already exist are counted and skipped, like Chunky does. Unlike Chunky, a task
-//! doesn't survive a restart yet.
+//! Chunks that already exist are counted and skipped, like Chunky does. A task's progress is
+//! saved every few seconds, so `/chunky continue` after a restart picks it up again.
 
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{
-        Arc, LazyLock, Mutex, MutexGuard,
+        Arc, LazyLock, Mutex, MutexGuard, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering::Relaxed},
     },
     time::{Duration, Instant},
@@ -116,8 +117,12 @@ struct Task {
     selection: Selection,
     total: u64,
     done: AtomicU64,
+    /// Chunks a resumed task counted before the restart; not part of this run's rate.
+    resumed_at: u64,
     paused: AtomicBool,
     cancelled: AtomicBool,
+    /// The server is stopping: end the run but keep the saved task.
+    stopping: AtomicBool,
     resume: Notify,
     started: Instant,
     /// Last chunk handed out, for the progress line.
@@ -133,7 +138,7 @@ impl Task {
             done as f64 * 100.0 / self.total as f64
         };
         let elapsed = self.started.elapsed().as_secs_f64().max(0.001);
-        let rate = done as f64 / elapsed;
+        let rate = done.saturating_sub(self.resumed_at) as f64 / elapsed;
         let eta = if rate > 0.0 {
             (self.total.saturating_sub(done)) as f64 / rate
         } else {
@@ -242,39 +247,58 @@ impl CommandExecutor for SetShape {
     }
 }
 
+/// Starts a task for `world`, `skip` chunks in when resuming. `None` when one is running.
+fn launch(
+    context: &CommandContext,
+    world: Arc<World>,
+    selection: Selection,
+    skip: u64,
+) -> Option<String> {
+    let name = world_name(&world);
+    let task = {
+        let mut tasks = lock(&TASKS);
+        if tasks.contains_key(&name) {
+            return None;
+        }
+        let task = Arc::new(Task {
+            world: name.clone(),
+            selection,
+            total: selection.total(),
+            done: AtomicU64::new(skip),
+            resumed_at: skip,
+            paused: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
+            stopping: AtomicBool::new(false),
+            resume: Notify::new(),
+            started: Instant::now(),
+            current: Mutex::new(Vector2::new(
+                selection.center_x >> 4,
+                selection.center_z >> 4,
+            )),
+        });
+        tasks.insert(name.clone(), task.clone());
+        task
+    };
+    context.server().spawn_task(run(world, task));
+    Some(name)
+}
+
 struct Start;
 impl CommandExecutor for Start {
     fn execute(&self, context: &CommandContext) -> CommandExecutorResult {
         let Some(world) = world_of(context) else {
             return Ok(0);
         };
-        let name = world_name(&world);
-        let selection = selection(&name);
-        let task = {
-            let mut tasks = lock(&TASKS);
-            if tasks.contains_key(&name) {
-                reply(
-                    context,
-                    format!("[Chunky] A task is already running for {name}."),
-                );
-                return Ok(0);
-            }
-            let task = Arc::new(Task {
-                world: name.clone(),
-                selection,
-                total: selection.total(),
-                done: AtomicU64::new(0),
-                paused: AtomicBool::new(false),
-                cancelled: AtomicBool::new(false),
-                resume: Notify::new(),
-                started: Instant::now(),
-                current: Mutex::new(Vector2::new(
-                    selection.center_x >> 4,
-                    selection.center_z >> 4,
-                )),
-            });
-            tasks.insert(name.clone(), task.clone());
-            task
+        let selection = selection(&world_name(&world));
+        let Some(name) = launch(context, world.clone(), selection, 0) else {
+            reply(
+                context,
+                format!(
+                    "[Chunky] A task is already running for {}.",
+                    world_name(&world)
+                ),
+            );
+            return Ok(0);
         };
         reply(
             context,
@@ -283,9 +307,63 @@ impl CommandExecutor for Start {
                 selection.center_x, selection.center_z, selection.radius
             ),
         );
-        context.server().spawn_task(run(world, task));
         Ok(1)
     }
+}
+
+/// Where the port keeps saved tasks: its plugin data folder.
+static DATA: OnceLock<PathBuf> = OnceLock::new();
+
+fn task_file(world: &str) -> Option<PathBuf> {
+    Some(
+        DATA.get()?
+            .join("tasks")
+            .join(format!("{}.properties", world.replace(':', "_"))),
+    )
+}
+
+/// Chunky-style properties: the selection and how many chunks are done.
+fn task_text(task: &Task) -> String {
+    let s = task.selection;
+    // Chunks still generating when the server stops aren't saved; start that far back.
+    let done = task.done.load(Relaxed).saturating_sub(in_flight() as u64);
+    format!(
+        "center-x={}
+center-z={}
+radius={}
+shape={}
+chunks={done}
+",
+        s.center_x,
+        s.center_z,
+        s.radius,
+        if s.shape == Shape::Square {
+            "square"
+        } else {
+            "circle"
+        }
+    )
+}
+
+fn read_task(world: &str) -> Option<(Selection, u64)> {
+    let text = std::fs::read_to_string(task_file(world)?).ok()?;
+    let value = |key: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key)?.strip_prefix('='))
+            .map(str::trim)
+    };
+    let number = |key: &str| value(key)?.parse::<i32>().ok();
+    let selection = Selection {
+        center_x: number("center-x")?,
+        center_z: number("center-z")?,
+        radius: number("radius").filter(|r| (1..=MAX_RADIUS).contains(r))?,
+        shape: if value("shape")? == "circle" {
+            Shape::Circle
+        } else {
+            Shape::Square
+        },
+    };
+    Some((selection, value("chunks")?.parse().ok()?))
 }
 
 /// Chunks generating at once. Each holds a full chunk and its lower-status neighbours in memory,
@@ -309,14 +387,23 @@ async fn run(world: Arc<World>, task: Arc<Task>) {
                 if !task.paused.load(Relaxed) {
                     tracing::info!("{}", task.progress_line("running"));
                 }
+                if let Some(file) = task_file(&task.world) {
+                    if let Some(dir) = file.parent() {
+                        let _ = tokio::fs::create_dir_all(dir).await;
+                    }
+                    if let Err(err) = tokio::fs::write(&file, task_text(&task)).await {
+                        tracing::warn!("[Chunky] can't save the task for {}: {err}", task.world);
+                    }
+                }
             }
         })
     };
-    for pos in task.selection.chunks() {
-        while task.paused.load(Relaxed) && !task.cancelled.load(Relaxed) {
+    for pos in task.selection.chunks().skip(task.resumed_at as usize) {
+        let ended = || task.cancelled.load(Relaxed) || task.stopping.load(Relaxed);
+        while task.paused.load(Relaxed) && !ended() {
             task.resume.notified().await;
         }
-        if task.cancelled.load(Relaxed) {
+        if ended() {
             break;
         }
         let Ok(permit) = permits.clone().acquire_owned().await else {
@@ -336,6 +423,22 @@ async fn run(world: Arc<World>, task: Arc<Task>) {
     let _ = permits.acquire_many(in_flight() as u32).await;
     reporter.abort();
     lock(&TASKS).remove(&task.world);
+    if task.stopping.load(Relaxed) && !task.cancelled.load(Relaxed) {
+        if let Some(file) = task_file(&task.world) {
+            if let Some(dir) = file.parent() {
+                let _ = tokio::fs::create_dir_all(dir).await;
+            }
+            let _ = tokio::fs::write(file, task_text(&task)).await;
+        }
+        tracing::info!(
+            "[Chunky] Task stopped for {}; /chunky continue resumes it.",
+            task.world
+        );
+        return;
+    }
+    if let Some(file) = task_file(&task.world) {
+        let _ = tokio::fs::remove_file(file).await;
+    }
     if task.cancelled.load(Relaxed) {
         tracing::info!("[Chunky] Task cancelled for {}.", task.world);
     } else {
@@ -376,6 +479,17 @@ impl CommandExecutor for Pause {
 struct Continue;
 impl CommandExecutor for Continue {
     fn execute(&self, context: &CommandContext) -> CommandExecutorResult {
+        let Some(world) = world_of(context) else {
+            return Ok(0);
+        };
+        let name = world_name(&world);
+        if !lock(&TASKS).contains_key(&name)
+            && let Some((selection, done)) = read_task(&name)
+            && launch(context, world, selection, done).is_some()
+        {
+            reply(context, format!("[Chunky] Task continuing for {name}."));
+            return Ok(1);
+        }
         Ok(with_task(context, |task| {
             task.paused.store(false, Relaxed);
             task.resume.notify_waiters();
@@ -413,6 +527,7 @@ struct Chunky;
 impl Plugin for Chunky {
     fn on_load(&self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
         Box::pin(async move {
+            let _ = DATA.set(context.get_data_folder());
             context.register_permission(Permission::new(
                 PERMISSION,
                 "Pregenerate the world.",
@@ -441,6 +556,17 @@ impl Plugin for Chunky {
                 .then(literal("cancel").executes(Cancel))
                 .then(literal("progress").executes(Progress));
             context.register_command(node, PERMISSION);
+            Ok(())
+        })
+    }
+
+    fn on_unload(&self, _context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async {
+            // The server waits for running tasks before it saves the worlds; end them first.
+            for task in lock(&TASKS).values() {
+                task.stopping.store(true, Relaxed);
+                task.resume.notify_waiters();
+            }
             Ok(())
         })
     }

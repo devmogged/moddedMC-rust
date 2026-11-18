@@ -12,7 +12,7 @@ kind = "port"
 [dependencies]
 pumpkin-core.workspace = true
 pumpkin-util.workspace = true
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["sync", "time", "fs"] }
 tracing.workspace = true
 
 [lints]
