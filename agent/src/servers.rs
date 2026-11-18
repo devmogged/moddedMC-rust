@@ -204,6 +204,37 @@ impl Servers {
             .clone()
     }
 
+    /// A managed server's folder, when there is one by that name.
+    pub async fn folder(&self, name: &str) -> Option<PathBuf> {
+        let dir = self.root.join(name);
+        read_server_file(&dir).await.map(|_| dir)
+    }
+
+    /// Runs `change` on a stopped server's `mods/` folder, holding the server so it can't start
+    /// halfway through.
+    pub async fn change_mods(
+        &self,
+        name: &str,
+        change: impl AsyncFnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<(), (StatusCode, String)> {
+        let managed = self
+            .existing(name)
+            .await
+            .ok_or((StatusCode::NOT_FOUND, format!("no server named {name}")))?;
+        let guard = managed.lock().await;
+        if guard.running.is_some() {
+            return Err((StatusCode::CONFLICT, format!("stop {name} first")));
+        }
+        let mods = self.root.join(name).join("mods");
+        let result = async {
+            tokio::fs::create_dir_all(&mods).await?;
+            change(&mods).await
+        }
+        .await;
+        drop(guard);
+        result.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    }
+
     /// The managed entry for a server folder that exists, so unknown names make no entries.
     async fn existing(&self, name: &str) -> Option<Arc<Mutex<Managed>>> {
         read_server_file(&self.root.join(name)).await?;
@@ -486,7 +517,7 @@ impl Servers {
     }
 }
 
-fn error(status: StatusCode, message: String) -> Response {
+pub fn error(status: StatusCode, message: String) -> Response {
     (status, message).into_response()
 }
 
@@ -575,7 +606,7 @@ pub async fn create(State(app): State<Arc<App>>, Json(body): Json<CreateServer>)
     StatusCode::CREATED.into_response()
 }
 
-fn bad_name(name: &str) -> Option<Response> {
+pub fn bad_name(name: &str) -> Option<Response> {
     if valid_name(name) {
         None
     } else {

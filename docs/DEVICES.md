@@ -41,7 +41,8 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
 | POST | `/v1/builds/<pack>-<key>` | Upload a pack build: a zip of a `moddedmc-pack` output folder (up to 1 GiB). An id that is already there returns 200 at once. |
 | GET | `/v1/builds` | Uploaded builds: id, pack, version. |
 | POST | `/v1/servers/<name>/deploy` | `{build}`: a stopped server runs that build from now on, and its `mods/*.mmc` are replaced with the build's. |
-| PUT | `/v1/servers/<name>/mods/<file>`, DELETE likewise | Drop-in mods. |
+| GET | `/v1/servers/<name>/mods` | Drop-in mods in `mods/`: file, id and version from `mod.json`, size. |
+| PUT | `/v1/servers/<name>/mods/<file>`, DELETE likewise | Add (an `.mmc` with a `mod.json`, up to 256 MiB) or remove a drop-in mod. Stopped servers only. |
 | POST | `/v1/servers/<name>/backups`, GET likewise | Take and list snapshots. |
 | POST | `/v1/servers/<name>/pregen` | Start pregeneration with `{radius, center}`; progress comes over the console socket. |
 

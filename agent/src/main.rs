@@ -6,6 +6,7 @@ mod builds;
 mod config;
 mod device;
 mod external;
+mod mods;
 mod pumpkin_config;
 mod servers;
 
@@ -15,7 +16,7 @@ use axum::{
     Router,
     extract::DefaultBodyLimit,
     middleware,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
@@ -57,6 +58,13 @@ async fn main() {
         .route("/v1/servers/{name}/stats", get(servers::stats))
         .route("/v1/servers/{name}/console", get(servers::console))
         .route("/v1/servers/{name}/deploy", post(servers::deploy))
+        .route("/v1/servers/{name}/mods", get(mods::list))
+        .route(
+            "/v1/servers/{name}/mods/{file}",
+            put(mods::put)
+                .delete(mods::delete)
+                .layer(DefaultBodyLimit::max(mods::MAX_MOD)),
+        )
         .route("/v1/builds", get(builds::list))
         .route(
             "/v1/builds/{id}",
