@@ -71,7 +71,7 @@ The original mod runs on its own MC version (Create 6.0.10 on NeoForge 1.21.1, S
 ```
 moddedmc-harness run tests/harness/redstone/repeater-chain.txt \
     --reference vanilla:D:/mc-ref/26.3/server-bundler.jar \
-    --subject target/release/pack-dev.exe
+    --subject engine/target/pack/pack-dev.exe
 moddedmc-harness run-all tests/harness --reference ... --subject ...   # summary table
 ```
 

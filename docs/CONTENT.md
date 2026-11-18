@@ -1,6 +1,6 @@
-# Content model (design for moddedmc-api v1)
+# Content model (design for v1)
 
-This is how mods add blocks, items, entities and the rest so that Create, Saints Dragons and Cataclysm can be ported faithfully. Today's API (M1/M2: a vanilla stand-in block with opaque state bytes) is a prototype; v1 replaces it. Engine work lands in `devmogged/Pumpkin`; the API surface lands in `engine/moddedmc-api`.
+This is how mods add blocks, items, entities and the rest so that Create, Saints Dragons and Cataclysm can be ported faithfully. Today's content host (M1/M2: a vanilla stand-in block with opaque state bytes) is a prototype; v1 replaces it with first-class engine registries. Engine work lands in `devmogged/Pumpkin`. Compiled-in ports ([PORTS.md](PORTS.md)) use it directly; drop-in mods get the parts that fit the stable ABI.
 
 ## Principles
 

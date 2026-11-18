@@ -10,10 +10,10 @@ Everything else depends on these.
 
 | # | Task | Status |
 | --- | --- | --- |
-| F1 | Move `patches/pumpkin.patch` into commits on `devmogged/Pumpkin` (branch `moddedmc`), point the `engine/pumpkin` submodule at the fork, retire `engine.ps1 apply/save`. Mods become library crates linked into `packs/*` binaries. | doing (claude, main) |
+| F1 | Engine patch moved into commits on `devmogged/Pumpkin` (branch `moddedmc`); `engine/` is its own workspace with fast `pack` profile; compiled-in ports and pack servers (`engine/ports`, `engine/packs`) next to drop-in mods. | doing (claude, platform/hybrid) |
 | F2 | Differential harness (spec: [HARNESS.md](HARNESS.md)): run one scenario file against a real vanilla 26.3 server and against ours with the same seed and bot inputs, then diff block state, block entities, entities, inventories and selected packets. Report mismatches by position and field. | todo |
 | F3 | Pack builder (spec: [PACKS.md](PACKS.md)): a `pack.toml` (mods with versions, target, config) becomes one server binary per target. Mods are linked in statically, not loaded as `.dll`. Cross-compile `aarch64-unknown-linux-gnu` for the Pi from Windows (cargo-zigbuild or cross). Cache builds. | todo |
-| F4 | `moddedmc-api` v1 per [CONTENT.md](CONTENT.md): first-class modded registries, per-world id map, vanilla-view translation with a generated resource pack, then the companion view. | todo |
+| F4 | Content model v1 per [CONTENT.md](CONTENT.md): first-class modded registries in the engine, per-world id map, vanilla-view translation with a generated resource pack, then the companion view. Exposed to compiled-in ports directly and to drop-in mods through ABI additions where it fits. | todo |
 | F5 | Perf and RAM bench harness on the Pi: same seed, bot count, view distance and duration; record MSPT p50/p95/p99, RSS, disk, bytes sent per player. | todo |
 
 ## Engine parity (buja order)
