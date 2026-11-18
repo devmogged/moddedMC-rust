@@ -256,6 +256,60 @@ pub struct WorldV1 {
 /// "No block state": unloaded, outside the world, or unknown.
 pub const NO_STATE: u32 = u32::MAX;
 
+/// [`BlocksV1`]: real modded blocks.
+pub const BLOCKS_V1: &str = "moddedmc:blocks/1";
+
+/// Handle for defining blocks, valid only during [`ModApi::define_blocks`].
+pub type Defs = *mut c_void;
+
+/// A block state property and its values, e.g. `axis` = `x`, `y`, `z`.
+#[repr(C)]
+pub struct Property {
+    pub name: Str,
+    pub values: *const Str,
+    pub count: usize,
+}
+
+/// Modded blocks get their own state ids after vanilla's, are saved by name with the chunk and
+/// work with `moddedmc:world/1` like vanilla blocks. A stock client sees each state as a vanilla
+/// look-alike (its appearance), whose shape, hardness and light the block also gets.
+#[repr(C)]
+pub struct BlocksV1 {
+    pub size: usize,
+    /// Defines a block. `name` is `namespace:path`, any namespace but `minecraft`. Its states are
+    /// every combination of the property values, the last property changing fastest; the first
+    /// is the default. `appearances` names one vanilla state per state, in that order
+    /// (`minecraft:end_rod[facing=east]`). Returns a [`code`].
+    pub define_block: unsafe extern "C" fn(
+        defs: Defs,
+        name: Str,
+        properties: *const Property,
+        property_count: usize,
+        appearances: *const Str,
+        appearance_count: usize,
+    ) -> i32,
+}
+
+/// What happened to a `blocks/1` block, in [`BlockEvent::kind`].
+pub mod block_event {
+    /// A player used (right-clicked) it.
+    pub const USE: u32 = 0;
+    /// A player placed it from an item ([`HostApi::give_block`]).
+    pub const PLACE: u32 = 1;
+    /// It is being broken; `state` is its last state.
+    pub const BREAK: u32 = 2;
+}
+
+#[repr(C)]
+pub struct BlockEvent {
+    pub kind: u32,
+    pub dimension: Str,
+    pub pos: Pos,
+    pub state: u32,
+    /// Null when no player caused it.
+    pub player: PlayerRef,
+}
+
 /// A mod, as seen by the server. Returned by `moddedmc_mod`; lives for the whole process. Calls
 /// may come from several threads at once.
 #[repr(C)]
@@ -287,10 +341,23 @@ pub struct ModApi {
         unsafe extern "C" fn(instance: *const c_void, tag: u64, call: *const CommandCall) -> i32,
     /// Every mod sees every menu click; act only on your own action ids.
     pub menu_click: unsafe extern "C" fn(instance: *const c_void, player: PlayerRef, action: Str),
+    // ---- 1.1 ----
+    /// Once, before any world loads: define `blocks/1` blocks with `defs`. Returns a [`code`];
+    /// on failure none of this mod's blocks exist.
+    pub define_blocks: unsafe extern "C" fn(instance: *const c_void, defs: Defs) -> i32,
+    /// Something happened to one of this mod's `blocks/1` blocks. For [`block_event::USE`],
+    /// true means handled and skips the appearance's own interaction.
+    pub block_event:
+        unsafe extern "C" fn(instance: *const c_void, event: *const BlockEvent) -> bool,
 }
+
+/// `ModApi` size of ABI 1.0, before `define_blocks`.
+pub const MOD_API_V1_0_SIZE: usize = std::mem::offset_of!(ModApi, define_blocks);
 
 // SAFETY: interface tables are immutable and their functions are thread-safe.
 unsafe impl Sync for WorldV1 {}
+// SAFETY: as above.
+unsafe impl Sync for BlocksV1 {}
 
 // SAFETY: a ModApi is immutable after creation and its instance is `Send + Sync` (see `Mod`).
 unsafe impl Send for ModApi {}
@@ -352,11 +419,14 @@ mod layout {
             (offset_of!(ModApi, break_block), 72),
             (offset_of!(ModApi, command), 80),
             (offset_of!(ModApi, menu_click), 88),
+            (offset_of!(ModApi, define_blocks), 96),
+            (offset_of!(ModApi, block_event), 104),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "ModApi field #{i} moved");
         }
-        assert!(size_of::<ModApi>() >= 96);
+        assert_eq!(MOD_API_V1_0_SIZE, 96);
+        assert!(size_of::<ModApi>() >= 112);
     }
 
     #[test]
@@ -367,6 +437,18 @@ mod layout {
         assert_eq!(size_of::<CommandCall>(), 32);
         assert_eq!(size_of::<MenuButton>(), 48);
         assert_eq!(size_of::<BlockWrite>(), 16);
+        assert_eq!(size_of::<Property>(), 32);
+        assert_eq!(size_of::<BlockEvent>(), 48);
+    }
+
+    #[test]
+    fn blocks_v1() {
+        assert_eq!(offset_of!(BlocksV1, size), 0);
+        assert_eq!(offset_of!(BlocksV1, define_block), 8);
+        assert_eq!(offset_of!(BlockEvent, dimension), 8);
+        assert_eq!(offset_of!(BlockEvent, pos), 24);
+        assert_eq!(offset_of!(BlockEvent, state), 36);
+        assert_eq!(offset_of!(BlockEvent, player), 40);
     }
 
     #[test]

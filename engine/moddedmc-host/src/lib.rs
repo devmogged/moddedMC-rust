@@ -34,7 +34,7 @@ use pumpkin_core::{
     server::Server,
     world::World,
 };
-use pumpkin_data::{Block, item::Item, item_stack::ItemStack};
+use pumpkin_data::{Block, BlockStateId, item::Item, item_stack::ItemStack, modded};
 use pumpkin_inventory::Inventory;
 use pumpkin_nbt::tag::NbtTag;
 use pumpkin_protocol::{
@@ -46,6 +46,7 @@ use pumpkin_protocol::{
     },
 };
 use pumpkin_util::{math::position::BlockPos, text::TextComponent};
+use pumpkin_world::world::BlockFlags;
 
 /// Custom-data namespace used on block entities and item stacks.
 pub const NAMESPACE: &str = "moddedmc";
@@ -112,6 +113,8 @@ struct WorldIndex {
 
 /// (world, pos, block, player)
 type PendingPlace = (Weak<World>, BlockPos, usize, Option<Arc<Player>>);
+/// (world, pos, modded block, player)
+type PendingModded = (Weak<World>, BlockPos, &'static Block, Arc<Player>);
 
 #[derive(Default)]
 struct Host {
@@ -119,6 +122,8 @@ struct Host {
     registry: RwLock<Registry>,
     /// Placed custom blocks whose block entity appears later this tick.
     pending_places: Mutex<Vec<PendingPlace>>,
+    /// Placed `blocks/1` items whose vanilla look-alike becomes the modded block this tick.
+    pending_modded: Mutex<Vec<PendingModded>>,
     index: Mutex<Vec<WorldIndex>>,
     /// Console requests waiting for the next tick.
     console: Mutex<Vec<console::Request>>,
@@ -139,8 +144,27 @@ fn write<T>(m: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     m.write().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Hooks the host into the server's tick and block events and loads the mods in `mods/`.
-/// Call before the server starts ticking.
+/// Loads the mods in `mods/` and installs their `blocks/1` blocks. Call once, before the
+/// server loads any world, then [`attach`].
+pub fn load_mods() {
+    let started = Instant::now();
+    let mods = native::load_all(std::path::Path::new("mods"));
+    native::define_blocks(&mods);
+    if !mods.is_empty() {
+        tracing::info!(
+            "moddedmc: loaded {} mods in {:?}",
+            mods.len(),
+            started.elapsed()
+        );
+    }
+    lock(&HOST.mods).extend(mods.into_iter().map(|module| ContentMod {
+        module,
+        registered: false,
+    }));
+}
+
+/// Hooks the host into the server's tick and block events. Call after [`load_mods`] and before
+/// the server starts ticking.
 pub fn attach(server: &Arc<Server>) {
     let _ = native::SERVER.set(server.clone());
     let pm = &server.plugin_manager;
@@ -154,29 +178,19 @@ pub fn attach(server: &Arc<Server>) {
         EventPriority::Normal,
         true,
     );
-    let started = Instant::now();
-    let mods = native::load_all(std::path::Path::new("mods"));
-    if !mods.is_empty() {
-        tracing::info!(
-            "moddedmc: loaded {} mods in {:?}",
-            mods.len(),
-            started.elapsed()
-        );
-    }
-    lock(&HOST.mods).extend(mods.into_iter().map(|module| ContentMod {
-        module,
-        registered: false,
-    }));
     stats::attach(server);
 }
 
 fn give_block(player: &Player, block_id: &str) -> bool {
-    let stack = {
-        let registry = read(&HOST.registry);
-        registry
-            .block(block_id)
-            .and_then(|i| block_item(&registry.blocks[i]))
-    };
+    let stack = modded_block(block_id).map_or_else(
+        || {
+            let registry = read(&HOST.registry);
+            registry
+                .block(block_id)
+                .and_then(|i| block_item(&registry.blocks[i]))
+        },
+        modded_item,
+    );
     let Some(stack) = stack else {
         return false;
     };
@@ -273,7 +287,7 @@ impl Staging<'_> {
     }
 }
 
-const fn ns_char(c: char) -> bool {
+pub(crate) const fn ns_char(c: char) -> bool {
     c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '-' | '.')
 }
 
@@ -374,6 +388,12 @@ fn register_new_mods(server: &Server) {
 }
 
 fn apply_pending_places() {
+    let modded = std::mem::take(&mut *lock(&HOST.pending_modded));
+    for (world, pos, block, player) in modded {
+        if let Some(world) = world.upgrade() {
+            adopt_modded(&world, pos, block, &player);
+        }
+    }
     let pending = std::mem::take(&mut *lock(&HOST.pending_places));
     for (world, pos, block_idx, player) in pending {
         let Some(world) = world.upgrade() else {
@@ -700,6 +720,14 @@ impl EventHandler<BlockPlaceEvent> for PlaceHandler {
             else {
                 return;
             };
+            if let Some(block) = modded_block(&id) {
+                if look_alike(block).id == event.block_placed.id {
+                    let world = Arc::downgrade(&event.player.world());
+                    let entry = (world, event.block_position, block, event.player.clone());
+                    lock(&HOST.pending_modded).push(entry);
+                }
+                return;
+            }
             let registry = read(&HOST.registry);
             let Some(block_idx) = registry.block(&id) else {
                 tracing::warn!("moddedmc: placed item for unknown block {id}; placed as vanilla");
@@ -732,6 +760,10 @@ impl EventHandler<BlockBreakEvent> for BreakHandler {
                 return;
             }
             let pos = event.block_position;
+            if modded::is_modded(event.block.default_state.id) {
+                broke_modded(server, event);
+                return;
+            }
             let world = event.player.as_ref().map_or_else(
                 || {
                     server
@@ -818,6 +850,25 @@ impl EventHandler<PlayerInteractEvent> for UseHandler {
             }
             let Some(pos) = event.clicked_pos else { return };
             let world = event.player.world();
+            if let Some(state) = world.get_block_state_id_if_loaded(&pos)
+                && let Some(module) = native::owner(state).and_then(module)
+            {
+                let tick = server.tick_count.load(std::sync::atomic::Ordering::Relaxed);
+                let name = event.player.gameprofile.name.clone();
+                // One click fires for both hands; ask the mod once and skip the other hand too.
+                if lock(&HOST.last_use).insert(name, (tick, pos)) == Some((tick, pos))
+                    || module.block_event(
+                        abi::block_event::USE,
+                        &world,
+                        pos,
+                        state,
+                        Some(&event.player),
+                    )
+                {
+                    event.set_cancelled(true);
+                }
+                return;
+            }
             let Some(id) = read_block_id(&world, &pos) else {
                 return;
             };
@@ -864,6 +915,85 @@ impl EventHandler<PlayerInteractEvent> for UseHandler {
             }
         })
     }
+}
+
+// ---------------------------------------------------------------- blocks/1
+
+/// A `blocks/1` block by name.
+fn modded_block(id: &str) -> Option<&'static Block> {
+    Block::from_name(id).filter(|b| modded::is_modded(b.default_state.id))
+}
+
+/// The vanilla block a stock client sees for `block`'s default state.
+fn look_alike(block: &Block) -> &'static Block {
+    Block::from_state_id(modded::appearance(block.default_state.id))
+}
+
+/// The look-alike's item, tagged so placing it places `block`.
+fn modded_item(block: &'static Block) -> Option<ItemStack> {
+    let item = Item::from_registry_key(look_alike(block).name)?;
+    let mut stack = ItemStack::new(1, item);
+    stack.set_custom_data(NAMESPACE, ITEM_BLOCK_KEY, NbtTag::String(block.name.into()));
+    stack.set_custom_name(block.name.to_owned());
+    Some(stack)
+}
+
+/// Turns a just-placed look-alike into `block`: the state that looks like what was placed (so
+/// facing and axis carry over), else the default.
+fn adopt_modded(world: &Arc<World>, pos: BlockPos, block: &'static Block, player: &Arc<Player>) {
+    let Some(placed) = world.get_block_state_id_if_loaded(&pos) else {
+        return;
+    };
+    if Block::from_state_id(placed).id != look_alike(block).id {
+        return; // replaced or broken since
+    }
+    let state = block
+        .states
+        .iter()
+        .find(|s| modded::appearance(s.id) == placed)
+        .map_or(block.default_state.id, |s| s.id);
+    world.set_block_state(&pos, state, BlockFlags::NOTIFY_ALL);
+    if let Some(module) = native::owner(state).and_then(module) {
+        module.block_event(abi::block_event::PLACE, world, pos, state, Some(player));
+    }
+}
+
+fn broke_modded(server: &Server, event: &BlockBreakEvent) {
+    let pos = event.block_position;
+    let found = event.player.as_ref().map_or_else(
+        || {
+            server
+                .worlds
+                .load()
+                .iter()
+                .find_map(|w| Some((w.clone(), modded_at(w, pos)?)))
+        },
+        |p| {
+            let world = p.world();
+            modded_at(&world, pos).map(|s| (world, s))
+        },
+    );
+    let Some((world, state)) = found else { return };
+    if let Some(module) = native::owner(state).and_then(module) {
+        module.block_event(
+            abi::block_event::BREAK,
+            &world,
+            pos,
+            state,
+            event.player.as_ref(),
+        );
+    }
+    if event.drop
+        && let Some(stack) = modded_item(Block::from_state_id(state))
+    {
+        world.drop_stack(&pos, stack);
+    }
+}
+
+fn modded_at(world: &World, pos: BlockPos) -> Option<BlockStateId> {
+    world
+        .get_block_state_id_if_loaded(&pos)
+        .filter(|s| modded::is_modded(*s))
 }
 
 /// Menu clicks go to every mod; each acts only on its own action ids.

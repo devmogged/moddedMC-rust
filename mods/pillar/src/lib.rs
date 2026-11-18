@@ -30,7 +30,12 @@ impl Mod for Pillar {
             y: at.y.floor() as i32 + 2,
             z: at.z.floor() as i32,
         };
-        let column: Vec<Pos> = (0..HEIGHT).map(|dy| Pos { y: base.y + dy, ..base }).collect();
+        let column: Vec<Pos> = (0..HEIGHT)
+            .map(|dy| Pos {
+                y: base.y + dy,
+                ..base
+            })
+            .collect();
         let dimension = player.dimension();
         let written = world.set_blocks(
             dimension,
@@ -39,7 +44,10 @@ impl Mod for Pillar {
         let names: Vec<String> = world
             .get_blocks(dimension, &column)
             .into_iter()
-            .map(|s| s.and_then(|s| world.state_name(s)).unwrap_or_else(|| "?".into()))
+            .map(|s| {
+                s.and_then(|s| world.state_name(s))
+                    .unwrap_or_else(|| "?".into())
+            })
             .collect();
         command.reply(&format!(
             "pillar: wrote {written} at {} {} {}: {}",

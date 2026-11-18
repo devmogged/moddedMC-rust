@@ -8,6 +8,7 @@
 //! - A bare `.dll`/`.so`/`.dylib`: loaded as is (handy while developing a mod).
 
 use std::{
+    collections::{HashMap, HashSet},
     ffi::c_void,
     fs,
     io::Read,
@@ -17,8 +18,9 @@ use std::{
 };
 
 use moddedmc_api::abi::{
-    self, ABI_SYMBOL, ABI_VERSION, BlockCall, BlockWrite, ENTRY_SYMBOL, HostApi, ID_SYMBOL,
-    MenuButton, ModApi, PlayerRef, Pos, Reg, Sink, Str, TickEntry, WorldV1, code, level,
+    self, ABI_SYMBOL, ABI_VERSION, BlockCall, BlockEvent, BlockWrite, BlocksV1, Defs, ENTRY_SYMBOL,
+    HostApi, ID_SYMBOL, MenuButton, ModApi, PlayerRef, Pos, Property, Reg, Sink, Str, TickEntry,
+    WorldV1, code, level,
 };
 use pumpkin_core::{
     command::{
@@ -31,7 +33,10 @@ use pumpkin_core::{
     server::Server,
     world::World,
 };
-use pumpkin_data::{Block, BlockStateId};
+use pumpkin_data::{
+    Block, BlockStateId,
+    modded::{self, BlockDef},
+};
 use pumpkin_protocol::java::client::dialog::{ActionButton, Dialog, DialogAction, DialogBody};
 use pumpkin_util::{
     math::{position::BlockPos, vector3::Vector3},
@@ -512,6 +517,7 @@ unsafe extern "C" fn query_interface(name: Str) -> *const c_void {
     // SAFETY: borrowed for the call.
     match unsafe { name.str() } {
         abi::WORLD_V1 => std::ptr::from_ref(&WORLD).cast(),
+        abi::BLOCKS_V1 => std::ptr::from_ref(&BLOCKS).cast(),
         _ => std::ptr::null(),
     }
 }
@@ -579,7 +585,7 @@ unsafe extern "C" fn set_blocks(dimension: Str, writes: *const BlockWrite, count
     let mut written = 0;
     for write in writes {
         let pos = block_pos(&write.pos);
-        let Some(state) = u16::try_from(write.state).ok().and_then(BlockStateId::new) else {
+        let Some(state) = raw_state(write.state) else {
             continue;
         };
         if world.get_block_state_id_if_loaded(&pos).is_none() {
@@ -598,6 +604,13 @@ fn parse_state(name: &str) -> Option<BlockStateId> {
         None => (name, ""),
     };
     let block = Block::from_name(block.strip_prefix("minecraft:").unwrap_or(block))?;
+    if modded::is_modded(block.default_state.id) {
+        let pairs = props.split(',').filter(|p| !p.is_empty()).map(|p| {
+            p.split_once('=')
+                .map_or(("", ""), |(k, v)| (k.trim(), v.trim()))
+        });
+        return modded::state_with(block, pairs);
+    }
     let props = props
         .split(',')
         .filter(|p| !p.is_empty())
@@ -617,6 +630,9 @@ unsafe extern "C" fn state_id(name: Str) -> u32 {
 /// A state's full name, e.g. `minecraft:oak_log[axis=x]`.
 fn full_name(state: BlockStateId) -> String {
     let block = Block::from_state_id(state);
+    if let Some(name) = modded::state_name(state) {
+        return name;
+    }
     let props: Vec<String> = block
         .properties(state)
         .map_or_else(Vec::new, |p| p.to_props())
@@ -630,14 +646,252 @@ fn full_name(state: BlockStateId) -> String {
     }
 }
 
+/// A vanilla or modded state id from a mod.
+fn raw_state(state: u32) -> Option<BlockStateId> {
+    u16::try_from(state).ok().and_then(modded::state_id)
+}
+
 unsafe extern "C" fn state_name(state: u32, out: Sink) -> bool {
-    let Some(state) = u16::try_from(state).ok().and_then(BlockStateId::new) else {
+    let Some(state) = raw_state(state) else {
         return false;
     };
     let name = full_name(state);
     // SAFETY: the mod's sink copies before returning.
     unsafe { (out.put)(out.ctx, 0, Str::from(name.as_str())) };
     true
+}
+
+// ---------------------------------------------------------------- blocks/1
+
+static BLOCKS: BlocksV1 = BlocksV1 {
+    size: size_of::<BlocksV1>(),
+    define_block,
+};
+
+/// Modded block -> index of the mod that defined it, set once by [`define_blocks`].
+static OWNERS: OnceLock<HashMap<u16, usize>> = OnceLock::new();
+
+/// Definitions collected from the mod being asked, plus what earlier mods took.
+struct Defining {
+    taken: HashSet<String>,
+    states: usize,
+    defs: Vec<BlockDef>,
+}
+
+/// Most states mods can add: the client sees `u16` ids, vanilla uses the rest.
+const STATE_BUDGET: usize = u16::MAX as usize - BlockStateId::COUNT as usize;
+
+unsafe extern "C" fn define_block(
+    defs: Defs,
+    name: Str,
+    properties: *const Property,
+    property_count: usize,
+    appearances: *const Str,
+    appearance_count: usize,
+) -> i32 {
+    // SAFETY: `defs` is the `Defining` of the `define_blocks` call in progress.
+    let Some(defining) = (unsafe { defs.cast::<Defining>().as_mut() }) else {
+        return code::INVALID_DEFINITION;
+    };
+    // SAFETY: the mod passes `property_count` properties and `appearance_count` names, each with
+    // its values, all borrowed for the call.
+    let (name, properties, looks) = unsafe {
+        let properties: Vec<(String, Vec<String>)> = slice(properties, property_count)
+            .iter()
+            .map(|p| {
+                (
+                    text(p.name),
+                    slice(p.values, p.count).iter().map(|v| text(*v)).collect(),
+                )
+            })
+            .collect();
+        let looks: Vec<String> = slice(appearances, appearance_count)
+            .iter()
+            .map(|a| text(*a))
+            .collect();
+        (text(name), properties, looks)
+    };
+    if !crate::valid_id(&name) {
+        return code::INVALID_DEFINITION;
+    }
+    if defining.taken.contains(&name) || defining.defs.iter().any(|d| d.name == name) {
+        return code::DUPLICATE_ID;
+    }
+    let mut keys = HashSet::new();
+    let well_formed = properties.iter().all(|(key, values)| {
+        let mut seen = HashSet::new();
+        !key.is_empty()
+            && key.chars().all(crate::ns_char)
+            && keys.insert(key.as_str())
+            && !values.is_empty()
+            && values
+                .iter()
+                .all(|v| !v.is_empty() && v.chars().all(crate::ns_char) && seen.insert(v.as_str()))
+    });
+    let count: usize = properties.iter().map(|(_, v)| v.len()).product();
+    let Some(appearance) = looks
+        .iter()
+        .map(|l| parse_state(l).filter(|s| !modded::is_modded(*s)))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    let states: usize = defining.states
+        + defining
+            .defs
+            .iter()
+            .map(|d| d.appearance.len())
+            .sum::<usize>();
+    if !well_formed || appearance.len() != count || states + count > STATE_BUDGET {
+        return code::INVALID_DEFINITION;
+    }
+    defining.defs.push(BlockDef {
+        name,
+        properties,
+        appearance,
+    });
+    code::OK
+}
+
+/// # Safety
+/// `ptr` points to `count` live values, or `count` is 0.
+const unsafe fn slice<'a, T>(ptr: *const T, count: usize) -> &'a [T] {
+    if count == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller's contract.
+        unsafe { std::slice::from_raw_parts(ptr, count) }
+    }
+}
+
+/// Asks every mod for its blocks and installs them. Call once, before any world loads.
+pub fn define_blocks(mods: &[Native]) {
+    let mut defining = Defining {
+        taken: HashSet::new(),
+        states: 0,
+        defs: Vec::new(),
+    };
+    let mut all = Vec::new();
+    let mut owners = Vec::new();
+    for (idx, module) in mods.iter().enumerate() {
+        if module.api.size < abi::MOD_API_V1_0_SIZE + 2 * size_of::<usize>() {
+            continue; // built before blocks/1
+        }
+        let defs = std::ptr::from_mut(&mut defining).cast();
+        // SAFETY: the mod's own instance; `defining` outlives the call.
+        let result = unsafe { (module.api.define_blocks)(module.api.instance, defs) };
+        let defined = std::mem::take(&mut defining.defs);
+        if result != code::OK {
+            tracing::error!(
+                "moddedmc: {} failed to define its blocks (code {result}); they are disabled",
+                module.id
+            );
+            continue;
+        }
+        for def in defined {
+            tracing::info!(
+                "moddedmc: defined block {} ({} states)",
+                def.name,
+                def.appearance.len()
+            );
+            defining.taken.insert(def.name.clone());
+            defining.states += def.appearance.len();
+            owners.push((def.name.clone(), idx));
+            all.push(def);
+        }
+    }
+    // Blocks of mods that are gone stay defined, inert, so their chunks keep them.
+    let known = fs::read_to_string(KNOWN_BLOCKS).unwrap_or_default();
+    for def in known.lines().filter_map(decode) {
+        let fits = defining.states + def.appearance.len() <= STATE_BUDGET;
+        if fits && defining.taken.insert(def.name.clone()) {
+            tracing::warn!(
+                "moddedmc: no mod defines {}; its blocks are kept as they are until it is back",
+                def.name
+            );
+            defining.states += def.appearance.len();
+            all.push(def);
+        }
+    }
+    let text: String = all.iter().map(|d| encode(d) + "\n").collect();
+    let saved = Path::new(KNOWN_BLOCKS)
+        .parent()
+        .map_or(Ok(()), fs::create_dir_all)
+        .and_then(|()| fs::write(KNOWN_BLOCKS, text));
+    if let Err(e) = saved {
+        tracing::warn!("moddedmc: could not write {KNOWN_BLOCKS}: {e}");
+    }
+    // Must be on disk before any chunk is saved with these ids.
+    let saved: Vec<String> = fs::read_to_string(SAVED_STATES)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let saved = match modded::install(all, saved) {
+        Ok(saved) => saved,
+        Err(e) => {
+            tracing::error!("moddedmc: could not install modded blocks: {e}");
+            return;
+        }
+    };
+    if let Err(e) = fs::write(SAVED_STATES, saved.join("\n")) {
+        tracing::error!("moddedmc: could not write {SAVED_STATES}: {e}");
+    }
+    let owners = owners
+        .into_iter()
+        .filter_map(|(name, idx)| Some((Block::from_name(&name)?.id.as_u16(), idx)))
+        .collect();
+    let _ = OWNERS.set(owners);
+}
+
+/// Every modded block this server has had: name, properties and look-alikes, one per line.
+const KNOWN_BLOCKS: &str = "config/moddedmc/blocks.txt";
+/// Modded state names behind the ids `.pump` worlds store; append-only (see `modded::install`).
+const SAVED_STATES: &str = "config/moddedmc/states.txt";
+
+/// `name key=v1,v2;key2=a,b look1;look2`
+fn encode(def: &BlockDef) -> String {
+    let props: Vec<String> = def
+        .properties
+        .iter()
+        .map(|(k, v)| format!("{k}={}", v.join(",")))
+        .collect();
+    let looks: Vec<String> = def.appearance.iter().map(|&s| full_name(s)).collect();
+    format!("{} {} {}", def.name, props.join(";"), looks.join(";"))
+}
+
+fn decode(line: &str) -> Option<BlockDef> {
+    let mut parts = line.split(' ');
+    let (name, props, looks) = (parts.next()?, parts.next()?, parts.next()?);
+    let properties = props
+        .split(';')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let (k, v) = p.split_once('=')?;
+            Some((k.to_owned(), v.split(',').map(str::to_owned).collect()))
+        })
+        .collect::<Option<Vec<(String, Vec<String>)>>>()?;
+    let appearance = looks
+        .split(';')
+        .map(parse_state)
+        .collect::<Option<Vec<_>>>()?;
+    let count: usize = properties.iter().map(|(_, v)| v.len()).product();
+    (crate::valid_id(name) && appearance.len() == count).then(|| BlockDef {
+        name: name.to_owned(),
+        properties,
+        appearance,
+    })
+}
+
+/// The index of the mod that owns modded `state`'s block.
+pub fn owner(state: BlockStateId) -> Option<usize> {
+    if !modded::is_modded(state) {
+        return None;
+    }
+    OWNERS
+        .get()?
+        .get(&Block::from_state_id(state).id.as_u16())
+        .copied()
 }
 
 // ---------------------------------------------------------------- commands
@@ -768,6 +1022,26 @@ impl Native {
         unsafe { (self.api.break_block)(self.api.instance, &raw const call) };
     }
 
+    /// Sends a `blocks/1` event. Mods define blocks only if they have `block_event`.
+    pub fn block_event(
+        self,
+        kind: u32,
+        world: &World,
+        pos: BlockPos,
+        state: BlockStateId,
+        player: Option<&Arc<Player>>,
+    ) -> bool {
+        let event = BlockEvent {
+            kind,
+            dimension: Str::from(world.dimension.minecraft_name),
+            pos: self::pos(pos),
+            state: u32::from(state.as_u16()),
+            player: player.map_or(PlayerRef(std::ptr::null()), player_ref),
+        };
+        // SAFETY: see above; `event` outlives the call.
+        unsafe { (self.api.block_event)(self.api.instance, &raw const event) }
+    }
+
     pub fn menu_click(self, player: &Arc<Player>, action: &str) {
         // SAFETY: see above; the player is kept alive by the caller.
         unsafe { (self.api.menu_click)(self.api.instance, player_ref(player), Str::from(action)) };
@@ -776,7 +1050,22 @@ impl Native {
 
 #[cfg(test)]
 mod tests {
-    use super::{full_name, parse_state};
+    use super::{decode, encode, full_name, parse_state};
+
+    #[test]
+    fn known_blocks_round_trip() {
+        let line = "demo:shaft axis=x,y,z;lit=false,true \
+            minecraft:end_rod[facing=east];minecraft:end_rod[facing=up];minecraft:end_rod[facing=south];\
+            minecraft:stone;minecraft:stone;minecraft:oak_log[axis=x]";
+        let def = decode(line);
+        assert!(def.is_some());
+        assert_eq!(def.as_ref().map(encode).as_deref(), Some(line));
+        // Wrong state count, bad id, unknown look-alike.
+        assert!(decode("demo:shaft axis=x,y minecraft:stone").is_none());
+        assert!(decode("shaft  minecraft:stone").is_none());
+        assert!(decode("demo:shaft  minecraft:nope").is_none());
+        assert!(decode("demo:plain  minecraft:stone").is_some());
+    }
 
     #[test]
     fn state_names_round_trip() {

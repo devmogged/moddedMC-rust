@@ -1,0 +1,78 @@
+# moddedmc:blocks/1 through the shaft mod: a real modded block placed from its item, turned by a
+# player, saved with the chunk by name and found again after a restart. counter.mmc (built
+# against ABI 1.0, no blocks/1) loads next to it.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\abi-blocks.txt -RunDir run\abi-blocks -Fresh
+mods target\mods\shaft.mmc target\mods\counter.mmc
+start
+wait 1
+expect defined block shaft:shaft \(3 states\)
+expect registered command /shaftgive
+
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd tp tester 3073.5 101 3071.5
+wait 3
+cmd fill 3070 99 3068 3077 106 3077 minecraft:air
+cmd setblock 3073 99 3073 minecraft:stone
+wait 2
+
+# Placed on top of the stone, the end-rod look-alike faces up: axis=y.
+bot cmd shaftgive
+wait 1
+bot use 3073 99 3073
+wait 2
+expect \[bot\] chat: .*shaft: placed shaft:shaft\[axis=y\] at 3073 100 3073
+bot use 3073 100 3073
+wait 1
+expect \[bot\] chat: .*shaft: turned to axis=z at 3073 100 3073
+bot cmd shaftcheck
+wait 1
+expect \[bot\] chat: .*shaftcheck: 1 found: shaft:shaft\[axis=z\] at 3073 100 3073
+reject (?i)panic|panicked
+bot quit
+stop
+
+start
+wait 1
+botstart tester
+wait 3
+cmd tp tester 3073.5 101 3071.5
+wait 3
+bot cmd shaftcheck
+wait 1
+expect \[bot\] chat: .*shaftcheck: 1 found: shaft:shaft\[axis=z\] at 3073 100 3073
+reject (?i)panic|panicked
+bot quit
+stop
+
+# Remove the mod: the shaft stays in the chunk (loaded and saved again without the mod) ...
+unmod shaft.mmc
+start
+wait 1
+expect no mod defines shaft:shaft
+botstart tester
+wait 3
+cmd tp tester 3073.5 101 3071.5
+wait 3
+# Touch the chunk so it is written again.
+cmd setblock 3075 100 3075 minecraft:stone
+wait 1
+bot quit
+stop
+
+# ... and works again when the mod is back.
+mods target\mods\shaft.mmc
+start
+wait 1
+botstart tester
+wait 3
+cmd tp tester 3073.5 101 3071.5
+wait 3
+bot cmd shaftcheck
+wait 1
+expect \[bot\] chat: .*shaftcheck: 1 found: shaft:shaft\[axis=z\] at 3073 100 3073
+reject (?i)panic|panicked
+bot quit
+stop

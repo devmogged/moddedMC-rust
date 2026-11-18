@@ -107,6 +107,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "shaft"
+version = "0.1.0"
+dependencies = [
+ "moddedmc-api",
+]
+
+[[package]]
 name = "syn"
 version = "3.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"

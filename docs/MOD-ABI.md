@@ -13,7 +13,7 @@ myserver/
 
 - **`.mmc`**: a moddedMC mod. One file holds builds for every platform the author packed; the server picks the one for your machine. It loads in milliseconds.
 - **`.jar`**: a Fabric mod. The first start with a new jar converts it to native code, which takes a few minutes and needs the converter tools (see [recompiler/README.md](../recompiler/README.md)). The result is cached in `mods/.cache/`, so later starts are instant. Most Fabric mods use Mixin and cannot be converted yet; the server logs why a jar was skipped.
-- To remove a mod, delete its file and restart. `mods/.cache/` can be deleted at any time; it is rebuilt.
+- To remove a mod, delete its file and restart. `mods/.cache/` can be deleted at any time; it is rebuilt. Blocks of a removed mod stay in your worlds as they were (inert, listed in `config/moddedmc/blocks.txt`) and work again when you put the mod back. Keep `config/moddedmc/`: it records which modded blocks your worlds contain.
 - A mod's own files live in `config/<mod id>/`. Fabric mods use `config/` as on a Fabric server.
 - The server log shows each mod it loaded (`moddedmc: loaded wayshrine 0.2.0 from mods\wayshrine.mmc`) and why any mod was skipped. One broken mod never stops the others or the server.
 
@@ -65,6 +65,8 @@ What the SDK offers:
 | `Mod::use_block`, `place_block`, `break_block` | A player used, placed or broke one of your blocks. |
 | `Mod::command` | One of your commands ran. `reply` answers the player or the console. |
 | `Mod::menu_click` | A player picked a button of a menu (`Player::show_menu`). Every mod sees every click: check the action id is yours. |
+| `Mod::define_blocks` | Once, before any world loads: `blocks.block("shaft:shaft", &[("axis", &["x", "y", "z"])], &[look-alikes])` defines a real modded block (`moddedmc:blocks/1`). |
+| `Mod::block_event` | A player used, placed or broke one of your `blocks/1` blocks. Return true from a use to skip the look-alike's own interaction. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
 | `world::get()` | The `moddedmc:world/1` interface, if the server has it: `get_blocks`, `set_blocks` (batched, any vanilla block state), `state_id("minecraft:oak_log[axis=x]")`, `state_name(id)`. State ids are valid for this Minecraft version only: keep them in memory, save names. |
@@ -77,7 +79,16 @@ Rules:
 - Block entity state is opaque bytes, at most 64 KiB, saved with the chunk. Bump `state_version` when its layout changes; the server will not hand old-layout state to the new code.
 - You do not need the server's source, compiler version or build to build a mod. Any Rust toolchain that builds `api/` works.
 
-`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data) and `mods/pillar` (the world interface) are complete examples.
+`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface) and `mods/shaft` (a `blocks/1` block) are complete examples.
+
+### Modded blocks (`blocks/1`)
+
+A `blocks/1` block is a real block: its states have their own ids, the world saves them by name, and `world::get()` reads and writes them like vanilla states (`state_id("shaft:shaft[axis=x]")`). A stock client has no textures for it, so each state names a vanilla **look-alike** that players see, and the block takes the look-alike's shape, collision, hardness and light (the client predicts those from what it sees). Pick look-alikes that behave like your block and that players rarely use, and give each state a different one if players should see the difference.
+
+- Define blocks in `define_blocks`; it runs before any world loads, and an error disables all of that mod's blocks.
+- `Player::give_block("shaft:shaft")` gives the look-alike's item, tagged. Placing it places your block in the state whose look-alike matches what the player placed (so `facing` and `axis` carry over), then sends `Place`.
+- `Use`, `Place` and `Break` arrive in `block_event`. Breaking drops the item. There is no ticking yet: keep your own list of positions and use `world` from a block entity tick or a command.
+- Property names and values use lowercase letters, digits, `_`, `-` and `.`.
 
 ## The ABI
 
@@ -110,9 +121,10 @@ Interfaces:
 
 | Name | Since | What |
 | --- | --- | --- |
-| `moddedmc:world/1` | 1.1 | Batched block reads and writes by vanilla state id; state names to ids and back. |
+| `moddedmc:world/1` | 1.1 | Batched block reads and writes by state id (vanilla and `blocks/1`); state names to ids and back. |
+| `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`. Events come through `ModApi::block_event`. |
 
-Planned, in the order a Create kinetics port needs them (see [DECISIONS.md](DECISIONS.md)): `moddedmc:blocks/1` (real modded blocks with states, shapes, items and interactions), more of `world` (ordered block, neighbor, redstone and chunk events), then `entities/1`, `menus/1` and `worldgen/1`.
+Planned, in the order a Create kinetics port needs them (see [DECISIONS.md](DECISIONS.md)): more of `world` (ordered block, neighbor, redstone and chunk events, ticking modded blocks), then `entities/1`, `menus/1` and `worldgen/1`.
 
 Packaging (`.mmc`): a zip with
 

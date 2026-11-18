@@ -76,6 +76,20 @@ index d4fe77a5f..4c9858843 100644
  pumpkin-data = { path = "crates/pumpkin-data", default-features = false }
  pumpkin-gametest = { path = "crates/pumpkin-gametest", default-features = false }
  pumpkin-inventory = { path = "crates/pumpkin-inventory", default-features = false }
+diff --git a/crates/pumpkin-core/src/block/registry.rs b/crates/pumpkin-core/src/block/registry.rs
+index e11b9720f..2f8fd1ab6 100644
+--- a/crates/pumpkin-core/src/block/registry.rs
++++ b/crates/pumpkin-core/src/block/registry.rs
+@@ -1501,7 +1501,8 @@ impl BlockRegistry {
+     #[inline]
+     #[must_use]
+     pub fn get_pumpkin_block(&self, block: BlockId) -> Option<&Arc<dyn BlockBehaviour>> {
+-        let idx = self.block_indices[block.as_u16() as usize];
++        // Modded blocks have no Pumpkin behaviour; their mod handles them.
++        let idx = *self.block_indices.get(block.as_u16() as usize)?;
+         if idx == NO_BEHAVIOUR {
+             None
+         } else {
 diff --git a/crates/pumpkin-core/src/command/commands/forceload.rs b/crates/pumpkin-core/src/command/commands/forceload.rs
 index 4fdd48b97..f435e7054 100644
 --- a/crates/pumpkin-core/src/command/commands/forceload.rs
@@ -208,6 +222,557 @@ index bf658e514..78fa95205 100644
      }
  
      pub fn get_block_entity_custom_data(
+diff --git a/crates/pumpkin-data/src/block_state.rs b/crates/pumpkin-data/src/block_state.rs
+index 9fb7886c2..757ff1a96 100644
+--- a/crates/pumpkin-data/src/block_state.rs
++++ b/crates/pumpkin-data/src/block_state.rs
+@@ -44,7 +44,7 @@ pub struct BlockState {
+ /// Every [`BlockStateId`] is guaranteed to correspond to a valid [`BlockState`].
+ #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+ #[repr(transparent)]
+-pub struct BlockStateId(u16);
++pub struct BlockStateId(pub(crate) u16);
+ 
+ /// Vanilla `SoundType`: the sounds a block makes when broken, stepped on, placed, hit or fallen on.
+ #[derive(Debug)]
+@@ -319,55 +319,66 @@ impl BlockStateId {
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn to_state(self) -> &'static BlockState {
++    pub fn to_state(self) -> &'static BlockState {
+         BlockState::from_id(self)
+     }
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn to_block_id(self) -> BlockId {
++    pub fn to_block_id(self) -> BlockId {
+         BlockId::from_state_id(self)
+     }
+ 
++    /// The id a stock client knows: the vanilla look-alike of a modded state, else `self`.
+     #[inline]
+     #[must_use]
+-    pub const fn to_block(self) -> &'static Block {
++    pub fn to_client(self) -> Self {
++        if crate::modded::is_modded(self) {
++            crate::modded::appearance(self)
++        } else {
++            self
++        }
++    }
++
++    #[inline]
++    #[must_use]
++    pub fn to_block(self) -> &'static Block {
+         Block::from_state_id(self)
+     }
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn is_solid_render(self) -> bool {
++    pub fn is_solid_render(self) -> bool {
+         self.to_state().is_solid_render()
+     }
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn can_occlude(self) -> bool {
++    pub fn can_occlude(self) -> bool {
+         self.to_state().can_occlude()
+     }
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn has_analog_output_signal(self) -> bool {
++    pub fn has_analog_output_signal(self) -> bool {
+         self.to_state().has_analog_output_signal()
+     }
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn is_waterlogged(self) -> bool {
++    pub fn is_waterlogged(self) -> bool {
+         self.to_state().is_waterlogged()
+     }
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn is_side_solid(self, side: BlockDirection) -> bool {
++    pub fn is_side_solid(self, side: BlockDirection) -> bool {
+         self.to_state().is_side_solid(side)
+     }
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn is_center_solid(self, side: BlockDirection) -> bool {
++    pub fn is_center_solid(self, side: BlockDirection) -> bool {
+         self.to_state().is_center_solid(side)
+     }
+ 
+diff --git a/crates/pumpkin-data/src/blocks.rs b/crates/pumpkin-data/src/blocks.rs
+index b5bd363aa..c0aacee98 100644
+--- a/crates/pumpkin-data/src/blocks.rs
++++ b/crates/pumpkin-data/src/blocks.rs
+@@ -82,7 +82,7 @@ pub enum SuffocationPredicate {
+ /// ```
+ #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+ #[repr(transparent)]
+-pub struct BlockId(u16);
++pub struct BlockId(pub(crate) u16);
+ 
+ impl PartialEq<BlockId> for Block {
+     fn eq(&self, other: &BlockId) -> bool {
+@@ -184,7 +184,7 @@ impl Block {
+     }
+ 
+     #[must_use]
+-    pub const fn is_waterlogged(&self, id: BlockStateId) -> bool {
++    pub fn is_waterlogged(&self, id: BlockStateId) -> bool {
+         id.is_waterlogged()
+     }
+ 
+@@ -412,7 +412,7 @@ impl BlockId {
+ 
+     #[inline]
+     #[must_use]
+-    pub const fn to_block(self) -> &'static Block {
++    pub fn to_block(self) -> &'static Block {
+         Block::from_id(self)
+     }
+ 
+diff --git a/crates/pumpkin-data/src/generated/block.rs b/crates/pumpkin-data/src/generated/block.rs
+index d549ba33d..13cda22aa 100644
+--- a/crates/pumpkin-data/src/generated/block.rs
++++ b/crates/pumpkin-data/src/generated/block.rs
+@@ -6523,7 +6523,7 @@ pub const fn is_air(id: BlockStateId) -> bool {
+ }
+ #[inline(always)]
+ #[must_use]
+-pub const fn is_liquid(id: BlockStateId) -> bool {
++pub fn is_liquid(id: BlockStateId) -> bool {
+     BlockState::from_id(id).is_liquid()
+ }
+ #[inline(always)]
+@@ -11472,20 +11472,23 @@ impl BlockState {
+     #[doc = r" If you need access to the block use `BlockState::from_id_with_block` instead."]
+     #[inline]
+     #[must_use]
+-    pub const fn from_id(id: BlockStateId) -> &'static Self {
++    pub fn from_id(id: BlockStateId) -> &'static Self {
++        if crate::modded::is_modded(id) {
++            return crate::modded::state(id);
++        }
+         unsafe { lookup(&mappings::BLOCK_STATES, id.as_u16()) }
+     }
+     #[doc = r" Get a block state from a state id and the corresponding block."]
+     #[inline]
+     #[must_use]
+-    pub const fn from_id_with_block(id: BlockStateId) -> (&'static Block, &'static Self) {
++    pub fn from_id_with_block(id: BlockStateId) -> (&'static Block, &'static Self) {
+         let block = Block::from_state_id(id);
+         let state = Self::from_id(id);
+         (block, state)
+     }
+     #[must_use]
+-    pub const fn to_be_network_id(id: BlockStateId) -> u32 {
+-        unsafe { *lookup(Self::STATE_ID_TO_BEDROCK, id.as_u16()) }
++    pub fn to_be_network_id(id: BlockStateId) -> u32 {
++        unsafe { *lookup(Self::STATE_ID_TO_BEDROCK, id.to_client().as_u16()) }
+     }
+ }
+ impl BlockStateId {
+@@ -572976,22 +572979,26 @@ impl Block {
+         mappings::BLOCK_FROM_NAME_MAP
+             .get(key)
+             .map(|id| Self::from_id(*id))
++            .or_else(|| crate::modded::by_name(name))
+     }
+     #[doc = r" Get a [`Block`] from a [`BlockId`]"]
+     #[inline]
+     #[must_use]
+-    pub const fn from_id(id: BlockId) -> &'static Self {
++    pub fn from_id(id: BlockId) -> &'static Self {
++        if id.as_u16() >= BlockId::BLOCK_COUNT {
++            return crate::modded::block(id);
++        }
+         unsafe { lookup(&mappings::BLOCKS, id.as_u16()) }
+     }
+     #[doc = r" Get a [`Block`] from a state id"]
+     #[inline]
+     #[must_use]
+-    pub const fn from_state_id(id: BlockStateId) -> &'static Self {
++    pub fn from_state_id(id: BlockStateId) -> &'static Self {
+         Self::from_id(BlockId::from_state_id(id))
+     }
+     #[doc = r" Try to parse a block from an item id."]
+     #[must_use]
+-    pub const fn from_item_id(id: u16) -> Option<&'static Self> {
++    pub fn from_item_id(id: u16) -> Option<&'static Self> {
+         #[allow(unreachable_patterns)]
+         match id {
+             0u16 => Some(Self::from_id(BlockId::AIR)),
+@@ -577422,7 +577429,10 @@ impl BlockId {
+     #[doc = r" Get a [`BlockId`] from a [`BlockStateId`]"]
+     #[inline]
+     #[must_use]
+-    pub const fn from_state_id(id: BlockStateId) -> BlockId {
++    pub fn from_state_id(id: BlockStateId) -> BlockId {
++        if crate::modded::is_modded(id) {
++            return crate::modded::block_of(id);
++        }
+         unsafe { *lookup(&mappings::BLOCK_ID_FROM_STATE_ID, id.as_u16()) }
+     }
+ }
+diff --git a/crates/pumpkin-data/src/lib.rs b/crates/pumpkin-data/src/lib.rs
+index 7b27804ea..0db553234 100644
+--- a/crates/pumpkin-data/src/lib.rs
++++ b/crates/pumpkin-data/src/lib.rs
+@@ -473,6 +473,8 @@ pub mod block_rotation;
+ pub mod block_state;
+ #[cfg(feature = "block")]
+ mod blocks;
++#[cfg(feature = "block")]
++pub mod modded;
+ 
+ #[cfg(feature = "block")]
+ pub use block_direction::{BlockDirection, FacingExt, HorizontalFacingExt};
+diff --git a/crates/pumpkin-data/src/modded.rs b/crates/pumpkin-data/src/modded.rs
+new file mode 100644
+index 000000000..6a0f6f830
+--- /dev/null
++++ b/crates/pumpkin-data/src/modded.rs
+@@ -0,0 +1,329 @@
++//! Blocks added by mods at startup, numbered after vanilla's.
++//!
++//! [`install`] runs once, before any world loads. Modded states then behave like vanilla ones:
++//! `BlockState::from_id`, `Block::from_state_id` and `Block::from_name` find them, and their
++//! physics (shape, hardness, light) are copied from the vanilla state each one looks like on a
++//! stock client ([`BlockDef::appearance`]). Clients get [`BlockStateId::to_client`].
++//!
++//! Runtime ids change between runs, so files never store them. Name-based formats (Anvil) save
++//! names; id-based formats (`.pump`) save [`to_saved`] ids: an index into an append-only list of
++//! state names that the caller keeps on disk and hands to [`install`].
++
++use std::{collections::HashMap, sync::OnceLock};
++
++use crate::{Block, BlockId, BlockState, BlockStateId};
++
++/// One modded block, as a mod defines it.
++pub struct BlockDef {
++    /// `namespace:path`, not `minecraft`.
++    pub name: String,
++    /// (name, values). States are every combination, the last property changing fastest;
++    /// the first state is the default.
++    pub properties: Vec<(String, Vec<String>)>,
++    /// The vanilla state a stock client sees, one per state, in state order.
++    pub appearance: Vec<BlockStateId>,
++}
++
++struct Modded {
++    blocks: Vec<&'static Block>,
++    /// Indexed by `id - BlockStateId::STATE_COUNT`.
++    states: Vec<(BlockId, BlockStateId)>,
++    properties: Vec<&'static [(String, Vec<String>)]>,
++    by_name: HashMap<&'static str, BlockId>,
++    /// Saved id offset (from `STATE_COUNT`) of each modded state, by runtime offset.
++    to_saved: Vec<u16>,
++    /// Runtime state of each saved id offset; air for states no block has any more.
++    from_saved: Vec<BlockStateId>,
++}
++
++static MODDED: OnceLock<Modded> = OnceLock::new();
++
++/// Installs the modded blocks. Call once, before any world loads.
++///
++/// `saved` is the list of state names behind saved ids, as last returned (empty the first time).
++/// Returns it with this run's new states appended; store it before any world loads.
++pub fn install(defs: Vec<BlockDef>, mut saved: Vec<String>) -> Result<Vec<String>, String> {
++    let mut modded = Modded {
++        blocks: Vec::new(),
++        states: Vec::new(),
++        properties: Vec::new(),
++        by_name: HashMap::new(),
++        to_saved: Vec::new(),
++        from_saved: Vec::new(),
++    };
++    let mut names: HashMap<String, BlockStateId> = HashMap::new();
++    for def in defs {
++        let count: usize = def.properties.iter().map(|(_, v)| v.len()).product();
++        if count == 0 || def.appearance.len() != count {
++            return Err(format!("{}: {count} states but {} appearances", def.name, def.appearance.len()));
++        }
++        if def.appearance.iter().any(|a| a.0 >= BlockStateId::STATE_COUNT) {
++            return Err(format!("{}: appearances must be vanilla states", def.name));
++        }
++        let first = usize::from(BlockStateId::STATE_COUNT) + modded.states.len();
++        let block_raw = usize::from(BlockId::BLOCK_COUNT) + modded.blocks.len();
++        let (Ok(_), Ok(block_raw)) = (u16::try_from(first + count - 1), u16::try_from(block_raw)) else {
++            return Err("too many modded block states".into());
++        };
++        let block_id = BlockId(block_raw);
++        let states: &'static [BlockState] = def
++            .appearance
++            .iter()
++            .enumerate()
++            .map(|(i, &look)| {
++                let v = BlockState::from_id(look);
++                BlockState {
++                    id: BlockStateId((first + i) as u16),
++                    state_flags: v.state_flags,
++                    side_flags: v.side_flags,
++                    instrument: v.instrument,
++                    luminance: v.luminance,
++                    piston_behavior: v.piston_behavior.clone(),
++                    hardness: v.hardness,
++                    collision_shapes: v.collision_shapes,
++                    outline_shapes: v.outline_shapes,
++                    opacity: v.opacity,
++                    sound_type: v.sound_type,
++                    // The mod owns its data; no vanilla block entity behind it.
++                    block_entity_type: u16::MAX,
++                }
++            })
++            .collect::<Vec<_>>()
++            .leak();
++        let name: &'static str = def.name.leak();
++        if modded.by_name.insert(name, block_id).is_some() || Block::from_name(name).is_some() {
++            return Err(format!("{name} is defined twice"));
++        }
++        let look = Block::from_state_id(def.appearance[0]);
++        let block: &'static Block = Box::leak(Box::new(Block {
++            id: block_id,
++            name,
++            default_state: &states[0],
++            states,
++            // Drops and fuel are the mod's business.
++            flammable: None,
++            experience: None,
++            loot_table: None,
++            ..look.clone()
++        }));
++        for state in states {
++            let index = usize::from(state.id.0) - first;
++            names.insert(full_name(name, &state_props(&def.properties, index)), state.id);
++        }
++        modded.blocks.push(block);
++        modded.properties.push(def.properties.leak());
++        modded.states.extend(def.appearance.iter().map(|&a| (block_id, a)));
++    }
++    let known: HashMap<&str, usize> = saved.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
++    let mut new: Vec<(String, BlockStateId)> = names
++        .iter()
++        .filter(|(n, _)| !known.contains_key(n.as_str()))
++        .map(|(n, &id)| (n.clone(), id))
++        .collect();
++    new.sort_by_key(|(_, id)| *id);
++    saved.extend(new.into_iter().map(|(n, _)| n));
++    if usize::from(BlockStateId::STATE_COUNT) + saved.len() > usize::from(u16::MAX) {
++        return Err("too many saved modded block states".into());
++    }
++    modded.to_saved = vec![0; modded.states.len()];
++    modded.from_saved = saved
++        .iter()
++        .enumerate()
++        .map(|(i, n)| {
++            let id = names.get(n).copied().unwrap_or(BlockStateId::AIR);
++            if is_modded(id) {
++                modded.to_saved[usize::from(id.0 - BlockStateId::STATE_COUNT)] = i as u16;
++            }
++            id
++        })
++        .collect();
++    MODDED.set(modded).map_err(|_| "modded blocks are already installed")?;
++    Ok(saved)
++}
++
++/// The (property, value) pairs of state `index` of a block with these properties.
++fn state_props(props: &[(String, Vec<String>)], mut index: usize) -> Vec<(&str, &str)> {
++    let mut out = vec![("", ""); props.len()];
++    for (slot, (key, values)) in out.iter_mut().zip(props).rev() {
++        *slot = (key.as_str(), values[index % values.len()].as_str());
++        index /= values.len();
++    }
++    out
++}
++
++fn full_name(name: &str, props: &[(&str, &str)]) -> String {
++    if props.is_empty() {
++        return name.to_owned();
++    }
++    let props: Vec<String> = props.iter().map(|(k, v)| format!("{k}={v}")).collect();
++    format!("{name}[{}]", props.join(","))
++}
++
++/// `shaft:shaft[axis=x]` for a modded state; `None` for vanilla ones.
++#[must_use]
++pub fn state_name(id: BlockStateId) -> Option<String> {
++    Some(full_name(Block::from_state_id(id).name, &properties(id)?))
++}
++
++/// The id an id-based file format stores for `id`.
++#[must_use]
++pub fn to_saved(id: BlockStateId) -> u16 {
++    match get() {
++        Some(m) if is_modded(id) => m
++            .to_saved
++            .get(usize::from(id.0 - BlockStateId::STATE_COUNT))
++            .map_or(BlockStateId::AIR.0, |s| BlockStateId::STATE_COUNT + s),
++        _ => id.0,
++    }
++}
++
++/// The state behind a stored id; air if nothing has it any more.
++#[must_use]
++pub fn from_saved(raw: u16) -> BlockStateId {
++    match raw.checked_sub(BlockStateId::STATE_COUNT) {
++        None => BlockStateId(raw),
++        Some(i) => get()
++            .and_then(|m| m.from_saved.get(usize::from(i)).copied())
++            .unwrap_or(BlockStateId::AIR),
++    }
++}
++
++fn get() -> Option<&'static Modded> {
++    MODDED.get()
++}
++
++fn entry(id: BlockStateId) -> Option<&'static (BlockId, BlockStateId)> {
++    get()?.states.get(usize::from(id.0.checked_sub(BlockStateId::STATE_COUNT)?))
++}
++
++/// Every modded state id; vanilla states are below `BlockStateId::STATE_COUNT`.
++#[must_use]
++pub fn state_count() -> usize {
++    get().map_or(0, |m| m.states.len())
++}
++
++/// A raw id from outside (a mod, a file) as a state id, if vanilla or installed.
++#[must_use]
++pub fn state_id(raw: u16) -> Option<BlockStateId> {
++    (usize::from(raw) < usize::from(BlockStateId::STATE_COUNT) + state_count())
++        .then_some(BlockStateId(raw))
++}
++
++#[must_use]
++pub const fn is_modded(id: BlockStateId) -> bool {
++    id.0 >= BlockStateId::STATE_COUNT
++}
++
++pub(crate) fn state(id: BlockStateId) -> &'static BlockState {
++    match entry(id) {
++        Some((block, _)) => {
++            let block = self::block(*block);
++            &block.states[usize::from(id.0 - block.states[0].id.0)]
++        }
++        None => BlockState::from_id(BlockStateId::AIR),
++    }
++}
++
++pub(crate) fn block_of(id: BlockStateId) -> BlockId {
++    entry(id).map_or(BlockId::AIR, |(block, _)| *block)
++}
++
++pub(crate) fn block(id: BlockId) -> &'static Block {
++    get()
++        .and_then(|m| m.blocks.get(usize::from(id.0.checked_sub(BlockId::BLOCK_COUNT)?)))
++        .copied()
++        .unwrap_or(&Block::AIR)
++}
++
++pub(crate) fn by_name(name: &str) -> Option<&'static Block> {
++    get()?.by_name.get(name).map(|&id| block(id))
++}
++
++/// [`BlockStateId::to_client`] for a raw id from a packet.
++#[must_use]
++pub fn client_raw(raw: i32) -> i32 {
++    u16::try_from(raw)
++        .ok()
++        .filter(|&r| r >= BlockStateId::STATE_COUNT)
++        .map_or(raw, |r| i32::from(appearance(BlockStateId(r)).0))
++}
++
++/// The vanilla state a stock client is shown for `id`.
++#[must_use]
++pub fn appearance(id: BlockStateId) -> BlockStateId {
++    entry(id).map_or(BlockStateId::AIR, |(_, look)| *look)
++}
++
++fn block_properties(block: &Block) -> Option<&'static [(String, Vec<String>)]> {
++    get()?.properties.get(usize::from(block.id.0.checked_sub(BlockId::BLOCK_COUNT)?)).copied()
++}
++
++/// (property, value) pairs of a modded state; `None` for vanilla states.
++#[must_use]
++pub fn properties(id: BlockStateId) -> Option<Vec<(&'static str, &'static str)>> {
++    let block = Block::from_state_id(id);
++    let props = block_properties(block)?;
++    Some(state_props(props, usize::from(id.0 - block.states[0].id.0)))
++}
++
++/// The state of modded `block` with these properties; missing ones keep the default.
++/// `None` for vanilla blocks, unknown properties or values.
++#[must_use]
++pub fn state_with<'a>(
++    block: &Block,
++    given: impl IntoIterator<Item = (&'a str, &'a str)>,
++) -> Option<BlockStateId> {
++    let props = block_properties(block)?;
++    let mut chosen = vec![0; props.len()];
++    for (key, value) in given {
++        let i = props.iter().position(|(k, _)| k == key)?;
++        chosen[i] = props[i].1.iter().position(|v| v == value)?;
++    }
++    let index = props
++        .iter()
++        .zip(chosen)
++        .fold(0, |acc, ((_, values), v)| acc * values.len() + v);
++    Some(BlockStateId(block.states[0].id.0 + index as u16))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn modded_states_round_trip() {
++        let look = |n: &str| Block::from_name(n).unwrap().default_state.id;
++        let saved = vec!["demo:gone".to_owned(), "demo:shaft[axis=y,powered=false]".to_owned()];
++        let saved = install(vec![BlockDef {
++            name: "demo:shaft".into(),
++            properties: vec![
++                ("axis".into(), vec!["x".into(), "y".into(), "z".into()]),
++                ("powered".into(), vec!["false".into(), "true".into()]),
++            ],
++            appearance: vec![look("stone"), look("dirt"), look("stone"), look("dirt"), look("stone"), look("glass")],
++        }], saved)
++        .unwrap();
++        // Known names keep their saved ids; new states are appended; gone ones read as air.
++        assert_eq!(saved.len(), 7);
++        assert_eq!(saved[2], "demo:shaft[axis=x,powered=false]");
++        let y = state_with(Block::from_name("demo:shaft").unwrap(), [("axis", "y")]).unwrap();
++        assert_eq!(to_saved(y), BlockStateId::STATE_COUNT + 1);
++        assert_eq!(from_saved(BlockStateId::STATE_COUNT + 1), y);
++        assert_eq!(from_saved(BlockStateId::STATE_COUNT), BlockStateId::AIR);
++        assert_eq!(from_saved(5), BlockStateId(5));
++        assert_eq!(state_name(y).as_deref(), Some("demo:shaft[axis=y,powered=false]"));
++        let block = Block::from_name("demo:shaft").unwrap();
++        assert_eq!(block.states.len(), 6);
++        let s = state_with(block, [("axis", "z"), ("powered", "true")]).unwrap();
++        assert!(is_modded(s));
++        assert_eq!(s.as_u16(), BlockStateId::STATE_COUNT + 5);
++        assert_eq!(Block::from_state_id(s).name, "demo:shaft");
++        assert_eq!(BlockState::from_id(s).id, s);
++        assert_eq!(properties(s).unwrap(), [("axis", "z"), ("powered", "true")]);
++        assert_eq!(s.to_client(), look("glass"));
++        assert_eq!(look("dirt").to_client(), look("dirt"));
++        assert_eq!(block.default_state.id.as_u16(), BlockStateId::STATE_COUNT);
++        assert!(state_with(block, [("axis", "w")]).is_none());
++        assert!(install(Vec::new(), Vec::new()).is_err());
++    }
++}
 diff --git a/crates/pumpkin-protocol/src/java/client/dialog.rs b/crates/pumpkin-protocol/src/java/client/dialog.rs
 index fdc2e9b39..0ecd161eb 100644
 --- a/crates/pumpkin-protocol/src/java/client/dialog.rs
@@ -389,6 +954,50 @@ index fdc2e9b39..0ecd161eb 100644
 +        assert_eq!(body.len(), 1);
 +    }
 +}
+diff --git a/crates/pumpkin-protocol/src/java/client/play/block_update.rs b/crates/pumpkin-protocol/src/java/client/play/block_update.rs
+index 96b42411a..99ff473b5 100644
+--- a/crates/pumpkin-protocol/src/java/client/play/block_update.rs
++++ b/crates/pumpkin-protocol/src/java/client/play/block_update.rs
+@@ -37,7 +37,7 @@ impl ClientPacket for CBlockUpdate {
+     ) -> Result<(), WritingError> {
+         let mut write = write;
+         write.write_block_pos(&self.location, version)?;
+-        write.write_var_int(&self.state_id)?;
++        write.write_var_int(&VarInt(pumpkin_data::modded::client_raw(self.state_id.0)))?;
+ 
+         Ok(())
+     }
+diff --git a/crates/pumpkin-protocol/src/java/client/play/multi_block_update.rs b/crates/pumpkin-protocol/src/java/client/play/multi_block_update.rs
+index e770390d4..4773c5bdd 100644
+--- a/crates/pumpkin-protocol/src/java/client/play/multi_block_update.rs
++++ b/crates/pumpkin-protocol/src/java/client/play/multi_block_update.rs
+@@ -74,7 +74,7 @@ impl ClientPacket for CMultiBlockUpdate {
+ 
+             for (pos, state_id) in &self.updates {
+                 let local_pos = pack_local_chunk_section(pos) as u64;
+-                let raw_state_id = state_id.as_u16();
++                let raw_state_id = state_id.to_client().as_u16();
+                 let packed = (u64::from(raw_state_id) << 12) | (local_pos & 0xFFF);
+                 write.write_var_long(&VarLong(packed as i64))?;
+             }
+@@ -91,7 +91,7 @@ impl ClientPacket for CMultiBlockUpdate {
+                 let packed_pos = (rel_x << 12) | (rel_z << 8) | rel_y;
+                 write.write_i16_be(packed_pos as i16)?;
+ 
+-                let raw_state_id = state_id.as_u16();
++                let raw_state_id = state_id.to_client().as_u16();
+                 write.write_i16_be(raw_state_id as i16)?;
+             }
+         } else {
+@@ -106,7 +106,7 @@ impl ClientPacket for CMultiBlockUpdate {
+                 let packed_pos = (rel_x << 12) | (rel_z << 8) | rel_y;
+                 write.write_i16_be(packed_pos as i16)?;
+ 
+-                let raw_state_id = state_id.as_u16();
++                let raw_state_id = state_id.to_client().as_u16();
+                 write.write_var_int(&VarInt(i32::from(raw_state_id)))?;
+             }
+         }
 diff --git a/crates/pumpkin-protocol/src/java/server/config/client_information.rs b/crates/pumpkin-protocol/src/java/server/config/client_information.rs
 index 52a7533aa..71eb88c48 100644
 --- a/crates/pumpkin-protocol/src/java/server/config/client_information.rs
@@ -433,6 +1042,193 @@ index 52a7533aa..71eb88c48 100644
          Ok(())
      }
  }
+diff --git a/crates/pumpkin-world/src/block/mod.rs b/crates/pumpkin-world/src/block/mod.rs
+index ae0a6184c..1eef1dfc2 100644
+--- a/crates/pumpkin-world/src/block/mod.rs
++++ b/crates/pumpkin-world/src/block/mod.rs
+@@ -66,6 +66,15 @@ impl BlockStateCodec {
+     pub fn state_to_nbt(state_id: BlockStateId) -> NbtCompound {
+         let block = Block::from_state_id(state_id);
+         let mut nbt = NbtCompound::new();
++        if pumpkin_data::modded::is_modded(state_id) {
++            nbt.put_string("Name", block.name.to_string());
++            let mut properties_nbt = NbtCompound::new();
++            for (key, value) in pumpkin_data::modded::properties(state_id).unwrap_or_default() {
++                properties_nbt.put_string(key, value.to_string());
++            }
++            nbt.put_compound("Properties", properties_nbt);
++            return nbt;
++        }
+         nbt.put_string("Name", format!("minecraft:{}", block.name));
+         if let Some(properties) = block.properties(state_id) {
+             let properties = properties.to_props();
+@@ -83,6 +92,9 @@ impl BlockStateCodec {
+     /// Reads a state written by [`Self::state_to_nbt`]. Unknown blocks give `None`.
+     #[must_use]
+     pub fn state_from_nbt(nbt: &NbtCompound) -> Option<BlockStateId> {
++        if let Some(state) = Self::modded_from_nbt(nbt) {
++            return Some(state);
++        }
+         let block = Block::from_name(nbt.get_string("Name")?)?;
+         let Some(properties) = nbt.get_compound("Properties") else {
+             return Some(block.default_state.id);
+@@ -94,6 +106,23 @@ impl BlockStateCodec {
+             .collect::<Vec<Property>>();
+         Some(block.from_properties(&properties).to_state_id(block))
+     }
++
++    /// A modded state saved by name; `None` for anything else.
++    #[must_use]
++    pub fn modded_from_nbt(nbt: &NbtCompound) -> Option<BlockStateId> {
++        let name = nbt.get_string("Name")?;
++        if name.starts_with("minecraft:") || !name.contains(':') {
++            return None;
++        }
++        let block = Block::from_name(name)?;
++        let props = nbt.get_compound("Properties");
++        let pairs = props.iter().flat_map(|p| {
++            p.child_tags
++                .iter()
++                .filter_map(|(k, v)| Some((&**k, v.extract_string()?)))
++        });
++        pumpkin_data::modded::state_with(block, pairs)
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/pumpkin-world/src/chunk/format/mod.rs b/crates/pumpkin-world/src/chunk/format/mod.rs
+index ec64a88a2..201c8b44b 100644
+--- a/crates/pumpkin-world/src/chunk/format/mod.rs
++++ b/crates/pumpkin-world/src/chunk/format/mod.rs
+@@ -146,6 +146,9 @@ fn extract_u16_array(tag: &pumpkin_nbt::tag::NbtTag) -> Option<Box<[BlockStateId
+                         BlockStateId::AIR
+                     }
+                     pumpkin_nbt::tag::NbtTag::Compound(compound) => {
++                        if let Some(state) = crate::block::BlockStateCodec::modded_from_nbt(compound) {
++                            return state;
++                        }
+                         if let Ok(entry) =
+                             crate::generation::structure::template::PaletteEntry::from_nbt_compound(
+                                 compound,
+@@ -585,7 +588,7 @@ impl ChunkData {
+                 .map(|&id| {
+                     let block = Block::from_state_id(id);
+                     let mut comp = NbtCompound::new();
+-                    let name = if block.name.starts_with("minecraft:") {
++                    let name = if block.name.contains(':') {
+                         block.name.to_string()
+                     } else {
+                         format!("minecraft:{}", block.name)
+@@ -600,6 +603,12 @@ impl ChunkData {
+                             }
+                             comp.put_compound("Properties", props_comp);
+                         }
++                    } else if let Some(props) = pumpkin_data::modded::properties(id) {
++                        let mut props_comp = NbtCompound::new();
++                        for (key, value) in props {
++                            props_comp.put_string(key, value.to_string());
++                        }
++                        comp.put_compound("Properties", props_comp);
+                     }
+                     NbtTag::Compound(comp)
+                 })
+diff --git a/crates/pumpkin-world/src/chunk/palette.rs b/crates/pumpkin-world/src/chunk/palette.rs
+index 963e40d8f..11286da6a 100644
+--- a/crates/pumpkin-world/src/chunk/palette.rs
++++ b/crates/pumpkin-world/src/chunk/palette.rs
+@@ -838,7 +838,7 @@ impl BlockPalette {
+         match self {
+             Self::Homogeneous(registry_id) => NetworkSerialization {
+                 bits_per_entry: 0,
+-                palette: NetworkPalette::Single(registry_id.as_u16()),
++                palette: NetworkPalette::Single(registry_id.to_client().as_u16()),
+                 packed_data: Box::new([]),
+             },
+             Self::Heterogeneous(data) => {
+@@ -856,7 +856,7 @@ impl BlockPalette {
+                                 let y = (current_idx + i) / (Self::SIZE * Self::SIZE);
+                                 let z = ((current_idx + i) / Self::SIZE) % Self::SIZE;
+                                 let x = (current_idx + i) % Self::SIZE;
+-                                let value = data.get(x, y, z).as_u16();
++                                let value = data.get(x, y, z).to_client().as_u16();
+                                 debug_assert!((1u32 << bits_per_entry) > u32::from(value));
+                                 acc |= (value as u64) << (bits_per_entry as u64 * i as u64);
+                             }
+@@ -877,7 +877,7 @@ impl BlockPalette {
+                     NetworkSerialization {
+                         bits_per_entry,
+                         palette: NetworkPalette::Indirect(
+-                            palette.iter().map(|v| v.as_u16()).collect(),
++                            palette.iter().map(|v| v.to_client().as_u16()).collect(),
+                         ),
+                         packed_data: packed,
+                     }
+@@ -1065,14 +1065,14 @@ impl BlockPalette {
+         match self {
+             Self::Homogeneous(id) => {
+                 out.put_u8(0);
+-                out.put_u16(id.as_u16());
++                out.put_u16(pumpkin_data::modded::to_saved(*id));
+             }
+             Self::Heterogeneous(data) => match &data.storage {
+                 PaletteStorage::Indexed(indices) => {
+                     out.put_u8(1);
+                     out.put_u16(data.palette.len() as u16);
+                     for (&id, &count) in data.palette.iter().zip(&data.counts) {
+-                        out.put_u16(id.as_u16());
++                        out.put_u16(pumpkin_data::modded::to_saved(id));
+                         out.put_u16(count);
+                     }
+                     out.extend_from_slice(indices.as_flattened().as_flattened());
+@@ -1080,7 +1080,7 @@ impl BlockPalette {
+                 PaletteStorage::Dense(cube) => {
+                     out.put_u8(2);
+                     for &id in cube.as_flattened().as_flattened() {
+-                        out.put_u16(id.as_u16());
++                        out.put_u16(pumpkin_data::modded::to_saved(id));
+                     }
+                 }
+             },
+@@ -1102,7 +1102,7 @@ impl BlockPalette {
+                         "Unexpected EOF reading homogeneous block palette".into(),
+                     ));
+                 }
+-                Ok(Self::Homogeneous(BlockStateId::new_or_air(buf.get_u16())))
++                Ok(Self::Homogeneous(pumpkin_data::modded::from_saved(buf.get_u16())))
+             }
+             1 => {
+                 if buf.remaining() < 2 {
+@@ -1120,7 +1120,7 @@ impl BlockPalette {
+                 }
+                 let mut palette = Vec::with_capacity(palette_len);
+                 for _ in 0..palette_len {
+-                    palette.push(BlockStateId::new_or_air(buf.get_u16()));
++                    palette.push(pumpkin_data::modded::from_saved(buf.get_u16()));
+                     buf.advance(2);
+                 }
+                 if palette_len == 1 {
+@@ -1154,7 +1154,7 @@ impl BlockPalette {
+                 let mut cube =
+                     Box::new([[[BlockStateId::AIR; Self::SIZE]; Self::SIZE]; Self::SIZE]);
+                 for slot in cube.as_flattened_mut().as_flattened_mut() {
+-                    *slot = BlockStateId::new_or_air(buf.get_u16());
++                    *slot = pumpkin_data::modded::from_saved(buf.get_u16());
+                 }
+                 Ok(Self::from_cube(cube))
+             }
+diff --git a/crates/pumpkin-world/src/generation/rule/block_match.rs b/crates/pumpkin-world/src/generation/rule/block_match.rs
+index e484f6feb..511063724 100644
+--- a/crates/pumpkin-world/src/generation/rule/block_match.rs
++++ b/crates/pumpkin-world/src/generation/rule/block_match.rs
+@@ -6,7 +6,7 @@ pub struct BlockMatchRuleTest {
+ 
+ impl BlockMatchRuleTest {
+     #[must_use]
+-    pub const fn test(&self, state: BlockStateId) -> bool {
++    pub fn test(&self, state: BlockStateId) -> bool {
+         state.to_block_id().as_u16() == self.block.as_u16()
+     }
+ }
 diff --git a/crates/pumpkin/Cargo.toml b/crates/pumpkin/Cargo.toml
 index f659f9a5d..3c6e24776 100644
 --- a/crates/pumpkin/Cargo.toml
@@ -446,10 +1242,19 @@ index f659f9a5d..3c6e24776 100644
  pumpkin-data = { workspace = true, features = ["default"] }
  pumpkin-util.workspace = true
 diff --git a/crates/pumpkin/src/main.rs b/crates/pumpkin/src/main.rs
-index cb65ff32c..1c1b42900 100644
+index cb65ff32c..6378e9b72 100644
 --- a/crates/pumpkin/src/main.rs
 +++ b/crates/pumpkin/src/main.rs
-@@ -183,6 +183,7 @@ async fn main() {
+@@ -170,6 +170,8 @@ async fn main() {
+         config.advanced.plugins.verify_signatures,
+     ))];
+ 
++    // Mods define their blocks before any world loads.
++    moddedmc_host::load_mods();
+     let pumpkin_server = PumpkinServer::new(
+         config.basic,
+         config.advanced,
+@@ -183,6 +185,7 @@ async fn main() {
          tracing::error!("{error}");
          exit(1);
      });

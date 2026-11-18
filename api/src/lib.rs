@@ -20,6 +20,7 @@
 //! ```
 
 pub mod abi;
+pub mod blocks;
 pub mod world;
 
 use std::{
@@ -427,6 +428,20 @@ pub trait Mod: Send + Sync + 'static {
 
     /// A player picked a menu button. Every mod sees every click: check the action is yours.
     fn menu_click(&self, _player: Player<'_>, _action: &str) {}
+
+    /// Once, before any world loads: define `blocks/1` blocks. An error disables all of them.
+    fn define_blocks(
+        &self,
+        _blocks: &mut blocks::Definitions<'_>,
+    ) -> Result<(), RegistrationError> {
+        Ok(())
+    }
+
+    /// A player used, placed or broke one of this mod's `blocks/1` blocks. For a use, return
+    /// true to skip the vanilla look-alike's own interaction.
+    fn block_event(&self, _event: blocks::Event<'_>) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------- export glue
@@ -574,6 +589,46 @@ unsafe extern "C" fn menu_click<M: Mod>(inst: *const c_void, player: PlayerRef, 
     });
 }
 
+unsafe extern "C" fn define_blocks<M: Mod>(inst: *const c_void, defs: abi::Defs) -> i32 {
+    guard("define_blocks", code::PANICKED, || {
+        let mut d = blocks::Definitions {
+            defs,
+            table: blocks::table(),
+            _call: PhantomData,
+        };
+        // SAFETY: the server passes back our own instance.
+        match unsafe { instance::<M>(inst) }.define_blocks(&mut d) {
+            Ok(()) => code::OK,
+            Err(e) => e.code(),
+        }
+    })
+}
+
+unsafe extern "C" fn block_event<M: Mod>(
+    inst: *const c_void,
+    event: *const abi::BlockEvent,
+) -> bool {
+    guard("block_event", false, || {
+        // SAFETY: a live event borrowed for the call, and our own instance.
+        unsafe {
+            let e = &*event;
+            let kind = match e.kind {
+                abi::block_event::USE => blocks::EventKind::Use,
+                abi::block_event::PLACE => blocks::EventKind::Place,
+                abi::block_event::BREAK => blocks::EventKind::Break,
+                _ => return false,
+            };
+            instance::<M>(inst).block_event(blocks::Event {
+                kind,
+                dimension: e.dimension.str(),
+                pos: e.pos,
+                state: e.state,
+                player: Player::new(e.player),
+            })
+        }
+    })
+}
+
 /// Used by [`export_mod!`].
 #[doc(hidden)]
 pub fn export<M: Mod>(
@@ -601,6 +656,8 @@ pub fn export<M: Mod>(
         break_block: break_block::<M>,
         command: command::<M>,
         menu_click: menu_click::<M>,
+        define_blocks: define_blocks::<M>,
+        block_event: block_event::<M>,
     };
     Box::into_raw(Box::new(api))
 }

@@ -2,6 +2,7 @@
 #   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh]
 # Scenario lines (blank lines and # comments ignored):
 #   mods <path> [...]        copy mods (.mmc, .jar, .dll) into the run dir's mods/ (before the first start)
+#   unmod <file> [...]       delete mods from the run dir's mods/ (to test removing a mod)
 #   start                    start the server and wait until it is ready
 #   cmd <console line>       send a console line
 #   wait <seconds>
@@ -99,6 +100,7 @@ foreach ($raw in Get-Content $Scenario) {
     Write-Host "> $line"
     switch ($verb) {
         'mods' { foreach ($m in $arg -split '\s+') { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'mods') -Force } }
+        'unmod' { foreach ($m in $arg -split '\s+') { Remove-Item (Join-Path (Join-Path $RunDir 'mods') $m) } }
         'start' { Start-Server }
         'cmd' { $script:p.StandardInput.WriteLine($arg) }
         'botstart' {

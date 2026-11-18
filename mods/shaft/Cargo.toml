@@ -1,0 +1,12 @@
+[package]
+name = "shaft"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Demo of the moddedmc:blocks/1 interface: a real modded block with an axis, shown to stock clients as an end rod."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true

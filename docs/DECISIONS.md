@@ -28,10 +28,13 @@ Project-level decisions and why. Agents and people working on any branch read th
 
 **First proof.** One `.mmc` with a Create-style drivetrain (motor, shaft, unequal gears, clutch, load) across chunk borders: speed, direction, overload and recovery match Create through network splits and merges, chunk unloads and a restart; a stock client can place and see it; removing and re-adding the file restores it; the same file runs on two server builds; startup and p99 tick time are measured on the Pi 5.
 
+**2026-11-19: how `blocks/1` blocks are stored and shown.** Modded state ids exist only at runtime: they are numbered after vanilla's at startup, worlds save names, and each client connection gets the vanilla look-alike's id. So there is no per-world id map to keep in sync, and adding or removing a mod never renumbers a saved world. Physics come from the look-alike, because a stock client predicts movement and breaking from what it sees; custom shapes need the resource pack or the companion first. Engine changes for this live in `patches/pumpkin.patch` until the move to the fork.
+
 **Steps.**
 
 1. `query_interface` and `moddedmc:world/1` (batched block reads and writes). Done on branch `abi/interfaces`.
-2. `moddedmc:blocks/1`: real modded blocks with states, shapes, items and interactions, on the fork's modded registry.
+2. `moddedmc:blocks/1`: real modded blocks with states, items and interactions. Done on branch `abi/interfaces` (see below); custom shapes and the resource pack come later.
+   Removing a mod keeps its blocks as inert placeholders (part of step 5).
 3. Ordered block, neighbor, redstone and chunk events for `world`.
 4. The drivetrain proof.
 5. `entities/1`, `menus/1`, `worldgen/1` as the dragon and boss ports need them.
