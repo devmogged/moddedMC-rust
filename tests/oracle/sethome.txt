@@ -18,8 +18,9 @@ wait 2
 expect \[bot\] teleported to .*200\.5|\[bot\] teleported to .*200\.0|\[bot\] teleported to .*x: 200
 bot cmd home
 wait 2
+# Both servers move the player before the chat line (Fabric then resyncs the position once more).
+expect \[bot\] teleported to Vector3 \{ x: (?!200\.5)
 expect \[bot\] chat: .*Teleported home\.
-expect \[bot\] teleported to
 bot cmd home
 wait 1
 expect \[bot\] chat: .*Home is on cooldown for [7-9]s\.

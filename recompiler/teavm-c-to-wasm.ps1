@@ -5,7 +5,7 @@
 # which Pumpkin's Wasmtime enables.
 param(
     [Parameter(Mandatory)] [string] $GeneratedC,   # TeaVM output dir containing all.c
-    [Parameter(Mandatory)] [string[]] $Glue,       # extra C files
+    [string[]] $Glue = @(),                        # extra C files; none = emit only the object at $Out
     [Parameter(Mandatory)] [string] $Out,
     [string[]] $Include = @()                      # header force-included before all.c (declarations of imports)
 )
@@ -23,9 +23,10 @@ $flags = @(
 foreach ($h in $Include) { $flags += @('-include', $h) }
 # The glue owns the entry point: it calls teavm_main once to bring the Java runtime up,
 # so only TeaVM's translation unit gets the rename.
-$obj = "$Out.teavm.o"
+$obj = if ($Glue) { "$Out.teavm.o" } else { $Out }
 & $cc @flags '-Dmain=teavm_main' -c (Join-Path $GeneratedC 'all.c') -o $obj
 if ($LASTEXITCODE) { throw "clang failed on all.c ($LASTEXITCODE)" }
+if (-not $Glue) { return }  # object only: fabric-host links it
 $libs = '-lsetjmp', '-lwasi-emulated-mman', '-lwasi-emulated-signal', '-lwasi-emulated-process-clocks', '-lwasi-emulated-getpid'
 & $cc @flags $obj @Glue @libs -o $Out
 if ($LASTEXITCODE) { throw "clang failed ($LASTEXITCODE)" }

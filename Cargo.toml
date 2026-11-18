@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["mods/*"]
+members = ["mods/*", "recompiler/fabric-host"]
+# fabric-host only links with a TeaVM object (recompiler/build-mod.ps1).
+default-members = ["mods/*"]
 exclude = ["engine"]
 
 [workspace.package]

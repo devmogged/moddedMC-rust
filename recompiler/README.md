@@ -1,4 +1,4 @@
-# Recompiler (M3, in progress)
+# Recompiler (M3: fixture done, corpus next)
 
 Goal: take an unchanged Fabric 26.3 mod JAR and produce a moddedMC-rust WASM mod, AOT.
 
@@ -31,8 +31,43 @@ configuration ping (Fabric waits for it), send `particle_status` in client infor
 (1.21.2+, Pumpkin patch), and send client tick-end after each move (26.3 allows one position
 per client tick and kicks otherwise).
 
+## Fabric JAR on Pumpkin (done for the fixture)
+
+    recompiler\build-mod.ps1 -Jar recompiler\fixtures\sethome\build\libs\sethome-1.0.0.jar
+    # -> target\fabric-mods\sethome.wasm; copy into plugins\ and run tests\oracle\sethome.txt
+
+The unchanged `sethome-1.0.0.jar` passes the same oracle scenario on Pumpkin as on Fabric.
+
+- `fabric-shim/` is compiled by TeaVM together with the mod JAR and real Brigadier 1.3.11
+  (MIT, from Mojang's Maven). It holds the Minecraft/Fabric/authlib classes the mod links
+  against, under their real names and descriptors, implemented over `@Import` host calls
+  (`moddedmc.rt.Host`). `ModRuntime.main` runs the `fabric.mod.json` main entrypoints
+  (generated as plain constructor calls; TeaVM has no reflection), fires
+  `CommandRegistrationCallback` and registers each root literal with Pumpkin.
+  `@Export mmc_run_command` runs a command through the mod's Brigadier dispatcher.
+- `fabric-host/` is an ordinary Rust Pumpkin plugin (`pumpkin-plugin-api`) that links the
+  TeaVM object and implements the `mmc_*` imports. That keeps all WIT work in Rust; C
+  bindings for the whole plugin world would be ~600 KB of generated glue.
+- TeaVM's `main` is renamed `teavm_main` and called once from `on_load`; exports are then
+  callable any number of times (`probe/` checks this under plain Wasmtime).
+- Output: 2.0 MB component. First server start 2.2 s (Wasmtime compiles it once), 171 ms
+  with the module cache warm.
+
+Found on the way:
+
+- TeaVM 0.16 `Files.createDirectories` on a one-level path calls `createDirectory`, which
+  stats the parent (`/` or `.`, invisible under WASI) and throws if the directory already
+  exists (the JDK does not). Fabric's config dir is therefore `/data/config` (two levels,
+  inside the plugin's `data` preopen), created at load as Fabric always has `config/`.
+- Pumpkin sends the teleport before the chat line, as vanilla does; vanilla then resyncs the
+  position once more. The oracle spec now checks teleport-then-chat on both servers.
+
+Known shortcuts (each marked `shortcut:` in code): root literals only (no arguments reach
+Brigadier yet), plain-text components, absolute teleports, player handles valid for one
+command, `getTickCount` backed by overworld age.
+
 ## Next
 
-- Shim library: Java implementations of the Minecraft/Fabric/Brigadier API the fixture
-  uses, calling `@Import` functions that the glue maps onto `pumpkin:plugin` WIT.
-- Exports: TeaVM drops code `main` can't reach, so entry points need a reachable root.
+- Corpus: freeze the top 500 Modrinth Fabric mods for 26.3 and report, per mod, which
+  classes and members outside the JDK it references, against what the shim implements.
+- Grow the shim from that report, most-referenced API first.

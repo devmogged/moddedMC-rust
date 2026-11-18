@@ -16,7 +16,9 @@ Rust offers memory safety without a garbage collector, fine-grained control over
 
 **M2 done: a playable hand port.** `mods/wayshrine` adds discoverable fast-travel shrines with a Java dialog menu, persistence and break handling, tested end to end with a headless bot.
 
-Next: the first Fabric JAR through the recompiler, then the host app with a tunnel.
+**M3 in progress: an unchanged Fabric JAR runs on Pumpkin.** The `sethome` fixture JAR goes through TeaVM to C, then to a WASM plugin, and passes the same scenario on Pumpkin as on a real Fabric 26.3 server. See [recompiler/README.md](recompiler/README.md). Remaining in M3: the top-500 Modrinth corpus report.
+
+Next: the host app with a tunnel (M4).
 
 ### Build and run (Windows, PowerShell)
 

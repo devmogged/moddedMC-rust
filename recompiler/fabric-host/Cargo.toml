@@ -1,0 +1,14 @@
+[package]
+name = "fabric-host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Pumpkin plugin that runs one Fabric mod recompiled to C by TeaVM. Built by recompiler/build-mod.ps1."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pumpkin-plugin-api.workspace = true
+wit-bindgen.workspace = true
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }

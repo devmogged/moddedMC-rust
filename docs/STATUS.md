@@ -99,3 +99,15 @@ Not verified: a real 26.3 client rendering the dialog. The dialog NBT uses field
 ### Benchmark after write-through (10,000 counters, one bot)
 
 p50 5.3–5.6 ms, p95 10.6–11.0 ms, p99 11.5–12.6 ms; RSS 330 MB; CPU 0.86%. No regression against M1 (p50 6.3–6.4 ms).
+
+## M3 — first Fabric JAR on Pumpkin (2026-11-18, corpus still open)
+
+### Verified (headless bot, release build)
+
+- `tests/oracle/sethome.txt` passes on a real Fabric 26.3 server (loader 0.20.1, Fabric API 0.166.2+26.3) with `sethome-1.0.0.jar`.
+- The same scenario passes on Pumpkin with that unchanged JAR, recompiled by `recompiler/build-mod.ps1` (TeaVM 0.16 C backend, wasi-sdk 34, linked into `recompiler/fabric-host`). It covers no home, set, teleport home, the cooldown (8 s left on both servers), and the home surviving a restart.
+- Not verified with a real 26.3 client.
+
+### Size and startup
+
+`sethome.wasm` is 2.0 MB. The first server start takes 2242 ms, mostly Wasmtime compiling the component once. With the module cache warm it takes 171 ms. For comparison, M1 counter takes 905 ms and 66 ms.
