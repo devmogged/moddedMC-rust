@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Play, Plus, RotateCw, Square, Trash2, Upload } from "lucide-react";
-import { api, minecraftAddress, type Device, type ServerInfo, type Stats } from "./api";
+import { Archive, History, Play, Plus, RotateCw, Square, Trash2, Upload } from "lucide-react";
+import { api, minecraftAddress, type Backup, type Device, type ServerInfo, type Stats } from "./api";
 import { ServerCluster, ServerIcon, bytes, duration, packLine, usePoll } from "./ui";
-import { DeployDialog } from "./dialogs";
+import { ConfirmDialog, DeployDialog } from "./dialogs";
 
-type Tab = "console" | "performance" | "mods";
+type Tab = "console" | "performance" | "mods" | "backups";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "console", label: "Console" },
   { id: "performance", label: "Performance" },
   { id: "mods", label: "Mods" },
+  { id: "backups", label: "Backups" },
 ];
 
 export function ServerPane({
@@ -136,8 +137,10 @@ export function ServerPane({
             <Console device={device.id} server={server.name} />
           ) : tab === "performance" ? (
             <Performance device={device.id} server={server} />
-          ) : (
+          ) : tab === "mods" ? (
             <Mods device={device.id} server={server} onError={onError} />
+          ) : (
+            <Backups device={device.id} server={server} onError={onError} />
           )}
         </>
       )}
@@ -357,6 +360,109 @@ function Mods({
           {value && value.length === 0 ? <p className="row-line">None</p> : null}
         </div>
       </section>
+    </div>
+  );
+}
+
+const WHEN = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+function Backups({
+  device,
+  server,
+  onError,
+}: {
+  device: string;
+  server: ServerInfo;
+  onError: (err: unknown) => void;
+}) {
+  const { value, error, refresh } = usePoll(() => api.backups(device, server.name), 30_000, [
+    device,
+    server.name,
+  ]);
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<{ backup: Backup; action: "restore" | "remove" } | null>(null);
+  const stopped = server.state === "stopped" || server.state === "crashed";
+
+  const backUp = async () => {
+    setBusy(true);
+    try {
+      await api.backUp(device, server.name);
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+
+  if (error && !value) return <div className="pane-body error-line">{error}</div>;
+  return (
+    <div className="pane-body">
+      <section className="block">
+        <div className="block-head">
+          <span>{value ? `${value.length} ${value.length === 1 ? "backup" : "backups"}` : null}</span>
+          <button className="button" disabled={busy} onClick={backUp}>
+            <Archive />
+            {busy ? "Backing up…" : "Back up now"}
+          </button>
+        </div>
+        <div>
+          {value?.map((b) => (
+            <div key={b.id} className="mod-row">
+              <div className="row-text">
+                <div className="row-name">{WHEN.format(b.created * 1000)}</div>
+                <div className="row-line">
+                  {b.files} files · {bytes(b.bytes)} · {bytes(b.stored)} new
+                </div>
+              </div>
+              <button
+                className="button"
+                disabled={busy || !stopped}
+                title={stopped ? undefined : "Stop the server to restore"}
+                onClick={() => setConfirm({ backup: b, action: "restore" })}
+              >
+                <History />
+                Restore
+              </button>
+              <button
+                className="icon-button"
+                aria-label="Remove backup"
+                disabled={busy}
+                onClick={() => setConfirm({ backup: b, action: "remove" })}
+              >
+                <Trash2 />
+              </button>
+            </div>
+          ))}
+          {value && value.length === 0 ? <p className="row-line">None yet</p> : null}
+        </div>
+      </section>
+      <ConfirmDialog
+        open={confirm !== null}
+        title={
+          confirm?.action === "restore"
+            ? `Restore ${server.name} to ${WHEN.format(confirm.backup.created * 1000)}?`
+            : "Remove this backup?"
+        }
+        body={
+          confirm?.action === "restore"
+            ? "Everything in the server folder goes back to how it was then. Changes since are lost unless you back up first."
+            : "Chunks other backups share stay."
+        }
+        action={confirm?.action === "restore" ? "Restore" : "Remove"}
+        onClose={() => setConfirm(null)}
+        onConfirm={async () => {
+          if (!confirm) return;
+          try {
+            if (confirm.action === "restore") await api.restoreBackup(device, server.name, confirm.backup.id);
+            else await api.removeBackup(device, server.name, confirm.backup.id);
+          } catch (err) {
+            onError(err);
+          } finally {
+            refresh();
+          }
+        }}
+      />
     </div>
   );
 }

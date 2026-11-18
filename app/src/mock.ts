@@ -143,6 +143,12 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           serverMods[mods[1]] = list.filter((m) => m.file !== decodeURIComponent(mods[2]));
         return method === "GET" ? list : null;
       }
+      if (path.endsWith("/backups") && method === "GET")
+        return [
+          { id: "1795030000", created: 1795030000, files: 412, bytes: 182 * 2 ** 20, stored: 3.1 * 2 ** 20 },
+          { id: "1794940000", created: 1794940000, files: 405, bytes: 176 * 2 ** 20, stored: 151 * 2 ** 20 },
+        ];
+      if (path.includes("/backups")) return null;
       const match = path.match(/^\/v1\/servers\/([^/]+)\/(\w+)$/);
       if (match && method === "POST") {
         const [, name, action] = match;

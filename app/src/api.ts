@@ -121,6 +121,9 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 const agent = <T>(device: string, method: "GET" | "POST" | "DELETE", path: string, body?: unknown) =>
   call<T>("agent", { device, method, path, body });
 
+/** A snapshot of a server folder in the device's backup store. */
+export type Backup = { id: string; created: number; files: number; bytes: number; stored: number };
+
 /** A drop-in mod in a server's `mods/`. */
 export type ServerMod = { file: string; id: string | null; version: string | null; bytes: number };
 
@@ -186,6 +189,14 @@ export const api = {
       "DELETE",
       `/v1/servers/${encodeURIComponent(server)}/mods/${encodeURIComponent(file)}`,
     ),
+  backups: (device: string, server: string) =>
+    agent<Backup[]>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/backups`),
+  backUp: (device: string, server: string) =>
+    agent<Backup>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/backups`),
+  restoreBackup: (device: string, server: string, id: string) =>
+    agent<void>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/backups/${id}/restore`),
+  removeBackup: (device: string, server: string, id: string) =>
+    agent<void>(device, "DELETE", `/v1/servers/${encodeURIComponent(server)}/backups/${id}`),
   pickModFile: async (): Promise<string | null> => {
     if (mock) return "C:/mods/counter.mmc";
     const { open } = await import("@tauri-apps/plugin-dialog");
