@@ -7,6 +7,7 @@
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
 mod console;
+mod live_stats;
 mod native;
 mod stats;
 
@@ -168,6 +169,7 @@ pub fn attach(server: &Arc<Server>) {
         registered: false,
     }));
     stats::attach(server);
+    live_stats::attach(server);
 }
 
 fn give_block(player: &Player, block_id: &str) -> bool {
