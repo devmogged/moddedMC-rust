@@ -15,8 +15,8 @@ mod stats;
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        Arc, LazyLock, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard,
-        Weak,
+        Arc, LazyLock, Mutex, MutexGuard, Once, PoisonError, RwLock, RwLockReadGuard,
+        RwLockWriteGuard, Weak,
     },
     time::Instant,
 };
@@ -143,6 +143,26 @@ fn write<T>(m: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     m.write().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Loads drop-in libraries before Pumpkin creates or loads the worlds.
+pub fn load_mods() {
+    static LOAD: Once = Once::new();
+    LOAD.call_once(|| {
+        let started = Instant::now();
+        let mods = native::load_all(std::path::Path::new("mods"));
+        if !mods.is_empty() {
+            tracing::info!(
+                "moddedmc: loaded {} mods in {:?}",
+                mods.len(),
+                started.elapsed()
+            );
+        }
+        lock(&HOST.mods).extend(mods.into_iter().map(|module| ContentMod {
+            module,
+            registered: false,
+        }));
+    });
+}
+
 /// Hooks the host into the server's tick and block events and loads the mods in `mods/`.
 /// Call before the server starts ticking.
 pub fn attach(server: &Arc<Server>) {
@@ -158,19 +178,7 @@ pub fn attach(server: &Arc<Server>) {
         EventPriority::Normal,
         true,
     );
-    let started = Instant::now();
-    let mods = native::load_all(std::path::Path::new("mods"));
-    if !mods.is_empty() {
-        tracing::info!(
-            "moddedmc: loaded {} mods in {:?}",
-            mods.len(),
-            started.elapsed()
-        );
-    }
-    lock(&HOST.mods).extend(mods.into_iter().map(|module| ContentMod {
-        module,
-        registered: false,
-    }));
+    load_mods();
     interfaces::watch_shutdown(server);
     stats::attach(server);
     live_stats::attach(server);

@@ -240,7 +240,7 @@ pub struct ChunksV1 {
     pub size: usize,
     /// Submit an async check for a loaded or saved chunk. False means rejected; no callback.
     pub is_generated: ChunkRequest,
-    /// Check first, then generate/load if missing. Reports true once generated.
+    /// Check first, then generate/load if missing. Reports false if the job is interrupted.
     pub ensure_generated: ChunkRequest,
 }
 

@@ -14,15 +14,20 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $driver = Join-Path $PSScriptRoot 'pregen-bench.mjs'
 
-cargo run -q --release -p moddedmc-pack -- build (Join-Path $root 'packs\pregen\pack.toml') --target laptop
+cargo run -q --release -p moddedmc-pack -- build (Join-Path $root 'packs\pregen\pack.toml') --target laptop --profile pack
 if ($LASTEXITCODE -ne 0) { throw 'building packs/pregen failed' }
-$pack = Join-Path $root 'target\packs\pregen\laptop\pack-pregen.exe'
+$packDir = Join-Path $root 'target\packs\pregen\laptop'
+$pack = Join-Path $packDir 'pack-pregen.exe'
+$chunkyMmc = Join-Path $packDir 'mods\port-chunky.mmc'
+if (-not (Test-Path -LiteralPath $chunkyMmc)) { throw 'packs/pregen did not produce the Chunky .mmc' }
 $commands = "chunky radius $Radius;chunky start"
 
-$rust = Join-Path $root 'run\bench-pregen-rust'
+$suite = Join-Path $root ("run\bench-pregen-rust\radius-$Radius-" + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 for ($i = 1; $i -le $Runs; $i++) {
-    if (Test-Path $rust) { Remove-Item -Recurse -Force $rust }
-    New-Item -ItemType Directory -Force $rust | Out-Null
+    $rust = Join-Path $suite "run-$i"
+    $mods = Join-Path $rust 'mods'
+    New-Item -ItemType Directory -Force $mods | Out-Null
+    Copy-Item -LiteralPath $chunkyMmc -Destination $mods
     [IO.File]::WriteAllText((Join-Path $rust 'pumpkin.toml'), @"
 seed = "$Seed"
 [networking.java]
@@ -33,9 +38,8 @@ enabled = false
 [telemetry]
 enabled = false
 "@)
-    Push-Location $rust
-    $result = node $driver . 'Started server' 'Task finished' $commands -- $pack
-    Pop-Location
+    $result = node $driver $rust 'Started server' 'Task finished' $commands -- $pack
+    if ($LASTEXITCODE -ne 0) { throw "Rust benchmark failed; see $rust\bench.log" }
     Write-Output "rust radius=$Radius run=${i}: $result"
 }
 if ($SkipJava) { return }
@@ -56,5 +60,6 @@ for ($i = 1; $i -le $Runs; $i++) {
     $heap = "-Xmx$JavaHeap"
     $result = node $driver . 'Done \(' 'Task finished' $commands -- $javaExe $heap -jar fabric-server-launch.jar nogui
     Pop-Location
+    if ($LASTEXITCODE -ne 0) { throw "Java benchmark failed; see $java\bench.log" }
     Write-Output "java radius=$Radius run=${i}: $result"
 }

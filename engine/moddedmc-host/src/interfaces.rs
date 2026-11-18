@@ -122,23 +122,38 @@ fn submit(
     if gate.is_none() || server.stop_token.is_cancelled() {
         return false;
     }
-    let context = ctx.expose_provenance();
+    let mut completion = PendingCompletion {
+        ctx,
+        completed,
+        generated: false,
+    };
     let pos = Vector2::new(x, z);
     server.spawn_task(async move {
         let exists = level.is_chunk_generated(pos).await;
         if generate && !exists {
             level.get_or_fetch_chunk(pos, |_| ()).await;
         }
-        // SAFETY: the mod keeps its callback and context live until it receives this completion.
-        unsafe {
-            completed(
-                ptr::with_exposed_provenance_mut(context),
-                exists || generate,
-            );
-        };
+        completion.generated = exists || generate;
+        drop(completion);
     });
     drop(gate);
     true
+}
+
+struct PendingCompletion {
+    ctx: *mut c_void,
+    completed: ChunkCompletion,
+    generated: bool,
+}
+
+// SAFETY: accepting the request transfers its callback context to a server task.
+unsafe impl Send for PendingCompletion {}
+
+impl Drop for PendingCompletion {
+    fn drop(&mut self) {
+        // SAFETY: the mod keeps the context alive until this one completion.
+        unsafe { (self.completed)(self.ctx, self.generated) };
+    }
 }
 
 unsafe extern "C" fn on_stopping(reg: Reg, callback: StopCallback) -> i32 {

@@ -52,4 +52,14 @@ for (const stream of [child.stdout, child.stderr]) {
     }
   });
 }
-child.on("exit", () => clearInterval(sampler));
+child.on("error", (error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});
+child.on("close", (code) => {
+  clearInterval(sampler);
+  if (phase !== "done" || code !== 0) {
+    console.error("Server exited during " + phase + " (code " + code + "); see " + log);
+    process.exitCode = 1;
+  }
+});
