@@ -18,7 +18,8 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
 
 ```
 ~/.moddedmc/
-  agent.toml              owner login, listen port, servers root
+  agent.toml              owner login, listen port, servers root, find_in (folders holding servers the agent didn't make)
+  external.json           folders external servers ran in, so they still show once stopped
   servers/<name>/         one folder per server: the pack server binary, mods/, config/, world/
     server.json           pack id and version, target, created, last started
     stats.json            written by the pack server every 2 s (MSPT, TPS, players) when started with MODDEDMC_STATS=1
@@ -32,7 +33,7 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
 | Method | Path | What |
 | --- | --- | --- |
 | GET | `/v1/device` | Name, OS, arch, CPU count, RAM, disk free, agent version, Tailscale name. |
-| GET | `/v1/servers` | Every server folder: name, pack, state (`stopped`, `starting`, `running`, `stopping`, `crashed`), PID, port, players online. Also lists Minecraft servers running on the machine that the agent didn't start: a Java (`*.jar` or `nogui`) or Pumpkin process with a listening TCP port that answers the status ping, marked `external: true` with `program`. Scanned at most every 10 s. Servers that are installed but not running aren't found yet. |
+| GET | `/v1/servers` | Every server folder: name, pack, state (`stopped`, `starting`, `running`, `stopping`, `crashed`), PID, port, players online. Also lists Minecraft servers running on the machine that the agent didn't start: a Java (`*.jar` or `nogui`) or Pumpkin process with a listening TCP port that answers the status ping, marked `external: true` with `program` and `folder`. Scanned at most every 10 s. Stopped external servers are listed too: folders an external server was seen running in (kept in `external.json`), and subfolders with a `server.properties` in the `find_in` folders of `agent.toml`. |
 | POST | `/v1/servers` | Create a server: `{name, exe, port, pack}`. A new folder gets a `pumpkin.toml` with that port, offline mode, telemetry off and no Bedrock listener. |
 | POST | `/v1/servers/<name>/start`, `/stop`, `/restart` | Lifecycle. `stop` sends `stop` on the console and waits; kill only after a timeout. |
 | GET | `/v1/servers/<name>/stats` | Now: state, RSS, CPU, uptime, and `health` (MSPT mean and max over the last 100 ticks, TPS, tick rate, players) for pack servers. Planned: `?window=60` time series with p95/p99, chunks loaded, network bytes. |

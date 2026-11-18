@@ -115,6 +115,7 @@ impl Managed {
 
 pub struct Servers {
     root: PathBuf,
+    find_in: Vec<PathBuf>,
     managed: Mutex<HashMap<String, Arc<Mutex<Managed>>>>,
 }
 
@@ -132,6 +133,8 @@ pub struct ServerInfo {
     external: bool,
     /// The external server's program (`java`, `pack-buja`).
     program: Option<String>,
+    /// The external server's folder.
+    folder: Option<String>,
 }
 
 /// Tick health and players, from the `stats.json` the pack server writes every two seconds.
@@ -184,9 +187,10 @@ async fn read_server_file(dir: &Path) -> Option<ServerFile> {
 }
 
 impl Servers {
-    pub fn new(root: PathBuf) -> Self {
+    pub fn new(root: PathBuf, find_in: Vec<PathBuf>) -> Self {
         Self {
             root,
+            find_in,
             managed: Mutex::new(HashMap::new()),
         }
     }
@@ -240,6 +244,7 @@ impl Servers {
                 health,
                 external: false,
                 program: None,
+                folder: None,
             });
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -247,14 +252,24 @@ impl Servers {
         let ours: std::collections::HashSet<u32> = out.iter().filter_map(|s| s.pid).collect();
         let mut names: std::collections::HashSet<String> =
             out.iter().map(|s| s.name.clone()).collect();
-        for found in crate::external::scan(&ours).await {
-            // Names key the app's rows, so a clash with a managed server gets the port added.
-            let name = if names.contains(&found.name) {
-                format!("{}:{}", found.name, found.port)
-            } else {
-                found.name
-            };
-            names.insert(name.clone());
+        let running = crate::external::scan(&ours).await;
+        let installed = crate::external::installed(&running, &self.find_in, &self.root).await;
+        // Names key the app's rows, so a clash gets the port (or a number) added.
+        let mut unique = |name: String, port: Option<u16>| {
+            let mut out = name.clone();
+            let mut n = 1;
+            while names.contains(&out) {
+                n += 1;
+                out = match port {
+                    Some(port) if n == 2 => format!("{name}:{port}"),
+                    _ => format!("{name}-{n}"),
+                };
+            }
+            names.insert(out.clone());
+            out
+        };
+        for found in running {
+            let name = unique(found.name, Some(found.port));
             out.push(ServerInfo {
                 name,
                 state: ServerState::Running,
@@ -267,6 +282,22 @@ impl Servers {
                 health: None,
                 external: true,
                 program: Some(found.program),
+                folder: found.dir.map(|d| d.display().to_string()),
+            });
+        }
+        for found in installed {
+            out.push(ServerInfo {
+                name: unique(found.name, found.port),
+                state: ServerState::Stopped,
+                pack: found.version,
+                port: found.port,
+                pid: None,
+                uptime_secs: None,
+                exit_code: None,
+                health: None,
+                external: true,
+                program: found.program,
+                folder: Some(found.dir.display().to_string()),
             });
         }
         out

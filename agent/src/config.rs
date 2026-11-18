@@ -14,6 +14,10 @@ pub struct Config {
     #[serde(default = "default_port")]
     pub port: u16,
     pub servers_root: PathBuf,
+    /// Folders that hold servers the agent didn't make; each subfolder with a
+    /// `server.properties` is listed as an external server while stopped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub find_in: Vec<PathBuf>,
 }
 
 const fn default_port() -> u16 {
@@ -44,6 +48,7 @@ impl Config {
             owner,
             port: DEFAULT_PORT,
             servers_root: home.join("servers"),
+            find_in: Vec::new(),
         };
         tokio::fs::create_dir_all(&config.servers_root)
             .await

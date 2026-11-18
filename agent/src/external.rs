@@ -1,15 +1,16 @@
 //! Minecraft servers on this machine that the agent didn't start: a Java or Pumpkin process
-//! listening on a TCP port that answers the game's status ping. Read-only; the agent can't
-//! control them, only show them.
+//! listening on a TCP port that answers the game's status ping, and, while stopped, the folders
+//! such servers ran in before or that sit in the configured `find_in` folders. Read-only; the
+//! agent can't control them, only show them.
 
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
     sync::LazyLock,
     time::{Duration, Instant},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -35,6 +36,9 @@ pub struct External {
     pub players: Option<u32>,
     pub max_players: Option<u32>,
     pub version: Option<String>,
+    /// Where it runs, when the OS tells us.
+    #[serde(skip)]
+    pub dir: Option<PathBuf>,
 }
 
 /// The last scan and when it ran.
@@ -70,7 +74,7 @@ async fn scan_now() -> Vec<External> {
     }
     let ports = listening_ports().await;
     let mut out = Vec::new();
-    for (pid, (name, program)) in candidates {
+    for (pid, (name, program, dir)) in candidates {
         for &port in ports.get(&pid).into_iter().flatten() {
             if let Some(status) = status(port).await {
                 out.push(External {
@@ -81,6 +85,7 @@ async fn scan_now() -> Vec<External> {
                     players: status.0,
                     max_players: status.1,
                     version: status.2,
+                    dir: dir.clone(),
                 });
             }
         }
@@ -89,8 +94,8 @@ async fn scan_now() -> Vec<External> {
     out
 }
 
-/// Java and Pumpkin processes: pid to (folder name, program).
-fn candidates() -> HashMap<u32, (String, String)> {
+/// Java and Pumpkin processes: pid to (folder name, program, folder).
+fn candidates() -> HashMap<u32, (String, String, Option<PathBuf>)> {
     let Ok(mut system) = System::new() else {
         return HashMap::new();
     };
@@ -114,11 +119,12 @@ fn candidates() -> HashMap<u32, (String, String)> {
         if !java_server && !pumpkin {
             continue;
         }
-        let name = process
-            .cwd()
+        let dir = process.cwd().map(Path::to_path_buf);
+        let name = dir
+            .as_deref()
             .and_then(Path::file_name)
             .map_or_else(|| program.to_string(), |n| n.to_string_lossy().into_owned());
-        out.insert(pid.as_u32(), (name, program.to_string()));
+        out.insert(pid.as_u32(), (name, program.to_string(), dir));
     }
     out
 }
@@ -162,6 +168,177 @@ async fn listening_ports() -> HashMap<u32, Vec<u16>> {
         ports.dedup();
     }
     out
+}
+
+/// A server folder found while its server isn't running.
+pub struct Installed {
+    pub name: String,
+    pub dir: PathBuf,
+    pub port: Option<u16>,
+    pub program: Option<String>,
+    pub version: Option<String>,
+}
+
+/// A folder an external server ran in, remembered in `~/.moddedmc/external.json`.
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+struct Seen {
+    dir: PathBuf,
+    program: String,
+    version: Option<String>,
+}
+
+/// Remembered folders beyond this drop the oldest.
+const MAX_SEEN: usize = 64;
+
+fn seen_path() -> PathBuf {
+    crate::config::home().join("external.json")
+}
+
+fn read_seen() -> Vec<Seen> {
+    std::fs::read(seen_path())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Adds or updates the folders of running external servers; writes only on a change.
+fn remember(seen: &mut Vec<Seen>, found: Vec<Seen>) {
+    let mut changed = false;
+    for entry in found {
+        match seen.iter_mut().find(|s| s.dir == entry.dir) {
+            Some(s) if *s == entry => {}
+            Some(s) => {
+                *s = entry;
+                changed = true;
+            }
+            None => {
+                seen.push(entry);
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        let excess = seen.len().saturating_sub(MAX_SEEN);
+        seen.drain(..excess);
+        if let Ok(json) = serde_json::to_vec_pretty(&seen) {
+            let _ = std::fs::write(seen_path(), json);
+        }
+    }
+}
+
+/// An absolute path without Windows' `\\?\` prefix, so paths from the OS and config compare.
+fn plain(path: &Path) -> PathBuf {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    match path.to_str().and_then(|p| p.strip_prefix(r"\\?\")) {
+        Some(rest) => PathBuf::from(rest),
+        None => path,
+    }
+}
+
+/// Stopped servers: folders external servers ran in before, and server folders directly inside
+/// `find_in`, minus the agent's own servers and the ones running now. Remembers the folders of
+/// the running ones (`running` excludes the agent's processes) for when they stop.
+pub async fn installed(running: &[External], find_in: &[PathBuf], own: &Path) -> Vec<Installed> {
+    let running: Vec<Seen> = running
+        .iter()
+        .filter_map(|e| {
+            Some(Seen {
+                dir: e.dir.clone()?,
+                program: e.program.clone(),
+                version: e.version.clone(),
+            })
+        })
+        .collect();
+    let (find_in, own) = (find_in.to_vec(), own.to_path_buf());
+    tokio::task::spawn_blocking(move || {
+        let own = plain(&own);
+        let running: Vec<Seen> = running
+            .into_iter()
+            .map(|s| Seen {
+                dir: plain(&s.dir),
+                ..s
+            })
+            .collect();
+        let live: HashSet<PathBuf> = running.iter().map(|s| s.dir.clone()).collect();
+        let mut seen = read_seen();
+        remember(
+            &mut seen,
+            running
+                .into_iter()
+                .filter(|s| !s.dir.starts_with(&own))
+                .collect(),
+        );
+        let mut dirs: Vec<(PathBuf, Option<Seen>)> =
+            seen.into_iter().map(|s| (s.dir.clone(), Some(s))).collect();
+        for root in &find_in {
+            let Ok(entries) = std::fs::read_dir(root) else {
+                continue;
+            };
+            dirs.extend(
+                entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.join("server.properties").is_file())
+                    .map(|p| (p, None)),
+            );
+        }
+        let mut done = HashSet::new();
+        let mut out = Vec::new();
+        for (dir, seen) in dirs {
+            let dir = plain(&dir);
+            if !dir.is_dir()
+                || dir.starts_with(&own)
+                || live.contains(&dir)
+                || !done.insert(dir.clone())
+            {
+                continue;
+            }
+            let Some(name) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            out.push(Installed {
+                name,
+                port: server_port(&dir),
+                version: seen
+                    .as_ref()
+                    .and_then(|s| s.version.clone())
+                    .or_else(|| server_jar(&dir)),
+                program: seen.map(|s| s.program),
+                dir,
+            });
+        }
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// `server-port` from `server.properties`; vanilla's default when the file leaves it out.
+fn server_port(dir: &Path) -> Option<u16> {
+    let text = std::fs::read_to_string(dir.join("server.properties")).ok()?;
+    Some(
+        text.lines()
+            .find_map(|l| l.strip_prefix("server-port="))
+            .and_then(|p| p.trim().parse().ok())
+            .unwrap_or(DEFAULT_GAME_PORT),
+    )
+}
+
+const DEFAULT_GAME_PORT: u16 = 25565;
+
+/// The server jar's name (`paper-1.21.4-120`), which says what it runs.
+fn server_jar(dir: &Path) -> Option<String> {
+    let mut jars: Vec<String> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.strip_suffix(".jar").map(str::to_owned)
+        })
+        .collect();
+    jars.sort();
+    jars.into_iter().next()
 }
 
 fn port_of(address: &str) -> Option<u16> {

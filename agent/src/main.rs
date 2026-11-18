@@ -43,7 +43,7 @@ async fn main() {
         }
     };
     let app = Arc::new(App {
-        servers: servers::Servers::new(config.servers_root.clone()),
+        servers: servers::Servers::new(config.servers_root.clone(), config.find_in.clone()),
         auth: auth::Auth::new(config.owner.clone()),
         config,
     });
