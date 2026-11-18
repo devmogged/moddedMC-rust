@@ -30,7 +30,7 @@ Everything else depends on these.
 | E8 | Nether, End, portals, dragon fight. | todo |
 | E9 | Enchanting, brewing, anvils, smithing. | todo |
 | E10 | Advancements, statistics, remaining commands. | todo |
-| E11 | Chunk pipeline scaling: pregen keeps about 5 of 32 threads busy. Generation uses `cpus / 2` threads (at most 16) and 32 tasks in flight. Counters showed the `Schedule` thread is not the limit (resort, GC and sort take 3 to 5% of its time, 31 of 32 generation tasks always running, 400 to 600 queued), so the generation tasks themselves wait: likely a contended lock or I/O inside generation. Raising to all threads and 4x tasks gave 15 busy threads but only 12% more speed, which fits lock contention. Find the lock (per-stage wall time against CPU time, or a sampling profiler), remove it, and report chunks/s and MSPT on the laptop and the Pi before and after. | todo |
+| E11 | Faster chunk generation (the Chunky port and every player wait on it). Generation is CPU bound and scales: 2,601 chunks take 44.3 s on one generation thread and 4.9 s on 16 (9x); all 32 hardware threads add only 12% (SMT). Per chunk, one thread: noise 5.9 ms, surface 2.7 ms, features 2.1 ms, lighting 0.9 ms, carvers 0.5 ms, structure references 0.29 ms, biomes 0.27 ms. With 16 threads structure references takes 2.1 ms (7x), so it contends on a lock; the others slow 1.3 to 1.4x (SMT and memory). Targets: the structure-references lock, noise (density functions), surface (looks too slow next to noise). Report chunks/s on the laptop and the Pi before and after, checked against the vanilla chunk dumps in `pumpkin-world`. | todo |
 
 ## World and storage
 
