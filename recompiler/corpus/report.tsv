@@ -1,0 +1,501 @@
+rank	slug	classes	nested_jars	mixin_classes	entrypoints	missing_minecraft	missing_fabric	missing_jdk	missing_mixin	lib_refs	other_mod_refs	error
+1	fabric-api	2024	44	484		2975	48	85	19	479	34	
+2	cloth-config	632	1	0	client	361	0	33	0	77	17	
+3	ferrite-core	48	0	14		23	14	2	7	37	3	
+4	lithium	701	0	293	main	913	27	19	8	356	5	
+5	yacl	756	8	8	client	372	11	697	0	103	138	
+6	fabric-language-kotlin	5231	13	0		0	10	311	0	4	28	
+7	xaeros-minimap	1057	1	52	server client	1506	68	77	7	149	290	
+8	architectury-api	440	0	57	main server client	505	352	1	12	71	7	
+9	xaeros-world-map	768	1	44	server client	1150	59	73	7	150	435	
+10	veinminer	482	3	1	main	227	50	10	0	14	278	
+11	appleskin	98	0	8	main client	144	26	10	3	9	52	
+12	jei	2935	1	12	main client	1431	138	329	6	250	200	
+13	geckolib	428	0	17	main client	875	30	24	0	216	6	
+14	simple-voice-chat	1278	9	165	main client	1037	42	150	8	270	104	
+15	placeholder-api	122	0	0		457	14	21	0	31	2	
+16	jade	479	0	13	main client	1852	134	35	4	285	54	
+17	zoomify	96	0	6	client	65	8	4	2	15	162	
+18	forge-config-api-port	353	2	0	main client	211	68	101	0	58	17	
+19	collective	809	0	111	main client	1461	90	26	6	99	303	
+20	fancymenu	3189	4	111	main server client	2225	58	405	219	695	386	
+21	puzzles-lib	769	0	68	main client	2280	538	37	11	196	115	
+22	konkrete	910	1	6	main server client	30	14	83	209	301	278	
+23	balm	870	1	55	main client	915	326	10	9	109	226	
+24	no-chat-reports	60	0	27	main client	259	11	7	5	51	45	
+25	sound-physics-remastered	90	0	11	main client	315	2	12	5	44	94	
+26	creativecore	865	1	21	main client	937	134	23	2	200	30	
+27	bookshelf-lib	159	0	28	main client	603	64	12	3	40	9	
+28	krypton	50	1	10	main server client	11	2	23	3	87	4	
+29	fzzy-config	956	3	0	main client	782	102	84	0	120	473	
+30	terrablender	233	2	12	main	206	9	62	5	55	17	
+31	clumps	16	0	2		36	4	1	6	4	0	
+32	c2me-fabric	3696	28	227	main	796	71	437	129	303	119	
+33	shulkerboxtooltip	221	0	13	main client	539	56	14	5	57	11	
+34	enchantment-descriptions	7	0	3	main client	45	1	2	4	8	2	
+35	debugify	133	0	104	main client	327	15	0	25	37	63	
+36	biomes-o-plenty	493	4	3		1861	2	65	2	51	56	
+37	iceberg	218	0	17	server client	473	27	67	6	68	8	
+38	distanthorizons	5687	88	1024	server client	3714	53	546	19	1038	251	
+39	resourceful-lib	299	2	8	main server client	655	77	47	7	128	29	
+40	supermartijn642s-config-lib	42	0	0	main client	10	26	16	0	56	0	
+41	packet-fixer	29	0	19	main	2	7	2	3	10	0	
+42	midnightlib	25	0	1	server client	178	6	12	0	43	2	
+43	carry-on	96	0	11	main client	577	69	6	5	50	50	
+44	waystones	412	0	7	main client	1385	23	13	3	69	482	
+45	natures-compass	39	0	3	main client	276	28	0	0	23	2	
+46	rei	1069	0	8	main client	1237	67	71	6	483	458	
+47	visual-workbench	23	0	0	main client	197	1	0	0	22	77	
+48	resourceful-config	241	0	4	main server client	374	10	42	2	129	25	
+49	e4mc	432	1	14	main	67	11	235	4	462	24	
+50	netherportalfix	10	0	2	main	45	0	0	0	7	15	
+51	lithostitched	402	2	75	main client	1243	32	15	6	69	23	
+52	lmd	17	0	7	main	74	2	1	4	8	28	
+53	controlify	753	0	133	main server client	1235	91	118	15	200	544	
+54	glitchcore	249	3	15	main client	154	68	67	4	24	10	
+55	terralith	11	0	0	main	94	5	0	0	13	1	
+56	spark	1639	1	6	main client	111	47	303	22	202	225	
+57	lootr	575	1	44	main client	1724	73	59	7	172	46	
+58	open-parties-and-claims	1036	0	88	server client	759	81	36	8	112	189	
+59	attributefix	5	0	1	main client	11	7	0	0	8	2	
+60	kiwi	909	0	50	server client	2108	210	166	7	319	210	
+61	almanac	158	1	14	main	265	45	197	5	107	75	
+62	dungeons-and-taverns	0	0	0		0	0	0	0	0	0	
+63	travelersbackpack	378	0	19	main client	2088	287	25	8	106	180	
+64	mru	55	0	7	main client	188	67	0	0	19	83	
+65	toms-storage	896	2	0	main client	1307	155	38	0	128	210	
+66	better-stats	111	0	1	main server client	243	2	45	0	41	478	
+67	chunky	171	0	9	main	166	9	64	1	11	5	
+68	enhancedvisuals	83	0	10	main client	248	0	6	2	15	121	
+69	yeetus-experimentus	3	0	2		2	0	0	0	0	0	
+70	cristel-lib	139	1	3	main client	176	40	24	0	66	63	
+71	supermartijn642s-core-lib	254	0	22	main client	1184	148	12	8	138	26	
+72	servercore	617	4	56	main	805	25	70	7	83	31	
+73	towns-and-towers	0	0	0		0	0	0	0	0	0	
+74	vmp-fabric	175	1	43	main	200	19	52	9	229	5	
+75	tcdcommons	232	0	19	main server client	463	13	109	6	93	38	
+76	tectonic	105	2	13	main	417	14	9	3	21	23	
+77	easy-anvils	49	0	2	main client	375	1	5	0	44	116	
+78	shatterbyte-lib	190	1	18	main client	378	44	27	6	89	19	
+79	better-combat	182	1	21	main client	450	61	10	9	57	108	
+80	libjf	1167	19	146		696	91	262	44	215	34	
+81	farmers-delight-refabricated	368	0	36	main client	2758	224	15	6	103	344	
+82	cicada	265	1	2	main	42	4	41	1	120	11	
+83	scalablelux	79	0	16	main	179	18	50	3	93	19	
+84	notenoughcrashes	75	0	19	main	301	26	66	23	60	4	
+85	globalpacks	257	2	5		37	0	97	2	22	14	
+86	cardinal-components-api	190	8	44		217	106	3	7	81	2	
+87	betterend	743	0	37	main client	2646	57	9	8	108	1804	
+88	jamlib	163	0	12	main client	175	41	13	6	36	5	
+89	journeymap	1217	3	46	main client	1979	120	236	7	448	187	
+90	repurposed-structures-fabric	212	0	29	main	1084	34	4	4	92	9	
+91	ping-wheel	60	0	2	main client	315	49	19	2	43	56	
+92	easy-magic	38	0	2	main client	412	1	0	2	35	117	
+93	prickle	46	0	0	main client	37	1	10	0	69	0	
+94	axiom	5713	4	105	main	3470	121	792	163	1056	193	
+95	betternether	612	0	27	main client	2167	32	8	7	90	1412	
+96	leaves-be-gone	16	0	5	main client	75	1	0	3	5	31	
+97	rightclickharvest	13	0	1	main	131	13	0	0	6	26	
+98	fallingtree	185	0	2	main server client	152	31	3	3	21	196	
+99	bclib	298	0	36	main server client	1439	66	27	6	72	528	
+100	subtle-effects	522	1	133	main client	1894	44	12	25	112	176	
+101	trek	0	0	0		0	0	0	0	0	0	
+102	villager-names-serilum	37	0	3	main	51	5	7	0	2	151	
+103	explorers-compass	40	0	3	main client	314	28	0	0	27	2	
+104	alternate-current	31	0	5	main	87	0	0	7	18	1	
+105	friends-and-foes	352	0	61	main client	2162	47	3	9	78	91	
+106	azurelib	746	0	24	main client	1003	32	43	11	310	90	
+107	modernfix-mvus	774	1	121	main client	511	34	134	223	456	67	
+108	worldedit	2669	7	87	main	1006	12	379	8	667	238	
+109	respackopts	665	3	17	main client	88	31	48	3	16	236	
+110	carpet	728	0	187	server client	3215	23	59	7	220	37	
+111	diagonal-fences	57	1	3	main client	301	1	7	2	95	60	
+112	macaws-windows	38	0	0	main client	219	3	0	0	0	8	
+113	naturalist	543	0	32	main client	2434	22	5	5	32	21	
+114	do-a-barrel-roll	197	2	21	main client	239	63	15	115	109	122	
+115	advanced-netherite	64	0	2	main client	421	32	0	3	3	2	
+116	the-lost-cities	323	0	2	main client	757	59	48	2	74	54	
+117	macaws-fences-and-walls	15	0	0	main client	205	3	0	0	0	3	
+118	geophilic	0	0	0		0	0	0	0	0	0	
+119	mes-moogs-end-structures	0	0	0		0	0	0	0	0	0	
+120	ct-overhaul-village	16	0	0	main	55	4	0	0	0	31	
+121	starter-kit	109	0	0	main client	335	13	3	0	33	261	
+122	beautify-refabricated	65	0	0	main client	472	23	0	0	18	39	
+123	crafting-tweaks	113	0	1	main client	212	1	3	0	38	108	
+124	neruina	1304	3	18	main	310	31	379	15	96	235	
+125	incendium	0	0	0		0	0	0	0	0	0	
+126	stoneworks	14	0	0	main client	139	1	0	0	15	65	
+127	hardcore-revival	123	1	8	main client	370	9	10	6	36	113	
+128	explorify	0	0	0		0	0	0	0	0	0	
+129	structory-towers	0	0	0		0	0	0	0	0	0	
+130	macaws-bridges	27	0	0	main client	187	3	0	0	2	4	
+131	trading-post	34	0	0	main client	368	1	0	0	49	67	
+132	badpackets	40	0	12		66	0	10	4	10	0	
+133	zfastnoise	22	1	5		127	0	9	3	11	17	
+134	double-doors	31	0	6	main	64	0	1	1	0	108	
+135	chefs-delight	15	0	0	main	107	17	0	0	22	45	
+136	structory	0	0	0		0	0	0	0	0	0	
+137	ksyxis	13	0	7	main	0	0	3	17	5	4	
+138	villages-and-pillages	27	0	6	main	204	0	1	2	4	0	
+139	villagersplus	77	0	10	main client	695	17	2	3	47	0	
+140	moogs-voyager-structures	0	0	0		0	0	0	0	0	0	
+141	rechiseled	126	0	7	main client	728	40	23	4	72	428	
+142	notenoughrecipebook	27	0	12	server client	86	6	0	5	4	16	
+143	animal_feeding_trough	30	0	17	main client	284	16	1	3	17	0	
+144	structure-layout-optimizer	41	0	6	main	87	0	9	0	33	7	
+145	magnum-torch	31	0	1	main client	207	1	0	0	35	75	
+146	sparsestructures	14	0	3	main	11	2	1	0	19	0	
+147	justenoughbreeding	64	0	0	main client	175	6	0	0	29	120	
+148	adorabuild-structures	8	0	0	main client	75	1	0	0	2	0	
+149	macaws-doors	14	0	0	main client	164	3	0	0	0	1	
+150	enchanting-infuser	56	0	0	main client	473	1	0	0	32	140	
+151	tslatentitystatus	105	0	14	main client	485	56	5	0	79	33	
+152	macaws-roofs	22	0	0	main client	283	3	0	0	2	1	
+153	snow-real-magic	131	0	32	main client	824	144	2	6	96	124	
+154	oh-the-trees-youll-grow	31	0	5	main	332	1	0	2	11	4	
+155	advanced-loot-info	288	0	9	main client	2012	67	14	2	78	467	
+156	emotecraft	428	6	14	main client	658	106	73	3	315	245	
+157	crawl	28	0	13	main client	112	15	1	2	45	1	
+158	configmanager	17	0	0	main client	26	3	3	0	8	1	
+159	tree-harvester	78	0	0	main client	154	13	3	0	0	306	
+160	serene-seasons	264	4	8		324	0	64	4	18	67	
+161	macaws-stairs	22	0	0	main	126	2	0	0	0	1	
+162	srdp	28	1	0	client	15	10	22	0	36	38	
+163	better-archeology	119	0	8	main client	1076	40	5	4	32	112	
+164	bartering-station	27	0	1	main client	258	1	0	2	6	72	
+165	macaws-furniture	54	0	0	main client	312	9	0	0	0	5	
+166	mcwifipnp	29	0	4	main server client	354	7	49	3	44	22	
+167	better-compatibility-checker	19	0	5	main	71	0	1	4	15	0	
+168	spawn-animations	18	0	0	main	11	4	0	0	5	45	
+169	formations	73	0	11	main client	874	15	2	7	36	122	
+170	difficulty-lock	40	0	12	main client	41	7	0	0	0	87	
+171	nether-chested	30	0	0	main client	412	18	0	0	17	65	
+172	jump-over-fences	14	0	1	main client	48	21	16	0	10	40	
+173	weaponmaster	109	0	10	main client	316	25	8	1	22	5	
+174	bl4cks-sit	11	0	1	main client	103	6	0	0	6	19	
+175	smartbrainlib	172	0	2	main client	740	6	2	2	128	0	
+176	trade-cycling	470	6	100	main client	510	34	38	8	122	8	
+177	configured-defaults	3	0	0		0	7	0	0	9	0	
+178	kleeslabs	33	0	0	main client	126	10	0	0	4	29	
+179	combat-roll	88	1	9	main client	207	45	4	8	21	60	
+180	trashslot	65	0	0	main client	198	1	2	0	24	100	
+181	formations-nether	23	0	0	main	75	2	0	0	0	55	
+182	tool-stats	5	0	1	main client	43	1	1	0	8	2	
+183	explorations	32	0	2	main	322	9	2	0	32	1	
+184	clientsort	143	0	17	main server client	360	42	37	7	79	86	
+185	spell-engine	992	1	78	main client	1876	153	21	8	139	396	
+186	endrem	32	0	4	main client	339	13	1	2	25	0	
+187	formations-overworld	32	0	0	main	185	2	0	0	0	63	
+188	simple-hats	60	0	3	main client	457	23	4	4	32	33	
+189	spell-power	65	1	5	main client	145	21	4	4	21	8	
+190	from-the-fog	1	0	0		0	0	0	0	4	0	
+191	biome-replacer	79	1	7	main	42	9	17	112	35	4	
+192	forgiving-void	70	1	4	main client	141	1	9	2	23	26	
+193	nullscape	0	0	0		0	0	0	0	0	0	
+194	ecologics	796	2	15	main client	1731	56	33	6	81	150	
+195	easy-shulker-boxes	128	1	4	main client	403	1	1	2	68	139	
+196	macaws-paths-and-pavings	8	0	0	main	142	2	0	0	0	0	
+197	promenade	276	1	23	main client	1740	53	6	8	120	27	
+198	wizards	67	0	3	main client	295	23	0	5	9	746	
+199	the-graveyard-fabric	366	0	19	main client	2501	74	10	7	77	176	
+200	betterdays	386	3	3	main client	315	64	101	2	77	29	
+201	silk	405	7	25		440	1	3	7	26	318	
+202	dragonloot	42	0	11	main client	391	19	1	6	2	20	
+203	moogs-structure-lib	666	1	22	main	787	24	74	213	298	64	
+204	elytra-trims	230	0	12	main client	440	11	2	2	26	214	
+205	cc-tweaked	1475	5	16	main client	2093	199	305	5	568	141	
+206	macaws-paintings	1	0	0	main	0	0	0	0	2	0	
+207	runes	47	1	5	main client	340	11	1	3	20	80	
+208	ranged-weapon-api	60	0	25	main client	173	2	0	5	6	1	
+209	mutant-monsters	193	0	2	main client	1882	2	0	0	41	244	
+210	better-nether-map	8	0	2	main	33	1	0	0	5	19	
+211	more-delight	2	0	0	main	9	6	0	0	0	45	
+212	universal-graves	375	5	31	main client	1473	71	40	7	181	108	
+213	just-enough-professions-jep	12	0	0	client	74	4	1	0	14	23	
+214	structure-pool-api	12	0	2	main	25	4	2	0	13	0	
+215	macaws-trapdoors	5	0	0	main client	75	3	0	0	2	0	
+216	yuushya-townscape	136	0	3	main client	800	12	12	2	69	55	
+217	entity-view-distance	31	0	8	main server client	190	22	0	2	40	21	
+218	huge-structure-blocks	14	0	9	main	48	7	0	0	6	0	
+219	villagerconfig	90	1	13	main client	352	29	16	4	36	30	
+220	mns-moogs-nether-structures	0	0	0		0	0	0	0	0	0	
+221	better-tridents	20	0	2	main client	241	4	0	2	2	64	
+222	jewelry	113	1	7	main client	496	38	9	4	31	96	
+223	prefab	200	0	5	main client	995	61	15	4	34	45	
+224	snow	82	0	20	main client	545	52	5	5	15	87	
+225	skills	334	0	16	main client	625	44	1	0	87	9	
+226	macaws-holidays	100	0	0	main client	205	6	0	0	0	1	
+227	dungeons-and-taverns-ancient-city-overhaul	0	0	0		0	0	0	0	0	0	
+228	polymer	959	13	254		2299	86	43	8	382	155	
+229	common-network	15	0	0	main	38	34	0	0	4	2	
+230	better-than-mending	4	0	0	main	23	3	0	0	0	11	
+231	toadlib	258	0	5	main client	533	2	48	2	380	189	
+232	diagonal-windows	57	1	3	main client	301	1	7	2	95	60	
+233	wthit	564	0	28	main server client	974	123	54	1	223	222	
+234	diagonal-walls	57	1	3	main client	301	1	7	2	95	60	
+235	universal-bone-meal	116	1	8	main client	504	45	9	0	53	45	
+236	storagedrawers	392	0	0	main client	935	85	2	0	52	55	
+237	libz	86	1	8	main client	97	26	7	3	5	34	
+238	macaws-lights-and-lamps	37	0	0	main client	177	4	0	0	0	1	
+239	grind-enchantments	62	1	5	main client	235	48	1	6	31	6	
+240	tidal-towns	0	0	0		0	0	0	0	0	0	
+241	plasmo-voice	4207	1	21	main client	603	87	364	5	452	134	
+242	in-control	202	1	11	main	569	67	8	7	93	16	
+243	remove-terralith-intro-message	0	0	0		0	0	0	0	0	0	
+244	female-gender	216	0	7	main client	728	116	79	2	132	16	
+245	armor-statues	111	1	0	main client	470	1	0	0	22	89	
+246	talkbubbles	13	0	7	client	81	1	0	1	11	16	
+247	craterlib	989	0	16	main client	361	42	106	8	106	230	
+248	seasonhud-fabric	83	0	2	main client	157	19	9	7	13	158	
+249	ati-structures-vanilla-edition	0	0	0		0	0	0	0	0	0	
+250	fast-item-frames	25	0	4	main client	525	1	0	0	5	93	
+251	crate-delight	3	0	0	main	46	3	0	0	4	0	
+252	dismount-entity	22	0	0	main	12	2	0	0	0	67	
+253	ubes-delight	150	1	1	main client	1184	107	21	0	33	129	
+254	skinshuffle	3459	18	43		852	89	1329	7	200	364	
+255	friends-and-foes-beekeeper-hut-fabric	10	0	0	main	31	0	1	0	0	12	
+256	inventory-management	393	0	15	main client	747	41	8	4	19	24	
+257	connected-glass	21	0	0	main client	66	31	0	0	0	117	
+258	tiny-skeletons	32	0	0	main client	403	1	0	0	7	49	
+259	mss-moogs-soaring-structures	0	0	0		0	0	0	0	0	0	
+260	inventory-sorting	1847	5	3	main client	416	60	359	5	67	136	
+261	attributes	27	0	14	main	81	0	1	4	5	1	
+262	boids	56	1	2	main	73	13	10	13	7	1	
+263	superflat-world-no-slimes	15	0	0	main	6	0	0	0	0	36	
+264	herdspanic	22	0	16	main	43	0	0	2	0	16	
+265	lost-cities-modern-tweaks	0	0	0		0	0	0	0	0	0	
+266	calcmod	216	2	0	server client	614	25	7	0	58	5	
+267	paladins-and-priests	71	0	1	main client	414	35	0	2	9	688	
+268	baguettelib	61	0	11	main	192	7	4	2	12	1	
+269	viaversion	3427	0	0		0	0	247	0	230	897	
+270	mavapi	39	0	10	main	163	5	0	8	46	1	
+271	mavm	4	0	2		13	0	0	2	0	2	
+272	structurify	214	0	39	main client	566	43	23	5	86	271	
+273	archers	70	0	5	main client	436	31	2	5	15	561	
+274	player-animation-library	248	4	15	client	250	15	26	2	157	42	
+275	mezzconfig	236	0	0	main client	40	31	98	0	63	14	
+276	inventory-totem	18	0	3	main	42	3	0	2	0	33	
+277	just-hammers	22	0	1	main client	238	32	1	2	2	27	
+278	polylib	838	0	99	main	904	364	61	7	120	32	
+279	vanilla-refresh	0	0	0		0	0	0	0	0	0	
+280	snow-under-trees	17	0	0	main client	122	20	2	0	9	60	
+281	itemphysic	27	0	11	main client	368	0	0	4	8	50	
+282	spyglass-improvements	24	0	10	client	110	7	1	5	14	5	
+283	custom-player-models	1144	0	29	main client	887	68	104	10	157	104	
+284	dungeons-and-taverns-stronghold-overhaul	0	0	0		0	0	0	0	0	0	
+285	healing-campfire	25	0	0	main	48	0	0	0	0	86	
+286	vivecraft	1709	15	280	main	3033	39	365	17	823	176	
+287	luckperms	950	1	4	server	134	78	287	5	237	711	
+288	crashexploitfixer	14	0	7	main	11	9	0	4	2	0	
+289	extended-drawers	1375	15	24	main client	1122	130	1060	5	326	152	
+290	rustic-delight	56	0	0	main client	622	75	0	0	10	92	
+291	crops-love-rain	13	0	8	main client	31	1	0	4	9	22	
+292	scholar	160	0	27	main client	663	52	11	5	52	43	
+293	xp-storage	663	2	3	main client	610	35	33	2	85	18	
+294	dark-paintings	3	0	0	main client	0	1	0	0	2	0	
+295	glowing-torchflower	576	5	1		7	1	156	0	41	28	
+296	xp-tome	13	0	2	main	127	5	0	0	5	23	
+297	friendly-fire	4	0	1	main	27	0	0	2	4	2	
+298	more-armor-trims	11	0	0	main	175	19	0	0	2	0	
+299	toms-trading-network	61	0	0	main client	407	52	0	0	12	36	
+300	monolib	205	2	4	main client	247	29	63	1	24	9	
+301	infinite-trading	44	0	15	main	65	0	0	7	0	54	
+302	hopo-better-underwater-ruins	0	0	0		0	0	0	0	0	0	
+303	configurable	343	5	1	main client	43	31	222	2	102	77	
+304	items-displayed	60	0	0	main client	519	38	6	0	19	0	
+305	gazebos	25	1	0	main client	0	2	4	0	13	11	
+306	dungeons-and-taverns-pillager-outpost-overhaul	0	0	0		0	0	0	0	0	0	
+307	max-health-fix	8	0	2	main client	9	1	0	1	2	2	
+308	pneumono_core	89	0	1	main client	339	59	7	0	33	7	
+309	bow-infinity-fix	2	0	2		10	0	0	5	0	0	
+310	re-avaritia	893	0	65	main client	3401	66	40	6	287	94	
+311	block-runner	83	1	10	main client	287	45	9	2	59	28	
+312	tax-free-levels	25	0	16	main client	32	43	0	1	17	24	
+313	daycounter	0	0	0		0	0	0	0	0	0	
+314	mythic-upgrades	67	0	9	main client	552	12	1	4	23	34	
+315	rogues-and-warriors	53	0	2	main client	324	28	0	4	9	554	
+316	friends-and-foes-flowery-mooblooms-fabric	2	0	0	main	1	0	0	0	2	0	
+317	asynclogger	372	0	2	main	0	2	104	0	60	18	
+318	hopo-better-mineshaft	0	0	0		0	0	0	0	0	0	
+319	axes-are-weapons	17	0	8	main client	82	1	4	2	5	49	
+320	amplified-nether	0	0	0		0	0	0	0	0	0	
+321	terrestria	395	8	44	main client	1749	125	7	8	166	25	
+322	elevatormod	381	3	0	main client	516	108	101	0	60	17	
+323	guns_plus_plus	0	0	0		0	0	0	0	0	0	
+324	viabackwards	611	0	0		0	0	13	0	48	3305	
+325	variant-crafting-tables	16	0	1	main client	146	44	9	0	29	0	
+326	mcpitanlibarch	1918	6	21	main	6288	183	87	16	190	124	
+327	quick-pack	14	0	9	main	30	0	1	0	34	0	
+328	xxl-packets	4	0	4	main	0	0	0	0	0	0	
+329	echo-chest	22	0	1	main client	296	1	0	0	2	56	
+330	inventory-essentials	59	0	6	main client	159	1	3	2	9	74	
+331	easy-elytra-takeoff	30	0	3	main	60	7	1	0	0	58	
+332	stack-refill	31	0	0	main	58	5	0	0	0	143	
+333	trash-cans	64	1	0	main client	173	62	0	0	4	198	
+334	naturally-trimmed	52	2	5	main	141	7	4	0	62	66	
+335	3d-placeable-food	51	0	0	main client	148	3	4	0	4	0	
+336	tough-as-nails	292	3	11		751	3	64	2	40	114	
+337	wwoo	8	0	0	main	15	2	1	0	5	11	
+338	enderite-mod	83	0	16	main client	956	10	3	3	44	91	
+339	moving-elevators	81	0	4	main client	545	23	2	2	28	211	
+340	voice-chat-interaction	378	6	97	main	634	68	27	9	151	32	
+341	viafabric	3510	3	30	main	160	38	263	4	308	898	
+342	misctweaks	53	1	14	main client	154	19	10	20	48	145	
+343	armor-stand-arms	0	0	0		0	0	0	0	0	0	
+344	bookshelf-inspector	268	1	2	main client	138	30	24	0	11	35	
+345	construction-wand-fabric	114	1	1	main client	511	55	5	0	19	40	
+346	storage-delight	31	0	0	main	148	7	0	0	4	0	
+347	horse-expert	22	0	1	main client	245	1	0	0	2	88	
+348	climate-rivers	12	0	0	main client	119	1	0	0	2	29	
+349	peek	535	4	146	main client	915	37	38	8	162	69	
+350	wits	4	0	0	main	54	0	1	0	0	0	
+351	itemswapper	1035	2	21	server client	589	61	127	7	112	72	
+352	data-anchor	82	0	12	main server client	182	34	6	3	15	0	
+353	untitled-duck-mod	93	0	3	main client	735	21	15	2	24	62	
+354	camerapture	130	2	12	main client	604	66	78	10	63	161	
+355	horseman	113	0	42	main client	560	42	1	8	24	43	
+356	dehydration	105	0	15	main client	709	119	2	7	25	23	
+357	worldweaver	2357	23	100	main	4593	263	70	14	255	107	
+358	this-rocks	95	1	1	main client	642	66	14	0	54	64	
+359	dark-utilities	25	0	4	main	341	0	0	3	2	30	
+360	improved-pillager-outpost	0	0	0		0	0	0	0	0	0	
+361	levelz	163	0	60	main client	907	74	3	8	83	81	
+362	skinrestorer	197	1	7	main	152	14	94	2	116	7	
+363	get-it-together-drops	6	0	2	main client	15	1	0	2	3	31	
+364	pickup-notifications	284	0	10	main client	411	40	14	2	18	23	
+365	deimos	26	0	2	main	135	3	3	0	30	1	
+366	universal-enchants	38	0	6	main client	321	4	0	4	17	79	
+367	macaws-biomes-o-plenty	177	3	0	main client	13	11	64	0	4	158	
+368	hopo-better-ruined-portals	0	0	0		0	0	0	0	0	0	
+369	backslot	38	0	12	main client	214	30	1	7	5	26	
+370	log-cleaner	2	0	0	main	0	0	8	0	12	0	
+371	lovely_snails	161	4	16		465	80	89	5	22	41	
+372	mob-lassos	33	0	0	main client	320	1	4	0	5	95	
+373	dragon-drops-elytra	15	0	0	main	26	0	0	0	0	44	
+374	biome-spawn-point	43	0	3	main	85	3	3	0	3	193	
+375	rpgdifficulty	59	0	25	main client	299	39	2	6	18	35	
+376	magic-vibe-decorations	69	0	0	main client	240	2	4	0	4	0	
+377	variants-and-ventures	106	0	23	main client	534	19	2	5	25	60	
+378	paladins-furniture	1320	3	47	main server client	2097	122	116	217	349	261	
+379	simple-copper-pipes	72	0	8	main client	510	35	0	5	10	102	
+380	skinsrestorer	5938	52	488	main	3184	55	1905	19	564	596	
+381	respawnable-pets	68	2	9	main	360	67	18	2	30	81	
+382	gca	2938	21	704		1291	1	22	164	211	103	
+383	players-drop-heads	0	0	0		0	0	0	0	0	0	
+384	addadd	192	0	18	main client	1491	99	9	3	78	43	
+385	underlay	41	0	14	main client	320	68	2	7	48	62	
+386	gravelminer	21	0	0	main client	54	1	0	0	0	48	
+387	fish-of-thieves	481	1	69	main client	2712	82	0	27	73	109	
+388	biolith	103	0	18	main	311	19	6	8	106	23	
+389	uwrad	10	0	1	main	6	1	12	24	10	0	
+390	village-spawn-point	34	0	0	main	33	3	0	0	2	140	
+391	dungeons-and-taverns-woodland-mansion-overhaul	0	0	0		0	0	0	0	0	0	
+392	ati-structures-fabricforge	0	0	0		0	0	0	0	0	0	
+393	chunk-loaders	43	0	4	main client	291	35	4	5	9	156	
+394	epic-knights-shields-armor-and-weapons	162	0	1	main	940	13	5	0	30	87	
+395	elytra-contrails-mod	109	0	8	main client	414	65	9	7	107	123	
+396	qraftys-jungle-villages	0	0	0		0	0	0	0	0	0	
+397	decubed-dungeons	0	0	0		0	0	0	0	0	0	
+398	reciperemover	19	0	7	main client	44	20	1	3	8	27	
+399	carpet-tis-addition	1201	1	615	main	1257	17	37	30	226	178	
+400	addonslib	58	0	0	main	157	22	1	0	46	1	
+401	gardeners-dream	0	0	0		0	0	0	0	0	0	
+402	cultural-delights	206	1	15	main client	1072	100	1	0	25	208	
+403	elytra-drag	4	0	2	main	20	3	3	2	0	0	
+404	runelic	4	0	0	main client	21	1	0	0	0	3	
+405	automodpack	1313	0	0		0	73	670	0	359	224	
+406	my-nethers-delight-refabricated	382	1	18	main client	1616	89	38	4	15	207	
+407	realistic-bees	40	0	15	main	83	3	0	2	0	95	
+408	frozenlib	1377	0	213	main server client	2753	448	35	8	264	251	
+409	dungeons-and-taverns-swamp-hut-overhaul	0	0	0		0	0	0	0	0	0	
+410	quad	23	0	14	main	120	5	1	3	7	0	
+411	more-music-discs	8	0	1	main	73	11	1	0	4	4	
+412	lost-relics	104	0	21	main client	733	76	0	5	4	79	
+413	effortless-building	132	0	6	main client	582	55	5	6	51	24	
+414	superb-steeds	16	0	7	main	133	16	0	2	2	22	
+415	amber	242	0	25	main	604	107	33	10	51	12	
+416	bigger-better-end-cities	15	0	1	main	58	0	7	0	11	0	
+417	spiky-spikes	39	0	6	main client	537	7	0	4	37	74	
+418	nameplate	34	0	5	main client	115	24	1	1	0	59	
+419	floral-enchantment	119	0	1	main client	353	4	1	1	8	7	
+420	chisel-reborn	33	0	2	main client	218	3	3	3	9	4	
+421	audioplayer	570	5	41	main	576	3	320	8	84	58	
+422	geyser	14891	44	7	main	305	51	1722	3	1531	699	
+423	pig-pen-cipher	4	0	0	main client	21	1	0	0	2	3	
+424	skeleton-ai-fix	7	0	0	main client	22	1	0	0	2	24	
+425	lios-overhauled-villages	1	0	0		0	0	0	0	0	0	
+426	armor-of-the-ages	88	0	1	main client	344	37	4	0	19	81	
+427	modonomicon	1023	4	8	main client	1368	97	34	5	157	79	
+428	im-fast	2	0	1	main	0	0	0	0	0	0	
+429	ore-harvester	46	0	0	main client	72	10	3	0	0	175	
+430	onekeyminer_nf	95	0	2	main client	346	53	9	0	26	8	
+431	liteminer	81	0	2	main client	350	3	1	3	17	146	
+432	chiseled-bookshelf-visualizer	19	1	0	main client	117	33	0	0	10	15	
+433	jukebox-custom-disc-fix	4	0	4		15	0	0	0	0	0	
+434	passive-shield	28	0	0	main client	16	1	0	0	0	103	
+435	distanthorizonsapi	167	0	0		0	0	18	0	11	40	
+436	chalk	13	0	0	main client	144	9	0	0	0	13	
+437	visible-traders	21	0	7	main client	64	10	0	2	12	10	
+438	fish-on-the-line	22	0	0	main	19	0	0	0	0	74	
+439	grim-kingdoms-lost-structures-ruins-vanilla-edition	0	0	0		0	0	0	0	0	0	
+440	mastercutter	0	0	0		0	0	0	0	0	0	
+441	fleshz	27	0	0	main client	341	40	1	0	0	33	
+442	voxelmap-updated	246	0	12	server client	1383	54	162	2	153	22	
+443	continents	0	0	0		0	0	0	0	0	0	
+444	just-player-heads	25	0	0	main	19	0	0	0	0	101	
+445	hang-glider	33	0	3	main client	254	1	0	2	2	105	
+446	revive	45	0	11	main client	311	40	1	7	2	22	
+447	integrated-api	200	0	29	main	796	18	16	5	86	5	
+448	tab-was-taken	4090	0	0	server	739	26	1316	0	126	1668	
+449	shulker-drops-two	22	0	0	main	25	0	0	0	0	67	
+450	simple-datapacks	16	0	7	main	40	2	0	2	3	21	
+451	mmv-moogs-missing-villages	0	0	0		0	0	0	0	0	0	
+452	zconfig	268	2	0		0	25	94	0	17	13	
+453	dis-enchanting-table	191	2	2	main client	292	33	56	0	10	7	
+454	no-animal-tempt-delay	13	0	3	main	0	0	0	0	0	20	
+455	displaycase	31	0	2	main client	325	10	1	0	4	0	
+456	pneumono_gravestones	83	0	2	main client	640	40	7	0	25	52	
+457	distracting-trims	3	0	1	main	20	0	0	2	2	0	
+458	create-alloyed	304	1	12	main client	504	29	36	4	15	177	
+459	ibo	1	0	0	main	1	6	0	0	0	0	
+460	lithosphere	0	0	0		0	0	0	0	0	0	
+461	easy-npc	1	0	0	main	0	0	0	0	5	0	
+462	weaker-spiderwebs	22	0	0	main	25	0	0	0	0	68	
+463	scaffolding-drops-nearby	15	0	0	main	21	6	0	0	0	47	
+464	tlib	22	0	1	main client	120	1	0	0	0	9	
+465	voxy-worldgen	105	0	8	main client	429	43	56	3	85	7	
+466	welcomescreen	41	0	1	main client	252	27	5	3	24	21	
+467	accelerated-decay	5	0	1	main	62	3	4	0	0	0	
+468	cooking-for-blockheads	360	1	5	main client	1118	49	10	0	51	293	
+469	wilder-wild	774	0	139	main client	5386	112	2	8	115	932	
+470	leaf-me-alone	2	0	1	main	13	0	0	0	0	0	
+471	it-takes-a-pillage-continuation	86	0	9	main client	641	15	3	7	22	49	
+472	reconnectible-chains	98	1	6	main client	643	57	3	25	129	51	
+473	compost	15	0	3	main	270	10	2	0	7	0	
+474	moderner-beta	580	0	41	main client	1938	90	27	6	156	30	
+475	zombie-horse-spawn	28	0	3	main	13	6	0	2	0	112	
+476	chalk-mod	189	1	15	main client	943	70	34	5	72	50	
+477	anvians-lib	13	0	0	main	10	2	23	0	25	0	
+478	wakes-reforged	50	0	6	client	258	31	7	2	23	74	
+479	cryonicconfig	8	0	4	main	6	0	1	2	8	0	
+480	tree-vein-miner	0	0	0		0	0	0	0	0	0	
+481	mapfrontiers	849	2	9	main client	642	52	161	0	57	372	
+482	trample-no-more	5	0	1	main client	33	1	0	2	2	2	
+483	dungeons-and-taverns-ocean-monument-overhaul	0	0	0		0	0	0	0	0	0	
+484	grass-seeds	15	0	0	main	33	0	0	0	0	43	
+485	stellarity	0	0	0		0	0	0	0	0	0	
+486	only-excavators	22	0	1	main client	227	29	7	0	11	0	
+487	just-mob-heads	40	0	0	main	156	0	3	0	2	131	
+488	skeleton-horse-spawn	28	0	3	main	15	6	0	2	0	112	
+489	dungeons-and-taverns-jungle-temple-overhaul	0	0	0		0	0	0	0	0	0	
+490	blaha-replushed	9	0	1	main client	142	9	0	2	0	0	
+491	servux	499	3	65	main	1128	9	72	8	289	30	
+492	more-mobs	16	0	0	main	13	4	0	0	9	40	
+493	asteorbar	692	2	10	main client	492	23	33	4	87	37	
+494	modify-player-data	13	0	9		193	0	0	2	0	0	
+495	spiffyhud	752	1	26	main server client	542	14	52	214	240	405	
+496	keep-my-soil-tilled	18	0	0	main	21	0	0	0	0	44	
+497	enderscape	665	0	114	main client	4388	265	12	13	138	163	
+498	more-villagers-re-employed	16	0	2	main client	79	9	0	0	8	11	
+499	rrv	332	0	57	main client	1429	89	10	8	120	171	
+500	norollback	1	0	0		0	0	0	0	0	0	

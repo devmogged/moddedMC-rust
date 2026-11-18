@@ -111,3 +111,6 @@ p50 5.3–5.6 ms, p95 10.6–11.0 ms, p99 11.5–12.6 ms; RSS 330 MB; CPU 0.86%.
 ### Size and startup
 
 `sethome.wasm` is 2.0 MB. The first server start takes 2242 ms, mostly Wasmtime compiling the component once. With the module cache warm it takes 171 ms. For comparison, M1 counter takes 905 ms and 66 ms.
+### Corpus
+
+Top 500 server-capable Fabric 26.3 mods are frozen in `recompiler/corpus/top500.tsv`. Of the 455 with code, 378 use Mixin, 60 depend on another mod, and 17 are self-contained (the shim's target). Details: `recompiler/corpus/report.md`.

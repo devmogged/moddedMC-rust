@@ -66,8 +66,27 @@ Known shortcuts (each marked `shortcut:` in code): root literals only (no argume
 Brigadier yet), plain-text components, absolute teleports, player handles valid for one
 command, `getTickCount` backed by overworld age.
 
-## Next
+## Corpus (frozen)
 
-- Corpus: freeze the top 500 Modrinth Fabric mods for 26.3 and report, per mod, which
-  classes and members outside the JDK it references, against what the shim implements.
-- Grow the shim from that report, most-referenced API first.
+`corpus/top500.tsv` pins the top 500 Fabric 26.3 mods on Modrinth by downloads that can run on
+a server (Modrinth `server_side` required or optional): version id, file and sha512.
+`corpus/freeze.ps1 -Download` fetches them into `cache/corpus` (1.2 GB). `corpus/report.ps1`
+runs `Analyze.java`, which resolves every class and member reference in each jar, nested jars
+included, against the shim, Brigadier and TeaVM's class library. Results: `corpus/report.md`
+(summary) and `corpus/report.tsv` (per mod).
+
+What it says (2026-11-18):
+
+- 45 of 500 contain no Java code: datapacks and resource packs shipped as mods. They need
+  datapack support in the engine, not the recompiler.
+- 378 of the 455 mods with code (83%) use Mixin. A Java shim cannot run those; they patch
+  Minecraft's own bytecode at injection points.
+- 60 more have no Mixin but call into another mod (a library such as Cloth Config), so they need
+  that mod recompiled alongside them.
+- 17 are self-contained Mixin-free mods, the shim's direct target. 5 are covered today, but
+  those are one-class stubs. Covering all 17 takes 582 more members, mostly registries, blocks,
+  items and creative tabs.
+
+So the shim alone reaches about 4% of mods with code. Most of the corpus depends on
+supporting Mixin. That means either running Mixin against a recompiled Minecraft, or mapping
+common injection points onto engine hooks. That decision comes before growing the shim.
