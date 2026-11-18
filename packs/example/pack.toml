@@ -1,0 +1,15 @@
+# Example pack: two drop-in mods and one compiled-in port, for a laptop and a Pi.
+# Build: cargo run -p moddedmc-pack -- build packs/example/pack.toml
+[pack]
+id = "example"
+name = "Example"
+version = "1"
+
+[mods]
+counter = { path = "../../mods/counter" }
+wayshrine = { path = "../../mods/wayshrine" }
+port-example = { path = "../../engine/ports/example" }
+
+[targets]
+laptop = "x86_64-pc-windows-msvc"
+pi = "aarch64-unknown-linux-gnu"

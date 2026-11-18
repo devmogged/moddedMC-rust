@@ -29,6 +29,12 @@ online-mode = false
 
 ## What the builder does
 
+```powershell
+cargo run -p moddedmc-pack -- build packs/example/pack.toml [--target pi] [--profile release]
+```
+
+Working today: `path` mods (drop-in crates and ports) and prebuilt files (`{ mmc = "file.mmc" }`). The `mods`, `private` and `git` sources fail with a clear error until the mod index has entries. Targets other than the build machine go through `cargo zigbuild`, which needs `zig` on PATH and the target installed (`rustup target add aarch64-unknown-linux-gnu`). Every target gets `pack-<id>[.exe]`, even a pack that only uses the stock server, so agents always run the same name.
+
 1. Splits the mod list: drop-in mods (`.mmc`) are copied into the server's `mods/`, compiled-in ports are resolved to crates (the index in `devmogged/mods` or `devmogged/mods-private`, a git rev, or a local path).
 2. If the pack has compiled-in ports, generates a pack server crate in `engine/target/packs/<id>/` that depends on `pumpkin`, `moddedmc-host` and each port, with a `main.rs` like `engine/packs/dev/src/main.rs`. It is generated, never committed. A pack with only drop-in mods uses the stock pack server and needs no build at all.
 3. Builds it for each target: the `pack` profile for local testing, `release` for deploys. Windows builds natively. The Pi target uses `cargo zigbuild --target aarch64-unknown-linux-gnu`, so a laptop builds for the Pi and the Pi never compiles anything.
