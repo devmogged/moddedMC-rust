@@ -33,6 +33,27 @@ const BACKLOG_LINES: usize = 500;
 /// How long `stop` waits for the server to exit after sending `stop` before killing it.
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Console clients get plain text; Pumpkin colors its log even when piped.
+fn strip_ansi(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        // CSI: ESC [ parameters... final byte in @..~
+        if chars.next() == Some('[') {
+            for c in chars.by_ref() {
+                if ('@'..='~').contains(&c) {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// `<server>/server.json`.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ServerFile {
@@ -82,6 +103,7 @@ impl Managed {
     }
 
     fn push_line(&mut self, line: String) {
+        let line = strip_ansi(&line);
         if self.backlog.len() == BACKLOG_LINES {
             self.backlog.pop_front();
         }
