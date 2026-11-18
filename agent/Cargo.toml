@@ -7,11 +7,14 @@ description = "Runs on every machine that hosts servers and lets the owner's app
 
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }
+fastcdc = "5.0.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha2 = "0.11.1"
 sysinfo = "0.40.4"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "process", "io-util", "sync", "time", "signal", "fs"] }
 toml = "1.2.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 zip = { version = "9.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zstd = "0.14.4"

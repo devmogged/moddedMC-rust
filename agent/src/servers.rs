@@ -210,9 +210,9 @@ impl Servers {
         read_server_file(&dir).await.map(|_| dir)
     }
 
-    /// Runs `change` on a stopped server's `mods/` folder, holding the server so it can't start
-    /// halfway through.
-    pub async fn change_mods(
+    /// Runs `change` on a stopped server's folder, holding the server so it can't start halfway
+    /// through.
+    pub async fn with_stopped(
         &self,
         name: &str,
         change: impl AsyncFnOnce(&Path) -> std::io::Result<()>,
@@ -225,14 +225,79 @@ impl Servers {
         if guard.running.is_some() {
             return Err((StatusCode::CONFLICT, format!("stop {name} first")));
         }
-        let mods = self.root.join(name).join("mods");
-        let result = async {
-            tokio::fs::create_dir_all(&mods).await?;
-            change(&mods).await
-        }
-        .await;
+        let result = change(&self.root.join(name)).await;
         drop(guard);
-        result.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        result.map_err(|e| {
+            let status = if e.kind() == std::io::ErrorKind::NotFound {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, e.to_string())
+        })
+    }
+
+    pub async fn is_running(&self, name: &str) -> bool {
+        match self.existing(name).await {
+            Some(managed) => managed.lock().await.running.is_some(),
+            None => false,
+        }
+    }
+
+    /// Sends a console command to a running server.
+    pub async fn command(&self, name: &str, line: &str) -> Result<(), (StatusCode, String)> {
+        self.command_inner(name, line).await.map(drop)
+    }
+
+    /// Sends a console command and waits for a log line containing `expect`.
+    pub async fn command_until(
+        &self,
+        name: &str,
+        line: &str,
+        expect: &str,
+        wait: std::time::Duration,
+    ) -> Result<(), (StatusCode, String)> {
+        let mut lines = self.command_inner(name, line).await?;
+        let found = async {
+            loop {
+                match lines.recv().await {
+                    Ok(l) if l.contains(expect) => return true,
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => return false,
+                }
+            }
+        };
+        match tokio::time::timeout(wait, found).await {
+            Ok(true) => Ok(()),
+            _ => Err((
+                StatusCode::GATEWAY_TIMEOUT,
+                format!("{name} didn't answer {line:?} in time"),
+            )),
+        }
+    }
+
+    /// Subscribes to the log, then writes the command, so the answer can't be missed.
+    async fn command_inner(
+        &self,
+        name: &str,
+        line: &str,
+    ) -> Result<broadcast::Receiver<String>, (StatusCode, String)> {
+        let managed = self
+            .existing(name)
+            .await
+            .ok_or((StatusCode::NOT_FOUND, format!("no server named {name}")))?;
+        let mut guard = managed.lock().await;
+        let lines = guard.lines.subscribe();
+        let running = guard
+            .running
+            .as_mut()
+            .ok_or((StatusCode::CONFLICT, format!("{name} isn't running")))?;
+        running
+            .stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        Ok(lines)
     }
 
     /// The managed entry for a server folder that exists, so unknown names make no entries.

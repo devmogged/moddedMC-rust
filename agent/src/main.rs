@@ -2,6 +2,7 @@
 //! them. See docs/DEVICES.md for the contract.
 
 mod auth;
+mod backups;
 mod builds;
 mod config;
 mod device;
@@ -59,6 +60,18 @@ async fn main() {
         .route("/v1/servers/{name}/console", get(servers::console))
         .route("/v1/servers/{name}/deploy", post(servers::deploy))
         .route("/v1/servers/{name}/mods", get(mods::list))
+        .route(
+            "/v1/servers/{name}/backups",
+            get(backups::list).post(backups::create),
+        )
+        .route(
+            "/v1/servers/{name}/backups/{id}",
+            axum::routing::delete(backups::delete),
+        )
+        .route(
+            "/v1/servers/{name}/backups/{id}/restore",
+            post(backups::restore_one),
+        )
         .route(
             "/v1/servers/{name}/mods/{file}",
             put(mods::put)

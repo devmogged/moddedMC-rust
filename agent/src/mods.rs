@@ -101,7 +101,9 @@ pub async fn put(
     }
     let result = app
         .servers
-        .change_mods(&name, async |mods: &Path| {
+        .with_stopped(&name, async |dir: &Path| {
+            let mods = dir.join("mods");
+            tokio::fs::create_dir_all(&mods).await?;
             let partial = mods.join(format!(".{file}.partial"));
             tokio::fs::write(&partial, &body).await?;
             tokio::fs::rename(&partial, mods.join(&file)).await
@@ -128,7 +130,8 @@ pub async fn delete(
     }
     let result = app
         .servers
-        .change_mods(&name, async |mods: &Path| {
+        .with_stopped(&name, async |dir: &Path| {
+            let mods = dir.join("mods");
             match tokio::fs::remove_file(mods.join(&file)).await {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 other => other,

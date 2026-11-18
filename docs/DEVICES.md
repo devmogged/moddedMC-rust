@@ -25,7 +25,8 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
     stats.json            written by the pack server every 2 s (MSPT, TPS, players) when started with MODDEDMC_STATS=1
     pumpkin.toml          the server's config; the agent sets only the Java port (from server.json) and, on create, offline mode, telemetry off and no Bedrock listener
   builds/<pack>-<hash>/   pack builds pushed by the app (binary + pack.lock), shared by servers
-  backups/<name>/         content-addressed snapshots (see W3)
+  backups/blobs/          chunks of backed-up files, zstd, named by SHA-256, shared by every server
+  backups/snapshots/<name>/<id>.json  one manifest per backup: each file's chunk list
 ```
 
 ## API (HTTP + JSON, one WebSocket per console)
@@ -43,7 +44,9 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
 | POST | `/v1/servers/<name>/deploy` | `{build}`: a stopped server runs that build from now on, and its `mods/*.mmc` are replaced with the build's. |
 | GET | `/v1/servers/<name>/mods` | Drop-in mods in `mods/`: file, id and version from `mod.json`, size. |
 | PUT | `/v1/servers/<name>/mods/<file>`, DELETE likewise | Add (an `.mmc` with a `mod.json`, up to 256 MiB) or remove a drop-in mod. Stopped servers only. |
-| POST | `/v1/servers/<name>/backups`, GET likewise | Take and list snapshots. |
+| POST | `/v1/servers/<name>/backups`, GET likewise | Take and list backups of the server folder (all of it but `logs/`, `stats.json`, `session.lock` and dotfiles). Files are cut into content-defined chunks (FastCDC, about 64 KiB) stored once each, so a backup costs only what changed. A running server gets `save-off`, `save-all flush` (the agent waits for "Saved the game") and `save-on` around it. |
+| POST | `/v1/servers/<name>/backups/<id>/restore` | Stopped servers only: the folder goes back to that backup, chunk hashes checked, files it didn't have removed. |
+| DELETE | `/v1/servers/<name>/backups/<id>` | Removes the backup and any chunks no other backup uses. |
 | POST | `/v1/servers/<name>/pregen` | Start pregeneration with `{radius, center}`; progress comes over the console socket. |
 
 Stats come from the server itself: pack servers started with `MODDEDMC_STATS=1` write `stats.json` every two seconds (`engine/moddedmc-host/src/live_stats.rs`). The agent never polls with game commands.
