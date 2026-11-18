@@ -65,7 +65,10 @@ pub fn build(options: &Options) -> Result<(), String> {
         .to_str()
         .and_then(|p| p.strip_prefix(r"\\?\"))
         .map_or(pack_file.clone(), PathBuf::from);
-    let base = pack_file.parent().ok_or("pack.toml has no folder")?.to_path_buf();
+    let base = pack_file
+        .parent()
+        .ok_or("pack.toml has no folder")?
+        .to_path_buf();
     let repo = find_repo(&base)?;
     let pack = manifest::load(&pack_file)?;
     let mods = pack
@@ -80,7 +83,7 @@ pub fn build(options: &Options) -> Result<(), String> {
         options.targets.clone()
     };
     let host = host_triple(&repo)?;
-    let lock = lock_text(&pack, &mods, &repo, &options.profile)?;
+    let lock = lock_text(&pack, &mods, &repo, &options.profile);
     let engine_dirty = git_dirty(&repo.join("engine"));
 
     for name in &names {
@@ -89,7 +92,11 @@ pub fn build(options: &Options) -> Result<(), String> {
             .get(name)
             .ok_or_else(|| format!("the pack has no target {name}"))?;
         let platform = Platform::new(triple)?;
-        let out = repo.join("target").join("packs").join(&pack.pack.id).join(name);
+        let out = repo
+            .join("target")
+            .join("packs")
+            .join(&pack.pack.id)
+            .join(name);
         let binary = out.join(format!("pack-{}{}", pack.pack.id, platform.exe_ext));
         let key = hex(&Sha256::digest(format!("{lock}\n{triple}").as_bytes()));
         let key_file = out.join(".build-key");
@@ -106,15 +113,23 @@ pub fn build(options: &Options) -> Result<(), String> {
         let started = Instant::now();
         let mods_dir = out.join("mods");
         if mods_dir.exists() {
-            fs::remove_dir_all(&mods_dir).map_err(|e| format!("can't clear {}: {e}", mods_dir.display()))?;
+            fs::remove_dir_all(&mods_dir)
+                .map_err(|e| format!("can't clear {}: {e}", mods_dir.display()))?;
         }
-        fs::create_dir_all(&mods_dir).map_err(|e| format!("can't create {}: {e}", mods_dir.display()))?;
+        fs::create_dir_all(&mods_dir)
+            .map_err(|e| format!("can't create {}: {e}", mods_dir.display()))?;
 
         for m in &mods {
             match &m.kind {
                 Kind::DropIn { package, lib } => {
                     let library = build_drop_in(&repo, &host, &platform, package, lib)?;
-                    write_mmc(&repo, &mods_dir.join(format!("{}.mmc", m.id)), m, &platform, &library)?;
+                    write_mmc(
+                        &repo,
+                        &mods_dir.join(format!("{}.mmc", m.id)),
+                        m,
+                        &platform,
+                        &library,
+                    )?;
                 }
                 Kind::Prebuilt => {
                     fs::copy(&m.path, mods_dir.join(format!("{}.mmc", m.id)))
@@ -124,17 +139,34 @@ pub fn build(options: &Options) -> Result<(), String> {
             }
         }
 
-        let ports: Vec<&Resolved> = mods.iter().filter(|m| matches!(m.kind, Kind::Port { .. })).collect();
-        let built = build_server(&repo, &host, &platform, &options.profile, &pack.pack.id, &ports)?;
-        fs::copy(&built, &binary)
-            .map_err(|e| format!("can't copy {} to {}: {e}", built.display(), binary.display()))?;
+        let ports: Vec<&Resolved> = mods
+            .iter()
+            .filter(|m| matches!(m.kind, Kind::Port { .. }))
+            .collect();
+        let built = build_server(
+            &repo,
+            &host,
+            &platform,
+            &options.profile,
+            &pack.pack.id,
+            &ports,
+        )?;
+        fs::copy(&built, &binary).map_err(|e| {
+            format!(
+                "can't copy {} to {}: {e}",
+                built.display(),
+                binary.display()
+            )
+        })?;
         fs::write(out.join("pack.lock"), &lock).map_err(|e| e.to_string())?;
         fs::write(&key_file, &key).map_err(|e| e.to_string())?;
         println!(
             "{name}: built {} in {:.1}s ({} drop-in, {} compiled in)",
             out.display(),
             started.elapsed().as_secs_f32(),
-            mods.iter().filter(|m| !matches!(m.kind, Kind::Port { .. })).count(),
+            mods.iter()
+                .filter(|m| !matches!(m.kind, Kind::Port { .. }))
+                .count(),
             ports.len()
         );
     }
@@ -172,7 +204,11 @@ fn host_triple(repo: &Path) -> Result<String, String> {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git").args(args).current_dir(dir).output().ok()?;
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .ok()?;
     output
         .status
         .success()
@@ -183,12 +219,16 @@ fn git_dirty(dir: &Path) -> bool {
     git(dir, &["status", "--porcelain", "--", "."]).is_none_or(|s| !s.is_empty())
 }
 
-fn lock_text(pack: &manifest::Pack, mods: &[Resolved], repo: &Path, profile: &str) -> Result<String, String> {
+fn lock_text(pack: &manifest::Pack, mods: &[Resolved], repo: &Path, profile: &str) -> String {
     let engine = repo.join("engine");
-    let pumpkin = git(&engine.join("pumpkin"), &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into());
+    let pumpkin =
+        git(&engine.join("pumpkin"), &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into());
     let platform = git(repo, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into());
     let mut text = String::new();
-    let _ = writeln!(text, "# Written by moddedmc-pack {BUILDER_VERSION}. What this build contains, exactly.");
+    let _ = writeln!(
+        text,
+        "# Written by moddedmc-pack {BUILDER_VERSION}. What this build contains, exactly."
+    );
     let _ = writeln!(text, "[pack]");
     let _ = writeln!(text, "id = {:?}", pack.pack.id);
     let _ = writeln!(text, "name = {:?}", pack.pack.name);
@@ -208,7 +248,7 @@ fn lock_text(pack: &manifest::Pack, mods: &[Resolved], repo: &Path, profile: &st
         let _ = writeln!(text, "kind = {kind:?}");
         let _ = writeln!(text, "sha256 = {:?}", m.hash);
     }
-    Ok(text)
+    text
 }
 
 /// `cargo build` for the host, `cargo zigbuild --target` for anything else (the Pi).
@@ -224,7 +264,9 @@ fn cargo(dir: &Path, host: &str, platform: &Platform) -> Command {
 }
 
 fn run(mut command: Command, what: &str) -> Result<(), String> {
-    let status = command.status().map_err(|e| format!("can't run cargo for {what}: {e}"))?;
+    let status = command
+        .status()
+        .map_err(|e| format!("can't run cargo for {what}: {e}"))?;
     if status.success() {
         Ok(())
     } else {
@@ -241,24 +283,38 @@ fn target_dir(root: &Path, host: &str, platform: &Platform, profile: &str) -> Pa
     }
 }
 
-fn build_drop_in(repo: &Path, host: &str, platform: &Platform, package: &str, lib: &str) -> Result<PathBuf, String> {
+fn build_drop_in(
+    repo: &Path,
+    host: &str,
+    platform: &Platform,
+    package: &str,
+    lib: &str,
+) -> Result<PathBuf, String> {
     let mut command = cargo(repo, host, platform);
     command.args(["--release", "-p", package]);
     run(command, package)?;
-    let library = target_dir(repo, host, platform, "release").join(format!(
-        "{}{lib}.{}",
-        platform.lib_prefix, platform.lib_ext
-    ));
+    let library = target_dir(repo, host, platform, "release")
+        .join(format!("{}{lib}.{}", platform.lib_prefix, platform.lib_ext));
     if library.exists() {
         Ok(library)
     } else {
-        Err(format!("{package} built, but {} is missing", library.display()))
+        Err(format!(
+            "{package} built, but {} is missing",
+            library.display()
+        ))
     }
 }
 
 /// A `.mmc` like `scripts/pack-mod.ps1` makes: `mod.json` and the library for this platform.
-fn write_mmc(repo: &Path, out: &Path, m: &Resolved, platform: &Platform, library: &Path) -> Result<(), String> {
-    let abi_source = fs::read_to_string(repo.join("api").join("src").join("abi.rs")).map_err(|e| e.to_string())?;
+fn write_mmc(
+    repo: &Path,
+    out: &Path,
+    m: &Resolved,
+    platform: &Platform,
+    library: &Path,
+) -> Result<(), String> {
+    let abi_source = fs::read_to_string(repo.join("api").join("src").join("abi.rs"))
+        .map_err(|e| e.to_string())?;
     let abi: u32 = abi_source
         .split("ABI_VERSION: u32 = ")
         .nth(1)
@@ -268,7 +324,8 @@ fn write_mmc(repo: &Path, out: &Path, m: &Resolved, platform: &Platform, library
     let manifest = serde_json::json!({ "id": m.id, "version": m.version, "abi": abi });
     let file = fs::File::create(out).map_err(|e| format!("can't write {}: {e}", out.display()))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
     let library_bytes = fs::read(library).map_err(|e| e.to_string())?;
     let entry = format!("{}-{}.{}", platform.os, platform.arch, platform.lib_ext);
     let written = (|| -> zip::result::ZipResult<()> {
@@ -305,7 +362,8 @@ fn build_server(
     };
     command.args(["--profile", profile]);
     run(command, &bin)?;
-    let binary = target_dir(&engine, host, platform, profile).join(format!("{bin}{}", platform.exe_ext));
+    let binary =
+        target_dir(&engine, host, platform, profile).join(format!("{bin}{}", platform.exe_ext));
     if binary.exists() {
         Ok(binary)
     } else {
@@ -340,9 +398,14 @@ fn generate(engine: &Path, id: &str, ports: &[&Resolved]) -> Result<PathBuf, Str
         t.insert("path".into(), path(&p));
         Value::Table(t)
     };
-    deps.insert("pumpkin".into(), dep(engine.join("pumpkin").join("crates").join("pumpkin")));
+    deps.insert(
+        "pumpkin".into(),
+        dep(engine.join("pumpkin").join("crates").join("pumpkin")),
+    );
     deps.insert("moddedmc-host".into(), dep(engine.join("moddedmc-host")));
-    let mut main = String::from("// Generated by moddedmc-pack. Edit pack.toml, not this file.\nfn main() {\n");
+    let mut main = String::from(
+        "// Generated by moddedmc-pack. Edit pack.toml, not this file.\nfn main() {\n",
+    );
     main.push_str("    let mut launch = pumpkin::Launch::default().on_server_created(moddedmc_host::attach);\n");
     for port in ports {
         let Kind::Port { package, lib } = &port.kind else {
@@ -358,7 +421,10 @@ fn generate(engine: &Path, id: &str, ports: &[&Resolved]) -> Result<PathBuf, Str
     }
 
     let text = toml::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
-    write_if_changed(&dir.join("Cargo.toml"), &format!("# Generated by moddedmc-pack.\n{text}"))?;
+    write_if_changed(
+        &dir.join("Cargo.toml"),
+        &format!("# Generated by moddedmc-pack.\n{text}"),
+    )?;
     write_if_changed(&dir.join("src").join("main.rs"), &main)?;
     // Same versions as the engine build, so nothing recompiles for a version bump.
     fs::copy(engine.join("Cargo.lock"), dir.join("Cargo.lock")).map_err(|e| e.to_string())?;

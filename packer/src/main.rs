@@ -35,7 +35,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
             "--target" => targets.push(args.next().ok_or(USAGE)?),
             "--profile" => profile = args.next().ok_or(USAGE)?,
             "--force" => force = true,
-            _ if pack_file.is_none() && !arg.starts_with("--") => pack_file = Some(PathBuf::from(arg)),
+            _ if pack_file.is_none() && !arg.starts_with("--") => {
+                pack_file = Some(PathBuf::from(arg))
+            }
             _ => return Err(format!("unknown argument {arg}\n{USAGE}")),
         }
     }
