@@ -1,0 +1,11 @@
+{
+	"schemaVersion": 1,
+	"id": "sethome",
+	"version": "${version}",
+	"name": "SetHome (moddedMC-rust fixture)",
+	"description": "/sethome and /home with a cooldown and saved homes. Test fixture for the recompiler.",
+	"license": "GPL-3.0-only",
+	"environment": "server",
+	"entrypoints": { "main": ["dev.moddedmc.fixture.sethome.SetHome"] },
+	"depends": { "fabricloader": ">=0.20.0", "minecraft": "26.3", "fabric-api": "*" }
+}
