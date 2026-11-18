@@ -10,14 +10,16 @@ use pumpkin_protocol::{
     codec::var_int::VarInt,
     java::{
         client::{
-            config::{CFinishConfig, CKnownPacks},
+            config::{CConfigPing, CFinishConfig, CKnownPacks},
             login::CLoginSuccess,
             play::{CLogin, CPlayerPosition},
         },
         packet_decoder::TCPNetworkDecoder,
         packet_encoder::TCPNetworkEncoder,
         server::{
-            config::{SAcknowledgeFinishConfig, SClientInformationConfig, SKnownPacks},
+            config::{
+                SAcknowledgeFinishConfig, SClientInformationConfig, SConfigPong, SKnownPacks,
+            },
             handshake::SHandShake,
             login::{SLoginAcknowledged, SLoginStart},
             play::{SConfirmTeleport, SPlayerLoaded},
@@ -55,7 +57,12 @@ impl HeadlessBot {
 
     pub async fn next_packet(&mut self) -> Result<RawPacket, String> {
         match timeout(PACKET_TIMEOUT, self.reader.get_raw_packet()).await {
-            Ok(Ok(packet)) => Ok(packet),
+            Ok(Ok(packet)) => {
+                if std::env::var_os("MODDEDMC_BOT_TRACE").is_some() {
+                    trace_packet(packet.id, packet.payload.len());
+                }
+                Ok(packet)
+            }
             Ok(Err(err)) => Err(format!("Bot '{}' packet decode error: {err}", self.name)),
             Err(_) => Err(format!(
                 "Bot '{}' timed out waiting for packet from server",
@@ -123,14 +130,24 @@ impl HeadlessBot {
             main_hand: VarInt(1),
             text_filtering: false,
             server_listing: true,
+            particle_status: VarInt(0),
         })
         .await?;
 
         let known_packs_id = CKnownPacks::to_id(CURRENT_MC_VERSION);
         let finish_config_id = CFinishConfig::to_id(CURRENT_MC_VERSION);
+        let config_ping_id = CConfigPing::to_id(CURRENT_MC_VERSION);
         loop {
             let pkt = bot.next_packet().await?;
-            if pkt.id == known_packs_id {
+            if pkt.id == config_ping_id {
+                // Fabric waits for this pong before it finishes configuration.
+                let id = pkt
+                    .payload
+                    .get(..4)
+                    .and_then(|b| b.try_into().ok())
+                    .map_or(0, i32::from_be_bytes);
+                bot.send_packet(&SConfigPong { id }).await?;
+            } else if pkt.id == known_packs_id {
                 bot.send_packet(&SKnownPacks {
                     known_packs: Vec::new(),
                 })
@@ -173,6 +190,14 @@ impl HeadlessBot {
 
         Ok(bot)
     }
+}
+
+#[expect(
+    clippy::print_stdout,
+    reason = "the bot reports to the scenario runner on stdout"
+)]
+fn trace_packet(id: i32, len: usize) {
+    println!("[bot] packet {id:#x} ({len} bytes)");
 }
 
 pub async fn send_framed_packet<P: ClientPacket + MultiVersionJavaPacket, W: AsyncWrite + Unpin>(

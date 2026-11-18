@@ -2,7 +2,7 @@
 #   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh]
 # Scenario lines (blank lines and # comments ignored):
 #   mods <path.wasm> [...]   copy mods into the run dir's plugins/ (before the first start)
-#   start                    start the server and wait for "Started server"
+#   start                    start the server and wait until it is ready
 #   cmd <console line>       send a console line
 #   wait <seconds>
 #   expect <regex>           fail unless a log line since the previous expect/start matches
@@ -16,7 +16,8 @@ param(
     [string]$RunDir = 'run\scenario',
     [switch]$Fresh,
     [string]$Exe = 'engine\pumpkin\target\release\pumpkin.exe',
-    [string]$BotExe = 'engine\pumpkin\target\debug\moddedmc-bot.exe'
+    [string]$BotExe = 'engine\pumpkin\target\debug\moddedmc-bot.exe',
+    [string]$ExeArgs = ''   # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -38,7 +39,7 @@ function Get-NewLines {
 }
 
 function Start-Server {
-    $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $Exe))
+    $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $Exe), $ExeArgs)
     $psi.WorkingDirectory = $RunDir
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true
@@ -56,7 +57,8 @@ function Start-Server {
         Start-Sleep -Milliseconds 100
         $new = @(Get-NewLines)
         for ($i = 0; $i -lt $new.Count; $i++) {
-            if ($new[$i] -match 'Started server; took') { $script:cursor += $i + 1; return }
+            # Pumpkin, or a vanilla/Fabric server.
+            if ($new[$i] -match 'Started server; took|Done \(') { $script:cursor += $i + 1; return }
         }
     }
     throw "server did not start"

@@ -18,8 +18,8 @@ use pumpkin_protocol::{
         client::play::{CKeepAlive, CPlayShowDialog, CPlayerPosition, CSystemChatMessage},
         packet_encoder::TCPNetworkEncoder,
         server::play::{
-            SChatCommand, SConfirmTeleport, SCustomClickAction, SKeepAlive, SPlayerPosition,
-            SUseItemOn,
+            SChatCommand, SClientTickEnd, SConfirmTeleport, SCustomClickAction, SKeepAlive,
+            SPlayerPosition, SUseItemOn,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -46,7 +46,6 @@ async fn main() -> Result<(), String> {
     let bot = bot::HeadlessBot::connect_and_join(addr, name).await?;
     println!("[bot] joined as {name} at {:?}", bot.position);
     let writer: Writer = Arc::new(Mutex::new(bot.writer));
-    let mut reader = bot.reader;
     let position = Arc::new(Mutex::new(bot.position));
 
     // Like a real client, report our position every second; the server loads chunks from it.
@@ -63,67 +62,12 @@ async fn main() -> Result<(), String> {
                 },
             )
             .await;
+            // Vanilla allows one position per client tick and resets that on tick end.
+            let _ = send(&tick_writer, &SClientTickEnd).await;
         }
     });
 
-    let (pump_writer, pump_position) = (writer.clone(), position.clone());
-    tokio::spawn(async move {
-        let keep_alive = CKeepAlive::to_id(CURRENT_MC_VERSION);
-        let position = CPlayerPosition::to_id(CURRENT_MC_VERSION);
-        let system_chat = CSystemChatMessage::to_id(CURRENT_MC_VERSION);
-        let show_dialog = CPlayShowDialog::to_id(CURRENT_MC_VERSION);
-        let trace = std::env::var_os("MODDEDMC_BOT_TRACE").is_some();
-        if trace {
-            println!("[bot] show-dialog id {show_dialog:#x}");
-        }
-        loop {
-            let Ok(packet) = reader.get_raw_packet().await else {
-                println!("[bot] disconnected");
-                std::process::exit(2);
-            };
-            let mut payload = &packet.payload[..];
-            if packet.id == keep_alive {
-                let Some(id) = payload.get(..8).and_then(|b| b.try_into().ok()) else {
-                    continue;
-                };
-                let reply = SKeepAlive {
-                    keep_alive_id: i64::from_be_bytes(id),
-                };
-                let _ = send(&pump_writer, &reply).await;
-            } else if packet.id == position {
-                if let Ok(teleport) = CPlayerPosition::read(&mut payload, &CURRENT_MC_VERSION) {
-                    let confirm = SConfirmTeleport {
-                        teleport_id: teleport.teleport_id,
-                        position: teleport.position,
-                        yaw: teleport.yaw,
-                        pitch: teleport.pitch,
-                    };
-                    let _ = send(&pump_writer, &confirm).await;
-                    // Settle slightly, as a falling client would: Pumpkin only reloads the
-                    // player's chunks when a move actually changes the position.
-                    let mut settled = teleport.position;
-                    settled.y -= 0.1;
-                    *pump_position.lock().await = settled;
-                    let moved = SPlayerPosition {
-                        position: settled,
-                        collision: 0,
-                    };
-                    let _ = send(&pump_writer, &moved).await;
-                    println!("[bot] teleported to {:?}", teleport.position);
-                }
-            } else if packet.id == system_chat {
-                println!("[bot] chat: {}", printable_text(&packet.payload));
-            } else if packet.id == show_dialog {
-                println!("[bot] dialog: {}", printable_text(&packet.payload));
-            } else if trace {
-                println!(
-                    "[bot] packet {:#x} ({} bytes)",
-                    packet.id,
-                    packet.payload.len()
-                );
-            }
-        }
-    });
+    tokio::spawn(pump(bot.reader, writer.clone(), position.clone()));
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut sequence = 0;
@@ -158,6 +102,72 @@ async fn main() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Answers keep-alives and teleports and prints what scenarios check (chat, dialogs).
+#[expect(
+    clippy::print_stdout,
+    reason = "the bot reports to the scenario runner on stdout"
+)]
+async fn pump(
+    mut reader: pumpkin_protocol::java::packet_decoder::TCPNetworkDecoder<
+        BufReader<pumpkin_core::net::java::JavaReadHalf>,
+    >,
+    writer: Writer,
+    position: Arc<Mutex<Vector3<f64>>>,
+) {
+    let keep_alive_id = CKeepAlive::to_id(CURRENT_MC_VERSION);
+    let position_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
+    let system_chat = CSystemChatMessage::to_id(CURRENT_MC_VERSION);
+    let show_dialog = CPlayShowDialog::to_id(CURRENT_MC_VERSION);
+    let trace = std::env::var_os("MODDEDMC_BOT_TRACE").is_some();
+    loop {
+        let Ok(packet) = reader.get_raw_packet().await else {
+            println!("[bot] disconnected");
+            std::process::exit(2);
+        };
+        let mut payload = &packet.payload[..];
+        if packet.id == keep_alive_id {
+            let Some(id) = payload.get(..8).and_then(|b| b.try_into().ok()) else {
+                continue;
+            };
+            let reply = SKeepAlive {
+                keep_alive_id: i64::from_be_bytes(id),
+            };
+            let _ = send(&writer, &reply).await;
+        } else if packet.id == position_id {
+            match CPlayerPosition::read(&mut payload, &CURRENT_MC_VERSION) {
+                Ok(teleport) => {
+                    let confirm = SConfirmTeleport {
+                        teleport_id: teleport.teleport_id,
+                        position: teleport.position,
+                        yaw: teleport.yaw,
+                        pitch: teleport.pitch,
+                    };
+                    let _ = send(&writer, &confirm).await;
+                    // Settle slightly, as a falling client would: Pumpkin only reloads the
+                    // player's chunks when a move actually changes the position. The 1 s
+                    // reporter sends it; a second sender can put two moves in one tick,
+                    // which vanilla 26.3 kicks for.
+                    let mut settled = teleport.position;
+                    settled.y -= 0.1;
+                    *position.lock().await = settled;
+                    println!("[bot] teleported to {:?}", teleport.position);
+                }
+                Err(error) => println!("[bot] error: bad teleport packet: {error}"),
+            }
+        } else if packet.id == system_chat {
+            println!("[bot] chat: {}", printable_text(&packet.payload));
+        } else if packet.id == show_dialog {
+            println!("[bot] dialog: {}", printable_text(&packet.payload));
+        } else if trace {
+            println!(
+                "[bot] packet {:#x} ({} bytes)",
+                packet.id,
+                packet.payload.len()
+            );
+        }
+    }
 }
 
 async fn send<P: pumpkin_protocol::ClientPacket + MultiVersionJavaPacket>(

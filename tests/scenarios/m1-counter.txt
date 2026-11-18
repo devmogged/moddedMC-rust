@@ -13,6 +13,8 @@ expect \[bot\] joined as tester
 cmd op tester
 cmd tp tester 1025.5 101 1023.5
 wait 3
+# Random seeds can put terrain here; clear a pocket so the bot is not stuck in a hill.
+cmd fill 1020 99 1018 1030 106 1030 minecraft:air
 cmd setblock 1025 99 1025 minecraft:stone
 cmd setblock 1027 100 1025 minecraft:barrel
 wait 1

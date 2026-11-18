@@ -1,0 +1,42 @@
+# M3 behaviour spec for recompiler/fixtures/sethome. Runs on the real Fabric 26.3
+# server (oracle) and, later, unchanged against the recompiled mod on Pumpkin.
+#   scripts\fabric-oracle.ps1 -RunDir run\oracle-sethome -Mods recompiler\fixtures\sethome\build\libs\sethome-1.0.0.jar
+#   scripts\scenario.ps1 -RunDir run\oracle-sethome -Exe cache\jdk-25.0.5+8\bin\java.exe -ExeArgs '-jar fabric-server-launch.jar nogui' -Scenario tests\oracle\sethome.txt
+start
+wait 2
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+bot cmd home
+wait 1
+expect \[bot\] chat: .*No home set\.
+bot cmd sethome
+wait 1
+expect \[bot\] chat: .*Home set\.
+cmd tp tester 200 120 200
+wait 2
+expect \[bot\] teleported to .*200\.5|\[bot\] teleported to .*200\.0|\[bot\] teleported to .*x: 200
+bot cmd home
+wait 2
+expect \[bot\] chat: .*Teleported home\.
+expect \[bot\] teleported to
+bot cmd home
+wait 1
+expect \[bot\] chat: .*Home is on cooldown for [7-9]s\.
+bot quit
+wait 1
+stop
+start
+wait 2
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd tp tester 200 120 200
+wait 2
+bot cmd home
+wait 2
+expect \[bot\] chat: .*Teleported home\.
+reject (?i)exception|error
+bot quit
+wait 1
+stop
