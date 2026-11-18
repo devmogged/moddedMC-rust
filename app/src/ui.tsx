@@ -258,6 +258,12 @@ export function duration(secs: number | null | undefined): string {
   return `${Math.floor(secs)}s`;
 }
 
+/** A server row's second line: its pack, or what an external server reports. */
+export function packLine(server: ServerInfo): string {
+  if (server.external) return server.pack ? `External · ${server.pack}` : "External";
+  return server.pack ?? "No pack";
+}
+
 export const routeLabel = { local: "Local", tailscale: "Tailscale", ssh: "SSH" } as const;
 
 /**

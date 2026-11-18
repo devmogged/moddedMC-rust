@@ -5,6 +5,7 @@ mod agent;
 mod console;
 mod deploy;
 mod devices;
+mod install;
 mod mods;
 mod ping;
 mod store;
@@ -36,6 +37,7 @@ pub fn run() {
             mods::mods_index,
             deploy::build_inspect,
             deploy::deploy,
+            install::install_agent,
         ])
         .run(tauri::generate_context!());
     if let Err(err) = result {

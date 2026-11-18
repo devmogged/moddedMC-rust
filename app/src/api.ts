@@ -34,6 +34,9 @@ export interface ServerInfo {
   uptime_secs: number | null;
   exit_code: number | null;
   health: Health | null;
+  /** Running on the device, but not started by its agent: shown, not controlled. */
+  external: boolean;
+  program: string | null;
 }
 
 export interface Health {
@@ -105,6 +108,8 @@ export const api = {
   addDevice: (device: { name: string; route: Route; host: string; port?: number }) =>
     call<Device>("device_add", { device }),
   removeDevice: (id: string) => call<void>("device_remove", { id }),
+  /** Installs the agent on a Linux machine over SSH; resolves to a one-line result. */
+  installAgent: (destination: string) => call<string>("install_agent", { destination }),
 
   deviceInfo: (device: string) => agent<DeviceInfo>(device, "GET", "/v1/device"),
   servers: (device: string) => agent<ServerInfo[]>(device, "GET", "/v1/servers"),

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Boxes, Plus } from "lucide-react";
 import { api, type Device, type Friend, type ServerInfo } from "./api";
-import { ServerCluster, ServerIcon, routeLabel, usePoll } from "./ui";
+import { ServerCluster, ServerIcon, packLine, routeLabel, usePoll } from "./ui";
 import { ServerPane } from "./ServerPane";
 import { DevicePane } from "./DevicePane";
 import { FriendPane, FriendRow, useFriendStatus } from "./FriendPane";
@@ -299,7 +299,7 @@ function SidebarServer({
       <ServerIcon name={server.name} />
       <span className="row-text">
         <span className="row-name">{server.name}</span>
-        <span className="row-line">{server.pack ?? "No pack"}</span>
+        <span className="row-line">{packLine(server)}</span>
       </span>
       <ServerCluster device={device} server={server} />
     </button>

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Play, RotateCw, Square, Upload } from "lucide-react";
 import { api, minecraftAddress, type Device, type ServerInfo, type Stats } from "./api";
-import { ServerCluster, ServerIcon, bytes, duration, usePoll } from "./ui";
+import { ServerCluster, ServerIcon, bytes, duration, packLine, usePoll } from "./ui";
 import { DeployDialog } from "./dialogs";
 
 type Tab = "console" | "performance";
@@ -39,7 +39,7 @@ export function ServerPane({
   const up = server.state === "running";
   const moving = server.state === "starting" || server.state === "stopping";
   const line = [
-    server.pack ?? "No pack",
+    packLine(server),
     device.name,
     minecraftAddress(device, server),
     server.state === "crashed" && server.exit_code != null ? `Exit code ${server.exit_code}` : null,
@@ -59,7 +59,7 @@ export function ServerPane({
           <ServerCluster device={device} server={server} />
         </div>
         <div className="actions">
-          {up || moving ? (
+          {server.external ? null : up || moving ? (
             <>
               <button className="button" disabled={busy || moving} onClick={() => act("restart")}>
                 <RotateCw />
@@ -85,13 +85,33 @@ export function ServerPane({
         </div>
       </header>
 
-      <div className="tabs" role="tablist">
-        {(["console", "performance"] as const).map((t) => (
-          <button key={t} className="tab" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t === "console" ? "Console" : "Performance"}
-          </button>
-        ))}
-      </div>
+      {server.external ? (
+        <div className="pane-body ruled">
+          <dl className="facts">
+            <dt>Program</dt>
+            <dd>{server.program ?? "–"}</dd>
+            <dt>Process</dt>
+            <dd>{server.pid ?? "–"}</dd>
+            <dt>Address</dt>
+            <dd>{minecraftAddress(device, server)}</dd>
+          </dl>
+        </div>
+      ) : (
+        <>
+          <div className="tabs" role="tablist">
+            {(["console", "performance"] as const).map((t) => (
+              <button key={t} className="tab" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+                {t === "console" ? "Console" : "Performance"}
+              </button>
+            ))}
+          </div>
+          {tab === "console" ? (
+            <Console device={device.id} server={server.name} />
+          ) : (
+            <Performance device={device.id} server={server} />
+          )}
+        </>
+      )}
 
       <DeployDialog
         open={deploying}
@@ -100,12 +120,6 @@ export function ServerPane({
         onClose={() => setDeploying(false)}
         onDeployed={onChanged}
       />
-
-      {tab === "console" ? (
-        <Console device={device.id} server={server.name} />
-      ) : (
-        <Performance device={device.id} server={server} />
-      )}
     </div>
   );
 }

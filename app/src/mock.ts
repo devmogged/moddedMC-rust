@@ -42,6 +42,8 @@ function servers(device: string) {
         uptime_secs: (Date.now() - started) / 1000 + 86000,
         exit_code: null,
         health: health(14),
+        external: false,
+        program: null,
       },
       {
         name: "boss-rush",
@@ -52,6 +54,8 @@ function servers(device: string) {
         uptime_secs: null,
         exit_code: 101,
         health: state["boss-rush"] === "running" ? health(41) : null,
+        external: false,
+        program: null,
       },
     ];
   }
@@ -65,6 +69,20 @@ function servers(device: string) {
       uptime_secs: null,
       exit_code: 0,
       health: state.create === "running" ? health(6) : null,
+      external: false,
+      program: null,
+    },
+    {
+      name: "old-paper",
+      state: "running",
+      pack: "Paper 1.21.4",
+      port: 25580,
+      pid: 15724,
+      uptime_secs: null,
+      exit_code: null,
+      health: null,
+      external: true,
+      program: "java",
     },
   ];
 }
@@ -149,6 +167,8 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
         favicon: null,
       };
     }
+    case "install_agent":
+      return "Installed and running.";
     case "build_inspect":
     case "deploy":
       return { id: "example-3f9a1c2b7d4e", pack: "example", version: "1", path: args.path };

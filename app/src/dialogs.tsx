@@ -61,34 +61,45 @@ export function AddDeviceDialog({
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Set once the agent didn't answer: the dialog then offers to install it over SSH.
+  const [sshLogin, setSshLogin] = useState<string | null>(null);
 
   const close = () => {
     setName("");
     setHost("");
     setError(null);
+    setSshLogin(null);
     onClose();
+  };
+
+  const add = async () => {
+    const device = await api.addDevice({ name, route, host });
+    // Check the agent answers before closing, so a typo shows here and not later.
+    await api.deviceInfo(device.id).catch(async (err) => {
+      await api.removeDevice(device.id);
+      throw err;
+    });
+    close();
+    onAdded(device);
   };
 
   return (
     <Dialog open={open} onClose={close}>
       <Form
         title="Add device"
-        submit="Add device"
-        busyLabel="Connecting…"
+        submit={sshLogin === null ? "Add device" : "Install agent"}
+        busyLabel={sshLogin === null ? "Connecting…" : "Installing…"}
         error={error}
         onClose={close}
         onSubmit={async () => {
           try {
-            const device = await api.addDevice({ name, route, host });
-            // Check the agent answers before closing, so a typo shows here and not later.
-            await api.deviceInfo(device.id).catch(async (err) => {
-              await api.removeDevice(device.id);
-              throw err;
-            });
-            close();
-            onAdded(device);
+            if (sshLogin !== null) {
+              await api.installAgent(sshLogin);
+            }
+            await add();
           } catch (err) {
             setError((err as Error).message);
+            setSshLogin((login) => login ?? host.trim());
           }
         }}
       >
@@ -121,6 +132,19 @@ export function AddDeviceDialog({
             required
           />
         </label>
+        {sshLogin !== null && route === "tailscale" ? (
+          <label className="field">
+            <span>SSH login</span>
+            <input
+              className="input mono"
+              value={sshLogin}
+              onChange={(e) => setSshLogin(e.target.value)}
+              placeholder="pi@pi"
+              spellCheck={false}
+              required
+            />
+          </label>
+        ) : null}
       </Form>
     </Dialog>
   );

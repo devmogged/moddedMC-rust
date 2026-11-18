@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { api, type Device } from "./api";
 import type { DeviceData, Selection } from "./App";
-import { ServerCluster, ServerIcon, bytes, routeLabel, usePoll } from "./ui";
+import { ServerCluster, ServerIcon, packLine, bytes, routeLabel, usePoll } from "./ui";
 import { ConfirmDialog, NewServerDialog } from "./dialogs";
 
 export function DevicePane({
@@ -72,7 +72,7 @@ export function DevicePane({
                       <ServerIcon name={server.name} />
                       <span className="row-text">
                         <span className="row-name">{server.name}</span>
-                        <span className="row-line">{server.pack ?? "No pack"}</span>
+                        <span className="row-line">{packLine(server)}</span>
                       </span>
                       <ServerCluster device={device} server={server} />
                     </button>
