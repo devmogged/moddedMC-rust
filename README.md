@@ -50,6 +50,13 @@ scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt -RunDir run\m1 -Fr
 
 `scripts\engine.ps1 build` also builds the headless test client the scenarios use (`engine\target\pack\moddedmc-bot.exe`).
 
+The desktop app (devices, servers, console, Join list) lives in `app/`, and each hosting machine runs `agent/` ([docs/DEVICES.md](docs/DEVICES.md)):
+
+```powershell
+cargo build -p moddedmc-agent --release; targeteleasemoddedmc-agent.exe
+cd app; npm install; npm run tauri dev   # npm run dev previews the UI in a browser with sample data
+```
+
 Existing Fabric, Forge, or NeoForge mods **do not automatically run** on a Rust Minecraft server. Bringing their functionality over may require substantial reimplementation, and some modded experiences may also need client-side changes. Comparisons against Fabric servers have not been benchmarked yet.
 
 ## Collaboration

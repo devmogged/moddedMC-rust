@@ -1,0 +1,282 @@
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Play, RotateCw, Square } from "lucide-react";
+import { api, minecraftAddress, type Device, type ServerInfo, type Stats } from "./api";
+import { ServerCluster, ServerIcon, bytes, duration, usePlayers, usePoll } from "./ui";
+
+type Tab = "console" | "performance";
+
+export function ServerPane({
+  device,
+  server,
+  onChanged,
+  onError,
+}: {
+  device: Device;
+  server: ServerInfo;
+  onChanged: () => void;
+  onError: (err: unknown) => void;
+}) {
+  const [tab, setTab] = useState<Tab>("console");
+  const [busy, setBusy] = useState(false);
+  const players = usePlayers(device, server);
+
+  const act = async (action: "start" | "stop" | "restart") => {
+    setBusy(true);
+    try {
+      await api.action(device.id, server.name, action);
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  };
+
+  const up = server.state === "running";
+  const moving = server.state === "starting" || server.state === "stopping";
+  const line = [
+    server.pack ?? "No pack",
+    device.name,
+    minecraftAddress(device, server),
+    server.state === "crashed" && server.exit_code != null ? `Exit code ${server.exit_code}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="pane">
+      <header className="pane-head">
+        <div className="row large">
+          <ServerIcon name={server.name} />
+          <div className="row-text">
+            <h1 className="row-name">{server.name}</h1>
+            <p className="row-line">{line}</p>
+          </div>
+          <ServerCluster state={server.state} players={players?.players_online} max={players?.players_max} />
+        </div>
+        <div className="actions">
+          {up || moving ? (
+            <>
+              <button className="button" disabled={busy || moving} onClick={() => act("restart")}>
+                <RotateCw />
+                Restart
+              </button>
+              <button className="button" disabled={busy || moving} onClick={() => act("stop")}>
+                <Square />
+                Stop
+              </button>
+            </>
+          ) : (
+            <button className="button primary" disabled={busy} onClick={() => act("start")}>
+              <Play />
+              Start
+            </button>
+          )}
+        </div>
+      </header>
+
+      <div className="tabs" role="tablist">
+        {(["console", "performance"] as const).map((t) => (
+          <button key={t} className="tab" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+            {t === "console" ? "Console" : "Performance"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "console" ? (
+        <Console device={device.id} server={server.name} />
+      ) : (
+        <Performance device={device.id} server={server} />
+      )}
+    </div>
+  );
+}
+
+const MAX_LINES = 2000;
+
+function level(line: string): string | undefined {
+  if (/\b(ERROR|FATAL)\b|panicked/.test(line)) return "error";
+  if (/\bWARN\b/.test(line)) return "warn";
+  if (line.startsWith("> ")) return "echo";
+  return undefined;
+}
+
+function Console({ device, server }: { device: string; server: string }) {
+  const [lines, setLines] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
+  const [cursor, setCursor] = useState(-1);
+  const idRef = useRef<number | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+  const follow = useRef(true);
+
+  useEffect(() => {
+    let alive = true;
+    let retry: number | undefined;
+    const unlisten = api.onConsole(({ id, line }) => {
+      if (id !== idRef.current) return;
+      if (line === null) {
+        idRef.current = null;
+        retry = window.setTimeout(open, 2000);
+        return;
+      }
+      setLines((prev) => {
+        const next = prev.length >= MAX_LINES ? prev.slice(prev.length - MAX_LINES + 1) : prev.slice();
+        next.push(line);
+        return next;
+      });
+    });
+    async function open() {
+      try {
+        const id = await api.consoleOpen(device, server);
+        if (!alive) {
+          api.consoleClose(id);
+          return;
+        }
+        // The agent replays its backlog on every connect.
+        setLines([]);
+        setError(null);
+        idRef.current = id;
+      } catch (err) {
+        if (!alive) return;
+        setError((err as Error).message);
+        retry = window.setTimeout(open, 3000);
+      }
+    }
+    open();
+    return () => {
+      alive = false;
+      window.clearTimeout(retry);
+      unlisten.then((f) => f());
+      if (idRef.current !== null) api.consoleClose(idRef.current);
+      idRef.current = null;
+    };
+  }, [device, server]);
+
+  useLayoutEffect(() => {
+    const log = logRef.current;
+    if (log && follow.current) log.scrollTop = log.scrollHeight;
+  }, [lines]);
+
+  const send = async () => {
+    const command = input.trim();
+    if (!command || idRef.current === null) return;
+    setInput("");
+    setCursor(-1);
+    setHistory((h) => [command, ...h.filter((c) => c !== command)].slice(0, 100));
+    follow.current = true;
+    setLines((prev) => [...prev, `> ${command}`]);
+    try {
+      await api.consoleSend(idRef.current, command);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      send();
+    } else if (e.key === "ArrowUp" && history.length) {
+      e.preventDefault();
+      const next = Math.min(cursor + 1, history.length - 1);
+      setCursor(next);
+      setInput(history[next]);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = cursor - 1;
+      setCursor(Math.max(next, -1));
+      setInput(next >= 0 ? history[next] : "");
+    }
+  };
+
+  return (
+    <div className="console">
+      <div
+        className="console-log"
+        ref={logRef}
+        role="log"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+      >
+        {lines.map((line, i) => (
+          <div key={i} data-level={level(line)}>
+            {line}
+          </div>
+        ))}
+        {error ? <div data-level="error">{error}</div> : null}
+      </div>
+      <label className="console-input">
+        <span aria-hidden>&gt;</span>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="Command"
+          spellCheck={false}
+          autoComplete="off"
+          aria-label="Console command"
+        />
+      </label>
+    </div>
+  );
+}
+
+const SAMPLES = 120;
+
+function Performance({ device, server }: { device: string; server: ServerInfo }) {
+  const [samples, setSamples] = useState<Stats[]>([]);
+  const { value, error } = usePoll(() => api.stats(device, server.name), 2000, [device, server.name]);
+
+  useEffect(() => {
+    if (!value) return;
+    setSamples((prev) => [...prev.slice(-(SAMPLES - 1)), value]);
+  }, [value]);
+
+  if (error && !value) return <div className="pane-body error-line">{error}</div>;
+  const latest = value;
+  const memory = samples.map((s) => s.rss_bytes ?? 0);
+  const cpu = samples.map((s) => s.cpu_percent ?? 0);
+
+  return (
+    <div className="pane-body">
+      <div className="stats">
+        <div className="stat">
+          <div className="stat-label">Memory</div>
+          <div className="stat-value">{bytes(latest?.rss_bytes)}</div>
+          <Spark values={memory} />
+        </div>
+        <div className="stat">
+          <div className="stat-label">CPU</div>
+          <div className="stat-value">
+            {latest?.cpu_percent != null ? Math.round(latest.cpu_percent) : "–"}
+            <small>%</small>
+          </div>
+          <Spark values={cpu} min={0} max={100} />
+        </div>
+        <div className="stat">
+          <div className="stat-label">Uptime</div>
+          <div className="stat-value">{duration(latest?.uptime_secs)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Spark({ values, min, max }: { values: number[]; min?: number; max?: number }) {
+  const lo = min ?? Math.min(...values) * 0.9;
+  const hi = Math.max(max ?? 0, ...values) * (max ? 1 : 1.05);
+  const span = hi - lo || 1;
+  const points = values
+    .map((v, i) => `${(i / (SAMPLES - 1)) * 100},${40 - ((v - lo) / span) * 38 - 1}`)
+    .join(" ");
+  return (
+    <svg className="spark" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden>
+      <line x1="0" y1="39.5" x2="100" y2="39.5" />
+      {values.length > 1 ? <polyline points={points} /> : null}
+    </svg>
+  );
+}
