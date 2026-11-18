@@ -1,0 +1,18 @@
+[package]
+name = "port-example"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Template for compiled-in ports: copy this crate to start one. See docs/PORTS.md."
+publish = false
+
+# Tells moddedmc-pack to link this crate into the pack server instead of building a .mmc.
+[package.metadata.moddedmc]
+kind = "port"
+
+[dependencies]
+pumpkin-core.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

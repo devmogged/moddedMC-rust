@@ -8,7 +8,7 @@
 # Pack servers (`packs/*`) are the binaries: Pumpkin + the host + a set of compiled-in ports.
 [workspace]
 resolver = "3"
-members = ["moddedmc-host", "moddedmc-bot", "packs/*"]  # add "ports/*" with the first port
+members = ["moddedmc-host", "moddedmc-bot", "packs/*", "ports/*"]
 exclude = ["pumpkin"]
 
 [workspace.package]
