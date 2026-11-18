@@ -4,6 +4,7 @@
 mod auth;
 mod config;
 mod device;
+mod pumpkin_config;
 mod servers;
 
 use std::{net::SocketAddr, sync::Arc};

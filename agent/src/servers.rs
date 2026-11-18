@@ -183,6 +183,9 @@ impl Servers {
         if guard.running.is_some() {
             return Err((StatusCode::CONFLICT, format!("{name} is already running")));
         }
+        if let Some(port) = file.port {
+            crate::pumpkin_config::apply_port(&dir, port).await;
+        }
         let exe = if file.exe.is_absolute() {
             file.exe.clone()
         } else {
@@ -341,6 +344,14 @@ pub async fn create(State(app): State<Arc<App>>, Json(body): Json<CreateServer>)
         return error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     if let Err(e) = tokio::fs::write(dir.join("server.json"), json).await {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+    // A folder that already has a config (an imported server) keeps it.
+    if !tokio::fs::try_exists(dir.join("pumpkin.toml"))
+        .await
+        .unwrap_or(true)
+        && let Err(e) = crate::pumpkin_config::seed(&dir, body.file.port).await
+    {
         return error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     StatusCode::CREATED.into_response()
