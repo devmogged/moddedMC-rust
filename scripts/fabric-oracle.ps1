@@ -27,8 +27,9 @@ New-Item -ItemType Directory -Force (Join-Path $RunDir 'mods') | Out-Null
 Copy-Item $launcher (Join-Path $RunDir 'fabric-server-launch.jar')
 Copy-Item $api (Join-Path $RunDir 'mods')
 foreach ($m in $Mods) { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'mods') }
-# The vanilla server jar is already cached for Pumpkin's build; reuse it instead of downloading again.
-Copy-Item (Join-Path $root 'cache\mc-26.3\server.jar') (Join-Path $RunDir 'server.jar')
+# The vanilla server jar is cached for Pumpkin's build; reuse it when it's there (the launcher downloads it otherwise).
+$vanilla = Join-Path $root 'cache\mc-26.3\server.jar'
+if (Test-Path $vanilla) { Copy-Item $vanilla (Join-Path $RunDir 'server.jar') }
 [IO.File]::WriteAllText((Join-Path $RunDir 'eula.txt'), "eula=true`n")
 [IO.File]::WriteAllText((Join-Path $RunDir 'server.properties'), @"
 online-mode=false
