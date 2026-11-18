@@ -149,6 +149,9 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
         favicon: null,
       };
     }
+    case "build_inspect":
+    case "deploy":
+      return { id: "example-3f9a1c2b7d4e", pack: "example", version: "1", path: args.path };
     case "mods_index":
       return [];
     default:

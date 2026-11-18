@@ -68,6 +68,13 @@ export interface Status {
   favicon: string | null;
 }
 
+export interface Build {
+  id: string;
+  pack: string;
+  version: string;
+  path: string;
+}
+
 export interface ModEntry {
   id: string;
   name: string;
@@ -122,6 +129,16 @@ export const api = {
   ping: (address: string) => call<Status>("ping", { address }),
 
   mods: () => call<ModEntry[]>("mods_index"),
+
+  inspectBuild: (path: string) => call<Build>("build_inspect", { path }),
+  deploy: (device: string, server: string, path: string) => call<Build>("deploy", { device, server, path }),
+  /** A folder picker; `null` when the user cancels. */
+  pickFolder: async (): Promise<string | null> => {
+    if (mock) return "C:/moddedMC-rust/target/packs/example/laptop";
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({ directory: true, multiple: false });
+    return typeof picked === "string" ? picked : null;
+  },
 };
 
 /** The address players use for a server on a device. */

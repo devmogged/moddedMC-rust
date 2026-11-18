@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { api, type Device, type Friend, type Route } from "./api";
+import { api, type Build, type Device, type Friend, type Route } from "./api";
 import { Dialog } from "./ui";
 
 function Form({
@@ -303,6 +303,85 @@ export function ConfirmDialog({
       >
         <p className="row-line" style={{ fontSize: 13 }}>
           {body}
+        </p>
+      </Form>
+    </Dialog>
+  );
+}
+
+export function DeployDialog({
+  open,
+  device,
+  server,
+  onClose,
+  onDeployed,
+}: {
+  open: boolean;
+  device: Device;
+  server: string;
+  onClose: () => void;
+  onDeployed: (build: Build) => void;
+}) {
+  const [build, setBuild] = useState<Build | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const close = () => {
+    setBuild(null);
+    setError(null);
+    onClose();
+  };
+
+  const choose = async () => {
+    try {
+      const path = await api.pickFolder();
+      if (!path) return;
+      setBuild(await api.inspectBuild(path));
+      setError(null);
+    } catch (err) {
+      setBuild(null);
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={close}>
+      <Form
+        title={`Deploy to ${server}`}
+        submit="Deploy"
+        busyLabel="Uploading…"
+        error={error}
+        onClose={close}
+        onSubmit={async () => {
+          if (!build) {
+            setError("Choose a build folder first.");
+            return;
+          }
+          try {
+            const deployed = await api.deploy(device.id, server, build.path);
+            close();
+            onDeployed(deployed);
+          } catch (err) {
+            setError((err as Error).message);
+          }
+        }}
+      >
+        <div className="field">
+          <span>Build</span>
+          <button type="button" className="build-pick" onClick={choose}>
+            {build ? (
+              <>
+                <span className="row-name">
+                  {build.pack} {build.version}
+                </span>
+                <span className="row-line mono">{build.path}</span>
+              </>
+            ) : (
+              <span className="row-line">Choose build folder</span>
+            )}
+          </button>
+        </div>
+        <p className="row-line" style={{ fontSize: 13 }}>
+          The server's drop-in mods are replaced with the build's. The world stays.
         </p>
       </Form>
     </Dialog>

@@ -3,6 +3,7 @@
 
 mod agent;
 mod console;
+mod deploy;
 mod devices;
 mod mods;
 mod ping;
@@ -12,6 +13,7 @@ use tauri::Manager;
 
 pub fn run() {
     let result = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             app.manage(store::Store::load(dir));
@@ -32,6 +34,8 @@ pub fn run() {
             ping::friend_remove,
             ping::ping,
             mods::mods_index,
+            deploy::build_inspect,
+            deploy::deploy,
         ])
         .run(tauri::generate_context!());
     if let Err(err) = result {

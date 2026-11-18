@@ -878,3 +878,22 @@ dialog::backdrop {
     animation: fade-in 80ms linear;
   }
 }
+
+.build-pick {
+  display: grid;
+  gap: 2px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--ground);
+  text-align: left;
+  transition: border-color var(--t-hover) var(--ease-out);
+}
+.build-pick:hover {
+  border-color: oklch(1 0 0 / 0.24);
+}
+.row-line.mono {
+  font-family: var(--mono);
+  font-size: 11px;
+}

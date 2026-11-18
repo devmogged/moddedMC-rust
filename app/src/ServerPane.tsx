@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Play, RotateCw, Square } from "lucide-react";
+import { Play, RotateCw, Square, Upload } from "lucide-react";
 import { api, minecraftAddress, type Device, type ServerInfo, type Stats } from "./api";
 import { ServerCluster, ServerIcon, bytes, duration, usePoll } from "./ui";
+import { DeployDialog } from "./dialogs";
 
 type Tab = "console" | "performance";
 
@@ -21,6 +22,7 @@ export function ServerPane({
     import.meta.env.DEV && location.hash.endsWith("/performance") ? "performance" : "console",
   );
   const [busy, setBusy] = useState(false);
+  const [deploying, setDeploying] = useState(false);
 
   const act = async (action: "start" | "stop" | "restart") => {
     setBusy(true);
@@ -69,10 +71,16 @@ export function ServerPane({
               </button>
             </>
           ) : (
-            <button className="button primary" disabled={busy} onClick={() => act("start")}>
-              <Play />
-              Start
-            </button>
+            <>
+              <button className="button" disabled={busy} onClick={() => setDeploying(true)}>
+                <Upload />
+                Deploy
+              </button>
+              <button className="button primary" disabled={busy} onClick={() => act("start")}>
+                <Play />
+                Start
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -84,6 +92,14 @@ export function ServerPane({
           </button>
         ))}
       </div>
+
+      <DeployDialog
+        open={deploying}
+        device={device}
+        server={server.name}
+        onClose={() => setDeploying(false)}
+        onDeployed={onChanged}
+      />
 
       {tab === "console" ? (
         <Console device={device.id} server={server.name} />
