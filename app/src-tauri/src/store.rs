@@ -41,6 +41,9 @@ struct Data {
     devices: Vec<Device>,
     #[serde(default)]
     friends: Vec<Friend>,
+    /// `pack.toml` paths.
+    #[serde(default)]
+    packs: Vec<String>,
 }
 
 pub struct Store {
@@ -119,6 +122,24 @@ impl Store {
     pub fn remove_friend(&self, id: &str) -> Result<(), String> {
         let mut data = self.data();
         data.friends.retain(|f| f.id != id);
+        self.save(&data)
+    }
+
+    pub fn packs(&self) -> Vec<String> {
+        self.data().packs.clone()
+    }
+
+    pub fn add_pack(&self, path: String) -> Result<(), String> {
+        let mut data = self.data();
+        if !data.packs.contains(&path) {
+            data.packs.push(path);
+        }
+        self.save(&data)
+    }
+
+    pub fn remove_pack(&self, path: &str) -> Result<(), String> {
+        let mut data = self.data();
+        data.packs.retain(|p| p != path);
         self.save(&data)
     }
 }

@@ -78,6 +78,22 @@ export interface Build {
   path: string;
 }
 
+export interface Pack {
+  path: string;
+  id: string;
+  name: string;
+  version: string;
+  mods: { id: string; source: string }[];
+  targets: { name: string; triple: string; built: string | null }[];
+  error: string | null;
+}
+
+export interface UploadedBuild {
+  id: string;
+  pack: string;
+  version: string;
+}
+
 export interface ModEntry {
   id: string;
   name: string;
@@ -134,6 +150,26 @@ export const api = {
   ping: (address: string) => call<Status>("ping", { address }),
 
   mods: () => call<ModEntry[]>("mods_index"),
+
+  packs: () => call<Pack[]>("packs_list"),
+  addPack: (path: string) => call<Pack>("pack_add", { path }),
+  removePack: (path: string) => call<void>("pack_remove", { path }),
+  /** Builds one target; resolves to the build folder. Output arrives through `onPackBuild`. */
+  buildPack: (path: string, target: string) => call<string>("pack_build", { path, target }),
+  onPackBuild: (
+    handler: (event: { path: string; target: string; line: string }) => void,
+  ): Promise<UnlistenFn> =>
+    mock
+      ? Promise.resolve(() => {})
+      : listen<{ path: string; target: string; line: string }>("pack-build", (e) => handler(e.payload)),
+  uploadedBuilds: (device: string) => agent<UploadedBuild[]>(device, "GET", "/v1/builds"),
+  /** A `pack.toml` picker; `null` when the user cancels. */
+  pickPackFile: async (): Promise<string | null> => {
+    if (mock) return "C:/moddedMC-rust/packs/example/pack.toml";
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({ multiple: false, filters: [{ name: "Pack", extensions: ["toml"] }] });
+    return typeof picked === "string" ? picked : null;
+  },
 
   inspectBuild: (path: string) => call<Build>("build_inspect", { path }),
   deploy: (device: string, server: string, path: string) => call<Build>("deploy", { device, server, path }),

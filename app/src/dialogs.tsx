@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { api, type Build, type Device, type Friend, type Route } from "./api";
-import { Dialog } from "./ui";
+import { api, type Build, type Device, type Friend, type Route, type ServerInfo } from "./api";
+import { Dialog, ServerCluster, ServerIcon, packLine } from "./ui";
+import type { DeviceData } from "./App";
 
 function Form({
   title,
@@ -404,6 +405,98 @@ export function DeployDialog({
             )}
           </button>
         </div>
+        <p className="row-line" style={{ fontSize: 13 }}>
+          The server's drop-in mods are replaced with the build's. The world stays.
+        </p>
+      </Form>
+    </Dialog>
+  );
+}
+
+/** Deploy a build folder to any stopped server the owner manages. */
+export function DeployToDialog({
+  open,
+  buildPath,
+  devices,
+  data,
+  onClose,
+  onDeployed,
+}: {
+  open: boolean;
+  buildPath: string;
+  devices: Device[];
+  data: Record<string, DeviceData>;
+  onClose: () => void;
+  onDeployed: () => void;
+}) {
+  const [choice, setChoice] = useState<{ device: Device; server: ServerInfo } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const close = () => {
+    setChoice(null);
+    setError(null);
+    onClose();
+  };
+
+  const targets = devices.flatMap((device) =>
+    (data[device.id]?.servers ?? []).filter((s) => !s.external).map((server) => ({ device, server })),
+  );
+
+  return (
+    <Dialog open={open} onClose={close}>
+      <Form
+        title="Deploy to a server"
+        submit="Deploy"
+        busyLabel="Uploading…"
+        error={error}
+        onClose={close}
+        onSubmit={async () => {
+          if (!choice) {
+            setError("Choose a server first.");
+            return;
+          }
+          try {
+            await api.deploy(choice.device.id, choice.server.name, buildPath);
+            close();
+            onDeployed();
+          } catch (err) {
+            setError((err as Error).message);
+          }
+        }}
+      >
+        {targets.length === 0 ? (
+          <p className="row-line">No servers yet. Create one on a device first.</p>
+        ) : (
+          <div className="list pick-list" role="radiogroup" aria-label="Server">
+            {targets.map(({ device, server }) => {
+              const busy =
+                server.state === "running" || server.state === "starting" || server.state === "stopping";
+              const picked = choice?.device.id === device.id && choice.server.name === server.name;
+              return (
+                <button
+                  key={`${device.id}/${server.name}`}
+                  type="button"
+                  className="row"
+                  role="radio"
+                  aria-checked={picked}
+                  aria-current={picked}
+                  disabled={busy}
+                  title={busy ? `Stop ${server.name} first` : undefined}
+                  onClick={() => setChoice({ device, server })}
+                >
+                  <ServerIcon name={server.name} />
+                  <span className="row-text">
+                    <span className="row-name">{server.name}</span>
+                    <span className="row-line">
+                      {device.name} · {packLine(server)}
+                    </span>
+                  </span>
+                  <ServerCluster device={device} server={server} />
+                </button>
+              );
+            })}
+          </div>
+        )}
         <p className="row-line" style={{ fontSize: 13 }}>
           The server's drop-in mods are replaced with the build's. The world stays.
         </p>

@@ -112,6 +112,8 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           tailscale_name: device === "pi" ? "pi.tail1234.ts.net" : null,
         };
       if (path === "/v1/servers") return servers(device);
+      if (path === "/v1/builds")
+        return device === "pi" ? [{ id: "example-3f9a1c2b7d4e", pack: "example", version: "1" }] : [];
       const match = path.match(/^\/v1\/servers\/([^/]+)\/(\w+)$/);
       if (match && method === "POST") {
         const [, name, action] = match;
@@ -167,6 +169,34 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
         favicon: null,
       };
     }
+    case "packs_list":
+    case "pack_add": {
+      const pack = {
+        path: "C:/moddedMC-rust/packs/example/pack.toml",
+        id: "example",
+        name: "Example",
+        version: "1",
+        mods: [
+          { id: "counter", source: "path" },
+          { id: "port-example", source: "path" },
+          { id: "wayshrine", source: "path" },
+        ],
+        targets: [
+          {
+            name: "laptop",
+            triple: "x86_64-pc-windows-msvc",
+            built: "C:/moddedMC-rust/target/packs/example/laptop",
+          },
+          { name: "pi", triple: "aarch64-unknown-linux-gnu", built: null },
+        ],
+        error: null,
+      };
+      return command === "pack_add" ? pack : [pack];
+    }
+    case "pack_build":
+      return "C:/moddedMC-rust/target/packs/example/" + args.target;
+    case "pack_remove":
+      return null;
     case "install_agent":
       return "Installed and running.";
     case "build_inspect":

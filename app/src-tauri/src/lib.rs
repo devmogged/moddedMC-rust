@@ -7,6 +7,7 @@ mod deploy;
 mod devices;
 mod install;
 mod mods;
+mod packs;
 mod ping;
 mod store;
 
@@ -38,6 +39,10 @@ pub fn run() {
             deploy::build_inspect,
             deploy::deploy,
             install::install_agent,
+            packs::packs_list,
+            packs::pack_add,
+            packs::pack_remove,
+            packs::pack_build,
         ])
         .run(tauri::generate_context!());
     if let Err(err) = result {

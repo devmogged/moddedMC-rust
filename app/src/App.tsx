@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { Boxes, Plus } from "lucide-react";
+import { Boxes, Package, Plus } from "lucide-react";
 import { api, type Device, type Friend, type ServerInfo } from "./api";
 import { ServerCluster, ServerIcon, packLine, routeLabel, usePoll } from "./ui";
 import { ServerPane } from "./ServerPane";
 import { DevicePane } from "./DevicePane";
 import { FriendPane, FriendRow, useFriendStatus } from "./FriendPane";
 import { ModsPane } from "./ModsPane";
+import { PackPane } from "./PackPane";
 import { AddDeviceDialog, AddFriendDialog } from "./dialogs";
 
 export type Selection =
   | { kind: "server"; device: string; server: string }
   | { kind: "device"; device: string }
   | { kind: "friend"; id: string }
+  | { kind: "pack"; path: string }
   | { kind: "mods" };
 
 export interface DeviceData {
@@ -22,13 +24,14 @@ export interface DeviceData {
 const SELECTION_KEY = "selection";
 
 function loadSelection(): Selection {
-  // Dev previews open a pane directly: #server/pi/survival, #device/pi, #friend/sting, #mods.
+  // Dev previews open a pane directly: #server/pi/survival, #device/pi, #friend/sting, #mods, #pack/<pack.toml path>.
   if (import.meta.env.DEV && location.hash) {
     const [kind, a, b] = location.hash.slice(1).split("/");
     if (kind === "server" && a && b) return { kind, device: a, server: b };
     if (kind === "device" && a) return { kind, device: a };
     if (kind === "friend" && a) return { kind, id: a };
     if (kind === "mods") return { kind };
+    if (kind === "pack" && a) return { kind, path: location.hash.slice("#pack/".length) };
   }
   try {
     const raw = localStorage.getItem(SELECTION_KEY);
@@ -74,6 +77,9 @@ function useDeviceData(devices: Device[]) {
 export function App() {
   const devicesPoll = usePoll(api.devices, 60_000, []);
   const friendsPoll = usePoll(api.friends, 60_000, []);
+  // Packs are files on this machine; reread them so a build or an edit shows up.
+  const packsPoll = usePoll(api.packs, 5_000, []);
+  const packs = packsPoll.value ?? [];
   const devices = devicesPoll.value ?? [];
   const friends = friendsPoll.value ?? [];
   const { data, refresh } = useDeviceData(devices);
@@ -95,6 +101,18 @@ export function App() {
     const timer = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  const addPack = async () => {
+    try {
+      const path = await api.pickPackFile();
+      if (!path) return;
+      const pack = await api.addPack(path);
+      packsPoll.refresh();
+      select({ kind: "pack", path: pack.path });
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const fail = useCallback((err: unknown) => {
     setToast(err instanceof Error ? err.message : String(err));
@@ -152,6 +170,27 @@ export function App() {
         />
       );
     }
+  } else if (selection.kind === "pack") {
+    const pack = packs.find((p) => p.path === selection.path);
+    if (pack) {
+      pane = (
+        <PackPane
+          key={pack.path}
+          pack={pack}
+          devices={devices}
+          data={data}
+          onChanged={() => {
+            packsPoll.refresh();
+            refresh();
+          }}
+          onRemoved={() => {
+            packsPoll.refresh();
+            select({ kind: "device", device: "local" });
+          }}
+          onError={fail}
+        />
+      );
+    }
   } else {
     pane = <ModsPane key="mods" />;
   }
@@ -200,6 +239,27 @@ export function App() {
                 current={selection.kind === "friend" && selection.id === f.id}
                 onSelect={() => select({ kind: "friend", id: f.id })}
               />
+            ))}
+          </section>
+
+          <section className="section" aria-label="Packs">
+            <div className="section-head">
+              Packs
+              <button className="icon-button" aria-label="Add pack" title="Add pack" onClick={addPack}>
+                <Plus />
+              </button>
+            </div>
+            {packs.map((p) => (
+              <button
+                key={p.path}
+                className="nav-item"
+                aria-current={selection.kind === "pack" && selection.path === p.path}
+                onClick={() => select({ kind: "pack", path: p.path })}
+              >
+                <Package />
+                <span className="nav-label">{p.name}</span>
+                <span className="nav-meta">{p.error ? "Error" : p.version ? `v${p.version}` : ""}</span>
+              </button>
             ))}
           </section>
 

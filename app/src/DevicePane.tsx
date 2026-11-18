@@ -21,6 +21,7 @@ export function DevicePane({
   onError: (err: unknown) => void;
 }) {
   const info = usePoll(() => api.deviceInfo(device.id), 10_000, [device.id]);
+  const builds = usePoll(() => api.uploadedBuilds(device.id), 15_000, [device.id]);
   const [dialog, setDialog] = useState<"server" | "remove" | null>(null);
   const servers = data?.servers ?? null;
   const reachError = data?.error ?? (info.value ? null : info.error);
@@ -80,6 +81,25 @@ export function DevicePane({
                 </div>
               )}
             </section>
+
+            {builds.value && builds.value.length > 0 ? (
+              <section className="block">
+                <div className="block-head">Builds</div>
+                <div>
+                  {builds.value.map((b) => (
+                    <div key={b.id} className="mod-row">
+                      <div className="row-text">
+                        <div className="row-name">{b.pack}</div>
+                        <div className="row-line mono">
+                          {b.version ? `v${b.version} · ` : ""}
+                          {b.id}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             {i ? (
               <section className="block">
