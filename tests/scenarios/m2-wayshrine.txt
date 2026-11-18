@@ -1,0 +1,81 @@
+# M2: wayshrine:shrine, a Waystones-style hand port. Players place shrines,
+# use one to open a menu of the others they know, pick one and are teleported.
+# Shrines and discoveries survive a restart; a broken shrine leaves the menu.
+# Needs the debug moddedmc-bot build.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\m2-wayshrine.txt -RunDir run\m2 -Fresh
+# Shrine A at 1025 100 1025, shrine B at 1041 100 1025 (the next chunk east).
+mods target\wasm32-wasip2\release\wayshrine.wasm
+start
+wait 1
+expect registered block wayshrine:shrine \(stand-in minecraft:barrel\)
+
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd tp tester 1025.5 101 1023.5
+wait 3
+cmd setblock 1025 99 1025 minecraft:stone
+cmd setblock 1041 99 1025 minecraft:stone
+wait 1
+
+# Place A; the placer discovers it, but there is nowhere to go yet.
+bot cmd wayshrine
+wait 1
+bot use 1025 99 1025
+wait 1
+expect wayshrine: placed Wayshrine 1025 100 1025
+bot use 1025 100 1025
+wait 1
+expect \[bot\] chat: .*Wayshrine 1025 100 1025: you know no other shrines
+
+# Place B, then use A: the menu lists B.
+cmd tp tester 1041.5 101 1023.5
+wait 4
+bot cmd wayshrine
+wait 1
+bot use 1041 99 1025
+wait 1
+expect wayshrine: placed Wayshrine 1041 100 1025
+cmd tp tester 1025.5 101 1023.5
+wait 2
+bot use 1025 100 1025
+wait 1
+expect \[bot\] dialog: .*Wayshrine 1041 100 1025
+
+# Pick B: the player lands on top of it.
+bot click wayshrine:go/minecraft/overworld/1041/100/1025
+wait 1
+expect tester travelled to Wayshrine 1041 100 1025
+expect \[bot\] teleported to .*1041\.5.*101.*1025\.5
+
+# A forged choice for a shrine the player never discovered is refused.
+bot click wayshrine:go/minecraft/overworld/0/64/0
+wait 1
+expect tester asked for unknown destination minecraft:overworld/0/64/0
+
+# Restart: shrines and discoveries are saved. Using B now lists A.
+bot quit
+stop
+start
+wait 1
+expect registered block wayshrine:shrine
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1041.5 101 1023.5
+wait 4
+bot use 1041 100 1025
+wait 1
+expect \[bot\] dialog: .*Wayshrine 1025 100 1025
+
+# Breaking A drops its item and removes it from every menu.
+cmd setblock 1025 100 1025 minecraft:air destroy
+wait 1
+expect broke wayshrine:shrine at
+bot use 1041 100 1025
+wait 1
+expect \[bot\] chat: .*Wayshrine 1041 100 1025: you know no other shrines
+reject (?i)panic|trapped|invalid tick batch
+bot quit
+stop

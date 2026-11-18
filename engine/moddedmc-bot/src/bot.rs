@@ -20,9 +20,7 @@ use pumpkin_protocol::{
             config::{SAcknowledgeFinishConfig, SClientInformationConfig, SKnownPacks},
             handshake::SHandShake,
             login::{SLoginAcknowledged, SLoginStart},
-            play::{
-                SConfirmTeleport, SPlayerLoaded,
-            },
+            play::{SConfirmTeleport, SPlayerLoaded},
         },
     },
     packet::MultiVersionJavaPacket,

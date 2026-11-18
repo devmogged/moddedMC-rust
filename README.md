@@ -14,7 +14,9 @@ Rust offers memory safety without a garbage collector, fine-grained control over
 
 **M1 done: one custom block, end to end.** A content mod (`mods/counter`) registers `demo:counter` through the `moddedmc:mods` WIT API. Players place it, it ticks, they use it, and it keeps its identity and state across chunk reloads and restarts. 10,000 of them add about 1–1.5 ms to the median tick. Details and numbers: [docs/STATUS.md](docs/STATUS.md). Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Next: a playable hand-ported mod (Waystones-style teleporting), then the first Fabric JAR through the recompiler, then the host app with a tunnel.
+**M2 done: a playable hand port.** `mods/wayshrine` adds discoverable fast-travel shrines with a Java dialog menu, persistence and break handling, tested end to end with a headless bot.
+
+Next: the first Fabric JAR through the recompiler, then the host app with a tunnel.
 
 ### Build and run (Windows, PowerShell)
 

@@ -13,8 +13,8 @@ use content::{
     moddedmc::mods::{
         registry,
         types::{
-            BlockDef, BlockEntityDef, RegistrationError, TickInput, TickUpdate, UseInput,
-            UseResult,
+            BlockDef, BlockEntityDef, BreakInput, PlaceInput, RegistrationError, TickInput,
+            TickUpdate, UseInput, UseResult,
         },
     },
 };
@@ -71,6 +71,12 @@ impl Guest for Counter {
             message: Some(format!("Counter: {}", count(&input.state))),
         }
     }
+
+    fn place_block(_input: PlaceInput) -> Option<Vec<u8>> {
+        None
+    }
+
+    fn break_block(_input: BreakInput) {}
 }
 
 content::export!(Counter with_types_in content);

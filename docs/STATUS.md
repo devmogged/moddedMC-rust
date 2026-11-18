@@ -78,3 +78,24 @@
 
 1. Keep live state in the host index and write NBT only when a chunk saves, instead of reading and writing NBT per entity per tick (~1.2 ms of the ~2 ms).
 2. Maintain the index incrementally on chunk load/unload instead of rebuilding it once a second.
+
+## M2 — a playable hand port: Wayshrines (2026-11-18)
+
+`mods/wayshrine` (`wayshrine:shrine`, barrel stand-in, event-driven, no ticks) is an original Waystones-style mod. Placing a shrine records it and discovers it for the placer. Using a shrine discovers it and opens a Java dialog listing every other shrine that player has discovered; picking one teleports them on top of it. Breaking a shrine removes it from every menu. Shrines and discoveries persist in the mod's data folder (`shrines.txt`). `/wayshrine` gives the item.
+
+### Verified (headless bot, release build)
+
+`tests/scenarios/m2-wayshrine.txt` passes: place two shrines, the menu (a vanilla-format `minecraft:multi_action` dialog received by the bot) lists the other shrine, clicking it teleports the player to `1041.5 101 1025.5`, a forged click for an undiscovered shrine is refused, and after a restart the menu still lists the saved shrine, a broken shrine leaves the menu. `m1-counter.txt` still passes.
+
+Not verified: a real 26.3 client rendering the dialog. The dialog NBT uses field names read from the 26.3 server classes, but only the client can confirm it renders.
+
+### Host and engine changes this milestone
+
+- WIT: `place-block` (may replace the initial state) and `break-block` (final state). All export calls share one trap-handling helper.
+- Engine: dialogs built by plugins are now serialized (upstream silently dropped them); custom block-entity data is written through to the chunk's saved NBT, fixing loss on player-leave unload (traced to the chunk being dropped before `save_block_entities`). The same upstream race still loses vanilla block-entity changes; to be reported upstream.
+- Host: wakes a block entity before reading its identity (Pumpkin loads custom data lazily).
+- Engine patch: 22 KB, 11 files.
+
+### Benchmark after write-through (10,000 counters, one bot)
+
+p50 5.3–5.6 ms, p95 10.6–11.0 ms, p99 11.5–12.6 ms; RSS 330 MB; CPU 0.86%. No regression against M1 (p50 6.3–6.4 ms).

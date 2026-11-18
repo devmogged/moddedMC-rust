@@ -63,6 +63,25 @@ interface types {
         dimension: string,
     }
 
+    /// One of this mod's blocks was placed (by a player, or by the console when `player-name` is none).
+    record place-input {
+        entity-type: u32,
+        pos: block-pos,
+        dimension: string,
+        /// The entity type's initial state.
+        state: list<u8>,
+        player-name: option<string>,
+    }
+
+    /// One of this mod's blocks is about to be removed. Its state is final.
+    record break-input {
+        entity-type: u32,
+        pos: block-pos,
+        dimension: string,
+        state: list<u8>,
+        player-name: option<string>,
+    }
+
     record use-result {
         /// New state, or `none` to keep it.
         state: option<list<u8>>,
@@ -79,7 +98,9 @@ interface registry {
 }
 
 interface content {
-    use types.{registration-error, tick-input, tick-update, use-input, use-result};
+    use types.{
+        registration-error, tick-input, tick-update, use-input, use-result, place-input, break-input,
+    };
 
     /// Called once by the host before the mod's blocks become active.
     register: func() -> result<_, registration-error>;
@@ -89,6 +110,12 @@ interface content {
 
     /// A player right-clicked one of this mod's blocks.
     use-block: func(input: use-input) -> use-result;
+
+    /// One of this mod's blocks was placed. Return a replacement for the initial state, or none.
+    place-block: func(input: place-input) -> option<list<u8>>;
+
+    /// One of this mod's blocks is being broken.
+    break-block: func(input: break-input);
 }
 
 world content-mod {

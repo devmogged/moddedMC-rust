@@ -14,7 +14,10 @@ use pumpkin_core::{
 use pumpkin_util::math::{position::BlockPos, vector3::Vector3};
 use pumpkin_world::world::BlockFlags;
 
-use crate::{HOST, NAMESPACE, index_insert, lock, read, read_block_id, read_state, write_identity};
+use crate::{
+    HOST, NAMESPACE, index_insert, lock, notify_placed, read, read_block_id, read_state,
+    write_identity,
+};
 
 pub enum Request {
     Place {
@@ -77,7 +80,7 @@ fn parse(args: &str) -> Option<Request> {
     }
 }
 
-pub fn run_queued(server: &Arc<Server>) {
+pub async fn run_queued(server: &Arc<Server>) {
     let requests = std::mem::take(&mut *lock(&HOST.console));
     if requests.is_empty() {
         return;
@@ -97,23 +100,42 @@ pub fn run_queued(server: &Arc<Server>) {
                 block,
                 count,
                 origin,
-            } => place(&world, &block, count, origin),
+            } => place(&world, &block, count, origin).await,
             Request::Dump { block, limit } => dump(&world, &block, limit),
         }
     }
 }
 
 /// Places `count` blocks in a square grid on the plane at `origin.y`, one block apart.
-fn place(world: &Arc<World>, id: &str, count: u32, origin: BlockPos) {
-    let registry = read(&HOST.registry);
-    let Some(block) = registry.block(id).map(|i| &registry.blocks[i]) else {
+async fn place(world: &Arc<World>, id: &str, count: u32, origin: BlockPos) {
+    let block_idx = read(&HOST.registry).block(id);
+    let Some(block_idx) = block_idx else {
         tracing::warn!("moddedmc place: unknown block {id}");
         return;
     };
-    let entity = &registry.entity_types[block.entity_type];
     let side = (f64::from(count).sqrt().ceil() as i32).max(1);
+    let placed = place_grid(world, block_idx, count, origin, side);
+    for &pos in &placed {
+        notify_placed(world, pos, block_idx, None).await;
+    }
+    tracing::info!(
+        "moddedmc place: placed {}/{count} {id} from {origin:?} ({side} per row)",
+        placed.len()
+    );
+}
+
+fn place_grid(
+    world: &Arc<World>,
+    block_idx: usize,
+    count: u32,
+    origin: BlockPos,
+    side: i32,
+) -> Vec<BlockPos> {
+    let registry = read(&HOST.registry);
+    let block = &registry.blocks[block_idx];
+    let entity = &registry.entity_types[block.entity_type];
     let state = block.stand_in.default_state.id;
-    let mut placed = 0u32;
+    let mut placed = Vec::new();
     for i in 0..count.cast_signed() {
         let pos = BlockPos(Vector3::new(
             origin.0.x + i % side,
@@ -131,9 +153,9 @@ fn place(world: &Arc<World>, id: &str, count: u32, origin: BlockPos) {
         }
         write_identity(world, &pos, block, entity);
         index_insert(world, pos, block.entity_type, crate::phase_count(entity));
-        placed += 1;
+        placed.push(pos);
     }
-    tracing::info!("moddedmc place: placed {placed}/{count} {id} from {origin:?} ({side} per row)");
+    placed
 }
 
 fn dump(world: &Arc<World>, id: &str, limit: usize) {

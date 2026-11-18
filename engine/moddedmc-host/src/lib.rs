@@ -29,8 +29,8 @@ use std::{
 use bindings::moddedmc::mods::{
     registry,
     types::{
-        self, BlockDef, BlockEntityDef, BlockPos as WitPos, RegistrationError, TickInput,
-        TickUpdate, UseInput, UseResult,
+        self, BlockDef, BlockEntityDef, BlockPos as WitPos, BreakInput, PlaceInput,
+        RegistrationError, TickInput, TickUpdate, UseInput, UseResult,
     },
 };
 use pumpkin_core::{
@@ -53,7 +53,7 @@ use pumpkin_wasm_host_common::{
 };
 use wasmtime::{
     Store,
-    component::{Func, HasSelf, Instance, Linker},
+    component::{ComponentNamedList, Func, HasSelf, Instance, Lift, Linker, Lower},
 };
 
 /// Custom-data namespace used on block entities and item stacks.
@@ -74,6 +74,8 @@ struct ContentExports {
     register: Func,
     tick: Func,
     use_block: Func,
+    place_block: Func,
+    break_block: Func,
 }
 
 struct ContentMod {
@@ -124,12 +126,16 @@ struct WorldIndex {
     by_type: HashMap<usize, Vec<HashSet<BlockPos>>>,
 }
 
+/// (world, pos, block, player)
+type PendingPlace = (Weak<World>, BlockPos, usize, Option<String>);
+
 #[derive(Default)]
 struct Host {
     mods: Mutex<Vec<ContentMod>>,
     registry: RwLock<Registry>,
     staging: Mutex<Option<Staging>>,
-    pending_places: Mutex<Vec<(Weak<World>, BlockPos, usize)>>,
+    /// Placed custom blocks whose block entity appears later this tick: (world, pos, block, player).
+    pending_places: Mutex<Vec<PendingPlace>>,
     index: Mutex<Vec<WorldIndex>>,
     /// Console requests waiting for the next tick.
     console: Mutex<Vec<console::Request>>,
@@ -191,6 +197,8 @@ fn on_instantiate(
         register: func("register")?,
         tick: func("tick-block-entities")?,
         use_block: func("use-block")?,
+        place_block: func("place-block")?,
+        break_block: func("break-block")?,
     };
     Some(Arc::new(exports))
 }
@@ -304,8 +312,8 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             register_new_mods().await;
-            apply_pending_places();
-            console::run_queued(server);
+            apply_pending_places().await;
+            console::run_queued(server).await;
             if event.tick % DISCOVERY_INTERVAL == 0 {
                 let started = Instant::now();
                 discover(server);
@@ -376,25 +384,90 @@ async fn register_new_mods() {
     }
 }
 
-fn apply_pending_places() {
+async fn apply_pending_places() {
     let pending = std::mem::take(&mut *lock(&HOST.pending_places));
-    if pending.is_empty() {
-        return;
-    }
-    let registry = read(&HOST.registry);
-    for (world, pos, block_idx) in pending {
+    for (world, pos, block_idx, player) in pending {
         let Some(world) = world.upgrade() else {
             continue;
         };
-        let block = &registry.blocks[block_idx];
-        // The stand-in must have been placed and created its block entity.
-        if world.get_block(&pos).id != block.stand_in.id || world.get_block_entity(&pos).is_none() {
-            continue;
+        if adopt_placed(&world, pos, block_idx) {
+            notify_placed(&world, pos, block_idx, player).await;
         }
-        let entity = &registry.entity_types[block.entity_type];
-        write_identity(&world, &pos, block, entity);
-        index_insert(&world, pos, block.entity_type, phase_count(entity));
     }
+}
+
+/// Tags a freshly placed stand-in with its custom block identity and indexes it.
+fn adopt_placed(world: &Arc<World>, pos: BlockPos, block_idx: usize) -> bool {
+    let registry = read(&HOST.registry);
+    let block = &registry.blocks[block_idx];
+    // The stand-in must have been placed and created its block entity.
+    if world.get_block(&pos).id != block.stand_in.id || world.get_block_entity(&pos).is_none() {
+        return false;
+    }
+    let entity = &registry.entity_types[block.entity_type];
+    write_identity(world, &pos, block, entity);
+    index_insert(world, pos, block.entity_type, phase_count(entity));
+    true
+}
+
+/// Tells the owning mod a block was placed and applies the initial state it returns.
+async fn notify_placed(
+    world: &Arc<World>,
+    pos: BlockPos,
+    block_idx: usize,
+    player: Option<String>,
+) {
+    let (entity_type, mod_idx, state) = {
+        let registry = read(&HOST.registry);
+        let entity_type = registry.blocks[block_idx].entity_type;
+        let def = &registry.entity_types[entity_type];
+        (entity_type, def.mod_idx, def.initial_state.clone())
+    };
+    let input = PlaceInput {
+        entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
+        pos: wit_pos(&pos),
+        dimension: world.dimension.minecraft_name.to_owned(),
+        state,
+        player_name: player,
+    };
+    let result = call_mod::<(PlaceInput,), (Option<Vec<u8>>,)>(
+        mod_idx,
+        |e| e.place_block,
+        (input,),
+        "place-block",
+    )
+    .await;
+    if let Some((Some(state),)) = result
+        && state.len() <= MAX_STATE_BYTES
+    {
+        write_state(world, &pos, &state);
+    }
+}
+
+/// Calls one of a mod's `content` exports. A trap is logged and yields `None`.
+async fn call_mod<P, R>(
+    mod_idx: usize,
+    pick: fn(&ContentExports) -> Func,
+    params: P,
+    what: &'static str,
+) -> Option<R>
+where
+    P: ComponentNamedList + Lower + Send + 'static,
+    R: ComponentNamedList + Lift + Send + 'static,
+{
+    let (plugin, exports) = mod_handle(mod_idx)?;
+    let func = pick(&exports);
+    let result = plugin
+        .store
+        .call_guest(move |mut guest| {
+            Box::pin(async move { guest.call_func::<P, R>(func, params).await })
+        })
+        .await;
+    result
+        .inspect_err(|error| {
+            tracing::error!("moddedmc: content mod #{mod_idx} trapped in {what}: {error}");
+        })
+        .ok()
 }
 
 fn write_identity(world: &World, pos: &BlockPos, block: &BlockType, entity: &EntityType) {
@@ -426,6 +499,8 @@ fn read_state(world: &World, pos: &BlockPos) -> Option<Vec<u8>> {
 }
 
 fn read_block_id(world: &World, pos: &BlockPos) -> Option<String> {
+    // Pumpkin loads a block entity's custom data only when the entity is woken.
+    let _ = world.get_block_entity(pos);
     match world.get_block_entity_custom_data(pos, NAMESPACE, KEY_ID)? {
         NbtTag::String(id) => Some(id.into()),
         _ => None,
@@ -727,7 +802,8 @@ impl EventHandler<BlockPlaceEvent> for PlaceHandler {
                 return;
             }
             let world = Arc::downgrade(&event.player.world());
-            lock(&HOST.pending_places).push((world, event.block_position, block_idx));
+            let player = Some(event.player.gameprofile.name.clone());
+            lock(&HOST.pending_places).push((world, event.block_position, block_idx, player));
         })
     }
 }
@@ -765,6 +841,8 @@ impl EventHandler<BlockBreakEvent> for BreakHandler {
                 return;
             };
             index_remove(&world, &pos);
+            let player = event.player.as_ref().map(|p| p.gameprofile.name.clone());
+            notify_broken(&world, pos, &id, player).await;
             if !event.drop {
                 return;
             }
@@ -780,6 +858,28 @@ impl EventHandler<BlockBreakEvent> for BreakHandler {
             }
         })
     }
+}
+
+/// Tells the owning mod one of its blocks is being broken, with its final state.
+async fn notify_broken(world: &World, pos: BlockPos, id: &str, player: Option<String>) {
+    let found = {
+        let registry = read(&HOST.registry);
+        registry.block(id).map(|b| {
+            let entity_type = registry.blocks[b].entity_type;
+            (entity_type, registry.entity_types[entity_type].mod_idx)
+        })
+    };
+    let Some((entity_type, mod_idx)) = found else {
+        return;
+    };
+    let input = BreakInput {
+        entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
+        pos: wit_pos(&pos),
+        dimension: world.dimension.minecraft_name.to_owned(),
+        state: read_state(world, &pos).unwrap_or_default(),
+        player_name: player,
+    };
+    call_mod::<(BreakInput,), ()>(mod_idx, |e| e.break_block, (input,), "break-block").await;
 }
 
 /// The item that places `block`: its stand-in item tagged with the block id.
@@ -812,17 +912,13 @@ impl EventHandler<PlayerInteractEvent> for UseHandler {
             let Some(id) = read_block_id(&world, &pos) else {
                 return;
             };
-            let (block_idx, entity_type, mod_idx) = {
+            let (entity_type, mod_idx) = {
                 let registry = read(&HOST.registry);
                 let Some(block_idx) = registry.block(&id) else {
                     return;
                 };
                 let entity_type = registry.blocks[block_idx].entity_type;
-                (
-                    block_idx,
-                    entity_type,
-                    registry.entity_types[entity_type].mod_idx,
-                )
+                (entity_type, registry.entity_types[entity_type].mod_idx)
             };
             // Custom blocks replace the stand-in's own interaction (e.g. opening the barrel).
             event.set_cancelled(true);
@@ -837,9 +933,6 @@ impl EventHandler<PlayerInteractEvent> for UseHandler {
             let Some(state) = read_state(&world, &pos) else {
                 return;
             };
-            let Some((plugin, exports)) = mod_handle(mod_idx) else {
-                return;
-            };
             let input = UseInput {
                 entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
                 pos: wit_pos(&pos),
@@ -847,33 +940,23 @@ impl EventHandler<PlayerInteractEvent> for UseHandler {
                 player_name,
                 dimension: world.dimension.minecraft_name.to_owned(),
             };
-            let func = exports.use_block;
-            let result = plugin
-                .store
-                .call_guest(move |mut guest| {
-                    Box::pin(async move {
-                        guest
-                            .call_func::<(UseInput,), (UseResult,)>(func, (input,))
-                            .await
-                            .map(|(result,)| result)
-                    })
-                })
-                .await;
-            match result {
-                Ok(result) => {
-                    if let Some(state) = result.state.filter(|s| s.len() <= MAX_STATE_BYTES) {
-                        write_state(&world, &pos, &state);
-                    }
-                    if let Some(message) = result.message {
-                        event
-                            .player
-                            .send_system_message_raw(&TextComponent::text(message), true);
-                    }
-                }
-                Err(error) => {
-                    let id = &read(&HOST.registry).blocks[block_idx].id;
-                    tracing::error!("moddedmc: use-block on {id} trapped: {error}");
-                }
+            let Some((result,)) = call_mod::<(UseInput,), (UseResult,)>(
+                mod_idx,
+                |e| e.use_block,
+                (input,),
+                "use-block",
+            )
+            .await
+            else {
+                return;
+            };
+            if let Some(state) = result.state.filter(|s| s.len() <= MAX_STATE_BYTES) {
+                write_state(&world, &pos, &state);
+            }
+            if let Some(message) = result.message {
+                event
+                    .player
+                    .send_system_message_raw(&TextComponent::text(message), true);
             }
         })
     }
@@ -898,11 +981,17 @@ mod tests {
         let mut counts = [0u32; 20];
         for x in 0..100 {
             for z in 0..100 {
-                counts[phase(&BlockPos(pumpkin_util::math::vector3::Vector3::new(x, 100, z)), 20)] += 1;
+                counts[phase(
+                    &BlockPos(pumpkin_util::math::vector3::Vector3::new(x, 100, z)),
+                    20,
+                )] += 1;
             }
         }
         // 10,000 blocks over 20 phases: every phase within 2x of the 500 mean.
-        assert!(counts.iter().all(|&c| (250..=1000).contains(&c)), "{counts:?}");
+        assert!(
+            counts.iter().all(|&c| (250..=1000).contains(&c)),
+            "{counts:?}"
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! connection alive, prints chat it receives, and runs steps read from stdin:
 //!   cmd <command without slash>
 //!   use <x> <y> <z>        right-click the top face of a block with the main hand
+//!   click <action-id>      press a dialog button whose action is a custom click
 //!   quit
 //! Usage: moddedmc-bot <addr> <name>
 
@@ -14,9 +15,12 @@ use pumpkin_protocol::{
     ServerPacket,
     codec::var_int::VarInt,
     java::{
-        client::play::{CKeepAlive, CPlayerPosition, CSystemChatMessage},
+        client::play::{CKeepAlive, CPlayShowDialog, CPlayerPosition, CSystemChatMessage},
         packet_encoder::TCPNetworkEncoder,
-        server::play::{SChatCommand, SConfirmTeleport, SKeepAlive, SPlayerPosition, SUseItemOn},
+        server::play::{
+            SChatCommand, SConfirmTeleport, SCustomClickAction, SKeepAlive, SPlayerPosition,
+            SUseItemOn,
+        },
     },
     packet::MultiVersionJavaPacket,
 };
@@ -28,7 +32,10 @@ use tokio::{
 
 type Writer = Arc<Mutex<TCPNetworkEncoder<BufWriter<pumpkin_core::net::java::JavaWriteHalf>>>>;
 
-#[expect(clippy::print_stdout, reason = "the bot reports to the scenario runner on stdout")]
+#[expect(
+    clippy::print_stdout,
+    reason = "the bot reports to the scenario runner on stdout"
+)]
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
@@ -48,7 +55,14 @@ async fn main() -> Result<(), String> {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             let current = *tick_position.lock().await;
-            let _ = send(&tick_writer, &SPlayerPosition { position: current, collision: 0 }).await;
+            let _ = send(
+                &tick_writer,
+                &SPlayerPosition {
+                    position: current,
+                    collision: 0,
+                },
+            )
+            .await;
         }
     });
 
@@ -57,6 +71,11 @@ async fn main() -> Result<(), String> {
         let keep_alive = CKeepAlive::to_id(CURRENT_MC_VERSION);
         let position = CPlayerPosition::to_id(CURRENT_MC_VERSION);
         let system_chat = CSystemChatMessage::to_id(CURRENT_MC_VERSION);
+        let show_dialog = CPlayShowDialog::to_id(CURRENT_MC_VERSION);
+        let trace = std::env::var_os("MODDEDMC_BOT_TRACE").is_some();
+        if trace {
+            println!("[bot] show-dialog id {show_dialog:#x}");
+        }
         loop {
             let Ok(packet) = reader.get_raw_packet().await else {
                 println!("[bot] disconnected");
@@ -64,8 +83,12 @@ async fn main() -> Result<(), String> {
             };
             let mut payload = &packet.payload[..];
             if packet.id == keep_alive {
-                let Some(id) = payload.get(..8).and_then(|b| b.try_into().ok()) else { continue };
-                let reply = SKeepAlive { keep_alive_id: i64::from_be_bytes(id) };
+                let Some(id) = payload.get(..8).and_then(|b| b.try_into().ok()) else {
+                    continue;
+                };
+                let reply = SKeepAlive {
+                    keep_alive_id: i64::from_be_bytes(id),
+                };
                 let _ = send(&pump_writer, &reply).await;
             } else if packet.id == position {
                 if let Ok(teleport) = CPlayerPosition::read(&mut payload, &CURRENT_MC_VERSION) {
@@ -81,12 +104,23 @@ async fn main() -> Result<(), String> {
                     let mut settled = teleport.position;
                     settled.y -= 0.1;
                     *pump_position.lock().await = settled;
-                    let moved = SPlayerPosition { position: settled, collision: 0 };
+                    let moved = SPlayerPosition {
+                        position: settled,
+                        collision: 0,
+                    };
                     let _ = send(&pump_writer, &moved).await;
                     println!("[bot] teleported to {:?}", teleport.position);
                 }
             } else if packet.id == system_chat {
                 println!("[bot] chat: {}", printable_text(&packet.payload));
+            } else if packet.id == show_dialog {
+                println!("[bot] dialog: {}", printable_text(&packet.payload));
+            } else if trace {
+                println!(
+                    "[bot] packet {:#x} ({} bytes)",
+                    packet.id,
+                    packet.payload.len()
+                );
             }
         }
     });
@@ -105,6 +139,16 @@ async fn main() -> Result<(), String> {
                 }
                 None => Err(format!("bad position: {rest}")),
             },
+            "click" => {
+                send(
+                    &writer,
+                    &SCustomClickAction {
+                        action_id: rest,
+                        payload: None,
+                    },
+                )
+                .await
+            }
             "quit" => break,
             _ => Err(format!("unknown step: {line}")),
         };

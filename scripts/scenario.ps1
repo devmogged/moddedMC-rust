@@ -80,6 +80,10 @@ enabled = false
 
 [networking.bedrock]
 enabled = false
+
+# The operator's grant for test mods that keep files in their own data folder.
+[plugins]
+allowed_permissions = ["fs.read.data", "fs.write.data"]
 "@)
 }
 $script:bot = $null
