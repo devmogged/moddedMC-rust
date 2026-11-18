@@ -211,6 +211,85 @@ pub struct HostApi {
     pub get_interface: unsafe extern "C" fn(name: Str, version: u32) -> *const c_void,
 }
 
+pub const WORLD: &str = "moddedmc:world";
+pub const CHUNKS: &str = "moddedmc:chunks";
+pub const COMMANDS: &str = "moddedmc:commands";
+pub const LIFECYCLE: &str = "moddedmc:lifecycle";
+
+#[repr(C)]
+pub struct WorldV1 {
+    pub size: usize,
+    /// The n-th loaded dimension, or empty past the end. Static.
+    pub dimension: unsafe extern "C" fn(index: usize) -> Str,
+    /// The command source's dimension, or empty if it has none. Static.
+    pub command_dimension: unsafe extern "C" fn(source: *const c_void) -> Str,
+}
+
+/// Called exactly once for every accepted request. May run before the submit call returns.
+pub type ChunkCompletion = unsafe extern "C" fn(ctx: *mut c_void, generated: bool);
+pub type ChunkRequest = unsafe extern "C" fn(
+    dimension: Str,
+    x: i32,
+    z: i32,
+    ctx: *mut c_void,
+    completed: ChunkCompletion,
+) -> bool;
+
+#[repr(C)]
+pub struct ChunksV1 {
+    pub size: usize,
+    /// Submit an async check for a loaded or saved chunk. False means rejected; no callback.
+    pub is_generated: ChunkRequest,
+    /// Check first, then generate/load if missing. Reports true once generated.
+    pub ensure_generated: ChunkRequest,
+}
+
+pub const COMMAND_ROOT: u32 = u32::MAX;
+pub const COMMAND_LITERAL: u32 = 0;
+pub const COMMAND_INTEGER: u32 = 1;
+
+/// A child in a command tree. Parents come before children.
+#[repr(C)]
+pub struct CommandNode {
+    pub name: Str,
+    /// Index in the same array, or COMMAND_ROOT for a direct child of the root.
+    pub parent: u32,
+    pub kind: u32,
+    /// Inclusive bounds for an integer argument.
+    pub min: i32,
+    pub max: i32,
+    /// Executable nodes call ModApi::command with tag.
+    pub executable: bool,
+    pub tag: u64,
+}
+
+#[repr(C)]
+pub struct CommandsV1 {
+    pub size: usize,
+    /// Register a root literal with typed children and a default operator level (0 through 4).
+    pub add: unsafe extern "C" fn(
+        reg: Reg,
+        name: Str,
+        description: Str,
+        op_level: u8,
+        nodes: *const CommandNode,
+        count: usize,
+    ) -> i32,
+    /// Read a parsed integer argument. False if it isn't present.
+    pub integer: unsafe extern "C" fn(source: *const c_void, name: Str, out: *mut i32) -> bool,
+    /// Send feedback, respecting the command source's feedback settings.
+    pub feedback: unsafe extern "C" fn(source: *const c_void, message: Str),
+}
+
+pub type StopCallback = unsafe extern "C" fn();
+
+#[repr(C)]
+pub struct LifecycleV1 {
+    pub size: usize,
+    /// Register one callback, run on a blocking thread at shutdown before worlds save.
+    pub on_stopping: unsafe extern "C" fn(reg: Reg, callback: StopCallback) -> i32,
+}
+
 /// A mod, as seen by the server. Returned by `moddedmc_mod`; lives for the whole process. Calls
 /// may come from several threads at once.
 #[repr(C)]
@@ -308,6 +387,38 @@ mod layout {
             assert_eq!(actual, expected, "ModApi field #{i} moved");
         }
         assert!(size_of::<ModApi>() >= 96);
+    }
+
+    #[test]
+    fn interfaces_v1() {
+        assert_eq!(offset_of!(WorldV1, size), 0);
+        assert_eq!(offset_of!(WorldV1, dimension), 8);
+        assert_eq!(offset_of!(WorldV1, command_dimension), 16);
+        assert!(size_of::<WorldV1>() >= 24);
+
+        assert_eq!(offset_of!(ChunksV1, size), 0);
+        assert_eq!(offset_of!(ChunksV1, is_generated), 8);
+        assert_eq!(offset_of!(ChunksV1, ensure_generated), 16);
+        assert!(size_of::<ChunksV1>() >= 24);
+
+        assert_eq!(offset_of!(CommandsV1, size), 0);
+        assert_eq!(offset_of!(CommandsV1, add), 8);
+        assert_eq!(offset_of!(CommandsV1, integer), 16);
+        assert_eq!(offset_of!(CommandsV1, feedback), 24);
+        assert!(size_of::<CommandsV1>() >= 32);
+
+        assert_eq!(offset_of!(LifecycleV1, size), 0);
+        assert_eq!(offset_of!(LifecycleV1, on_stopping), 8);
+        assert!(size_of::<LifecycleV1>() >= 16);
+
+        assert_eq!(offset_of!(CommandNode, name), 0);
+        assert_eq!(offset_of!(CommandNode, parent), 16);
+        assert_eq!(offset_of!(CommandNode, kind), 20);
+        assert_eq!(offset_of!(CommandNode, min), 24);
+        assert_eq!(offset_of!(CommandNode, max), 28);
+        assert_eq!(offset_of!(CommandNode, executable), 32);
+        assert_eq!(offset_of!(CommandNode, tag), 40);
+        assert_eq!(size_of::<CommandNode>(), 48);
     }
 
     #[test]

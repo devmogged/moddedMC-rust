@@ -7,6 +7,7 @@
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
 mod console;
+mod interfaces;
 mod live_stats;
 mod native;
 mod stats;
@@ -101,6 +102,8 @@ pub struct Staging<'a> {
     blocks: Vec<BlockType>,
     /// (name, description, tag)
     commands: Vec<(String, String, u64)>,
+    command_trees: Vec<interfaces::CommandTree>,
+    on_stopping: Option<abi::StopCallback>,
 }
 
 /// Loaded custom blocks of one world.
@@ -168,6 +171,7 @@ pub fn attach(server: &Arc<Server>) {
         module,
         registered: false,
     }));
+    interfaces::watch_shutdown(server);
     stats::attach(server);
     live_stats::attach(server);
 }
@@ -330,7 +334,7 @@ fn register_new_mods(server: &Server) {
             .collect()
     };
     for (mod_idx, module) in pending {
-        let (result, entity_types, blocks, commands) = {
+        let (result, entity_types, blocks, commands, command_trees, on_stopping) = {
             let registry = read(&HOST.registry);
             let mut staging = Staging {
                 registry: &registry,
@@ -338,6 +342,8 @@ fn register_new_mods(server: &Server) {
                 entity_types: Vec::new(),
                 blocks: Vec::new(),
                 commands: Vec::new(),
+                command_trees: Vec::new(),
+                on_stopping: None,
             };
             let result = module.register(&mut staging);
             (
@@ -345,6 +351,8 @@ fn register_new_mods(server: &Server) {
                 staging.entity_types,
                 staging.blocks,
                 staging.commands,
+                staging.command_trees,
+                staging.on_stopping,
             )
         };
         if result != code::OK {
@@ -368,6 +376,12 @@ fn register_new_mods(server: &Server) {
         registry.entity_types.extend(entity_types);
         registry.blocks.extend(blocks);
         drop(registry);
+        if let Some(callback) = on_stopping {
+            interfaces::register_stopping(callback);
+        }
+        for tree in command_trees {
+            interfaces::register_tree(server, module, tree);
+        }
         for (name, description, tag) in commands {
             tracing::info!("moddedmc: registered command /{name} ({})", module.id);
             native::register_command(server, module, name, description, tag);

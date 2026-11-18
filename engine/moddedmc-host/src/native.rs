@@ -22,7 +22,6 @@ use moddedmc_api::abi::{
 };
 use pumpkin_core::{
     command::{
-        CommandSource,
         argument_builder::{ArgumentBuilder, command},
         context::CommandContext,
         node::{CommandExecutor, CommandExecutorResult, detached::CommandDetachedNode},
@@ -260,17 +259,13 @@ fn host_api(id: &str) -> HostApi {
         show_menu,
         tick_count,
         dimension,
-        get_interface,
+        get_interface: crate::interfaces::get_interface,
     }
-}
-
-unsafe extern "C" fn get_interface(_name: Str, _version: u32) -> *const c_void {
-    std::ptr::null()
 }
 
 /// # Safety
 /// `s` is a live borrowed string.
-unsafe fn text(s: Str) -> String {
+pub unsafe fn text(s: Str) -> String {
     // SAFETY: the caller's contract.
     String::from_utf8_lossy(unsafe { s.bytes() }).into_owned()
 }
@@ -298,7 +293,7 @@ unsafe extern "C" fn log(level: u32, message: Str) {
 
 /// # Safety
 /// `reg` is the `Staging` passed to the current `register` call.
-const unsafe fn staging<'a>(reg: Reg) -> &'a mut Staging<'a> {
+pub const unsafe fn staging<'a>(reg: Reg) -> &'a mut Staging<'a> {
     // SAFETY: the caller's contract.
     unsafe { &mut *reg.cast::<Staging<'a>>() }
 }
@@ -406,10 +401,12 @@ unsafe extern "C" fn send_message(p: PlayerRef, message: Str, action_bar: bool) 
 }
 
 unsafe extern "C" fn reply(source: *const c_void, message: Str) {
-    // SAFETY: `source` is the CommandSource of the command being run.
+    // SAFETY: `source` is the live context of the command being run.
     unsafe {
-        if let Some(source) = source.cast::<CommandSource>().as_ref() {
-            source.send_message(TextComponent::text(text(message)));
+        if let Some(context) = source.cast::<CommandContext<'_>>().as_ref() {
+            context
+                .source
+                .send_message(TextComponent::text(text(message)));
         }
     }
 }
@@ -496,7 +493,7 @@ unsafe extern "C" fn tick_count() -> u64 {
     })
 }
 
-unsafe extern "C" fn dimension(index: usize) -> Str {
+pub unsafe extern "C" fn dimension(index: usize) -> Str {
     SERVER
         .get()
         .and_then(|s| {
@@ -521,6 +518,10 @@ pub fn register_command(
     let node: CommandDetachedNode = command(name, description)
         .executes(Forward { module, tag })
         .into();
+    install_command(server, &node);
+}
+
+pub fn install_command(server: &Server, node: &CommandDetachedNode) {
     server.command_dispatcher.rcu(|dispatcher| {
         let mut new = (**dispatcher).clone();
         new.register(node.clone());
@@ -528,16 +529,16 @@ pub fn register_command(
     });
 }
 
-struct Forward {
-    module: Native,
-    tag: u64,
+pub struct Forward {
+    pub module: Native,
+    pub tag: u64,
 }
 
 impl CommandExecutor for Forward {
     fn execute(&self, context: &CommandContext) -> CommandExecutorResult {
         let player = context.source.as_player();
         let call = moddedmc_api::abi::CommandCall {
-            source: Arc::as_ptr(&context.source).cast(),
+            source: std::ptr::from_ref(context).cast(),
             player: player
                 .as_ref()
                 .map_or(PlayerRef(std::ptr::null()), player_ref),

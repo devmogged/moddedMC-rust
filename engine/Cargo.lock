@@ -2086,6 +2086,7 @@ dependencies = [
  "pumpkin-world",
  "serde_json",
  "sha2 0.11.1",
+ "tokio",
  "tracing",
  "zip",
 ]

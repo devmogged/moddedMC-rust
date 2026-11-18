@@ -20,6 +20,10 @@
 //! ```
 
 pub mod abi;
+pub mod chunks;
+pub mod commands;
+pub mod lifecycle;
+pub mod world;
 
 use std::{
     ffi::c_void,
@@ -105,7 +109,7 @@ impl std::error::Error for InterfaceUnavailable {}
 
 /// # Safety
 /// T must be the published table for this name/version, starting with a usize size.
-pub unsafe fn require_interface<T>(
+unsafe fn require_interface<T>(
     name: &'static str,
     version: u32,
 ) -> Result<&'static T, InterfaceUnavailable> {
