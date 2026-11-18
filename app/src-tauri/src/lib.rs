@@ -38,6 +38,7 @@ pub fn run() {
             mods::mods_index,
             deploy::build_inspect,
             deploy::deploy,
+            deploy::mod_upload,
             install::install_agent,
             packs::packs_list,
             packs::pack_add,

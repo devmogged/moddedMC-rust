@@ -129,3 +129,38 @@ pub async fn deploy(
     }
     Ok(build)
 }
+
+/// Uploads one drop-in mod (`.mmc`) into a stopped server's `mods/`.
+#[tauri::command]
+pub async fn mod_upload(
+    store: State<'_, Store>,
+    tunnels: State<'_, Tunnels>,
+    device: String,
+    server: String,
+    path: String,
+) -> Result<(), String> {
+    if server.contains(['/', '\\', '?', '#']) {
+        return Err("bad server name".into());
+    }
+    let path = PathBuf::from(path);
+    let file = path
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .filter(|f| f.ends_with(".mmc"))
+        .ok_or("Pick a .mmc file.")?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| format!("Can't read {}: {e}", path.display()))?;
+    let (endpoint, name) = agent::endpoint(&store, &tunnels, &device).await?;
+    let response = agent::http()
+        .put(format!("http://{endpoint}/v1/servers/{server}/mods/{file}"))
+        .timeout(Duration::from_secs(120))
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|_| format!("Can't reach {name}. Is the agent running there?"))?;
+    if !response.status().is_success() {
+        return Err(response.text().await.unwrap_or_default());
+    }
+    Ok(())
+}

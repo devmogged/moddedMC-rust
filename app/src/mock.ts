@@ -104,6 +104,8 @@ function servers(device: string) {
   ];
 }
 
+const serverMods: Record<string, { file: string; id: string; version: string; bytes: number }[]> = {};
+
 export async function mockInvoke(command: string, args: Record<string, any> = {}): Promise<unknown> {
   await new Promise((r) => setTimeout(r, 60));
   switch (command) {
@@ -131,6 +133,16 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
       if (path === "/v1/servers") return servers(device);
       if (path === "/v1/builds")
         return device === "pi" ? [{ id: "example-3f9a1c2b7d4e", pack: "example", version: "1" }] : [];
+      const mods = path.match(/^\/v1\/servers\/([^/]+)\/mods(?:\/(.+))?$/);
+      if (mods) {
+        const list = (serverMods[mods[1]] ??= [
+          { file: "counter.mmc", id: "counter", version: "0.2.0", bytes: 59535 },
+          { file: "wayshrine.mmc", id: "wayshrine", version: "0.2.0", bytes: 99783 },
+        ]);
+        if (method === "DELETE")
+          serverMods[mods[1]] = list.filter((m) => m.file !== decodeURIComponent(mods[2]));
+        return method === "GET" ? list : null;
+      }
       const match = path.match(/^\/v1\/servers\/([^/]+)\/(\w+)$/);
       if (match && method === "POST") {
         const [, name, action] = match;
@@ -216,6 +228,8 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
       return null;
     case "install_agent":
       return "Installed and running.";
+    case "mod_upload":
+      return null;
     case "build_inspect":
     case "deploy":
       return { id: "example-3f9a1c2b7d4e", pack: "example", version: "1", path: args.path };

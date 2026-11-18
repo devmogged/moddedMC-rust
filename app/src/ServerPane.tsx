@@ -1,10 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Play, RotateCw, Square, Upload } from "lucide-react";
+import { Play, Plus, RotateCw, Square, Trash2, Upload } from "lucide-react";
 import { api, minecraftAddress, type Device, type ServerInfo, type Stats } from "./api";
 import { ServerCluster, ServerIcon, bytes, duration, packLine, usePoll } from "./ui";
 import { DeployDialog } from "./dialogs";
 
-type Tab = "console" | "performance";
+type Tab = "console" | "performance" | "mods";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "console", label: "Console" },
+  { id: "performance", label: "Performance" },
+  { id: "mods", label: "Mods" },
+];
 
 export function ServerPane({
   device,
@@ -18,9 +24,10 @@ export function ServerPane({
   onError: (err: unknown) => void;
 }) {
   // Dev previews can open a tab directly: #server/pi/survival/performance.
-  const [tab, setTab] = useState<Tab>(
-    import.meta.env.DEV && location.hash.endsWith("/performance") ? "performance" : "console",
-  );
+  const [tab, setTab] = useState<Tab>(() => {
+    const hashTab = location.hash.split("/")[3];
+    return import.meta.env.DEV && TABS.some((t) => t.id === hashTab) ? (hashTab as Tab) : "console";
+  });
   const [busy, setBusy] = useState(false);
   const [deploying, setDeploying] = useState(false);
 
@@ -113,16 +120,24 @@ export function ServerPane({
       ) : (
         <>
           <div className="tabs" role="tablist">
-            {(["console", "performance"] as const).map((t) => (
-              <button key={t} className="tab" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-                {t === "console" ? "Console" : "Performance"}
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                className="tab"
+                role="tab"
+                aria-selected={tab === t.id}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
               </button>
             ))}
           </div>
           {tab === "console" ? (
             <Console device={device.id} server={server.name} />
-          ) : (
+          ) : tab === "performance" ? (
             <Performance device={device.id} server={server} />
+          ) : (
+            <Mods device={device.id} server={server} onError={onError} />
           )}
         </>
       )}
@@ -267,6 +282,81 @@ function Console({ device, server }: { device: string; server: string }) {
           aria-label="Console command"
         />
       </label>
+    </div>
+  );
+}
+
+function Mods({
+  device,
+  server,
+  onError,
+}: {
+  device: string;
+  server: ServerInfo;
+  onError: (err: unknown) => void;
+}) {
+  const { value, error, refresh } = usePoll(() => api.serverMods(device, server.name), 10_000, [
+    device,
+    server.name,
+  ]);
+  const [busy, setBusy] = useState(false);
+  const locked = server.state !== "stopped" && server.state !== "crashed";
+
+  const change = async (run: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await run();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+
+  const add = async () => {
+    const path = await api.pickModFile();
+    if (path) await change(() => api.addMod(device, server.name, path));
+  };
+
+  if (error && !value) return <div className="pane-body error-line">{error}</div>;
+  return (
+    <div className="pane-body">
+      <section className="block">
+        <div className="block-head">
+          <span>Drop-in mods</span>
+          {locked ? (
+            <span className="row-line">Stop the server to change mods</span>
+          ) : (
+            <button className="button" disabled={busy} onClick={add}>
+              <Plus />
+              Add mod
+            </button>
+          )}
+        </div>
+        <div>
+          {value?.map((m) => (
+            <div key={m.file} className="mod-row">
+              <div className="row-text">
+                <div className="row-name">{m.id ?? m.file}</div>
+                <div className="row-line mono">
+                  {[m.version ? `v${m.version}` : null, bytes(m.bytes), m.file].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+              <span />
+              <button
+                className="icon-button"
+                aria-label={`Remove ${m.id ?? m.file}`}
+                disabled={busy || locked}
+                onClick={() => change(() => api.removeMod(device, server.name, m.file))}
+              >
+                <Trash2 />
+              </button>
+            </div>
+          ))}
+          {value && value.length === 0 ? <p className="row-line">None</p> : null}
+        </div>
+      </section>
     </div>
   );
 }

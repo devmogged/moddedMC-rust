@@ -157,9 +157,12 @@ p {
     background-color var(--t-hover) var(--ease-out),
     color var(--t-hover) var(--ease-out);
 }
-.icon-button:hover {
+.icon-button:hover:not(:disabled) {
   background: var(--selected);
   color: var(--text);
+}
+.icon-button:disabled {
+  opacity: 0.45;
 }
 .icon-button svg {
   width: 16px;
