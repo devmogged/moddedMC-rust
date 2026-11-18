@@ -21,6 +21,11 @@ $flags = @(
     '-mllvm', '-wasm-enable-sjlj', '-mllvm', '-wasm-use-legacy-eh=false'
 )
 foreach ($h in $Include) { $flags += @('-include', $h) }
+# The glue owns the entry point: it calls teavm_main once to bring the Java runtime up,
+# so only TeaVM's translation unit gets the rename.
+$obj = "$Out.teavm.o"
+& $cc @flags '-Dmain=teavm_main' -c (Join-Path $GeneratedC 'all.c') -o $obj
+if ($LASTEXITCODE) { throw "clang failed on all.c ($LASTEXITCODE)" }
 $libs = '-lsetjmp', '-lwasi-emulated-mman', '-lwasi-emulated-signal', '-lwasi-emulated-process-clocks', '-lwasi-emulated-getpid'
-& $cc @flags (Join-Path $GeneratedC 'all.c') @Glue @libs -o $Out
+& $cc @flags $obj @Glue @libs -o $Out
 if ($LASTEXITCODE) { throw "clang failed ($LASTEXITCODE)" }
