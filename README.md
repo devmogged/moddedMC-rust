@@ -4,7 +4,7 @@
 
 `moddedMC-rust` is an experimental project from [devmogged](https://github.com/devmogged) focused on bringing modded Minecraft gameplay to a Rust-based server environment. The idea is to explore native Rust implementations of features from Minecraft mods while taking advantage of the performance and efficiency of Rust.
 
-It builds on [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin), an open-source Minecraft server written in Rust, pinned to one upstream commit plus a small patch. Mods are WASM components that run entirely on the server, so players join with an unmodified Minecraft Java 26.3 client.
+It builds on [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin), an open-source Minecraft server written in Rust, pinned to one upstream commit plus a small patch. Mods are native Rust plugins (`.dll`/`.so`) that run entirely on the server, so players join with an unmodified Minecraft Java 26.3 client.
 
 ## Why Rust?
 
@@ -16,7 +16,7 @@ Rust offers memory safety without a garbage collector, fine-grained control over
 
 **M2 done: a playable hand port.** `mods/wayshrine` adds discoverable fast-travel shrines with a Java dialog menu, persistence and break handling, tested end to end with a headless bot.
 
-**M3 done: an unchanged Fabric JAR runs on Pumpkin.** The `sethome` fixture JAR goes through TeaVM to C, then to a WASM plugin, and passes the same scenario on Pumpkin as on a real Fabric 26.3 server. See [recompiler/README.md](recompiler/README.md). The frozen top-500 Modrinth corpus shows the limit: 83% of mods with code use Mixin, which the shim cannot run.
+**M3 done: an unchanged Fabric JAR runs on Pumpkin.** The `sethome` fixture JAR goes through TeaVM to C, then to a native plugin, and passes the same scenario on Pumpkin as on a real Fabric 26.3 server. See [recompiler/README.md](recompiler/README.md). The frozen top-500 Modrinth corpus shows the limit: 83% of mods with code use Mixin, which the shim cannot run.
 
 **M4: the host app.** `moddedmc run` starts a server folder, forwards its console, and opens a tunnel so friends can join:
 
@@ -34,8 +34,7 @@ target\release\moddedmc.exe run --dir myserver --server engine\pumpkin\target\re
 git submodule update --init
 # Pumpkin's build reads vanilla data from Mojang's 26.3 server jar.
 $env:PUMPKIN_MINECRAFT_SERVER_JAR = "<path to the 26.3 server.jar>"
-scripts\engine.ps1 build                                     # apply patches\pumpkin.patch, build the server
-cargo build --release --target wasm32-wasip2 -p counter     # build the demo mod
+scripts\engine.ps1 build                                     # apply patches\pumpkin.patch, build the server and mods
 scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt -RunDir run\m1 -Fresh
 ```
 

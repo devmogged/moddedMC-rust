@@ -4,7 +4,7 @@
 # Needs the debug moddedmc-bot build.
 # Run: scripts\scenario.ps1 -Scenario tests\scenarios\m2-wayshrine.txt -RunDir run\m2 -Fresh
 # Shrine A at 1025 100 1025, shrine B at 1041 100 1025 (the next chunk east).
-mods target\wasm32-wasip2\release\wayshrine.wasm
+mods engine\pumpkin\target\release\wayshrine.dll
 start
 wait 1
 expect registered block wayshrine:shrine \(stand-in minecraft:barrel\)

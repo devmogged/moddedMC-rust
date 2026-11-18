@@ -1,7 +1,7 @@
 # Runs a console scenario against the built server and checks the log.
 #   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh]
 # Scenario lines (blank lines and # comments ignored):
-#   mods <path.wasm> [...]   copy mods into the run dir's plugins/ (before the first start)
+#   mods <path.dll> [...]    copy mods into the run dir's plugins/ (before the first start)
 #   start                    start the server and wait until it is ready
 #   cmd <console line>       send a console line
 #   wait <seconds>

@@ -1,11 +1,49 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 4cc8486ee..9b7eed651 100644
+index 4cc8486ee..60f4c9715 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -2336,6 +2336,33 @@ dependencies = [
+@@ -717,6 +717,13 @@ version = "1.0.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
+ 
++[[package]]
++name = "counter"
++version = "0.2.0"
++dependencies = [
++ "moddedmc-api",
++]
++
+ [[package]]
+ name = "cpp_demangle"
+ version = "0.5.1"
+@@ -1377,6 +1384,14 @@ dependencies = [
+  "pin-project-lite",
+ ]
+ 
++[[package]]
++name = "fabric-host"
++version = "0.2.0"
++dependencies = [
++ "moddedmc-api",
++ "tracing",
++]
++
+ [[package]]
+ name = "fastrand"
+ version = "2.5.0"
+@@ -2336,6 +2351,43 @@ dependencies = [
   "windows-sys 0.61.2",
  ]
  
++[[package]]
++name = "moddedmc-api"
++version = "0.2.0"
++dependencies = [
++ "pumpkin-core",
++ "pumpkin-protocol",
++ "pumpkin-util",
++]
++
 +[[package]]
 +name = "moddedmc-bot"
 +version = "0.1.0"
@@ -23,20 +61,21 @@ index 4cc8486ee..9b7eed651 100644
 +name = "moddedmc-host"
 +version = "0.1.0"
 +dependencies = [
++ "moddedmc-api",
 + "pumpkin-core",
 + "pumpkin-data",
++ "pumpkin-inventory",
 + "pumpkin-nbt",
++ "pumpkin-protocol",
 + "pumpkin-util",
-+ "pumpkin-wasm-host-common",
 + "pumpkin-world",
 + "tracing",
-+ "wasmtime",
 +]
 +
  [[package]]
  name = "multiversion_no_op"
  version = "1.0.0"
-@@ -2945,6 +2972,7 @@ name = "pumpkin"
+@@ -2945,6 +2997,7 @@ name = "pumpkin"
  version = "0.2.2+26.3-26.63"
  dependencies = [
   "console-subscriber",
@@ -44,25 +83,45 @@ index 4cc8486ee..9b7eed651 100644
   "pumpkin-config",
   "pumpkin-core",
   "pumpkin-data",
+@@ -5588,6 +5641,14 @@ dependencies = [
+  "wasmtime",
+ ]
+ 
++[[package]]
++name = "wayshrine"
++version = "0.2.0"
++dependencies = [
++ "moddedmc-api",
++ "tracing",
++]
++
+ [[package]]
+ name = "web-sys"
+ version = "0.3.107"
 diff --git a/Cargo.toml b/Cargo.toml
-index d4fe77a5f..93385c7d5 100644
+index d4fe77a5f..a0c664027 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -27,6 +27,9 @@ members = [
+@@ -27,6 +27,13 @@ members = [
      "tools/pumpkin-codegen",
      "tools/pumpkin-fuzzer",
      "tools/pumpkin-tester",
 +    # moddedMC-rust host, kept outside this checkout
 +    "../moddedmc-host",
 +    "../moddedmc-bot",
++    "../moddedmc-api",
++    "../../mods/counter",
++    "../../mods/wayshrine",
++    "../../recompiler/fabric-host",
  ]
  
  # [workspace.lints.rust]
-@@ -214,6 +217,7 @@ pumpkin-codecs = { path = "crates/pumpkin-codecs", default-features = false }
+@@ -214,6 +221,8 @@ pumpkin-codecs = { path = "crates/pumpkin-codecs", default-features = false }
  pumpkin-command = { path = "crates/pumpkin-command", default-features = false }
  pumpkin-config = { path = "crates/pumpkin-config", default-features = false }
  pumpkin-core = { path = "crates/pumpkin-core", default-features = false }
 +moddedmc-host = { path = "../moddedmc-host" }
++moddedmc-api = { path = "../moddedmc-api" }
  pumpkin-data = { path = "crates/pumpkin-data", default-features = false }
  pumpkin-gametest = { path = "crates/pumpkin-gametest", default-features = false }
  pumpkin-inventory = { path = "crates/pumpkin-inventory", default-features = false }
@@ -154,6 +213,20 @@ index 4fdd48b97..f435e7054 100644
 +    }
 +    chunk_loading.send_change();
 +}
+diff --git a/crates/pumpkin-core/src/plugin/mod.rs b/crates/pumpkin-core/src/plugin/mod.rs
+index 8b23b60ca..1fa66cb11 100644
+--- a/crates/pumpkin-core/src/plugin/mod.rs
++++ b/crates/pumpkin-core/src/plugin/mod.rs
+@@ -193,7 +193,8 @@ pub struct PluginManager {
+     pub java_versions: Arc<JavaVersions>,
+     pub bedrock_versions: Arc<BedrockVersions>,
+     unloaded_files: RwLock<HashSet<PathBuf>>,
+-    services: Arc<RwLock<HashMap<String, Arc<dyn Payload>>>>,
++    // moddedMC-rust: the content host registers its service before any plugin loads.
++    pub services: Arc<RwLock<HashMap<String, Arc<dyn Payload>>>>,
+     // Plugin state tracking
+     plugin_states: RwLock<HashMap<String, PluginState>>,
+     // Notification for plugin state changes
 diff --git a/crates/pumpkin-core/src/world/mod.rs b/crates/pumpkin-core/src/world/mod.rs
 index bf658e514..78fa95205 100644
 --- a/crates/pumpkin-core/src/world/mod.rs
@@ -423,189 +496,6 @@ index 52a7533aa..71eb88c48 100644
          Ok(())
      }
  }
-diff --git a/crates/pumpkin-wasm-host-common/src/extension.rs b/crates/pumpkin-wasm-host-common/src/extension.rs
-new file mode 100644
-index 000000000..222c9f141
---- /dev/null
-+++ b/crates/pumpkin-wasm-host-common/src/extension.rs
-@@ -0,0 +1,38 @@
-+//! moddedMC-rust: lets a host crate add WIT interfaces next to the v0.1 plugin API
-+//! and find a plugin's extra exports, without the wasm host depending on that crate.
-+
-+use std::{
-+    any::Any,
-+    sync::{Arc, OnceLock},
-+};
-+
-+use wasmtime::{
-+    Store,
-+    component::{Instance, Linker},
-+};
-+
-+use crate::{plugin::WasmPlugin, state::PluginHostState};
-+
-+pub type ExtensionData = Arc<dyn Any + Send + Sync>;
-+
-+pub struct HostExtension {
-+    /// Adds the extension's imports to the v0.1 linker.
-+    pub add_to_linker: fn(&mut Linker<PluginHostState>) -> wasmtime::Result<()>,
-+    /// Looks up the extension's exports right after instantiation.
-+    /// `None` means the plugin does not use the extension.
-+    pub on_instantiate: fn(&Instance, &mut Store<PluginHostState>) -> Option<ExtensionData>,
-+    /// Called once the plugin's store is running, with what `on_instantiate` returned.
-+    pub on_plugin_ready: fn(&Arc<WasmPlugin>, ExtensionData),
-+}
-+
-+static HOST_EXTENSION: OnceLock<HostExtension> = OnceLock::new();
-+
-+/// Installs the extension. Must run before the plugin runtime is created; later calls are ignored.
-+pub fn install(extension: HostExtension) {
-+    let _ = HOST_EXTENSION.set(extension);
-+}
-+
-+#[must_use]
-+pub fn get() -> Option<&'static HostExtension> {
-+    HOST_EXTENSION.get()
-+}
-diff --git a/crates/pumpkin-wasm-host-common/src/lib.rs b/crates/pumpkin-wasm-host-common/src/lib.rs
-index 6e1d46208..53837d863 100644
---- a/crates/pumpkin-wasm-host-common/src/lib.rs
-+++ b/crates/pumpkin-wasm-host-common/src/lib.rs
-@@ -5,6 +5,7 @@
- 
- pub mod args;
- pub mod concurrent_store;
-+pub mod extension;
- pub mod logging;
- pub mod plugin;
- pub mod scheduler;
-diff --git a/crates/pumpkin-wasm-host-v0_1/src/lib.rs b/crates/pumpkin-wasm-host-v0_1/src/lib.rs
-index ab17e779b..a4e1c5da7 100644
---- a/crates/pumpkin-wasm-host-v0_1/src/lib.rs
-+++ b/crates/pumpkin-wasm-host-v0_1/src/lib.rs
-@@ -6,7 +6,8 @@
- use crate::bindings::PluginPre;
- use pumpkin_core::plugin::PluginMetadata;
- use pumpkin_wasm_host_common::{
--    concurrent_store::LegacySyncReentry, plugin::PluginInitError, state::PluginHostState,
-+    concurrent_store::LegacySyncReentry, extension::ExtensionData, plugin::PluginInitError,
-+    state::PluginHostState,
- };
- use wasmtime::component::{HasSelf, InstancePre, Linker};
- use wasmtime::{Engine, Store};
-@@ -365,6 +366,9 @@ impl pumpkin::plugin::entity_statuses::Host for PluginHostState {}
- 
- pub fn add_to_linker(linker: &mut Linker<PluginHostState>) -> wasmtime::Result<()> {
-     Plugin::add_to_linker::<_, HasSelf<_>>(linker, |state: &mut PluginHostState| state)?;
-+    if let Some(extension) = pumpkin_wasm_host_common::extension::get() {
-+        (extension.add_to_linker)(linker)?;
-+    }
-     Ok(())
- }
- 
-@@ -378,13 +382,25 @@ pub async fn init_plugin(
-     engine: &Engine,
-     plugin_pre: PluginPre<PluginHostState>,
-     legacy_sync_reentry: &LegacySyncReentry,
--) -> Result<(Plugin, Store<PluginHostState>, PluginMetadata), PluginInitError> {
-+) -> Result<
-+    (
-+        Plugin,
-+        Store<PluginHostState>,
-+        PluginMetadata,
-+        Option<ExtensionData>,
-+    ),
-+    PluginInitError,
-+> {
-     let mut store = Store::new(engine, PluginHostState::new());
-     store.limiter(|state| &mut state.limits);
--    let plugin = legacy_sync_reentry
--        .scope_bootstrap(plugin_pre.instantiate_async(&mut store))
-+    let instance = legacy_sync_reentry
-+        .scope_bootstrap(plugin_pre.instance_pre().instantiate_async(&mut store))
-         .await
-         .map_err(PluginInitError::InstantiationFailed)?;
-+    let extension_data = pumpkin_wasm_host_common::extension::get()
-+        .and_then(|extension| (extension.on_instantiate)(&instance, &mut store));
-+    let plugin =
-+        Plugin::new(&mut store, &instance).map_err(PluginInitError::InstantiationFailed)?;
- 
-     legacy_sync_reentry
-         .scope_bootstrap(plugin.call_init_plugin(&mut store))
-@@ -414,5 +430,5 @@ pub async fn init_plugin(
-         .permissions
-         .clone_from(&metadata.permissions);
- 
--    Ok((plugin, store, metadata))
-+    Ok((plugin, store, metadata, extension_data))
- }
-diff --git a/crates/pumpkin-wasm-host/src/runtime.rs b/crates/pumpkin-wasm-host/src/runtime.rs
-index b06e661f4..f3e7de213 100644
---- a/crates/pumpkin-wasm-host/src/runtime.rs
-+++ b/crates/pumpkin-wasm-host/src/runtime.rs
-@@ -140,6 +140,7 @@ impl PluginRuntime {
-         }
-     }
- 
-+    #[allow(clippy::too_many_lines)]
-     pub async fn init_plugin<P: AsRef<Path>>(
-         &self,
-         path: P,
-@@ -165,7 +166,7 @@ impl PluginRuntime {
-         let engine = self.engine(api_version);
-         let component = load_component(engine, &wasm_bytes, &self.cache_dir)?;
- 
--        let (plugin_instance, store, metadata) = match api_version {
-+        let (plugin_instance, store, metadata, extension_data) = match api_version {
-             PluginApiVersion::V0_1 => {
-                 let instance_pre = self
-                     .linker_v0_1
-@@ -175,16 +176,18 @@ impl PluginRuntime {
-                 let plugin_pre = pumpkin_wasm_host_v0_1::prepare_plugin(&instance_pre)
-                     .map_err(PluginInitError::ApiMismatch)?;
- 
--                let (plugin, store, metadata) = pumpkin_wasm_host_v0_1::init_plugin(
--                    engine,
--                    plugin_pre,
--                    &self.legacy_sync_reentry,
--                )
--                .await?;
-+                let (plugin, store, metadata, extension_data) =
-+                    pumpkin_wasm_host_v0_1::init_plugin(
-+                        engine,
-+                        plugin_pre,
-+                        &self.legacy_sync_reentry,
-+                    )
-+                    .await?;
-                 (
-                     Arc::new(plugin) as Arc<dyn Any + Send + Sync>,
-                     store,
-                     metadata,
-+                    extension_data,
-                 )
-             }
-             #[cfg(feature = "v0_2")]
-@@ -207,6 +210,7 @@ impl PluginRuntime {
-                     Arc::new(plugin) as Arc<dyn Any + Send + Sync>,
-                     store,
-                     metadata,
-+                    None,
-                 )
-             }
-             #[cfg(not(feature = "v0_2"))]
-@@ -241,6 +245,12 @@ impl PluginRuntime {
-             .await
-             .map_err(PluginInitError::InstantiationFailed)?;
- 
-+        if let (Some(extension), Some(data)) =
-+            (pumpkin_wasm_host_common::extension::get(), extension_data)
-+        {
-+            (extension.on_plugin_ready)(&wasm_plugin, data);
-+        }
-+
-         tracing::debug!(
-             wasm_plugin_api = match api_version {
-                 PluginApiVersion::V0_1 => "0.1",
 diff --git a/crates/pumpkin/Cargo.toml b/crates/pumpkin/Cargo.toml
 index f659f9a5d..3c6e24776 100644
 --- a/crates/pumpkin/Cargo.toml
@@ -619,18 +509,10 @@ index f659f9a5d..3c6e24776 100644
  pumpkin-data = { workspace = true, features = ["default"] }
  pumpkin-util.workspace = true
 diff --git a/crates/pumpkin/src/main.rs b/crates/pumpkin/src/main.rs
-index cb65ff32c..37f7c1948 100644
+index cb65ff32c..1c1b42900 100644
 --- a/crates/pumpkin/src/main.rs
 +++ b/crates/pumpkin/src/main.rs
-@@ -166,6 +166,7 @@ async fn main() {
-         }
-     });
- 
-+    moddedmc_host::install();
-     let plugin_loaders: Vec<Arc<dyn PluginLoader>> = vec![Arc::new(WasmPluginLoader::new(
-         config.advanced.plugins.verify_signatures,
-     ))];
-@@ -183,6 +184,7 @@ async fn main() {
+@@ -183,6 +183,7 @@ async fn main() {
          tracing::error!("{error}");
          exit(1);
      });

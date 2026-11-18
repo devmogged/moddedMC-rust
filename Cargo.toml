@@ -1,19 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["mods/*", "recompiler/fabric-host", "host"]
-# Mods build for wasm32-wasip2; fabric-host only links with a TeaVM object (recompiler/build-mod.ps1),
-# and the native host app builds with -p moddedmc.
-default-members = ["mods/*"]
+# Native mods (mods/*) and the Fabric host (recompiler/fabric-host) are members of the server
+# workspace (engine/pumpkin): a .dll plugin must come from the same build as the server.
+members = ["host"]
 exclude = ["engine"]
 
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-
-[workspace.dependencies]
-pumpkin-plugin-api = { path = "engine/pumpkin/crates/pumpkin-plugin-api" }
-# Same version as pumpkin-plugin-api so both bindings share one runtime.
-wit-bindgen = { version = "0.63", default-features = false, features = ["macros"] }
 
 [profile.release]
 opt-level = "s"

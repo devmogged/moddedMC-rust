@@ -1,17 +1,18 @@
-# Recompiler (M3: fixture done, corpus next)
+# Recompiler (M3)
 
-Goal: take an unchanged Fabric 26.3 mod JAR and produce a moddedMC-rust WASM mod, AOT.
+Goal: take an unchanged Fabric 26.3 mod JAR and produce a native moddedMC-rust mod (`.dll`), AOT.
 
-## Pipeline (proven by `probe/`)
+## Pipeline
 
 1. TeaVM 0.16 C backend (`generateC`) turns JVM bytecode into C with its own GC.
-   The WasmGC backend was rejected: its output imports ~25 JavaScript runtime
-   functions (JS strings, JSO, exceptions) and GC types can't cross the component boundary.
-2. `teavm-c-to-wasm.ps1` compiles that C with wasi-sdk 34 to a `wasm32-wasip2` component.
-   A Java `@Import(module, name)` becomes a plain C call to `name`, satisfied by glue C.
-3. The probe runs on Wasmtime 50 (`wasmtime run -W exceptions=y`), the version Pumpkin pins.
+   A Java `@Import(module, name)` becomes a plain C call to `name`.
+2. The system clang (LLVM 22) compiles that C to a native object (`-Dmain=teavm_main`).
+3. `fabric-host` links the object into a native Pumpkin plugin and implements the imports.
 
-Toolchain (all in the ignored `cache/`): Temurin JDK 25, Gradle 9.9.1, wasi-sdk 34.
+Until 2026-11-18 this produced a `wasm32-wasip2` component through wasi-sdk; the project
+moved to native plugins for speed, and the WASM path was removed.
+
+Toolchain (all in the ignored `cache/` except LLVM): Temurin JDK 25, Gradle 9.9.1, LLVM clang.
 
 ## Fixture and oracle
 
@@ -33,8 +34,9 @@ per client tick and kicks otherwise).
 
 ## Fabric JAR on Pumpkin (done for the fixture)
 
+    scripts\engine.ps1 build      # the plugin must come from the server's own build
     recompiler\build-mod.ps1 -Jar recompiler\fixtures\sethome\build\libs\sethome-1.0.0.jar
-    # -> target\fabric-mods\sethome.wasm; copy into plugins\ and run tests\oracle\sethome.txt
+    # -> target\fabric-mods\sethome.dll; copy into plugins\ and run tests\oracle\sethome.txt
 
 The unchanged `sethome-1.0.0.jar` passes the same oracle scenario on Pumpkin as on Fabric.
 
@@ -45,26 +47,23 @@ The unchanged `sethome-1.0.0.jar` passes the same oracle scenario on Pumpkin as 
   (generated as plain constructor calls; TeaVM has no reflection), fires
   `CommandRegistrationCallback` and registers each root literal with Pumpkin.
   `@Export mmc_run_command` runs a command through the mod's Brigadier dispatcher.
-- `fabric-host/` is an ordinary Rust Pumpkin plugin (`pumpkin-plugin-api`) that links the
-  TeaVM object and implements the `mmc_*` imports. That keeps all WIT work in Rust; C
-  bindings for the whole plugin world would be ~600 KB of generated glue.
+- `fabric-host/` is a native Pumpkin plugin in the server's workspace. It links the TeaVM
+  object and implements the `mmc_*` imports directly on Pumpkin's types. TeaVM's runtime is
+  single-threaded, so every call into Java holds one lock.
 - TeaVM's `main` is renamed `teavm_main` and called once from `on_load`; exports are then
-  callable any number of times (`probe/` checks this under plain Wasmtime).
-- Output: 2.0 MB component. First server start 2.2 s (Wasmtime compiles it once), 171 ms
-  with the module cache warm.
+  callable any number of times.
 
 Found on the way:
 
 - TeaVM 0.16 `Files.createDirectories` on a one-level path calls `createDirectory`, which
-  stats the parent (`/` or `.`, invisible under WASI) and throws if the directory already
-  exists (the JDK does not). Fabric's config dir is therefore `/data/config` (two levels,
-  inside the plugin's `data` preopen), created at load as Fabric always has `config/`.
+  stats the parent and throws if the directory already exists (the JDK does not). Fabric's
+  `config/` is created by the host before the mod runs, as Fabric always has one.
 - Pumpkin sends the teleport before the chat line, as vanilla does; vanilla then resyncs the
-  position once more. The oracle spec now checks teleport-then-chat on both servers.
+  position once more. The oracle spec checks teleport-then-chat on both servers.
 
 Known shortcuts (each marked `shortcut:` in code): root literals only (no arguments reach
 Brigadier yet), plain-text components, absolute teleports, player handles valid for one
-command, `getTickCount` backed by overworld age.
+command.
 
 ## Corpus (frozen)
 

@@ -2,7 +2,7 @@
 # across a chunk reload and a restart. Needs the debug moddedmc-bot build.
 # Run: scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt -RunDir run\m1 -Fresh
 # The counter sits at 1025 100 1025 (chunk 64,64), far from spawn.
-mods target\wasm32-wasip2\release\counter.wasm
+mods engine\pumpkin\target\release\counter.dll
 start
 wait 1
 expect registered block demo:counter \(stand-in minecraft:barrel\)

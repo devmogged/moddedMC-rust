@@ -1,7 +1,7 @@
 [package]
 name = "moddedmc-host"
 version = "0.1.0"
-description = "moddedMC-rust content host: registry, persistence and batched ticks for WASM content mods."
+description = "moddedMC-rust content host: registry, persistence and batched ticks for native content mods."
 edition.workspace = true
 license = "GPL-3.0-only"
 # Built as a member of the pinned Pumpkin workspace (see ../pumpkin/Cargo.toml).
@@ -10,12 +10,13 @@ workspace = "../pumpkin"
 [dependencies]
 pumpkin-core.workspace = true
 pumpkin-data = { workspace = true, features = ["default"] }
+pumpkin-inventory.workspace = true
 pumpkin-nbt.workspace = true
 pumpkin-util.workspace = true
-pumpkin-wasm-host-common.workspace = true
+moddedmc-api.workspace = true
+pumpkin-protocol.workspace = true
 pumpkin-world.workspace = true
 tracing.workspace = true
-wasmtime.workspace = true
 
 [lints]
 workspace = true

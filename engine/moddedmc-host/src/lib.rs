@@ -1,24 +1,17 @@
 //! moddedMC-rust content host.
 //!
-//! Content mods are Pumpkin v0.1 plugin components that also import
-//! `moddedmc:mods/registry` and export `moddedmc:mods/content` (see `wit/mods`).
+//! Content mods are native Pumpkin plugins (`.dll`/`.so`) that hand a
+//! [`moddedmc_api::ContentMod`] to the [`ContentHost`] service in `on_load`.
 //! The host owns the registry, keeps each placed block's identity and state as
 //! custom data on a vanilla stand-in block entity (saved by Pumpkin with the
 //! chunk), and delivers due block entities to each mod in one batch per tick.
-
-mod bindings {
-    wasmtime::component::bindgen!({
-        path: "../../wit/mods",
-        world: "content-mod",
-    });
-}
 
 mod console;
 mod stats;
 
 use std::{
-    any::Any,
     collections::{HashMap, HashSet},
+    panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Arc, LazyLock, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard,
         Weak,
@@ -26,14 +19,13 @@ use std::{
     time::Instant,
 };
 
-use bindings::moddedmc::mods::{
-    registry,
-    types::{
-        self, BlockDef, BlockEntityDef, BlockPos as WitPos, BreakInput, PlaceInput,
-        RegistrationError, TickInput, TickUpdate, UseInput, UseResult,
-    },
+use moddedmc_api::{
+    BlockDef, BlockEntityDef, BreakInput, ContentHost, ContentMod as ModApi, PlaceInput,
+    RegistrationError, TickEntry, UseInput, Vector3, dialog::Dialog,
 };
 use pumpkin_core::{
+    entity::{EntityBase, player::Player},
+    net::ClientPlatform,
     plugin::{
         BoxFuture, Cancellable, EventHandler, EventPriority,
         block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent},
@@ -44,17 +36,13 @@ use pumpkin_core::{
     world::World,
 };
 use pumpkin_data::{Block, item::Item, item_stack::ItemStack};
+use pumpkin_inventory::Inventory;
 use pumpkin_nbt::tag::NbtTag;
+use pumpkin_protocol::{
+    ConnectionState, IdOr,
+    java::client::{config::CConfigShowDialog, dialog::DialogNBT, play::CPlayShowDialog},
+};
 use pumpkin_util::{math::position::BlockPos, text::TextComponent};
-use pumpkin_wasm_host_common::{
-    extension::{self, HostExtension},
-    plugin::WasmPlugin,
-    state::PluginHostState,
-};
-use wasmtime::{
-    Store,
-    component::{ComponentNamedList, Func, HasSelf, Instance, Lift, Linker, Lower},
-};
 
 /// Custom-data namespace used on block entities and item stacks.
 pub const NAMESPACE: &str = "moddedmc";
@@ -63,24 +51,14 @@ pub const ITEM_BLOCK_KEY: &str = "block";
 const KEY_ID: &str = "id";
 const KEY_VERSION: &str = "v";
 const KEY_STATE: &str = "s";
-const CONTENT_EXPORT: &str = "moddedmc:mods/content@0.1.0";
-/// Vanilla blocks with a block entity that 0.1 accepts as stand-ins.
+/// Vanilla blocks with a block entity accepted as stand-ins.
 const STAND_INS: [&str; 3] = ["barrel", "dropper", "dispenser"];
 /// How often (ticks) loaded custom blocks are re-indexed, which also picks up reloaded chunks.
 const DISCOVERY_INTERVAL: i32 = 20;
 const MAX_STATE_BYTES: usize = 64 * 1024;
 
-struct ContentExports {
-    register: Func,
-    tick: Func,
-    use_block: Func,
-    place_block: Func,
-    break_block: Func,
-}
-
 struct ContentMod {
-    plugin: Weak<WasmPlugin>,
-    exports: Arc<ContentExports>,
+    module: Arc<dyn ModApi>,
     registered: bool,
 }
 
@@ -111,8 +89,9 @@ impl Registry {
     }
 }
 
-/// Definitions a mod has added during its `register` call, committed only if it succeeds.
-struct Staging {
+/// Definitions a mod adds during its `register` call, committed only if it succeeds.
+struct Staging<'a> {
+    registry: &'a Registry,
     mod_idx: usize,
     entity_types: Vec<EntityType>,
     blocks: Vec<BlockType>,
@@ -127,14 +106,13 @@ struct WorldIndex {
 }
 
 /// (world, pos, block, player)
-type PendingPlace = (Weak<World>, BlockPos, usize, Option<String>);
+type PendingPlace = (Weak<World>, BlockPos, usize, Option<Arc<Player>>);
 
 #[derive(Default)]
 struct Host {
     mods: Mutex<Vec<ContentMod>>,
     registry: RwLock<Registry>,
-    staging: Mutex<Option<Staging>>,
-    /// Placed custom blocks whose block entity appears later this tick: (world, pos, block, player).
+    /// Placed custom blocks whose block entity appears later this tick.
     pending_places: Mutex<Vec<PendingPlace>>,
     index: Mutex<Vec<WorldIndex>>,
     /// Console requests waiting for the next tick.
@@ -156,16 +134,8 @@ fn write<T>(m: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     m.write().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Installs the WIT extension. Call before the plugin runtime is created.
-pub fn install() {
-    extension::install(HostExtension {
-        add_to_linker,
-        on_instantiate,
-        on_plugin_ready,
-    });
-}
-
-/// Hooks the host into the server's tick and block events. Call before plugins load.
+/// Hooks the host into the server's tick and block events and offers the [`ContentHost`]
+/// service. Call before plugins load.
 pub fn attach(server: &Arc<Server>) {
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
@@ -177,70 +147,95 @@ pub fn attach(server: &Arc<Server>) {
         EventPriority::Normal,
         true,
     );
+    let service = Arc::new(ContentHost {
+        add_mod,
+        give_block,
+        teleport,
+        show_dialog,
+    });
+    // Nothing else holds the lock before plugins load.
+    if let Ok(mut services) = pm.services.try_write() {
+        services.insert(moddedmc_api::SERVICE.into(), service);
+    } else {
+        tracing::error!("moddedmc: plugin services busy; content mods cannot attach");
+    }
     stats::attach(server);
 }
 
-fn add_to_linker(linker: &mut Linker<PluginHostState>) -> wasmtime::Result<()> {
-    registry::add_to_linker::<_, HasSelf<_>>(linker, |state: &mut PluginHostState| state)
-}
-
-fn on_instantiate(
-    instance: &Instance,
-    store: &mut Store<PluginHostState>,
-) -> Option<Arc<dyn Any + Send + Sync>> {
-    let interface = instance.get_export_index(&mut *store, None, CONTENT_EXPORT)?;
-    let mut func = |name: &str| {
-        let index = instance.get_export_index(&mut *store, Some(&interface), name)?;
-        instance.get_func(&mut *store, index)
-    };
-    let exports = ContentExports {
-        register: func("register")?,
-        tick: func("tick-block-entities")?,
-        use_block: func("use-block")?,
-        place_block: func("place-block")?,
-        break_block: func("break-block")?,
-    };
-    Some(Arc::new(exports))
-}
-
-fn on_plugin_ready(plugin: &Arc<WasmPlugin>, data: Arc<dyn Any + Send + Sync>) {
-    let Ok(exports) = data.downcast::<ContentExports>() else {
-        return;
-    };
+fn add_mod(module: Arc<dyn ModApi>) {
     lock(&HOST.mods).push(ContentMod {
-        plugin: Arc::downgrade(plugin),
-        exports,
+        module,
         registered: false,
     });
 }
 
-// ---------------------------------------------------------------- registry imports
+fn give_block(player: &Arc<Player>, block_id: &str) -> bool {
+    let stack = {
+        let registry = read(&HOST.registry);
+        registry
+            .block(block_id)
+            .and_then(|i| block_item(&registry.blocks[i]))
+    };
+    let Some(stack) = stack else {
+        return false;
+    };
+    let slot = player.inventory().get_selected_slot() as usize;
+    player.inventory().set_stack(slot, stack.clone());
+    player.sync_hand_slot(slot, stack);
+    true
+}
 
-impl types::Host for PluginHostState {}
+fn teleport(player: &Arc<Player>, world: Arc<World>, pos: Vector3<f64>) {
+    player.teleport(pos, None, None, world);
+}
 
-impl registry::Host for PluginHostState {
+fn show_dialog(player: &Arc<Player>, dialog: &Dialog) {
+    let ClientPlatform::Java(client) = player.client.as_ref() else {
+        return;
+    };
+    let nbt = IdOr::Value(DialogNBT::from_dialog(dialog));
+    // A full send queue drops the dialog; the player can use the block again.
+    let _ = match client.connection_state.load() {
+        ConnectionState::Config => client.try_send_packet(&CConfigShowDialog::new(nbt)),
+        ConnectionState::Play => client.try_send_packet(&CPlayShowDialog::new(nbt)),
+        _ => false,
+    };
+}
+
+/// Runs mod code; a panic is logged and yields `None` instead of unwinding into the server.
+fn guard<R>(mod_idx: usize, what: &str, call: impl FnOnce() -> R) -> Option<R> {
+    catch_unwind(AssertUnwindSafe(call))
+        .inspect_err(|_| tracing::error!("moddedmc: content mod #{mod_idx} panicked in {what}"))
+        .ok()
+}
+
+fn module(mod_idx: usize) -> Option<Arc<dyn ModApi>> {
+    lock(&HOST.mods).get(mod_idx).map(|m| m.module.clone())
+}
+
+// ---------------------------------------------------------------- registry
+
+impl moddedmc_api::Registry for Staging<'_> {
     fn add_block_entity(&mut self, def: BlockEntityDef) -> Result<u32, RegistrationError> {
-        let mut staging = lock(&HOST.staging);
-        let staging = staging.as_mut().ok_or(RegistrationError::RegistryFrozen)?;
         if !valid_id(&def.id) || def.tick_interval == Some(0) {
             return Err(RegistrationError::InvalidDefinition);
         }
         if def.initial_state.len() > MAX_STATE_BYTES {
             return Err(RegistrationError::InvalidDefinition);
         }
-        let registry = read(&HOST.registry);
-        if registry
+        if self
+            .registry
             .entity_types
             .iter()
-            .chain(&staging.entity_types)
+            .chain(&self.entity_types)
             .any(|t| t.id == def.id)
         {
             return Err(RegistrationError::DuplicateId);
         }
-        let index = registry.entity_types.len() + staging.entity_types.len();
-        staging.entity_types.push(EntityType {
+        let index = self.registry.entity_types.len() + self.entity_types.len();
+        self.entity_types.push(EntityType {
             id: def.id,
-            mod_idx: staging.mod_idx,
+            mod_idx: self.mod_idx,
             state_version: def.state_version,
             initial_state: def.initial_state,
             tick_interval: def.tick_interval,
@@ -249,13 +244,10 @@ impl registry::Host for PluginHostState {
     }
 
     fn add_block(&mut self, def: BlockDef) -> Result<(), RegistrationError> {
-        let mut staging = lock(&HOST.staging);
-        let staging = staging.as_mut().ok_or(RegistrationError::RegistryFrozen)?;
         if !valid_id(&def.id) {
             return Err(RegistrationError::InvalidDefinition);
         }
-        let registry = read(&HOST.registry);
-        if registry.block(&def.id).is_some() || staging.blocks.iter().any(|b| b.id == def.id) {
+        if self.registry.block(&def.id).is_some() || self.blocks.iter().any(|b| b.id == def.id) {
             return Err(RegistrationError::DuplicateId);
         }
         let stand_in_name = def
@@ -267,17 +259,17 @@ impl registry::Host for PluginHostState {
             .then(|| Block::from_name(stand_in_name))
             .flatten()
             .ok_or(RegistrationError::UnsupportedStandIn)?;
-        // 0.1 keeps identity on the stand-in's block entity, so every block needs one.
+        // Identity lives on the stand-in's block entity, so every block needs one.
         let entity_id = def
             .block_entity
             .ok_or(RegistrationError::InvalidDefinition)?;
-        let entity_type = staging
+        let entity_type = self
             .entity_types
             .iter()
             .position(|t| t.id == entity_id)
-            .map(|i| i + registry.entity_types.len())
+            .map(|i| i + self.registry.entity_types.len())
             .ok_or(RegistrationError::UnknownEntityType)?;
-        staging.blocks.push(BlockType {
+        self.blocks.push(BlockType {
             id: def.id,
             display_name: def.display_name,
             stand_in,
@@ -311,87 +303,77 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
         event: &'a mut ServerTickStartEvent,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            register_new_mods().await;
-            apply_pending_places().await;
-            console::run_queued(server).await;
+            register_new_mods();
+            apply_pending_places();
+            console::run_queued(server);
             if event.tick % DISCOVERY_INTERVAL == 0 {
                 let started = Instant::now();
                 discover(server);
                 stats::TIMING.add_discover(started);
             }
-            tick_due(server, event.tick).await;
+            tick_due(event.tick);
         })
     }
 }
 
-async fn register_new_mods() {
-    let pending: Vec<(usize, Arc<WasmPlugin>, Arc<ContentExports>)> = {
-        let mods = lock(&HOST.mods);
-        mods.iter()
+fn register_new_mods() {
+    let pending: Vec<(usize, Arc<dyn ModApi>)> = {
+        let mut mods = lock(&HOST.mods);
+        mods.iter_mut()
             .enumerate()
             .filter(|(_, m)| !m.registered)
-            .filter_map(|(i, m)| Some((i, m.plugin.upgrade()?, m.exports.clone())))
+            .map(|(i, m)| {
+                m.registered = true;
+                (i, m.module.clone())
+            })
             .collect()
     };
-    for (mod_idx, plugin, exports) in pending {
-        lock(&HOST.mods)[mod_idx].registered = true;
-        *lock(&HOST.staging) = Some(Staging {
-            mod_idx,
-            entity_types: Vec::new(),
-            blocks: Vec::new(),
-        });
-        let func = exports.register;
-        let result = plugin
-            .store
-            .call_guest(move |mut guest| {
-                Box::pin(async move {
-                    guest
-                        .call_func::<(), (Result<(), RegistrationError>,)>(func, ())
-                        .await
-                        .map(|(result,)| result)
-                })
-            })
-            .await;
-        let staging = lock(&HOST.staging).take();
-        match (result, staging) {
-            (Ok(Ok(())), Some(staging)) => {
+    for (mod_idx, module) in pending {
+        let (result, entity_types, blocks) = {
+            let registry = read(&HOST.registry);
+            let mut staging = Staging {
+                registry: &registry,
+                mod_idx,
+                entity_types: Vec::new(),
+                blocks: Vec::new(),
+            };
+            let result = guard(mod_idx, "register", || module.register(&mut staging));
+            (result, staging.entity_types, staging.blocks)
+        };
+        match result {
+            Some(Ok(())) => {
                 let mut registry = write(&HOST.registry);
-                for t in &staging.entity_types {
+                for t in &entity_types {
                     tracing::info!("moddedmc: registered block entity {}", t.id);
                 }
-                for b in &staging.blocks {
+                for b in &blocks {
                     tracing::info!(
                         "moddedmc: registered block {} (stand-in minecraft:{})",
                         b.id,
                         b.stand_in.name
                     );
                 }
-                registry.entity_types.extend(staging.entity_types);
-                registry.blocks.extend(staging.blocks);
+                registry.entity_types.extend(entity_types);
+                registry.blocks.extend(blocks);
             }
-            (Ok(Err(error)), _) => {
+            Some(Err(error)) => {
                 tracing::error!(
                     "moddedmc: content mod #{mod_idx} rejected its registration: {error:?}"
                 );
             }
-            (Err(error), _) => {
-                tracing::error!("moddedmc: content mod #{mod_idx} trapped in register: {error}");
-            }
-            (Ok(Ok(())), None) => {
-                tracing::error!("moddedmc: content mod #{mod_idx} registration lost its staging");
-            }
+            None => {}
         }
     }
 }
 
-async fn apply_pending_places() {
+fn apply_pending_places() {
     let pending = std::mem::take(&mut *lock(&HOST.pending_places));
     for (world, pos, block_idx, player) in pending {
         let Some(world) = world.upgrade() else {
             continue;
         };
         if adopt_placed(&world, pos, block_idx) {
-            notify_placed(&world, pos, block_idx, player).await;
+            notify_placed(&world, pos, block_idx, player.as_ref());
         }
     }
 }
@@ -411,11 +393,11 @@ fn adopt_placed(world: &Arc<World>, pos: BlockPos, block_idx: usize) -> bool {
 }
 
 /// Tells the owning mod a block was placed and applies the initial state it returns.
-async fn notify_placed(
+fn notify_placed(
     world: &Arc<World>,
     pos: BlockPos,
     block_idx: usize,
-    player: Option<String>,
+    player: Option<&Arc<Player>>,
 ) {
     let (entity_type, mod_idx, state) = {
         let registry = read(&HOST.registry);
@@ -423,51 +405,21 @@ async fn notify_placed(
         let def = &registry.entity_types[entity_type];
         (entity_type, def.mod_idx, def.initial_state.clone())
     };
+    let Some(module) = module(mod_idx) else {
+        return;
+    };
     let input = PlaceInput {
         entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
-        pos: wit_pos(&pos),
-        dimension: world.dimension.minecraft_name.to_owned(),
-        state,
-        player_name: player,
+        pos,
+        world,
+        state: &state,
+        player,
     };
-    let result = call_mod::<(PlaceInput,), (Option<Vec<u8>>,)>(
-        mod_idx,
-        |e| e.place_block,
-        (input,),
-        "place-block",
-    )
-    .await;
-    if let Some((Some(state),)) = result
+    if let Some(Some(state)) = guard(mod_idx, "place_block", || module.place_block(input))
         && state.len() <= MAX_STATE_BYTES
     {
         write_state(world, &pos, &state);
     }
-}
-
-/// Calls one of a mod's `content` exports. A trap is logged and yields `None`.
-async fn call_mod<P, R>(
-    mod_idx: usize,
-    pick: fn(&ContentExports) -> Func,
-    params: P,
-    what: &'static str,
-) -> Option<R>
-where
-    P: ComponentNamedList + Lower + Send + 'static,
-    R: ComponentNamedList + Lift + Send + 'static,
-{
-    let (plugin, exports) = mod_handle(mod_idx)?;
-    let func = pick(&exports);
-    let result = plugin
-        .store
-        .call_guest(move |mut guest| {
-            Box::pin(async move { guest.call_func::<P, R>(func, params).await })
-        })
-        .await;
-    result
-        .inspect_err(|error| {
-            tracing::error!("moddedmc: content mod #{mod_idx} trapped in {what}: {error}");
-        })
-        .ok()
 }
 
 fn write_identity(world: &World, pos: &BlockPos, block: &BlockType, entity: &EntityType) {
@@ -606,65 +558,39 @@ fn discover(server: &Arc<Server>) {
 struct Batch {
     world: Arc<World>,
     mod_idx: usize,
-    positions: Vec<BlockPos>,
-    entries: Vec<TickInput>,
+    entries: Vec<TickEntry>,
 }
 
-async fn tick_due(_server: &Arc<Server>, tick: i32) {
+fn tick_due(tick: i32) {
     let Ok(tick) = u64::try_from(tick) else {
         return;
     };
     let started = Instant::now();
     let batches = collect_batches(tick);
     stats::TIMING.add_collect(started, batches.iter().map(|b| b.entries.len()).sum());
-    for batch in batches {
-        let Some((plugin, exports)) = mod_handle(batch.mod_idx) else {
+    for mut batch in batches {
+        let Some(module) = module(batch.mod_idx) else {
             continue;
         };
-        let func = exports.tick;
-        let dimension = batch.world.dimension.minecraft_name.to_owned();
-        let entries = batch.entries;
-        let count = entries.len();
         let started = Instant::now();
-        let result = plugin
-            .store
-            .call_guest(move |mut guest| {
-                Box::pin(async move {
-                    guest
-                        .call_func::<(u64, String, Vec<TickInput>), (Vec<TickUpdate>,)>(
-                            func,
-                            (tick, dimension, entries),
-                        )
-                        .await
-                        .map(|(updates,)| updates)
-                })
-            })
-            .await;
+        let ok = guard(batch.mod_idx, "tick", || {
+            module.tick(tick, &batch.world, &mut batch.entries);
+        });
         stats::TIMING.add_call(started);
-        let updates = match result {
-            Ok(updates) => updates,
-            Err(error) => {
+        if ok.is_none() {
+            continue; // the batch is discarded
+        }
+        let started = Instant::now();
+        for entry in batch.entries.iter().filter(|e| e.changed) {
+            if entry.state.len() > MAX_STATE_BYTES {
                 tracing::error!(
-                    "moddedmc: content mod #{} trapped in tick; batch discarded: {error}",
-                    batch.mod_idx
+                    "moddedmc: content mod #{} returned an oversized state at {:?}; discarded",
+                    batch.mod_idx,
+                    entry.pos
                 );
                 continue;
             }
-        };
-        if let Err(reason) = validate_updates(&updates, count) {
-            tracing::error!(
-                "moddedmc: content mod #{} returned an invalid tick batch ({reason}); discarded",
-                batch.mod_idx
-            );
-            continue;
-        }
-        let started = Instant::now();
-        for update in updates {
-            write_state(
-                &batch.world,
-                &batch.positions[update.token as usize],
-                &update.state,
-            );
+            write_state(&batch.world, &entry.pos, &entry.state);
         }
         stats::TIMING.add_apply(started);
     }
@@ -696,7 +622,6 @@ fn collect_batches(tick: u64) -> Vec<Batch> {
                     batches.push(Batch {
                         world: world.clone(),
                         mod_idx: def.mod_idx,
-                        positions: Vec::new(),
                         entries: Vec::new(),
                     });
                     batches.len() - 1
@@ -709,14 +634,12 @@ fn collect_batches(tick: u64) -> Vec<Batch> {
                 let Some(state) = read_state(&world, pos) else {
                     continue;
                 };
-                let token = u32::try_from(batch.entries.len()).unwrap_or(u32::MAX);
-                batch.entries.push(TickInput {
-                    token,
+                batch.entries.push(TickEntry {
                     entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
-                    pos: wit_pos(pos),
+                    pos: *pos,
                     state,
+                    changed: false,
                 });
-                batch.positions.push(*pos);
             }
         }
     }
@@ -736,34 +659,6 @@ fn state_version_matches(world: &World, pos: &BlockPos, def: &EntityType) -> boo
         );
     }
     ok
-}
-
-fn validate_updates(updates: &[TickUpdate], count: usize) -> Result<(), &'static str> {
-    let mut seen = vec![false; count];
-    for update in updates {
-        let slot = seen.get_mut(update.token as usize).ok_or("unknown token")?;
-        if std::mem::replace(slot, true) {
-            return Err("duplicate token");
-        }
-        if update.state.len() > MAX_STATE_BYTES {
-            return Err("state too large");
-        }
-    }
-    Ok(())
-}
-
-fn mod_handle(mod_idx: usize) -> Option<(Arc<WasmPlugin>, Arc<ContentExports>)> {
-    let mods = lock(&HOST.mods);
-    let m = mods.get(mod_idx)?;
-    Some((m.plugin.upgrade()?, m.exports.clone()))
-}
-
-const fn wit_pos(pos: &BlockPos) -> WitPos {
-    WitPos {
-        x: pos.0.x,
-        y: pos.0.y,
-        z: pos.0.z,
-    }
 }
 
 // ---------------------------------------------------------------- block events
@@ -802,7 +697,7 @@ impl EventHandler<BlockPlaceEvent> for PlaceHandler {
                 return;
             }
             let world = Arc::downgrade(&event.player.world());
-            let player = Some(event.player.gameprofile.name.clone());
+            let player = Some(event.player.clone());
             lock(&HOST.pending_places).push((world, event.block_position, block_idx, player));
         })
     }
@@ -841,8 +736,7 @@ impl EventHandler<BlockBreakEvent> for BreakHandler {
                 return;
             };
             index_remove(&world, &pos);
-            let player = event.player.as_ref().map(|p| p.gameprofile.name.clone());
-            notify_broken(&world, pos, &id, player).await;
+            notify_broken(&world, pos, &id, event.player.as_ref());
             if !event.drop {
                 return;
             }
@@ -861,7 +755,7 @@ impl EventHandler<BlockBreakEvent> for BreakHandler {
 }
 
 /// Tells the owning mod one of its blocks is being broken, with its final state.
-async fn notify_broken(world: &World, pos: BlockPos, id: &str, player: Option<String>) {
+fn notify_broken(world: &Arc<World>, pos: BlockPos, id: &str, player: Option<&Arc<Player>>) {
     let found = {
         let registry = read(&HOST.registry);
         registry.block(id).map(|b| {
@@ -872,14 +766,18 @@ async fn notify_broken(world: &World, pos: BlockPos, id: &str, player: Option<St
     let Some((entity_type, mod_idx)) = found else {
         return;
     };
+    let Some(module) = module(mod_idx) else {
+        return;
+    };
+    let state = read_state(world, &pos).unwrap_or_default();
     let input = BreakInput {
         entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
-        pos: wit_pos(&pos),
-        dimension: world.dimension.minecraft_name.to_owned(),
-        state: read_state(world, &pos).unwrap_or_default(),
-        player_name: player,
+        pos,
+        world,
+        state: &state,
+        player,
     };
-    call_mod::<(BreakInput,), ()>(mod_idx, |e| e.break_block, (input,), "break-block").await;
+    guard(mod_idx, "break_block", || module.break_block(input));
 }
 
 /// The item that places `block`: its stand-in item tagged with the block id.
@@ -926,28 +824,24 @@ impl EventHandler<PlayerInteractEvent> for UseHandler {
             let tick = server.tick_count.load(std::sync::atomic::Ordering::Relaxed);
             let player_name = event.player.gameprofile.name.clone();
             let repeated =
-                lock(&HOST.last_use).insert(player_name.clone(), (tick, pos)) == Some((tick, pos));
+                lock(&HOST.last_use).insert(player_name, (tick, pos)) == Some((tick, pos));
             if repeated {
                 return;
             }
             let Some(state) = read_state(&world, &pos) else {
                 return;
             };
+            let Some(module) = module(mod_idx) else {
+                return;
+            };
             let input = UseInput {
                 entity_type: u32::try_from(entity_type).unwrap_or(u32::MAX),
-                pos: wit_pos(&pos),
-                state,
-                player_name,
-                dimension: world.dimension.minecraft_name.to_owned(),
+                pos,
+                world: &world,
+                state: &state,
+                player: &event.player,
             };
-            let Some((result,)) = call_mod::<(UseInput,), (UseResult,)>(
-                mod_idx,
-                |e| e.use_block,
-                (input,),
-                "use-block",
-            )
-            .await
-            else {
+            let Some(result) = guard(mod_idx, "use_block", || module.use_block(input)) else {
                 return;
             };
             if let Some(state) = result.state.filter(|s| s.len() <= MAX_STATE_BYTES) {
@@ -992,16 +886,5 @@ mod tests {
             counts.iter().all(|&c| (250..=1000).contains(&c)),
             "{counts:?}"
         );
-    }
-
-    #[test]
-    fn update_validation() {
-        let u = |token| TickUpdate {
-            token,
-            state: vec![],
-        };
-        assert!(validate_updates(&[u(0), u(2)], 3).is_ok());
-        assert_eq!(validate_updates(&[u(3)], 3), Err("unknown token"));
-        assert_eq!(validate_updates(&[u(1), u(1)], 3), Err("duplicate token"));
     }
 }

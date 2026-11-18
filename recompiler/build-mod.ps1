@@ -1,14 +1,18 @@
-# Fabric mod JAR -> Pumpkin plugin: TeaVM (jar + fabric-shim) -> C -> wasm object -> linked
-# into the fabric-host plugin component. Output: <OutDir>\<mod id>.wasm
+# Fabric mod JAR -> native Pumpkin plugin: TeaVM (jar + fabric-shim) -> C -> clang object ->
+# linked into the fabric-host plugin. Output: <OutDir>\<mod id>.dll
+# Builds in the server's workspace and release profile, so run scripts\engine.ps1 build first
+# and rebuild mods whenever the server is rebuilt.
 param(
     [Parameter(Mandatory)] [string] $Jar,
-    [string] $OutDir = (Join-Path (Split-Path $PSScriptRoot) 'target\fabric-mods')
+    [string] $OutDir   # default: target\fabric-mods
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
+if (-not $OutDir) { $OutDir = Join-Path $root 'target\fabric-mods' }
 $cache = Join-Path $root 'cache'
 $env:JAVA_HOME = Join-Path $cache 'jdk-25.0.5+8'
 $env:PATH = "$cache\gradle-9.9.1\bin;$env:JAVA_HOME\bin;$env:USERPROFILE\.cargo\bin;$env:PATH"
+if (-not $env:PUMPKIN_MINECRAFT_SERVER_JAR) { $env:PUMPKIN_MINECRAFT_SERVER_JAR = Join-Path $cache 'mc-26.3\server.jar' }
 $Jar = (Resolve-Path $Jar).Path
 $shim = Join-Path $PSScriptRoot 'fabric-shim'
 
@@ -19,18 +23,21 @@ try {
 } finally { Pop-Location }
 $id = (Get-Content (Join-Path $shim 'build\mod-id.txt') -Raw).Trim()
 
+# fabric-host owns the entry point and calls teavm_main once, so TeaVM's main is renamed.
 $obj = Join-Path $shim "build\$id.o"
-& (Join-Path $PSScriptRoot 'teavm-c-to-wasm.ps1') -GeneratedC (Join-Path $shim 'build\generated\teavm\c') `
-    -Include (Join-Path $shim 'src\c\imports.h') -Out $obj
+clang -O2 -w -include (Join-Path $shim 'src\c\imports.h') '-Dmain=teavm_main' `
+    -c (Join-Path $shim 'build\generated\teavm\c\all.c') -o $obj
+if ($LASTEXITCODE) { throw "clang failed ($LASTEXITCODE)" }
 
 $env:MODDEDMC_TEAVM_OBJ = $obj
 $env:MODDEDMC_MOD_ID = $id
-$env:MODDEDMC_WASI_LIBS = Join-Path $cache 'wasi-sdk-34.0-x86_64-windows\share\wasi-sysroot\lib\wasm32-wasip2'
-# A separate target dir per mod keeps cargo from reusing another mod's link.
-$target = Join-Path $root "target\fabric-host\$id"
-cargo build --manifest-path (Join-Path $root 'Cargo.toml') -p fabric-host --release --target wasm32-wasip2 --target-dir $target
-if ($LASTEXITCODE) { throw "cargo failed ($LASTEXITCODE)" }
+$engine = Join-Path $root 'engine\pumpkin'
+Push-Location $engine
+try {
+    cargo build --release -p fabric-host
+    if ($LASTEXITCODE) { throw "cargo failed ($LASTEXITCODE)" }
+} finally { Pop-Location }
 New-Item -ItemType Directory -Force $OutDir | Out-Null
-$out = Join-Path $OutDir "$id.wasm"
-Copy-Item (Join-Path $target 'wasm32-wasip2\release\fabric_host.wasm') $out -Force
+$out = Join-Path $OutDir "$id.dll"
+Copy-Item (Join-Path $engine 'target\release\fabric_host.dll') $out -Force
 Write-Host "built $out ($((Get-Item $out).Length) bytes)"

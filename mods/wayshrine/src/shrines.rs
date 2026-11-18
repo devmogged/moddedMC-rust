@@ -5,7 +5,10 @@
 //!   D <player> <key>    a discovery
 //! where `key` is `dimension/x/y/z`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Site {
@@ -50,26 +53,36 @@ impl Shrines {
             match line.split('\t').collect::<Vec<_>>().as_slice() {
                 ["S", key, name] => {
                     if let Some(site) = Site::parse(key) {
-                        shrines.by_key.insert((*key).to_owned(), Shrine { site, name: (*name).to_owned() });
+                        shrines.by_key.insert(
+                            (*key).to_owned(),
+                            Shrine {
+                                site,
+                                name: (*name).to_owned(),
+                            },
+                        );
                     }
                 }
                 ["D", player, key] => {
-                    shrines.discovered.insert(((*player).to_owned(), (*key).to_owned()));
+                    shrines
+                        .discovered
+                        .insert(((*player).to_owned(), (*key).to_owned()));
                 }
                 _ => {}
             }
         }
-        shrines.discovered.retain(|(_, key)| shrines.by_key.contains_key(key));
+        shrines
+            .discovered
+            .retain(|(_, key)| shrines.by_key.contains_key(key));
         shrines
     }
 
     pub fn save(&self) -> String {
         let mut out = String::new();
         for (key, shrine) in &self.by_key {
-            out += &format!("S\t{key}\t{}\n", shrine.name);
+            let _ = writeln!(out, "S\t{key}\t{}", shrine.name);
         }
         for (player, key) in &self.discovered {
-            out += &format!("D\t{player}\t{key}\n");
+            let _ = writeln!(out, "D\t{player}\t{key}");
         }
         out
     }
@@ -78,7 +91,13 @@ impl Shrines {
     pub fn add(&mut self, site: Site, owner: String) -> String {
         let key = site.key();
         let name = format!("Wayshrine {} {} {}", site.x, site.y, site.z);
-        self.by_key.insert(key.clone(), Shrine { site, name: name.clone() });
+        self.by_key.insert(
+            key.clone(),
+            Shrine {
+                site,
+                name: name.clone(),
+            },
+        );
         if !owner.is_empty() {
             self.discovered.insert((owner, key));
         }
@@ -125,7 +144,12 @@ mod tests {
     use super::*;
 
     fn at(x: i32) -> Site {
-        Site { dimension: "minecraft:overworld".into(), x, y: 64, z: -3 }
+        Site {
+            dimension: "minecraft:overworld".into(),
+            x,
+            y: 64,
+            z: -3,
+        }
     }
 
     #[test]
@@ -134,23 +158,44 @@ mod tests {
         s.add(at(0), "alice".into());
         s.add(at(100), String::new());
         assert!(s.known_by("alice", &at(0)).is_empty());
-        assert!(s.travel_target("alice", &at(100).key()).is_none(), "not discovered yet");
+        assert!(
+            s.travel_target("alice", &at(100).key()).is_none(),
+            "not discovered yet"
+        );
 
         assert!(s.discover("alice", &at(100)));
         assert!(!s.discover("alice", &at(100)), "second visit is not new");
         assert!(!s.discover("alice", &at(5)), "no shrine there");
         assert_eq!(s.known_by("alice", &at(0))[0].site, at(100));
-        assert!(s.travel_target("bob", &at(100).key()).is_none(), "bob never visited");
+        assert!(
+            s.travel_target("bob", &at(100).key()).is_none(),
+            "bob never visited"
+        );
 
         let reloaded = Shrines::load(&s.save());
-        assert_eq!(reloaded.travel_target("alice", &at(100).key()).unwrap().site, at(100));
+        assert_eq!(
+            reloaded
+                .travel_target("alice", &at(100).key())
+                .map(|t| t.site),
+            Some(at(100))
+        );
 
         let mut s = reloaded;
         assert!(s.remove(&at(100)));
         assert!(s.travel_target("alice", &at(100).key()).is_none());
-        assert!(Shrines::load(&s.save()).known_by("alice", &at(0)).is_empty());
-        assert_eq!(Site::parse("minecraft:the_nether/-1/2/-3"), Some(Site {
-            dimension: "minecraft:the_nether".into(), x: -1, y: 2, z: -3
-        }));
+        assert!(
+            Shrines::load(&s.save())
+                .known_by("alice", &at(0))
+                .is_empty()
+        );
+        assert_eq!(
+            Site::parse("minecraft:the_nether/-1/2/-3"),
+            Some(Site {
+                dimension: "minecraft:the_nether".into(),
+                x: -1,
+                y: 2,
+                z: -3
+            })
+        );
     }
 }

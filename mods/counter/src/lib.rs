@@ -1,35 +1,23 @@
 //! `demo:counter`: the M1 content fixture. A barrel stand-in whose block entity
 //! counts up once a second; right-click shows the count. `/counter` gives one.
 
-mod content {
-    wit_bindgen::generate!({
-        path: "../../wit/mods",
-        world: "content-mod",
-    });
-}
+use std::sync::Arc;
 
-use content::{
-    exports::moddedmc::mods::content::Guest,
-    moddedmc::mods::{
-        registry,
-        types::{
-            BlockDef, BlockEntityDef, BreakInput, PlaceInput, RegistrationError, TickInput,
-            TickUpdate, UseInput, UseResult,
+use moddedmc_api::{
+    BlockDef, BlockEntityDef, ContentHost, ContentMod, RegistrationError, Registry, SERVICE,
+    TickEntry, UseInput, UseResult,
+    pumpkin_core::{
+        command::{
+            argument_builder::{ArgumentBuilder, command},
+            context::CommandContext,
+            node::{CommandExecutor, CommandExecutorResult},
         },
+        plugin::{Context, Plugin, PluginFuture},
+        world::World,
     },
-};
-use pumpkin_plugin_api::{
-    Context, Plugin, PluginMetadata, Server,
-    command::{Command, CommandError, CommandSender, ConsumedArgs},
-    commands::CommandHandler,
-    common::{Hand, NbtTag, NbtTree},
-    item_stack::ItemStack,
-    register_plugin,
-    text::TextComponent,
 };
 
 const BLOCK_ID: &str = "demo:counter";
-const STAND_IN: &str = "minecraft:barrel";
 const TICK_INTERVAL: u32 = 20;
 const STATE_VERSION: u32 = 1;
 
@@ -39,95 +27,69 @@ fn count(state: &[u8]) -> u64 {
 
 struct Counter;
 
-impl Guest for Counter {
-    fn register() -> Result<(), RegistrationError> {
-        registry::add_block_entity(&BlockEntityDef {
+impl ContentMod for Counter {
+    fn register(&self, registry: &mut dyn Registry) -> Result<(), RegistrationError> {
+        registry.add_block_entity(BlockEntityDef {
             id: BLOCK_ID.into(),
             state_version: STATE_VERSION,
             initial_state: 0u64.to_le_bytes().to_vec(),
             tick_interval: Some(TICK_INTERVAL),
         })?;
-        registry::add_block(&BlockDef {
+        registry.add_block(BlockDef {
             id: BLOCK_ID.into(),
             display_name: "Counter".into(),
-            stand_in: STAND_IN.into(),
+            stand_in: "minecraft:barrel".into(),
             block_entity: Some(BLOCK_ID.into()),
         })
     }
 
-    fn tick_block_entities(_tick: u64, _dimension: String, entries: Vec<TickInput>) -> Vec<TickUpdate> {
-        entries
-            .into_iter()
-            .map(|entry| TickUpdate {
-                token: entry.token,
-                state: (count(&entry.state) + 1).to_le_bytes().to_vec(),
-            })
-            .collect()
-    }
-
-    fn use_block(input: UseInput) -> UseResult {
-        UseResult {
-            state: None,
-            message: Some(format!("Counter: {}", count(&input.state))),
+    fn tick(&self, _tick: u64, _world: &Arc<World>, entries: &mut [TickEntry]) {
+        for entry in entries {
+            let next = count(&entry.state) + 1;
+            entry.state = next.to_le_bytes().to_vec();
+            entry.changed = true;
         }
     }
 
-    fn place_block(_input: PlaceInput) -> Option<Vec<u8>> {
-        None
+    fn use_block(&self, input: UseInput<'_>) -> UseResult {
+        UseResult {
+            state: None,
+            message: Some(format!("Counter: {}", count(input.state))),
+        }
     }
-
-    fn break_block(_input: BreakInput) {}
 }
 
-content::export!(Counter with_types_in content);
+struct GiveCounter(Arc<ContentHost>);
 
-struct GiveCounter;
-
-impl CommandHandler for GiveCounter {
-    fn handle(&self, sender: CommandSender, _: Server, _: ConsumedArgs) -> Result<i32, CommandError> {
-        let Some(player) = sender.as_player() else {
-            sender.send_message(TextComponent::text("Only players can receive a counter."));
+impl CommandExecutor for GiveCounter {
+    fn execute(&self, context: &CommandContext) -> CommandExecutorResult {
+        let Some(player) = context.source.as_player() else {
             return Ok(0);
         };
-        let stack = ItemStack::new(STAND_IN, 1);
-        // The host recognises placed items by this tag (moddedmc-host ITEM_BLOCK_KEY).
-        stack.set_custom_data(
-            "moddedmc",
-            "block",
-            &NbtTree { root: 0, tags: vec![NbtTag::StringTag(BLOCK_ID.into())] },
-        );
-        stack.set_custom_name(Some(TextComponent::text("Counter")));
-        player.set_item_in_hand(Hand::Right, Some(stack));
-        Ok(1)
+        Ok(i32::from((self.0.give_block)(&player, BLOCK_ID)))
     }
 }
 
 struct CounterPlugin;
 
 impl Plugin for CounterPlugin {
-    fn new() -> Self {
-        CounterPlugin
-    }
-
-    fn metadata(&self) -> PluginMetadata {
-        PluginMetadata {
-            name: "counter".into(),
-            version: env!("CARGO_PKG_VERSION").into(),
-            authors: vec!["moddedMC-rust".into()],
-            description: "demo:counter content fixture".into(),
-            dependencies: vec![],
-            permissions: vec![],
-        }
-    }
-
-    fn on_load(&self, context: Context) -> Result<(), String> {
-        let cmd = Command::new(&["counter".into()], "Give yourself a demo:counter").execute(GiveCounter);
-        context.register_command(cmd, "minecraft:command.help");
-        Ok(())
+    fn on_load(&self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            let host = context
+                .get_service::<ContentHost>(SERVICE)
+                .await
+                .ok_or("moddedmc content host is not running")?;
+            (host.add_mod)(Arc::new(Counter));
+            context.register_command(
+                command("counter", "Give yourself a demo:counter").executes(GiveCounter(host)),
+                "minecraft:command.help",
+            );
+            Ok(())
+        })
     }
 }
 
-register_plugin!(CounterPlugin);
+moddedmc_api::export_plugin!(CounterPlugin, "counter", "demo:counter content fixture");
 
 #[cfg(test)]
 mod tests {

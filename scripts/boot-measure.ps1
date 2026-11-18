@@ -1,6 +1,6 @@
 # Boots the pinned Pumpkin build in a run dir, optionally with mods, and records
 # startup time, resident memory and CPU use at idle. Usage:
-#   scripts\boot-measure.ps1 -RunDir run\baseline [-Mods target\wasm32-wasip2\release\hello.wasm] [-IdleSeconds 60] [-Commands hello]
+#   scripts\boot-measure.ps1 -RunDir run\baseline [-Mods engine\pumpkin\target\release\counter.dll] [-IdleSeconds 60] [-Commands counter]
 param(
     [Parameter(Mandatory)] [string]$RunDir,
     [string[]]$Mods = @(),

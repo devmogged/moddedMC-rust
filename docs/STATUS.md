@@ -130,3 +130,28 @@ Top 500 server-capable Fabric 26.3 mods are frozen in `recompiler/corpus/top500.
 
 - Repeated agent restarts get playit API rate limits (`TooManyRequests`); a second agent on the same key steals the tunnel. The check kills leftover processes when it fails.
 - On Windows, killing `moddedmc` itself does not stop Pumpkin; Ctrl+C reaches both because they share the console.
+
+## Native mods (2026-11-18)
+
+Mods are now native Rust plugins (`.dll`/`.so`) loaded by Pumpkin's own native loader, instead of WASM components under Wasmtime. Design and rules: [ARCHITECTURE.md](ARCHITECTURE.md). The WIT content API, the WASM extension hooks in the engine patch (now 18 KB) and the wasi-sdk path of the recompiler are gone.
+
+### Verified (release build)
+
+- `tests/scenarios/m1-counter.txt` and `m2-wayshrine.txt` pass with `counter.dll` and `wayshrine.dll`.
+- The unchanged `sethome-1.0.0.jar`, recompiled by TeaVM to C, compiled with the system clang and linked into `fabric-host`, passes `tests/oracle/sethome.txt` as `sethome.dll`. Server start with it loaded: 84–179 ms, with no compile step (WASM: 2.2 s first start, 171 ms cached).
+
+### Benchmark: 10,000 counters (`tests/bench/m1-counters.txt`)
+
+The baseline was re-measured in the same session: this machine ran slower than for the M1 numbers (no-mods p50 was 5.0–5.6 ms then).
+
+| Run (same session) | Tick p50 (ms) | p95 (ms) | p99 (ms) | RSS (MB) |
+| --- | --- | --- | --- | --- |
+| No mods, 10,000 vanilla barrels | 4.6–6.9 | 6.5–11.3 | 8.6–13.0 | 305 |
+| Native, 10,000 `demo:counter` | 8.0–9.9 | 12.5–14.7 | 15.9–17.9 | 303–337 |
+
+Host stages per tick at 500 due entries: mod call 0.04–0.05 ms (WASM was 0.38–0.40 ms, so the boundary is about 8x cheaper), batch collection (reading NBT state) 0.82–0.93 ms, writing state back 2.2–2.5 ms, index rebuild 0.41–0.45 ms (once a second, averaged). The plugin boundary is no longer the cost: writing state through to chunk NBT is (the M2 write-through fix). Keeping state in host memory and writing NBT only when the chunk saves is the next speed-up.
+
+### Costs
+
+- A release mod `.dll` is 41–43 MB: each carries its own optimized copy of Pumpkin's core. Linking one takes about 5 minutes (fat LTO).
+- Mods are trusted, unsandboxed code, and must be rebuilt whenever the server is.

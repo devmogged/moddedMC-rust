@@ -80,7 +80,7 @@ fn parse(args: &str) -> Option<Request> {
     }
 }
 
-pub async fn run_queued(server: &Arc<Server>) {
+pub fn run_queued(server: &Arc<Server>) {
     let requests = std::mem::take(&mut *lock(&HOST.console));
     if requests.is_empty() {
         return;
@@ -100,14 +100,14 @@ pub async fn run_queued(server: &Arc<Server>) {
                 block,
                 count,
                 origin,
-            } => place(&world, &block, count, origin).await,
+            } => place(&world, &block, count, origin),
             Request::Dump { block, limit } => dump(&world, &block, limit),
         }
     }
 }
 
 /// Places `count` blocks in a square grid on the plane at `origin.y`, one block apart.
-async fn place(world: &Arc<World>, id: &str, count: u32, origin: BlockPos) {
+fn place(world: &Arc<World>, id: &str, count: u32, origin: BlockPos) {
     let block_idx = read(&HOST.registry).block(id);
     let Some(block_idx) = block_idx else {
         tracing::warn!("moddedmc place: unknown block {id}");
@@ -116,7 +116,7 @@ async fn place(world: &Arc<World>, id: &str, count: u32, origin: BlockPos) {
     let side = (f64::from(count).sqrt().ceil() as i32).max(1);
     let placed = place_grid(world, block_idx, count, origin, side);
     for &pos in &placed {
-        notify_placed(world, pos, block_idx, None).await;
+        notify_placed(world, pos, block_idx, None);
     }
     tracing::info!(
         "moddedmc place: placed {}/{count} {id} from {origin:?} ({side} per row)",

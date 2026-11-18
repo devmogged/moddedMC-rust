@@ -1,13 +1,17 @@
 [package]
 name = "counter"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
-license.workspace = true
+license = "GPL-3.0-only"
 description = "demo:counter, the M1 content fixture: a block whose block entity counts seconds."
+# Native plugin: built in the server's workspace so types match the server exactly.
+workspace = "../../engine/pumpkin"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-pumpkin-plugin-api.workspace = true
-wit-bindgen.workspace = true
+moddedmc-api.workspace = true
+
+[lints]
+workspace = true
