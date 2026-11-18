@@ -237,6 +237,13 @@ impl Servers {
         })
     }
 
+    /// The console lines the agent keeps for a server, oldest first.
+    pub async fn backlog(&self, name: &str) -> Option<Vec<String>> {
+        let managed = self.existing(name).await?;
+        let guard = managed.lock().await;
+        Some(guard.backlog.iter().cloned().collect())
+    }
+
     pub async fn is_running(&self, name: &str) -> bool {
         match self.existing(name).await {
             Some(managed) => managed.lock().await.running.is_some(),

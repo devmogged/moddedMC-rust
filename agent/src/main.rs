@@ -8,6 +8,7 @@ mod config;
 mod device;
 mod external;
 mod mods;
+mod pregen;
 mod pumpkin_config;
 mod servers;
 
@@ -60,6 +61,11 @@ async fn main() {
         .route("/v1/servers/{name}/console", get(servers::console))
         .route("/v1/servers/{name}/deploy", post(servers::deploy))
         .route("/v1/servers/{name}/mods", get(mods::list))
+        .route(
+            "/v1/servers/{name}/pregen",
+            get(pregen::get).post(pregen::start),
+        )
+        .route("/v1/servers/{name}/pregen/{action}", post(pregen::control))
         .route(
             "/v1/servers/{name}/backups",
             get(backups::list).post(backups::create),

@@ -47,7 +47,9 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
 | POST | `/v1/servers/<name>/backups`, GET likewise | Take and list backups of the server folder (all of it but `logs/`, `stats.json`, `session.lock` and dotfiles). Files are cut into content-defined chunks (FastCDC, about 64 KiB) stored once each, so a backup costs only what changed. A running server gets `save-off`, `save-all flush` (the agent waits for "Saved the game") and `save-on` around it. |
 | POST | `/v1/servers/<name>/backups/<id>/restore` | Stopped servers only: the folder goes back to that backup, chunk hashes checked, files it didn't have removed. |
 | DELETE | `/v1/servers/<name>/backups/<id>` | Removes the backup and any chunks no other backup uses. |
-| POST | `/v1/servers/<name>/pregen` | Start pregeneration with `{radius, center}`; progress comes over the console socket. |
+| POST | `/v1/servers/<name>/pregen` | Start pregeneration on a running server whose pack has `port-chunky`: `{radius, center_x, center_z, circle}`. 409 when the server doesn't answer `chunky start` (no port, or a task is running). |
+| GET | `/v1/servers/<name>/pregen` | Progress read from the port's `[Chunky]` lines: state (`idle`, `running`, `paused`, `finished`, `cancelled`), world, chunks, percent, ETA, chunks per second. |
+| POST | `/v1/servers/<name>/pregen/pause`, `/continue`, `/cancel` | Control the running task. |
 
 Stats come from the server itself: pack servers started with `MODDEDMC_STATS=1` write `stats.json` every two seconds (`engine/moddedmc-host/src/live_stats.rs`). The agent never polls with game commands.
 
