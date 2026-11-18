@@ -2,7 +2,7 @@
 resolver = "3"
 # The server (engine/pumpkin) is its own workspace. Everything here talks to it only through the
 # stable mod ABI in api/, so none of it has to match the server's build.
-members = ["host", "api", "mods/*", "recompiler/fabric-host"]
+members = ["host", "api", "mods/*", "recompiler/fabric-host", "agent"]
 exclude = ["engine"]
 
 [workspace.package]
