@@ -1,0 +1,12 @@
+[package]
+name = "drivetrain"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "A Create-style drivetrain on moddedmc:blocks/1: motors, shafts, cogs, clutches and loads."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true

@@ -1,0 +1,121 @@
+# The first-proof drivetrain (docs/DECISIONS.md): motor, shafts across a chunk border (x 3088),
+# small and large cogs, a clutch and a load, all blocks/1 blocks from one .mmc. Checks speeds,
+# direction and the 2:1 gear, the clutch, overstress and recovery, a network split and repair,
+# a chunk reload, a restart, and removing and re-adding the mod.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\drivetrain.txt -RunDir run\drivetrain -Fresh
+#
+# Rig (base 3080 100 3080: the bot stands at y 100.9; axis x): motor 3080, shafts 3081-3089, cog 3090 z3080, cog 3090
+# z3081 (-16), large cog 3090 y101 z3082 (+8), shaft 3091, clutch 3092, shaft 3093, load 3094.
+mods target\mods\drivetrain.mmc
+start
+wait 1
+expect defined block drivetrain:load \(6 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd tp tester 3080.5 101 3080.5
+wait 3
+cmd fill 3078 99 3078 3096 106 3086 minecraft:air
+wait 1
+bot cmd dtbuild
+wait 2
+expect \[bot\] chat: .*dtbuild: 17 parts at 3080 100 3080
+cmd tp tester 3086.5 101 3076.5
+wait 1
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: running motor@3080,100,3080=16 .*shaft@3089,100,3080=16 cog@3090,100,3080=16 cog@3090,100,3081=-16 large_cog@3090,101,3082=8 .*clutch@3092,101,3082=8 .*load@3094,101,3082=8
+
+# Clutch: powered, it cuts the rest off. The neighbor event alone re-solves: the load goes dark
+# before anyone asks for speeds.
+cmd setblock 3092 102 3082 minecraft:redstone_block
+wait 1
+bot cmd dtlamps
+wait 1
+expect \[bot\] chat: .*dtlamps: 3094,101,3082=false
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: running .*clutch@3092,101,3082=8\s*$
+cmd setblock 3092 102 3082 minecraft:air
+wait 1
+bot cmd dtlamps
+wait 1
+expect \[bot\] chat: .*dtlamps: 3094,101,3082=true
+
+# Overstress: a second load on the large cog needs 2 x 256 stress; the motor gives 256.
+cmd setblock 3089 101 3082 drivetrain:load
+wait 1
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: overstressed .*load@3094,101,3082=0
+cmd setblock 3089 101 3082 minecraft:air
+wait 1
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: running .*load@3094,101,3082=8
+
+# Split and repair.
+cmd setblock 3085 100 3080 minecraft:air
+wait 1
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: running motor@3080,100,3080=16 shaft@3081,100,3080=16 shaft@3082,100,3080=16 shaft@3083,100,3080=16 shaft@3084,100,3080=16\s*$
+cmd setblock 3085 100 3080 drivetrain:shaft
+wait 1
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: running .*load@3094,101,3082=8
+
+# Chunk reload.
+cmd tp tester 9025.5 120 9025.5
+wait 8
+cmd tp tester 3086.5 101 3076.5
+wait 3
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: running .*large_cog@3090,101,3082=8 .*load@3094,101,3082=8
+reject (?i)panic|panicked
+bot quit
+stop
+
+# Restart.
+start
+wait 1
+botstart tester
+wait 3
+cmd tp tester 3086.5 101 3076.5
+wait 3
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: running .*load@3094,101,3082=8
+bot quit
+stop
+
+# Remove the mod, touch the chunks, put it back.
+unmod drivetrain.mmc
+start
+wait 1
+expect no mod defines drivetrain:shaft
+botstart tester
+wait 3
+cmd tp tester 3086.5 101 3076.5
+wait 3
+cmd setblock 3086 104 3086 minecraft:stone
+cmd setblock 3090 104 3086 minecraft:stone
+wait 1
+bot quit
+stop
+mods target\mods\drivetrain.mmc
+start
+wait 1
+botstart tester
+wait 3
+cmd tp tester 3086.5 101 3076.5
+wait 3
+bot cmd dtspeeds
+wait 1
+expect \[bot\] chat: .*dtspeeds: running .*large_cog@3090,101,3082=8 .*load@3094,101,3082=8
+reject (?i)panic|panicked
+bot quit
+stop

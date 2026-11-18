@@ -288,6 +288,12 @@ pub struct BlocksV1 {
         appearances: *const Str,
         appearance_count: usize,
     ) -> i32,
+    /// Sends the block at `pos` a [`block_event::TICK`] `delay` ticks from now (at least 1), if
+    /// it is still one of this mod's blocks then. Scheduled ticks are not saved: after a restart,
+    /// schedule again. False if there is no such dimension.
+    pub schedule_tick: unsafe extern "C" fn(dimension: Str, pos: Pos, delay: u32) -> bool,
+    /// Whether the block at `pos` receives redstone power: 1 yes, 0 no, -1 not loaded.
+    pub is_powered: unsafe extern "C" fn(dimension: Str, pos: Pos) -> i32,
 }
 
 /// What happened to a `blocks/1` block, in [`BlockEvent::kind`].
@@ -298,6 +304,11 @@ pub mod block_event {
     pub const PLACE: u32 = 1;
     /// It is being broken; `state` is its last state.
     pub const BREAK: u32 = 2;
+    /// A tick it asked for with [`super::BlocksV1::schedule_tick`].
+    pub const TICK: u32 = 3;
+    /// A neighboring block changed (also redstone power). Delivered at the start of the next
+    /// server tick, once per block and tick.
+    pub const NEIGHBOR: u32 = 4;
 }
 
 #[repr(C)]
@@ -445,6 +456,8 @@ mod layout {
     fn blocks_v1() {
         assert_eq!(offset_of!(BlocksV1, size), 0);
         assert_eq!(offset_of!(BlocksV1, define_block), 8);
+        assert_eq!(offset_of!(BlocksV1, schedule_tick), 16);
+        assert_eq!(offset_of!(BlocksV1, is_powered), 24);
         assert_eq!(offset_of!(BlockEvent, dimension), 8);
         assert_eq!(offset_of!(BlockEvent, pos), 24);
         assert_eq!(offset_of!(BlockEvent, state), 36);

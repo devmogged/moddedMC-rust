@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "drivetrain"
+version = "0.1.0"
+dependencies = [
+ "moddedmc-api",
+]
+
+[[package]]
 name = "fabric-host"
 version = "0.3.0"
 dependencies = [

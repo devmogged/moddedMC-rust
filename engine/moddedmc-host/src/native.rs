@@ -666,7 +666,30 @@ unsafe extern "C" fn state_name(state: u32, out: Sink) -> bool {
 static BLOCKS: BlocksV1 = BlocksV1 {
     size: size_of::<BlocksV1>(),
     define_block,
+    schedule_tick,
+    is_powered,
 };
+
+unsafe extern "C" fn schedule_tick(dimension: Str, pos: Pos, delay: u32) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some(world) = world(unsafe { dimension.str() }) else {
+        return false;
+    };
+    crate::schedule_tick(&world, block_pos(&pos), delay.max(1));
+    true
+}
+
+unsafe extern "C" fn is_powered(dimension: Str, pos: Pos) -> i32 {
+    // SAFETY: borrowed for the call.
+    let Some(world) = world(unsafe { dimension.str() }) else {
+        return -1;
+    };
+    let pos = block_pos(&pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return -1;
+    }
+    i32::from(pumpkin_core::block::blocks::redstone::block_receives_redstone_power(&world, &pos))
+}
 
 /// Modded block -> index of the mod that defined it, set once by [`define_blocks`].
 static OWNERS: OnceLock<HashMap<u16, usize>> = OnceLock::new();

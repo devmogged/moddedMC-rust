@@ -35,6 +35,6 @@ Project-level decisions and why. Agents and people working on any branch read th
 1. `query_interface` and `moddedmc:world/1` (batched block reads and writes). Done on branch `abi/interfaces`.
 2. `moddedmc:blocks/1`: real modded blocks with states, items and interactions. Done on branch `abi/interfaces` (see below); custom shapes and the resource pack come later.
    Removing a mod keeps its blocks as inert placeholders (part of step 5).
-3. Ordered block, neighbor, redstone and chunk events for `world`.
-4. The drivetrain proof.
+3. Block events: neighbor (with redstone power) and scheduled ticks for `blocks/1` blocks, delivered in order at the start of each tick. Done on branch `abi/interfaces`; chunk load events are still to do.
+4. The drivetrain proof: `mods/drivetrain` and `tests/scenarios/drivetrain.txt` (motor, shafts across a chunk border, small and large cogs at 2:1, clutch, load, overstress and recovery, split and repair, chunk reload, restart, removing and re-adding the mod). Done on branch `abi/interfaces`, with these gaps: speeds follow Create's rules but were not compared against a running Create; a stock client was not tried; the same file was not run on a second server build; nothing was measured on a Pi 5.
 5. `entities/1`, `menus/1`, `worldgen/1` as the dragon and boss ports need them.

@@ -66,7 +66,8 @@ What the SDK offers:
 | `Mod::command` | One of your commands ran. `reply` answers the player or the console. |
 | `Mod::menu_click` | A player picked a button of a menu (`Player::show_menu`). Every mod sees every click: check the action id is yours. |
 | `Mod::define_blocks` | Once, before any world loads: `blocks.block("shaft:shaft", &[("axis", &["x", "y", "z"])], &[look-alikes])` defines a real modded block (`moddedmc:blocks/1`). |
-| `Mod::block_event` | A player used, placed or broke one of your `blocks/1` blocks. Return true from a use to skip the look-alike's own interaction. |
+| `Mod::block_event` | One of your `blocks/1` blocks was used, placed, broken, ticked, or a neighbor changed. Return true from a use to skip the look-alike's own interaction. |
+| `blocks::get()` | `schedule_tick(dimension, pos, delay)` and `is_powered(dimension, pos)` for `blocks/1` blocks. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
 | `world::get()` | The `moddedmc:world/1` interface, if the server has it: `get_blocks`, `set_blocks` (batched, any vanilla block state), `state_id("minecraft:oak_log[axis=x]")`, `state_name(id)`. State ids are valid for this Minecraft version only: keep them in memory, save names. |
@@ -79,7 +80,7 @@ Rules:
 - Block entity state is opaque bytes, at most 64 KiB, saved with the chunk. Bump `state_version` when its layout changes; the server will not hand old-layout state to the new code.
 - You do not need the server's source, compiler version or build to build a mod. Any Rust toolchain that builds `api/` works.
 
-`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface) and `mods/shaft` (a `blocks/1` block) are complete examples.
+`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block) and `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress) are complete examples.
 
 ### Modded blocks (`blocks/1`)
 
@@ -87,7 +88,9 @@ A `blocks/1` block is a real block: its states have their own ids, the world sav
 
 - Define blocks in `define_blocks`; it runs before any world loads, and an error disables all of that mod's blocks.
 - `Player::give_block("shaft:shaft")` gives the look-alike's item, tagged. Placing it places your block in the state whose look-alike matches what the player placed (so `facing` and `axis` carry over), then sends `Place`.
-- `Use`, `Place` and `Break` arrive in `block_event`. Breaking drops the item. There is no ticking yet: keep your own list of positions and use `world` from a block entity tick or a command.
+- `Use`, `Place`, `Break`, `Tick` and `Neighbor` arrive in `block_event`. Breaking drops the item. `Tick` comes when you asked for it with `blocks::get()?.schedule_tick(...)`; scheduled ticks are not saved, so schedule again after a restart (keep the positions you need in your data folder, as `mods/drivetrain` does with its motors). `Neighbor` comes once per block and tick when a block next to it changed, including redstone power; read the power with `is_powered`.
+- Events arrive at the start of a server tick, never in the middle of a world update, so it is safe to read and write blocks from them.
+- There are no chunk load events yet: a mod that must notice its blocks loading uses a periodic tick, like the drivetrain's motors.
 - Property names and values use lowercase letters, digits, `_`, `-` and `.`.
 
 ## The ABI
@@ -122,9 +125,9 @@ Interfaces:
 | Name | Since | What |
 | --- | --- | --- |
 | `moddedmc:world/1` | 1.1 | Batched block reads and writes by state id (vanilla and `blocks/1`); state names to ids and back. |
-| `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`. Events come through `ModApi::block_event`. |
+| `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`; `schedule_tick`, `is_powered`. Events come through `ModApi::block_event`. |
 
-Planned, in the order a Create kinetics port needs them (see [DECISIONS.md](DECISIONS.md)): more of `world` (ordered block, neighbor, redstone and chunk events, ticking modded blocks), then `entities/1`, `menus/1` and `worldgen/1`.
+Planned (see [DECISIONS.md](DECISIONS.md)): chunk load events, then `entities/1`, `menus/1` and `worldgen/1` as the dragon and boss ports need them.
 
 Packaging (`.mmc`): a zip with
 

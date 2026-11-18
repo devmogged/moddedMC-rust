@@ -67,6 +67,36 @@ pub(crate) fn table() -> Option<&'static BlocksV1> {
     interface::<BlocksV1>(abi::BLOCKS_V1)
 }
 
+/// The blocks interface, if the server offers it.
+#[must_use]
+pub fn get() -> Option<Blocks> {
+    table().map(Blocks)
+}
+
+/// Runtime services for `blocks/1` blocks.
+#[derive(Clone, Copy)]
+pub struct Blocks(&'static BlocksV1);
+
+impl Blocks {
+    /// Sends the block at `pos` a `Tick` event `delay` ticks from now (at least 1), if it is still
+    /// one of this mod's blocks. Not saved across restarts.
+    pub fn schedule_tick(&self, dimension: &str, pos: Pos, delay: u32) -> bool {
+        // SAFETY: borrowed for the call.
+        unsafe { (self.0.schedule_tick)(s(dimension), pos, delay) }
+    }
+
+    /// Whether the block at `pos` receives redstone power; `None` if it is not loaded.
+    #[must_use]
+    pub fn is_powered(&self, dimension: &str, pos: Pos) -> Option<bool> {
+        // SAFETY: borrowed for the call.
+        match unsafe { (self.0.is_powered)(s(dimension), pos) } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
     /// A player right-clicked the block.
@@ -75,6 +105,10 @@ pub enum EventKind {
     Place,
     /// It is being broken; `state` is its last state.
     Break,
+    /// A tick it asked for with [`Blocks::schedule_tick`].
+    Tick,
+    /// A neighboring block changed (also redstone power).
+    Neighbor,
 }
 
 /// Something happened to one of this mod's blocks.

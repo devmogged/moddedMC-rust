@@ -113,6 +113,8 @@ struct WorldIndex {
 
 /// (world, pos, block, player)
 type PendingPlace = (Weak<World>, BlockPos, usize, Option<Arc<Player>>);
+/// A block in a world that may unload.
+type At = (Weak<World>, BlockPos);
 /// (world, pos, modded block, player)
 type PendingModded = (Weak<World>, BlockPos, &'static Block, Arc<Player>);
 
@@ -124,6 +126,10 @@ struct Host {
     pending_places: Mutex<Vec<PendingPlace>>,
     /// Placed `blocks/1` items whose vanilla look-alike becomes the modded block this tick.
     pending_modded: Mutex<Vec<PendingModded>>,
+    /// `blocks/1` blocks whose neighbors changed, delivered at the next tick.
+    neighbors: Mutex<Vec<At>>,
+    /// Scheduled `blocks/1` ticks by due server tick.
+    scheduled: Mutex<std::collections::BTreeMap<i64, Vec<At>>>,
     index: Mutex<Vec<WorldIndex>>,
     /// Console requests waiting for the next tick.
     console: Mutex<Vec<console::Request>>,
@@ -178,6 +184,7 @@ pub fn attach(server: &Arc<Server>) {
         EventPriority::Normal,
         true,
     );
+    let _ = pumpkin_core::block::MODDED_NEIGHBOR_HOOK.set(on_modded_neighbor);
     stats::attach(server);
 }
 
@@ -318,6 +325,7 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
         Box::pin(async move {
             register_new_mods(server);
             apply_pending_places();
+            deliver_block_events(event.tick);
             console::run_queued(server);
             if event.tick % DISCOVERY_INTERVAL == 0 {
                 let started = Instant::now();
@@ -994,6 +1002,52 @@ fn modded_at(world: &World, pos: BlockPos) -> Option<BlockStateId> {
     world
         .get_block_state_id_if_loaded(&pos)
         .filter(|s| modded::is_modded(*s))
+}
+
+/// Runs inside a world update: only queue.
+fn on_modded_neighbor(world: &Arc<World>, pos: &BlockPos) {
+    lock(&HOST.neighbors).push((Arc::downgrade(world), *pos));
+}
+
+fn schedule_tick(world: &Arc<World>, pos: BlockPos, delay: u32) {
+    let now = native::SERVER.get().map_or(0, |s| {
+        s.tick_count.load(std::sync::atomic::Ordering::Relaxed)
+    });
+    let due = i64::from(now) + i64::from(delay);
+    lock(&HOST.scheduled)
+        .entry(due)
+        .or_default()
+        .push((Arc::downgrade(world), pos));
+}
+
+/// Neighbor updates since the last tick, once per block, then the ticks due now.
+fn deliver_block_events(tick: i32) {
+    let mut neighbors = std::mem::take(&mut *lock(&HOST.neighbors));
+    let mut seen = HashSet::new();
+    neighbors.retain(|(w, pos)| seen.insert((w.as_ptr(), *pos)));
+    let due: Vec<_> = {
+        let mut scheduled = lock(&HOST.scheduled);
+        let later = scheduled.split_off(&(i64::from(tick) + 1));
+        std::mem::replace(&mut *scheduled, later)
+            .into_values()
+            .flatten()
+            .collect()
+    };
+    let events = neighbors
+        .into_iter()
+        .map(|e| (abi::block_event::NEIGHBOR, e))
+        .chain(due.into_iter().map(|e| (abi::block_event::TICK, e)));
+    for (kind, (world, pos)) in events {
+        let Some(world) = world.upgrade() else {
+            continue;
+        };
+        let Some(state) = modded_at(&world, pos) else {
+            continue;
+        };
+        if let Some(module) = native::owner(state).and_then(module) {
+            module.block_event(kind, &world, pos, state, None);
+        }
+    }
 }
 
 /// Menu clicks go to every mod; each acts only on its own action ids.

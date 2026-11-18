@@ -76,6 +76,25 @@ index d4fe77a5f..4c9858843 100644
  pumpkin-data = { path = "crates/pumpkin-data", default-features = false }
  pumpkin-gametest = { path = "crates/pumpkin-gametest", default-features = false }
  pumpkin-inventory = { path = "crates/pumpkin-inventory", default-features = false }
+diff --git a/crates/pumpkin-core/src/block/mod.rs b/crates/pumpkin-core/src/block/mod.rs
+index c851ea4aa..35483ed38 100644
+--- a/crates/pumpkin-core/src/block/mod.rs
++++ b/crates/pumpkin-core/src/block/mod.rs
+@@ -17,6 +17,14 @@ pub mod fluid;
+ pub mod registry;
+ pub mod viewer;
+ 
++/// Called when a neighbor of a modded block (`pumpkin_data::modded`) changes.
++///
++/// Gets the world and the modded block's position. Modded blocks have no Pumpkin behaviour, so
++/// this hands the update to whoever installed them. It runs inside world updates: only queue.
++pub static MODDED_NEIGHBOR_HOOK: std::sync::OnceLock<
++    fn(&std::sync::Arc<crate::world::World>, &pumpkin_util::math::position::BlockPos),
++> = std::sync::OnceLock::new();
++
+ use crate::block::registry::BlockActionResult;
+ use crate::entity::EntityBase;
+ use crate::server::Server;
 diff --git a/crates/pumpkin-core/src/block/registry.rs b/crates/pumpkin-core/src/block/registry.rs
 index e11b9720f..2f8fd1ab6 100644
 --- a/crates/pumpkin-core/src/block/registry.rs
@@ -179,10 +198,22 @@ index 4fdd48b97..f435e7054 100644
 +    chunk_loading.send_change();
 +}
 diff --git a/crates/pumpkin-core/src/world/mod.rs b/crates/pumpkin-core/src/world/mod.rs
-index bf658e514..78fa95205 100644
+index bf658e514..5fc529f30 100644
 --- a/crates/pumpkin-core/src/world/mod.rs
 +++ b/crates/pumpkin-core/src/world/mod.rs
-@@ -8042,6 +8042,39 @@ impl World {
+@@ -6872,6 +6872,11 @@ impl World {
+             return;
+         }
+ 
++        if pumpkin_data::modded::is_modded(block.default_state.id)
++            && let Some(hook) = crate::block::MODDED_NEIGHBOR_HOOK.get()
++        {
++            hook(self, position);
++        }
+         if let Some(pumpkin_block) = self.block_registry.get_pumpkin_block(block.id) {
+             pumpkin_block.on_neighbor_update(OnNeighborUpdateArgs {
+                 world: self,
+@@ -8042,6 +8047,39 @@ impl World {
              namespace.into(),
              pumpkin_nbt::tag::NbtTag::Compound(namespace_data),
          );

@@ -20,7 +20,7 @@ What we never compromise on:
 
 - Root workspace (`api`, `mods/*`, `recompiler/fabric-host`, `host`): `cargo clippy --all-targets`, `cargo test`. Builds take seconds.
 - Engine workspace (`engine/pumpkin`, with `engine/moddedmc-host` and `engine/moddedmc-bot`): `cargo clippy -p moddedmc-host --tests` and `cargo test -p moddedmc-host`. Its lints deny `unwrap`, `expect`, `panic` and undocumented `unsafe`. A release server build takes about 17 minutes: start it in the background and do something else.
-- Behavior: `scripts\scenario.ps1` with the scenarios in `tests/scenarios/` (M1 counter, M2 wayshrine, `abi-world` and `abi-blocks` for the interfaces) and `tests/oracle/sethome.txt` (Fabric). Mods for scenarios come from `scripts\pack-mod.ps1 -Crate <name>` (into `target\mods\`).
+- Behavior: `scripts\scenario.ps1` with the scenarios in `tests/scenarios/` (M1 counter, M2 wayshrine, `abi-world`, `abi-blocks` and `drivetrain` for the interfaces) and `tests/oracle/sethome.txt` (Fabric). Mods for scenarios come from `scripts\pack-mod.ps1 -Crate <name>` (into `target\mods\`).
 - Report what you ran and what you saw. If you could not run something, say so.
 
 ## Issues and PRs
