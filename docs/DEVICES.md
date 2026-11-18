@@ -21,6 +21,7 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
   agent.toml              owner login, listen port, servers root
   servers/<name>/         one folder per server: the pack server binary, mods/, config/, world/
     server.json           pack id and version, target, created, last started
+    stats.json            written by the pack server every 2 s (MSPT, TPS, players) when started with MODDEDMC_STATS=1
     pumpkin.toml          the server's config; the agent sets only the Java port (from server.json) and, on create, offline mode, telemetry off and no Bedrock listener
   builds/<pack>-<hash>/   pack builds pushed by the app (binary + pack.lock), shared by servers
   backups/<name>/         content-addressed snapshots (see W3)

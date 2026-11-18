@@ -127,6 +127,39 @@ pub struct ServerInfo {
     pid: Option<u32>,
     uptime_secs: Option<u64>,
     exit_code: Option<i32>,
+    health: Option<Health>,
+}
+
+/// Tick health and players, from the `stats.json` the pack server writes every two seconds.
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub struct Health {
+    mspt: f64,
+    mspt_max: f64,
+    tps: f64,
+    tickrate: f64,
+    players: u32,
+    max_players: u32,
+}
+
+/// Older than this, `stats.json` is from a server that stopped writing it.
+const HEALTH_STALE_SECS: u64 = 6;
+
+async fn read_health(dir: &Path) -> Option<Health> {
+    #[derive(Deserialize)]
+    struct File {
+        at: u64,
+        #[serde(flatten)]
+        health: Health,
+    }
+    let text = tokio::fs::read_to_string(dir.join("stats.json"))
+        .await
+        .ok()?;
+    let file: File = serde_json::from_str(&text).ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    (now.saturating_sub(file.at) <= HEALTH_STALE_SECS).then_some(file.health)
 }
 
 /// A folder name is a server name: letters, digits, `-`, `_`, `.`, no path tricks.
@@ -178,6 +211,11 @@ impl Servers {
             };
             let managed = self.entry(&name).await;
             let managed = managed.lock().await;
+            let health = if managed.state == ServerState::Running {
+                read_health(&entry.path()).await
+            } else {
+                None
+            };
             out.push(ServerInfo {
                 name,
                 state: managed.state,
@@ -189,6 +227,7 @@ impl Servers {
                     .as_ref()
                     .map(|r| r.started.elapsed().as_secs()),
                 exit_code: managed.exit_code,
+                health,
             });
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -208,6 +247,8 @@ impl Servers {
         if let Some(port) = file.port {
             crate::pumpkin_config::apply_port(&dir, port).await;
         }
+        // Health from the last run would look live until it goes stale.
+        let _ = tokio::fs::remove_file(dir.join("stats.json")).await;
         let exe = if file.exe.is_absolute() {
             file.exe.clone()
         } else {
@@ -428,6 +469,7 @@ pub struct Stats {
     rss_bytes: Option<u64>,
     cpu_percent: Option<f32>,
     uptime_secs: Option<u64>,
+    health: Option<Health>,
 }
 
 pub async fn stats(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) -> Response {
@@ -463,11 +505,17 @@ pub async fn stats(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) 
         }
         None => (None, None),
     };
+    let health = if state == ServerState::Running {
+        read_health(&app.servers.root.join(&name)).await
+    } else {
+        None
+    };
     Json(Stats {
         state,
         rss_bytes,
         cpu_percent,
         uptime_secs: uptime,
+        health,
     })
     .into_response()
 }
