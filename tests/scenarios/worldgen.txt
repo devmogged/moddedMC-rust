@@ -8,6 +8,8 @@ expect defined block ores:zinc_ore \(1 states\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+# The join is done (spawn teleport confirmed) before any teleport.
+expect tester joined the game
 cmd op tester
 cmd tp tester 6008.5 120 6008.5
 wait 6

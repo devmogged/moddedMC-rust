@@ -12,8 +12,11 @@ botstart tester
 wait 3
 expect \[bot\] joined as tester
 expect offered the resource pack to tester
-# Vanilla commands take a modded block's own properties.
-cmd setblock 0 200 0 shaft:shaft[axis=x]
+# The join is done (spawn teleport confirmed) before any teleport.
+expect tester joined the game
+# Vanilla commands take a modded block's own properties (next to the player, so it is loaded).
+cmd tp tester 0.5 202 0.5
+cmduntil setblock 0 200 0 shaft:shaft[axis=x] ~> Changed the block at 0, 200, 0
 wait 1
 expect Changed the block at 0, 200, 0
 cmd setblock 0 201 0 shaft:shaft[axis=w]

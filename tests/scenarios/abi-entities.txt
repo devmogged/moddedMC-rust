@@ -8,10 +8,12 @@ expect registered command /wisp
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+# The join is done (spawn teleport confirmed) before any teleport.
+expect tester joined the game
 cmd op tester
 cmd tp tester 4097.5 100 4097.5
 wait 3
-cmd fill 4090 99 4090 4105 99 4105 minecraft:stone
+cmduntil fill 4090 99 4090 4105 99 4105 minecraft:stone ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 cmd fill 4090 100 4090 4105 106 4105 minecraft:air
 cmd tp tester 4097.5 100 4097.5
 wait 2

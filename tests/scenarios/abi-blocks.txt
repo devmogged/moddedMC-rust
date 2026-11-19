@@ -11,10 +11,12 @@ expect registered command /shaftgive
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+# The join is done (spawn teleport confirmed) before any teleport.
+expect tester joined the game
 cmd op tester
 cmd tp tester 3073.5 101 3071.5
 wait 3
-cmd fill 3070 99 3068 3077 106 3077 minecraft:air
+cmduntil fill 3070 99 3068 3077 106 3077 minecraft:air ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 cmd setblock 3073 99 3073 minecraft:stone
 wait 2
 
@@ -60,7 +62,7 @@ wait 3
 cmd tp tester 3073.5 101 3071.5
 wait 3
 # Touch the chunk so it is written again.
-cmd setblock 3075 100 3075 minecraft:stone
+cmduntil setblock 3075 100 3075 minecraft:stone ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 wait 1
 bot quit
 stop

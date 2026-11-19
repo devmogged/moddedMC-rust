@@ -10,12 +10,15 @@ expect registered block demo:counter \(stand-in minecraft:barrel\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+# The join is done (spawn teleport confirmed) before the next teleport.
+expect tester joined the game
 cmd op tester
 cmd tp tester 1025.5 101 1023.5
 wait 3
 # Random seeds can put terrain here; clear a pocket so the bot is not stuck in a hill.
-cmd fill 1020 99 1018 1030 106 1030 minecraft:air
-cmd setblock 1025 99 1025 minecraft:stone
+# Until the area is loaded (slow servers, e.g. ARM64 under QEMU, take longer than the wait).
+cmduntil fill 1020 99 1018 1030 106 1030 minecraft:air ~> Successfully filled|No blocks were filled
+cmduntil setblock 1025 99 1025 minecraft:stone ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 cmd setblock 1027 100 1025 minecraft:barrel
 wait 1
 
@@ -63,7 +66,7 @@ wait 0.5
 expect demo:counter at 1025 100 1025 state=(0[6-9a-f]|1[0-9a-f])00000000000000
 
 # Breaking it drops the custom item and removes it from the host.
-cmd setblock 1025 100 1025 minecraft:air destroy
+cmduntil setblock 1025 100 1025 minecraft:air destroy ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 wait 1
 expect broke demo:counter at
 cmd moddedmc dump demo:counter

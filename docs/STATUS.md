@@ -197,7 +197,9 @@ The server and mods build for the Pi 5 (`aarch64-unknown-linux-gnu`, glibc 2.36 
 
 - The ARM64 server starts ("Started server; took 806 ms" with no mods, 882 ms with one; about 157 MB resident including QEMU).
 - It loads `pillar.mmc` from its `linux-aarch64.so` (37 ms); the bot joins and `/pillar` and `/pillarstruct` work.
-- The scenarios on ARM64: `scripts\scenario.ps1 -Exe <wrapper> -WaitScale 4`, where the wrapper is a `.cmd` running `wsl.exe -- qemu-aarch64 -L <arm64 glibc root> <ARM64 pumpkin>` (mods packed with `-Pi`). abi-world, abi-blocks, menus, biomes, drivetrain, worldgen, resource-pack and m2-wayshrine pass. abi-entities passed on its second run (its first missed the cactus damage step under emulation). m1-counter cannot pass emulated: its expected counts are calibrated to wall time at a scale of 1, and at that scale its setup commands run before the slow emulated chunk generation loads the area. Its log still shows the counter surviving a chunk reload (5, unloaded, then 9).
+- All 10 scenarios pass on ARM64 at normal speed: `scripts\scenario.ps1 -Exe <wrapper>`, where the wrapper is a `.cmd` running `wsl.exe -- qemu-aarch64 -L <arm64 glibc root> <ARM64 pumpkin>` (mods packed with `-Pi`). Getting there fixed two things that a slow server exposed:
+  - Engine: Pumpkin kicked a player whose teleport confirmation answered an older teleport ("Wrong teleport id"), e.g. `/tp` sent before the client confirmed its spawn. Vanilla ignores those confirmations; so does the engine now. On a slow server or a laggy connection this kicked real players.
+  - Scenarios: `expect` waits up to 10 s for its line, and the first world edit after a teleport uses `cmduntil` (resend until the area is loaded and the command takes) instead of a fixed wait.
 - Not measured: startup, tick time and memory on a real Pi 5.
 
 ## Stock 26.3 client (2026-11-19)

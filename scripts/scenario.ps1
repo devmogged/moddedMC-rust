@@ -6,8 +6,9 @@
 #   http <url>               download a URL and log "http: <status> <bytes> bytes sha1 <hash>"
 #   start                    start the server and wait until it is ready
 #   cmd <console line>       send a console line
+#   cmduntil <line> ~> <re>  resend a console line (or `bot <step>`) each second, up to 60 s, until a new log line matches
 #   wait <seconds>
-#   expect <regex>           fail unless a log line since the previous expect/start matches
+#   expect <regex>           fail unless a log line since the previous expect/start matches (waits up to 10 s)
 #   expectany <regex>        like expect, but leaves the position alone (for lines in no set order)
 #   reject <regex>           fail if any log line since the previous expect/start matches
 #   stop                     send stop and wait for exit
@@ -20,8 +21,7 @@ param(
     [switch]$Fresh,
     [string]$Exe = 'engine\pumpkin\target\release\pumpkin.exe',
     [string]$BotExe = 'engine\pumpkin\target\debug\moddedmc-bot.exe',
-    [string]$ExeArgs = '',  # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
-    [double]$WaitScale = 1  # stretches every wait, for a slow server (ARM64 under QEMU: 4)
+    [string]$ExeArgs = ''   # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -113,6 +113,17 @@ foreach ($raw in Get-Content $Scenario) {
             } catch { $script:log.Enqueue("http: failed $_") }
         }
         'cmd' { $script:p.StandardInput.WriteLine($arg) }
+        'cmduntil' {
+            $line, $re = $arg -split '\s*~>\s*', 2
+            $ok = $false
+            for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+                if ($line -like 'bot *') { $script:bot.StandardInput.WriteLine($line.Substring(4)) }
+                else { $script:p.StandardInput.WriteLine($line) }
+                Start-Sleep -Seconds 1
+                $ok = [bool](@(Get-NewLines) | Where-Object { $_ -match $re })
+            }
+            if (-not $ok) { Write-Host "  FAIL: /$re/ never followed '$line'" -ForegroundColor Red; $failures++ }
+        }
         'botstart' {
             $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $BotExe), "127.0.0.1:25565 $arg")
             $psi.UseShellExecute = $false
@@ -138,12 +149,17 @@ foreach ($raw in Get-Content $Scenario) {
             $script:log.Enqueue($line)
             Write-Host "  $line"
         }
-        'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000 * $WaitScale)) }
+        'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000)) }
         'expect' {
             # Consume up to the first match only, so the next expect can match later lines.
-            $new = @(Get-NewLines)
-            $i = 0
-            while ($i -lt $new.Count -and $new[$i] -notmatch $arg) { $i++ }
+            $deadline = (Get-Date).AddSeconds(10)
+            do {
+                $new = @(Get-NewLines)
+                $i = 0
+                while ($i -lt $new.Count -and $new[$i] -notmatch $arg) { $i++ }
+                if ($i -lt $new.Count) { break }
+                Start-Sleep -Milliseconds 200
+            } while ((Get-Date) -lt $deadline)
             if ($i -lt $new.Count) { Write-Host "  ok: $($new[$i])" -ForegroundColor Green; $script:cursor += $i + 1 }
             else { Write-Host "  FAIL: no line matches /$arg/" -ForegroundColor Red; $failures++ }
         }

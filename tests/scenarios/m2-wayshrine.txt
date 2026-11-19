@@ -12,11 +12,13 @@ expect registered block wayshrine:shrine \(stand-in minecraft:barrel\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+# The join is done (spawn teleport confirmed) before any teleport.
+expect tester joined the game
 cmd op tester
 cmd tp tester 1025.5 101 1023.5
 wait 3
 # Random seeds can put terrain here; clear a pocket so the bot is not stuck in a hill.
-cmd fill 1020 99 1018 1046 106 1030 minecraft:air
+cmduntil fill 1020 99 1018 1046 106 1030 minecraft:air ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 cmd setblock 1025 99 1025 minecraft:stone
 cmd setblock 1041 99 1025 minecraft:stone
 wait 1
@@ -65,6 +67,8 @@ expect registered block wayshrine:shrine
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+# The join is done (spawn teleport confirmed) before any teleport.
+expect tester joined the game
 cmd tp tester 1041.5 101 1023.5
 wait 4
 bot use 1041 100 1025
@@ -72,7 +76,7 @@ wait 1
 expect \[bot\] dialog: .*Wayshrine 1025 100 1025
 
 # Breaking A drops its item and removes it from every menu.
-cmd setblock 1025 100 1025 minecraft:air destroy
+cmduntil setblock 1025 100 1025 minecraft:air destroy ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 wait 1
 expect broke wayshrine:shrine at
 bot use 1041 100 1025

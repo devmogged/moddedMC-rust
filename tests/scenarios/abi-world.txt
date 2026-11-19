@@ -11,10 +11,12 @@ expect registered command /pillar
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+# The join is done (spawn teleport confirmed) before any teleport.
+expect tester joined the game
 cmd op tester
 cmd tp tester 2049.5 101 2049.5
 wait 3
-cmd fill 2045 99 2045 2055 110 2055 minecraft:air
+cmduntil fill 2045 99 2045 2055 110 2055 minecraft:air ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 cmd setblock 2049 100 2049 minecraft:stone
 wait 2
 bot cmd pillar

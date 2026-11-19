@@ -13,10 +13,12 @@ expect defined block drivetrain:load \(6 states\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+# The join is done (spawn teleport confirmed) before any teleport.
+expect tester joined the game
 cmd op tester
 cmd tp tester 3080.5 101 3080.5
 wait 3
-cmd fill 3078 99 3078 3096 106 3086 minecraft:air
+cmduntil fill 3078 99 3078 3096 106 3086 minecraft:air ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 wait 1
 bot cmd dtbuild
 wait 2
@@ -29,7 +31,7 @@ expect \[bot\] chat: .*dtspeeds: running motor@3080,100,3080=16 .*shaft@3089,100
 
 # Clutch: powered, it cuts the rest off. The neighbor event alone re-solves: the load goes dark
 # before anyone asks for speeds.
-cmd setblock 3092 102 3082 minecraft:redstone_block
+cmduntil setblock 3092 102 3082 minecraft:redstone_block ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 wait 1
 bot cmd dtlamps
 wait 1
@@ -38,9 +40,7 @@ bot cmd dtspeeds
 wait 1
 expect \[bot\] chat: .*dtspeeds: running .*clutch@3092,101,3082=8\s*$
 cmd setblock 3092 102 3082 minecraft:air
-wait 1
-bot cmd dtlamps
-wait 1
+cmduntil bot cmd dtlamps ~> dtlamps: 3094,101,3082=true
 expect \[bot\] chat: .*dtlamps: 3094,101,3082=true
 
 # Overstress: a second load on the large cog needs 2 x 256 stress; the motor gives 256.
@@ -101,7 +101,7 @@ botstart tester
 wait 3
 cmd tp tester 3086.5 101 3076.5
 wait 3
-cmd setblock 3086 104 3086 minecraft:stone
+cmduntil setblock 3086 104 3086 minecraft:stone ~> Successfully filled|No blocks were filled|Changed the block|Could not set the block
 cmd setblock 3090 104 3086 minecraft:stone
 wait 1
 bot quit
