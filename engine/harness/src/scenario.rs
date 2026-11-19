@@ -215,23 +215,45 @@ impl Parser {
         {
             return Err("bot action requires a joined name and an action other than quit".into());
         }
-        let (verb, position) = split(input);
-        if input != "await-teleport"
-            && (!matches!(verb, "use" | "place" | "break")
-                || position.split_whitespace().count() != 3
-                || !position
-                    .split_whitespace()
-                    .all(|word| word.parse::<i32>().is_ok()))
-        {
-            return Err(
-                "supported bot actions are await-teleport, use x y z, place x y z, and break x y z"
-                    .into(),
-            );
+        let (verb, arguments) = split(input);
+        if !valid_bot_action(verb, arguments) {
+            return Err(format!("invalid arguments for bot action '{verb}'"));
         }
         Ok(Action::Bot {
             name: name.into(),
             input: input.into(),
         })
+    }
+}
+
+fn valid_bot_action(verb: &str, arguments: &str) -> bool {
+    let args = arguments.split_whitespace().collect::<Vec<_>>();
+    let coords = |words: &[&str]| {
+        words.len() == 3
+            && words
+                .iter()
+                .all(|word| word.parse::<f64>().is_ok_and(f64::is_finite))
+    };
+    match (verb, args.as_slice()) {
+        ("await-teleport", []) => true,
+        ("use" | "place" | "break", [x, y, z]) => [x, y, z]
+            .into_iter()
+            .all(|word| word.parse::<i32>().is_ok()),
+        ("move", position) => coords(position),
+        ("look", [yaw, pitch]) => {
+            yaw.parse::<f32>().is_ok_and(f32::is_finite)
+                && pitch
+                    .parse::<f32>()
+                    .is_ok_and(|pitch| (-90.0..=90.0).contains(&pitch))
+        }
+        ("attack", [entity, position @ ..]) => {
+            pumpkin_data::entity::EntityType::from_name(entity).is_some() && coords(position)
+        }
+        ("inventory-click", [slot, button]) => {
+            slot.parse::<i16>().is_ok_and(|slot| slot >= 0)
+                && matches!(*button, "left" | "right" | "shift-left" | "shift-right")
+        }
+        _ => false,
     }
 }
 

@@ -49,6 +49,7 @@ pub struct HeadlessBot {
     pub yaw: f32,
     pub pitch: f32,
     pub capture: Option<crate::capture::Capture>,
+    pub actions: crate::actions::State,
 }
 
 impl HeadlessBot {
@@ -105,6 +106,7 @@ impl HeadlessBot {
             yaw: 0.0,
             pitch: 0.0,
             capture: crate::capture::Capture::start(name),
+            actions: crate::actions::State::default(),
         };
 
         // 1. Handshake -> Login
@@ -137,6 +139,7 @@ impl HeadlessBot {
         // 3. Play state: wait for CLogin and initial CPlayerPosition synchronize packet
         let play_login_id = CLogin::to_id(CURRENT_MC_VERSION);
         let player_pos_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
+        let harness = std::env::var_os("MODDEDMC_BOT_HARNESS").is_some();
         let mut saw_play_login = false;
         let mut saw_initial_pos = false;
 
@@ -144,6 +147,9 @@ impl HeadlessBot {
             let pkt = bot.next_packet().await?;
             if let Some(capture) = &mut bot.capture {
                 capture.record(&pkt)?;
+            }
+            if harness {
+                bot.actions.observe(pkt.id, &pkt.payload)?;
             }
             if pkt.id == play_login_id {
                 saw_play_login = true;

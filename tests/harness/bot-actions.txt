@@ -1,0 +1,20 @@
+seed 12345
+area 0 150 0 4 153 4
+start
+cmd fill 0 150 0 4 150 4 minecraft:stone
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+bot alice move 1.75 151 1.5
+bot alice look 25 12
+probe execute if entity @a[name=alice,x=1.75,y=151,z=1.5,distance=..0.000001,x_rotation=12..12,y_rotation=25..25]
+cmd summon minecraft:pig 2.5 151 1.5 {NoAI:1b,NoGravity:1b,Silent:1b}
+bot alice attack minecraft:pig 2.5 151 1.5
+probe data get entity @e[type=minecraft:pig,limit=1] Health
+# Seed the inventory without spawning the random-motion preview item from /give.
+cmd item replace entity alice hotbar.0 with minecraft:stone 3
+bot alice inventory-click 36 left
+bot alice inventory-click 37 left
+probe execute if items entity alice hotbar.1 minecraft:stone
+snapshot after-actions
+stop

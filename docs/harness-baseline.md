@@ -75,3 +75,10 @@ Run `client-effects.txt` with the same commands above using the current harness,
 - Vanilla 26.3 against the same jar exited 0 with zero differences. Both bots received the armor stand spawn, metadata and motion, the flame particle, and the sound. See `run/harness-packets/vanilla-checked.json`.
 - Vanilla 26.3 against the pack at engine pin `68296347e` exited 1 with 42 differences and zero run errors. Five are packet comparisons covering the spawn follow-up order, entity metadata, particle flags and sound encoding. Two are player equipment tags and 35 are armor stand NBT. See `run/harness-packets/pumpkin-checked.json` for the individual values.
 - The snapshot self-test matched identical vanilla worlds and caught the deliberate stone-versus-dirt change. See `run/harness-packets/self-test.json`.
+
+## Synchronized bot actions
+
+Run `tests/harness/bot-actions.txt` against the same server pair. It checks the requested move and look through a position and rotation selector, attacks a pig, then moves three stone from hotbar slot 0 to slot 1 with two left clicks.
+
+- Vanilla against itself exited 0 with no differences. The runner kept `report.json` and removed its checkpoints. See `run/harness-actions/vanilla-checked.json`.
+- Both servers passed the position and rotation selector and reported pig health of 9. The pack run exited 1 with 36 differences and no run errors. It retained a checkpoint and a report. The differences include two probe outputs, two player NBT fields and 32 pig NBT fields. The pack rendered health as `9f` and rejected the inventory `execute if items` probe. Both saved the stone in the same slot. See `run/harness-actions/pumpkin-checked.json`.

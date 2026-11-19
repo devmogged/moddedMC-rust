@@ -22,6 +22,7 @@ pub struct Options {
     pub subject: ServerProgram,
     pub bot: PathBuf,
     pub root: PathBuf,
+    pub keep: bool,
 }
 
 pub fn run(path: &Path, options: &Options) -> Report {
@@ -34,11 +35,13 @@ pub fn run(path: &Path, options: &Options) -> Report {
         .and_then(|source| scenario::parse(&source))
         .and_then(|scenario| execute(&scenario, options, &mut report, false));
     report.error = result.err();
+    let remove = !options.keep && report.error.is_none() && report.differences.is_empty();
+    finalize(&mut report, remove);
     report
 }
 
-pub fn self_test(options: &Options) -> [Report; 2] {
-    [false, true].map(|perturb| {
+pub fn self_test(options: &Options) -> ([Report; 2], bool) {
+    let mut reports = [false, true].map(|perturb| {
         let mut report = Report {
             scenario: if perturb {
                 "self-test deliberately changed block"
@@ -52,7 +55,73 @@ pub fn self_test(options: &Options) -> [Report; 2] {
             .and_then(|scenario| execute(&scenario, options, &mut report, perturb))
             .err();
         report
-    })
+    });
+    let [same, different] = &reports;
+    let passed = same.error.is_none()
+        && same.differences.is_empty()
+        && different.error.is_none()
+        && matches!(different.differences.as_slice(), [d]
+            if d.line == 6 && d.field == "block" && d.position == Some([0.0, 150.0, 0.0])
+                && d.reference.as_deref() == Some("minecraft:stone")
+                && d.subject.as_deref() == Some("minecraft:dirt"));
+    for report in &mut reports {
+        finalize(report, passed && !options.keep);
+    }
+    let passed = passed && reports.iter().all(|report| report.error.is_none());
+    (reports, passed)
+}
+
+fn finalize(report: &mut Report, remove: bool) {
+    if report.directory.is_empty() {
+        return;
+    }
+    let dir = PathBuf::from(&report.directory);
+    let json_path = dir.join("report.json");
+    if let Err(error) = save_report(report, &json_path) {
+        let reason = report
+            .error
+            .take()
+            .map_or_else(String::new, |reason| format!("{reason}. "));
+        report.error = Some(format!("{reason}{error}"));
+        return;
+    }
+    if remove && let Err(error) = remove_checkpoints(&dir) {
+        report.error = Some(format!(
+            "removing checkpoints from {}: {error}",
+            dir.display()
+        ));
+        if let Err(error) = save_report(report, &json_path)
+            && let Some(reason) = &mut report.error
+        {
+            reason.push_str(". ");
+            reason.push_str(&error);
+        }
+    }
+}
+
+fn save_report(report: &Report, path: &Path) -> Result<(), String> {
+    let parent = path.parent().ok_or("report has no parent directory")?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("writing {}: {error}", path.display()))?;
+    serde_json::to_writer_pretty(file.as_file_mut(), report).map_err(|error| error.to_string())?;
+    file.persist(path)
+        .map(|_| ())
+        .map_err(|error| format!("saving {}: {error}", path.display()))
+}
+
+fn remove_checkpoints(dir: &Path) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("checkpoint-")
+            && entry.file_type()?.is_dir()
+        {
+            fs::remove_dir_all(entry.path())?;
+        }
+    }
+    Ok(())
 }
 
 fn execute(
@@ -360,8 +429,8 @@ impl Bot {
             sequence: 0,
             packets: packets::Decoder::default(),
         };
-        // Both servers acknowledge the out-of-reach dig after processing the join teleport.
-        bot.action("break 33554431 2047 33554431")
+        // The ordered acknowledgement proves the server processed the join teleport.
+        bot.fence()
             .map_err(|e| format!("waiting for {name} to load: {e}"))?;
         Ok(bot)
     }
@@ -401,21 +470,73 @@ impl Bot {
                 })?;
             return Ok(());
         }
+        let verb = input.split_whitespace().next().unwrap_or_default();
+        if matches!(verb, "move" | "look" | "attack" | "inventory-click") {
+            if matches!(verb, "attack" | "inventory-click") {
+                self.fence()?;
+            }
+            self.send_and_wait(input, None)?;
+            return self.fence();
+        }
+        self.block_action(input)
+    }
+
+    fn fence(&mut self) -> Result<(), String> {
+        // This position is beyond reach anywhere inside the world border.
+        self.block_action("break 33554431 2047 33554431")
+    }
+
+    fn block_action(&mut self, input: &str) -> Result<(), String> {
         self.sequence += 1;
-        let ack = format!("[bot] block ack {}", self.sequence);
+        self.send_and_wait(input, Some(self.sequence))
+    }
+
+    fn send_and_wait(&mut self, input: &str, sequence: Option<usize>) -> Result<(), String> {
+        let ack = sequence.map(|sequence| format!("[bot] block ack {sequence}"));
         let sent = format!("[bot] did: {input}");
         self.process.send(input)?;
-        let (mut received_ack, mut received_sent) = (false, false);
+        let (mut received_ack, mut received_sent) = (ack.is_none(), false);
         let mut failure = None;
         self.process.until(input, BOT_TIMEOUT, |line| {
             if line.starts_with("[bot] error:") {
                 failure = Some(line.to_owned());
                 return true;
             }
-            received_ack |= line == ack;
+            received_ack |= ack.as_deref() == Some(line);
             received_sent |= line == sent;
             received_ack && received_sent
         })?;
         failure.map_or(Ok(()), Err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_keeps_json_and_can_preserve_checkpoints() -> Result<(), String> {
+        let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let world = scratch.path().join("checkpoint-1/reference/world");
+        fs::create_dir_all(&world).map_err(|error| error.to_string())?;
+
+        let mut report = Report {
+            scenario: "cleanup test".into(),
+            directory: scratch.path().display().to_string(),
+            ..Report::default()
+        };
+        finalize(&mut report, false);
+        assert!(report.error.is_none());
+        assert!(world.is_dir());
+
+        finalize(&mut report, true);
+        assert!(report.error.is_none());
+        assert!(!world.exists());
+        let json =
+            fs::read(scratch.path().join("report.json")).map_err(|error| error.to_string())?;
+        let json: serde_json::Value =
+            serde_json::from_slice(&json).map_err(|error| error.to_string())?;
+        assert_eq!(json["scenario"], "cleanup test");
+        Ok(())
     }
 }

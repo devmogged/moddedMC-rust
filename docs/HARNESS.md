@@ -83,12 +83,12 @@ Build the harness and its bot from the repository root. Use the provided or sepa
 
 ```powershell
 $env:PUMPKIN_MINECRAFT_SERVER_JAR = 'D:/mc-ref/26.3/server-bundler.jar'
-cargo build --manifest-path engine/Cargo.toml --profile pack -p moddedmc-harness -p moddedmc-bot
+cargo build --manifest-path engine/Cargo.toml --target-dir engine/target --profile pack -p moddedmc-harness -p moddedmc-bot
 engine/target/pack/moddedmc-harness.exe run-all tests/harness --reference vanilla:D:/mc-ref/26.3/server-bundler.jar --subject engine/target/pack/pack-dev.exe --jobs 2
 engine/target/pack/moddedmc-harness.exe self-test --reference vanilla:D:/mc-ref/26.3/server-bundler.jar
 ```
 
-`--bot` overrides the bot executable next to the harness. `--run-root` overrides `run/harness`. Each checkpoint preserves both consoles, bot logs and worlds. `run-all` finds `.txt` scenarios recursively and prints in path order. The default worker count is half the available logical CPUs, with a minimum of one. `--jobs` accepts up to the available CPU count.
+`--bot` overrides the bot executable next to the harness. `--run-root` overrides `run/harness`. Each started run saves its JSON to `report.json` inside the scenario directory. Successful runs remove their checkpoint directories and keep the report. Use `--keep` to retain consoles, bot logs, captures and worlds after a pass. Differences and run errors retain the checkpoints for diagnosis. `run-all` finds `.txt` scenarios recursively and prints in path order. The default worker count is half the available logical CPUs, with a minimum of one. `--jobs` accepts up to the available CPU count.
 
 Exit 0 means every check passed. Exit 1 means at least one unexplained difference. Exit 2 means a parse, launch, synchronization or snapshot error prevented a verdict and no mismatch was recorded. JSON carries the scenario and error separately from the mismatch and allow records. The `self-test` command passes only when the identical run matches and the deliberate mutation produces the exact expected mismatch.
 
@@ -106,9 +106,13 @@ The default ignored NBT keys are `UUID`, `UUIDMost`, `UUIDLeast`, `LastUpdate`, 
 
 The entity map binds the login entity to the observing player. Spawned entities are matched by entity type, exact spawn coordinates and occurrence at those coordinates. The map follows observed removals and survives snapshot boundaries. The decoder remaps packet-level entity references, including passengers, damage sources and projectile owners, and strips the spawn UUID. References to unseen entities and IDs embedded in opaque metadata retain their original wire values. Sound seeds, teleport acknowledgement tokens and the absolute game clock are omitted. Empty clock heartbeats are dropped. Clock updates and relative tick checks remain.
 
-Capture excludes keepalive and ping traffic, bundle and chunk batch delimiters, initial chunk and biome blobs, and recipe and tag registry broadcasts. Block updates, standalone light updates, particles, sounds, entity packets, inventory and other play packets are retained. Large difference values have a byte preview and SHA-256 digest. Inserted or missing packets can shift subsequent indices.
+Capture excludes block acknowledgement tokens, keepalive and ping traffic, bundle and chunk batch delimiters, initial chunk and biome blobs, and recipe and tag registry broadcasts. Block updates, standalone light updates, particles, sounds, entity packets, inventory and other play packets are retained. Large difference values have a byte preview and SHA-256 digest. Inserted or missing packets can shift subsequent indices.
 
-Move/look/attack and inventory-click synchronization and cross-version mod-oracle launch and ID maps are open work. A scenario that requests an unsupported bot action fails explicitly.
+**Player actions.** Use `bot alice move x y z` for absolute feet coordinates and `bot alice look yaw pitch` for rotation in degrees. `bot alice attack minecraft:pig x y z` selects one visible entity by its type and spawn anchor within `1e-6` on each axis. Missing or ambiguous targets fail the step. `bot alice inventory-click 36 left` clicks a slot in the active menu, using its latest revision from the server. Buttons are `left`, `right`, `shift-left` and `shift-right`. The bot leaves stack prediction empty and follows the server's corrections.
+
+The action fence sends a block action at a position beyond the world border. Both servers acknowledge it on the same ordered play connection after earlier actions. Attack and clicks also fence before selecting the target or menu. These acknowledgements confirm processing. Use probes or snapshots to check the result, including failed moves or attacks that correctly do no damage.
+
+Cross-version mod-oracle launch and ID maps are open work.
 
 ## Done means
 

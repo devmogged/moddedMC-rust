@@ -24,7 +24,7 @@ use serde::Serialize;
 use crate::{diff::Report, process::ServerProgram, runner::Options};
 
 const USAGE: &str = "moddedmc-harness run <scenario> | run-all <directory> | self-test \
---reference vanilla:<jar> [--subject <exe|vanilla:jar>] [--bot <exe>] [--run-root <dir>] [--jobs <n>] [--json]";
+--reference vanilla:<jar> [--subject <exe|vanilla:jar>] [--bot <exe>] [--run-root <dir>] [--jobs <n>] [--keep] [--json]";
 
 #[expect(clippy::print_stderr, reason = "CLI diagnostics")]
 fn main() -> ExitCode {
@@ -51,7 +51,8 @@ fn cli(args: &[String]) -> Result<u8, String> {
         "self-test" => None,
         _ => return Err(format!("unknown subcommand {mode}")),
     };
-    let (flags, json) = parse_flags(args)?;
+    let flags = parse_flags(args)?;
+    let json = flags.contains_key("--json");
     let reference = ServerProgram::parse(
         flags
             .get("--reference")
@@ -96,16 +97,11 @@ fn cli(args: &[String]) -> Result<u8, String> {
         subject,
         bot,
         root,
+        keep: flags.contains_key("--keep"),
     };
     if mode == "self-test" {
-        let [same, different] = runner::self_test(&options);
-        let verified = same.error.is_none()
-            && same.differences.is_empty()
-            && different.error.is_none()
-            && matches!(different.differences.as_slice(), [d]
-                if d.line == 6 && d.field == "block" && d.position == Some([0.0,150.0,0.0])
-                    && d.reference.as_deref() == Some("minecraft:stone") && d.subject.as_deref() == Some("minecraft:dirt"));
-        print_reports(&[same, different], json, Some(verified))?;
+        let (reports, verified) = runner::self_test(&options);
+        print_reports(&reports, json, Some(verified))?;
         return Ok(u8::from(!verified));
     }
     let path = path.ok_or("missing path")?;
@@ -132,30 +128,22 @@ fn cli(args: &[String]) -> Result<u8, String> {
 
 fn parse_flags<'a>(
     mut args: impl Iterator<Item = &'a str>,
-) -> Result<(BTreeMap<&'a str, &'a str>, bool), String> {
+) -> Result<BTreeMap<&'a str, &'a str>, String> {
     let mut flags = BTreeMap::new();
-    let mut json = false;
     while let Some(flag) = args.next() {
-        if flag == "--json" && !json {
-            json = true;
-            continue;
-        }
-        if !matches!(
-            flag,
-            "--reference" | "--subject" | "--bot" | "--run-root" | "--jobs"
-        ) || flags
-            .insert(
-                flag,
-                args.next()
-                    .filter(|v| !v.starts_with("--"))
-                    .ok_or_else(|| format!("missing value for {flag}"))?,
-            )
-            .is_some()
-        {
-            return Err(format!("unknown or repeated flag {flag}"));
+        let value = match flag {
+            "--json" | "--keep" => "",
+            "--reference" | "--subject" | "--bot" | "--run-root" | "--jobs" => args
+                .next()
+                .filter(|v| !v.starts_with("--"))
+                .ok_or_else(|| format!("missing value for {flag}"))?,
+            _ => return Err(format!("unknown flag {flag}")),
+        };
+        if flags.insert(flag, value).is_some() {
+            return Err(format!("repeated flag {flag}"));
         }
     }
-    Ok((flags, json))
+    Ok(flags)
 }
 
 fn discover(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {

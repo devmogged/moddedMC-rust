@@ -7,6 +7,7 @@
 //!   quit
 //! Usage: moddedmc-bot <host:port> <name>
 
+mod actions;
 mod bot;
 mod capture;
 
@@ -51,6 +52,7 @@ async fn main() -> Result<(), String> {
     println!("[bot] joined as {name} at {:?}", bot.position);
     let writer: Writer = Arc::new(Mutex::new(bot.writer));
     let position = Arc::new(Mutex::new(bot.position));
+    let actions = Arc::new(Mutex::new(bot.actions));
 
     // Like a real client, report our position every second; the server loads chunks from it.
     let (tick_writer, tick_position) = (writer.clone(), position.clone());
@@ -80,6 +82,7 @@ async fn main() -> Result<(), String> {
         position.clone(),
         harness,
         bot.capture,
+        Arc::clone(&actions),
     ));
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
@@ -122,6 +125,9 @@ async fn main() -> Result<(), String> {
                 )
                 .await
             }
+            "move" | "look" | "attack" | "inventory-click" if harness => {
+                actions::perform(&actions, &writer, verb, rest).await
+            }
             "quit" => break,
             _ => Err(format!("unknown step: {line}")),
         };
@@ -146,6 +152,7 @@ async fn pump(
     position: Arc<Mutex<Vector3<f64>>>,
     harness: bool,
     mut capture: Option<capture::Capture>,
+    actions: Arc<Mutex<actions::State>>,
 ) {
     let keep_alive_id = CKeepAlive::to_id(CURRENT_MC_VERSION);
     let position_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
@@ -170,6 +177,10 @@ async fn pump(
                     std::process::exit(2);
                 }
             }
+        }
+        if harness && let Err(error) = actions.lock().await.observe(packet.id, &packet.payload) {
+            println!("[bot] error: {error}");
+            std::process::exit(2);
         }
         let mut payload = &packet.payload[..];
         if packet.id == keep_alive_id {

@@ -1,5 +1,5 @@
 # F2 status
 
-The snapshot and packet comparison slices run on Windows. Packet checkpoints use the bot's ordered play stream and map runtime entity IDs across servers. The calibrated client-effects scenario matches vanilla against itself. Vanilla against the current pack reports five packet differences alongside saved-state differences. See [the baseline](harness-baseline.md) for the exact checks and JSON locations.
+The snapshot, packet comparison and synchronized bot action slices run on Windows. The calibrated client-effects and bot-action scenarios match vanilla against itself. The pack runs report packet, probe and saved-state differences. See [the baseline](harness-baseline.md) for the checks and JSON locations.
 
-The remaining slices cover synchronized move, look, attack and inventory clicks, then cross-version mod-oracle launch and ID maps. Linux verification comes last. Use the build and run commands in [HARNESS.md](HARNESS.md).
+Successful runs keep `report.json` and remove their checkpoints by default. Use `--keep` to retain the worlds and logs. The remaining work covers cross-version mod-oracle launch and ID maps, then Linux verification. See [HARNESS.md](HARNESS.md) for the build and run commands.

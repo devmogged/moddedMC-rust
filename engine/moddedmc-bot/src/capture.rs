@@ -1,4 +1,4 @@
-﻿use pumpkin_data::packet::{CURRENT_MC_VERSION, clientbound::play as p};
+use pumpkin_data::packet::{CURRENT_MC_VERSION, clientbound::play as p};
 use pumpkin_protocol::{RawPacket, ser::NetworkReadSliceExt as _};
 
 const MAX_WINDOW: usize = 32 * 1024 * 1024;
@@ -40,6 +40,7 @@ impl Capture {
     pub fn record(&mut self, packet: &RawPacket) -> Result<(), String> {
         if [
             p::KEEP_ALIVE,
+            p::BLOCK_CHANGED_ACK,
             p::BUNDLE_DELIMITER,
             p::PING,
             p::PONG_RESPONSE,
