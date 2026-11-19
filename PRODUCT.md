@@ -25,7 +25,7 @@ Rust servers and Rust mod ports, so packs that need 10 GB of RAM on Java run on 
 
 - Hosts reach their machines in three ways: the local machine, Tailscale (the device agent trusts the owner's Tailscale login), or SSH (tunneled to the agent). See `docs/DEVICES.md` for the agent API the app uses.
 - Pack servers are built on the host's fast machine and pushed to slower devices. The Pi never compiles anything. Building can take minutes the first time and seconds after.
-- Mods come in two kinds: drop-in `.mmc` mods and compiled-in ports. Both come from the devmogged mod repos (public `mods`, private `mods-private`).
+- Mods ship as drop-in `.mmc` files from the devmogged mod repos (public `mods`, private `mods-private`).
 - Players are often on weak laptops and slow connections. Assets download once per pack version.
 - Servers run in offline mode (no Mojang account checks). Skins are default, from Mojang's public API, or the player's choice.
 

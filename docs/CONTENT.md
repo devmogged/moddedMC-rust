@@ -1,6 +1,6 @@
 # Content model (design for v1)
 
-This is how mods add blocks, items, entities and the rest so that Create, Saints Dragons and Cataclysm can be ported faithfully. Today's content host (M1/M2: a vanilla stand-in block with opaque state bytes) is a prototype; v1 replaces it with first-class engine registries. Engine work lands in `devmogged/Pumpkin`. Compiled-in ports ([PORTS.md](PORTS.md)) use it directly; drop-in mods get the parts that fit the stable ABI.
+This is how mods add blocks, items, entities and the rest so that Create, Saints Dragons and Cataclysm can be ported faithfully. Today's content host (M1/M2: a vanilla stand-in block with opaque state bytes) is a prototype; v1 replaces it with first-class engine registries. Engine work lands in `devmogged/Pumpkin`. All [ports](PORTS.md) get access through named, versioned interfaces.
 
 ## Principles
 
@@ -22,7 +22,7 @@ Blocks and block states, items, block entities, entity types, menus (container G
 - Per-connection id translation on every outgoing packet that carries block states, items or entity types (chunks, block updates, inventories, entity spawns and metadata), plus incoming translation for item use and clicks.
 - Resource pack generation and delivery, with hashes, for the vanilla view.
 - A companion handshake (custom payload channel) that switches a connection to the companion view.
-- The trait hooks that vanilla's block, item and entity code already uses, opened to mods with the same signatures Pumpkin uses internally.
+- The trait hooks that vanilla's block, item and entity code already uses, exposed to mods as stable C tables with callbacks for the relevant engine operations.
 
 ## Order
 

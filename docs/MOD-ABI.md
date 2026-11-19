@@ -17,7 +17,7 @@ myserver/
 - A mod's own files live in `config/<mod id>/`. Fabric mods use `config/` as on a Fabric server.
 - The server log shows each mod it loaded (`moddedmc: loaded wayshrine 0.2.0 from mods\wayshrine.mmc`) and why any mod was skipped. One broken mod never stops the others or the server.
 
-A mod built for this server's mod ABI (currently **1**) runs on any server version with the same ABI. Mods are trusted code: only install mods you trust, as with any Minecraft server plugin.
+The mod ABI is **1**. A mod can run on any ABI 1 server that provides its required interfaces. Mods are trusted code: only install mods you trust, as with any Minecraft server plugin.
 
 ## For mod authors (Rust)
 
@@ -60,6 +60,7 @@ What the SDK offers:
 
 | | |
 | --- | --- |
+| `Mod::start` | Before worlds load. Require your interfaces here. |
 | `Mod::register` | Once, on the first server tick: `add_block_entity`, `add_block`, `add_command`. |
 | `Mod::tick` | Due block entities of one dimension; `set_state(index, bytes)` saves a new state. |
 | `Mod::use_block`, `place_block`, `break_block` | A player used, placed or broke one of your blocks. |
@@ -110,7 +111,26 @@ Versioning:
 
 The Rust SDK checks the host's size before reading `get_interface` and checks the returned table's size before using its functions. Require interfaces in `Mod::start` to refuse startup with a log line naming the missing interface.
 
-Packaging (`.mmc`): a zip with
+### Version 1 tables
+
+| Interface | Function | Contract |
+| --- | --- | --- |
+| `moddedmc:world` | `dimension(index)` | Static dimension name, or empty past the end. |
+| | `command_dimension(source)` | Static dimension name for the current command source. Empty when the source has no world. |
+| `moddedmc:chunks` | `is_generated(dimension, x, z, ctx, completed)` | Check whether a chunk is loaded or saved. The callback receives the result. |
+| | `ensure_generated(dimension, x, z, ctx, completed)` | Skip an existing chunk, otherwise load or generate it. The callback receives true after the operation returns, or false if interrupted. |
+| `moddedmc:commands` | `add(reg, name, description, op_level, nodes, count)` | Stage a root and its children during registration. The 1 to 128 child nodes name an earlier parent or the root. Nodes are literals or bounded integers. Executable nodes pass a tag to `ModApi::command`. The permission is `<mod id>:command.<name>`, with a default operator level from 0 to 4. |
+| | `integer(source, name, out)` | Copy a parsed integer to the caller's output slot. False means the argument was absent. |
+| | `feedback(source, text)` | Send command feedback using the source's feedback settings. |
+| `moddedmc:lifecycle` | `on_stopping(reg, callback)` | Stage one callback per mod. The host runs it on a blocking thread and waits for it before world save. |
+
+Chunk requests take chunk coordinates and return immediately. A false return means the request was rejected with no callback. For an accepted request the host returns the opaque context exactly once, possibly before submission returns, on a server runtime thread. Keep callbacks short. Chunky uses a coordinator thread per active dimension to plan work, receive callbacks, log progress and save task files. The server stops accepting chunk requests on shutdown and drains accepted work before it saves worlds.
+
+The Rust wrappers live in `world`, `chunks`, `commands` and `lifecycle`. Logging and the mod data folder still use the ABI 1 base table. [Chunky](../mods/chunky) keeps its `port-chunky` id so existing task files migrate from `plugins/port-chunky` to `config/port-chunky`.
+
+## Packaging
+
+A `.mmc` is a zip with
 
 - `mod.json`: `{"id": "wayshrine", "version": "0.2.0", "abi": 1}`
 - one library per platform, named `<os>-<arch>.<ext>`: `windows-x86_64.dll`, `windows-aarch64.dll`, `linux-x86_64.so`, `linux-aarch64.so`, `macos-aarch64.dylib`, `macos-x86_64.dylib`.

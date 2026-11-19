@@ -45,12 +45,12 @@ Unrequested PRs of this kind are closed, however good the code is.
 - **Engine changes are commits in `devmogged/Pumpkin`** (branch `moddedmc`, checked out at `engine/pumpkin`). Commit and push there, then update the submodule pointer here. We merge upstream Pumpkin often, so keep engine changes small, generic and in the Pumpkin style, and put big new systems in new crates.
 - **The mod ABI is a promise.** Mods built today must load on tomorrow's server. In `api/src/abi.rs`: append new fields to the end of `HostApi` and `ModApi`, never reorder, remove or change existing ones. A breaking change bumps `ABI_VERSION` and needs a maintainer's yes first. Update [docs/MOD-ABI.md](docs/MOD-ABI.md) in the same PR.
 - **Drop-in mods stay outside the server build.** Crates in `api/`, `mods/` and `recompiler/fabric-host` must not depend on Pumpkin crates. Everything they need goes through the ABI.
-- **Compiled-in ports use the engine directly.** Crates in `engine/ports/` depend on Pumpkin and link into pack servers (`engine/packs/`). Use them for ports the ABI can't express. See [docs/PORTS.md](docs/PORTS.md).
+- **All ports use named ABI interfaces.** Add generic engine hooks in the fork and expose them through versioned C tables in the host. Ports stay in the root workspace and ship as `.mmc`. See [docs/PORTS.md](docs/PORTS.md).
 - **No panics across the boundary.** Host functions must not unwind into a mod, and SDK callbacks catch panics before returning to the server.
 - **Unsafe code needs a `// SAFETY:` comment** saying why it is sound. The engine workspace's lints enforce this; follow it everywhere.
 - **No copyrighted game files in git.** Minecraft jars, Mojang assets and downloaded mod jars stay in the ignored `cache/`.
 - **Mark shortcuts.** A known limit gets a code comment `shortcut: <the limit>, <when to upgrade>`.
-- **Licenses.** `engine/` and `patches/` are GPL-3.0 (Pumpkin's license). Everything else is MIT OR Apache-2.0. By contributing you agree your contribution is licensed under the license of the files it changes.
+- **Licenses.** `engine/` and `patches/` are GPL-3.0 (Pumpkin's license). The SDK and most other crates are MIT OR Apache-2.0. Chunky retains its GPL-3.0-only license from the engine workspace. By contributing you agree your contribution is licensed under the license of the files it changes.
 
 ## Setup
 

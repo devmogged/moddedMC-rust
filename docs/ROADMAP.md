@@ -14,7 +14,7 @@ Modded Minecraft that plays exactly like the original mods on vanilla 26.3, runs
 | Version | Minecraft Java 26.3, following Pumpkin forward. Port each mod's **latest** version, whatever loader or MC version that is. |
 | Engine | `devmogged/Pumpkin`, our fork. We change anything we need. Commit often, merge `upstream` often, keep big new systems in new crates so merges stay small. Generic fixes go upstream as PRs **opened by a human** (Pumpkin-MC bans agent-opened PRs). |
 | Vanilla parity | Full parity, built by us from the decompiled 26.3 server (Vineflower). Pumpkin's missing systems are ours to finish. |
-| Mods | Two kinds, both Rust, both in the same server ([PORTS.md](PORTS.md)). **Drop-in mods** (`.mmc`, [MOD-ABI.md](MOD-ABI.md)): built against a small stable C ABI, dropped into `mods/`, they build in seconds and survive server updates. Use them for small mods and Fabric jars. **Compiled-in ports** (`engine/ports/*`): crates that use the engine directly and link into a pack server. Use them for mods the ABI can't express (Create, bosses, dragons). Pack rebuilds use the fast `pack` profile; fat LTO only for deploys. |
+| Mods | All Rust mods, including [ports](PORTS.md), ship as drop-in `.mmc` files. The [stable ABI](MOD-ABI.md) lets them request named, versioned interfaces and run across server builds. Packs use the stock server for each target with a set of mod files. |
 | Removing a mod | Its blocks, items and entities are deleted (Forge behavior). The app takes an automatic snapshot before every rebuild. |
 | Client | Official 26.3 client. Ported content is server-side plus an auto-sent resource pack wherever vanilla can show it. When a pack needs more (Create kinetics, contraptions, animated rigs, HUD, keybinds), the pack enables the **companion**: one Fabric 26.3 mod, data-driven, built once. Mods never ship client code. They describe models, animations, GUIs and renderers as data the server sends. No from-scratch client. |
 | Bandwidth | Built for slow uplinks (the Pi on a home connection). Assets are content-hashed and fetched once per pack version, not per join, and can arrive through the join exe or any file transfer. With the companion: client chunk cache by hash, zstd with a trained dictionary instead of zlib, rate shaping, entity updates only for what is in view. Plain vanilla clients still work. |
@@ -42,14 +42,13 @@ v1 gate, raised as we measure:
 devmogged/Pumpkin          engine: vanilla parity, world, protocol, hooks for moddedmc
 moddedMC-rust
   api/                     stable C ABI and SDK for drop-in mods (.mmc)
-  mods/*                   drop-in mods
   engine/                  engine workspace: Pumpkin path deps, profiles
-  engine/ports/*           compiled-in ports
-  engine/packs/*           pack servers: Pumpkin + host + ports
+  mods/*                   drop-in mods and ports
+  engine/packs/dev         stock server with Pumpkin and the host
   engine/moddedmc-host     content host inside the server: drop-in loader, registries, ticks, persistence
   engine/moddedmc-bot      headless client for scenarios
   harness/                 differential harness: same scenario on vanilla and ours, diff the results
-  builder/                 pack builder: pack manifest -> one server binary per target (x86_64, aarch64)
+  packer/                  packs the stock server and mod files for each target
   agent/                   device agent: installs, runs, monitors servers on a device
   app/                     desktop app (Tauri 2 + React)
   companion/               Fabric 26.3 client companion (data-driven renderers, chunk cache, zstd)

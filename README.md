@@ -13,7 +13,7 @@ myserver/
     sethome.jar       an unchanged Fabric mod, converted to native code on first start
 ```
 
-Rust mods talk to the server through a small, stable C ABI, so a mod built once keeps working when the server is updated, and it is about 100–200 KB. See [docs/MOD-ABI.md](docs/MOD-ABI.md) for server owners and mod authors. Big ports that need the whole engine (Create, bosses, dragons) are compiled into a pack server instead; see [docs/PORTS.md](docs/PORTS.md). The plan for the whole project is in [docs/ROADMAP.md](docs/ROADMAP.md), and the task list is in [docs/BACKLOG.md](docs/BACKLOG.md).
+Rust mods talk to the server through a small, stable C ABI, so a mod built once keeps working when the server is updated, and it is about 100–200 KB. See [docs/MOD-ABI.md](docs/MOD-ABI.md) for server owners and mod authors. Big ports such as Create, bosses and dragons also ship as drop-in mods. They request named, versioned interfaces for the engine operations they need. See [docs/PORTS.md](docs/PORTS.md). The plan for the whole project is in [docs/ROADMAP.md](docs/ROADMAP.md), and the task list is in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Why Rust?
 
@@ -53,7 +53,8 @@ scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt -RunDir run\m1 -Fr
 The desktop app (devices, servers, console, Join list) lives in `app/`, and each hosting machine runs `agent/` ([docs/DEVICES.md](docs/DEVICES.md)):
 
 ```powershell
-cargo build -p moddedmc-agent --release; targeteleasemoddedmc-agent.exe
+cargo build -p moddedmc-agent --release; target
+eleasemoddedmc-agent.exe
 cd app; npm install; npm run tauri dev   # npm run dev previews the UI in a browser with sample data
 ```
 

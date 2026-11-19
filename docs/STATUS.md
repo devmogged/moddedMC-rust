@@ -188,7 +188,7 @@ The 10,000-counter benchmark was not rerun after the ABI change; the per-tick mo
 
 ## Hybrid mods and pack servers (2026-11-19)
 
-Drop-in mods (`.mmc`, stable ABI) and compiled-in ports now share one server. The engine patch became commits on `devmogged/Pumpkin` (`moddedmc`): Pumpkin is a library (`pumpkin::run(Launch)`), built-in plugins load before the plugin folder, and `pumpkin-core`'s build script watches the real git dir. The old one watched `.git/HEAD`, which doesn't exist in a submodule, so Cargo rebuilt `pumpkin-core` and everything above it on every build. `engine/` is its own workspace and builds `engine/target/pack/pack-dev.exe`.
+At F1, drop-in mods and compiled-in ports shared one server. F6 retired compiled-in ports and added named interfaces. See [BACKLOG.md](BACKLOG.md). The engine patch became commits on `devmogged/Pumpkin` (`moddedmc`): Pumpkin is a library (`pumpkin::run(Launch)`), built-in plugins load before the plugin folder, and `pumpkin-core`'s build script watches the real git dir. The old one watched `.git/HEAD`, which doesn't exist in a submodule, so Cargo rebuilt `pumpkin-core` and everything above it on every build. `engine/` is its own workspace and builds `engine/target/pack/pack-dev.exe`.
 
 Build times, `pack` profile (optimized, incremental, no fat LTO), 20-core laptop:
 
