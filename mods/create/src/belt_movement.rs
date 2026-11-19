@@ -4,8 +4,8 @@ use moddedmc_api::{
     Pos,
     content::{self, World},
     entities::{
-        self, ENTITY_ALIVE, ENTITY_FLYING, ENTITY_ITEM, ENTITY_LIVING, ENTITY_PLAYER,
-        ENTITY_SNEAKING, Entities, Entity, EntityChange,
+        self, ENTITY_ALIVE, ENTITY_FLYING, ENTITY_HANGING, ENTITY_ITEM, ENTITY_LIVING,
+        ENTITY_PLAYER, ENTITY_PUSH_IGNORED, ENTITY_SNEAKING, Entities, Entity, EntityChange,
     },
 };
 
@@ -20,15 +20,6 @@ const SPEED_DIVISOR: f32 = 480.0;
 const TOP: f32 = 13.0 / 16.0;
 /// `transportEntity` gives a moving up entity at least this much downward push first.
 const MIN_VELOCITY: f32 = 0.13;
-/// `shouldIgnoreBlocking`: `HangingEntity` subclasses and `PushReaction.IGNORE` entities.
-const NON_BLOCKING: [&str; 6] = [
-    "minecraft:painting",
-    "minecraft:item_frame",
-    "minecraft:glow_item_frame",
-    "minecraft:leash_knot",
-    "minecraft:marker",
-    "minecraft:area_effect_cloud",
-];
 
 /// `BeltBlock.canTransportObjects`.
 const fn can_transport_objects(belt: Belt) -> bool {
@@ -111,6 +102,7 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics, states: &StateIds) {
     let Some(&entities) = ENTITIES.get() else {
         return;
     };
+    players_on_belts(world, kinetics, states, entities);
     for controller in kinetics.belt_controllers() {
         let Some(be) = kinetics.get_mut(controller) else {
             continue;
@@ -154,6 +146,72 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics, states: &StateIds) {
     }
 }
 
+/// `BeltBlock.updateEntityAfterFallOn` for players. Create's client runs it when its player
+/// lands on a belt. A stock client stands on the carrier block's full cube instead and the
+/// server never moves players, so look for players resting on each moving chain.
+fn players_on_belts(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    states: &StateIds,
+    entities: Entities,
+) {
+    let mut found = Vec::new();
+    for controller in kinetics.belt_controllers() {
+        if kinetics
+            .get(controller)
+            .is_none_or(|be| be.get_speed() == 0.0)
+        {
+            continue;
+        }
+        let chain = kinetics.belt_chain(controller);
+        let (Some(first), Some(last)) = (chain.first(), chain.last()) else {
+            continue;
+        };
+        let min = [
+            first.x.min(last.x),
+            first.y.min(last.y),
+            first.z.min(last.z),
+        ];
+        let max = [
+            first.x.max(last.x),
+            first.y.max(last.y),
+            first.z.max(last.z),
+        ];
+        found.extend(entities.entities_in(
+            world,
+            min.map(f64::from),
+            [max[0] + 1, max[1] + 2, max[2] + 1].map(f64::from),
+            // No entity has this id, so nothing is left out.
+            i32::MIN,
+        ));
+    }
+    found.sort_unstable();
+    found.dedup();
+    for id in found {
+        entities.with_entity(world, id, |entity| {
+            let Some(view) = entity.view() else { return };
+            if view.kind & ENTITY_PLAYER == 0 || !view.on_ground {
+                return;
+            }
+            let standing = block_position(view.position);
+            let below = Pos {
+                y: standing.y - 1,
+                ..standing
+            };
+            let mut state = [content::UNLOADED_STATE; 2];
+            if !world.read(&[standing, below], &mut state) {
+                return;
+            }
+            for (pos, state) in [(standing, state[0]), (below, state[1])] {
+                if let Some(Kind::Belt(belt)) = states.kind(state) {
+                    entity_inside(kinetics, pos, state, belt, entity);
+                    return;
+                }
+            }
+        });
+    }
+}
+
 fn scale([x, y, z]: [f64; 3], factor: f64) -> [f64; 3] {
     [x * factor, y * factor, z * factor]
 }
@@ -165,7 +223,7 @@ fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 /// `Vec3.normalize`.
 fn normalize(v: [f64; 3]) -> [f64; 3] {
     let length = v.iter().map(|c| c * c).sum::<f64>().sqrt();
-    if length < 1.0e-5 {
+    if length < f64::from(1.0e-5_f32) {
         [0.0; 3]
     } else {
         scale(v, 1.0 / length)
@@ -177,9 +235,10 @@ fn belt_block_at(world: World<'_>, states: &StateIds, pos: Pos) -> bool {
     world.read(&[pos], &mut state) && matches!(states.kind(state[0]), Some(Kind::Belt(_)))
 }
 
-/// `shouldIgnoreBlocking`. Pumpkin has no passengers to compare, so riding is not checked.
-fn blocks(other: Entity<'_>) -> bool {
-    !NON_BLOCKING.contains(&other.type_id())
+/// Not `shouldIgnoreBlocking`: a hanging entity, one pistons ignore, or one riding `me`.
+fn blocks(me: Entity<'_>, other: Entity<'_>) -> bool {
+    other.flags() & (ENTITY_HANGING | ENTITY_PUSH_IGNORED) == 0
+        && !me.has_indirect_passenger(other.id())
 }
 
 /// `BeltMovementHandler.transportEntity`. `controller` is the belt entity's speed and slope.
@@ -306,7 +365,11 @@ fn transport_entity(
                 entity.id(),
             )
             .into_iter()
-            .any(|other| entities.with_entity(world, other, blocks).unwrap_or(false));
+            .any(|other| {
+                entities
+                    .with_entity(world, other, |other| blocks(entity, other))
+                    .unwrap_or(false)
+            });
         if blocked {
             // Create leaves the step height at 1 on this path.
             entity.change(&EntityChange {
@@ -319,6 +382,18 @@ fn transport_entity(
     }
 
     entity.reset_fall_distance();
+    if is_player {
+        // Create moves the player on its own client. A stock client moves itself and Pumpkin's
+        // move skips players, so the push goes to the client as motion, which its next move
+        // applies.
+        entity.change(&EntityChange {
+            mask: entities::SET_MOTION | entities::SET_ON_GROUND,
+            motion: movement,
+            on_ground: true,
+            ..EntityChange::default()
+        });
+        return;
+    }
     if moving_up {
         let y_movement = -(movement[1].abs().max(f64::from(MIN_VELOCITY))) as f32;
         entity.move_by([0.0, f64::from(y_movement), 0.0]);
