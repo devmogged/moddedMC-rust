@@ -34,5 +34,9 @@ try {
     $manifest.Write($bytes, 0, $bytes.Length)
     $manifest.Dispose()
     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $library, "windows-$arch.dll") | Out-Null
+    $license = Join-Path $root "mods\$Crate\LICENSE.md"
+    if (Test-Path -LiteralPath $license) {
+        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $license, 'LICENSE.md') | Out-Null
+    }
 } finally { $zip.Dispose() }
 Write-Host "packed $out ($((Get-Item $out).Length) bytes)"

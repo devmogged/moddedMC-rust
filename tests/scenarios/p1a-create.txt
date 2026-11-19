@@ -1,0 +1,90 @@
+# Build with scripts/pack-mod.ps1 -Crate create and scripts/engine.ps1 build.
+# Run scripts/scenario.ps1 -Scenario tests/scenarios/p1a-create.txt -RunDir run/p1a-create-new
+mods target\mods\create.mmc
+start
+expect registered content block create:shaft
+expect serving resource pack on port
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack SHA-1 [0-9a-f]{40}
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 3
+cmd fill 1020 99 1018 1030 108 1030 minecraft:air
+cmd setblock 1025 99 1025 minecraft:stone
+cmd setblock 1026 101 1026 minecraft:stone
+cmd setblock 1027 101 1026 minecraft:stone
+wait 1
+
+# All four pieces are placed from the player's selected item.
+cmd item replace entity tester weapon.mainhand with create:creative_motor
+wait 0.5
+bot use 1025 99 1025
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:shaft
+wait 0.5
+bot use 1025 100 1025
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:large_cogwheel
+wait 0.5
+bot use 1025 101 1025
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:cogwheel 2
+wait 0.5
+bot use 1026 101 1026
+wait 0.5
+bot use 1027 101 1026
+wait 0.5
+
+cmd kinetics 1025 100 1025
+wait 0.5
+expect create:creative_motor\[facing=up\] at 1025 100 1025 Speed=16
+cmd kinetics 1025 101 1025
+wait 0.5
+expect create:shaft\[axis=y,waterlogged=false\] at 1025 101 1025 Speed=16
+cmd kinetics 1025 102 1025
+wait 0.5
+expect create:large_cogwheel\[axis=y,waterlogged=false\] at 1025 102 1025 Speed=16
+cmd kinetics 1026 102 1026
+wait 0.5
+expect create:cogwheel\[axis=y,waterlogged=false\] at 1026 102 1026 Speed=-32
+cmd kinetics 1027 102 1026
+wait 0.5
+expect create:cogwheel\[axis=y,waterlogged=false\] at 1027 102 1026 Speed=32
+
+# Persist a non-default motor setting and return to the same rig after restart.
+cmd kinetics 1025 100 1025 24
+wait 0.5
+expect create:creative_motor\[facing=up\] at 1025 100 1025 Speed=24
+cmd kinetics 1026 102 1026
+wait 0.5
+expect create:cogwheel\[axis=y,waterlogged=false\] at 1026 102 1026 Speed=-48
+bot quit
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack SHA-1 [0-9a-f]{40}
+expect \[bot\] joined as tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 3
+cmd kinetics 1025 100 1025
+wait 0.5
+expect create:creative_motor\[facing=up\] at 1025 100 1025 Speed=24
+cmd kinetics 1027 102 1026
+wait 0.5
+expect create:cogwheel\[axis=y,waterlogged=false\] at 1027 102 1026 Speed=48
+
+bot break 1025 101 1025
+wait 1
+cmd kinetics 1026 102 1026
+wait 0.5
+expect create:cogwheel\[axis=y,waterlogged=false\] at 1026 102 1026 Speed=0
+cmd kinetics 1025 101 1025
+wait 0.5
+expect There is no loaded kinetic block
+reject (?i)panicked|trapped|failed to register
+bot quit
+stop

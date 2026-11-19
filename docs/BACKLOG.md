@@ -13,7 +13,7 @@ Everything else depends on these.
 | F1 | Engine patch moved into commits on `devmogged/Pumpkin` (branch `moddedmc`). The engine has its own workspace and the fast `pack` profile. | done. See [STATUS.md](STATUS.md) for build times. |
 | F2 | Differential harness (spec: [HARNESS.md](HARNESS.md)): run one scenario file against a real vanilla 26.3 server and against ours with the same seed and bot inputs, then diff block state, block entities, entities, inventories and selected packets. Report mismatches by position and field. | todo |
 | F3 | Pack builder (spec [PACKS.md](PACKS.md)). Build the stock server binary for each target and ship the pack's mods as `.mmc` files. Cross-compile for Pi and cache builds. | doing. `moddedmc-pack build` handles local Rust mods and prebuilt files, writes `pack.lock` and caches build outputs. Next are index and git sources and a real Pi test. |
-| F4 | Content model v1 per [CONTENT.md](CONTENT.md): first-class modded registries in the engine, per-world id map, vanilla-view translation with a generated resource pack, then the companion view. Expose to all ports through named ABI interfaces. | todo |
+| F4 | Content model v1 per [CONTENT.md](CONTENT.md). | Step 1: frozen custom blocks, items and persistent block entities, append-only world IDs, Java carrier and item-model translation, locally generated packs, and versioned ABI tables. The Create bot rig exercises the stock protocol. Companion view and the remaining registries follow. |
 | F5 | Perf and RAM bench harness on the Pi: same seed, bot count, view distance and duration; record MSPT p50/p95/p99, RSS, disk, bytes sent per player. | todo |
 | F6 | Drop-in `.mmc` ports through named, versioned ABI 1 interfaces. | done. Chunky loads before worlds, preserves progress logs and resumes from its shutdown checkpoint. Windows, seed 12345, `pack` profile, three-run medians (compiled in to drop-in). Radius 1000 (16,129 chunks) went from 28.55 s / 602 MiB to 26.30 s / 587 MiB. Radius 500 (4,225 chunks) went from 7.67 s / 476 MiB to 7.65 s / 450 MiB. Reproduce the drop-in runs with `scripts/pregen-bench.ps1 -Radius 1000 -Runs 3 -SkipJava` and repeat at radius 500. Next is the [Create interface slice](INTERFACES-PLAN.md). |
 
@@ -69,7 +69,7 @@ Everything else depends on these.
 
 | # | Mod (latest version) | Status |
 | --- | --- | --- |
-| P1 | Create 6.0.10 (NeoForge 1.21.1): kinetics first, then contraptions, fluids, trains. Code MIT, assets ARR. First slice: a shaft and cogwheel network that spins, matches real Create in the harness, and deploys to the Pi from the app. | todo |
+| P1 | Create: kinetics, contraptions, fluids and trains. MIT code, reserved assets. | P1a: [Create .mmc](../mods/create) has shaft, small and large cogs and a creative motor. The bot verified placement, signed 2:1 and 1:1 gear transmission, a 24 RPM setting surviving restart, and stopping after a break. In a no-player rig with 256 shafts and 24 checked transitions, median active process CPU across three runs was 0.234 s on moddedMC 26.3 and 0.844 s on Java Create 6.0.8 (Minecraft 1.20.1). Stock-client visual capture is open. P1b: belts, more transmitters, stress and destructive conflict parity. |
 | P2 | Saints Dragons 0.9.88 (1.20.1): rideable flying dragons, GeckoLib models. Code LGPL-3.0 or MIT (check LICENSE), assets ARR. | todo |
 | P3 | L_Ender's Cataclysm (latest). | todo |
 | P4 | Legendary Monsters (latest). | todo |
