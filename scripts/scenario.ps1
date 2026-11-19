@@ -20,7 +20,8 @@ param(
     [switch]$Fresh,
     [string]$Exe = 'engine\pumpkin\target\release\pumpkin.exe',
     [string]$BotExe = 'engine\pumpkin\target\debug\moddedmc-bot.exe',
-    [string]$ExeArgs = ''   # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
+    [string]$ExeArgs = '',  # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
+    [double]$WaitScale = 1  # stretches every wait, for a slow server (ARM64 under QEMU: 4)
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -137,7 +138,7 @@ foreach ($raw in Get-Content $Scenario) {
             $script:log.Enqueue($line)
             Write-Host "  $line"
         }
-        'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000)) }
+        'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000 * $WaitScale)) }
         'expect' {
             # Consume up to the first match only, so the next expect can match later lines.
             $new = @(Get-NewLines)

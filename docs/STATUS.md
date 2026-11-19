@@ -197,4 +197,5 @@ The server and mods build for the Pi 5 (`aarch64-unknown-linux-gnu`, glibc 2.36 
 
 - The ARM64 server starts ("Started server; took 806 ms" with no mods, 882 ms with one; about 157 MB resident including QEMU).
 - It loads `pillar.mmc` from its `linux-aarch64.so` (37 ms); the bot joins and `/pillar` and `/pillarstruct` work.
-- Not measured: startup, tick time and memory on a real Pi 5, and the other scenarios on ARM.
+- The scenarios on ARM64: `scripts\scenario.ps1 -Exe <wrapper> -WaitScale 4`, where the wrapper is a `.cmd` running `wsl.exe -- qemu-aarch64 -L <arm64 glibc root> <ARM64 pumpkin>` (mods packed with `-Pi`). abi-world, abi-blocks, menus, biomes, drivetrain, worldgen, resource-pack and m2-wayshrine pass. abi-entities passed on its second run (its first missed the cactus damage step under emulation). m1-counter cannot pass emulated: its expected counts are calibrated to wall time at a scale of 1, and at that scale its setup commands run before the slow emulated chunk generation loads the area. Its log still shows the counter surviving a chunk reload (5, unloaded, then 9).
+- Not measured: startup, tick time and memory on a real Pi 5.
