@@ -1,0 +1,37 @@
+# Sample stationary source pools and one eastward water gradient while world ticks are frozen.
+seed 12345
+area 0 149 0 14 154 5
+properties gamemode=creative
+start
+cmd fill 0 149 0 14 149 5 minecraft:stone
+cmd fill 0 150 0 3 153 3 minecraft:water
+cmd fill 5 150 0 8 153 3 minecraft:lava
+cmd setblock 11 150 1 minecraft:water
+cmd setblock 12 150 1 minecraft:water[level=1]
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+bot alice physics manual
+bot alice input jump
+bot alice physics-tick 2
+bot alice expect pos 1.5 151.107 1.5 within 0.000001
+bot alice expect vel 0 0.0486 0 within 0.000001
+bot alice move 1.5 151 1.5
+bot alice look 0 -30
+bot alice input forward sprint
+bot alice physics-tick 2
+bot alice expect pos 1.5 151.03 1.55684 within 0.00002
+bot alice look 0 0
+bot alice input jump
+bot alice move 6.5 151 1.5
+bot alice physics-tick 2
+bot alice expect pos 6.5 151.08 1.5 within 0.000001
+bot alice expect vel 0 0 0 within 0.000001
+bot alice input none
+bot alice move 11.5 150 1.5
+bot alice physics-tick 1
+bot alice expect pos 11.514 150 1.5 within 0.000001
+bot alice expect vel 0.0112 -0.005 0 within 0.000001
+probe execute if entity @a[name=alice,x=11.514,y=150,z=1.5,distance=..0.000001]
+expect Test passed
+stop

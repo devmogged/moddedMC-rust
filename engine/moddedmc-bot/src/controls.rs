@@ -97,10 +97,11 @@ impl Controls {
         self.input & key != 0
     }
 
-    pub const fn update_sprint(&mut self, horizontal_collision: bool) {
+    pub const fn update_sprint(&mut self, horizontal_collision: bool, shallow_water: bool) {
         let forward = self.has(SPlayerInput::FORWARD) && !self.has(SPlayerInput::BACKWARD);
         self.sprinting = forward
             && !self.sneaking()
+            && (!shallow_water || self.flying())
             && (self.food > 6 || self.abilities & MAY_FLY != 0)
             && if self.sprinting {
                 !horizontal_collision
@@ -116,11 +117,6 @@ impl Controls {
         on_ground: bool,
         crouching: bool,
     ) -> Vector3<f64> {
-        use SPlayerInput as Key;
-        let axis = |positive, negative| i8::from(self.has(positive)) - i8::from(self.has(negative));
-        let strafe = f32::from(axis(Key::LEFT, Key::RIGHT));
-        let forward = f32::from(axis(Key::FORWARD, Key::BACKWARD));
-        let (strafe, forward) = lateral_input(strafe, forward, crouching);
         let speed = if on_ground {
             let walk = if self.sprinting {
                 (f64::from(0.1f32) * (1.0 + f64::from(0.3f32))) as f32
@@ -139,16 +135,32 @@ impl Controls {
         } else {
             0.02
         };
+        let mut input = self.relative_input(yaw, crouching, speed);
+        if self.flying() {
+            input.y = f64::from(
+                f32::from(self.axis_input(SPlayerInput::JUMP, SPlayerInput::SNEAK))
+                    * self.fly_speed
+                    * 3.0,
+            );
+        }
+        input
+    }
+
+    const fn axis_input(&self, positive: i8, negative: i8) -> i8 {
+        (self.has(positive) as i8) - (self.has(negative) as i8)
+    }
+
+    pub fn relative_input(&self, yaw: f32, crouching: bool, speed: f32) -> Vector3<f64> {
+        use SPlayerInput as Key;
+        let strafe = f32::from(self.axis_input(Key::LEFT, Key::RIGHT));
+        let forward = f32::from(self.axis_input(Key::FORWARD, Key::BACKWARD));
+        let (strafe, forward) = lateral_input(strafe, forward, crouching);
         let (sin, cos) = yaw_sin_cos(yaw);
         let strafe = strafe * f64::from(speed);
         let forward = forward * f64::from(speed);
         Vector3::new(
             strafe * cos - forward * sin,
-            if self.flying() {
-                f64::from(f32::from(axis(Key::JUMP, Key::SNEAK)) * self.fly_speed * 3.0)
-            } else {
-                0.0
-            },
+            0.0,
             forward * cos + strafe * sin,
         )
     }

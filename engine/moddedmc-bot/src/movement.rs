@@ -1,11 +1,16 @@
 use std::{sync::Arc, time::Duration};
 
-use pumpkin_data::{BlockStateId, packet::clientbound::play as p, tag::Block as BlockTag};
+use pumpkin_data::{
+    BlockStateId,
+    dimension::Dimension,
+    packet::{CURRENT_MC_VERSION, clientbound::play as p},
+    tag::Block as BlockTag,
+};
 use pumpkin_protocol::{
     PositionFlag, RawPacket, VarInt,
     codec::lp_vector_3d::LpVector3d,
     java::{
-        client::play::CPlayerPosition,
+        client::play::{CPlayerPosition, PlayerSpawnData},
         server::play::{
             Action, FLAG_HORIZONTAL_COLLISION, FLAG_ON_GROUND, SClientTickEnd, SConfirmTeleport,
             SPlayerCommand, SPlayerPosition,
@@ -25,6 +30,7 @@ use crate::{
     bot::send_framed_packet,
     collision::{back_off_from_edge, collide},
     controls::{Controls, yaw_sin_cos},
+    fluids::{self, Contact, Kind},
     terrain::World,
 };
 
@@ -32,6 +38,7 @@ const GRAVITY: f64 = 0.08;
 const AIR_DRAG: f32 = 0.98;
 const PLAYER_SIZE: EntityDimensions = EntityDimensions::new(0.6, 1.8, 1.62);
 const CROUCHING_SIZE: EntityDimensions = EntityDimensions::new(0.6, 1.5, 1.27);
+const SWIMMING_SIZE: EntityDimensions = EntityDimensions::new(0.6, 0.6, 0.4);
 const BLOCK_BELOW: f64 = 0.500001f32 as f64;
 const EFFECT_BLOCK: f64 = 0.2f32 as f64;
 const COLLISION_EPSILON: f64 = 1.0e-5f32 as f64;
@@ -61,6 +68,8 @@ pub struct Player {
     support: Option<BlockPos>,
     on_ground_no_support: bool,
     crouching: bool,
+    swimming: bool,
+    fast_lava: bool,
     fall_distance: f64,
     legacy_heartbeat: Vector3<f64>,
     world: World,
@@ -85,6 +94,16 @@ impl Player {
     fn observe_motion(&mut self, id: i32, mut bytes: &[u8]) -> Result<(), ReadingError> {
         if id == p::LOGIN.0 {
             self.id = bytes.get_i32_be()?;
+            bytes.get_bool()?;
+            let dimensions = entity_count(&mut bytes)?;
+            for _ in 0..dimensions {
+                bytes.get_str_borrowed()?;
+            }
+            for _ in 0..3 {
+                bytes.get_var_int()?;
+            }
+            bytes.read_slice_borrowed(3)?;
+            self.read_dimension(&mut bytes)?;
         } else if id == p::SET_ENTITY_MOTION.0 && bytes.get_var_int()?.0 == self.id {
             self.velocity = LpVector3d::read(&mut bytes)?.0;
         } else if id == p::EXPLODE.0 {
@@ -98,11 +117,13 @@ impl Player {
                 );
             }
         } else if id == p::RESPAWN.0 {
+            self.read_dimension(&mut bytes)?;
             self.terrain_error = None;
             self.velocity = Vector3::default();
             self.on_ground = false;
             self.support = None;
             self.on_ground_no_support = false;
+            self.swimming = false;
             self.vehicle = None;
             self.vehicle_position_unknown = false;
         } else if id == p::SET_PASSENGERS.0 {
@@ -128,6 +149,12 @@ impl Player {
                 }
             }
         }
+        Ok(())
+    }
+
+    fn read_dimension(&mut self, bytes: &mut &[u8]) -> Result<(), ReadingError> {
+        let spawn = PlayerSpawnData::read(bytes, &CURRENT_MC_VERSION)?;
+        self.fast_lava = spawn.dimension.minecraft_name == Dimension::THE_NETHER.minecraft_name;
         Ok(())
     }
 
@@ -278,6 +305,15 @@ impl Player {
             self.position.z,
             &PLAYER_SIZE,
         );
+        if self.swimming {
+            self.crouching = false;
+            return BoundingBox::new_from_pos(
+                self.position.x,
+                self.position.y,
+                self.position.z,
+                &SWIMMING_SIZE,
+            );
+        }
         self.crouching = !self.controls.flying()
             && (self.controls.sneaking()
                 || self.crouching && !self.world.shapes(standing).is_empty());
@@ -293,11 +329,17 @@ impl Player {
         }
     }
 
-    fn jump(&mut self, speed: &mut Vector3<f64>) {
+    fn jump(&mut self, speed: &mut Vector3<f64>, liquid: Option<(Kind, f64)>) {
         self.controls.jump_delay = self.controls.jump_delay.saturating_sub(1);
         if !self.controls.jumping() {
             self.controls.jump_delay = 0;
-        } else if self.on_ground && !self.controls.flying() && self.controls.jump_delay == 0 {
+            return;
+        }
+        if liquid.is_some_and(|(_, depth)| !self.on_ground || depth > fluids::JUMP_THRESHOLD) {
+            speed.y += fluids::SWIM_LIFT;
+            return;
+        }
+        if self.on_ground && !self.controls.flying() && self.controls.jump_delay == 0 {
             let here = self
                 .world
                 .block(self.position.floor_to_i32())
@@ -321,6 +363,43 @@ impl Player {
         }
     }
 
+    fn fluid_input(&mut self, speed: &mut Vector3<f64>, contact: &Contact) -> Option<(Kind, f64)> {
+        let water = contact.depth(Kind::Water) > 0.0;
+        let feet = self.position.floor_to_i32();
+        self.swimming = !self.controls.flying()
+            && self.controls.sprinting
+            && if self.swimming {
+                water
+            } else {
+                contact.eyes_in_water && fluids::water_at(&self.world, feet)
+            };
+        if self.controls.flying() {
+            return None;
+        }
+        contact.apply_current(speed, self.fast_lava);
+        let kind = contact.kind()?;
+        if water && self.controls.shift_pressed() {
+            speed.y -= fluids::SWIM_LIFT;
+        }
+        Some((kind, contact.depth(kind)))
+    }
+
+    fn apply_swim_pitch(&self, speed: &mut Vector3<f64>) {
+        if !self.swimming {
+            return;
+        }
+        let look_y = -yaw_sin_cos(self.pitch).0;
+        if look_y <= 0.0
+            || self.controls.jumping()
+            || fluids::water_at(
+                &self.world,
+                (self.position + Vector3::new(0.0, 1.0 - 0.1, 0.0)).floor_to_i32(),
+            )
+        {
+            speed.y += (look_y - speed.y) * if look_y < -0.2 { 0.085 } else { 0.06 };
+        }
+    }
+
     fn update_support(&mut self, feet: BoundingBox, moved: Vector3<f64>) {
         if self.on_ground {
             let primary = self.world.supporting_block(feet, self.position);
@@ -337,8 +416,7 @@ impl Player {
         }
     }
 
-    // LivingEntity.aiStep -> travelInAir -> Entity.move. Shape- and input-dependent
-    // travel such as swimming and climbing has its own vanilla paths.
+    // LivingEntity.aiStep trims velocity, applies jump, then dispatches the travel mode.
     fn travel(&mut self) -> Result<Option<SPlayerPosition>, String> {
         let mut speed = self.velocity;
         if ![self.position.x, self.position.y, self.position.z]
@@ -353,16 +431,37 @@ impl Player {
         if self.world.block(self.position.floor_to_i32()).is_none() {
             return Ok(None);
         }
+        let before = self.bounds();
+        let eye_height = if self.swimming {
+            SWIMMING_SIZE.eye_height
+        } else if self.crouching {
+            CROUCHING_SIZE.eye_height
+        } else {
+            PLAYER_SIZE.eye_height
+        };
+        let contact = Contact::sample(
+            &self.world,
+            before,
+            self.position + Vector3::new(0.0, f64::from(eye_height), 0.0),
+        );
+        let liquid = self.fluid_input(&mut speed, &contact);
+        self.controls.update_sprint(
+            self.horizontal_collision,
+            contact.depth(Kind::Water) > 0.0 && !contact.eyes_in_water,
+        );
         let bounds = self.bounds();
-        self.controls.update_sprint(self.horizontal_collision);
         let friction = if self.on_ground {
             self.below().to_block().slipperiness
         } else {
             1.0
         };
-        let acceleration =
+        let acceleration = if liquid.is_some() {
             self.controls
-                .acceleration(self.yaw, friction, self.on_ground, self.crouching);
+                .relative_input(self.yaw, self.crouching, fluids::SWIM_SPEED)
+        } else {
+            self.controls
+                .acceleration(self.yaw, friction, self.on_ground, self.crouching)
+        };
         speed.y += acceleration.y;
         if speed.horizontal_length_squared() < 9.0e-6 {
             speed.x = 0.0;
@@ -371,7 +470,8 @@ impl Player {
         if speed.y.abs() < 0.003 {
             speed.y = 0.0;
         }
-        self.jump(&mut speed);
+        self.jump(&mut speed, liquid);
+        self.apply_swim_pitch(&mut speed);
         speed.x += acceleration.x;
         speed.z += acceleration.z;
         let delta = if self.controls.sneaking() {
@@ -385,6 +485,64 @@ impl Player {
         } else {
             speed
         };
+        let previous = self.position;
+        let retained = self.move_body(bounds, speed, delta);
+        self.velocity = if let Some((kind, depth)) = liquid {
+            let after_drag = fluids::adjust(
+                kind,
+                depth,
+                retained,
+                GRAVITY,
+                speed.y <= 0.0,
+                self.controls.sprinting,
+            );
+            self.try_exit_fluid(bounds, previous, after_drag)
+        } else {
+            let drag = f64::from(friction * 0.91f32);
+            Vector3::new(
+                retained.x * drag,
+                if self.controls.flying() {
+                    speed.y * 0.6
+                } else {
+                    (retained.y - GRAVITY) * f64::from(AIR_DRAG)
+                },
+                retained.z * drag,
+            )
+        };
+        Ok(Some(SPlayerPosition {
+            position: self.position,
+            collision: (u8::from(self.on_ground) * FLAG_ON_GROUND)
+                | (u8::from(self.horizontal_collision) * FLAG_HORIZONTAL_COLLISION),
+        }))
+    }
+
+    fn try_exit_fluid(
+        &self,
+        bounds: BoundingBox,
+        previous: Vector3<f64>,
+        mut velocity: Vector3<f64>,
+    ) -> Vector3<f64> {
+        if self.horizontal_collision {
+            let out =
+                velocity + Vector3::new(0.0, f64::from(0.6f32) - self.position.y + previous.y, 0.0);
+            let target = bounds.shift(self.position - previous + out);
+            if self.world.shapes(target).is_empty()
+                && Contact::sample(&self.world, target, target.min)
+                    .kind()
+                    .is_none()
+            {
+                velocity.y = f64::from(0.3f32);
+            }
+        }
+        velocity
+    }
+
+    fn move_body(
+        &mut self,
+        bounds: BoundingBox,
+        speed: Vector3<f64>,
+        delta: Vector3<f64>,
+    ) -> Vector3<f64> {
         let previous = self.position;
         let moved = collide(&self.world, bounds, delta, self.on_ground);
         let distance = moved.length_squared();
@@ -401,22 +559,6 @@ impl Player {
         } else if moved.y < 0.0 {
             self.fall_distance -= moved.y;
         }
-        self.apply_drag(speed, moved, friction, x_collision, z_collision);
-        Ok(Some(SPlayerPosition {
-            position: self.position,
-            collision: (u8::from(self.on_ground) * FLAG_ON_GROUND)
-                | (u8::from(self.horizontal_collision) * FLAG_HORIZONTAL_COLLISION),
-        }))
-    }
-
-    fn apply_drag(
-        &mut self,
-        speed: Vector3<f64>,
-        moved: Vector3<f64>,
-        friction: f32,
-        x_collision: bool,
-        z_collision: bool,
-    ) {
         let speed_here = self
             .world
             .block(self.position.floor_to_i32())
@@ -430,24 +572,19 @@ impl Player {
         } else {
             speed_here
         };
-        let drag = f64::from(friction * 0.91f32);
-        self.velocity = Vector3::new(
+        Vector3::new(
             if x_collision {
                 0.0
             } else {
-                speed.x * f64::from(block_speed) * drag
+                speed.x * f64::from(block_speed)
             },
-            if self.controls.flying() {
-                speed.y * 0.6
-            } else {
-                (self.bounce_y(speed.y, moved.y) - GRAVITY) * f64::from(AIR_DRAG)
-            },
+            self.bounce_y(speed.y, moved.y),
             if z_collision {
                 0.0
             } else {
-                speed.z * f64::from(block_speed) * drag
+                speed.z * f64::from(block_speed)
             },
-        );
+        )
     }
 
     fn bounce_y(&self, speed: f64, moved: f64) -> f64 {

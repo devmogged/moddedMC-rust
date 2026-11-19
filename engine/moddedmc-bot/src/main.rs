@@ -12,6 +12,7 @@ mod bot;
 mod capture;
 mod collision;
 mod controls;
+mod fluids;
 mod inventory;
 mod movement;
 mod terrain;
