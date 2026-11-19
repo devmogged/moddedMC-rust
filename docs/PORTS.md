@@ -4,7 +4,7 @@ Every port ships as a `.mmc` in the server's `mods/` folder. Add or remove the f
 
 ## Build a port
 
-Start with [Chunky](../mods/chunky), [Counter](../mods/counter) or [Wayshrine](../mods/wayshrine). Put the crate in `mods/<id>` and depend on [the SDK](../api), whose C tables are defined in [MOD-ABI.md](MOD-ABI.md).
+Run `scripts/new-mod.ps1 -Id <id>`. It creates `mods/<id>`, a crate that already builds and runs: one block with its model, texture, recipe, loot table and mineable tag, and `tests/scenarios/<id>.txt`, which checks it on a fresh server. [Create](../mods/create) and [Chunky](../mods/chunky) show larger mods. The SDK is in [api](../api), and its C tables are defined in [MOD-ABI.md](MOD-ABI.md).
 
 1. Require the named interface versions the port uses in `Mod::start`. A server that lacks a required version logs its name and skips the mod before worlds load.
 2. Keep mechanics in the mod. Create owns its kinetic networks, and each boss or dragon mod owns its AI. The host exposes operations the engine can perform safely. Plan new operations in [INTERFACES-PLAN.md](INTERFACES-PLAN.md).
