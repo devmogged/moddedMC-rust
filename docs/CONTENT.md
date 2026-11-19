@@ -38,4 +38,6 @@ The host freezes custom definitions before the root world opens and stores the a
 
 The current Java connections all use the same vanilla view. The host reserves powered note block states for static block models or invisible carriers with tracked item displays. An ordinary note block that occupies a reserved slot is sent as the unpowered variant with the same note and instrument. Custom items use a paper base plus an item-model component. The server keeps the actual item in inventory and uses its own state when processing clicks and item use. An incoming creative stack with a registered model and the matching carrier is restored to the actual item. Chunk palettes and block updates translate at their wire boundaries.
 
+The [companion handshake](COMPANION.md) currently negotiates hashed asset delivery. It loads the same resource definitions from its cache while these vanilla-view mappings remain in use.
+
 Pack generation copies the referenced model and texture dependencies from local jars. The generated ZIP is required when real content is present and takes the Java pack offer. The stock outline follows the carrier. Server-side collision and outline queries use the registered shapes.

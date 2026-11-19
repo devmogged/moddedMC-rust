@@ -8,6 +8,36 @@ With JDK 25 or newer, run `./gradlew build` from `companion/` (`gradlew.bat buil
 
 ## Configuration negotiation
 
-The Java configuration custom payload channel is `moddedmc:negotiate`. Integers are unsigned, big-endian. The host sends an empty challenge followed by a vanilla configuration ping. A companion replies to the challenge with a two-byte protocol version and four-byte capability mask. The server answers with its version and the intersection of client capabilities and features used by the running pack. Protocol 1 starts with no visual capabilities. Malformed hello lengths are ignored. Incompatible versions get the server's version and zero capabilities.
+The Java configuration custom payload channel is `moddedmc:negotiate`. Integers are unsigned and big-endian. The host sends an empty challenge followed by a vanilla configuration ping. A companion replies to the challenge with a two-byte protocol version and four-byte capability mask. The server answers with its version and the intersection of client capabilities and features used by the running pack. Malformed hello lengths are ignored. Incompatible versions get the server's version and zero capabilities.
+
+| Protocol 1 flag | Meaning and extra bytes in the server answer |
+| --- | --- |
+| `0x00000001` | Hashed assets. Follow the six-byte header with 32 raw SHA-256 bytes for the manifest and 20 raw SHA-1 bytes tying the manifest to the vanilla ZIP offer. |
 
 The ping orders the exchange before the pack offer or known packs. Stock clients ignore the challenge and answer the ping. On servers without a challenge the companion sends nothing. Every connection currently uses the stock block, item and display representation.
+
+## Asset delivery
+
+The host uses the generated stock pack's file list. A manifest contains `pack_version` (the stock ZIP's SHA-256) and `assets` (objects with `path`, `sha256` and `size` in bytes). Hashes in JSON and URLs are lowercase hex. Only referenced files from the generated pack are served. Create textures are read from the owner's local JAR at startup.
+
+The game status JSON advertises `moddedmc: {"protocol": 1, "pack_url": "...", "manifest_sha256": "..."}` when a catalog exists. Replace `{host}` in the URL with the game handshake host, bracketed for IPv6. Fetch `manifest-<sha256>.json` and `assets/<sha256>` relative to the ZIP URL. All three routes use the same pack listener. When `MODDEDMC_PACK_URL` points to a proxy, forward the manifest and blob routes alongside the ZIP. The status request and pack routes need no device-agent access.
+
+The app and companion share `<gameDir>/moddedmc/manifest-<sha256>.json` and `<gameDir>/moddedmc/assets/<sha256>`. Both verify hashes and lengths before using cache entries or publishing replacements. The manifest is limited to 2 MiB and 10,000 paths. Each asset is limited to 8 MiB and the total to 256 MiB. The companion uses verified blobs to assemble the pack locally on vanilla's pack download worker, after vanilla's pack consent. A complete app-prefetched cache works with the pack HTTP listener unreachable. An invalid or missing blob that cannot be repaired fails the required pack load.
+
+## Join from the app
+
+With a JDK 25+ configured, run `npm run companion` in `app/` when developing the desktop app. The Tauri build runs this automatically and bundles the companion JAR. The app gets the official launcher version JSON from Fabric Meta. The friend server provides the assets.
+
+Click **Join** on a friend. The app checks the official launcher's standard game directory first, then Prism Launcher and MultiMC. It installs the `moddedMC` profile or instance for 26.3 and writes the friend into that game's `servers.dat`. Each modified launcher file gets a sibling `.backup-…` copy before replacement. With no detected launcher, the app exports an importable instance ZIP to Downloads. Launchers still fetch Minecraft and Fabric Loader on first use.
+
+## Owner play test
+
+1. Start a scratch pack server with `create.mmc` and your local Create JAR. Add its address in the app. Close any running launcher, then click **Join**. Expect the app to name the launcher and tell you to press **Play**.
+2. Open that launcher. Select **moddedMC** and press **Play**. Open **Multiplayer** and expect the friend server in the list. Join it and accept the required pack if asked. Expect Create items and placed gears to appear. Check `logs/latest.log` in the instance for `active capabilities 1` and `Loaded verified moddedMC asset pack`.
+3. Disconnect. Keep the game port reachable and block only the pack HTTP port from the test client. Rejoin from the prepared instance. Expect the same models and verified asset log using only the existing cache. Restore the pack HTTP route afterward.
+4. Join the same server from a stock 26.3 installation with the HTTP route available. Accept its pack and expect the same stock models. Then join an ordinary 26.3 server from **moddedMC** and expect a normal join with no companion negotiation log for that connection.
+5. Click **Join** again for the same friend. Expect one saved server entry. On a machine with Prism or MultiMC, repeat using its instance. On a machine without a detected launcher, import the exported ZIP in Prism or MultiMC and expect the server already listed.
+
+## C5 extension
+
+Add renderer capabilities to the configuration answer and carry the negotiated flags into play. Send versioned per-pack definitions and connection-local slot mappings. Keep the stock carrier path until a connection has accepted the relevant definitions. Kinetic rendering still needs position, axis, signed RPM and a tick reference. Entity rigs need model and animation definitions, state transitions and interpolation. Both can use the existing hashed asset cache.
