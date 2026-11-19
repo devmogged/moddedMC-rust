@@ -43,6 +43,8 @@ pub fn run() {
             packs::packs_list,
             packs::pack_add,
             packs::pack_remove,
+            packs::pack_add_mod,
+            packs::pack_remove_mod,
             packs::pack_build,
         ])
         .run(tauri::generate_context!());

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Hammer, Trash2, Upload } from "lucide-react";
+import { FolderPlus, Hammer, Plus, Trash2, Upload } from "lucide-react";
 import { api, type Device, type Pack } from "./api";
 import type { DeviceData } from "./App";
 import { ConfirmDialog, DeployToDialog } from "./dialogs";
@@ -27,6 +27,8 @@ export function PackPane({
   const [log, setLog] = useState<string[]>([]);
   const [deployFrom, setDeployFrom] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [removed, setRemoved] = useState<string[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,7 +60,39 @@ export function PackPane({
     }
   };
 
-  const line = [pack.version ? `Version ${pack.version}` : null, `${pack.mods.length} mods`, pack.path]
+  const addMod = async (pick: () => Promise<string | null>) => {
+    const source = await pick();
+    if (!source) return;
+    setEditing(true);
+    try {
+      await api.addPackMod(pack.path, source);
+      onChanged();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  // Optimistic: the row leaves at once and comes back if the file can't be written.
+  const removeMod = async (id: string) => {
+    setRemoved((prev) => [...prev, id]);
+    setEditing(true);
+    try {
+      await api.removePackMod(pack.path, id);
+      onChanged();
+    } catch (err) {
+      setRemoved((prev) => prev.filter((r) => r !== id));
+      onError(err);
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  useEffect(() => setRemoved([]), [pack]);
+
+  const mods = pack.mods.filter((m) => !removed.includes(m.id));
+  const line = [pack.version ? `Version ${pack.version}` : null, `${mods.length} mods`, pack.path]
     .filter(Boolean)
     .join(" · ");
 
@@ -129,9 +163,21 @@ export function PackPane({
         ) : null}
 
         <section className="block">
-          <div className="block-head">Mods</div>
+          <div className="block-head">
+            <span>Mods</span>
+            <div className="actions">
+              <button className="button" disabled={editing} onClick={() => addMod(api.pickModFile)}>
+                <Plus />
+                Add .mmc
+              </button>
+              <button className="button" disabled={editing} onClick={() => addMod(api.pickFolder)}>
+                <FolderPlus />
+                Add crate
+              </button>
+            </div>
+          </div>
           <div>
-            {pack.mods.map((m) => (
+            {mods.map((m) => (
               <div key={m.id} className="mod-row pack-mod">
                 <div className="row-text">
                   <div className="row-name">{m.id}</div>
@@ -146,8 +192,17 @@ export function PackPane({
                         ? "Git"
                         : "Local"}
                 </span>
+                <button
+                  className="icon-button"
+                  aria-label={`Remove ${m.id} from the pack`}
+                  disabled={editing}
+                  onClick={() => removeMod(m.id)}
+                >
+                  <Trash2 />
+                </button>
               </div>
             ))}
+            {mods.length === 0 ? <p className="row-line">No mods yet</p> : null}
           </div>
         </section>
       </div>

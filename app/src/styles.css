@@ -1133,7 +1133,7 @@ dialog::backdrop {
   border-radius: 8px;
 }
 .pack-mod {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
 }
 .tag {
   background: color-mix(in oklch, var(--external) 8%, var(--raised));

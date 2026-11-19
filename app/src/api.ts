@@ -182,6 +182,8 @@ export const api = {
   packs: () => call<Pack[]>("packs_list"),
   addPack: (path: string) => call<Pack>("pack_add", { path }),
   removePack: (path: string) => call<void>("pack_remove", { path }),
+  addPackMod: (path: string, source: string) => call<Pack>("pack_add_mod", { path, source }),
+  removePackMod: (path: string, id: string) => call<Pack>("pack_remove_mod", { path, id }),
   /** Builds one target; resolves to the build folder. Output arrives through `onPackBuild`. */
   buildPack: (path: string, target: string) => call<string>("pack_build", { path, target }),
   onPackBuild: (

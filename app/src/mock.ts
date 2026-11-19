@@ -115,6 +115,12 @@ const backupLists = new Map<
   { id: string; created: number; files: number; bytes: number; stored: number; scheduled: boolean }[]
 >();
 let mockSchedule: { every_minutes: number; keep: number } | null = { every_minutes: 360, keep: 8 };
+let mockPackMods = [
+  { id: "counter", source: "path" },
+  { id: "port-example", source: "mmc" },
+  { id: "wayshrine", source: "git" },
+  { id: "chunky", source: "index" },
+];
 const serverMods: Record<string, { file: string; id: string; version: string; bytes: number }[]> = {};
 
 export async function mockInvoke(command: string, args: Record<string, any> = {}): Promise<unknown> {
@@ -300,18 +306,17 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
       };
     }
     case "packs_list":
-    case "pack_add": {
+    case "pack_add":
+    case "pack_add_mod":
+    case "pack_remove_mod": {
+      if (command === "pack_add_mod") mockPackMods.push({ id: "create", source: "path" });
+      if (command === "pack_remove_mod") mockPackMods = mockPackMods.filter((m) => m.id !== args.id);
       const pack = {
         path: "C:/moddedMC-rust/packs/example/pack.toml",
         id: "example",
         name: "Example",
         version: "1",
-        mods: [
-          { id: "counter", source: "path" },
-          { id: "port-example", source: "mmc" },
-          { id: "wayshrine", source: "git" },
-          { id: "chunky", source: "index" },
-        ],
+        mods: mockPackMods,
         targets: [
           {
             name: "laptop",
@@ -322,7 +327,7 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
         ],
         error: null,
       };
-      return command === "pack_add" ? pack : [pack];
+      return command === "packs_list" ? [pack] : pack;
     }
     case "pack_build":
       return "C:/moddedMC-rust/target/packs/example/" + args.target;

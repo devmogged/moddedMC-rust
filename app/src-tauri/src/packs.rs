@@ -235,3 +235,135 @@ pub async fn pack_build(app: AppHandle, path: String, target: String) -> Result<
         .and_then(|t| t.built)
         .ok_or_else(|| "The build finished but left no output.".into())
 }
+
+/// `to` relative to the folder `from`, `/`-separated; absolute when they share no root.
+fn relative(from: &Path, to: &Path) -> String {
+    let from: Vec<_> = from.components().collect();
+    let to_parts: Vec<_> = to.components().collect();
+    let common = from
+        .iter()
+        .zip(&to_parts)
+        .take_while(|(a, b)| a == b)
+        .count();
+    if common == 0 {
+        return to.to_string_lossy().replace('\\', "/");
+    }
+    let mut parts: Vec<String> = vec!["..".into(); from.len() - common];
+    parts.extend(
+        to_parts[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
+    parts.join("/")
+}
+
+/// The id a mod file or crate declares: `mod.json` in a `.mmc`, `[package] name` in a crate.
+fn mod_id(source: &Path) -> Result<(String, &'static str), String> {
+    if source.is_dir() {
+        let manifest = source.join("Cargo.toml");
+        let text = std::fs::read_to_string(&manifest)
+            .map_err(|_| "Pick a .mmc file or a mod crate folder.".to_string())?;
+        let table: toml::Table = text.parse().map_err(|e: toml::de::Error| e.to_string())?;
+        let name = table
+            .get("package")
+            .and_then(|p| p.get("name"))
+            .and_then(toml::Value::as_str)
+            .ok_or("That folder's Cargo.toml has no package name.")?;
+        return Ok((name.to_string(), "path"));
+    }
+    let file = std::fs::File::open(source).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|_| "That file isn't a .mmc mod.")?;
+    let json: serde_json::Value = {
+        let entry = zip
+            .by_name("mod.json")
+            .map_err(|_| "That .mmc has no mod.json.")?;
+        serde_json::from_reader(entry).map_err(|e| format!("mod.json: {e}"))?
+    };
+    let id = json
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("That .mmc's mod.json has no id.")?;
+    Ok((id.to_string(), "mmc"))
+}
+
+fn edit_pack(
+    path: &str,
+    change: impl FnOnce(&mut toml_edit::Table) -> Result<(), String>,
+) -> Result<Pack, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("Can't read {path}: {e}"))?;
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e: toml_edit::TomlError| e.to_string())?;
+    let mods = doc
+        .entry("mods")
+        .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
+        .as_table_mut()
+        .ok_or("The pack's [mods] isn't a table.")?;
+    change(mods)?;
+    let partial = format!("{path}.partial");
+    std::fs::write(&partial, doc.to_string()).map_err(|e| e.to_string())?;
+    std::fs::rename(&partial, path).map_err(|e| e.to_string())?;
+    Ok(read_pack(path))
+}
+
+/// Adds a drop-in mod to a pack: a `.mmc` file or a mod crate folder.
+#[tauri::command]
+pub fn pack_add_mod(path: String, source: String) -> Result<Pack, String> {
+    let source = PathBuf::from(source);
+    let (id, key) = mod_id(&source)?;
+    let dir = Path::new(&path).parent().ok_or("Bad pack path.")?;
+    let value = relative(dir, &source);
+    edit_pack(&path, |mods| {
+        if mods.contains_key(&id) {
+            return Err(format!("The pack already has {id}."));
+        }
+        let mut spec = toml_edit::InlineTable::new();
+        spec.insert(key, value.into());
+        mods.insert(&id, toml_edit::value(spec));
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub fn pack_remove_mod(path: String, id: String) -> Result<Pack, String> {
+    edit_pack(&path, |mods| {
+        mods.remove(&id)
+            .map(drop)
+            .ok_or(format!("The pack has no {id}."))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_paths() {
+        let pack = Path::new("N:/repo/packs/survival");
+        assert_eq!(relative(pack, Path::new("N:/repo/mods/chunky")), "../../mods/chunky");
+        assert_eq!(relative(pack, Path::new("N:/repo/packs/survival/m.mmc")), "m.mmc");
+        assert_eq!(relative(pack, Path::new("D:/mods/x.mmc")), "D:/mods/x.mmc");
+    }
+
+    #[test]
+    fn edits_keep_comments() {
+        let dir = std::env::temp_dir().join("moddedmc-pack-edit-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pack.toml");
+        std::fs::write(
+            &path,
+            "# keep me\n[pack]\nid = \"t\"\nname = \"T\"\nversion = \"1\"\n\n[mods]\na = { path = \"../a\" }\n\n[targets]\nlaptop = \"x86_64-pc-windows-msvc\"\n",
+        )
+        .unwrap();
+        let path = path.to_string_lossy().into_owned();
+        edit_pack(&path, |mods| {
+            mods.remove("a");
+            Ok(())
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# keep me\n"));
+        assert!(!text.contains("../a"));
+        assert!(text.contains("[targets]"));
+    }
+}
