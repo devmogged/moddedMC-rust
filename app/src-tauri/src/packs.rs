@@ -340,8 +340,14 @@ mod tests {
     #[test]
     fn relative_paths() {
         let pack = Path::new("N:/repo/packs/survival");
-        assert_eq!(relative(pack, Path::new("N:/repo/mods/chunky")), "../../mods/chunky");
-        assert_eq!(relative(pack, Path::new("N:/repo/packs/survival/m.mmc")), "m.mmc");
+        assert_eq!(
+            relative(pack, Path::new("N:/repo/mods/chunky")),
+            "../../mods/chunky"
+        );
+        assert_eq!(
+            relative(pack, Path::new("N:/repo/packs/survival/m.mmc")),
+            "m.mmc"
+        );
         assert_eq!(relative(pack, Path::new("D:/mods/x.mmc")), "D:/mods/x.mmc");
     }
 
