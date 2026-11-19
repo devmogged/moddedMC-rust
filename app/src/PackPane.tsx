@@ -130,11 +130,19 @@ export function PackPane({
           <div className="block-head">Mods</div>
           <div>
             {pack.mods.map((m) => (
-              <div key={m.id} className="mod-row">
-                <div className="row-name">{m.id}</div>
-                <span />
+              <div key={m.id} className="mod-row pack-mod">
+                <div className="row-text">
+                  <div className="row-name">{m.id}</div>
+                  <div className="row-line mono">{m.id}.mmc</div>
+                </div>
                 <span className="tag">
-                  {m.source === "index" ? "Published" : m.source === "mmc" ? "File" : "Local"}
+                  {m.source === "index"
+                    ? "Published"
+                    : m.source === "mmc"
+                      ? "File"
+                      : m.source === "git"
+                        ? "Git"
+                        : "Local"}
                 </span>
               </div>
             ))}

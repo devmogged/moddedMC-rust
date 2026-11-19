@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Boxes, Package, Plus } from "lucide-react";
 import { api, type Device, type Friend, type ServerInfo } from "./api";
 import { ServerCluster, ServerIcon, packLine, routeLabel, usePoll, useServerIcon } from "./ui";
+import { DeviceMeters } from "./Metrics";
 import { ServerPane } from "./ServerPane";
 import { DevicePane } from "./DevicePane";
 import { FriendPane, FriendRow, useFriendStatus } from "./FriendPane";
@@ -315,10 +316,14 @@ function DeviceGroup({
   selection: Selection;
   onSelect: (s: Selection) => void;
 }) {
+  const { value: info } = usePoll(data && !data.error ? () => api.deviceInfo(device.id) : null, 10_000, [
+    device.id,
+    Boolean(data && !data.error),
+  ]);
   const state = !data ? "unknown" : data.error ? "offline" : "online";
   const current = selection.kind === "device" && selection.device === device.id;
   return (
-    <div>
+    <div className="device-group">
       <button
         className="device-head"
         aria-current={current}
@@ -328,6 +333,7 @@ function DeviceGroup({
         <span className="name">{device.name}</span>
         <span className="route">{routeLabel[device.route]}</span>
       </button>
+      {state === "online" && info && <DeviceMeters info={info} />}
       {data?.servers?.map((server) => (
         <SidebarServer
           key={server.name}

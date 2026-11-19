@@ -4,13 +4,15 @@
 type Handler = (event: { id: number; line: string | null }) => void;
 
 const started = Date.now();
+const scenario = new URLSearchParams(location.search).get("mock");
 const listeners = new Set<Handler>();
 let consoles = 0;
 const state: Record<string, string> = { survival: "running", create: "stopped", "boss-rush": "crashed" };
 
+if (scenario === "starting") state.survival = "starting";
 const log = [
   "[00:00:01] INFO Pumpkin 0.1.0 for Minecraft 26.3",
-  "[00:00:01] INFO Loading 64 mods (12 drop-in, 52 compiled in)",
+  "[00:00:01] INFO Loading 64 drop-in mods",
   '[00:00:02] INFO Preparing level "world"',
   "[00:00:04] WARN Chunk 12,-4 took 61 ms to generate",
   "[00:00:05] INFO Started server in 4.2 s",
@@ -32,6 +34,7 @@ function health(base: number) {
 
 function servers(device: string) {
   if (device === "pi") {
+    if (scenario === "empty") return [];
     return [
       {
         name: "survival",
@@ -41,7 +44,7 @@ function servers(device: string) {
         pid: 812,
         uptime_secs: (Date.now() - started) / 1000 + 86000,
         exit_code: null,
-        health: health(14),
+        health: state.survival === "running" ? health(scenario === "degraded" ? 44 : 14) : null,
         external: false,
         program: null,
         folder: null,
@@ -108,7 +111,7 @@ let mockSchedule: { every_minutes: number; keep: number } | null = { every_minut
 const serverMods: Record<string, { file: string; id: string; version: string; bytes: number }[]> = {};
 
 export async function mockInvoke(command: string, args: Record<string, any> = {}): Promise<unknown> {
-  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, scenario === "loading" && command === "devices_list" ? 5000 : 60));
   switch (command) {
     case "devices_list":
       return [
@@ -117,7 +120,12 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
         { id: "nas", name: "Basement box", route: "ssh", host: "noel@192.168.1.20", port: 25599 },
       ];
     case "agent": {
-      const { device, method, path, body } = args as { device: string; method: string; path: string; body?: unknown };
+      const { device, method, path, body } = args as {
+        device: string;
+        method: string;
+        path: string;
+        body?: unknown;
+      };
       if (device === "nas") throw "Can't reach Basement box. Is the agent running there?";
       if (path === "/v1/device")
         return {
@@ -127,7 +135,9 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           cpus: device === "pi" ? 4 : 16,
           ram_total: (device === "pi" ? 8 : 32) * 2 ** 30,
           ram_available: (device === "pi" ? 6.9 : 18.2) * 2 ** 30,
-          disk_free: 412 * 2 ** 30,
+          cpu_percent: (device === "pi" ? 23 : 11) + Math.sin(Date.now() / 5000) * 6,
+          disk_total: (device === "pi" ? 512 : 1024) * 2 ** 30,
+          disk_free: (device === "pi" ? 412 : 630) * 2 ** 30,
           agent_version: "0.1.0",
           tailscale_name: device === "pi" ? "pi.tail1234.ts.net" : null,
         };
@@ -146,8 +156,22 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
       }
       if (path.endsWith("/backups") && method === "GET")
         return [
-          { id: "1795030000", created: 1795030000, files: 412, bytes: 182 * 2 ** 20, stored: 3.1 * 2 ** 20, scheduled: true },
-          { id: "1794940000", created: 1794940000, files: 405, bytes: 176 * 2 ** 20, stored: 151 * 2 ** 20, scheduled: false },
+          {
+            id: "1795030000",
+            created: 1795030000,
+            files: 412,
+            bytes: 182 * 2 ** 20,
+            stored: 3.1 * 2 ** 20,
+            scheduled: true,
+          },
+          {
+            id: "1794940000",
+            created: 1794940000,
+            files: 405,
+            bytes: 176 * 2 ** 20,
+            stored: 151 * 2 ** 20,
+            scheduled: false,
+          },
         ];
       if (path.endsWith("/backups/schedule")) {
         if (method === "PUT") mockSchedule = (body as typeof mockSchedule) ?? null;
@@ -155,7 +179,7 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
       }
       if (path.includes("/backups")) return null;
       if (path.endsWith("/pregen") && method === "GET") {
-        const t = ((Date.now() / 1000) % 60) / 60;
+        const t = 0.42 + (Date.now() - started) / 120_000;
         return {
           state: "running",
           world: "minecraft:overworld",
@@ -179,7 +203,10 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           rss_bytes: 612 * 2 ** 20 + Math.sin(Date.now() / 9000) * 40 * 2 ** 20,
           cpu_percent: 18 + Math.sin(Date.now() / 4000) * 9,
           uptime_secs: (Date.now() - started) / 1000 + 86000,
-          health: state[match[1]] === "running" ? health(match[1] === "survival" ? 14 : 41) : null,
+          health:
+            state[match[1]] === "running"
+              ? health(match[1] === "survival" ? (scenario === "degraded" ? 44 : 14) : 41)
+              : null,
         };
       return null;
     }
@@ -230,8 +257,9 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
         version: "1",
         mods: [
           { id: "counter", source: "path" },
-          { id: "port-example", source: "path" },
-          { id: "wayshrine", source: "path" },
+          { id: "port-example", source: "mmc" },
+          { id: "wayshrine", source: "git" },
+          { id: "chunky", source: "index" },
         ],
         targets: [
           {
@@ -257,7 +285,34 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
     case "deploy":
       return { id: "example-3f9a1c2b7d4e", pack: "example", version: "1", path: args.path };
     case "mods_index":
-      return [];
+      return scenario === "empty"
+        ? []
+        : [
+            {
+              id: "chunky",
+              name: "Chunky",
+              version: "1.0.0",
+              kind: "drop-in",
+              minecraft: "26.3",
+              upstream: null,
+            },
+            {
+              id: "wayshrine",
+              name: "Wayshrine",
+              version: "0.2.0",
+              kind: "drop-in",
+              minecraft: "26.3",
+              upstream: null,
+            },
+            {
+              id: "counter",
+              name: "Counter",
+              version: "0.2.0",
+              kind: "drop-in",
+              minecraft: "26.3",
+              upstream: null,
+            },
+          ];
     default:
       return null;
   }

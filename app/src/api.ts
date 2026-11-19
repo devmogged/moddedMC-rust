@@ -16,6 +16,8 @@ export interface DeviceInfo {
   os: string;
   arch: string;
   cpus: number;
+  cpu_percent?: number | null;
+  disk_total?: number | null;
   ram_total: number;
   ram_available: number;
   disk_free: number;
@@ -132,7 +134,14 @@ export type Pregen = {
 };
 
 /** A snapshot of a server folder in the device's backup store. */
-export type Backup = { id: string; created: number; files: number; bytes: number; stored: number; scheduled: boolean };
+export type Backup = {
+  id: string;
+  created: number;
+  files: number;
+  bytes: number;
+  stored: number;
+  scheduled: boolean;
+};
 export type BackupSchedule = { every_minutes: number; keep: number };
 
 /** A drop-in mod in a server's `mods/`. */

@@ -9,7 +9,17 @@ import {
   type ServerInfo,
   type Stats,
 } from "./api";
-import { ServerCluster, ServerIcon, bytes, duration, packLine, usePoll, useServerIcon } from "./ui";
+import {
+  ServerCluster,
+  ServerIcon,
+  bytes,
+  duration,
+  healthBars,
+  packLine,
+  usePoll,
+  useServerIcon,
+} from "./ui";
+import { HistoryPlot, PregenMap } from "./Metrics";
 import { ConfirmDialog, DeployDialog } from "./dialogs";
 
 type Tab = "console" | "performance" | "mods" | "backups" | "pregen";
@@ -40,6 +50,22 @@ export function ServerPane({
   });
   const [busy, setBusy] = useState(false);
   const [deploying, setDeploying] = useState(false);
+  const showStats = !server.external && (server.state === "running" || tab === "performance");
+  const {
+    value: latest,
+    error: statsError,
+    refresh: retryStats,
+  } = usePoll(showStats ? () => api.stats(device.id, server.name) : null, 2000, [
+    device.id,
+    server.name,
+    showStats,
+  ]);
+  const [samples, setSamples] = useState<Stats[]>([]);
+  useEffect(() => {
+    if (latest) setSamples((prev) => [...prev.slice(-119), latest]);
+  }, [latest]);
+  const telemetry = server.state === "running" ? (latest?.health ?? server.health) : null;
+  const tickTone = telemetry ? healthBars(telemetry).tone : "unknown";
 
   const act = async (action: "start" | "stop" | "restart") => {
     setBusy(true);
@@ -103,6 +129,38 @@ export function ServerPane({
         </div>
       </header>
 
+      {!server.external && (
+        <div className="live-strip">
+          <LiveReading
+            label="TPS"
+            value={telemetry?.tps.toFixed(1)}
+            values={samples.map((s) => s.health?.tps ?? null)}
+            max={telemetry?.tickrate}
+            tone={tickTone}
+          />
+          <LiveReading
+            label="MSPT"
+            value={telemetry?.mspt.toFixed(1)}
+            values={samples.map((s) => s.health?.mspt ?? null)}
+            max={telemetry ? 1000 / telemetry.tickrate : undefined}
+            tone={tickTone}
+          />
+          <LiveReading
+            label="Players"
+            value={telemetry ? telemetry.players + "/" + telemetry.max_players : undefined}
+            values={samples.map((s) => s.health?.players ?? null)}
+            max={telemetry?.max_players}
+            tone="starting"
+          />
+          <LiveReading
+            label="RAM"
+            value={up && latest?.rss_bytes != null ? bytes(latest.rss_bytes) : undefined}
+            values={samples.map((s) => s.rss_bytes)}
+            tone="external"
+          />
+        </div>
+      )}
+
       {server.external ? (
         <div className="pane-body ruled">
           <dl className="facts">
@@ -146,7 +204,7 @@ export function ServerPane({
           {tab === "console" ? (
             <Console device={device.id} server={server.name} />
           ) : tab === "performance" ? (
-            <Performance device={device.id} server={server} />
+            <Performance samples={samples} latest={latest} error={statsError} retry={retryStats} />
           ) : tab === "mods" ? (
             <Mods device={device.id} server={server} onError={onError} />
           ) : tab === "backups" ? (
@@ -445,28 +503,29 @@ function Pregen({
               </button>
             </div>
           </div>
-          <div className="stat-value">
-            {(value.percent ?? 0).toFixed(1)}
-            <small>%</small>
+          <div className="pregen-readout" data-tone={value.state === "paused" ? "warn" : "ok"}>
+            <PregenMap percent={value.percent} />
+            <div>
+              {value.world && <p className="row-line">{value.world}</p>}
+              <div className="stat-value">
+                {value.percent == null ? "–" : value.percent.toFixed(1)}
+                <small>%</small>
+              </div>
+              <p className="row-line">
+                {[
+                  value.chunks != null ? `${COUNT.format(value.chunks)} chunks` : null,
+                  value.rate != null && value.state === "running"
+                    ? `${Math.round(value.rate)} per second`
+                    : null,
+                  value.eta_secs != null && value.state === "running"
+                    ? `${duration(value.eta_secs)} left`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            </div>
           </div>
-          <div
-            className="progress"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={value.percent ?? 0}
-          >
-            <span style={{ width: `${value.percent ?? 0}%` }} />
-          </div>
-          <p className="row-line">
-            {[
-              value.chunks != null ? `${COUNT.format(value.chunks)} chunks` : null,
-              value.rate != null && value.state === "running" ? `${Math.round(value.rate)} per second` : null,
-              value.eta_secs != null && value.state === "running" ? `${duration(value.eta_secs)} left` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
         </section>
       ) : (
         <section className="block">
@@ -739,83 +798,114 @@ function BackupSchedulePicker({
   );
 }
 
-const SAMPLES = 120;
-
-function Performance({ device, server }: { device: string; server: ServerInfo }) {
-  const [samples, setSamples] = useState<Stats[]>([]);
-  const { value, error } = usePoll(() => api.stats(device, server.name), 2000, [device, server.name]);
-
-  useEffect(() => {
-    if (!value) return;
-    setSamples((prev) => [...prev.slice(-(SAMPLES - 1)), value]);
-  }, [value]);
-
-  if (error && !value) return <div className="pane-body error-line">{error}</div>;
-  const latest = value;
-  const memory = samples.map((s) => s.rss_bytes ?? 0);
-  const cpu = samples.map((s) => s.cpu_percent ?? 0);
-  const mspt = samples.map((s) => s.health?.mspt ?? 0);
-  const health = latest?.health;
-
+function LiveReading({
+  label,
+  value,
+  values,
+  max,
+  tone,
+}: {
+  label: string;
+  value?: string;
+  values: (number | null)[];
+  max?: number;
+  tone: string;
+}) {
   return (
-    <div className="pane-body">
-      <div className="stats">
-        {health ? (
-          <>
-            <div className="stat">
-              <div className="stat-label">Tick time</div>
-              <div className="stat-value">
-                {health.mspt.toFixed(1)}
-                <small>ms</small>
-              </div>
-              <Spark values={mspt} min={0} max={1000 / health.tickrate} />
-            </div>
-            <div className="stat">
-              <div className="stat-label">TPS</div>
-              <div className="stat-value">{health.tps.toFixed(1)}</div>
-            </div>
-            <div className="stat">
-              <div className="stat-label">Players</div>
-              <div className="stat-value">
-                {health.players}
-                <small>of {health.max_players}</small>
-              </div>
-            </div>
-          </>
-        ) : null}
-        <div className="stat">
-          <div className="stat-label">Memory</div>
-          <div className="stat-value">{bytes(latest?.rss_bytes)}</div>
-          <Spark values={memory} />
-        </div>
-        <div className="stat">
-          <div className="stat-label">CPU</div>
-          <div className="stat-value">
-            {latest?.cpu_percent != null ? Math.round(latest.cpu_percent) : "–"}
-            <small>%</small>
-          </div>
-          <Spark values={cpu} min={0} max={100} />
-        </div>
-        <div className="stat">
-          <div className="stat-label">Uptime</div>
-          <div className="stat-value">{duration(latest?.uptime_secs)}</div>
-        </div>
-      </div>
+    <div className="live-reading" data-tone={value == null ? "unknown" : tone}>
+      <span>{label}</span>
+      <strong>{value ?? "–"}</strong>
+      <HistoryPlot values={value == null ? [] : values.slice(-12)} max={max} tone={tone} />
     </div>
   );
 }
 
-function Spark({ values, min, max }: { values: number[]; min?: number; max?: number }) {
-  const lo = min ?? Math.min(...values) * 0.9;
-  const hi = Math.max(max ?? 0, ...values) * (max ? 1 : 1.05);
-  const span = hi - lo || 1;
-  const points = values
-    .map((v, i) => `${(i / (SAMPLES - 1)) * 100},${40 - ((v - lo) / span) * 38 - 1}`)
-    .join(" ");
+function Performance({
+  latest,
+  samples,
+  error,
+  retry,
+}: {
+  latest: Stats | null;
+  samples: Stats[];
+  error: string | null;
+  retry: () => void;
+}) {
+  const health = latest?.health;
+  const tick = samples.map((s) => s.health?.mspt ?? null);
+  const cpu = samples.map((s) => s.cpu_percent);
+  const ram = samples.map((s) => s.rss_bytes);
   return (
-    <svg className="spark" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden>
-      <line x1="0" y1="39.5" x2="100" y2="39.5" />
-      {values.length > 1 ? <polyline points={points} /> : null}
-    </svg>
+    <div className="pane-body">
+      {error && (
+        <div className="state-panel error-line" role="status">
+          {error}
+          <button className="button" onClick={retry}>
+            Retry
+          </button>
+        </div>
+      )}
+      <div className="performance-grid">
+        {(health || tick.some((v) => v != null)) && (
+          <section className="chart-panel tick-chart">
+            <div className="chart-head">
+              <div>
+                <h2>Tick time</h2>
+                <div className="stat-value">
+                  {health?.mspt.toFixed(1) ?? "–"}
+                  <small>ms</small>
+                </div>
+              </div>
+              <div className="chart-summary">
+                <span>
+                  TPS <strong>{health?.tps.toFixed(1) ?? "–"}</strong>
+                </span>
+                <span>
+                  Players <strong>{health ? health.players + " of " + health.max_players : "–"}</strong>
+                </span>
+              </div>
+            </div>
+            <HistoryPlot
+              values={tick}
+              max={health ? 1000 / health.tickrate : undefined}
+              tone={health ? healthBars(health).tone : "unknown"}
+              label="Tick time history"
+              format={(n) => n.toFixed(1) + " ms"}
+            />
+          </section>
+        )}
+        <section className="chart-panel">
+          <div className="chart-head">
+            <div>
+              <h2>Memory</h2>
+              <div className="stat-value">{bytes(latest?.rss_bytes)}</div>
+            </div>
+          </div>
+          <HistoryPlot values={ram} tone="external" label="Memory history" format={bytes} />
+        </section>
+        <section className="chart-panel">
+          <div className="chart-head">
+            <div>
+              <h2>CPU</h2>
+              <div className="stat-value">
+                {latest?.cpu_percent != null ? Math.round(latest.cpu_percent) : "–"}
+                <small>%</small>
+              </div>
+            </div>
+          </div>
+          <HistoryPlot
+            values={cpu}
+            max={100}
+            tone="starting"
+            label="CPU history"
+            format={(n) => n.toFixed(1) + "%"}
+          />
+        </section>
+      </div>
+      <dl className="facts performance-uptime">
+        <dt>Uptime</dt>
+        <dd>{duration(latest?.uptime_secs)}</dd>
+      </dl>
+    </div>
   );
 }
