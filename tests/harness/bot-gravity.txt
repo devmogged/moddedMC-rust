@@ -1,0 +1,18 @@
+# Verify both the airborne trajectory and the resting state of the local client.
+seed 12345
+area 0 150 0 4 154 4
+start
+cmd fill 0 150 0 4 150 4 minecraft:stone
+bot join alice
+cmd tp alice 1.5 153 1.5
+bot alice await-teleport
+bot alice physics manual
+bot alice physics-tick 4
+bot alice expect pos 1.5 152.53584062504456 1.5 within 0.000001
+bot alice expect vel 0 -0.30431682745754424 0 within 0.000001
+bot alice physics-tick 8
+bot alice expect pos 1.5 151 1.5 within 0.000001
+bot alice expect vel 0 -0.0784000015258789 0 within 0.000001
+probe execute if entity @a[name=alice,x=1.5,y=151,z=1.5,distance=..0.000001]
+expect Test passed
+stop

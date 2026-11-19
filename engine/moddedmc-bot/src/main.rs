@@ -10,6 +10,9 @@
 mod actions;
 mod bot;
 mod capture;
+mod collision;
+mod movement;
+mod terrain;
 
 use std::sync::Arc;
 
@@ -24,8 +27,8 @@ use pumpkin_protocol::{
         },
         packet_encoder::TCPNetworkEncoder,
         server::play::{
-            SChatCommand, SChunkBatch, SClientTickEnd, SConfirmTeleport, SCustomClickAction,
-            SKeepAlive, SPlayerAction, SPlayerPosition, SUseItemOn, Status,
+            SChatCommand, SChunkBatch, SCustomClickAction, SKeepAlive, SPlayerAction, SUseItemOn,
+            Status,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -49,37 +52,20 @@ async fn main() -> Result<(), String> {
         return Err("usage: moddedmc-bot <host:port> <name>".into());
     };
     let bot = bot::HeadlessBot::connect_and_join(addr, name).await?;
-    println!("[bot] joined as {name} at {:?}", bot.position);
+    println!("[bot] joined as {name} at {:?}", bot.player.position);
     let writer: Writer = Arc::new(Mutex::new(bot.writer));
-    let position = Arc::new(Mutex::new(bot.position));
+    let player = Arc::new(Mutex::new(bot.player));
     let actions = Arc::new(Mutex::new(bot.actions));
 
-    // Like a real client, report our position every second; the server loads chunks from it.
-    let (tick_writer, tick_position) = (writer.clone(), position.clone());
     let harness = std::env::var_os("MODDEDMC_BOT_HARNESS").is_some();
     if !harness {
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                let current = *tick_position.lock().await;
-                let _ = send(
-                    &tick_writer,
-                    &SPlayerPosition {
-                        position: current,
-                        collision: 0,
-                    },
-                )
-                .await;
-                // Vanilla allows one position per client tick and resets that on tick end.
-                let _ = send(&tick_writer, &SClientTickEnd).await;
-            }
-        });
+        tokio::spawn(movement::realtime(player.clone(), writer.clone()));
     }
 
     tokio::spawn(pump(
         bot.reader,
         writer.clone(),
-        position.clone(),
+        player.clone(),
         harness,
         bot.capture,
         Arc::clone(&actions),
@@ -128,6 +114,16 @@ async fn main() -> Result<(), String> {
             "move" | "look" | "attack" | "inventory-click" if harness => {
                 actions::perform(&actions, &writer, verb, rest).await
             }
+            "physics" if harness && rest == "on" => {
+                Err("use physics manual in a frozen harness scenario".into())
+            }
+            "physics" => player.lock().await.set_mode(rest),
+            "physics-tick" => manual_ticks(&player, &writer, rest).await,
+            "expect" => player
+                .lock()
+                .await
+                .check(rest)
+                .map(|(kind, actual)| println!("[bot] expect {kind} ok {actual:?}")),
             "quit" => break,
             _ => Err(format!("unknown step: {line}")),
         };
@@ -149,7 +145,7 @@ async fn pump(
         BufReader<pumpkin_core::net::java::JavaReadHalf>,
     >,
     writer: Writer,
-    position: Arc<Mutex<Vector3<f64>>>,
+    player: Arc<Mutex<movement::Player>>,
     harness: bool,
     mut capture: Option<capture::Capture>,
     actions: Arc<Mutex<actions::State>>,
@@ -182,6 +178,11 @@ async fn pump(
             println!("[bot] error: {error}");
             std::process::exit(2);
         }
+        let observed = player.lock().await.observe(&packet);
+        if let Err(error) = observed {
+            println!("[bot] error: {error}");
+            std::process::exit(2);
+        }
         let mut payload = &packet.payload[..];
         if packet.id == keep_alive_id {
             let Some(id) = payload.get(..8).and_then(|b| b.try_into().ok()) else {
@@ -191,7 +192,7 @@ async fn pump(
                 keep_alive_id: i64::from_be_bytes(id),
             };
             let _ = send(&writer, &reply).await;
-        } else if harness && packet.id == CHUNK_BATCH_FINISHED.0 {
+        } else if packet.id == CHUNK_BATCH_FINISHED.0 {
             let _ = send(
                 &writer,
                 &SChunkBatch {
@@ -202,21 +203,10 @@ async fn pump(
         } else if packet.id == position_id {
             match CPlayerPosition::read(&mut payload, &CURRENT_MC_VERSION) {
                 Ok(teleport) => {
-                    let confirm = SConfirmTeleport {
-                        teleport_id: teleport.teleport_id,
-                        position: teleport.position,
-                        yaw: teleport.yaw,
-                        pitch: teleport.pitch,
-                    };
-                    let _ = send(&writer, &confirm).await;
-                    // Settle slightly, as a falling client would: Pumpkin only reloads the
-                    // player's chunks when a move actually changes the position. The 1 s
-                    // reporter sends it; a second sender can put two moves in one tick,
-                    // which vanilla 26.3 kicks for.
-                    let mut settled = teleport.position;
-                    settled.y -= 0.1;
-                    *position.lock().await = settled;
-                    println!("[bot] teleported to {:?}", teleport.position);
+                    let mut writer = writer.lock().await;
+                    let confirm = player.lock().await.teleport(&teleport);
+                    let _ = bot::send_framed_packet(&mut *writer, &confirm).await;
+                    println!("[bot] teleported to {:?}", confirm.position);
                 }
                 Err(error) => println!("[bot] error: bad teleport packet: {error}"),
             }
@@ -237,6 +227,25 @@ async fn pump(
             );
         }
     }
+}
+
+async fn manual_ticks(
+    player: &Mutex<movement::Player>,
+    writer: &Writer,
+    count: &str,
+) -> Result<(), String> {
+    let count = count
+        .parse::<u16>()
+        .ok()
+        .filter(|count| (1..=movement::MAX_MANUAL_TICKS).contains(count))
+        .ok_or("physics-tick requires a count from 1 to 1200")?;
+    if player.lock().await.mode != movement::Mode::Manual {
+        return Err("physics-tick requires physics manual".into());
+    }
+    for _ in 0..count {
+        movement::tick(player, writer, movement::Mode::Manual, false).await?;
+    }
+    Ok(())
 }
 
 async fn send<P: pumpkin_protocol::ClientPacket + MultiVersionJavaPacket>(

@@ -250,7 +250,14 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
                 .all(|word| word.parse::<f64>().is_ok_and(f64::is_finite))
     };
     match (verb, args.as_slice()) {
-        ("await-teleport", []) => true,
+        ("await-teleport", []) | ("physics", ["off" | "manual"]) => true,
+        ("physics-tick", [count]) => count.parse::<u16>().is_ok_and(|n| (1..=1200).contains(&n)),
+        ("expect", ["pos" | "vel", x, y, z, "within", tolerance]) => {
+            coords(&[x, y, z])
+                && tolerance
+                    .parse::<f64>()
+                    .is_ok_and(|d| d.is_finite() && d >= 0.0)
+        }
         ("use" | "place" | "break", [x, y, z]) => [x, y, z]
             .into_iter()
             .all(|word| word.parse::<i32>().is_ok()),

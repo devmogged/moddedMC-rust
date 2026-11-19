@@ -25,13 +25,12 @@ use pumpkin_protocol::{
             },
             handshake::SHandShake,
             login::{SLoginAcknowledged, SLoginStart},
-            play::{SConfirmTeleport, SPlayerLoaded},
+            play::SPlayerLoaded,
         },
     },
     packet::MultiVersionJavaPacket,
     ser::{NetworkReadExt, NetworkReadSliceExt, NetworkWriteExt},
 };
-use pumpkin_util::math::vector3::Vector3;
 use tokio::{
     io::{AsyncWrite, BufReader, BufWriter},
     net::TcpStream,
@@ -45,9 +44,7 @@ pub struct HeadlessBot {
     pub name: String,
     pub reader: TCPNetworkDecoder<BufReader<JavaReadHalf>>,
     pub writer: TCPNetworkEncoder<BufWriter<JavaWriteHalf>>,
-    pub position: Vector3<f64>,
-    pub yaw: f32,
-    pub pitch: f32,
+    pub player: crate::movement::Player,
     pub capture: Option<crate::capture::Capture>,
     pub actions: crate::actions::State,
 }
@@ -102,9 +99,7 @@ impl HeadlessBot {
             name: name.to_string(),
             reader: TCPNetworkDecoder::new(BufReader::new(read_half)),
             writer: TCPNetworkEncoder::new(BufWriter::new(write_half)),
-            position: Vector3::new(0.0, 0.0, 0.0),
-            yaw: 0.0,
-            pitch: 0.0,
+            player: crate::movement::Player::default(),
             capture: crate::capture::Capture::start(name),
             actions: crate::actions::State::default(),
         };
@@ -151,23 +146,15 @@ impl HeadlessBot {
             if harness {
                 bot.actions.observe(pkt.id, &pkt.payload)?;
             }
+            bot.player.observe(&pkt)?;
             if pkt.id == play_login_id {
                 saw_play_login = true;
             } else if pkt.id == player_pos_id {
                 let mut slice = &pkt.payload[..];
                 let pos_pkt = CPlayerPosition::read(&mut slice, &CURRENT_MC_VERSION)
                     .map_err(|err| format!("Failed to read CPlayerPosition: {err}"))?;
-                bot.position = pos_pkt.position;
-                bot.yaw = pos_pkt.yaw;
-                bot.pitch = pos_pkt.pitch;
-
-                bot.send_packet(&SConfirmTeleport {
-                    teleport_id: pos_pkt.teleport_id,
-                    position: pos_pkt.position,
-                    yaw: pos_pkt.yaw,
-                    pitch: pos_pkt.pitch,
-                })
-                .await?;
+                let confirm = bot.player.teleport(&pos_pkt);
+                bot.send_packet(&confirm).await?;
                 bot.send_packet(&SPlayerLoaded).await?;
                 saw_initial_pos = true;
             }
