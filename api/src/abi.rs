@@ -906,3 +906,25 @@ pub struct DisplaysV1 {
     pub set_item: unsafe extern "C" fn(world: WorldRef, id: i32, stack: Str) -> bool,
     pub remove: unsafe extern "C" fn(world: WorldRef, id: i32),
 }
+
+pub const RESOURCES: &str = "moddedmc:resources";
+
+/// The largest datapack file `ResourcesV1::read` returns.
+pub const MAX_RESOURCE_BYTES: usize = 4 << 20;
+
+/// The server's merged datapack files: mod data, the world's datapacks and Pumpkin's bundled
+/// packs, as vanilla `ResourceManager` sees them. Calls read the disk, so cache what you parse
+/// and reparse when `generation` changes.
+#[repr(C)]
+pub struct ResourcesV1 {
+    pub size: usize,
+    /// Vanilla `listResources(directory, ...)`: every file under `data/<namespace>/<directory>/`
+    /// as a `namespace:directory/...` id, each once and sorted, one `out` call per id. False for
+    /// an invalid directory or before datapacks load.
+    pub list: unsafe extern "C" fn(directory: Str, out: Sink) -> bool,
+    /// The bytes of the highest-priority pack's file for a `list` id, in one `out` call. False
+    /// when no pack has it or it is larger than `MAX_RESOURCE_BYTES`.
+    pub read: unsafe extern "C" fn(id: Str, out: Sink) -> bool,
+    /// 0 before datapacks first load, then a new value after every load, `/reload` included.
+    pub generation: unsafe extern "C" fn() -> u64,
+}

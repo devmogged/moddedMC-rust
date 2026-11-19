@@ -16,6 +16,7 @@ mod interaction;
 mod interfaces;
 mod live_stats;
 mod native;
+mod resources;
 mod stacks;
 mod stats;
 
