@@ -8,9 +8,9 @@ use crate::{
 };
 
 pub use abi::{
-    ENTITY_ALIVE, ENTITY_FLYING, ENTITY_ITEM, ENTITY_LIVING, ENTITY_PLAYER, ENTITY_SNEAKING,
-    EntityBody, EntityChange, EntityView, SET_BODY_YAW, SET_HEAD_YAW, SET_MOTION, SET_ON_GROUND,
-    SET_YAW,
+    ENTITY_ALIVE, ENTITY_FLYING, ENTITY_HANGING, ENTITY_ITEM, ENTITY_LIVING, ENTITY_PLAYER,
+    ENTITY_PUSH_IGNORED, ENTITY_SNEAKING, EntityBody, EntityChange, EntityView, SET_BODY_YAW,
+    SET_HEAD_YAW, SET_MOTION, SET_ON_GROUND, SET_YAW,
 };
 
 /// Entity functions added after the first ABI 1 release. Require the ones a mod uses in
@@ -199,7 +199,8 @@ impl Entity<'_> {
         unsafe { (self.api.id)(self.raw) }
     }
 
-    /// `ENTITY_ALIVE`, `ENTITY_SNEAKING` and `ENTITY_FLYING` bits.
+    /// `ENTITY_ALIVE`, `ENTITY_SNEAKING`, `ENTITY_FLYING`, `ENTITY_HANGING` and
+    /// `ENTITY_PUSH_IGNORED` bits.
     pub fn flags(self) -> u32 {
         // SAFETY: the entity is live for this callback.
         unsafe { (self.api.flags)(self.raw) }
@@ -254,6 +255,12 @@ impl Entity<'_> {
         // SAFETY: the entity is live for this callback.
         let value = unsafe { (self.api.step_height)(self.raw) };
         (!value.is_nan()).then_some(value)
+    }
+
+    /// Vanilla `Entity.hasIndirectPassenger`.
+    pub fn has_indirect_passenger(self, other: i32) -> bool {
+        // SAFETY: the entity is live for this callback.
+        unsafe { (self.api.has_indirect_passenger)(self.raw, other) }
     }
 
     pub fn set_step_height(self, value: f64) {

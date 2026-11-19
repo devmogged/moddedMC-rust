@@ -1,14 +1,39 @@
 //! The entity functions appended to `moddedmc:entities` v1: ids, lookup, movement, effects,
 //! step height and box queries.
 
-use std::{ffi::c_void, sync::atomic::Ordering};
+use std::{
+    ffi::c_void,
+    sync::{Arc, PoisonError, atomic::Ordering},
+};
 
 use moddedmc_api::abi::{self, Str, WorldRef};
-use pumpkin_core::entity::{EntityBase, living::LivingEntity, player::Player};
-use pumpkin_data::{attributes::Attributes, effect::StatusEffect, potion::Effect};
+use pumpkin_core::entity::{Entity, EntityBase, living::LivingEntity, player::Player};
+use pumpkin_data::{
+    attributes::Attributes, effect::StatusEffect, entity::EntityType, potion::Effect,
+};
+use pumpkin_protocol::java::server::play::SPlayerInput;
 use pumpkin_util::math::{boundingbox::BoundingBox, vector3::Vector3};
 
 use crate::content::{entity, world};
+
+/// Vanilla `HangingEntity` subclasses.
+const HANGING: [&EntityType; 3] = [
+    &EntityType::PAINTING,
+    &EntityType::ITEM_FRAME,
+    &EntityType::GLOW_ITEM_FRAME,
+];
+/// Entities whose vanilla `getPistonPushReaction()` is always `IGNORE_ENTITY`.
+const PUSH_IGNORED: [&EntityType; 7] = [
+    &EntityType::AREA_EFFECT_CLOUD,
+    &EntityType::BLOCK_DISPLAY,
+    &EntityType::ITEM_DISPLAY,
+    &EntityType::TEXT_DISPLAY,
+    &EntityType::INTERACTION,
+    &EntityType::MARKER,
+    &EntityType::OMINOUS_ITEM_SPAWNER,
+];
+/// Hops `has_indirect_passenger` follows before giving up on a malformed ride chain.
+const MAX_RIDE_DEPTH: usize = 64;
 
 fn finite(abi::Vec3([x, y, z]): abi::Vec3) -> Option<Vector3<f64>> {
     (x.is_finite() && y.is_finite() && z.is_finite()).then(|| Vector3::new(x, y, z))
@@ -54,6 +79,14 @@ pub unsafe extern "C" fn flags(raw: abi::EntityRef) -> u32 {
     if base.get_player().is_some_and(Player::is_flying) {
         flags |= abi::ENTITY_FLYING;
     }
+    if HANGING.contains(&entity.entity_type) {
+        flags |= abi::ENTITY_HANGING;
+    }
+    // ArmorStandEntity.can_hit is false only for a marker while the stand is alive.
+    let marker = entity.entity_type == &EntityType::ARMOR_STAND && alive && !base.can_hit();
+    if marker || PUSH_IGNORED.contains(&entity.entity_type) {
+        flags |= abi::ENTITY_PUSH_IGNORED;
+    }
     flags
 }
 
@@ -71,15 +104,33 @@ pub unsafe extern "C" fn set_position(raw: abi::EntityRef, position: abi::Vec3) 
     }
 }
 
+/// The server never simulates a player's movement, so read `xxa` and `zza` off the keys their
+/// client last sent.
+fn player_input(player: &Player) -> Vector3<f64> {
+    let keys = player.last_input.load(Ordering::Relaxed);
+    let axis = |positive, negative| {
+        f64::from(i8::from(keys & positive != 0) - i8::from(keys & negative != 0))
+    };
+    Vector3::new(
+        axis(SPlayerInput::LEFT, SPlayerInput::RIGHT),
+        0.0,
+        axis(SPlayerInput::FORWARD, SPlayerInput::BACKWARD),
+    )
+}
+
 pub unsafe extern "C" fn body(raw: abi::EntityRef, out: *mut abi::EntityBody) -> bool {
     // SAFETY: the entity is live for the callback.
     let (Some(base), false) = (unsafe { entity(raw) }, out.is_null()) else {
         return false;
     };
     let bounds = base.get_entity().bounding_box.load();
-    let input = base
-        .get_living_entity()
-        .map_or_else(Vector3::default, |living| living.movement_input.load());
+    let input = base.get_player().map_or_else(
+        || {
+            base.get_living_entity()
+                .map_or_else(Vector3::default, |living| living.movement_input.load())
+        },
+        player_input,
+    );
     let body = abi::EntityBody {
         min: [bounds.min.x, bounds.min.y, bounds.min.z],
         max: [bounds.max.x, bounds.max.y, bounds.max.z],
@@ -176,4 +227,32 @@ pub unsafe extern "C" fn entities_in(
         count += 1;
     }
     count
+}
+
+pub unsafe extern "C" fn has_indirect_passenger(raw: abi::EntityRef, other: i32) -> bool {
+    // SAFETY: the entity is live for the callback.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    let mut pending = vec![(riders(base.get_entity()), 0)];
+    while let Some((passengers, depth)) = pending.pop() {
+        for passenger in passengers {
+            let passenger = passenger.get_entity();
+            if passenger.entity_id == other {
+                return true;
+            }
+            if depth < MAX_RIDE_DEPTH {
+                pending.push((riders(passenger), depth + 1));
+            }
+        }
+    }
+    false
+}
+
+fn riders(entity: &Entity) -> Vec<Arc<dyn EntityBase>> {
+    entity
+        .passengers
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
 }

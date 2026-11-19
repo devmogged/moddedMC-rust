@@ -157,12 +157,13 @@ A `.mmc` is a zip with
 | `moddedmc:entities` v1 | `on_entity_inside(reg, callback)` | Stage one callback per mod, called like vanilla `Block.entityInside` for entities touching one of the mod's blocks. It gets the world, position, state and a borrowed entity, all valid only during the call. |
 | | `view(entity, out)` | Fill kind bits (player, living, item), on-ground flag, position, motion, yaw, pitch, head yaw and body yaw. |
 | | `type_id(entity)` | The entity type's resource name. |
-| | `change(entity, change)` | Apply the masked fields: motion (resent to clients), yaw, head yaw, body yaw, on-ground. Non-finite motion is rejected. |
+| | `change(entity, change)` | Apply the masked fields: motion (resent to clients, a player's own client included, like vanilla `hurtMarked`), yaw, head yaw, body yaw, on-ground. Non-finite motion is rejected. |
 | | `id`, `with_entity(world, id, ctx, visit)` | The movement extension, appended to the table (`EntitiesExtension::Movement`). An entity's id, and a borrowed entity for a loaded id, valid during `visit`. |
-| | `flags`, `body` | Alive, sneaking and flying bits; the collision box and a living entity's movement input. |
+| | `flags`, `body` | Alive, sneaking, flying, hanging (`HangingEntity`) and push-ignored (`IGNORE_ENTITY` piston reaction) bits; the collision box and movement input, which for a player comes from the keys their client last sent. |
 | | `move_by`, `set_position`, `reset_fall_distance` | Vanilla `Entity.move(SELF, delta)` with block collisions and stepping, `setPos` and `fallDistance = 0`. Pumpkin's move skips players, whose client moves them. |
 | | `add_effect`, `step_height`, `set_step_height` | Vanilla `addEffect` by effect id, and the `minecraft:step_height` base value. |
 | | `entities_in(world, min, max, except, out, capacity)` | Ids of the entities and players whose boxes intersect the box. |
+| | `has_indirect_passenger(entity, other)` | Vanilla `hasIndirectPassenger`. |
 | `moddedmc:interaction` v1 | `on_use_on_block(reg, callback)` | Stage one callback per mod, called like vanilla `Item.useOn` for any of the mod's content items, block items included. It gets the world, the player (an entity reference), the held stack and the context: item id, clicked position and face, hit point, sneaking and creative. `PASS` lets the server place the item's block as usual. |
 | | `stack_count`, `stack_shrink` | Read or shrink the held stack. |
 | | `stack_data`, `set_stack_data` | Read or replace up to 1 KiB of mod bytes stored on the stack (`custom_data` key `moddedmc:data`). Empty removes them. |

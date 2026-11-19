@@ -613,8 +613,8 @@ pub struct EntityView {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec3(pub [f64; 3]);
 
-/// An entity's collision box and, for living entities, its movement input (vanilla `xxa`,
-/// `yya`, `zza`; zero otherwise).
+/// An entity's collision box and its movement input (vanilla `xxa`, `yya`, `zza`; zero for
+/// entities that aren't living). A player's comes from the movement keys their client last sent.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct EntityBody {
@@ -667,7 +667,8 @@ pub struct EntitiesV1 {
         ctx: *mut c_void,
         visit: unsafe extern "C" fn(ctx: *mut c_void, entity: EntityRef),
     ) -> bool,
-    /// `ENTITY_ALIVE`, `ENTITY_SNEAKING` and `ENTITY_FLYING` bits.
+    /// `ENTITY_ALIVE`, `ENTITY_SNEAKING`, `ENTITY_FLYING`, `ENTITY_HANGING` and
+    /// `ENTITY_PUSH_IGNORED` bits.
     pub flags: unsafe extern "C" fn(entity: EntityRef) -> u32,
     /// Vanilla `Entity.move(MoverType.SELF, delta)`: collide with blocks and step up.
     pub move_by: unsafe extern "C" fn(entity: EntityRef, delta: Vec3),
@@ -697,6 +698,8 @@ pub struct EntitiesV1 {
         out: *mut i32,
         capacity: usize,
     ) -> usize,
+    /// Vanilla `Entity.hasIndirectPassenger`: `other` rides `entity`, directly or further up.
+    pub has_indirect_passenger: unsafe extern "C" fn(entity: EntityRef, other: i32) -> bool,
 }
 
 /// Size of the entities table before `id` was appended.
@@ -705,6 +708,11 @@ pub const ENTITIES_V1_BASE_SIZE: usize = std::mem::offset_of!(EntitiesV1, id);
 pub const ENTITY_ALIVE: u32 = 1;
 pub const ENTITY_SNEAKING: u32 = 2;
 pub const ENTITY_FLYING: u32 = 4;
+/// A vanilla `HangingEntity`: a painting or an item frame.
+pub const ENTITY_HANGING: u32 = 8;
+/// Vanilla `getPistonPushReaction()` is `IGNORE_ENTITY`: markers, displays, interactions, area
+/// effect clouds, ominous item spawners and marker armor stands.
+pub const ENTITY_PUSH_IGNORED: u32 = 16;
 
 pub const INTERACTION: &str = "moddedmc:interaction";
 

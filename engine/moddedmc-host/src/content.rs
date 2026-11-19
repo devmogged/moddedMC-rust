@@ -989,6 +989,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     step_height: crate::entities::step_height,
     set_step_height: crate::entities::set_step_height,
     entities_in: crate::entities::entities_in,
+    has_indirect_passenger: crate::entities::has_indirect_passenger,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
@@ -1066,6 +1067,8 @@ unsafe extern "C" fn entity_change(raw: abi::EntityRef, change: *const abi::Enti
         }
         entity.velocity.store(Vector3::new(x, y, z));
         entity.velocity_dirty.store(true, Ordering::Relaxed);
+        // hurtMarked: a player's own client gets the motion too.
+        entity.mark_hurt();
     }
     if change.mask & abi::SET_YAW != 0 {
         entity.yaw.store(change.yaw);
