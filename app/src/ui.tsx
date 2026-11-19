@@ -208,9 +208,26 @@ export function ServerIcon({ name, favicon }: { name: string; favicon?: string |
 
 export type BarsTone = "ok" | "unknown" | "warn" | "bad" | "starting" | "external";
 
-export function Bars({ lit, tone, label }: { lit: number; tone: BarsTone; label: string }) {
+export function Bars({
+  lit,
+  tone,
+  label,
+  crashed = false,
+}: {
+  lit: number;
+  tone: BarsTone;
+  label: string;
+  crashed?: boolean;
+}) {
   return (
-    <span className="bars" data-tone={tone} role="img" aria-label={label} title={label}>
+    <span
+      className="bars"
+      data-crashed={crashed || undefined}
+      data-tone={tone}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
       {[0, 1, 2, 3, 4].map((i) => (
         <i key={i} style={{ "--i": i } as React.CSSProperties} data-on={i < lit ? "" : undefined} />
       ))}
@@ -300,7 +317,7 @@ export function ServerCluster({
     case "crashed":
       return (
         <span className="cluster">
-          <Bars lit={1} tone="bad" label="Crashed" />
+          <Bars lit={1} tone="bad" label="Crashed" crashed />
           <span className="word status-text" data-tone="bad">
             Crashed
           </span>
@@ -392,4 +409,25 @@ export function useLive(device: Device, server: ServerInfo) {
   if (health) return { health, players: health.players, max: health.max_players };
   const ping = address ? value : null;
   return { health: null, players: ping?.players_online ?? null, max: ping?.players_max ?? null };
+}
+
+export function LoadingRows() {
+  return (
+    <div className="skeleton" role="status" aria-label="Loading">
+      <i />
+      <i />
+      <i />
+    </div>
+  );
+}
+
+export function LoadError({ error, retry }: { error: string; retry: () => void }) {
+  return (
+    <div className="state-panel error-line" role="status">
+      <span>{error}</span>
+      <button className="button" onClick={retry}>
+        Retry
+      </button>
+    </div>
+  );
 }

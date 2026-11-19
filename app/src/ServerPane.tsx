@@ -10,6 +10,8 @@ import {
   type Stats,
 } from "./api";
 import {
+  LoadingRows,
+  LoadError,
   ServerCluster,
   ServerIcon,
   bytes,
@@ -48,6 +50,22 @@ export function ServerPane({
     const hashTab = location.hash.split("/")[3];
     return import.meta.env.DEV && TABS.some((t) => t.id === hashTab) ? (hashTab as Tab) : "console";
   });
+  const tabList = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const list = tabList.current;
+    if (!list) return;
+    const move = () => {
+      const selected = list.querySelector<HTMLButtonElement>('[aria-selected="true"]');
+      if (!selected) return;
+      list.style.setProperty("--tab-x", selected.offsetLeft + "px");
+      list.style.setProperty("--tab-width", String(selected.offsetWidth));
+    };
+    move();
+    const observer = new ResizeObserver(move);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [tab, server.external]);
+
   const [busy, setBusy] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const showStats = !server.external && (server.state === "running" || tab === "performance");
@@ -188,30 +206,60 @@ export function ServerPane({
         </div>
       ) : (
         <>
-          <div className="tabs" role="tablist">
+          <div className="tabs" role="tablist" aria-label="Server" ref={tabList}>
+            <span className="tab-slide" aria-hidden />
             {TABS.map((t) => (
               <button
                 key={t.id}
                 className="tab"
                 role="tab"
+                id={"tab-" + t.id}
+                aria-controls="server-panel"
                 aria-selected={tab === t.id}
+                tabIndex={tab === t.id ? 0 : -1}
+                onKeyDown={(event) => {
+                  const current = TABS.findIndex(({ id }) => id === t.id);
+                  const next =
+                    event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? TABS.length - 1
+                        : event.key === "ArrowLeft"
+                          ? (current - 1 + TABS.length) % TABS.length
+                          : event.key === "ArrowRight"
+                            ? (current + 1) % TABS.length
+                            : null;
+                  if (next == null) return;
+                  event.preventDefault();
+                  setTab(TABS[next].id);
+                  document.getElementById("tab-" + TABS[next].id)?.focus();
+                }}
                 onClick={() => setTab(t.id)}
               >
                 {t.label}
               </button>
             ))}
           </div>
-          {tab === "console" ? (
-            <Console device={device.id} server={server.name} />
-          ) : tab === "performance" ? (
-            <Performance samples={samples} latest={latest} error={statsError} retry={retryStats} />
-          ) : tab === "mods" ? (
-            <Mods device={device.id} server={server} onError={onError} />
-          ) : tab === "backups" ? (
-            <Backups device={device.id} server={server} onError={onError} />
-          ) : (
-            <Pregen device={device.id} server={server} onError={onError} />
-          )}
+          <div
+            key={tab}
+            className="tab-panel"
+            role="tabpanel"
+            id="server-panel"
+            aria-labelledby={"tab-" + tab}
+            tabIndex={0}
+          >
+            {tab === "console" ? (
+              <Console device={device.id} server={server.name} />
+            ) : tab === "performance" ? (
+              <Performance samples={samples} latest={latest} error={statsError} retry={retryStats} />
+            ) : tab === "mods" ? (
+              <Mods device={device.id} server={server} onError={onError} />
+            ) : tab === "backups" ? (
+              <Backups device={device.id} server={server} onError={onError} />
+            ) : (
+              <Pregen device={device.id} server={server} onError={onError} />
+            )}
+          </div>
         </>
       )}
 
@@ -244,6 +292,9 @@ function Console({ device, server }: { device: string; server: string }) {
   const idRef = useRef<number | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const lastScroll = useRef(0);
+  const firstLines = useRef(true);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -252,6 +303,7 @@ function Console({ device, server }: { device: string; server: string }) {
       if (id !== idRef.current) return;
       if (line === null) {
         idRef.current = null;
+        setConnected(false);
         retry = window.setTimeout(open, 2000);
         return;
       }
@@ -272,6 +324,7 @@ function Console({ device, server }: { device: string; server: string }) {
         setLines([]);
         setError(null);
         idRef.current = id;
+        setConnected(true);
       } catch (err) {
         if (!alive) return;
         setError((err as Error).message);
@@ -290,7 +343,10 @@ function Console({ device, server }: { device: string; server: string }) {
 
   useLayoutEffect(() => {
     const log = logRef.current;
-    if (log && follow.current) log.scrollTop = log.scrollHeight;
+    if (!log || !follow.current || !lines.length) return;
+    const instant = firstLines.current || matchMedia("(prefers-reduced-motion: reduce)").matches;
+    log.scrollTo({ top: log.scrollHeight, behavior: instant ? "instant" : "smooth" });
+    firstLines.current = false;
   }, [lines]);
 
   const send = async () => {
@@ -331,14 +387,32 @@ function Console({ device, server }: { device: string; server: string }) {
         className="console-log"
         ref={logRef}
         role="log"
+        aria-label="Console output"
+        tabIndex={0}
+        onWheel={(event) => {
+          if (event.deltaY >= 0) return;
+          follow.current = false;
+          const log = event.currentTarget;
+          log.scrollTo({ top: log.scrollTop, behavior: "instant" });
+        }}
         onScroll={(e) => {
           const el = e.currentTarget;
-          follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          if (el.scrollTop < lastScroll.current) follow.current = false;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 2) follow.current = true;
+          lastScroll.current = el.scrollTop;
         }}
       >
+        {!connected && !error && lines.length === 0 && <LoadingRows />}
         {lines.map((line, i) => (
           <div key={i} data-level={level(line)}>
-            {line}
+            {line.startsWith("[") && line.indexOf("]") > 0 ? (
+              <>
+                <span className="log-time">{line.slice(0, line.indexOf("]") + 1)}</span>
+                {line.slice(line.indexOf("]") + 1)}
+              </>
+            ) : (
+              line
+            )}
           </div>
         ))}
         {error ? <div data-level="error">{error}</div> : null}
@@ -347,6 +421,8 @@ function Console({ device, server }: { device: string; server: string }) {
         <span aria-hidden>&gt;</span>
         <input
           value={input}
+          disabled={!connected}
+          title={connected ? undefined : "Waiting for the console connection"}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKey}
           placeholder="Command"
@@ -392,7 +468,12 @@ function Mods({
     if (path) await change(() => api.addMod(device, server.name, path));
   };
 
-  if (error && !value) return <div className="pane-body error-line">{error}</div>;
+  if (error && !value)
+    return (
+      <div className="pane-body">
+        <LoadError error={error} retry={refresh} />
+      </div>
+    );
   return (
     <div className="pane-body">
       <section className="block">
@@ -408,6 +489,7 @@ function Mods({
           )}
         </div>
         <div>
+          {!value && <LoadingRows />}
           {value?.map((m) => (
             <div key={m.file} className="mod-row">
               <div className="row-text">
@@ -446,7 +528,7 @@ function Pregen({
   onError: (err: unknown) => void;
 }) {
   const up = server.state === "running";
-  const { value, refresh } = usePoll(up ? () => api.pregen(device, server.name) : null, 2000, [
+  const { value, error, refresh } = usePoll(up ? () => api.pregen(device, server.name) : null, 2000, [
     device,
     server.name,
     up,
@@ -470,6 +552,18 @@ function Pregen({
   };
 
   if (!up) return <div className="pane-body row-line">Start the server to pregenerate.</div>;
+  if (error && !value)
+    return (
+      <div className="pane-body">
+        <LoadError error={error} retry={refresh} />
+      </div>
+    );
+  if (!value)
+    return (
+      <div className="pane-body">
+        <LoadingRows />
+      </div>
+    );
   const active = value?.state === "running" || value?.state === "paused";
   const r = Number(radius);
   const valid = Number.isInteger(r) && r > 0 && [centerX, centerZ].every((v) => Number.isInteger(Number(v)));
@@ -630,7 +724,12 @@ function Backups({
     }
   };
 
-  if (error && !value) return <div className="pane-body error-line">{error}</div>;
+  if (error && !value)
+    return (
+      <div className="pane-body">
+        <LoadError error={error} retry={refresh} />
+      </div>
+    );
   return (
     <div className="pane-body">
       <BackupSchedulePicker device={device} server={server.name} onError={onError} />
@@ -643,6 +742,7 @@ function Backups({
           </button>
         </div>
         <div>
+          {!value && <LoadingRows />}
           {value?.map((b) => (
             <div key={b.id} className="mod-row">
               <div className="row-text">
@@ -814,9 +914,39 @@ function LiveReading({
   return (
     <div className="live-reading" data-tone={value == null ? "unknown" : tone}>
       <span>{label}</span>
-      <strong>{value ?? "–"}</strong>
+      <RollingValue value={value ?? "–"} />
       <HistoryPlot values={value == null ? [] : values.slice(-12)} max={max} tone={tone} />
     </div>
+  );
+}
+
+function RollingValue({ value }: { value: string }) {
+  const node = useRef<HTMLSpanElement>(null);
+  const previous = useRef(value);
+  useLayoutEffect(() => {
+    const from = previous.current;
+    previous.current = value;
+    if (
+      !node.current ||
+      from === value ||
+      from === "–" ||
+      value === "–" ||
+      matchMedia("(prefers-reduced-motion: reduce)").matches
+    )
+      return;
+    const animation = node.current.animate(
+      [
+        { transform: "translateY(62%)", opacity: 0 },
+        { transform: "translateY(0)", opacity: 1 },
+      ],
+      { duration: 185, easing: "cubic-bezier(.18, .78, .28, 1)" },
+    );
+    return () => animation.cancel();
+  }, [value]);
+  return (
+    <strong className="rolling-value">
+      <span ref={node}>{value}</span>
+    </strong>
   );
 }
 
@@ -837,14 +967,8 @@ function Performance({
   const ram = samples.map((s) => s.rss_bytes);
   return (
     <div className="pane-body">
-      {error && (
-        <div className="state-panel error-line" role="status">
-          {error}
-          <button className="button" onClick={retry}>
-            Retry
-          </button>
-        </div>
-      )}
+      {error && <LoadError error={error} retry={retry} />}
+      {!latest && !error && <LoadingRows />}
       <div className="performance-grid">
         {(health || tick.some((v) => v != null)) && (
           <section className="chart-panel tick-chart">

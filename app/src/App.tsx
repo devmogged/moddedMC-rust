@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { Boxes, Package, Plus } from "lucide-react";
 import { api, type Device, type Friend, type ServerInfo } from "./api";
-import { ServerCluster, ServerIcon, packLine, routeLabel, usePoll, useServerIcon } from "./ui";
+import {
+  LoadingRows,
+  LoadError,
+  ServerCluster,
+  ServerIcon,
+  packLine,
+  routeLabel,
+  usePoll,
+  useServerIcon,
+} from "./ui";
 import { DeviceMeters } from "./Metrics";
 import { ServerPane } from "./ServerPane";
 import { DevicePane } from "./DevicePane";
@@ -140,7 +149,7 @@ export function App() {
   } else if (selection.kind === "server" || selection.kind === "device") {
     // A server that is gone (or not listed yet) falls back to its device.
     const d = device(selection.device) ?? device("local");
-    if (d) {
+    if (d && (selection.kind === "device" || data[d.id])) {
       pane = (
         <DevicePane
           key={d.id}
@@ -196,6 +205,30 @@ export function App() {
     pane = <ModsPane key="mods" />;
   }
 
+  const pending =
+    selection.kind === "device" || selection.kind === "server"
+      ? devicesPoll
+      : selection.kind === "friend"
+        ? friendsPoll
+        : packsPoll;
+  if (!pane)
+    pane = (
+      <div className="pane">
+        <div className="pane-body">
+          {pending.error ? (
+            <LoadError error={pending.error} retry={pending.refresh} />
+          ) : pending.value && (selection.kind === "friend" || selection.kind === "pack") ? (
+            <LoadError
+              error="This item is no longer available."
+              retry={() => select({ kind: "device", device: "local" })}
+            />
+          ) : (
+            <LoadingRows />
+          )}
+        </div>
+      </div>
+    );
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -216,6 +249,7 @@ export function App() {
                 <Plus />
               </button>
             </div>
+            {!devicesPoll.value && !devicesPoll.error && <LoadingRows />}
             {devices.map((d) => (
               <DeviceGroup key={d.id} device={d} data={data[d.id]} selection={selection} onSelect={select} />
             ))}
@@ -277,7 +311,9 @@ export function App() {
         </div>
       </aside>
 
-      <main className="main">{pane}</main>
+      <main className="main" aria-label="Workspace">
+        {pane}
+      </main>
 
       <AddDeviceDialog
         open={dialog === "device"}
@@ -334,11 +370,12 @@ function DeviceGroup({
         <span className="route">{routeLabel[device.route]}</span>
       </button>
       {state === "online" && info && <DeviceMeters info={info} />}
-      {data?.servers?.map((server) => (
+      {data?.servers?.map((server, index) => (
         <SidebarServer
           key={server.name}
           device={device}
           server={server}
+          index={index}
           current={
             selection.kind === "server" && selection.device === device.id && selection.server === server.name
           }
@@ -352,17 +389,24 @@ function DeviceGroup({
 function SidebarServer({
   device,
   server,
+  index,
   current,
   onSelect,
 }: {
   device: Device;
   server: ServerInfo;
+  index: number;
   current: boolean;
   onSelect: () => void;
 }) {
   const icon = useServerIcon(device, server);
   return (
-    <button className="row server-identity" style={icon.style} aria-current={current} onClick={onSelect}>
+    <button
+      className="row server-identity sidebar-server"
+      style={{ ...icon.style, "--enter-delay": Math.min(index, 4) * 25 + "ms" } as React.CSSProperties}
+      aria-current={current}
+      onClick={onSelect}
+    >
       <ServerIcon name={server.name} favicon={icon.favicon} />
       <span className="row-text">
         <span className="row-name">{server.name}</span>

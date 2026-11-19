@@ -406,24 +406,6 @@ button.row:hover {
 .bars i[data-on] {
   background: var(--status-ink, var(--ok));
 }
-.bars[data-tone="starting"] i {
-  animation: bar-fill 1.2s var(--ease-out) infinite;
-  animation-delay: calc(var(--i) * 45ms * 3);
-}
-@keyframes bar-fill {
-  0%,
-  15% {
-    background: var(--bar-off);
-  }
-  40%,
-  70% {
-    background: var(--starting);
-  }
-  100% {
-    background: var(--bar-off);
-  }
-}
-
 .row.large .bars {
   height: 16px;
   gap: 3px;
@@ -570,16 +552,6 @@ button.row:hover {
 }
 .tab[aria-selected="true"] {
   color: var(--text);
-}
-.tab[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: var(--server-accent, var(--brass));
 }
 
 .pane-body {
@@ -857,22 +829,6 @@ dialog::backdrop {
   box-shadow:
     inset 3px 0 0 var(--bad),
     var(--shadow-pop);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bars i {
-    transition: none;
-  }
-  .bars[data-tone="starting"] i {
-    animation: none;
-    background: var(--starting);
-  }
-  .pane,
-  dialog[open],
-  dialog::backdrop,
-  .toast {
-    animation: fade-in 80ms linear;
-  }
 }
 
 .build-pick {
@@ -1413,4 +1369,190 @@ dialog::backdrop {
   background: var(--well);
   border-radius: 7px;
   margin-bottom: 12px;
+}
+
+/* Motion and interaction */
+
+:root {
+  --spring: linear(0, 0.55 28%, 0.87 53%, 1.012 78%, 1);
+  --t-settle: 220ms;
+}
+
+button {
+  cursor: pointer;
+  transition:
+    background-color var(--t-hover) var(--ease-out),
+    color var(--t-hover) var(--ease-out),
+    scale var(--t-hover) var(--spring);
+}
+button:not(:disabled):active {
+  scale: 0.97;
+  transition-duration: 70ms;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+.button,
+.icon-button,
+.row,
+.device-head,
+.nav-item,
+.tab {
+  transition:
+    background-color var(--t-hover) var(--ease-out),
+    color var(--t-hover) var(--ease-out),
+    border-color var(--t-hover) var(--ease-out),
+    scale var(--t-hover) var(--spring);
+}
+
+.tabs {
+  position: relative;
+}
+.tab-slide {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--server-accent, var(--brass));
+  transform-origin: left;
+  transform: translateX(var(--tab-x, 0px)) scaleX(var(--tab-width, 0));
+  transition: transform var(--t-settle) var(--spring);
+  pointer-events: none;
+}
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  animation: pane-in var(--t-pane) var(--ease-out);
+}
+.tab-panel:focus-visible,
+.console-log:focus-visible {
+  outline-offset: -3px;
+}
+.console-input:focus-within {
+  box-shadow: inset 0 0 0 1px var(--brass);
+}
+.input:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 1px;
+}
+.sidebar-server {
+  animation: pane-in var(--t-pane) var(--ease-out) var(--enter-delay, 0ms) both;
+}
+.bars i {
+  transform-origin: bottom;
+  transition:
+    background-color 160ms var(--ease-out),
+    scale 160ms var(--spring);
+  transition-delay: calc(var(--i) * 24ms);
+}
+.bars i:not([data-on]) {
+  scale: 1 0.78;
+}
+.bars[data-tone="starting"] i {
+  animation: starting-bar 1.05s var(--ease-out) infinite;
+  animation-delay: calc(var(--i) * 62ms);
+}
+@keyframes starting-bar {
+  0%,
+  100% {
+    background: var(--bar-off);
+    scale: 1 0.78;
+  }
+  28%,
+  62% {
+    background: var(--starting);
+    scale: 1;
+  }
+}
+.bars[data-crashed] i[data-on] {
+  animation: crash-bar 230ms var(--ease-out);
+}
+@keyframes crash-bar {
+  0% {
+    scale: 1 0.78;
+  }
+  48% {
+    scale: 1 1.32;
+    background: var(--text);
+  }
+}
+.rolling-value {
+  overflow: clip;
+}
+.rolling-value span {
+  display: inline-block;
+}
+.history-plot path {
+  d: var(--trace);
+  transition: d var(--t-settle) var(--ease-out);
+}
+.trace-tip {
+  transition:
+    top var(--t-settle) var(--ease-out),
+    left var(--t-settle) var(--ease-out);
+}
+.map-fill {
+  transition: transform var(--t-settle) var(--ease-out);
+}
+.log-time {
+  color: var(--text-faint);
+}
+
+.skeleton {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
+}
+.skeleton i {
+  height: 34px;
+  max-width: 540px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+.skeleton i:nth-child(2) {
+  width: 83%;
+}
+.skeleton i:nth-child(3) {
+  width: 68%;
+}
+.console-log .skeleton {
+  padding-inline: 15px;
+}
+.console-log .skeleton i {
+  height: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-hover: 0ms;
+    --t-settle: 0ms;
+    --t-pane: 80ms;
+  }
+  button:not(:disabled):active {
+    scale: 1;
+  }
+  .pane,
+  .tab-panel,
+  dialog[open],
+  dialog::backdrop,
+  .toast {
+    animation: fade-in 80ms linear;
+  }
+  .sidebar-server {
+    animation: none;
+  }
+  .bars i,
+  .bars[data-crashed] i[data-on],
+  .bars[data-tone="starting"] i {
+    scale: 1;
+    transition: none;
+    animation: none;
+  }
+  .bars[data-tone="starting"] i {
+    background: var(--starting);
+  }
 }

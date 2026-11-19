@@ -1,5 +1,5 @@
 import { api } from "./api";
-import { usePoll } from "./ui";
+import { LoadingRows, usePoll } from "./ui";
 
 export function ModsPane() {
   const { value, error, refresh } = usePoll(api.mods, 10 * 60_000, []);
@@ -23,8 +23,15 @@ export function ModsPane() {
           </div>
         ) : value && value.length === 0 ? (
           <div className="empty">
-            <p>No ported mods yet.</p>
+            <div className="stack">
+              <p>No ported mods yet.</p>
+              <button className="button" onClick={refresh}>
+                Refresh
+              </button>
+            </div>
           </div>
+        ) : !value ? (
+          <LoadingRows />
         ) : (
           <div>
             {value?.map((m) => (

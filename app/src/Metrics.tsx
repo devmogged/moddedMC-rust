@@ -149,7 +149,10 @@ export function HistoryPlot({
           const first = points[0];
           const end = points[points.length - 1];
           // Repeat the first point outside the sampled range to keep SVG path commands interpolable.
-          const coords = [...Array.from({ length: SLOTS - points.length }, () => first), ...points];
+          const coords = [
+            ...Array.from({ length: (label ? SLOTS : 12) - points.length }, () => first),
+            ...points,
+          ];
           const line = "M " + coords.map(({ x, y }) => x.toFixed(2) + " " + y.toFixed(2)).join(" L ");
           const fill =
             line + " L " + end.x.toFixed(2) + " " + H + " L " + first.x.toFixed(2) + " " + H + " Z";

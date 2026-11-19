@@ -2,7 +2,16 @@ import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { api, type Device } from "./api";
 import type { DeviceData, Selection } from "./App";
-import { ServerCluster, ServerIcon, packLine, bytes, routeLabel, usePoll } from "./ui";
+import {
+  LoadingRows,
+  LoadError,
+  ServerCluster,
+  ServerIcon,
+  packLine,
+  bytes,
+  routeLabel,
+  usePoll,
+} from "./ui";
 import { ConfirmDialog, NewServerDialog } from "./dialogs";
 
 export function DevicePane({
@@ -55,12 +64,20 @@ export function DevicePane({
 
       <div className="pane-body ruled">
         {reachError && !i ? (
-          <p className="error-line">{reachError}</p>
+          <LoadError
+            error={reachError}
+            retry={() => {
+              onChanged();
+              info.refresh();
+            }}
+          />
         ) : (
           <>
             <section className="block">
               <div className="block-head">Servers</div>
-              {servers && servers.length === 0 ? (
+              {!servers ? (
+                <LoadingRows />
+              ) : servers.length === 0 ? (
                 <p className="row-line">No servers on {device.name}.</p>
               ) : (
                 <div className="list">
