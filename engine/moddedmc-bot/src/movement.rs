@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use pumpkin_data::{BlockStateId, packet::clientbound::play as p};
+use pumpkin_data::{BlockStateId, packet::clientbound::play as p, tag::Block as BlockTag};
 use pumpkin_protocol::{
     PositionFlag, RawPacket, VarInt,
     codec::lp_vector_3d::LpVector3d,
@@ -15,6 +15,7 @@ use pumpkin_protocol::{
 };
 use pumpkin_util::math::{
     boundingbox::{BoundingBox, EntityDimensions},
+    position::BlockPos,
     vector3::Vector3,
 };
 use tokio::sync::Mutex;
@@ -32,6 +33,8 @@ const AIR_DRAG: f32 = 0.98;
 const PLAYER_SIZE: EntityDimensions = EntityDimensions::new(0.6, 1.8, 1.62);
 const CROUCHING_SIZE: EntityDimensions = EntityDimensions::new(0.6, 1.5, 1.27);
 const BLOCK_BELOW: f64 = 0.500001f32 as f64;
+const EFFECT_BLOCK: f64 = 0.2f32 as f64;
+const COLLISION_EPSILON: f64 = 1.0e-5f32 as f64;
 pub const MAX_MANUAL_TICKS: u16 = 1200;
 
 #[derive(Default, Eq, PartialEq)]
@@ -55,6 +58,8 @@ pub struct Player {
     pitch: f32,
     on_ground: bool,
     horizontal_collision: bool,
+    support: Option<BlockPos>,
+    on_ground_no_support: bool,
     crouching: bool,
     fall_distance: f64,
     legacy_heartbeat: Vector3<f64>,
@@ -96,6 +101,8 @@ impl Player {
             self.terrain_error = None;
             self.velocity = Vector3::default();
             self.on_ground = false;
+            self.support = None;
+            self.on_ground_no_support = false;
             self.vehicle = None;
             self.vehicle_position_unknown = false;
         } else if id == p::SET_PASSENGERS.0 {
@@ -163,6 +170,8 @@ impl Player {
         // Legacy scenarios need a changed position to make Pumpkin stream the new chunk.
         self.legacy_heartbeat.y -= 0.1;
         self.fall_distance = 0.0;
+        self.support = None;
+        self.on_ground_no_support = false;
         self.vehicle_position_unknown = false;
         SConfirmTeleport {
             teleport_id: update.teleport_id,
@@ -221,7 +230,23 @@ impl Player {
     }
 
     fn below(&self) -> BlockStateId {
-        let below = (self.position - Vector3::new(0.0, BLOCK_BELOW, 0.0)).floor_to_i32();
+        self.on_block(BLOCK_BELOW)
+    }
+
+    fn on_block(&self, offset: f64) -> BlockStateId {
+        let mut below = (self.position - Vector3::new(0.0, offset, 0.0)).floor_to_i32();
+        if let Some(BlockPos(support)) = self.support {
+            let state = self.world.block(support).unwrap_or(BlockStateId::AIR);
+            let block = state.to_block_id();
+            if (offset <= 0.5 && block.has_tag(BlockTag::MINECRAFT_FENCES))
+                || block.has_tag(BlockTag::MINECRAFT_WALLS)
+                || state.to_block().name.ends_with("_fence_gate")
+            {
+                return state;
+            }
+            below.x = support.x;
+            below.z = support.z;
+        }
         self.world.block(below).unwrap_or(BlockStateId::AIR)
     }
 
@@ -240,6 +265,8 @@ impl Player {
         self.legacy_heartbeat = position;
         self.velocity = Vector3::default();
         self.on_ground = false;
+        self.support = None;
+        self.on_ground_no_support = false;
         self.fall_distance = 0.0;
         self.vehicle_position_unknown = false;
     }
@@ -294,6 +321,22 @@ impl Player {
         }
     }
 
+    fn update_support(&mut self, feet: BoundingBox, moved: Vector3<f64>) {
+        if self.on_ground {
+            let primary = self.world.supporting_block(feet, self.position);
+            self.support = if primary.is_some() || self.on_ground_no_support {
+                primary
+            } else {
+                let before = feet.shift(Vector3::new(-moved.x, 0.0, -moved.z));
+                self.world.supporting_block(before, self.position)
+            };
+            self.on_ground_no_support = primary.is_none();
+        } else {
+            self.support = None;
+            self.on_ground_no_support = false;
+        }
+    }
+
     // LivingEntity.aiStep -> travelInAir -> Entity.move. Shape- and input-dependent
     // travel such as swimming and climbing has its own vanilla paths.
     fn travel(&mut self) -> Result<Option<SPlayerPosition>, String> {
@@ -342,15 +385,17 @@ impl Player {
         } else {
             speed
         };
+        let previous = self.position;
         let moved = collide(&self.world, bounds, delta, self.on_ground);
         let distance = moved.length_squared();
         if distance > 1.0e-7 || delta.length_squared() - distance < 1.0e-7 {
             self.position += moved;
         }
-        let x_collision = (delta.x - moved.x).abs() >= 1.0e-5;
-        let z_collision = (delta.z - moved.z).abs() >= 1.0e-5;
+        let x_collision = (delta.x - moved.x).abs() >= COLLISION_EPSILON;
+        let z_collision = (delta.z - moved.z).abs() >= COLLISION_EPSILON;
         self.horizontal_collision = x_collision || z_collision;
         self.on_ground = delta.y < 0.0 && delta.y != moved.y;
+        self.update_support(bounds.shift(self.position - previous), moved);
         if self.on_ground || self.controls.flying() {
             self.fall_distance = 0.0;
         } else if moved.y < 0.0 {
@@ -395,7 +440,7 @@ impl Player {
             if self.controls.flying() {
                 speed.y * 0.6
             } else {
-                (if speed.y == moved.y { speed.y } else { 0.0 } - GRAVITY) * f64::from(AIR_DRAG)
+                (self.bounce_y(speed.y, moved.y) - GRAVITY) * f64::from(AIR_DRAG)
             },
             if z_collision {
                 0.0
@@ -403,6 +448,23 @@ impl Player {
                 speed.z * f64::from(block_speed) * drag
             },
         );
+    }
+
+    fn bounce_y(&self, speed: f64, moved: f64) -> f64 {
+        if speed == moved {
+            return speed;
+        }
+        if !self.on_ground || -speed <= GRAVITY || self.controls.shift_pressed() {
+            return 0.0;
+        }
+        let support = self.on_block(EFFECT_BLOCK).to_block();
+        let restitution = f64::from(support.bounce_restitution);
+        if restitution <= 0.0 || support.id.has_tag(BlockTag::MINECRAFT_SUPPRESSES_BOUNCE) {
+            return 0.0;
+        }
+        let fraction = moved / speed;
+        let drag_until_collision = 1.0 + fraction * (f64::from(AIR_DRAG) - 1.0);
+        (fraction * GRAVITY - speed) * drag_until_collision * restitution
     }
 }
 
@@ -524,6 +586,41 @@ mod tests {
     use super::*;
     use pumpkin_data::Block;
     use pumpkin_protocol::ser::NetworkWriteExt as _;
+
+    #[test]
+    fn friction_uses_the_actual_support_block_at_an_edge() -> Result<(), String> {
+        let mut player = Player {
+            position: Vector3::new(1.05, 2.0, 0.5),
+            world: World::test_column(&[(Vector3::new(0, 0, 0), Block::ICE.default_state.id)]),
+            ..Player::default()
+        };
+        for _ in 0..10 {
+            player.travel()?;
+        }
+        player.velocity.z = 0.4;
+        player.travel()?;
+        player.check("pos 1.05 1 0.9 within 0.000001")?;
+        player.check("vel 0 -0.0784000015 0.35672 within 0.000001")?;
+        Ok(())
+    }
+
+    #[test]
+    fn slime_rebounds_with_remaining_tick_drag() -> Result<(), String> {
+        let mut player = Player {
+            position: Vector3::new(0.5, 2.0, 0.5),
+            world: World::test_column(&[(
+                Vector3::new(0, 0, 0),
+                Block::SLIME_BLOCK.default_state.id,
+            )]),
+            ..Player::default()
+        };
+        for _ in 0..6 {
+            player.travel()?;
+        }
+        player.check("pos 0.5 1 0.5 within 0.000001")?;
+        player.check("vel 0 0.3337618684 0 within 0.000001")?;
+        Ok(())
+    }
 
     #[test]
     fn tracks_own_mount_and_ignores_other_passengers() -> Result<(), ReadingError> {

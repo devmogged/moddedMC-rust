@@ -11,9 +11,10 @@ The 26.3 movement constants and order were checked against the decompiled `Livin
 | [Gravity fixture](../tests/harness/bot-gravity.txt), vanilla vs vanilla | Zero differences. The bot matched the four-tick airborne trajectory, landed at y=151 and reported the same position to the server. [JSON](../run/harness-movement/vanilla-final/scenario-EbqjMM/report.json) |
 | Gravity fixture, vanilla vs pack-dev | The same assertions passed with zero differences. [JSON](../run/harness-movement/pack-final/scenario-q9IRxL/report.json) |
 | Live pack-dev with Create 6.0.10 | The 16 RPM belt carried the bot from z=2011.5 to z=2012.295267690645 at the 1.5-second check. x=2050.5 and y=101 held. The realtime check allows scheduling tolerance because the server and client clocks run independently. |
+| One frozen Create server tick and one client tick | After two client ticks to settle on the belt, the server step delivered z velocity 0.033327229445156537. One client tick moved the bot from z=2011.5 to z=2011.5333272294451 at x=2050.5 and y=101. The difference from 16/480 is within the motion packet's quantization. |
 | [Controls fixture](../tests/harness/bot-controls.txt) | Sprint acceleration, sneaking at an edge, jumping and Creative flight passed with zero differences on vanilla and pack-dev. [Vanilla self-test](../run/harness-controls/vanilla-final/scenario-60Ic8h/report.json), [pack comparison](../run/harness-controls/pack-final/scenario-F7RwGc/report.json) |
 | Sneak on a live Create belt | The bot advanced 0.119 blocks as its existing motion decayed. Its horizontal velocity reached zero while sneak was held. Releasing sneak let the belt carry it another 0.513 blocks in one second. |
-| Pack-profile unit tests | Check that another entity's motion leaves the player unchanged, explosion knockback adds to existing motion, and the client lands and steps up a slab. |
+| Pack-profile unit tests | Check that another entity's motion leaves the player unchanged, explosion knockback adds to existing motion, and the client lands and steps up a slab. The supporting-block tests check ice friction while overhanging the edge and gravity compensation on a slime bounce. |
 
 [The inventory fixture](../tests/harness/bot-inventory.txt) passed with zero differences against pack-dev. It checks half-stack pickup, cursor clearing, hotbar swaps and selection, main- and offhand placement, throwing an item, and item pickup. [JSON](../run/harness-inventory/verified/scenario-TxruIZ/report.json)
 
@@ -22,6 +23,8 @@ An earlier version also used `execute if items entity`. Vanilla returned counts 
 [The held-actions fixture](../tests/harness/bot-mining.txt) passed with zero differences. It verified that aborting a Survival stone dig leaves the block intact, finishing after 23 ticks breaks it, and releasing a drawn bow uses one arrow. [JSON](../run/harness-mining/pack/scenario-Drz9SN/report.json)
 
 [The riding fixture](../tests/harness/bot-riding.txt) passed with zero differences. The bot right-clicked an oak boat, saw itself in the passenger list, then dismounted with sneak. [JSON](../run/harness-riding/final/scenario-e6BjYB/report.json)
+
+The [Windows suite report](../run/harness-bot-regression/windows.json) recorded 89 expected engine differences across the existing scenarios. It also caught a half-block origin error during the supporting-block change. The corrected build passed [the ledge and controls fixture](../run/harness-dry-final/bot-controls/scenario-vQLgwb/report.json), [gravity](../run/harness-dry-final/bot-gravity/scenario-A3wx51/report.json), [mining](../run/harness-dry-final/bot-mining/scenario-8pJ5fm/report.json), and the single-tick Create belt check.
 
 ## Port checks and remaining automation
 
@@ -37,9 +40,11 @@ An earlier version also used `execute if items entity`. Vanilla returned counts 
 
 | Source | Existing automation and remaining work |
 | --- | --- |
-| [Create play tests](../mods/create/README.md#stock-263-play-test) | P1a exercises pack transfer, block/item actions, RPM signs and ratios, restart and break. P1b exercises gearbox signs, clutch and gearshift under redstone, overstress, conflict break and restart. P1c exercises placement and segment teardown. Its owner can now add conveyance/centering, sneak-cancel and movement controls. Survival craft and inventory checks are still limited. The README's unported belt and kinetics features are separate port work. |
+| [Create play tests](../mods/create/README.md#stock-263-play-test) | P1a exercises pack transfer, block/item actions, RPM signs and ratios, restart and break. P1b exercises gearbox signs, clutch and gearshift under redstone, overstress, conflict break and restart. P1c exercises placement and segment teardown, mob transport and the belt item inventory. Its owner can now add player conveyance, centering, sneak-cancel and movement controls. Crafting and client-visible item model assertions still need coverage. The README's unported belt and kinetics features are separate port work. |
 | [Content stages](CONTENT.md), [port backlog](BACKLOG.md) and [handoff](HANDOFF.md) | Verify stock resource-pack models, selection outlines and kinetic animations in the game. Overstress particles, moving parts inside casing, belt rendering and feedback are outstanding visual or audio checks as features land. Mechanics can be tested separately through packets, probes and snapshots. |
 | [Status](STATUS.md) | The barrel's appearance needs a rendered client. Action-bar content and the dropped item's name can be checked as decoded text and item metadata. Their layout and appearance need a rendered client. |
 | [Companion owner play test](COMPANION.md#owner-play-test) and [A3](BACKLOG.md) | Protocol negotiation, asset integrity and launcher file installation have automated checks. Launching through the actual profile, joining with the installed Fabric mod, loading only prefetched assets with HTTP blocked, returning to ordinary vanilla servers, and importing the instance ZIP remain functional integration checks. Those paths need a real launcher or Fabric runtime until they have automation of their own. |
+
+The A1 physical Raspberry Pi install check in [the backlog](BACKLOG.md) concerns the deployment environment.
 
 The presentation checks that need a rendered or audible client include item and block models, outlines, rotation and interpolation, displayed text and screen layout, particles and sounds. Receiving a packet can verify the event and its parameters.

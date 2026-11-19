@@ -116,28 +116,50 @@ impl World {
     }
 
     pub fn shapes(&self, bounds: BoundingBox) -> Vec<BoundingBox> {
+        let mut shapes = Vec::new();
+        self.visit_shapes(bounds, |_, shape| shapes.push(shape));
+        shapes
+    }
+
+    pub fn supporting_block(&self, feet: BoundingBox, position: Vector3<f64>) -> Option<BlockPos> {
+        let below = BoundingBox::new(
+            feet.min - Vector3::new(0.0, 1.0e-6, 0.0),
+            Vector3::new(feet.max.x, feet.min.y, feet.max.z),
+        );
+        let mut support = None;
+        self.visit_shapes(below, |pos, _| {
+            let distance = pos.dist_to_center_sqr(position.x, position.y, position.z);
+            if support.is_none_or(|(current, current_distance): (BlockPos, f64)| {
+                let (a, b) = (pos.0, current.0);
+                distance < current_distance
+                    || distance == current_distance && (a.y, a.z, a.x) > (b.y, b.z, b.x)
+            }) {
+                support = Some((pos, distance));
+            }
+        });
+        support.map(|(pos, _)| pos)
+    }
+
+    fn visit_shapes(&self, bounds: BoundingBox, mut visit: impl FnMut(BlockPos, BoundingBox)) {
         let min = bounds.min.floor_to_i32();
         let max = bounds.max.floor_to_i32();
-        let mut shapes = Vec::new();
         // Fences and walls extend beyond their own block.
         for x in (min.x - 1)..=(max.x + 1) {
             for z in (min.z - 1)..=(max.z + 1) {
                 for y in (min.y - 1)..=(max.y + 1) {
-                    let pos = Vector3::new(x, y, z);
-                    if let Some(state) = self.block(pos) {
+                    let pos = BlockPos::new(x, y, z);
+                    if let Some(state) = self.block(pos.0) {
                         let origin = Vector3::new(f64::from(x), f64::from(y), f64::from(z));
-                        shapes.extend(
-                            state
-                                .to_state()
-                                .get_block_collision_shapes_at(&BlockPos(pos))
-                                .map(|shape| shape.shift(origin))
-                                .filter(|shape| shape.intersects(&bounds)),
-                        );
+                        for shape in state.to_state().get_block_collision_shapes_at(&pos) {
+                            let shape = shape.shift(origin);
+                            if shape.intersects(&bounds) {
+                                visit(pos, shape);
+                            }
+                        }
                     }
                 }
             }
         }
-        shapes
     }
 
     fn set(&mut self, pos: BlockPos, id: i32) -> Result<(), String> {
