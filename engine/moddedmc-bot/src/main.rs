@@ -16,13 +16,13 @@ use pumpkin_protocol::{
     codec::var_int::VarInt,
     java::{
         client::play::{
-            CChunkBatchEnd, CKeepAlive, CPlayShowDialog, CPlayerPosition, CSpawnEntity,
-            CSystemChatMessage,
+            CChunkBatchEnd, CKeepAlive, COpenScreen, CPlayShowDialog, CPlayerPosition,
+            CSpawnEntity, CSystemChatMessage,
         },
         packet_encoder::TCPNetworkEncoder,
         server::play::{
             SAttack, SChatCommand, SClientTickEnd, SConfirmTeleport, SCustomClickAction, SInteract,
-            SChunkBatch, SKeepAlive, SPlayerPosition, SUseItemOn,
+            SChunkBatch, SClickSlot, SCloseContainer, SKeepAlive, SlotActionType, SPlayerPosition, SUseItemOn,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -111,6 +111,27 @@ async fn main() -> Result<(), String> {
                 let entity_id = VarInt(LAST_STAND.load(std::sync::atomic::Ordering::Relaxed));
                 send(&writer, &SAttack { entity_id }).await
             }
+            // Shift-click a slot of the open screen.
+            "shiftclick" => match rest.parse::<i16>() {
+                Ok(slot) => {
+                    let click = SClickSlot {
+                        sync_id: VarInt(LAST_SCREEN.load(std::sync::atomic::Ordering::Relaxed)),
+                        revision: VarInt(0),
+                        slot,
+                        button: 0,
+                        mode: SlotActionType::QuickMove,
+                        length_of_array: VarInt(0),
+                        array_of_changed_slots: Vec::new(),
+                        carried_item: pumpkin_protocol::codec::item_stack_seralizer::OptionalItemStackHash(None),
+                    };
+                    send(&writer, &click).await
+                }
+                Err(_) => Err(format!("bad slot: {rest}")),
+            },
+            "close" => {
+                let window_id = VarInt(LAST_SCREEN.load(std::sync::atomic::Ordering::Relaxed));
+                send(&writer, &SCloseContainer { window_id }).await
+            }
             "quit" => break,
             _ => Err(format!("unknown step: {line}")),
         };
@@ -139,6 +160,7 @@ async fn pump(
     let system_chat = CSystemChatMessage::to_id(CURRENT_MC_VERSION);
     let spawn_entity = CSpawnEntity::to_id(CURRENT_MC_VERSION);
     let batch_end = CChunkBatchEnd::to_id(CURRENT_MC_VERSION);
+    let open_screen = COpenScreen::to_id(CURRENT_MC_VERSION);
     let show_dialog = CPlayShowDialog::to_id(CURRENT_MC_VERSION);
     let trace = std::env::var_os("MODDEDMC_BOT_TRACE").is_some();
     loop {
@@ -176,6 +198,12 @@ async fn pump(
                 }
                 Err(error) => println!("[bot] error: bad teleport packet: {error}"),
             }
+        } else if packet.id == open_screen {
+            use pumpkin_protocol::ser::NetworkReadExt;
+            if let Ok(id) = payload.get_var_int() {
+                LAST_SCREEN.store(id.0, std::sync::atomic::Ordering::Relaxed);
+                println!("[bot] screen opened: {}", printable_text(&packet.payload));
+            }
         } else if packet.id == batch_end {
             // Ack like a client: unacked, Pumpkin stops sending chunks, and with them entities.
             let _ = send(&writer, &SChunkBatch { chunks_per_tick: 64.0 }).await;
@@ -204,6 +232,9 @@ async fn pump(
         }
     }
 }
+
+/// Window id of the last screen the server opened.
+static LAST_SCREEN: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// Network id of the last armor stand that spawned near the bot.
 static LAST_STAND: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);

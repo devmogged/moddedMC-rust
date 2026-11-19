@@ -844,6 +844,19 @@ index 000000000..6a0f6f830
 +        assert!(install(Vec::new(), Vec::new()).is_err());
 +    }
 +}
+diff --git a/crates/pumpkin-inventory/src/generic_container_screen_handler.rs b/crates/pumpkin-inventory/src/generic_container_screen_handler.rs
+index e8ddd0a6e..2e54f1dad 100644
+--- a/crates/pumpkin-inventory/src/generic_container_screen_handler.rs
++++ b/crates/pumpkin-inventory/src/generic_container_screen_handler.rs
+@@ -128,7 +128,7 @@ impl GenericContainerScreenHandler {
+     /// - `rows` - Number of rows in the container
+     /// - `columns` - Number of columns in the container
+     /// - `is_spectator` - Whether the opener is a spectator
+-    fn new(
++    pub fn new(
+         screen_type: WindowType,
+         sync_id: u8,
+         player_inventory: &Arc<PlayerInventory>,
 diff --git a/crates/pumpkin-protocol/src/java/client/dialog.rs b/crates/pumpkin-protocol/src/java/client/dialog.rs
 index fdc2e9b39..0ecd161eb 100644
 --- a/crates/pumpkin-protocol/src/java/client/dialog.rs

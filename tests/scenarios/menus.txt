@@ -1,0 +1,51 @@
+# moddedmc:menus/1 through the backpack mod: a chest screen the mod fills, items a player moves
+# in and out, contents handed back on close and kept across a restart.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\menus.txt -RunDir run\menus -Fresh
+mods target\mods\backpack.mmc
+start
+wait 1
+expect registered command /backpack
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+bot cmd backpackseed
+wait 1
+expect \[bot\] chat: .*backpack: seeded
+bot cmd backpack
+wait 1
+expect \[bot\] screen opened: .*Backpack
+bot close
+wait 1
+expect \[bot\] chat: .*backpack: saved 1 stacks
+bot cmd backpacklist
+wait 1
+expect \[bot\] chat: .*backpacklist: minecraft:diamond x5
+# Shift-click the diamonds into the player's inventory (the last hotbar slot), then back.
+bot cmd backpack
+wait 1
+bot shiftclick 0
+wait 1
+bot close
+wait 1
+expect \[bot\] chat: .*backpack: saved 0 stacks
+bot cmd backpack
+wait 1
+bot shiftclick 62
+wait 1
+bot close
+wait 1
+expect \[bot\] chat: .*backpack: saved 1 stacks
+reject (?i)panic|panicked
+bot quit
+stop
+
+start
+wait 1
+botstart tester
+wait 3
+bot cmd backpacklist
+wait 1
+expect \[bot\] chat: .*backpacklist: minecraft:diamond x5
+reject (?i)panic|panicked
+bot quit
+stop

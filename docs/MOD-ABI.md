@@ -72,6 +72,8 @@ What the SDK offers:
 | `blocks::get()` | `schedule_tick(dimension, pos, delay)` and `is_powered(dimension, pos)` for `blocks/1` blocks. |
 | `entities::get()` | `moddedmc:entities/1`: `spawn` a vanilla entity type as a creature's look-alike, then `position`, `move_to`, `set_name`, `remove` by its id. Ids survive restarts (the world saves the entity): store them. |
 | `Mod::entity_event` | A player right-clicked (`Use`) or attacked (`Attack`) an entity. Every mod sees every one: act only on ids you spawned. Return true to cancel the vanilla interaction or the damage. |
+| `menus::get()` | `moddedmc:menus/1`: `open` a chest screen of 1 to 6 rows filled with your items; players move items in and out as in vanilla. An item is opaque bytes (vanilla item NBT, every component kept): store them as they are, and use `item(id, count)` and `describe(bytes)` to make and read them. |
+| `Mod::menu_closed` | A player closed a `menus/1` menu: its key and one item per slot. Every mod sees every close: start your keys with your mod id and act only on those. Opening a menu from here fails. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
 | `world::get()` | The `moddedmc:world/1` interface, if the server has it: `get_blocks`, `set_blocks` (batched, any vanilla block state), `state_id("minecraft:oak_log[axis=x]")`, `state_name(id)`. State ids are valid for this Minecraft version only: keep them in memory, save names. |
@@ -84,7 +86,7 @@ Rules:
 - Block entity state is opaque bytes, at most 64 KiB, saved with the chunk. Bump `state_version` when its layout changes; the server will not hand old-layout state to the new code.
 - You do not need the server's source, compiler version or build to build a mod. Any Rust toolchain that builds `api/` works.
 
-`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block), `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress), `mods/wisp` (a creature through `entities/1`) and `mods/ores` (zinc ore through `chunk_generated`) are complete examples.
+`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block), `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress), `mods/wisp` (a creature through `entities/1`), `mods/backpack` (an inventory through `menus/1`) and `mods/ores` (zinc ore through `chunk_generated`) are complete examples.
 
 ### Modded blocks (`blocks/1`)
 
@@ -131,10 +133,11 @@ Interfaces:
 | `moddedmc:world/1` | 1.1 | Batched block reads and writes by state id (vanilla and `blocks/1`); state names to ids and back. |
 | `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`; `schedule_tick`, `is_powered`. Events come through `ModApi::block_event`. |
 | `moddedmc:entities/1` | 1.1 | Spawn, find, move, name and remove entities by UUID. Uses and attacks arrive through `ModApi::entity_event` (1.1). |
+| `moddedmc:menus/1` | 1.1 | Chest-style inventories; contents come back through `ModApi::menu_closed` (1.1). |
 
 World generation is the `ModApi::chunk_generated` callback (1.1) rather than an interface table: the mod places blocks itself through `world/1`.
 
-Planned (see [DECISIONS.md](DECISIONS.md)): more entity events (damage from other sources, death) and AI hooks, structures and biomes for world generation, and inventory menus, each when a real port needs it. Menus today are `Player::show_menu` (dialogs with buttons).
+Planned (see [DECISIONS.md](DECISIONS.md)): more entity events (damage from other sources, death) and AI hooks, structures and biomes for world generation, and machine screens (furnace-like progress, slot rules), each when a real port needs it. Button menus are `Player::show_menu` (dialogs); inventories are `menus/1`.
 
 Packaging (`.mmc`): a zip with
 

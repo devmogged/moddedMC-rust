@@ -332,6 +332,35 @@ pub struct EntitiesV1 {
     pub remove: unsafe extern "C" fn(dimension: Str, id: EntityId) -> bool,
 }
 
+/// [`MenusV1`]: chest-style inventories a mod fills and reads back.
+pub const MENUS_V1: &str = "moddedmc:menus/1";
+
+/// Inventories a mod shows a player: a real chest screen, so players move items as in vanilla.
+/// An item crosses as opaque bytes (vanilla's item NBT, every component kept), empty for an empty
+/// slot; mods store them as they are and use `item` and `describe` to make and read them.
+#[repr(C)]
+pub struct MenusV1 {
+    pub size: usize,
+    /// Opens `rows` (1 to 6) rows of 9 slots titled `title`, filled from `count` items (fewer
+    /// leave the rest empty). When the player closes it, every mod's `ModApi::menu_closed` gets
+    /// `key` and the contents: start `key` with your mod id. False if `rows` is out of range, the
+    /// player is gone, or it is called from `menu_closed`.
+    pub open: unsafe extern "C" fn(
+        player: PlayerRef,
+        title: Str,
+        rows: u32,
+        key: Str,
+        items: *const Str,
+        count: usize,
+    ) -> bool,
+    /// Puts the bytes of `count` (1 to 99) of item `id` (`minecraft:diamond`) into `out` under
+    /// key 0. False if the item is unknown.
+    pub item: unsafe extern "C" fn(id: Str, count: u32, out: Sink) -> bool,
+    /// Puts an item's id into `out` under key 0 and returns its count; 0 for an empty or
+    /// unreadable item.
+    pub describe: unsafe extern "C" fn(item: Str, out: Sink) -> u32,
+}
+
 /// What a player did to an entity, in [`EntityEvent::kind`].
 pub mod entity_event {
     /// Right-clicked it.
@@ -426,6 +455,15 @@ pub struct ModApi {
     /// vanilla interaction or the damage does not happen.
     pub entity_event:
         unsafe extern "C" fn(instance: *const c_void, event: *const EntityEvent) -> bool,
+    /// A player closed a `menus/1` menu. Every mod sees every one: act only on your own keys.
+    /// `items` holds one item per slot.
+    pub menu_closed: unsafe extern "C" fn(
+        instance: *const c_void,
+        player: PlayerRef,
+        key: Str,
+        items: *const Str,
+        count: usize,
+    ),
 }
 
 /// `ModApi` size of ABI 1.0, before `define_blocks`.
@@ -502,12 +540,13 @@ mod layout {
             (offset_of!(ModApi, block_event), 104),
             (offset_of!(ModApi, chunk_generated), 112),
             (offset_of!(ModApi, entity_event), 120),
+            (offset_of!(ModApi, menu_closed), 128),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "ModApi field #{i} moved");
         }
         assert_eq!(MOD_API_V1_0_SIZE, 96);
-        assert!(size_of::<ModApi>() >= 128);
+        assert!(size_of::<ModApi>() >= 136);
     }
 
     #[test]
@@ -552,6 +591,13 @@ mod layout {
         assert_eq!(offset_of!(EntityEvent, id), 24);
         assert_eq!(offset_of!(EntityEvent, player), 40);
         assert_eq!(size_of::<EntityEvent>(), 48);
+    }
+
+    #[test]
+    fn menus_v1() {
+        assert_eq!(offset_of!(MenusV1, open), 8);
+        assert_eq!(offset_of!(MenusV1, item), 16);
+        assert_eq!(offset_of!(MenusV1, describe), 24);
     }
 
     #[test]

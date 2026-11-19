@@ -7,6 +7,7 @@
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
 mod console;
+mod menu;
 mod native;
 mod pack;
 mod stats;

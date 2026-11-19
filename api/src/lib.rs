@@ -22,6 +22,7 @@
 pub mod abi;
 pub mod blocks;
 pub mod entities;
+pub mod menus;
 pub mod world;
 
 use std::{
@@ -453,6 +454,10 @@ pub trait Mod: Send + Sync + 'static {
     fn entity_event(&self, _event: entities::Event<'_>) -> bool {
         false
     }
+
+    /// A player closed a `menus/1` menu; `items` holds one item per slot. Every mod sees every
+    /// one: act only on keys that start with your mod id.
+    fn menu_closed(&self, _player: Player<'_>, _key: &str, _items: Vec<menus::Item>) {}
 }
 
 // ---------------------------------------------------------------- export glue
@@ -678,6 +683,30 @@ unsafe extern "C" fn entity_event<M: Mod>(
     })
 }
 
+unsafe extern "C" fn menu_closed<M: Mod>(
+    inst: *const c_void,
+    player: PlayerRef,
+    key: Str,
+    items: *const Str,
+    count: usize,
+) {
+    guard("menu_closed", (), || {
+        let Some(player) = Player::new(player) else {
+            return;
+        };
+        // SAFETY: live arguments and our own instance; `count` borrowed items.
+        unsafe {
+            let items = if count == 0 || items.is_null() {
+                &[]
+            } else {
+                std::slice::from_raw_parts(items, count)
+            };
+            let items = items.iter().map(|i| i.bytes().to_vec()).collect();
+            instance::<M>(inst).menu_closed(player, key.str(), items);
+        }
+    });
+}
+
 /// Used by [`export_mod!`].
 #[doc(hidden)]
 pub fn export<M: Mod>(
@@ -709,6 +738,7 @@ pub fn export<M: Mod>(
         block_event: block_event::<M>,
         chunk_generated: chunk_generated::<M>,
         entity_event: entity_event::<M>,
+        menu_closed: menu_closed::<M>,
     };
     Box::into_raw(Box::new(api))
 }

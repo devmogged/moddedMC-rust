@@ -19,8 +19,8 @@ use std::{
 
 use moddedmc_api::abi::{
     self, ABI_SYMBOL, ABI_VERSION, BlockCall, BlockEvent, BlockWrite, BlocksV1, Defs, ENTRY_SYMBOL,
-    EntitiesV1, EntityId, HostApi, ID_SYMBOL, MenuButton, ModApi, PlayerRef, Pos, Property, Reg,
-    Sink, Str, TickEntry, Vec3, WorldV1, code, level,
+    EntitiesV1, EntityId, HostApi, ID_SYMBOL, MenuButton, MenusV1, ModApi, PlayerRef, Pos,
+    Property, Reg, Sink, Str, TickEntry, Vec3, WorldV1, code, level,
 };
 use pumpkin_core::{
     command::{
@@ -520,6 +520,7 @@ unsafe extern "C" fn query_interface(name: Str) -> *const c_void {
         abi::WORLD_V1 => std::ptr::from_ref(&WORLD).cast(),
         abi::BLOCKS_V1 => std::ptr::from_ref(&BLOCKS).cast(),
         abi::ENTITIES_V1 => std::ptr::from_ref(&ENTITIES).cast(),
+        abi::MENUS_V1 => std::ptr::from_ref(&MENUS).cast(),
         _ => std::ptr::null(),
     }
 }
@@ -984,6 +985,56 @@ pub fn owner(state: BlockStateId) -> Option<usize> {
 
 // ---------------------------------------------------------------- entities/1
 
+// ---------------------------------------------------------------- menus/1
+
+static MENUS: MenusV1 = MenusV1 {
+    size: size_of::<MenusV1>(),
+    open: open_menu,
+    item: menu_item,
+    describe: describe_item,
+};
+
+unsafe extern "C" fn open_menu(
+    p: PlayerRef,
+    title: Str,
+    rows: u32,
+    key: Str,
+    items: *const Str,
+    count: usize,
+) -> bool {
+    // SAFETY: a live player and `count` items, all borrowed for the call.
+    unsafe {
+        let Some(p) = player(p) else { return false };
+        let items = if count == 0 || items.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(items, count)
+        };
+        let items: Vec<&[u8]> = items.iter().map(|i| i.bytes()).collect();
+        crate::menu::open(p, &text(title), rows, &text(key), &items)
+    }
+}
+
+unsafe extern "C" fn menu_item(id: Str, count: u32, out: Sink) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some(bytes) = crate::menu::item(&unsafe { text(id) }, count) else {
+        return false;
+    };
+    // SAFETY: the mod's sink copies before returning.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
+unsafe extern "C" fn describe_item(item: Str, out: Sink) -> u32 {
+    // SAFETY: borrowed for the call.
+    let (id, count) = crate::menu::describe(unsafe { item.bytes() });
+    if count > 0 {
+        // SAFETY: the mod's sink copies before returning.
+        unsafe { (out.put)(out.ctx, 0, Str::from(id.as_str())) };
+    }
+    count
+}
+
 static ENTITIES: EntitiesV1 = EntitiesV1 {
     size: size_of::<EntitiesV1>(),
     spawn,
@@ -1239,6 +1290,24 @@ impl Native {
         };
         // SAFETY: see above; `event` outlives the call.
         unsafe { (self.api.entity_event)(self.api.instance, &raw const event) }
+    }
+
+    /// Hands a closed menu's contents to the mod.
+    pub fn menu_closed(self, player: &Arc<Player>, key: &str, items: &[Vec<u8>]) {
+        if self.api.size < abi::MOD_API_V1_0_SIZE + 5 * size_of::<usize>() {
+            return;
+        }
+        let items: Vec<Str> = items.iter().map(|i| Str::new(i)).collect();
+        // SAFETY: see above; everything outlives the call.
+        unsafe {
+            (self.api.menu_closed)(
+                self.api.instance,
+                player_ref(player),
+                Str::from(key),
+                items.as_ptr(),
+                items.len(),
+            );
+        }
     }
 
     /// Whether this mod was built with `chunk_generated`.
