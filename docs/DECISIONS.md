@@ -22,7 +22,7 @@ Project-level decisions and why. Agents and people working on any branch read th
 - Engine changes as commits on our fork `devmogged/Pumpkin` instead of `patches/pumpkin.patch` (to do; until then the patch rules in AGENTS.md apply).
 - The differential harness against vanilla 26.3 as the definition of done.
 - Real modded registries (modded block states above vanilla's ids, per-world id maps, per-connection translation, generated resource pack): this becomes `moddedmc:blocks/1`.
-- Cross-compiling for the Raspberry Pi, and the performance targets.
+- Cross-compiling for the Raspberry Pi, and the performance targets. The cross build works (see STATUS.md, "Raspberry Pi cross build"); measuring on a real Pi 5 is still to do.
 
 **Removing a large mod** must be reversible: snapshot before the first write without it, keep its registry ids reserved and its blocks, entities and items as inert placeholders that hold their data, restore them when the same mod comes back, and refuse to start the world writable when a missing mod makes it unsafe. Purging is an explicit offline step.
 

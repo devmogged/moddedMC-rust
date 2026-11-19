@@ -185,3 +185,16 @@ The 10,000-counter benchmark was not rerun after the ABI change; the per-tick mo
 
 `CONTRIBUTING.md`, `AGENTS.md` (with `CLAUDE.md` pointing to it), issue forms, a PR template, `SECURITY.md`, a triage playbook for agents, CI for the root workspace on three OSes, and label automation (area, size, `abi`, needs-rebase, needs more info, PR limits in dry-run until `PR_LIMITS_ENFORCE` is set), modeled on the T3 Code repository.
 
+
+## Raspberry Pi cross build (2026-11-19)
+
+The server and mods build for the Pi 5 (`aarch64-unknown-linux-gnu`, glibc 2.36 as on Raspberry Pi OS bookworm) on Windows, with zig as the C compiler and linker for `ring`. `pip install ziglang cargo-zigbuild`, put `ziglang`'s folder on PATH, then:
+
+- Server, from `engine/pumpkin`: `cargo-zigbuild build --release -p pumpkin --target aarch64-unknown-linux-gnu.2.36`.
+- Mods: `scripts\pack-mod.ps1 -Crate <name> -Pi` adds `linux-aarch64.so` to the `.mmc`.
+
+### Verified (QEMU user mode on x86_64, not a Pi)
+
+- The ARM64 server starts ("Started server; took 806 ms" with no mods, 882 ms with one; about 157 MB resident including QEMU).
+- It loads `pillar.mmc` from its `linux-aarch64.so` (37 ms); the bot joins and `/pillar` and `/pillarstruct` work.
+- Not measured: startup, tick time and memory on a real Pi 5, and the other scenarios on ARM.
