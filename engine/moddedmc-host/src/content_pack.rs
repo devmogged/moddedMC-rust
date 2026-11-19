@@ -428,7 +428,7 @@ fn open_jar(namespace: &str) -> Option<ZipArchive<File>> {
         .into_iter()
         .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
         .collect();
-    let mut directories = std::env::current_dir().map_or_else(
+    let directories = std::env::current_dir().map_or_else(
         |_| Vec::new(),
         |dir| {
             dir.ancestors()
@@ -436,7 +436,6 @@ fn open_jar(namespace: &str) -> Option<ZipArchive<File>> {
                 .collect::<Vec<_>>()
         },
     );
-    directories.push(PathBuf::from("D:/minecraft/buja_server/mods"));
     for directory in directories {
         let mut jars: Vec<_> = fs::read_dir(directory)
             .into_iter()
