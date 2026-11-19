@@ -54,6 +54,7 @@ impl ServerProgram {
             lock.lock().map_err(|e| e.to_string())?;
             let mut command = vanilla_java(jar, true);
             command.current_dir(&cache);
+            #[cfg(windows)]
             hide_window(&mut command);
             let output = command
                 .output()
@@ -144,6 +145,7 @@ impl Process {
             .stdin(Stdio::piped())
             .stdout(sink.try_clone().map_err(|e| e.to_string())?)
             .stderr(sink);
+        #[cfg(windows)]
         hide_window(&mut command);
         let mut child = command
             .spawn()
@@ -238,14 +240,10 @@ impl Drop for Process {
     }
 }
 
+#[cfg(windows)]
 fn hide_window(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        command.creation_flags(0x0800_0000);
-    }
-    #[cfg(not(windows))]
-    let _ = command;
+    use std::os::windows::process::CommandExt as _;
+    command.creation_flags(0x0800_0000);
 }
 
 pub struct Server {

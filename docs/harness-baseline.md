@@ -90,3 +90,13 @@ The Windows reference loaded Create 6.0.10 on NeoForge 21.1.219 and Minecraft 1.
 - `tests/harness-oracle/oak-boat.txt` translated `minecraft:oak_boat` to `minecraft:boat` for the reference. Both servers completed one exact tick and passed the probe. The run kept its JSON and removed its checkpoints.
 - `tests/harness-oracle/create-shaft.txt` read `Speed: 0.0f` from the original mod. The base pack rejected the block ID and found no block entity. `run-all` returned 1 with two differences and zero run errors. The full results are in `run/harness-oracle/final.json`.
 - The stock self-test still matched identical vanilla worlds and caught one deliberate block mismatch. See `run/harness-oracle/stock-self-test.json`.
+
+## Linux verification
+
+The native harness and bot passed Clippy and all nine unit tests on Ubuntu 24.04 under WSL2 with Rust 1.100.0. The pack build used `--target x86_64-unknown-linux-gnu --target-dir engine/target --profile pack --config profile.pack.incremental=false`. Runtime checks used Linux Temurin 26.0.2.1 for vanilla and Temurin 21.0.13.1 for NeoForge.
+
+- The identical stock self-test matched, and the deliberate block change produced precisely one mismatch. See `run/harness-linux/self-test.json`.
+- The action and packet scenarios matched between two native 26.3 vanilla instances. See `run/harness-linux/bot-actions.json` and `run/harness-linux/client-effects.json`.
+- The NeoForge reference loaded Create 6.0.10. The mapped boat matched and the shaft probe returned `0.0f` against two expected differences from the vanilla subject. See `run/harness-linux/oracle.json`.
+
+The Pumpkin comparisons above used the Windows pack binary. Linux verification used native harness and bot binaries with Java reference and subject servers.
