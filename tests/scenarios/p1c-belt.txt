@@ -78,7 +78,7 @@ wait 2
 cmd execute positioned 2050.5 101 2012 unless entity @e[type=item,distance=..4]
 wait 0.5
 expect Test passed
-cmd execute positioned 2050.5 100.9 2013 if entity @e[type=item_display,distance=..0.9]
+cmd execute if entity @e[type=item_display,x=2050.5,y=100.9,z=2013,distance=..0.9]
 wait 0.5
 expect Test passed
 wait 6
@@ -87,6 +87,20 @@ wait 0.5
 expect Test passed
 cmd kill @e[type=item]
 wait 0.5
+
+# BeltBlock.useItemOn: an empty main hand takes the stacks within reach of the clicked segment.
+cmd clear tester
+cmd tp tester 2052.5 101 2013.5
+cmd summon minecraft:item 2050.5 101 2012.5 {Item:{id:"minecraft:iron_ingot",count:3},PickupDelay:32767}
+wait 1.5
+bot use 2050 100 2013
+wait 0.5
+cmd clear tester minecraft:iron_ingot 0
+wait 0.5
+expect Found 3 matching item
+cmd execute unless entity @e[type=item_display,x=2050.5,y=101,z=2013,distance=..1.2]
+wait 0.5
+expect Test passed
 
 # Breaking the middle turns both pulleys back into shafts and stops the far shaft.
 cmd setblock 2050 100 2012 minecraft:air

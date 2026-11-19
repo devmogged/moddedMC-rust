@@ -10,10 +10,11 @@ use moddedmc_api::{
         self, Block, BlockUpdate, Content, ContentEvent, Placement, ShapeBox, State, World,
         WorldExtension,
     },
+    effects::{self, Effects},
     entities::{
         self, ENTITY_LIVING, ENTITY_PLAYER, Entities, EntitiesExtension, Entity, EntityChange,
     },
-    interaction::{self, Interaction},
+    interaction::{self, BlockUseResult, Interaction, InteractionExtension, UseBlock},
     items::{self, Item, Items},
     stacks::{self, Displays, ItemStacks},
 };
@@ -51,6 +52,7 @@ static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static INTERACTION: OnceLock<Interaction> = OnceLock::new();
 static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static DISPLAYS: OnceLock<Displays> = OnceLock::new();
+static EFFECTS: OnceLock<Effects> = OnceLock::new();
 static STATES: OnceLock<StateIds> = OnceLock::new();
 /// Each loaded world's kinetic block entities and networks, by `World::id`.
 static WORLDS: Mutex<Option<HashMap<usize, Kinetics>>> = Mutex::new(None);
@@ -79,7 +81,10 @@ impl Mod for Create {
         let entities = entities::require()?;
         entities.require_extension(EntitiesExtension::Movement)?;
         let _ = ENTITIES.set(entities);
-        let _ = INTERACTION.set(interaction::require()?);
+        let interaction = interaction::require()?;
+        interaction.require_extension(InteractionExtension::BlockUse)?;
+        let _ = INTERACTION.set(interaction);
+        let _ = EFFECTS.set(effects::require()?);
         let _ = STACKS.set(stacks::require()?);
         let _ = DISPLAYS.set(stacks::require_displays()?);
         Ok(())
@@ -119,6 +124,10 @@ impl Mod for Create {
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
             .on_use_on_block(registry, belt::use_on_block)?;
+        INTERACTION
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .on_use_block(registry, use_block)?;
         content.on_tick(registry, tick)?;
         ENTITIES
             .get()
@@ -994,6 +1003,19 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         belt_inventory::tick(world, kinetics);
         flush(world, kinetics);
     });
+}
+
+/// `useItemOn` for the mod's blocks. Only the belt reacts so far.
+fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
+    if !context.with_item {
+        return BlockUseResult::Pass;
+    }
+    match states().and_then(|states| states.kind(context.state)) {
+        Some(Kind::Belt(_)) => with_world(context.world, |kinetics| {
+            belt_inventory::use_item_on(kinetics, context)
+        }),
+        _ => BlockUseResult::TryEmptyHand,
+    }
 }
 
 fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {

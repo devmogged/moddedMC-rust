@@ -10,13 +10,15 @@ use fastnbt::Value;
 use moddedmc_api::{
     Pos,
     content::World,
+    effects::SOUND_PLAYERS,
     entities::{ENTITY_ALIVE, Entity},
+    interaction::{BlockUseResult, UseBlock},
     stacks::{Displays, ItemDisplay, ItemStacks},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DISPLAYS, STACKS,
+    DISPLAYS, EFFECTS, STACKS,
     belt_movement::{SPEED_DIVISOR, can_transport_objects, normalize},
     kinetics::{Belt, FACES, Kind, Kinetics, Slope, face_axis, positive},
 };
@@ -775,4 +777,59 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
             be.inventory = Some(inventory);
         }
     }
+}
+
+/// `BeltBlock.useItemOn`: an empty main hand takes every stack within reach of the clicked
+/// segment (`applyToEachWithin(index + .5, .55)`). Dyes, water, the wrench, packages, shafts and
+/// casings aren't ported. `player.mayBuild()` isn't checked.
+pub fn use_item_on(kinetics: &mut Kinetics, context: &mut UseBlock<'_>) -> BlockUseResult {
+    if context.sneaking {
+        return BlockUseResult::TryEmptyHand;
+    }
+    let Some(segment) = kinetics.get(context.position) else {
+        return BlockUseResult::TryEmptyHand;
+    };
+    if !context.main_hand || context.stack.read().is_some() {
+        return BlockUseResult::TryEmptyHand;
+    }
+    let (Some(controller), index) = (segment.controller, segment.belt_index) else {
+        return BlockUseResult::TryEmptyHand;
+    };
+    let Some(inventory) = kinetics
+        .get_mut(controller)
+        .and_then(|be| be.inventory.as_mut())
+    else {
+        return BlockUseResult::TryEmptyHand;
+    };
+    let position = index as f32 + 0.5;
+    let mut taken = false;
+    inventory.items.retain(|item| {
+        if (position - item.pos).abs() >= 0.55 {
+            return true;
+        }
+        if let Some(bytes) = item.bytes() {
+            context.give(&bytes);
+        }
+        remove_display(context.world, item);
+        taken = true;
+        false
+    });
+    if taken {
+        if let Some(be) = kinetics.get_mut(controller) {
+            be.dirty = true;
+        }
+        if let Some(&effects) = EFFECTS.get() {
+            let Pos { x, y, z } = context.position;
+            let pitch = 1.0 + next_int(1 << 24) as f32 / (1 << 24) as f32;
+            effects.play_sound(
+                context.world,
+                [f64::from(x) + 0.5, f64::from(y) + 0.5, f64::from(z) + 0.5],
+                "minecraft:entity.item.pickup",
+                SOUND_PLAYERS,
+                0.2,
+                pitch,
+            );
+        }
+    }
+    BlockUseResult::TryEmptyHand
 }
