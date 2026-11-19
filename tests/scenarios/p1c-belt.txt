@@ -49,6 +49,16 @@ reject (?i)panicked|trapped
 # BeltMovementHandler.transportEntity: at 16 RPM the belt carries what stands on it 16/480 of a
 # block a tick towards +z, so an armor stand travels two blocks in three seconds. Below 240 RPM
 # an entity ahead on the belt blocks it, so the bot steps off first.
+# Players ride the same way: the server sends the push as motion and the bot's client physics
+# applies it. Realtime clocks make the 1.5-second distance loose, so allow half a block.
+cmd tp tester 2050.5 101 2011.5 0 0
+wait 0.5
+bot physics on
+wait 1.5
+bot expect pos 2050.5 101 2012.3 within 0.5
+wait 0.5
+expect ^\[bot\] expect pos ok
+bot physics off
 cmd tp tester 2045.5 101 2005.5
 wait 1
 cmd summon minecraft:armor_stand 2050.5 100.85 2011.5

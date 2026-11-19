@@ -42,9 +42,9 @@ Belts (P1c stage 1, `src/belt.rs` and the belt parts of `src/kinetics.rs`, from 
 8. Throw a stack of iron ingots and one of cobblestone onto the running belt. Each lands, disappears as an item and rides the belt drawn at half size, the ingots lying flat and the cobblestone standing, a block apart. Past the far end they pop off as items again. Put a solid block just past the end and they wait there instead; put a second running belt there and they move onto it.
 9. Capture one recording of steps 2, 4, 6, 7 and 8.
 
-[`tests/scenarios/p1c-belt.txt`](../../tests/scenarios/p1c-belt.txt) checks steps 2 and 4 with the bot, an armor stand riding for step 6, and an ingot stack picked up, drawn and ejected for step 8.
+[`tests/scenarios/p1c-belt.txt`](../../tests/scenarios/p1c-belt.txt) checks steps 2 and 4 with the bot, the bot riding for step 7, an armor stand riding for step 6, and an ingot stack picked up, drawn and ejected for step 8.
 
-Players are carried differently from Create, which moves them on its own client: a stock client stands on the belt's full carrier block, so the server finds players resting on each moving belt and sends them the belt's push as motion. The bot doesn't apply motion packets, so only step 7 checks this. A sloped belt can't lift a player, because its carrier collides as a full block.
+Players are carried differently from Create, which moves them on its own client: a stock client stands on the belt's full carrier block, so the server finds players resting on each moving belt and sends them the belt's push as motion. The bot simulates its own movement like a stock client, so the scenario checks this too; step 7 still covers how it feels. A sloped belt can't lift a player, because its carrier collides as a full block.
 
 Items on belts (`src/belt_inventory.rs`, from `BeltInventory`, `TransportedItemStack` and `ItemHandlerBeltSegment`) are saved in the controller's `Inventory` like Create. They are drawn with item displays: the port can't tell which items Create draws upright (fluid containers and the `create:upright_on_belt` tag), so all of them lie flat or, for block items, stand; stacks aren't drawn as piles, and items don't tilt on slopes.
 
