@@ -404,6 +404,16 @@ pub struct MenusV1 {
     /// not open.
     pub set_property:
         unsafe extern "C" fn(player: PlayerRef, key: Str, property: u32, value: i32) -> bool,
+    /// Lets players put only the `count` listed items (`minecraft:coal`) into `slot` of their
+    /// open screen `key`; none listed, nothing may go in (an output slot). Shift-clicks skip the
+    /// slot too. False if that screen is not open or has no such slot.
+    pub restrict_slot: unsafe extern "C" fn(
+        player: PlayerRef,
+        key: Str,
+        slot: u32,
+        items: *const Str,
+        count: usize,
+    ) -> bool,
 }
 
 /// What a player did to an entity, in [`EntityEvent::kind`].
@@ -654,6 +664,7 @@ mod layout {
         assert_eq!(offset_of!(MenusV1, describe), 24);
         assert_eq!(offset_of!(MenusV1, open_machine), 32);
         assert_eq!(offset_of!(MenusV1, set_property), 40);
+        assert_eq!(offset_of!(MenusV1, restrict_slot), 48);
     }
 
     #[test]

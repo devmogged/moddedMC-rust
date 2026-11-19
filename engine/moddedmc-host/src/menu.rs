@@ -4,8 +4,9 @@
 use std::{
     any::Any,
     cell::Cell,
+    collections::HashMap,
     io::Cursor,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 
 use pumpkin_core::entity::player::Player;
@@ -66,8 +67,35 @@ pub fn describe(bytes: &[u8]) -> (String, u32) {
     )
 }
 
-/// Each player's open mod screen: (player, window id, key), for `set_property`.
-static OPEN: Mutex<Vec<(uuid::Uuid, u8, String)>> = Mutex::new(Vec::new());
+/// A player's open mod screen: player, window id, its inventory.
+type Open = (uuid::Uuid, u8, Weak<MenuInventory>);
+
+/// Each player's open mod screen, for `set_property` and `restrict_slot`.
+static OPEN: Mutex<Vec<Open>> = Mutex::new(Vec::new());
+
+/// The player's open screen `key`: its window id and inventory.
+fn open_screen(player: &Player, key: &str) -> Option<(u8, Arc<MenuInventory>)> {
+    let id = player.gameprofile.id;
+    lock(&OPEN).iter().find_map(|(p, window, inventory)| {
+        let inventory = inventory.upgrade()?;
+        (*p == id && inventory.key == key).then_some((*window, inventory))
+    })
+}
+
+/// Restricts what players may put into `slot` of the player's open screen `key`.
+pub fn restrict_slot(player: &Player, key: &str, slot: u32, allowed: Vec<String>) -> bool {
+    let Some((_, inventory)) = open_screen(player, key) else {
+        return false;
+    };
+    let Ok(slot) = usize::try_from(slot) else {
+        return false;
+    };
+    if slot >= inventory.size() {
+        return false;
+    }
+    lock(&inventory.rules).insert(slot, allowed);
+    true
+}
 
 /// Opens the menu; false if `rows` is out of range, the player is gone, or a close is running.
 pub fn open(player: &Player, title: &str, rows: u32, key: &str, items: &[&[u8]]) -> bool {
@@ -100,12 +128,7 @@ pub fn set_property(player: &Player, key: &str, property: u32, value: i32) -> bo
     let (Ok(property), Ok(value)) = (i16::try_from(property), i16::try_from(value)) else {
         return false;
     };
-    let id = player.gameprofile.id;
-    let Some(window) = lock(&OPEN)
-        .iter()
-        .find(|(p, _, k)| *p == id && k == key)
-        .map(|(_, w, _)| *w)
-    else {
+    let Some((window, _)) = open_screen(player, key) else {
         return false;
     };
     player.try_send_client_packet(&CSetContainerProperty::new(
@@ -135,16 +158,19 @@ fn show(
         slots: SimpleInventory::new(size),
         key: key.to_owned(),
         player: Mutex::new(Some(Arc::clone(&player))),
+        rules: Mutex::new(HashMap::new()),
     };
     for (slot, bytes) in items.iter().take(size).enumerate() {
         inventory.set_stack(slot, decode(bytes));
     }
+    let inventory = Arc::new(inventory);
+    let weak = Arc::downgrade(&inventory);
     let factory = MenuFactory {
         title: TextComponent::text(title.to_owned()),
         window,
         rows,
         columns,
-        inventory: Arc::new(inventory),
+        inventory,
     };
     let Some(window) = player.open_handled_screen(&factory, None) else {
         return false;
@@ -152,7 +178,7 @@ fn show(
     let id = player.gameprofile.id;
     let mut open = lock(&OPEN);
     open.retain(|(p, _, _)| *p != id);
-    open.push((id, window, key.to_owned()));
+    open.push((id, window, weak));
     true
 }
 
@@ -193,6 +219,8 @@ struct MenuInventory {
     key: String,
     /// Taken on close: the contents go back once, and the player is not kept alive by its menu.
     player: Mutex<Option<Arc<Player>>>,
+    /// Slot -> the item ids players may put there (`restrict_slot`).
+    rules: Mutex<HashMap<usize, Vec<String>>>,
 }
 
 impl Clearable for MenuInventory {
@@ -231,7 +259,9 @@ impl Inventory for MenuInventory {
             return;
         };
         let id = player.gameprofile.id;
-        lock(&OPEN).retain(|(p, _, k)| *p != id || *k != self.key);
+        lock(&OPEN).retain(|(p, _, inventory)| {
+            *p != id || inventory.upgrade().is_some_and(|i| i.key != self.key)
+        });
         let items: Vec<Vec<u8>> = (0..self.size())
             .map(|slot| encode(&self.get_stack(slot)))
             .collect();
@@ -241,6 +271,13 @@ impl Inventory for MenuInventory {
             module.menu_closed(&player, &self.key, &items);
         }
         CLOSING.set(false);
+    }
+
+    fn can_player_place(&self, slot: usize, stack: &ItemStack) -> bool {
+        let id = format!("minecraft:{}", stack.item.registry_key);
+        lock(&self.rules)
+            .get(&slot)
+            .is_none_or(|allowed| allowed.contains(&id))
     }
 
     fn as_any(&self) -> &dyn Any {

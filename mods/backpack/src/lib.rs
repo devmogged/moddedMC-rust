@@ -64,10 +64,15 @@ impl Mod for Backpack {
         if tag == 3 {
             // A machine screen: the mod owns its slots and drives its bars.
             let key = format!("{KEY}smelter:{name}");
-            let opened = menus.open_machine(&player, "minecraft:furnace", "Smelter", &key, &[]);
+            let held = load(&format!("smelter-{name}"));
+            let opened = menus.open_machine(&player, "minecraft:furnace", "Smelter", &key, &held);
             let set = opened
                 && menus.set_property(&player, &key, 2, 100)
-                && menus.set_property(&player, &key, 3, 200);
+                && menus.set_property(&player, &key, 3, 200)
+                // Ores in, coal as fuel, nothing into the output.
+                && menus.restrict_slot(&player, &key, 0, &["minecraft:iron_ore", "minecraft:gold_ore"])
+                && menus.restrict_slot(&player, &key, 1, &["minecraft:coal"])
+                && menus.restrict_slot(&player, &key, 2, &[]);
             command.reply(&format!("smelter: progress set {set}"));
             return i32::from(set);
         }
@@ -105,7 +110,10 @@ impl Mod for Backpack {
         let Some(name) = key.strip_prefix(KEY) else {
             return;
         };
-        if name.starts_with("smelter:") {
+        if let Some(owner) = name.strip_prefix("smelter:") {
+            save(&format!("smelter-{owner}"), &items);
+            let stacks = items.iter().filter(|i| !i.is_empty()).count();
+            player.send_message(&format!("smelter: holds {stacks} stacks"));
             return;
         }
         save(name, &items);

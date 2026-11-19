@@ -45,6 +45,28 @@ expectany \[bot\] property 3 = 200
 expectany \[bot\] chat: .*smelter: progress set true
 bot close
 wait 1
+expect \[bot\] chat: .*smelter: holds 0 stacks
+# Slot rules: a diamond may not go in; iron ore goes into the input slot. A given item lands in
+# the first hotbar slot, window slot 30 of a furnace screen.
+cmd give tester minecraft:diamond 1
+wait 1
+bot cmd smelter
+wait 1
+bot shiftclick 30
+wait 1
+bot close
+wait 1
+expect \[bot\] chat: .*smelter: holds 0 stacks
+cmd clear tester minecraft:diamond
+cmd give tester minecraft:iron_ore 1
+wait 1
+bot cmd smelter
+wait 1
+bot shiftclick 30
+wait 1
+bot close
+wait 1
+expect \[bot\] chat: .*smelter: holds 1 stacks
 reject (?i)panic|panicked
 bot quit
 stop

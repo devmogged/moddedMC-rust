@@ -1,8 +1,8 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 4cc8486ee..3ce76cce0 100644
+index 4cc8486ee..02a99df66 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -2336,6 +2336,45 @@ dependencies = [
+@@ -2336,6 +2336,46 @@ dependencies = [
   "windows-sys 0.61.2",
  ]
  
@@ -17,6 +17,7 @@ index 4cc8486ee..3ce76cce0 100644
 + "bytes",
 + "pumpkin-core",
 + "pumpkin-data",
++ "pumpkin-nbt",
 + "pumpkin-protocol",
 + "pumpkin-util",
 + "tokio",
@@ -48,7 +49,7 @@ index 4cc8486ee..3ce76cce0 100644
  [[package]]
  name = "multiversion_no_op"
  version = "1.0.0"
-@@ -2945,6 +2984,7 @@ name = "pumpkin"
+@@ -2945,6 +2985,7 @@ name = "pumpkin"
  version = "0.2.2+26.3-26.63"
  dependencies = [
   "console-subscriber",
@@ -1019,6 +1020,38 @@ index e8ddd0a6e..2e54f1dad 100644
          screen_type: WindowType,
          sync_id: u8,
          player_inventory: &Arc<PlayerInventory>,
+diff --git a/crates/pumpkin-inventory/src/inventory/inventory.rs b/crates/pumpkin-inventory/src/inventory/inventory.rs
+index fbf450d38..6c0bc4b45 100644
+--- a/crates/pumpkin-inventory/src/inventory/inventory.rs
++++ b/crates/pumpkin-inventory/src/inventory/inventory.rs
+@@ -86,6 +86,12 @@ pub trait Inventory: Send + Sync + Clearable {
+         true
+     }
+ 
++    /// Whether a player may put `stack` into `slot` of a plain (`NormalSlot`) screen; moddedmc
++    /// menus restrict slots with it.
++    fn can_player_place(&self, _slot: usize, _stack: &ItemStack) -> bool {
++        true
++    }
++
+     fn can_transfer_to(
+         &self,
+         _hopper_inventory: &dyn Inventory,
+diff --git a/crates/pumpkin-inventory/src/slot.rs b/crates/pumpkin-inventory/src/slot.rs
+index 77789962e..0f27d68c0 100644
+--- a/crates/pumpkin-inventory/src/slot.rs
++++ b/crates/pumpkin-inventory/src/slot.rs
+@@ -262,6 +262,10 @@ impl NormalSlot {
+ }
+ 
+ impl Slot for NormalSlot {
++    fn can_insert(&self, stack: &ItemStack) -> bool {
++        self.inventory.can_player_place(self.index, stack)
++    }
++
+     fn get_inventory(&self) -> Arc<dyn Inventory> {
+         self.inventory.clone()
+     }
 diff --git a/crates/pumpkin-protocol/src/java/client/dialog.rs b/crates/pumpkin-protocol/src/java/client/dialog.rs
 index fdc2e9b39..0ecd161eb 100644
 --- a/crates/pumpkin-protocol/src/java/client/dialog.rs

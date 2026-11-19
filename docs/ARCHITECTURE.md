@@ -31,6 +31,7 @@ There are two Cargo workspaces. `engine/pumpkin` (with `engine/moddedmc-*` as me
 8. **Attack event** (`net/java/play/attack.rs`): 26.1+ clients attack with their own packet, which upstream handled without firing `PlayerInteractEntityEvent`. It now fires it with `ActionType::Attack` and stops if a handler cancels it, so plugins and mods (`entity_event`) see attacks as well as uses.
 9. **Generic container constructor** (`pumpkin-inventory`): `GenericContainerScreenHandler::new` is public, so the host can open chest screens of any row count (upstream exposed only 3 and 6 rows).
 10. **Modded biomes** (`pumpkin-data/src/modded_biome.rs`): mods' biomes get ids after vanilla's, copied from a vanilla look-alike for server-side behaviour; `Biome::from_id` and `from_name` fall back to them, and Anvil saves them by their namespaced name. `MODDED_REGISTRY_ENTRIES` (`data/datapack`) merges their client definitions into the synced registries on every datapack (re)load. Clients number custom biomes after vanilla's in name order, so biome palettes are written with `modded_biome::to_client` ids.
+11. **Player slot rules** (`pumpkin-inventory`): `Inventory::can_player_place` (default true) is what a plain `NormalSlot` asks before taking an item, so `menus/1` can restrict slots. Vanilla's `is_valid_slot_for` is for hoppers and stricter than what a player may place by hand, so it is left alone.
 
 ## Mods
 

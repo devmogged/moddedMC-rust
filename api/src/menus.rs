@@ -76,6 +76,20 @@ impl Menus {
         unsafe { (self.0.set_property)(player.raw, s(key), property, value) }
     }
 
+    /// Lets players put only `allowed` items (`minecraft:coal`) into `slot` of their open screen
+    /// `key`; an empty list keeps everything out (an output slot). False if it is not open.
+    pub fn restrict_slot(
+        &self,
+        player: &Player<'_>,
+        key: &str,
+        slot: u32,
+        allowed: &[&str],
+    ) -> bool {
+        let allowed: Vec<Str> = allowed.iter().map(|a| s(a)).collect();
+        // SAFETY: everything is borrowed for the call.
+        unsafe { (self.0.restrict_slot)(player.raw, s(key), slot, allowed.as_ptr(), allowed.len()) }
+    }
+
     /// `count` of item `id` (`minecraft:diamond`); `None` if the item is unknown.
     #[must_use]
     pub fn item(&self, id: &str, count: u32) -> Option<Item> {

@@ -1051,7 +1051,23 @@ static MENUS: MenusV1 = MenusV1 {
     describe: describe_item,
     open_machine,
     set_property,
+    restrict_slot,
 };
+
+unsafe extern "C" fn restrict_slot(
+    p: PlayerRef,
+    key: Str,
+    slot: u32,
+    items: *const Str,
+    count: usize,
+) -> bool {
+    // SAFETY: a live player and `count` item ids, all borrowed for the call.
+    unsafe {
+        let Some(p) = player(p) else { return false };
+        let allowed = slice(items, count).iter().map(|i| text(*i)).collect();
+        crate::menu::restrict_slot(p, &text(key), slot, allowed)
+    }
+}
 
 unsafe extern "C" fn open_machine(
     p: PlayerRef,
