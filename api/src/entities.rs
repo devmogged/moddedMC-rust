@@ -80,8 +80,9 @@ impl Entities {
         unsafe { (self.0.set_ai)(s(dimension), id, enabled) }
     }
 
-    /// Sends a mob walking to `to` along a path (`speed` 1.0 is its normal pace), its own
-    /// wandering held off until [`Self::release`]. Needs its AI on. False if it is not a mob.
+    /// Sends a mob walking to `to` along a path (`speed` 1.0 is its normal pace) and keeps it
+    /// there (within about a block and a half), its own wandering held off, until [`Self::release`]. Needs its AI on. False if it
+    /// is not a mob.
     pub fn walk_to(&self, dimension: &str, id: EntityId, to: Vec3, speed: f64) -> bool {
         // SAFETY: borrowed for the call.
         unsafe { (self.0.walk_to)(s(dimension), id, to, speed) }

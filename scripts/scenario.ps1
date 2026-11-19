@@ -8,6 +8,7 @@
 #   cmd <console line>       send a console line
 #   wait <seconds>
 #   expect <regex>           fail unless a log line since the previous expect/start matches
+#   expectany <regex>        like expect, but leaves the position alone (for lines in no set order)
 #   reject <regex>           fail if any log line since the previous expect/start matches
 #   stop                     send stop and wait for exit
 #   botstart <name>          join with moddedmc-bot (its output goes into the log)
@@ -143,6 +144,11 @@ foreach ($raw in Get-Content $Scenario) {
             $i = 0
             while ($i -lt $new.Count -and $new[$i] -notmatch $arg) { $i++ }
             if ($i -lt $new.Count) { Write-Host "  ok: $($new[$i])" -ForegroundColor Green; $script:cursor += $i + 1 }
+            else { Write-Host "  FAIL: no line matches /$arg/" -ForegroundColor Red; $failures++ }
+        }
+        'expectany' {
+            $hit = @(Get-NewLines | Where-Object { $_ -match $arg }) | Select-Object -First 1
+            if ($hit) { Write-Host "  ok: $hit" -ForegroundColor Green }
             else { Write-Host "  FAIL: no line matches /$arg/" -ForegroundColor Red; $failures++ }
         }
         'reject' {

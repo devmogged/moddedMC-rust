@@ -17,6 +17,7 @@ use pumpkin_inventory::{
     screen_handler::{InventoryPlayer, ScreenHandlerFactory, SharedScreenHandler},
 };
 use pumpkin_nbt::{Nbt, NbtCompound, deserializer::NbtReadHelperJava};
+use pumpkin_protocol::{codec::var_int::VarInt, java::client::play::CSetContainerProperty};
 use pumpkin_util::text::TextComponent;
 
 use crate::{HOST, lock, native::Native};
@@ -65,6 +66,9 @@ pub fn describe(bytes: &[u8]) -> (String, u32) {
     )
 }
 
+/// Each player's open mod screen: (player, window id, key), for `set_property`.
+static OPEN: Mutex<Vec<(uuid::Uuid, u8, String)>> = Mutex::new(Vec::new());
+
 /// Opens the menu; false if `rows` is out of range, the player is gone, or a close is running.
 pub fn open(player: &Player, title: &str, rows: u32, key: &str, items: &[&[u8]]) -> bool {
     let window = match rows {
@@ -76,13 +80,57 @@ pub fn open(player: &Player, title: &str, rows: u32, key: &str, items: &[&[u8]])
         6 => WindowType::Generic9x6,
         _ => return false,
     };
+    show(player, title, window, (rows as u8, 9), key, items)
+}
+
+/// Opens a furnace-like machine screen (3 slots: input, fuel, output); false if `kind` is not
+/// one, the player is gone, or a close is running.
+pub fn open_machine(player: &Player, kind: &str, title: &str, key: &str, items: &[&[u8]]) -> bool {
+    let window = match kind.strip_prefix("minecraft:").unwrap_or(kind) {
+        "furnace" => WindowType::Furnace,
+        "blast_furnace" => WindowType::BlastFurnace,
+        "smoker" => WindowType::Smoker,
+        _ => return false,
+    };
+    show(player, title, window, (1, 3), key, items)
+}
+
+/// Sets a property (a progress bar) of the player's open screen `key`; false if it is not open.
+pub fn set_property(player: &Player, key: &str, property: u32, value: i32) -> bool {
+    let (Ok(property), Ok(value)) = (i16::try_from(property), i16::try_from(value)) else {
+        return false;
+    };
+    let id = player.gameprofile.id;
+    let Some(window) = lock(&OPEN)
+        .iter()
+        .find(|(p, _, k)| *p == id && k == key)
+        .map(|(_, w, _)| *w)
+    else {
+        return false;
+    };
+    player.try_send_client_packet(&CSetContainerProperty::new(
+        VarInt(i32::from(window)),
+        property,
+        value,
+    ));
+    true
+}
+
+fn show(
+    player: &Player,
+    title: &str,
+    window: WindowType,
+    (rows, columns): (u8, u8),
+    key: &str,
+    items: &[&[u8]],
+) -> bool {
     if CLOSING.get() {
         return false;
     }
     let Some(player) = player.world().get_player_by_uuid(player.gameprofile.id) else {
         return false;
     };
-    let size = rows as usize * 9;
+    let size = usize::from(rows) * usize::from(columns);
     let inventory = MenuInventory {
         slots: SimpleInventory::new(size),
         key: key.to_owned(),
@@ -94,16 +142,25 @@ pub fn open(player: &Player, title: &str, rows: u32, key: &str, items: &[&[u8]])
     let factory = MenuFactory {
         title: TextComponent::text(title.to_owned()),
         window,
-        rows: rows as u8,
+        rows,
+        columns,
         inventory: Arc::new(inventory),
     };
-    player.open_handled_screen(&factory, None).is_some()
+    let Some(window) = player.open_handled_screen(&factory, None) else {
+        return false;
+    };
+    let id = player.gameprofile.id;
+    let mut open = lock(&OPEN);
+    open.retain(|(p, _, _)| *p != id);
+    open.push((id, window, key.to_owned()));
+    true
 }
 
 struct MenuFactory {
     title: TextComponent,
     window: WindowType,
     rows: u8,
+    columns: u8,
     inventory: Arc<MenuInventory>,
 }
 
@@ -120,7 +177,7 @@ impl ScreenHandlerFactory for MenuFactory {
             player_inventory,
             self.inventory.clone(),
             self.rows,
-            9,
+            self.columns,
             player.is_spectator(),
         );
         Some(Arc::new(Mutex::new(handler)))
@@ -173,6 +230,8 @@ impl Inventory for MenuInventory {
         let Some(player) = lock(&self.player).take() else {
             return;
         };
+        let id = player.gameprofile.id;
+        lock(&OPEN).retain(|(p, _, k)| *p != id || *k != self.key);
         let items: Vec<Vec<u8>> = (0..self.size())
             .map(|slot| encode(&self.get_stack(slot)))
             .collect();

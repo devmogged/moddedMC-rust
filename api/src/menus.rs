@@ -44,6 +44,38 @@ impl Menus {
         }
     }
 
+    /// Opens a furnace-like machine screen (`minecraft:furnace`, `minecraft:blast_furnace`,
+    /// `minecraft:smoker`): 3 slots (input, fuel, output) filled from `items`, the mod deciding
+    /// what they do. Closing it calls [`crate::Mod::menu_closed`] with `key`.
+    pub fn open_machine(
+        &self,
+        player: &Player<'_>,
+        kind: &str,
+        title: &str,
+        key: &str,
+        items: &[Item],
+    ) -> bool {
+        let items: Vec<Str> = items.iter().map(|i| Str::new(i)).collect();
+        // SAFETY: everything is borrowed for the call.
+        unsafe {
+            (self.0.open_machine)(
+                player.raw,
+                s(kind),
+                s(title),
+                s(key),
+                items.as_ptr(),
+                items.len(),
+            )
+        }
+    }
+
+    /// Sets a property of the player's open screen `key`; for a furnace 0 = fuel left, 1 = fuel
+    /// total, 2 = progress, 3 = progress total. False if that screen is not open.
+    pub fn set_property(&self, player: &Player<'_>, key: &str, property: u32, value: i32) -> bool {
+        // SAFETY: borrowed for the call.
+        unsafe { (self.0.set_property)(player.raw, s(key), property, value) }
+    }
+
     /// `count` of item `id` (`minecraft:diamond`); `None` if the item is unknown.
     #[must_use]
     pub fn item(&self, id: &str, count: u32) -> Option<Item> {

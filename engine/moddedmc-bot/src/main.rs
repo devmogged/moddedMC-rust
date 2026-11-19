@@ -17,12 +17,13 @@ use pumpkin_protocol::{
     java::{
         client::play::{
             CChunkBatchEnd, CKeepAlive, COpenScreen, CPlayShowDialog, CPlayerPosition,
-            CSpawnEntity, CSystemChatMessage,
+            CSetContainerProperty, CSpawnEntity, CSystemChatMessage,
         },
         packet_encoder::TCPNetworkEncoder,
         server::play::{
-            SAttack, SChatCommand, SClientTickEnd, SConfirmTeleport, SCustomClickAction, SInteract,
-            SChunkBatch, SClickSlot, SCloseContainer, SKeepAlive, SlotActionType, SPlayerPosition, SUseItemOn,
+            SAttack, SChatCommand, SChunkBatch, SClickSlot, SClientTickEnd, SCloseContainer,
+            SConfirmTeleport, SCustomClickAction, SInteract, SKeepAlive, SPlayerPosition,
+            SUseItemOn, SlotActionType,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -122,7 +123,10 @@ async fn main() -> Result<(), String> {
                         mode: SlotActionType::QuickMove,
                         length_of_array: VarInt(0),
                         array_of_changed_slots: Vec::new(),
-                        carried_item: pumpkin_protocol::codec::item_stack_seralizer::OptionalItemStackHash(None),
+                        carried_item:
+                            pumpkin_protocol::codec::item_stack_seralizer::OptionalItemStackHash(
+                                None,
+                            ),
                     };
                     send(&writer, &click).await
                 }
@@ -161,6 +165,7 @@ async fn pump(
     let spawn_entity = CSpawnEntity::to_id(CURRENT_MC_VERSION);
     let batch_end = CChunkBatchEnd::to_id(CURRENT_MC_VERSION);
     let open_screen = COpenScreen::to_id(CURRENT_MC_VERSION);
+    let container_property = CSetContainerProperty::to_id(CURRENT_MC_VERSION);
     let show_dialog = CPlayShowDialog::to_id(CURRENT_MC_VERSION);
     let trace = std::env::var_os("MODDEDMC_BOT_TRACE").is_some();
     loop {
@@ -204,9 +209,25 @@ async fn pump(
                 LAST_SCREEN.store(id.0, std::sync::atomic::Ordering::Relaxed);
                 println!("[bot] screen opened: {}", printable_text(&packet.payload));
             }
+        } else if packet.id == container_property {
+            // window id, property, value
+            use pumpkin_protocol::ser::NetworkReadExt;
+            if let (Ok(_), Ok(property), Ok(value)) = (
+                payload.get_container_id(&CURRENT_MC_VERSION),
+                payload.get_i16_be(),
+                payload.get_i16_be(),
+            ) {
+                println!("[bot] property {property} = {value}");
+            }
         } else if packet.id == batch_end {
             // Ack like a client: unacked, Pumpkin stops sending chunks, and with them entities.
-            let _ = send(&writer, &SChunkBatch { chunks_per_tick: 64.0 }).await;
+            let _ = send(
+                &writer,
+                &SChunkBatch {
+                    chunks_per_tick: 64.0,
+                },
+            )
+            .await;
         } else if packet.id == spawn_entity {
             // id, uuid, type
             use pumpkin_protocol::ser::NetworkReadExt;

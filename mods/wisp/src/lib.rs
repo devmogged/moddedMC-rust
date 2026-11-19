@@ -139,7 +139,7 @@ impl Mod for Wisp {
                     .filter(|(id, to)| {
                         entities
                             .position(dimension, *id)
-                            .is_some_and(|at| (at.x - to.x).hypot(at.z - to.z) < 1.5)
+                            .is_some_and(|at| (at.x - to.x).hypot(at.z - to.z) < 2.0)
                     })
                     .count();
                 command.reply(&format!("wisparrived: {arrived} of {}", targets.len()));

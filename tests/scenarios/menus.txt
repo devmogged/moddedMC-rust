@@ -35,6 +35,16 @@ wait 1
 bot close
 wait 1
 expect \[bot\] chat: .*backpack: saved 1 stacks
+# A machine screen: a furnace whose progress bar the mod sets.
+bot cmd smelter
+wait 1
+expect \[bot\] screen opened: .*Smelter
+# The packets after the screen arrive in no set order.
+expectany \[bot\] property 2 = 100
+expectany \[bot\] property 3 = 200
+expectany \[bot\] chat: .*smelter: progress set true
+bot close
+wait 1
 reject (?i)panic|panicked
 bot quit
 stop

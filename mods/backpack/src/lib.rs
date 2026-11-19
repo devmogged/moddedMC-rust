@@ -1,7 +1,8 @@
 //! `moddedmc:menus/1` in its smallest real use: a backpack. `/backpack` opens three rows of
 //! storage that belong to you; what you leave in it is saved in `config/backpack/<name>.txt`
 //! (one item per line, hex) when you close it. `/backpackseed` puts 5 diamonds in an empty first
-//! slot, `/backpacklist` lists what is inside.
+//! slot, `/backpacklist` lists what is inside. `/smelter` opens a furnace screen whose bars the
+//! mod drives (`menus/1` machine screens).
 
 use std::fs;
 
@@ -47,6 +48,11 @@ impl Mod for Backpack {
         registry.add_command("backpack", "Open your backpack", 0)?;
         registry.add_command("backpackseed", "Put 5 diamonds in an empty first slot", 1)?;
         registry.add_command("backpacklist", "List what is in your backpack", 2)?;
+        registry.add_command(
+            "smelter",
+            "Open a smelter screen, its progress half done",
+            3,
+        )?;
         Ok(())
     }
 
@@ -55,6 +61,16 @@ impl Mod for Backpack {
             return 0;
         };
         let name = player.name();
+        if tag == 3 {
+            // A machine screen: the mod owns its slots and drives its bars.
+            let key = format!("{KEY}smelter:{name}");
+            let opened = menus.open_machine(&player, "minecraft:furnace", "Smelter", &key, &[]);
+            let set = opened
+                && menus.set_property(&player, &key, 2, 100)
+                && menus.set_property(&player, &key, 3, 200);
+            command.reply(&format!("smelter: progress set {set}"));
+            return i32::from(set);
+        }
         let mut items = load(name);
         match tag {
             0 => i32::from(menus.open(&player, "Backpack", ROWS, &format!("{KEY}{name}"), &items)),
@@ -89,6 +105,9 @@ impl Mod for Backpack {
         let Some(name) = key.strip_prefix(KEY) else {
             return;
         };
+        if name.starts_with("smelter:") {
+            return;
+        }
         save(name, &items);
         let stacks = items.iter().filter(|i| !i.is_empty()).count();
         player.send_message(&format!("backpack: saved {stacks} stacks"));

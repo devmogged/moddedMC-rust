@@ -1049,7 +1049,31 @@ static MENUS: MenusV1 = MenusV1 {
     open: open_menu,
     item: menu_item,
     describe: describe_item,
+    open_machine,
+    set_property,
 };
+
+unsafe extern "C" fn open_machine(
+    p: PlayerRef,
+    kind: Str,
+    title: Str,
+    key: Str,
+    items: *const Str,
+    count: usize,
+) -> bool {
+    // SAFETY: a live player and `count` items, all borrowed for the call.
+    unsafe {
+        let Some(p) = player(p) else { return false };
+        let items: Vec<&[u8]> = slice(items, count).iter().map(|i| i.bytes()).collect();
+        crate::menu::open_machine(p, &text(kind), &text(title), &text(key), &items)
+    }
+}
+
+unsafe extern "C" fn set_property(p: PlayerRef, key: Str, property: u32, value: i32) -> bool {
+    // SAFETY: a live player and a borrowed key.
+    unsafe { player(p) }
+        .is_some_and(|p| crate::menu::set_property(p, &unsafe { text(key) }, property, value))
+}
 
 unsafe extern "C" fn open_menu(
     p: PlayerRef,
@@ -1225,8 +1249,9 @@ fn walk(mob: &pumpkin_core::entity::mob::MobEntity, to: Vector3<f64>, speed: f64
         .set_progress(NavigatorGoal::new(from, to, speed));
 }
 
-/// Keeps walks going: a goal stopping as it loses control, or anything else, clears the
-/// navigator, so an idle walker that has not arrived is sent again. Arrived or gone walkers drop.
+/// Keeps walks going until released: a goal stopping as it loses control, or anything else,
+/// clears the navigator, so an idle walker that has not arrived is sent again; one that has
+/// arrived is held there. Gone walkers drop.
 pub fn tick_walks() {
     crate::lock(&WALKS).retain(|(dimension, id, to, speed)| {
         let Some(entity) = world(dimension).and_then(|w| w.get_entity_by_uuid(*id)) else {
@@ -1237,10 +1262,15 @@ pub fn tick_walks() {
         };
         let mob = mob.get_mob_entity();
         let at = mob.living_entity.entity.pos.load();
-        if (at.x - to.x).hypot(at.z - to.z) < 1.0 {
-            return false;
-        }
-        if mob.steered().navigator().is_idle() {
+        let steered = mob.steered();
+        let mut navigator = steered.navigator();
+        // The navigator counts a path done a little over a block short of its end.
+        if (at.x - to.x).hypot(at.z - to.z) < 1.5 {
+            if !navigator.is_idle() {
+                navigator.stop();
+            }
+        } else if navigator.is_idle() {
+            drop(navigator);
             walk(mob, *to, *speed);
         }
         true

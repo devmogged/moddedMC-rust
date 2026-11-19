@@ -73,6 +73,11 @@ wait 8
 bot cmd wisparrived
 wait 1
 expect \[bot\] chat: .*wisparrived: 1 of 1
+# ... and stays there.
+wait 5
+bot cmd wisparrived
+wait 1
+expect \[bot\] chat: .*wisparrived: 1 of 1
 reject (?i)panic|panicked
 bot quit
 stop

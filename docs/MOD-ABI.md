@@ -70,9 +70,9 @@ What the SDK offers:
 | `Mod::block_event` | One of your `blocks/1` blocks was used, placed, broken, ticked, or a neighbor changed. Return true from a use to skip the look-alike's own interaction. |
 | `Mod::chunk_generated` | World generation: once per chunk, the first time it loads with your mod installed (new chunks, and old ones your mod has not seen). Place ores and features with `world`, inside that chunk. The server records decorated chunks in `config/moddedmc/decorated/<mod>/`. |
 | `blocks::get()` | `schedule_tick(dimension, pos, delay)` and `is_powered(dimension, pos)` for `blocks/1` blocks. |
-| `entities::get()` | `moddedmc:entities/1`: `spawn` a vanilla entity type as a creature's look-alike, then `position`, `move_to`, `set_name`, `remove` by its id, `set_ai` to switch a mob's vanilla AI off so only your mod moves it, and `walk_to` to send a mob along a path (its own wandering waits until `release`). Ids survive restarts (the world saves the entity): store them. |
+| `entities::get()` | `moddedmc:entities/1`: `spawn` a vanilla entity type as a creature's look-alike, then `position`, `move_to`, `set_name`, `remove` by its id, `set_ai` to switch a mob's vanilla AI off so only your mod moves it, and `walk_to` to send a mob along a path and keep it there until `release`. Ids survive restarts (the world saves the entity): store them. |
 | `Mod::entity_event` | A player right-clicked (`Use`) or attacked (`Attack`) an entity. Every mod sees every one: act only on ids you spawned. Return true to cancel the vanilla interaction or the damage. |
-| `menus::get()` | `moddedmc:menus/1`: `open` a chest screen of 1 to 6 rows filled with your items; players move items in and out as in vanilla. An item is opaque bytes (vanilla item NBT, every component kept): store them as they are, and use `item(id, count)` and `describe(bytes)` to make and read them. |
+| `menus::get()` | `moddedmc:menus/1`: `open` a chest screen of 1 to 6 rows filled with your items; players move items in and out as in vanilla. An item is opaque bytes (vanilla item NBT, every component kept): store them as they are, and use `item(id, count)` and `describe(bytes)` to make and read them. `open_machine` opens a furnace, blast furnace or smoker screen (3 slots the mod gives meaning to) and `set_property` drives its fuel and progress bars. |
 | `Definitions::biome` | In `define_blocks`: a biome of your own (`frost:glacier`). The server treats it like a vanilla look-alike (mob spawns, rain or snow); clients draw it from your JSON, the body of a vanilla `worldgen/biome` file (`effects` colors, `attributes` such as `minecraft:visual/sky_color`). At most 61 modded biomes fit. |
 | `biomes::get()` | `moddedmc:biomes/1`: `set` the biome of a 4x4x4 cell (e.g. from `chunk_generated`; players see it from the next tick) and read it with `at`. |
 | `Mod::menu_closed` | A player closed a `menus/1` menu: its key and one item per slot. Every mod sees every close: start your keys with your mod id and act only on those. Opening a menu from here fails. |
@@ -140,7 +140,7 @@ Interfaces:
 
 World generation is the `ModApi::chunk_generated` callback (1.1) rather than an interface table: the mod places blocks itself through `world/1`.
 
-Planned (see [DECISIONS.md](DECISIONS.md)): more entity events (damage from other sources, death), custom AI goals and targeting, structure helpers for world generation, and machine screens (furnace-like progress, slot rules), each when a real port needs it. Button menus are `Player::show_menu` (dialogs); inventories are `menus/1`.
+Planned (see [DECISIONS.md](DECISIONS.md)): more entity events (damage from other sources, death), custom AI goals and targeting, structure helpers for world generation, per-slot rules for machine screens (which item may go where), each when a real port needs it. Button menus are `Player::show_menu` (dialogs); inventories are `menus/1`.
 
 Packaging (`.mmc`): a zip with
 

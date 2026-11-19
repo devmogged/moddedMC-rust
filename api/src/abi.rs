@@ -333,8 +333,8 @@ pub struct EntitiesV1 {
     /// Turns a mob's vanilla AI (goals, pathfinding, its own movement) on or off; off, it stays
     /// where `move_to` puts it. Saved with the entity. False if it is not a mob.
     pub set_ai: unsafe extern "C" fn(dimension: Str, id: EntityId, enabled: bool) -> bool,
-    /// Sends a mob walking to `at` along a path, `speed` times its walking speed, and stops its
-    /// own wandering goals until it is released: `at.x` NaN stops it and gives its goals back.
+    /// Sends a mob walking to `at` along a path, `speed` times its walking speed, and keeps it
+    /// there, its own wandering held off, until it is released: `at.x` NaN gives it back.
     /// Needs its AI on. Mobs driven by a vanilla brain rather than goals may walk elsewhere.
     /// False if it is not a mob.
     pub walk_to: unsafe extern "C" fn(dimension: Str, id: EntityId, at: Vec3, speed: f64) -> bool,
@@ -388,6 +388,22 @@ pub struct MenusV1 {
     /// Puts an item's id into `out` under key 0 and returns its count; 0 for an empty or
     /// unreadable item.
     pub describe: unsafe extern "C" fn(item: Str, out: Sink) -> u32,
+    /// Opens a machine screen: `kind` is `minecraft:furnace`, `minecraft:blast_furnace` or
+    /// `minecraft:smoker`, with 3 slots (input, fuel, output) that hold items as in a chest; the
+    /// mod decides what they do. Closing it calls `menu_closed` as for `open`.
+    pub open_machine: unsafe extern "C" fn(
+        player: PlayerRef,
+        kind: Str,
+        title: Str,
+        key: Str,
+        items: *const Str,
+        count: usize,
+    ) -> bool,
+    /// Sets a property of the player's open screen `key`: for a furnace 0 = fuel left, 1 = fuel
+    /// total, 2 = progress, 3 = progress total (the bars show left/total). False if that screen is
+    /// not open.
+    pub set_property:
+        unsafe extern "C" fn(player: PlayerRef, key: Str, property: u32, value: i32) -> bool,
 }
 
 /// What a player did to an entity, in [`EntityEvent::kind`].
@@ -636,6 +652,8 @@ mod layout {
         assert_eq!(offset_of!(MenusV1, open), 8);
         assert_eq!(offset_of!(MenusV1, item), 16);
         assert_eq!(offset_of!(MenusV1, describe), 24);
+        assert_eq!(offset_of!(MenusV1, open_machine), 32);
+        assert_eq!(offset_of!(MenusV1, set_property), 40);
     }
 
     #[test]
