@@ -296,6 +296,42 @@ pub struct BlocksV1 {
     pub is_powered: unsafe extern "C" fn(dimension: Str, pos: Pos) -> i32,
 }
 
+/// [`EntitiesV1`]: creatures and other entities a mod drives.
+pub const ENTITIES_V1: &str = "moddedmc:entities/1";
+
+/// An entity's UUID. It stays the same across restarts, so mods may save it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct EntityId(pub [u8; 16]);
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Vec3 {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+/// Entities a mod drives. A stock client knows only vanilla entity types, so a modded creature
+/// is a vanilla entity (its look-alike) that the mod moves, names and removes; Pumpkin saves it
+/// with the world. Calls on an entity that is gone or in an unloaded chunk return false.
+#[repr(C)]
+pub struct EntitiesV1 {
+    pub size: usize,
+    /// Spawns a vanilla entity type (`minecraft:armor_stand`) and writes its id to `out`. False
+    /// if the type or dimension is unknown.
+    pub spawn:
+        unsafe extern "C" fn(dimension: Str, kind: Str, at: Vec3, out: *mut EntityId) -> bool,
+    /// Writes its position to `out`.
+    pub position: unsafe extern "C" fn(dimension: Str, id: EntityId, out: *mut Vec3) -> bool,
+    /// Moves it, turning it to `yaw` and `pitch` (degrees; NaN keeps the current one).
+    pub move_to:
+        unsafe extern "C" fn(dimension: Str, id: EntityId, at: Vec3, yaw: f32, pitch: f32) -> bool,
+    /// Shows `name` above it; an empty name hides it.
+    pub set_name: unsafe extern "C" fn(dimension: Str, id: EntityId, name: Str) -> bool,
+    pub remove: unsafe extern "C" fn(dimension: Str, id: EntityId) -> bool,
+}
+
 /// What happened to a `blocks/1` block, in [`BlockEvent::kind`].
 pub mod block_event {
     /// A player used (right-clicked) it.
@@ -369,6 +405,8 @@ pub const MOD_API_V1_0_SIZE: usize = std::mem::offset_of!(ModApi, define_blocks)
 unsafe impl Sync for WorldV1 {}
 // SAFETY: as above.
 unsafe impl Sync for BlocksV1 {}
+// SAFETY: as above.
+unsafe impl Sync for EntitiesV1 {}
 
 // SAFETY: a ModApi is immutable after creation and its instance is `Send + Sync` (see `Mod`).
 unsafe impl Send for ModApi {}
@@ -462,6 +500,22 @@ mod layout {
         assert_eq!(offset_of!(BlockEvent, pos), 24);
         assert_eq!(offset_of!(BlockEvent, state), 36);
         assert_eq!(offset_of!(BlockEvent, player), 40);
+    }
+
+    #[test]
+    fn entities_v1() {
+        let fields = [
+            (offset_of!(EntitiesV1, size), 0),
+            (offset_of!(EntitiesV1, spawn), 8),
+            (offset_of!(EntitiesV1, position), 16),
+            (offset_of!(EntitiesV1, move_to), 24),
+            (offset_of!(EntitiesV1, set_name), 32),
+            (offset_of!(EntitiesV1, remove), 40),
+        ];
+        for (i, (actual, expected)) in fields.into_iter().enumerate() {
+            assert_eq!(actual, expected, "EntitiesV1 field #{i} moved");
+        }
+        assert_eq!((size_of::<EntityId>(), size_of::<Vec3>()), (16, 24));
     }
 
     #[test]

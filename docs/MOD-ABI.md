@@ -68,6 +68,7 @@ What the SDK offers:
 | `Mod::define_blocks` | Once, before any world loads: `blocks.block("shaft:shaft", &[("axis", &["x", "y", "z"])], &[look-alikes])` defines a real modded block (`moddedmc:blocks/1`). |
 | `Mod::block_event` | One of your `blocks/1` blocks was used, placed, broken, ticked, or a neighbor changed. Return true from a use to skip the look-alike's own interaction. |
 | `blocks::get()` | `schedule_tick(dimension, pos, delay)` and `is_powered(dimension, pos)` for `blocks/1` blocks. |
+| `entities::get()` | `moddedmc:entities/1`: `spawn` a vanilla entity type as a creature's look-alike, then `position`, `move_to`, `set_name`, `remove` by its id. Ids survive restarts (the world saves the entity): store them. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
 | `world::get()` | The `moddedmc:world/1` interface, if the server has it: `get_blocks`, `set_blocks` (batched, any vanilla block state), `state_id("minecraft:oak_log[axis=x]")`, `state_name(id)`. State ids are valid for this Minecraft version only: keep them in memory, save names. |
@@ -80,7 +81,7 @@ Rules:
 - Block entity state is opaque bytes, at most 64 KiB, saved with the chunk. Bump `state_version` when its layout changes; the server will not hand old-layout state to the new code.
 - You do not need the server's source, compiler version or build to build a mod. Any Rust toolchain that builds `api/` works.
 
-`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block) and `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress) are complete examples.
+`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block), `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress) and `mods/wisp` (a creature through `entities/1`) are complete examples.
 
 ### Modded blocks (`blocks/1`)
 
@@ -126,8 +127,9 @@ Interfaces:
 | --- | --- | --- |
 | `moddedmc:world/1` | 1.1 | Batched block reads and writes by state id (vanilla and `blocks/1`); state names to ids and back. |
 | `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`; `schedule_tick`, `is_powered`. Events come through `ModApi::block_event`. |
+| `moddedmc:entities/1` | 1.1 | Spawn, find, move, name and remove entities by UUID. |
 
-Planned (see [DECISIONS.md](DECISIONS.md)): chunk load events, then `entities/1`, `menus/1` and `worldgen/1` as the dragon and boss ports need them.
+Planned (see [DECISIONS.md](DECISIONS.md)): chunk load events, entity events (damage, interaction, death) and AI hooks for `entities/2` or later additions to `entities/1`, `menus/1` and `worldgen/1`, each when a real port needs it.
 
 Packaging (`.mmc`): a zip with
 

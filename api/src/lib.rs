@@ -21,6 +21,7 @@
 
 pub mod abi;
 pub mod blocks;
+pub mod entities;
 pub mod world;
 
 use std::{

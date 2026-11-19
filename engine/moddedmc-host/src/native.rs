@@ -19,8 +19,8 @@ use std::{
 
 use moddedmc_api::abi::{
     self, ABI_SYMBOL, ABI_VERSION, BlockCall, BlockEvent, BlockWrite, BlocksV1, Defs, ENTRY_SYMBOL,
-    HostApi, ID_SYMBOL, MenuButton, ModApi, PlayerRef, Pos, Property, Reg, Sink, Str, TickEntry,
-    WorldV1, code, level,
+    EntitiesV1, EntityId, HostApi, ID_SYMBOL, MenuButton, ModApi, PlayerRef, Pos, Property, Reg,
+    Sink, Str, TickEntry, Vec3, WorldV1, code, level,
 };
 use pumpkin_core::{
     command::{
@@ -29,12 +29,13 @@ use pumpkin_core::{
         context::CommandContext,
         node::{CommandExecutor, CommandExecutorResult, detached::CommandDetachedNode},
     },
-    entity::{EntityBase, player::Player},
+    entity::{EntityBase, player::Player, r#type::from_type},
     server::Server,
     world::World,
 };
 use pumpkin_data::{
     Block, BlockStateId,
+    entity::EntityType,
     modded::{self, BlockDef},
 };
 use pumpkin_protocol::java::client::dialog::{ActionButton, Dialog, DialogAction, DialogBody};
@@ -518,6 +519,7 @@ unsafe extern "C" fn query_interface(name: Str) -> *const c_void {
     match unsafe { name.str() } {
         abi::WORLD_V1 => std::ptr::from_ref(&WORLD).cast(),
         abi::BLOCKS_V1 => std::ptr::from_ref(&BLOCKS).cast(),
+        abi::ENTITIES_V1 => std::ptr::from_ref(&ENTITIES).cast(),
         _ => std::ptr::null(),
     }
 }
@@ -915,6 +917,97 @@ pub fn owner(state: BlockStateId) -> Option<usize> {
         .get()?
         .get(&Block::from_state_id(state).id.as_u16())
         .copied()
+}
+
+// ---------------------------------------------------------------- entities/1
+
+static ENTITIES: EntitiesV1 = EntitiesV1 {
+    size: size_of::<EntitiesV1>(),
+    spawn,
+    position,
+    move_to,
+    set_name,
+    remove,
+};
+
+/// A live entity of a dimension by id.
+unsafe fn entity(dimension: Str, id: EntityId) -> Option<(Arc<World>, Arc<dyn EntityBase>)> {
+    // SAFETY: the caller's contract: borrowed for the call.
+    let world = world(unsafe { dimension.str() })?;
+    let entity = world.get_entity_by_uuid(uuid::Uuid::from_bytes(id.0))?;
+    Some((world, entity))
+}
+
+unsafe extern "C" fn spawn(dimension: Str, kind: Str, at: Vec3, out: *mut EntityId) -> bool {
+    // SAFETY: borrowed for the call.
+    let (dimension, kind) = unsafe { (dimension.str(), kind.str()) };
+    let (Some(world), Some(kind)) = (
+        world(dimension),
+        EntityType::from_name(kind.strip_prefix("minecraft:").unwrap_or(kind)),
+    ) else {
+        return false;
+    };
+    let id = uuid::Uuid::new_v4();
+    let entity = from_type(kind, Vector3::new(at.x, at.y, at.z), &world, id);
+    if !world.spawn_entity(entity) {
+        return false;
+    }
+    // SAFETY: the mod passes a writable id.
+    unsafe { out.write(EntityId(id.into_bytes())) };
+    true
+}
+
+unsafe extern "C" fn position(dimension: Str, id: EntityId, out: *mut Vec3) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some((_, entity)) = (unsafe { entity(dimension, id) }) else {
+        return false;
+    };
+    let p = entity.get_entity().pos.load();
+    // SAFETY: the mod passes a writable position.
+    unsafe {
+        out.write(Vec3 {
+            x: p.x,
+            y: p.y,
+            z: p.z,
+        })
+    };
+    true
+}
+
+unsafe extern "C" fn move_to(dimension: Str, id: EntityId, at: Vec3, yaw: f32, pitch: f32) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some((world, entity)) = (unsafe { entity(dimension, id) }) else {
+        return false;
+    };
+    let keep = |a: f32| (!a.is_nan()).then_some(a);
+    entity.teleport(
+        Vector3::new(at.x, at.y, at.z),
+        keep(yaw),
+        keep(pitch),
+        world,
+    );
+    true
+}
+
+unsafe extern "C" fn set_name(dimension: Str, id: EntityId, name: Str) -> bool {
+    // SAFETY: borrowed for the call.
+    let (Some((_, entity)), name) = (unsafe { entity(dimension, id) }, unsafe { text(name) })
+    else {
+        return false;
+    };
+    let e = entity.get_entity();
+    e.set_custom_name_visible(!name.is_empty());
+    e.set_custom_name(TextComponent::text(name));
+    true
+}
+
+unsafe extern "C" fn remove(dimension: Str, id: EntityId) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some((_, entity)) = (unsafe { entity(dimension, id) }) else {
+        return false;
+    };
+    entity.get_entity().remove();
+    true
 }
 
 // ---------------------------------------------------------------- commands

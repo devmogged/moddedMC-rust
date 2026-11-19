@@ -1,0 +1,42 @@
+# moddedmc:entities/1 through the wisp mod: spawn a creature, move it, find it again after a
+# restart (the world saves it, the mod saves its id).
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\abi-entities.txt -RunDir run\abi-entities -Fresh
+mods target\mods\wisp.mmc
+start
+wait 1
+expect registered command /wisp
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd tp tester 4097.5 100 4097.5
+wait 3
+cmd fill 4090 99 4090 4105 99 4105 minecraft:stone
+cmd fill 4090 100 4090 4105 106 4105 minecraft:air
+cmd tp tester 4097.5 100 4097.5
+wait 2
+bot cmd wisp
+wait 2
+expect \[bot\] chat: .*wisp: spawned at 4097.5 100.0 4097.5
+bot cmd wispstep
+wait 2
+expect \[bot\] chat: .*wispstep: moved 1
+bot cmd wisplist
+wait 1
+expect \[bot\] chat: .*wisplist: 4098.5 100.0 4097.5
+reject (?i)panic|panicked
+bot quit
+stop
+
+start
+wait 1
+botstart tester
+wait 3
+cmd tp tester 4097.5 100 4097.5
+wait 3
+bot cmd wisplist
+wait 1
+expect \[bot\] chat: .*wisplist: 4098.5 100.0 4097.5
+reject (?i)panic|panicked
+bot quit
+stop
