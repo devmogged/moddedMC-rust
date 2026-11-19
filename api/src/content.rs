@@ -51,6 +51,7 @@ pub struct State<'a> {
 pub enum WorldExtension {
     NeighborSignal,
     Destroy,
+    FaceSturdy,
 }
 
 impl WorldExtension {
@@ -63,6 +64,10 @@ impl WorldExtension {
             Self::Destroy => (
                 std::mem::offset_of!(abi::BlockWorldV1, destroy),
                 "moddedmc:block_world.destroy",
+            ),
+            Self::FaceSturdy => (
+                std::mem::offset_of!(abi::BlockWorldV1, face_sturdy),
+                "moddedmc:block_world.face_sturdy",
             ),
         }
     }
@@ -220,8 +225,8 @@ impl Content {
     }
 }
 
-unsafe extern "C" fn bytes(ctx: *mut c_void, _key: u64, value: abi::Str) {
-    // SAFETY: this is the Vec passed to read_entity, and value is live until we return.
+pub(crate) unsafe extern "C" fn bytes(ctx: *mut c_void, _key: u64, value: abi::Str) {
+    // SAFETY: ctx is the Vec the caller passed with this sink, and value is live until we return.
     unsafe { (&mut *ctx.cast::<Vec<u8>>()).extend_from_slice(value.bytes()) };
 }
 
@@ -289,6 +294,14 @@ impl World<'_> {
         // SAFETY: the size check covers the appended field; world is borrowed for this call.
         WorldExtension::Destroy.available(self.api)
             && unsafe { (self.api.destroy)(self.raw, pos, drop) }
+    }
+
+    /// Vanilla `BlockState.isFaceSturdy`, face in down, up, north, south, west, east order.
+    /// False when unloaded or on a server without it.
+    pub fn face_sturdy(self, pos: Pos, face: u8) -> bool {
+        // SAFETY: the size check covers the appended field; world is borrowed for this call.
+        WorldExtension::FaceSturdy.available(self.api)
+            && unsafe { (self.api.face_sturdy)(self.raw, pos, face) }
     }
 
     /// Tells loaded worlds apart. Stable while the world stays loaded.

@@ -26,7 +26,7 @@ use pumpkin_core::{
     world::World,
 };
 use pumpkin_data::{
-    Block, BlockState, BlockStateId, Property,
+    Block, BlockDirection, BlockState, BlockStateId, Property,
     content::{self, BlockDefinition, ItemDefinition, StateDefinition},
     data_component_impl::ItemModelImpl,
     entity::EntityType,
@@ -60,6 +60,7 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     rotate,
     has_neighbor_signal,
     destroy,
+    face_sturdy,
 };
 
 const MAX_BATCH: usize = 4096;
@@ -820,7 +821,7 @@ unsafe extern "C" fn read(raw: WorldRef, pos: *const Pos, out: *mut u32, count: 
 }
 
 /// The server's owning handle for a borrowed world, for engine calls that need an `Arc`.
-fn shared(world: &World) -> Option<Arc<World>> {
+pub fn shared(world: &World) -> Option<Arc<World>> {
     let server = native::SERVER.get()?;
     server
         .worlds
@@ -970,6 +971,19 @@ unsafe extern "C" fn destroy(raw: WorldRef, pos: Pos, drop: bool) -> bool {
         flags.insert(BlockFlags::SKIP_DROPS);
     }
     world.break_block_naturally(&pos, None, true, flags)
+}
+
+unsafe extern "C" fn face_sturdy(raw: WorldRef, pos: Pos, face: u8) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let (Some(world), Some(face)) = (
+        unsafe { world(raw) },
+        BlockDirection::all().get(usize::from(face)).copied(),
+    ) else {
+        return false;
+    };
+    world
+        .get_block_state_id_if_loaded(&block_pos(pos))
+        .is_some_and(|id| BlockState::from_id(id).is_side_solid(face))
 }
 
 pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {

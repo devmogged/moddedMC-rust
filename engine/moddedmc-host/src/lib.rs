@@ -15,6 +15,7 @@ mod interaction;
 mod interfaces;
 mod live_stats;
 mod native;
+mod stacks;
 mod stats;
 
 use std::{

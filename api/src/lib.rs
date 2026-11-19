@@ -27,6 +27,7 @@ pub mod entities;
 pub mod interaction;
 pub mod items;
 pub mod lifecycle;
+pub mod stacks;
 pub mod world;
 
 use std::{

@@ -268,3 +268,9 @@ impl Entity<'_> {
         unsafe { (self.api.set_step_height)(self.raw, value) }
     }
 }
+
+impl Entity<'_> {
+    pub(crate) const fn raw(self) -> abi::EntityRef {
+        self.raw
+    }
+}

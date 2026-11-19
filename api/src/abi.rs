@@ -580,6 +580,9 @@ pub struct BlockWorldV1 {
     /// Vanilla `Level.destroyBlock(pos, drop)`: break particles, loot when `drop`, then air or the
     /// block's water. False when nothing was broken.
     pub destroy: unsafe extern "C" fn(world: WorldRef, pos: Pos, drop: bool) -> bool,
+    /// Vanilla `BlockState.isFaceSturdy(level, pos, face)`, face in down, up, north, south, west,
+    /// east order. False for unloaded positions.
+    pub face_sturdy: unsafe extern "C" fn(world: WorldRef, pos: Pos, face: u8) -> bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
@@ -763,3 +766,68 @@ pub struct InteractionV1 {
 }
 
 pub const MAX_STACK_DATA: usize = 1024;
+
+pub const ITEM_STACKS: &str = "moddedmc:item_stacks";
+
+/// Longest saved stack the host accepts.
+pub const MAX_STACK_BYTES: usize = 64 * 1024;
+
+/// Stacks cross this interface as vanilla `ItemStack.CODEC` NBT: Java named-root binary with
+/// `id`, `count` and `components`.
+#[repr(C)]
+pub struct ItemStacksV1 {
+    pub size: usize,
+    /// The stack an item entity carries. False when the entity isn't an item or holds nothing.
+    pub entity_stack: unsafe extern "C" fn(entity: EntityRef, out: Sink) -> bool,
+    /// Replace an item entity's stack. An empty `stack` discards the entity.
+    pub set_entity_stack: unsafe extern "C" fn(entity: EntityRef, stack: Str) -> bool,
+    /// Vanilla `new ItemEntity(level, x, y, z, stack)`, `setDeltaMovement(motion)`,
+    /// `setDefaultPickUpDelay()` and `addFreshEntity`. Returns the entity id, 0 when nothing
+    /// spawned.
+    pub spawn:
+        unsafe extern "C" fn(world: WorldRef, position: Vec3, motion: Vec3, stack: Str) -> i32,
+    /// False for a stack the host can't read.
+    pub info: unsafe extern "C" fn(stack: Str, out: *mut StackInfo) -> bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StackInfo {
+    pub count: u32,
+    /// Vanilla `ItemStack.getMaxStackSize`.
+    pub max_count: u32,
+    /// The item places a block (vanilla `BlockItem`).
+    pub block: bool,
+}
+
+pub const DISPLAYS: &str = "moddedmc:displays";
+
+/// Where and how an item display is drawn.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ItemDisplay {
+    pub position: [f64; 3],
+    /// XYZW unit quaternion, vanilla `Display.left_rotation`.
+    pub rotation: [f32; 4],
+    pub scale: f32,
+    /// Vanilla `ItemDisplayContext` id: 0 none, 1 and 2 third person, 3 and 4 first person,
+    /// 5 head, 6 gui, 7 ground, 8 fixed, 9 on shelf.
+    pub context: u8,
+    /// Ticks clients take to move to a new position, vanilla `teleport_duration`, 0 to 59.
+    pub interpolation: i32,
+}
+
+/// Item displays a mod draws for things that aren't entities, such as items on a belt. They are
+/// never saved; the id stops working when the display's chunk unloads.
+#[repr(C)]
+pub struct DisplaysV1 {
+    pub size: usize,
+    /// Returns the display's id, 0 when nothing spawned.
+    pub spawn_item:
+        unsafe extern "C" fn(world: WorldRef, stack: Str, display: *const ItemDisplay) -> i32,
+    /// False when the id no longer names a live display; spawn a new one then.
+    pub update: unsafe extern "C" fn(world: WorldRef, id: i32, display: *const ItemDisplay) -> bool,
+    /// Replace the displayed stack.
+    pub set_item: unsafe extern "C" fn(world: WorldRef, id: i32, stack: Str) -> bool,
+    pub remove: unsafe extern "C" fn(world: WorldRef, id: i32),
+}
