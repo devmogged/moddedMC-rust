@@ -33,7 +33,7 @@ pub const fn face_axis(face: u8) -> u8 {
     [1, 1, 2, 2, 0, 0][face as usize]
 }
 
-const fn positive(face: u8) -> bool {
+pub const fn positive(face: u8) -> bool {
     face % 2 == 1
 }
 
@@ -308,6 +308,24 @@ impl Kind {
     }
 }
 
+/// `BeltMovementHandler.TransportedEntityInfo`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Passenger {
+    pub ticks_since_last_collision: i32,
+    pub last_pos: Pos,
+    pub last_state: u32,
+}
+
+impl Passenger {
+    pub const fn new(collision: Pos, belt: u32) -> Self {
+        Self {
+            ticks_since_last_collision: 0,
+            last_pos: collision,
+            last_state: belt,
+        }
+    }
+}
+
 /// The saved and live fields of one `KineticBlockEntity`.
 #[derive(Clone, Debug)]
 pub struct Be {
@@ -336,6 +354,8 @@ pub struct Be {
     pub controller: Option<Pos>,
     pub belt_length: i32,
     pub belt_index: i32,
+    /// A belt controller's entities by id, created on its first moving tick.
+    pub passengers: Option<HashMap<i32, Passenger>>,
 }
 
 impl Be {
@@ -364,6 +384,7 @@ impl Be {
             controller: None,
             belt_length: 0,
             belt_index: 0,
+            passengers: None,
         }
     }
 
@@ -510,6 +531,25 @@ pub const fn packed(pos: Pos) -> i64 {
 impl Kinetics {
     pub fn get(&self, pos: Pos) -> Option<&Be> {
         self.bes.get(&pos)
+    }
+
+    pub fn get_mut(&mut self, pos: Pos) -> Option<&mut Be> {
+        self.bes.get_mut(&pos)
+    }
+
+    /// Belt controllers in ticker order.
+    pub fn belt_controllers(&self) -> Vec<Pos> {
+        self.order
+            .iter()
+            .filter(|&&(pos, serial)| {
+                self.bes.get(&pos).is_some_and(|be| {
+                    be.serial == serial
+                        && matches!(be.kind, Kind::Belt(_))
+                        && be.controller == Some(pos)
+                })
+            })
+            .map(|&(pos, _)| pos)
+            .collect()
     }
 
     pub fn kind(&self, pos: Pos) -> Option<Kind> {

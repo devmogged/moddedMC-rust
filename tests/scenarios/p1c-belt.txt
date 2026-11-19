@@ -46,6 +46,19 @@ wait 0.5
 expect at 2051 100 2014 Speed=16
 reject (?i)panicked|trapped
 
+# BeltMovementHandler.transportEntity: at 16 RPM the belt carries what stands on it 16/480 of a
+# block a tick towards +z, so an armor stand travels two blocks in three seconds. Below 240 RPM
+# an entity ahead on the belt blocks it, so the bot steps off first.
+cmd tp tester 2045.5 101 2005.5
+wait 1
+cmd summon minecraft:armor_stand 2050.5 100.85 2011.5
+wait 3
+cmd execute positioned 2050.5 100.8125 2013.5 if entity @e[type=armor_stand,distance=..0.5]
+wait 0.5
+expect Test passed
+cmd kill @e[type=armor_stand]
+wait 0.5
+
 # Breaking the middle turns both pulleys back into shafts and stops the far shaft.
 cmd setblock 2050 100 2012 minecraft:air
 wait 1.5
