@@ -109,7 +109,7 @@ pub struct Staging<'a> {
     on_stopping: Option<abi::StopCallback>,
     content: Vec<content::Registration>,
     content_items: Vec<content::ItemRegistration>,
-    content_tick: Option<abi::ContentTick>,
+    content_hooks: content::Hooks,
 }
 
 /// Loaded custom blocks of one world.
@@ -380,7 +380,7 @@ fn register_mod(mod_idx: usize, module: Native) {
         on_stopping,
         definitions,
         content_items,
-        content_tick,
+        content_hooks,
     ) = {
         let registry = read(&HOST.registry);
         let mut staging = Staging {
@@ -393,7 +393,7 @@ fn register_mod(mod_idx: usize, module: Native) {
             on_stopping: None,
             content: Vec::new(),
             content_items: Vec::new(),
-            content_tick: None,
+            content_hooks: content::Hooks::default(),
         };
         let result = module.register(&mut staging);
         (
@@ -405,7 +405,7 @@ fn register_mod(mod_idx: usize, module: Native) {
             staging.on_stopping,
             staging.content,
             staging.content_items,
-            staging.content_tick,
+            staging.content_hooks,
         )
     };
     if result != code::OK {
@@ -432,7 +432,7 @@ fn register_mod(mod_idx: usize, module: Native) {
     if let Some(callback) = on_stopping {
         interfaces::register_stopping(callback);
     }
-    content::register(mod_idx, definitions, content_items, content_tick);
+    content::register(mod_idx, definitions, content_items, content_hooks);
     lock(&HOST.commands).push(PendingCommands {
         module,
         legacy: commands,

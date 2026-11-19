@@ -584,3 +584,61 @@ pub struct BlockWorldV1 {
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
 pub const BLOCK_WORLD_V1_BASE_SIZE: usize = std::mem::offset_of!(BlockWorldV1, has_neighbor_signal);
+
+pub const ENTITIES: &str = "moddedmc:entities";
+
+/// An entity borrowed for one callback.
+pub type EntityRef = *const c_void;
+
+pub const ENTITY_PLAYER: u8 = 1;
+pub const ENTITY_LIVING: u8 = 2;
+pub const ENTITY_ITEM: u8 = 4;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EntityView {
+    /// `ENTITY_*` bits.
+    pub kind: u8,
+    pub on_ground: bool,
+    pub position: [f64; 3],
+    pub motion: [f64; 3],
+    pub yaw: f32,
+    pub pitch: f32,
+    pub head_yaw: f32,
+    pub body_yaw: f32,
+}
+
+pub const SET_MOTION: u32 = 1;
+pub const SET_YAW: u32 = 2;
+pub const SET_HEAD_YAW: u32 = 4;
+pub const SET_BODY_YAW: u32 = 8;
+pub const SET_ON_GROUND: u32 = 16;
+
+/// Fields to change on an entity; `mask` (`SET_*` bits) says which ones apply.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EntityChange {
+    pub mask: u32,
+    pub on_ground: bool,
+    pub motion: [f64; 3],
+    pub yaw: f32,
+    pub head_yaw: f32,
+    pub body_yaw: f32,
+}
+
+/// Vanilla `Block.entityInside` for one of the mod's content blocks: the entity's box overlaps
+/// the block at `pos`, which has `state`.
+pub type EntityInside =
+    unsafe extern "C" fn(world: WorldRef, pos: Pos, state: u32, entity: EntityRef);
+
+#[repr(C)]
+pub struct EntitiesV1 {
+    pub size: usize,
+    /// One callback per mod, staged during registration.
+    pub on_entity_inside: unsafe extern "C" fn(reg: Reg, callback: EntityInside) -> i32,
+    pub view: unsafe extern "C" fn(entity: EntityRef, out: *mut EntityView) -> bool,
+    /// The entity type's resource name, such as `minecraft:zombie`. Static.
+    pub type_id: unsafe extern "C" fn(entity: EntityRef) -> Str,
+    /// Apply an `EntityChange`; motion changes are sent to clients like vanilla `hurtMarked`.
+    pub change: unsafe extern "C" fn(entity: EntityRef, change: *const EntityChange) -> bool,
+}

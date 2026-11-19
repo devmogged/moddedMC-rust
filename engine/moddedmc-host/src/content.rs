@@ -5,14 +5,14 @@ use std::{
     io,
     path::Path,
     ptr,
-    sync::{Arc, LazyLock, Mutex, OnceLock},
+    sync::{Arc, LazyLock, Mutex, OnceLock, atomic::Ordering},
 };
 
 use moddedmc_api::abi::{self, BlockUpdate, ContentEvent, Pos, Reg, Sink, Str, WorldRef, code};
 use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
-        BlockBehaviour, OnNeighborUpdateArgs, OnPlaceArgs,
+        BlockBehaviour, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
         blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
@@ -96,6 +96,14 @@ struct Runtime {
     blocks: HashMap<u16, RuntimeBlock>,
     overlays: HashMap<u16, content_pack::OverlayModel>,
     ticks: BTreeMap<usize, abi::ContentTick>,
+    entity_inside: BTreeMap<usize, abi::EntityInside>,
+}
+
+/// Callbacks one mod stages during registration.
+#[derive(Clone, Copy, Default)]
+pub struct Hooks {
+    pub tick: Option<abi::ContentTick>,
+    pub entity_inside: Option<abi::EntityInside>,
 }
 
 #[derive(Default)]
@@ -103,11 +111,13 @@ struct Pending {
     blocks: Vec<(usize, Registration)>,
     items: Vec<ItemRegistration>,
     ticks: BTreeMap<usize, abi::ContentTick>,
+    entity_inside: BTreeMap<usize, abi::EntityInside>,
 }
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
     items: Vec::new(),
     ticks: BTreeMap::new(),
+    entity_inside: BTreeMap::new(),
 });
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static WORLDS: LazyLock<Mutex<HashMap<Uuid, WorldState>>> = LazyLock::new(Mutex::default);
@@ -348,7 +358,7 @@ unsafe extern "C" fn on_tick(reg: Reg, callback: abi::ContentTick) -> i32 {
         return code::INVALID_DEFINITION;
     }
     // SAFETY: registration is live for the call.
-    let slot = &mut unsafe { native::staging(reg) }.content_tick;
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.tick;
     if slot.is_some() {
         return code::DUPLICATE_ID;
     }
@@ -380,15 +390,18 @@ pub fn register(
     owner: usize,
     definitions: Vec<Registration>,
     items: Vec<ItemRegistration>,
-    tick: Option<abi::ContentTick>,
+    hooks: Hooks,
 ) {
     let mut pending = lock(&PENDING);
     pending
         .blocks
         .extend(definitions.into_iter().map(|def| (owner, def)));
     pending.items.extend(items);
-    if let Some(tick) = tick {
+    if let Some(tick) = hooks.tick {
         pending.ticks.insert(owner, tick);
+    }
+    if let Some(inside) = hooks.entity_inside {
+        pending.entity_inside.insert(owner, inside);
     }
 }
 
@@ -419,6 +432,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         mut blocks,
         mut items,
         ticks,
+        entity_inside,
     } = std::mem::take(&mut *lock(&PENDING));
     blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
     items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -472,6 +486,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         blocks: HashMap::new(),
         overlays: HashMap::new(),
         ticks,
+        entity_inside,
     };
     let mut assets = Vec::with_capacity(blocks.len());
     for (owner, block) in blocks {
@@ -541,6 +556,27 @@ impl BlockBehaviour for Behaviour {
             .and_then(BlockStateId::from_runtime_id)
             .filter(|id| id.to_block().id == args.block.id)
             .unwrap_or(default)
+    }
+
+    fn on_entity_collision(&self, args: OnEntityCollisionArgs<'_>) {
+        let Some(runtime) = RUNTIME.get() else { return };
+        let Some(callback) = runtime
+            .blocks
+            .get(&args.block.id.as_u16())
+            .and_then(|block| runtime.entity_inside.get(&block.owner))
+        else {
+            return;
+        };
+        let entity: &dyn EntityBase = args.entity;
+        // SAFETY: the world and the entity reference outlive this synchronous callback.
+        unsafe {
+            callback(
+                ptr::from_ref(args.world.as_ref()).cast(),
+                abi_pos(*args.position),
+                u32::from(args.state.id.as_u16()),
+                ptr::from_ref(&entity).cast(),
+            );
+        }
     }
 
     fn on_neighbor_update(&self, args: OnNeighborUpdateArgs<'_>) {
@@ -896,4 +932,103 @@ unsafe extern "C" fn destroy(raw: WorldRef, pos: Pos, drop: bool) -> bool {
         flags.insert(BlockFlags::SKIP_DROPS);
     }
     world.break_block_naturally(&pos, None, true, flags)
+}
+
+pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
+    size: size_of::<abi::EntitiesV1>(),
+    on_entity_inside,
+    view: entity_view,
+    type_id: entity_type_id,
+    change: entity_change,
+};
+
+unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.entity_inside;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
+/// # Safety
+/// `raw` points at the `&dyn EntityBase` a callback passed, still live.
+const unsafe fn entity<'a>(raw: abi::EntityRef) -> Option<&'a dyn EntityBase> {
+    // SAFETY: the caller passes a pointer to a live `&dyn EntityBase`.
+    match unsafe { raw.cast::<&dyn EntityBase>().as_ref() } {
+        Some(entity) => Some(*entity),
+        None => None,
+    }
+}
+
+unsafe extern "C" fn entity_view(raw: abi::EntityRef, out: *mut abi::EntityView) -> bool {
+    // SAFETY: the entity is live for the callback.
+    let (Some(base), false) = (unsafe { entity(raw) }, out.is_null()) else {
+        return false;
+    };
+    let entity = base.get_entity();
+    let mut kind = 0;
+    if entity.entity_type == &EntityType::PLAYER {
+        kind |= abi::ENTITY_PLAYER;
+    }
+    if base.get_living_entity().is_some() {
+        kind |= abi::ENTITY_LIVING;
+    }
+    if base.get_item_entity().is_some() {
+        kind |= abi::ENTITY_ITEM;
+    }
+    let (pos, motion) = (entity.pos.load(), entity.velocity.load());
+    let view = abi::EntityView {
+        kind,
+        on_ground: entity.on_ground.load(Ordering::Relaxed),
+        position: [pos.x, pos.y, pos.z],
+        motion: [motion.x, motion.y, motion.z],
+        yaw: entity.yaw.load(),
+        pitch: entity.pitch.load(),
+        head_yaw: entity.head_yaw.load(),
+        body_yaw: entity.body_yaw.load(),
+    };
+    // SAFETY: out is a live, aligned EntityView owned by the caller.
+    unsafe { out.write(view) };
+    true
+}
+
+unsafe extern "C" fn entity_type_id(raw: abi::EntityRef) -> Str {
+    // SAFETY: the entity is live for the callback.
+    let name =
+        unsafe { entity(raw) }.map_or("", |base| base.get_entity().entity_type.resource_name);
+    Str::new(name.as_bytes())
+}
+
+unsafe extern "C" fn entity_change(raw: abi::EntityRef, change: *const abi::EntityChange) -> bool {
+    // SAFETY: the entity is live for the callback and the change is borrowed for this call.
+    let (Some(base), Some(change)) = (unsafe { entity(raw) }, unsafe { change.as_ref() }) else {
+        return false;
+    };
+    let entity = base.get_entity();
+    if change.mask & abi::SET_MOTION != 0 {
+        let [x, y, z] = change.motion;
+        if !(x.is_finite() && y.is_finite() && z.is_finite()) {
+            return false;
+        }
+        entity.velocity.store(Vector3::new(x, y, z));
+        entity.velocity_dirty.store(true, Ordering::Relaxed);
+    }
+    if change.mask & abi::SET_YAW != 0 {
+        entity.yaw.store(change.yaw);
+    }
+    if change.mask & abi::SET_HEAD_YAW != 0 {
+        entity.head_yaw.store(change.head_yaw);
+    }
+    if change.mask & abi::SET_BODY_YAW != 0 {
+        entity.body_yaw.store(change.body_yaw);
+    }
+    if change.mask & abi::SET_ON_GROUND != 0 {
+        entity.on_ground.store(change.on_ground, Ordering::Relaxed);
+    }
+    true
 }
