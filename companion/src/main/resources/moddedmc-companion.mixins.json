@@ -1,0 +1,6 @@
+{
+  "required": true,
+  "package": "dev.moddedmc.companion.mixin",
+  "client": ["DownloadQueueMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

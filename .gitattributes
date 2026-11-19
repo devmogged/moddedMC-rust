@@ -1,2 +1,3 @@
 # Applied with git apply; line endings must stay byte-exact.
 *.patch -text
+companion/gradlew text eol=lf
