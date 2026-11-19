@@ -1,0 +1,22 @@
+seed 12345
+area 0 150 0 2 151 2
+properties gamemode=creative
+properties view-distance=3
+properties simulation-distance=3
+start
+cmd forceload add -48 -48 63 63
+bot join alice
+cmd tp alice 1.5 151 1.5
+bot alice await-teleport
+# Settle spawn chunk generation and lighting before the first packet window.
+tick 160
+# Mineshafts generate chest minecarts even with natural spawning disabled.
+cmd gamerule minecraft:entity_drops false
+cmd execute if entity @e[type=!minecraft:player] run kill @e[type=!minecraft:player]
+snapshot before-effects
+cmd summon minecraft:armor_stand 2.5 151 2.5 {NoGravity:1b}
+cmd particle minecraft:flame 1.5 151 1.5 0 0 0 0 1 force alice
+cmd playsound minecraft:block.note_block.harp master alice 1.5 151 1.5 0.5 1
+# Check the packets produced by the commands before stepping world simulation again.
+snapshot client-effects packets
+stop

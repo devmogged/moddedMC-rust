@@ -8,6 +8,7 @@ use std::{
 
 use crate::{
     diff::{Check, Report},
+    packets,
     process::{Process, Server, ServerProgram},
     scenario::{self, Action, Area, Scenario, Step},
     snapshot,
@@ -117,6 +118,7 @@ struct Pair {
     elapsed: u64,
     area: Area,
     bot_exe: PathBuf,
+    capture_packets: bool,
 }
 
 impl Pair {
@@ -148,6 +150,10 @@ impl Pair {
             elapsed: 0,
             area: scenario.area,
             bot_exe: options.bot.clone(),
+            capture_packets: scenario
+                .steps
+                .iter()
+                .any(|step| matches!(step.action, Action::Snapshot { packets: true, .. })),
         })
     }
 
@@ -171,12 +177,7 @@ impl Pair {
             Action::Probe(command) => self.probe(command, check, compare),
             Action::Join(name) => self.join(name),
             Action::Bot { name, input } => self.bot(name, input),
-            Action::Snapshot { packets, .. } => {
-                if *packets {
-                    return Err("packet normalization is unavailable for this build".into());
-                }
-                self.capture(check, last, perturb)
-            }
+            Action::Snapshot { packets, .. } => self.capture(check, last, perturb, *packets),
         }
     }
 
@@ -231,8 +232,8 @@ impl Pair {
     }
 
     fn join(&mut self, name: &str) -> Result<(), String> {
-        let a = Bot::join(&self.bot_exe, &self.reference, name)?;
-        let b = Bot::join(&self.bot_exe, &self.subject, name)?;
+        let a = Bot::join(&self.bot_exe, &self.reference, name, self.capture_packets)?;
+        let b = Bot::join(&self.bot_exe, &self.subject, name, self.capture_packets)?;
         self.bots
             .insert(name.to_ascii_lowercase(), ([a, b], name.into()));
         self.check_clock()
@@ -247,8 +248,26 @@ impl Pair {
         self.check_clock()
     }
 
-    fn capture(&mut self, check: &mut Check<'_>, last: bool, perturb: bool) -> Result<(), String> {
+    fn capture(
+        &mut self,
+        check: &mut Check<'_>,
+        last: bool,
+        perturb: bool,
+        compare_packets: bool,
+    ) -> Result<(), String> {
         self.check_clock()?;
+        if compare_packets && self.bots.is_empty() {
+            return Err("packet snapshot needs at least one joined bot".into());
+        }
+        if self.capture_packets {
+            for ([a, b], name) in self.bots.values_mut() {
+                let a = a.packet_window(&mut self.reference, name, check.line)?;
+                let b = b.packet_window(&mut self.subject, name, check.line)?;
+                if compare_packets && last {
+                    packets::compare(check, name, &a, &b);
+                }
+            }
+        }
         if perturb && last {
             self.subject
                 .require("setblock 0 150 0 minecraft:dirt", "Changed the block")?;
@@ -316,25 +335,62 @@ fn rejection(lines: &[String]) -> bool {
 struct Bot {
     process: Process,
     sequence: usize,
+    packets: packets::Decoder,
 }
 
 impl Bot {
-    fn join(exe: &Path, server: &Server, name: &str) -> Result<Self, String> {
+    fn join(exe: &Path, server: &Server, name: &str, capture: bool) -> Result<Self, String> {
         let mut command = Command::new(exe);
         command
             .arg(format!("127.0.0.1:{}", server.port))
             .arg(name)
             .env_remove("MODDEDMC_BOT_COMPANION")
             .env_remove("MODDEDMC_BOT_TRACE")
-            .env("MODDEDMC_BOT_HARNESS", "1");
+            .env("MODDEDMC_BOT_HARNESS", "1")
+            .env_remove("MODDEDMC_BOT_CAPTURE");
+        if capture {
+            command.env("MODDEDMC_BOT_CAPTURE", "1");
+        }
         let process = Process::spawn(command, &server.dir, &format!("bot-{name}"))?;
         process.until("bot join", BOT_TIMEOUT, |line| {
             line.starts_with(&format!("[bot] joined as {name} at "))
         })?;
-        Ok(Self {
+        let mut bot = Self {
             process,
             sequence: 0,
-        })
+            packets: packets::Decoder::default(),
+        };
+        // Both servers acknowledge the out-of-reach dig after processing the join teleport.
+        bot.action("break 33554431 2047 33554431")
+            .map_err(|e| format!("waiting for {name} to load: {e}"))?;
+        Ok(bot)
+    }
+
+    fn packet_window(
+        &mut self,
+        server: &mut Server,
+        name: &str,
+        index: usize,
+    ) -> Result<Vec<packets::Packet>, String> {
+        let marker = format!("moddedmc_harness_packet_fence_{index}");
+        let feedback = server.command(&format!(r#"tellraw {name} {{"text":"{marker}"}}"#))?;
+        if rejection(&feedback) {
+            return Err(format!(
+                "packet fence for {name}: {}",
+                feedback.join(
+                    "
+"
+                )
+            ));
+        }
+        let ack = format!("[bot] {marker}");
+        self.process
+            .until("client packet fence", BOT_TIMEOUT, |line| line == ack)?;
+        let path = server.dir.join(format!("bot-{name}.packets"));
+        let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        self.packets
+            .window(&bytes)
+            .map_err(|e| format!("{}: {e}", path.display()))
     }
 
     fn action(&mut self, input: &str) -> Result<(), String> {

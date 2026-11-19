@@ -1,4 +1,5 @@
 mod diff;
+mod packets;
 mod process;
 mod runner;
 mod scenario;
@@ -86,6 +87,10 @@ fn cli(args: &[String]) -> Result<u8, String> {
                 .filter(|n| (1..=available).contains(n))
                 .ok_or_else(|| format!("--jobs must be between 1 and {available}"))
         })?;
+    reference.prepare_bundler()?;
+    if subject != reference {
+        subject.prepare_bundler()?;
+    }
     let options = Options {
         reference,
         subject,

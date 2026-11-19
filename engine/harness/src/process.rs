@@ -16,7 +16,7 @@ const BOOT_TIMEOUT: Duration = Duration::from_secs(180);
 const POLL: Duration = Duration::from_millis(25);
 const STORAGE: &str = "moddedmc_harness:sync";
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ServerProgram {
     Vanilla(PathBuf),
     Pumpkin(PathBuf),
@@ -35,23 +35,41 @@ impl ServerProgram {
         matches!(self, Self::Vanilla(_))
     }
 
+    pub fn prepare_bundler(&self) -> Result<(), String> {
+        if let Self::Vanilla(jar) = self {
+            let cache = jar.with_file_name("META-INF");
+            fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
+            let lock = File::options()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(cache.join("moddedmc-harness.lock"))
+                .map_err(|e| e.to_string())?;
+            lock.lock().map_err(|e| e.to_string())?;
+            let mut command = vanilla_java(jar, true);
+            command.current_dir(&cache);
+            hide_window(&mut command);
+            let output = command
+                .output()
+                .map_err(|e| format!("starting Java: {e}"))?;
+            if !output.status.success()
+                || !String::from_utf8_lossy(&output.stdout)
+                    .contains("Empty main class specified, exiting")
+            {
+                return Err(format!(
+                    "preparing {}: {}{}",
+                    jar.display(),
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn command(&self) -> Command {
         match self {
-            Self::Vanilla(jar) => {
-                let mut command = Command::new("java");
-                command
-                    .args([
-                        "-Xmx1G",
-                        "-XX:ActiveProcessorCount=2",
-                        "-Duser.language=en",
-                        "-Duser.country=US",
-                        "-Dfile.encoding=UTF-8",
-                        "-jar",
-                    ])
-                    .arg(jar)
-                    .arg("nogui");
-                command
-            }
+            Self::Vanilla(jar) => vanilla_java(jar, false),
             Self::Pumpkin(exe) => {
                 let mut command = Command::new(exe);
                 command
@@ -61,6 +79,26 @@ impl ServerProgram {
             }
         }
     }
+}
+
+fn vanilla_java(jar: &Path, extract_only: bool) -> Command {
+    let mut command = Command::new("java");
+    let mut cache = std::ffi::OsString::from("-DbundlerRepoDir=");
+    cache.push(jar.with_file_name("META-INF"));
+    command
+        .args([
+            "-Xmx1G",
+            "-XX:ActiveProcessorCount=2",
+            "-Duser.language=en",
+            "-Duser.country=US",
+            "-Dfile.encoding=UTF-8",
+        ])
+        .arg(cache);
+    if extract_only {
+        command.arg("-DbundlerMainClass=");
+    }
+    command.arg("-jar").arg(jar).arg("nogui");
+    command
 }
 
 pub fn file(path: impl AsRef<Path>) -> Result<PathBuf, String> {

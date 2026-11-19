@@ -8,10 +8,11 @@
 //! Usage: moddedmc-bot <host:port> <name>
 
 mod bot;
+mod capture;
 
 use std::sync::Arc;
 
-use pumpkin_data::packet::CURRENT_MC_VERSION;
+use pumpkin_data::packet::{CURRENT_MC_VERSION, clientbound::play::CHUNK_BATCH_FINISHED};
 use pumpkin_protocol::{
     ServerPacket,
     codec::var_int::VarInt,
@@ -22,8 +23,8 @@ use pumpkin_protocol::{
         },
         packet_encoder::TCPNetworkEncoder,
         server::play::{
-            SChatCommand, SClientTickEnd, SConfirmTeleport, SCustomClickAction, SKeepAlive,
-            SPlayerAction, SPlayerPosition, SUseItemOn, Status,
+            SChatCommand, SChunkBatch, SClientTickEnd, SConfirmTeleport, SCustomClickAction,
+            SKeepAlive, SPlayerAction, SPlayerPosition, SUseItemOn, Status,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -73,7 +74,13 @@ async fn main() -> Result<(), String> {
         });
     }
 
-    tokio::spawn(pump(bot.reader, writer.clone(), position.clone(), harness));
+    tokio::spawn(pump(
+        bot.reader,
+        writer.clone(),
+        position.clone(),
+        harness,
+        bot.capture,
+    ));
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut sequence = 0;
@@ -138,6 +145,7 @@ async fn pump(
     writer: Writer,
     position: Arc<Mutex<Vector3<f64>>>,
     harness: bool,
+    mut capture: Option<capture::Capture>,
 ) {
     let keep_alive_id = CKeepAlive::to_id(CURRENT_MC_VERSION);
     let position_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
@@ -150,6 +158,19 @@ async fn pump(
             println!("[bot] disconnected");
             std::process::exit(2);
         };
+        if let Some(capture) = &mut capture {
+            match capture.receive(&packet).await {
+                Ok(Some(marker)) => {
+                    println!("[bot] {marker}");
+                    continue;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    println!("[bot] error: {error}");
+                    std::process::exit(2);
+                }
+            }
+        }
         let mut payload = &packet.payload[..];
         if packet.id == keep_alive_id {
             let Some(id) = payload.get(..8).and_then(|b| b.try_into().ok()) else {
@@ -159,6 +180,14 @@ async fn pump(
                 keep_alive_id: i64::from_be_bytes(id),
             };
             let _ = send(&writer, &reply).await;
+        } else if harness && packet.id == CHUNK_BATCH_FINISHED.0 {
+            let _ = send(
+                &writer,
+                &SChunkBatch {
+                    chunks_per_tick: 9.0,
+                },
+            )
+            .await;
         } else if packet.id == position_id {
             match CPlayerPosition::read(&mut payload, &CURRENT_MC_VERSION) {
                 Ok(teleport) => {

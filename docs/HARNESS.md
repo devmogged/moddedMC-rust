@@ -75,7 +75,7 @@ moddedmc-harness run tests/harness/redstone/repeater-chain.txt \
 moddedmc-harness run-all tests/harness --reference ... --subject ...   # summary table
 ```
 
-The reference jar never goes into the repo. Each machine points at its own copy. For speed, the harness runs scenarios in parallel, each on its own ports and directories.
+The reference jar never goes into the repo. Each machine points at its own copy. The harness prewarms the vanilla bundler under the jar's adjacent `META-INF` directory, shared by both servers and all workers. Place the jar in a writable cache outside the run directories. Each scenario gets its own ports and world.
 
 ### F2 implementation
 
@@ -100,9 +100,15 @@ Pumpkin's `Saved the game` can precede its async Anvil writes. Each snapshot sen
 
 The default ignored NBT keys are `UUID`, `UUIDMost`, `UUIDLeast`, `LastUpdate`, `InhabitedTime` and `LastPlayed`. Gameplay timers and missing-versus-present tags are compared. Player checks cover position, rotation, dimension, health, food, XP progress and totals, effects, inventory, ender items, equipment and held slot. `allow` requires an inline explanation and matches full field paths such as `block_entity.keepPacked`. The report lists every allowed difference and its reason.
 
-**Scenario input.** `properties` accepts shared settings for difficulty, gamemode, hardcore, view distance, simulation distance, spawn protection and player limit. The harness owns ports, seed, world directory and test networking. `probe` supports read-only console queries and compares their full feedback, including error text, after removing log prefixes. `expect` consumes a matching line from each server's unread scenario console output. Console fences read a reserved empty storage path and keep their own output out of comparisons. Bots support `await-teleport`, `use x y z`, `place x y z` and `break x y z`; use and place target the top face. Placement and breaking require a server sequence acknowledgement. The baseline additionally probes the changed block so an acknowledgement alone cannot pass the test.
+**Scenario input.** `properties` accepts shared settings for difficulty, gamemode, hardcore, view distance, simulation distance, spawn protection and player limit. The harness owns ports, seed, world directory and test networking. `probe` supports read-only console queries and compares their full feedback, including error text, after removing log prefixes. `expect` consumes a matching line from each server's unread scenario console output. Console fences read a reserved empty storage path and keep their own output out of comparisons. The harness waits for a server acknowledgement before returning from bot join, so a console teleport can follow safely. Bots support `await-teleport`, `use x y z`, `place x y z` and `break x y z`; use and place target the top face. Placement and breaking require a server sequence acknowledgement. The baseline additionally probes the changed block so an acknowledgement alone cannot pass the test.
 
-Packet normalization, move/look/attack and inventory-click synchronization, and cross-version mod-oracle launch and ID maps are open work. A scenario that requests an unsupported bot action or packet comparison fails explicitly.
+**Packet windows.** A snapshot with the `packets` suffix requires a joined bot. Every snapshot in that scenario closes a packet window with a reserved `tellraw` marker that the bot acknowledges after receiving earlier packets. An ordinary snapshot discards that window after updating the entity map. The first window starts when the bot enters the play state. The harness compares the order, count, kind and normalized payload of the remaining packets. It fails if capture exceeds 32 MiB in one window.
+
+The entity map binds the login entity to the observing player. Spawned entities are matched by entity type, exact spawn coordinates and occurrence at those coordinates. The map follows observed removals and survives snapshot boundaries. The decoder remaps packet-level entity references, including passengers, damage sources and projectile owners, and strips the spawn UUID. References to unseen entities and IDs embedded in opaque metadata retain their original wire values. Sound seeds, teleport acknowledgement tokens and the absolute game clock are omitted. Empty clock heartbeats are dropped. Clock updates and relative tick checks remain.
+
+Capture excludes keepalive and ping traffic, bundle and chunk batch delimiters, initial chunk and biome blobs, and recipe and tag registry broadcasts. Block updates, standalone light updates, particles, sounds, entity packets, inventory and other play packets are retained. Large difference values have a byte preview and SHA-256 digest. Inserted or missing packets can shift subsequent indices.
+
+Move/look/attack and inventory-click synchronization and cross-version mod-oracle launch and ID maps are open work. A scenario that requests an unsupported bot action fails explicitly.
 
 ## Done means
 

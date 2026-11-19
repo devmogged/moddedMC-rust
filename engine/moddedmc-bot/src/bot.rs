@@ -48,6 +48,7 @@ pub struct HeadlessBot {
     pub position: Vector3<f64>,
     pub yaw: f32,
     pub pitch: f32,
+    pub capture: Option<crate::capture::Capture>,
 }
 
 impl HeadlessBot {
@@ -103,6 +104,7 @@ impl HeadlessBot {
             position: Vector3::new(0.0, 0.0, 0.0),
             yaw: 0.0,
             pitch: 0.0,
+            capture: crate::capture::Capture::start(name),
         };
 
         // 1. Handshake -> Login
@@ -140,6 +142,9 @@ impl HeadlessBot {
 
         while !(saw_play_login && saw_initial_pos) {
             let pkt = bot.next_packet().await?;
+            if let Some(capture) = &mut bot.capture {
+                capture.record(&pkt)?;
+            }
             if pkt.id == play_login_id {
                 saw_play_login = true;
             } else if pkt.id == player_pos_id {

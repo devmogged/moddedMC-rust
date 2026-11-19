@@ -2088,6 +2088,7 @@ dependencies = [
  "md-5",
  "pumpkin-data",
  "pumpkin-nbt",
+ "pumpkin-protocol",
  "pumpkin-util",
  "pumpkin-world",
  "regex",

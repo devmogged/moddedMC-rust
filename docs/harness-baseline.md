@@ -14,7 +14,7 @@ The exact command and preserved evidence are local to this run.
 run/harness-investigation/binaries/moddedmc-harness.exe run-all tests/harness --reference vanilla:D:/mc-ref/26.3/server-bundler.jar --subject run/harness-investigation/binaries/pack-dev.exe --bot run/harness-investigation/binaries/moddedmc-bot.exe --jobs 2 --run-root run/harness-investigation/final --json
 ```
 
-Raw JSON is at `run/harness-investigation/final.json`. Each reported directory contains the two console logs, worlds and any bot logs for every checkpoint.
+Raw JSON is at `run/harness-investigation/final.json`. That run used temporary executables, worlds and logs. The JSON was retained and the temporary files were removed.
 
 ## Results
 
@@ -67,3 +67,11 @@ snapshot first-delay @ 1 151 1: block minecraft:repeater[delay=2,facing=west,loc
 - Same vanilla JAR on both sides with one deliberate subject mutation after the tick step: exactly `snapshot planted @ 0 150 0: block minecraft:stone vs minecraft:dirt (line 6)`. The self-test passed both controls.
 - A separate vanilla-vs-vanilla run matched two armour stands of the same type and position with different tags. Their per-run UUIDs did not affect the comparison.
 - A nonexistent bot executable produced a line 7 launch error and exited 2. The error could not become a parity pass.
+
+## Packet checkpoints
+
+Run `client-effects.txt` with the same commands above using the current harness, bot and `pack-dev` executables from `engine/target/pack`. The fixture preloads the test area and clears generated chest minecarts before the measured window. Standalone lighting and terrain packets remain part of the comparison. Earlier calibration runs showed these packets can arrive late or in a different order in a fresh world.
+
+- Vanilla 26.3 against the same jar exited 0 with zero differences. Both bots received the armor stand spawn, metadata and motion, the flame particle, and the sound. See `run/harness-packets/vanilla-checked.json`.
+- Vanilla 26.3 against the pack at engine pin `68296347e` exited 1 with 42 differences and zero run errors. Five are packet comparisons covering the spawn follow-up order, entity metadata, particle flags and sound encoding. Two are player equipment tags and 35 are armor stand NBT. See `run/harness-packets/pumpkin-checked.json` for the individual values.
+- The snapshot self-test matched identical vanilla worlds and caught the deliberate stone-versus-dirt change. See `run/harness-packets/self-test.json`.
