@@ -24,6 +24,7 @@ pub mod chunks;
 pub mod commands;
 pub mod content;
 pub mod entities;
+pub mod interaction;
 pub mod items;
 pub mod lifecycle;
 pub mod world;

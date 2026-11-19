@@ -10,6 +10,7 @@ mod companion;
 mod console;
 mod content;
 mod content_pack;
+mod interaction;
 mod interfaces;
 mod live_stats;
 mod native;

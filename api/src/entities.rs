@@ -71,6 +71,16 @@ impl Entities {
 }
 
 impl Entity<'_> {
+    /// An entity another interface's callback passed in, when this mod required the table.
+    pub(crate) fn borrowed(raw: abi::EntityRef) -> Option<Self> {
+        (!raw.is_null()).then_some(())?;
+        Some(Entity {
+            raw,
+            api: TABLE.get()?,
+            scope: PhantomData,
+        })
+    }
+
     pub fn view(self) -> Option<EntityView> {
         let mut view = EntityView::default();
         // SAFETY: the entity is live for this callback and the output is a local.

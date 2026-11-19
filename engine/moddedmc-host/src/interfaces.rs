@@ -62,6 +62,7 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         }
         (abi::BLOCK_WORLD, 1) => ptr::from_ref(&crate::content::WORLD).cast(),
         (abi::ENTITIES, 1) => ptr::from_ref(&crate::content::ENTITIES).cast(),
+        (abi::INTERACTION, 1) => ptr::from_ref(&crate::interaction::INTERACTION).cast(),
         (abi::WORLD, 1) => ptr::from_ref(&WORLD).cast(),
         (abi::CHUNKS, 1) => ptr::from_ref(&CHUNKS).cast(),
         (abi::COMMANDS, 1) => ptr::from_ref(&COMMANDS).cast(),

@@ -642,3 +642,53 @@ pub struct EntitiesV1 {
     /// Apply an `EntityChange`; motion changes are sent to clients like vanilla `hurtMarked`.
     pub change: unsafe extern "C" fn(entity: EntityRef, change: *const EntityChange) -> bool,
 }
+
+pub const INTERACTION: &str = "moddedmc:interaction";
+
+/// The player's held stack, borrowed for one callback.
+pub type StackRef = *mut c_void;
+
+pub const USE_PASS: i32 = 0;
+pub const USE_SUCCESS: i32 = 1;
+pub const USE_CONSUME: i32 = 2;
+pub const USE_FAIL: i32 = 3;
+
+/// Vanilla `UseOnContext` for one of the mod's items.
+#[repr(C)]
+pub struct UseOnBlock {
+    /// The held content item's id.
+    pub item: Str,
+    pub position: Pos,
+    /// Vanilla directions in order down, up, north, south, west, east.
+    pub face: u8,
+    /// Hit point inside the clicked block, each axis 0 to 1.
+    pub hit: [f32; 3],
+    pub sneaking: bool,
+    pub creative: bool,
+}
+
+/// Returns a `USE_*` code. `PASS` lets the server place the item's block, if it has one.
+pub type UseOnBlockFn = unsafe extern "C" fn(
+    world: WorldRef,
+    player: EntityRef,
+    stack: StackRef,
+    context: *const UseOnBlock,
+) -> i32;
+
+#[repr(C)]
+pub struct InteractionV1 {
+    pub size: usize,
+    /// One callback per mod for all of its content items, staged during registration.
+    pub on_use_on_block: unsafe extern "C" fn(reg: Reg, callback: UseOnBlockFn) -> i32,
+    pub stack_count: unsafe extern "C" fn(stack: StackRef) -> u32,
+    pub stack_shrink: unsafe extern "C" fn(stack: StackRef, count: u32),
+    /// Copy the stack's mod data into `out`. Returns its length, which can exceed `capacity`,
+    /// or `usize::MAX` when the stack has none.
+    pub stack_data: unsafe extern "C" fn(stack: StackRef, out: *mut u8, capacity: usize) -> usize,
+    /// Replace the stack's mod data, at most `MAX_STACK_DATA` bytes. Empty removes it.
+    pub set_stack_data: unsafe extern "C" fn(stack: StackRef, data: *const u8, len: usize) -> bool,
+    /// Vanilla `ItemCooldowns.addCooldown` for the item's cooldown group.
+    pub cooldown: unsafe extern "C" fn(player: EntityRef, item: Str, ticks: u32),
+}
+
+pub const MAX_STACK_DATA: usize = 1024;

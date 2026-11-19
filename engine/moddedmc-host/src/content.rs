@@ -97,6 +97,9 @@ struct Runtime {
     overlays: HashMap<u16, content_pack::OverlayModel>,
     ticks: BTreeMap<usize, abi::ContentTick>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
+    use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    /// Owning mod of each content item, block items included.
+    item_owners: HashMap<u16, usize>,
 }
 
 /// Callbacks one mod stages during registration.
@@ -104,20 +107,23 @@ struct Runtime {
 pub struct Hooks {
     pub tick: Option<abi::ContentTick>,
     pub entity_inside: Option<abi::EntityInside>,
+    pub use_on_block: Option<abi::UseOnBlockFn>,
 }
 
 #[derive(Default)]
 struct Pending {
     blocks: Vec<(usize, Registration)>,
-    items: Vec<ItemRegistration>,
+    items: Vec<(usize, ItemRegistration)>,
     ticks: BTreeMap<usize, abi::ContentTick>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
+    use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
 }
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
     items: Vec::new(),
     ticks: BTreeMap::new(),
     entity_inside: BTreeMap::new(),
+    use_on_block: BTreeMap::new(),
 });
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static WORLDS: LazyLock<Mutex<HashMap<Uuid, WorldState>>> = LazyLock::new(Mutex::default);
@@ -249,7 +255,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         || staging.content.iter().any(|b| b.id == id)
         || staging.content_items.iter().any(|i| i.id == id)
         || lock(&PENDING).blocks.iter().any(|(_, b)| b.id == id)
-        || lock(&PENDING).items.iter().any(|i| i.id == id)
+        || lock(&PENDING).items.iter().any(|(_, i)| i.id == id)
     {
         return code::DUPLICATE_ID;
     }
@@ -338,7 +344,7 @@ unsafe extern "C" fn add_item(reg: Reg, def: *const abi::ContentItemDefinition) 
         || staging.content_items.iter().any(|i| i.id == id)
         || staging.registry.block(id).is_some()
         || pending.blocks.iter().any(|(_, b)| b.id == id)
-        || pending.items.iter().any(|i| i.id == id)
+        || pending.items.iter().any(|(_, i)| i.id == id)
     {
         return code::DUPLICATE_ID;
     }
@@ -396,21 +402,26 @@ pub fn register(
     pending
         .blocks
         .extend(definitions.into_iter().map(|def| (owner, def)));
-    pending.items.extend(items);
+    pending
+        .items
+        .extend(items.into_iter().map(|item| (owner, item)));
     if let Some(tick) = hooks.tick {
         pending.ticks.insert(owner, tick);
     }
     if let Some(inside) = hooks.entity_inside {
         pending.entity_inside.insert(owner, inside);
     }
+    if let Some(callback) = hooks.use_on_block {
+        pending.use_on_block.insert(owner, callback);
+    }
 }
 
 fn split_items(
-    items: Vec<ItemRegistration>,
+    items: Vec<(usize, ItemRegistration)>,
 ) -> (Vec<ItemDefinition>, Vec<content_pack::ItemAssets>) {
     items
         .into_iter()
-        .map(|item| {
+        .map(|(_, item)| {
             (
                 ItemDefinition {
                     name: item.id.clone(),
@@ -426,17 +437,8 @@ fn split_items(
         .unzip()
 }
 
-pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result<()> {
-    load_mods();
-    let Pending {
-        mut blocks,
-        mut items,
-        ticks,
-        entity_inside,
-    } = std::mem::take(&mut *lock(&PENDING));
-    blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
-    items.sort_by(|a, b| a.id.cmp(&b.id));
-
+/// Engine definitions for the staged blocks, each state on its own note block carrier.
+fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
     // Preserve instrument and note for ordinary note blocks by borrowing only powered variants.
     let mut carriers = Block::NOTE_BLOCK.states.iter().filter_map(|state| {
         let mut props = Block::NOTE_BLOCK.properties(state.id)?.to_props();
@@ -451,7 +453,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         Some((state.id, replacement))
     });
     let mut definitions = Vec::with_capacity(blocks.len());
-    for (_, block) in &blocks {
+    for (_, block) in blocks {
         let mut states = Vec::with_capacity(block.states.len());
         for state in &block.states {
             let (carrier, replacement) = carriers
@@ -473,6 +475,35 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
             states,
         });
     }
+    Ok(definitions)
+}
+
+pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result<()> {
+    load_mods();
+    let Pending {
+        mut blocks,
+        mut items,
+        ticks,
+        entity_inside,
+        use_on_block,
+    } = std::mem::take(&mut *lock(&PENDING));
+    blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
+    items.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
+    #[expect(
+        clippy::needless_collect,
+        reason = "items and blocks are consumed before the registry is installed"
+    )]
+    let owners: Vec<(String, usize)> = items
+        .iter()
+        .map(|(owner, item)| (item.id.clone(), *owner))
+        .chain(
+            blocks
+                .iter()
+                .map(|(owner, block)| (block.id.clone(), *owner)),
+        )
+        .collect();
+
+    let definitions = block_definitions(&blocks)?;
     let (item_definitions, item_assets) = split_items(items);
     let registry = content::Registry::open(
         &path.join("moddedmc/registry.dat"),
@@ -487,6 +518,8 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         overlays: HashMap::new(),
         ticks,
         entity_inside,
+        use_on_block,
+        item_owners: HashMap::new(),
     };
     let mut assets = Vec::with_capacity(blocks.len());
     for (owner, block) in blocks {
@@ -512,6 +545,10 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         });
     }
     registry.install()?;
+    runtime.item_owners = owners
+        .into_iter()
+        .filter_map(|(id, owner)| Some((Item::from_registry_key(&id)?.id, owner)))
+        .collect();
     runtime.overlays = content_pack::configure(
         &config.networking.java.address,
         &mut config.resource_pack.java,
@@ -520,6 +557,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
     )?;
     if RUNTIME.set(runtime).is_err()
         || !install_content_behaviour(Arc::new(Behaviour))
+        || !crate::interaction::install()
         || !engine::observe(observe)
     {
         return Err(io::Error::other("content hooks already installed"));
@@ -1031,4 +1069,26 @@ unsafe extern "C" fn entity_change(raw: abi::EntityRef, change: *const abi::Enti
         entity.on_ground.store(change.on_ground, Ordering::Relaxed);
     }
     true
+}
+
+/// The mod callback for using a content item on a block.
+pub fn use_on_block_callback(item: u16) -> Option<abi::UseOnBlockFn> {
+    let runtime = RUNTIME.get()?;
+    runtime
+        .use_on_block
+        .get(runtime.item_owners.get(&item)?)
+        .copied()
+}
+
+pub unsafe extern "C" fn on_use_on_block(reg: Reg, callback: abi::UseOnBlockFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.use_on_block;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
 }
