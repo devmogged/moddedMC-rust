@@ -20,6 +20,7 @@
 //! ```
 
 pub mod abi;
+pub mod block_displays;
 pub mod chunks;
 pub mod commands;
 pub mod containers;

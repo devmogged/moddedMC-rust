@@ -6,6 +6,7 @@
 //! custom data on a vanilla stand-in block entity (saved by Pumpkin with the
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
+mod block_displays;
 mod companion;
 mod console;
 mod containers;

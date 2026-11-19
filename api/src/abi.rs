@@ -1003,3 +1003,42 @@ pub struct TagsV1 {
     /// Whether `id` is in the tag.
     pub contains: unsafe extern "C" fn(registry: Str, tag: Str, id: Str) -> bool,
 }
+
+pub const BLOCK_DISPLAYS: &str = "moddedmc:block_displays";
+
+/// Where and how a block display is drawn. The client draws the block's model from its corner at
+/// `translation`, turned by `rotation` and sized by `scale` about the display's position, which is
+/// how a moving contraption keeps every block on one pivot.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BlockDisplay {
+    pub position: [f64; 3],
+    pub translation: [f32; 3],
+    /// XYZW unit quaternion, vanilla `Display.left_rotation`.
+    pub rotation: [f32; 4],
+    pub scale: [f32; 3],
+    /// Ticks clients take to blend into a new translation, rotation and scale, vanilla
+    /// `interpolation_duration`; each update restarts the blend.
+    pub transform_interpolation: i32,
+    /// Ticks clients take to move to a new position, vanilla `teleport_duration`, 0 to 59.
+    pub position_interpolation: i32,
+    /// Vanilla `brightness_override` packed as `block << 4 | sky << 20`, or -1 for world light.
+    pub brightness: i32,
+}
+
+/// Block displays a mod draws for blocks that aren't in the world, such as a moving contraption.
+/// They are never saved; the id stops working when the display's chunk unloads. Content states
+/// show as their vanilla carrier on stock clients.
+#[repr(C)]
+pub struct BlockDisplaysV1 {
+    pub size: usize,
+    /// Returns the display's id, 0 when nothing spawned.
+    pub spawn:
+        unsafe extern "C" fn(world: WorldRef, state: u32, display: *const BlockDisplay) -> i32,
+    /// False when the id no longer names a live display; spawn a new one then.
+    pub update:
+        unsafe extern "C" fn(world: WorldRef, id: i32, display: *const BlockDisplay) -> bool,
+    /// Replace the displayed state.
+    pub set_state: unsafe extern "C" fn(world: WorldRef, id: i32, state: u32) -> bool,
+    pub remove: unsafe extern "C" fn(world: WorldRef, id: i32),
+}
