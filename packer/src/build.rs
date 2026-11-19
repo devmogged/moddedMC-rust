@@ -289,7 +289,8 @@ fn build_drop_in(
     }
 }
 
-/// A `.mmc` like `scripts/pack-mod.ps1` makes: `mod.json` and the library for this platform.
+/// A `.mmc` like `scripts/pack-mod.ps1` makes: `mod.json`, the library for this platform and the
+/// crate's `resources/data/` as `data/`.
 fn write_mmc(
     repo: &Path,
     out: &Path,
@@ -312,11 +313,21 @@ fn write_mmc(
         .compression_method(zip::CompressionMethod::Deflated);
     let library_bytes = fs::read(library).map_err(|e| e.to_string())?;
     let entry = format!("{}-{}.{}", platform.os, platform.arch, platform.lib_ext);
+    let data_dir = m.path.join("resources").join("data");
+    let mut data = Vec::new();
+    if data_dir.is_dir() {
+        manifest::collect(&data_dir, &data_dir, &mut data)?;
+        data.sort();
+    }
     let written = (|| -> zip::result::ZipResult<()> {
         zip.start_file("mod.json", options)?;
         zip.write_all(manifest.to_string().as_bytes())?;
         zip.start_file(entry, options)?;
         zip.write_all(&library_bytes)?;
+        for relative in &data {
+            zip.start_file(format!("data/{relative}"), options)?;
+            zip.write_all(&fs::read(data_dir.join(relative))?)?;
+        }
         zip.finish()?;
         Ok(())
     })();

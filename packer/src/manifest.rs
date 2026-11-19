@@ -188,7 +188,7 @@ pub fn hash_tree(dir: &Path) -> Result<String, String> {
     Ok(hex(&hasher.finalize()))
 }
 
-fn collect(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
+pub fn collect(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
     let entries = fs::read_dir(dir).map_err(|e| format!("can't list {}: {e}", dir.display()))?;
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;

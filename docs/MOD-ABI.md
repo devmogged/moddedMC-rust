@@ -133,6 +133,7 @@ The Rust wrappers live in `world`, `chunks`, `commands` and `lifecycle`. Logging
 A `.mmc` is a zip with
 
 - `mod.json`: `{"id": "wayshrine", "version": "0.2.0", "abi": 1}`
+- `data/`, optional: the mod’s recipes, loot tables, tags, advancements and functions in datapack layout. The server loads it with every world as the built-in datapack `mod/<id>`, before the world’s own datapacks.
 - one library per platform, named `<os>-<arch>.<ext>`: `windows-x86_64.dll`, `windows-aarch64.dll`, `linux-x86_64.so`, `linux-aarch64.so`, `macos-aarch64.dylib`, `macos-x86_64.dylib`.
 
 `scripts/pack-mod.ps1` writes the manifest and the build for the current machine. Builds for other platforms (from CI or cross-compiling) go into the same zip under their names.

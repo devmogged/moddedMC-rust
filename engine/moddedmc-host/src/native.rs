@@ -2,7 +2,9 @@
 //! ABI (`api/src/abi.rs`, docs/MOD-ABI.md).
 //!
 //! - `<name>.mmc`: a zip with `mod.json` and one library per platform (`windows-x86_64.dll`, ...).
-//!   The library for this platform is extracted to `mods/.cache/` and loaded.
+//!   The library for this platform is extracted to `mods/.cache/` and loaded. A `data/` folder
+//!   in the zip (recipes, loot tables, tags, ...) is extracted beside it and loads as a built-in
+//!   datapack named `mod/<id>`.
 //! - `<name>.jar`: a Fabric mod. It is converted once by `recompiler/build-mod.ps1` into
 //!   `mods/.cache/<name>-<hash>.<ext>` and loaded from there.
 //! - A bare `.dll`/`.so`/`.dylib`: loaded as is (handy while developing a mod).
@@ -78,20 +80,20 @@ pub fn load_all(dir: &Path) -> Vec<Native> {
     let mut mods = Vec::new();
     for path in files.iter().filter(|p| p.is_file()) {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let library = match ext {
+        let extracted = match ext {
             "mmc" => extract(path, &cache),
-            "jar" => convert(path, &cache),
-            e if e == EXT => Ok(path.clone()),
+            "jar" => convert(path, &cache).map(|lib| (lib, None)),
+            e if e == EXT => Ok((path.clone(), None)),
             _ => continue,
         };
-        match library.and_then(|lib| load(&lib)) {
-            Ok(m) if mods.iter().any(|o: &Native| o.id == m.id) => {
+        match extracted.and_then(|(lib, data)| Ok((load(&lib)?, data))) {
+            Ok((m, _)) if mods.iter().any(|o: &Native| o.id == m.id) => {
                 tracing::error!(
                     "moddedmc: {} has the same id as another mod; skipped",
                     path.display()
                 );
             }
-            Ok(m) => {
+            Ok((m, data)) => {
                 // SAFETY: the version string is static.
                 let version = unsafe { m.api.version.str() };
                 tracing::info!(
@@ -99,6 +101,12 @@ pub fn load_all(dir: &Path) -> Vec<Native> {
                     m.id,
                     path.display()
                 );
+                if let Some(pack) = data {
+                    pumpkin_core::data::datapack::register_builtin_datapack(
+                        format!("mod/{}", m.id),
+                        pack,
+                    );
+                }
                 mods.push(m);
             }
             Err(e) => tracing::error!("moddedmc: {}: {e}", path.display()),
@@ -123,12 +131,16 @@ fn stem(path: &Path) -> String {
         .map_or_else(|| "mod".into(), |s| s.to_string_lossy().into_owned())
 }
 
-/// Extracts this platform's library from a `.mmc` file, once per file content.
-fn extract(path: &Path, cache: &Path) -> Result<PathBuf, String> {
+/// Extracts this platform's library and the `data/` folder from a `.mmc` file, once per file
+/// content. Returns the library and, when the mod ships data, the datapack folder.
+fn extract(path: &Path, cache: &Path) -> Result<(PathBuf, Option<PathBuf>), String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
-    let out = cache.join(format!("{}-{}.{EXT}", stem(path), hash(&bytes)));
-    if out.exists() {
-        return Ok(out);
+    let key = format!("{}-{}", stem(path), hash(&bytes));
+    let out = cache.join(format!("{key}.{EXT}"));
+    let pack = cache.join(&key);
+    let data = |pack: PathBuf| pack.join("data").is_dir().then_some(pack);
+    if out.exists() && pack.join(EXTRACTED).exists() {
+        return Ok((out, data(pack)));
     }
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
     let mut manifest = String::new();
@@ -152,7 +164,38 @@ fn extract(path: &Path, cache: &Path) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())?;
     fs::create_dir_all(cache).map_err(|e| e.to_string())?;
     fs::write(&out, library).map_err(|e| e.to_string())?;
-    Ok(out)
+    extract_data(&mut zip, &pack)?;
+    Ok((out, data(pack)))
+}
+
+/// Marks a fully extracted `data/` folder, so an interrupted extraction is redone.
+const EXTRACTED: &str = ".extracted";
+
+fn extract_data<R: Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    pack: &Path,
+) -> Result<(), String> {
+    if pack.exists() {
+        fs::remove_dir_all(pack).map_err(|e| e.to_string())?;
+    }
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index).map_err(|e| e.to_string())?;
+        let Some(relative) = entry.enclosed_name() else {
+            let name = entry.name().unwrap_or_default();
+            return Err(format!("unsafe path in mod package: {name}"));
+        };
+        if !relative.starts_with("data") || entry.is_dir() {
+            continue;
+        }
+        let target = pack.join(relative);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let mut file = fs::File::create(&target).map_err(|e| e.to_string())?;
+        std::io::copy(&mut entry, &mut file).map_err(|e| e.to_string())?;
+    }
+    fs::create_dir_all(pack).map_err(|e| e.to_string())?;
+    fs::write(pack.join(EXTRACTED), "").map_err(|e| e.to_string())
 }
 
 /// Converts a Fabric `.jar` into a native mod, once per jar content.

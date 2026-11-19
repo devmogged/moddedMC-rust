@@ -1,8 +1,9 @@
 # Builds a Rust mod and packs it as <OutDir>\<crate>.mmc, the file server owners drop into mods/.
 #   scripts\pack-mod.ps1 -Crate wayshrine [-OutDir target\mods]
 # A .mmc is a zip: mod.json (id, version, abi) plus one library per platform, named
-# <os>-<arch>.<ext> (windows-x86_64.dll, linux-x86_64.so, macos-aarch64.dylib). This script adds
-# the library for the machine it runs on; add other platforms' builds to the zip the same way.
+# <os>-<arch>.<ext> (windows-x86_64.dll, linux-x86_64.so, macos-aarch64.dylib), plus the crate's
+# resources\data\ as data\. This script adds the library for the machine it runs on; add other
+# platforms' builds to the zip the same way.
 param(
     [Parameter(Mandatory)] [string] $Crate,
     [string] $OutDir   # default: target\mods
@@ -34,6 +35,14 @@ try {
     $manifest.Write($bytes, 0, $bytes.Length)
     $manifest.Dispose()
     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $library, "windows-$arch.dll") | Out-Null
+    # resources\data\ ships as data\: recipes, loot tables and tags, loaded like a datapack.
+    $data = Join-Path $root "mods\$Crate\resources\data"
+    if (Test-Path -LiteralPath $data) {
+        Get-ChildItem -LiteralPath $data -Recurse -File | ForEach-Object {
+            $name = 'data/' + $_.FullName.Substring($data.Length + 1).Replace('\', '/')
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $name) | Out-Null
+        }
+    }
     $license = Join-Path $root "mods\$Crate\LICENSE.md"
     if (Test-Path -LiteralPath $license) {
         [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $license, 'LICENSE.md') | Out-Null
