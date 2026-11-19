@@ -8,7 +8,7 @@ Run `scripts/new-mod.ps1 -Id <id>`. It creates `mods/<id>`, a crate that already
 
 1. Require the named interface versions the port uses in `Mod::start`. A server that lacks a required version logs its name and skips the mod before worlds load.
 2. Keep mechanics in the mod. Create owns its kinetic networks, and each boss or dragon mod owns its AI. The host exposes operations the engine can perform safely. Plan new operations in [INTERFACES-PLAN.md](INTERFACES-PLAN.md).
-3. Copy the original mod’s data from its jar into `mods/<id>/resources/data/` unchanged: its own `data/<namespace>/`, plus the vanilla tag files it ships (`data/minecraft/tags/blocks/mineable/*.json` sets which tool mines each block). Old (`recipes`, `loot_tables`, `tags/blocks`) and new (`recipe`, `loot_table`, `tags/block`) folder names both load. Tag entries for blocks and items the port doesn’t register yet are skipped; leave out recipes that need them. A block’s drops come from `<namespace>:blocks/<path>`, as in vanilla.
+3. Copy the original mod’s data from its jar into `mods/<id>/resources/data/` unchanged: its own `data/<namespace>/`, plus the vanilla tag files it ships (`data/minecraft/tags/blocks/mineable/*.json` sets which tool mines each block). Old (`recipes`, `loot_tables`, `tags/blocks`) and new (`recipe`, `loot_table`, `tags/block`) folder names both load, and Forge 1.20 tags such as `#forge:nuggets/iron` resolve as their shared `c:` tags. Tag entries for blocks and items the port doesn’t register yet are skipped; leave out recipes that need them. A block’s drops come from `<namespace>:blocks/<path>`, as in vanilla.
 4. Build with `scripts/pack-mod.ps1 -Crate <name>` or put the crate's path in a [pack manifest](PACKS.md). A pack can also use a prebuilt `.mmc`.
 
 ## Where each part of a Java mod goes
@@ -19,6 +19,7 @@ Read the original's source next to this table. Keep its ids, block state propert
 | --- | --- |
 | Blocks from a `DeferredRegister` or `Registry.register` | `content.add_block` in `Mod::register`. List every state with its exact property string, such as `axis=x,waterlogged=false`. `physical` names the vanilla block whose hardness, sounds and collision the state uses; `shape` overrides the collision and outline boxes. |
 | The block's item | Registered with the block. `item_model` names its model. |
+| Items without a block (ingots, alloys, tools) | `items.add_item`. `carrier` names the vanilla item whose stack size, food and tool components it copies. |
 | Blockstate JSON and block models | `model` per state, with `x` and `y` rotation as in the blockstate file. Parts that spin go in `rotating_model`, driven by `World::rotate`. |
 | Models and textures | Free to redistribute: copy `assets/<namespace>/` into `resources/assets/`. Not free (Create's are All Rights Reserved): leave them out, and the server reads them from a local copy of the original jar. |
 | `getStateForPlacement` | The placement hook passed to `add_block`. It gets the clicked face, look direction and sneak state. |
@@ -29,7 +30,7 @@ Read the original's source next to this table. Keep its ids, block state propert
 | Brigadier commands | `moddedmc:commands`. |
 | Server stopping and save hooks | `moddedmc:lifecycle`. |
 | Client-only code (renderers, screens, key binds) | Not ported. The server sends models and textures in its resource pack. |
-| Entities, standalone items, menus, worldgen features, custom recipe types, network packets | Not available yet. Add the operation the port needs to [INTERFACES-PLAN.md](INTERFACES-PLAN.md) instead of working around it. |
+| Entities, menus, worldgen features, custom recipe types, network packets | Not available yet. Add the operation the port needs to [INTERFACES-PLAN.md](INTERFACES-PLAN.md) instead of working around it. |
 
 A new mechanic may need a server release that adds a generic engine hook and a named interface. Existing mods use the versions they were built against. This model gives up direct engine access and cross-mod compiler optimization.
 
