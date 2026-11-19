@@ -251,6 +251,10 @@ pub struct WorldV1 {
     /// A state id to its full name (`minecraft:oak_log[axis=x]`), through `out` with key 0.
     /// False if unknown.
     pub state_name: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
+    /// Places a structure template (the `.nbt` file a structure block saves, gzipped or not) with
+    /// its corner at `origin`: every block in a loaded chunk, block entity data left out. Returns
+    /// the blocks written, or -1 if `template` is not one.
+    pub place_structure: unsafe extern "C" fn(dimension: Str, origin: Pos, template: Str) -> i64,
 }
 
 /// "No block state": unloaded, outside the world, or unknown.
@@ -740,6 +744,7 @@ mod layout {
             (offset_of!(WorldV1, set_blocks), 16),
             (offset_of!(WorldV1, state_id), 24),
             (offset_of!(WorldV1, state_name), 32),
+            (offset_of!(WorldV1, place_structure), 40),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "WorldV1 field #{i} moved");

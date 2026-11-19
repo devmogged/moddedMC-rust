@@ -79,7 +79,7 @@ What the SDK offers:
 | `Mod::menu_closed` | A player closed a `menus/1` menu: its key and one item per slot. Every mod sees every close: start your keys with your mod id and act only on those. Opening a menu from here fails. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
-| `world::get()` | The `moddedmc:world/1` interface, if the server has it: `get_blocks`, `set_blocks` (batched, any vanilla block state), `state_id("minecraft:oak_log[axis=x]")`, `state_name(id)`. State ids are valid for this Minecraft version only: keep them in memory, save names. |
+| `world::get()` | The `moddedmc:world/1` interface, if the server has it: `get_blocks`, `set_blocks` (batched, any vanilla block state), `state_id("minecraft:oak_log[axis=x]")`, `state_name(id)`, `place_structure(dim, origin, bytes)` (a structure block's `.nbt` file, gzipped or raw: its first palette's blocks are written, block entity data is left out). State ids are valid for this Minecraft version only: keep them in memory, save names. |
 
 Rules:
 
@@ -133,7 +133,7 @@ Interfaces:
 
 | Name | Since | What |
 | --- | --- | --- |
-| `moddedmc:world/1` | 1.1 | Batched block reads and writes by state id (vanilla and `blocks/1`); state names to ids and back. |
+| `moddedmc:world/1` | 1.1 | Batched block reads and writes by state id (vanilla and `blocks/1`); state names to ids and back; structure templates placed from `.nbt` bytes. |
 | `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`; `schedule_tick`, `is_powered`. Events come through `ModApi::block_event`. |
 | `moddedmc:entities/1` | 1.1 | Spawn, find, move, name and remove entities by UUID. Uses and attacks arrive through `ModApi::entity_event` (1.1). |
 | `moddedmc:biomes/1` | 1.1 | Biomes: defined in `define_blocks`, set and read per 4x4x4 cell. |

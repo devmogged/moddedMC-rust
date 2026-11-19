@@ -20,6 +20,10 @@ wait 2
 bot cmd pillar
 wait 1
 expect \[bot\] chat: .*pillar: wrote 3 at 2049 10[2-3] 2049: minecraft:oak_log\[axis=x\], minecraft:oak_log\[axis=x\], minecraft:oak_log\[axis=x\]
+# A structure template, placed through world/1.
+bot cmd pillarstruct
+wait 1
+expect \[bot\] chat: .*pillarstruct: placed 3 at 2051
 reject (?i)panic|panicked
 bot quit
 stop

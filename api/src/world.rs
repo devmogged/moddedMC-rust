@@ -58,6 +58,17 @@ impl World {
         (id != NO_STATE).then_some(id)
     }
 
+    /// Places a structure template (the `.nbt` file a structure block saves) with its corner at
+    /// `origin`, e.g. from `chunk_generated`. Blocks in unloaded chunks and block entity data are
+    /// left out. The number of blocks written; `None` if `template` is not a structure.
+    #[must_use]
+    pub fn place_structure(&self, dimension: &str, origin: Pos, template: &[u8]) -> Option<usize> {
+        // SAFETY: borrowed for the call.
+        let written =
+            unsafe { (self.0.place_structure)(Str::from(dimension), origin, Str::new(template)) };
+        usize::try_from(written).ok()
+    }
+
     /// A state id's full name, e.g. `minecraft:oak_log[axis=x]`.
     #[must_use]
     pub fn state_name(&self, state: u32) -> Option<String> {

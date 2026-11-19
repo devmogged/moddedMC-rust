@@ -532,7 +532,56 @@ static WORLD: WorldV1 = WorldV1 {
     set_blocks,
     state_id,
     state_name,
+    place_structure,
 };
+
+unsafe extern "C" fn place_structure(dimension: Str, origin: Pos, template: Str) -> i64 {
+    use pumpkin_world::generation::structure::template::StructureTemplate;
+    // SAFETY: borrowed for the call.
+    let (dimension, bytes) = unsafe { (dimension.str(), template.bytes()) };
+    let parsed = if bytes.starts_with(&[0x1f, 0x8b]) {
+        StructureTemplate::from_nbt_bytes(bytes).ok()
+    } else {
+        let mut reader =
+            pumpkin_nbt::deserializer::NbtReadHelperJava::new(std::io::Cursor::new(bytes));
+        pumpkin_nbt::Nbt::read(&mut reader)
+            .ok()
+            .and_then(|nbt| StructureTemplate::from_nbt_compound(&nbt.root_tag).ok())
+    };
+    let (Some(world), Some(template)) = (world(dimension), parsed) else {
+        return -1;
+    };
+    let Some(palette) = template.palettes.first() else {
+        return 0;
+    };
+    let mut written = 0;
+    for block in palette.blocks() {
+        let props: Vec<String> = block
+            .state
+            .properties
+            .iter()
+            .map(|p| format!("{}={}", p.key_str(), p.value_str()))
+            .collect();
+        let name = if props.is_empty() {
+            block.state.name.clone()
+        } else {
+            format!("{}[{}]", block.state.name, props.join(","))
+        };
+        let Some(state) = parse_state(&name) else {
+            continue;
+        };
+        let pos = BlockPos::new(
+            origin.x + block.pos.x,
+            origin.y + block.pos.y,
+            origin.z + block.pos.z,
+        );
+        if world.get_block_state_id_if_loaded(&pos).is_some() {
+            world.set_block_state(&pos, state, BlockFlags::NOTIFY_ALL);
+            written += 1;
+        }
+    }
+    written
+}
 
 pub fn world(dimension: &str) -> Option<Arc<World>> {
     SERVER.get().and_then(|s| {
