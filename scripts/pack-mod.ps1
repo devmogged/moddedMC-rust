@@ -3,6 +3,7 @@
 # A .mmc is a zip: mod.json (id, version, abi) plus one library per platform, named
 # <os>-<arch>.<ext> (windows-x86_64.dll, linux-x86_64.so, macos-aarch64.dylib). This script adds
 # the library for the machine it runs on; add other platforms' builds to the zip the same way.
+# The crate's assets/ folder, if any, goes in as is (resource pack files: textures, models, lang).
 param(
     [Parameter(Mandatory)] [string] $Crate,
     [string] $OutDir   # default: target\mods
@@ -34,5 +35,13 @@ try {
     $manifest.Write($bytes, 0, $bytes.Length)
     $manifest.Dispose()
     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $library, "windows-$arch.dll") | Out-Null
+    # Resource pack files: the server merges every mod's assets/ into one pack for players.
+    $assets = Join-Path $root "mods\$Crate\assets"
+    if (Test-Path $assets) {
+        foreach ($f in Get-ChildItem $assets -Recurse -File) {
+            $name = 'assets/' + $f.FullName.Substring($assets.Length + 1).Replace('\', '/')
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $f.FullName, $name) | Out-Null
+        }
+    }
 } finally { $zip.Dispose() }
 Write-Host "packed $out ($((Get-Item $out).Length) bytes)"

@@ -1,0 +1,17 @@
+# The mods' resource pack: shaft.mmc carries assets/, the server merges them into one pack,
+# serves it over HTTP and offers it to a joining player with its SHA-1.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\resource-pack.txt -RunDir run\resource-pack -Fresh
+mods target\mods\shaft.mmc
+start
+wait 1
+expect resource pack with 1 files \(\d+ bytes, sha1 [0-9a-f]{40}\) at http://127.0.0.1:25580/pack.zip
+http http://127.0.0.1:25580/pack.zip
+wait 1
+expect http: 200 \d+ bytes sha1 [0-9a-f]{40}
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+expect offered the resource pack to tester
+reject (?i)panic|panicked
+bot quit
+stop

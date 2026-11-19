@@ -3,6 +3,7 @@
 # Scenario lines (blank lines and # comments ignored):
 #   mods <path> [...]        copy mods (.mmc, .jar, .dll) into the run dir's mods/ (before the first start)
 #   unmod <file> [...]       delete mods from the run dir's mods/ (to test removing a mod)
+#   http <url>               download a URL and log "http: <status> <bytes> bytes sha1 <hash>"
 #   start                    start the server and wait until it is ready
 #   cmd <console line>       send a console line
 #   wait <seconds>
@@ -102,6 +103,13 @@ foreach ($raw in Get-Content $Scenario) {
         'mods' { foreach ($m in $arg -split '\s+') { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'mods') -Force } }
         'unmod' { foreach ($m in $arg -split '\s+') { Remove-Item (Join-Path (Join-Path $RunDir 'mods') $m) } }
         'start' { Start-Server }
+        'http' {
+            try {
+                $r = Invoke-WebRequest -UseBasicParsing $arg
+                $sha1 = -join ([Security.Cryptography.SHA1]::Create().ComputeHash($r.Content) | ForEach-Object { $_.ToString('x2') })
+                $script:log.Enqueue("http: $($r.StatusCode) $($r.RawContentLength) bytes sha1 $sha1")
+            } catch { $script:log.Enqueue("http: failed $_") }
+        }
         'cmd' { $script:p.StandardInput.WriteLine($arg) }
         'botstart' {
             $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $BotExe), "127.0.0.1:25565 $arg")

@@ -51,6 +51,7 @@ The full contract is [MOD-ABI.md](MOD-ABI.md). In short:
 - **Lazy custom data.** Pumpkin loads a block entity's custom data only when the entity is woken, so the host wakes it (`get_block_entity`) before reading a block's identity.
 - **Discovery.** Every 20 ticks the index is rebuilt from the custom data of live block entities, which also picks up chunks loaded since.
 - **`blocks/1` blocks** are real block states (engine patch 6), not stand-ins. At startup the host asks each mod for its blocks (`define_blocks`) and installs them all at once. Their item is the look-alike's item tagged `moddedmc:block = "<id>"`; when one is placed, the host turns the placed look-alike into the modded state that looks like it on the next tick (so facing carries over) and sends the mod a `PLACE` event. Use and break go to the owning mod's `block_event`; breaking drops the item. Neighbor updates (engine patch 7) and scheduled ticks are queued and delivered at the start of the next server tick, neighbor updates once per block and tick, so mods never run inside a world update.
+- **Resource pack** (`pack.rs`). At startup the host merges the `assets/` of every `.mmc` into one zip (`mods/.cache/pack.zip`), serves it from a small HTTP server thread (`config/moddedmc/pack.txt`: `bind=`, `url=`) and sends joining players a resource pack push with its SHA-1.
 - **Removed mods.** `config/moddedmc/blocks.txt` lists every `blocks/1` block the server has had (name, properties, look-alikes). A listed block that no mod defines any more is installed anyway, with no owner: its blocks stay in the world, saved and shown as before, and come back to life when the mod does. The first start with a new set of such blocks copies `world/` to `backups/moddedmc-<unix time>/` first. If installing fails while `states.txt` lists modded states, the server exits instead of loading those blocks as air.
 
 ## Testing
@@ -65,7 +66,7 @@ The full contract is [MOD-ABI.md](MOD-ABI.md). In short:
 - `pack-mod.ps1` packs only the library for the machine it runs on; other platforms are added to the zip by hand for now.
 - Libraries are never unloaded, so mods cannot be hot-reloaded.
 - Stand-ins must have a block entity; blocks without one need an engine-side identity store.
-- No resource pack delivery yet: custom blocks look like their stand-in or look-alike, and custom items show only a custom name.
+- Custom blocks look like their stand-in or look-alike unless a mod retextures that vanilla block in its resource pack, which changes the vanilla block too. Custom items show a custom name.
 - A `blocks/1` block has its look-alike's shape, collision, hardness and light, because a stock client predicts those from what it sees. Other packets that carry a state id (block particles, falling blocks) still send the modded id, which a stock client treats as air: shortcut until a mod needs them.
 - Modded state ids are numbered at startup and differ between runs and servers; worlds store names. At most 65,535 states in all (vanilla uses 35,723).
 - Discovery is O(custom blocks) once a second.

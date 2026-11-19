@@ -8,6 +8,7 @@
 
 mod console;
 mod native;
+mod pack;
 mod stats;
 
 use std::{
@@ -162,6 +163,7 @@ pub fn load_mods() {
     let started = Instant::now();
     let mods = native::load_all(std::path::Path::new("mods"));
     native::define_blocks(&mods);
+    pack::build(std::path::Path::new("mods"));
     if !mods.is_empty() {
         tracing::info!(
             "moddedmc: loaded {} mods in {:?}",
@@ -185,6 +187,11 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<BlockBreakEvent, _>(Arc::new(BreakHandler), EventPriority::Normal, true);
     pm.register::<PlayerInteractEvent, _>(Arc::new(UseHandler), EventPriority::Normal, true);
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
+    pm.register::<pumpkin_core::plugin::player::player_join::PlayerJoinEvent, _>(
+        Arc::new(pack::JoinHandler),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<ServerCommandEvent, _>(
         Arc::new(console::ConsoleHandler),
         EventPriority::Normal,

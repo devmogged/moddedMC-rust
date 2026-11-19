@@ -14,6 +14,7 @@ myserver/
 - **`.mmc`**: a moddedMC mod. One file holds builds for every platform the author packed; the server picks the one for your machine. It loads in milliseconds.
 - **`.jar`**: a Fabric mod. The first start with a new jar converts it to native code, which takes a few minutes and needs the converter tools (see [recompiler/README.md](../recompiler/README.md)). The result is cached in `mods/.cache/`, so later starts are instant. Most Fabric mods use Mixin and cannot be converted yet; the server logs why a jar was skipped.
 - To remove a mod, delete its file and restart. `mods/.cache/` can be deleted at any time; it is rebuilt. Blocks of a removed mod stay in your worlds as they were (inert, listed in `config/moddedmc/blocks.txt`) and work again when you put the mod back. Keep `config/moddedmc/`: it records which modded blocks your worlds contain. The first start without a mod's blocks copies `world/` to `backups/moddedmc-<time>/` first. If the server cannot set up modded blocks at all while your worlds contain some, it refuses to start rather than lose them.
+- **Resource pack.** Mods can carry textures, models, sounds and translations. The server merges them into one pack, serves it over HTTP (port 25580 by default) and offers it to every player who joins. Set `url=` in `config/moddedmc/pack.txt` to an address your players can reach (and `bind=` to where the server should listen); the default only works on the server's own machine.
 - A mod's own files live in `config/<mod id>/`. Fabric mods use `config/` as on a Fabric server.
 - The server log shows each mod it loaded (`moddedmc: loaded wayshrine 0.2.0 from mods\wayshrine.mmc`) and why any mod was skipped. One broken mod never stops the others or the server.
 
@@ -93,6 +94,7 @@ A `blocks/1` block is a real block: its states have their own ids, the world sav
 - `Use`, `Place`, `Break`, `Tick`, `Neighbor` and `Load` arrive in `block_event`. `Load` comes for each of your blocks when its chunk loads, including after a restart. Breaking drops the item. `Tick` comes when you asked for it with `blocks::get()?.schedule_tick(...)`; scheduled ticks are not saved, so schedule again after a restart (keep the positions you need in your data folder, as `mods/drivetrain` does with its motors). `Neighbor` comes once per block and tick when a block next to it changed, including redstone power; read the power with `is_powered`.
 - Events arrive at the start of a server tick, never in the middle of a world update, so it is safe to read and write blocks from them.
 - Property names and values use lowercase letters, digits, `_`, `-` and `.`.
+- Put resource pack files in your crate's `assets/` folder (`assets/<namespace>/...`, as in any resource pack); `pack-mod.ps1` packs them into the `.mmc` and the server merges every mod's assets into one pack for players. A file another mod also has is replaced by the later mod in file-name order, with a warning. To retexture a look-alike, override that vanilla block's model or blockstate; that changes the vanilla block too, so prefer look-alikes players rarely see.
 
 ## The ABI
 

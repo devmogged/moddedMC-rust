@@ -1,8 +1,8 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 4cc8486ee..73839f099 100644
+index 4cc8486ee..3ce76cce0 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -2336,6 +2336,43 @@ dependencies = [
+@@ -2336,6 +2336,45 @@ dependencies = [
   "windows-sys 0.61.2",
  ]
  
@@ -27,6 +27,7 @@ index 4cc8486ee..73839f099 100644
 +name = "moddedmc-host"
 +version = "0.1.0"
 +dependencies = [
++ "hex",
 + "libloading",
 + "moddedmc-api",
 + "pumpkin-core",
@@ -37,6 +38,7 @@ index 4cc8486ee..73839f099 100644
 + "pumpkin-util",
 + "pumpkin-world",
 + "serde_json",
++ "sha1 0.11.0",
 + "sha2 0.11.1",
 + "tracing",
 + "uuid",
@@ -46,7 +48,7 @@ index 4cc8486ee..73839f099 100644
  [[package]]
  name = "multiversion_no_op"
  version = "1.0.0"
-@@ -2945,6 +2982,7 @@ name = "pumpkin"
+@@ -2945,6 +2984,7 @@ name = "pumpkin"
  version = "0.2.2+26.3-26.63"
  dependencies = [
   "console-subscriber",

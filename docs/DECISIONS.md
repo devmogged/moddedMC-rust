@@ -33,7 +33,7 @@ Project-level decisions and why. Agents and people working on any branch read th
 **Steps.**
 
 1. `query_interface` and `moddedmc:world/1` (batched block reads and writes). Done on branch `abi/interfaces`.
-2. `moddedmc:blocks/1`: real modded blocks with states, items and interactions. Done on branch `abi/interfaces` (see below); custom shapes and the resource pack come later.
+2. `moddedmc:blocks/1`: real modded blocks with states, items and interactions. Done on branch `abi/interfaces` (see below); the resource pack (mods' `assets/`, merged, served and offered on join) is done too. Custom shapes are not possible for a stock client, which predicts collision from the vanilla block it sees; they need the companion.
    Removing a mod keeps its blocks as inert placeholders, snapshots the world before the first start without them, and refuses to start if modded blocks could not be kept. Purging stays an explicit offline step (delete the lines from `config/moddedmc/blocks.txt`).
 3. Block events: neighbor (with redstone power) and scheduled ticks for `blocks/1` blocks, delivered in order at the start of each tick. Chunk load events (`Load`, also after a restart) too. Done on branch `abi/interfaces`.
 4. The drivetrain proof: `mods/drivetrain` and `tests/scenarios/drivetrain.txt` (motor, shafts across a chunk border, small and large cogs at 2:1, clutch, load, overstress and recovery, split and repair, chunk reload, restart, removing and re-adding the mod). Done on branch `abi/interfaces`, with these gaps: speeds follow Create's rules but were not compared against a running Create; a stock client was not tried; nothing was measured on a Pi 5. The same `drivetrain.mmc` passed on two server builds (before and after the chunk-load change).
