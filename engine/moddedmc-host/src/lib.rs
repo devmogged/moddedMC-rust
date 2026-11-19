@@ -8,6 +8,7 @@
 
 mod companion;
 mod console;
+mod containers;
 mod content;
 mod content_pack;
 mod effects;

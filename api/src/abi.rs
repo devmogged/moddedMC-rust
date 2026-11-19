@@ -928,3 +928,62 @@ pub struct ResourcesV1 {
     /// 0 before datapacks first load, then a new value after every load, `/reload` included.
     pub generation: unsafe extern "C" fn() -> u64,
 }
+
+pub const CONTAINERS: &str = "moddedmc:containers";
+
+/// The side for a container lookup without one, NeoForge's `null` side: every slot, no face rules.
+pub const NO_FACE: u8 = 6;
+
+/// Vanilla block containers (chests, barrels, hoppers, furnaces, shulker boxes, the composter and
+/// the rest a hopper sees) as NeoForge's `IItemHandler`, so ported mod code that moves items keeps
+/// its slot-by-slot semantics. `face` is the container's side being accessed, in vanilla order
+/// down, up, north, south, west, east, or `NO_FACE`; a sided container then shows only that face's
+/// slots. Stacks are saved `ItemStack` NBT as in `moddedmc:item_stacks`.
+#[repr(C)]
+pub struct ContainersV1 {
+    pub size: usize,
+    /// `getSlots`, or -1 when there is no container at the position.
+    pub slots: unsafe extern "C" fn(world: WorldRef, position: Pos, face: u8) -> i32,
+    /// `getStackInSlot`, one `out` call. False for an empty slot or no container.
+    pub stack: unsafe extern "C" fn(
+        world: WorldRef,
+        position: Pos,
+        face: u8,
+        slot: u32,
+        out: Sink,
+    ) -> bool,
+    /// `getSlotLimit`, 0 when there is no such slot.
+    pub slot_limit:
+        unsafe extern "C" fn(world: WorldRef, position: Pos, face: u8, slot: u32) -> u32,
+    /// `insertItem`: what didn't go in goes to `out`, nothing when all of it did. False, leaving
+    /// the stack with the caller, for no container or an unreadable stack.
+    pub insert: unsafe extern "C" fn(
+        world: WorldRef,
+        position: Pos,
+        face: u8,
+        slot: u32,
+        stack: Str,
+        simulate: bool,
+        out: Sink,
+    ) -> bool,
+    /// `ItemHandlerHelper.insertItemStacked`: matching stacks first, then empty slots, in one call.
+    /// The remainder goes to `out` as for `insert`.
+    pub insert_stacked: unsafe extern "C" fn(
+        world: WorldRef,
+        position: Pos,
+        face: u8,
+        stack: Str,
+        simulate: bool,
+        out: Sink,
+    ) -> bool,
+    /// `extractItem`: the stack taken goes to `out`. False when nothing could be taken.
+    pub extract: unsafe extern "C" fn(
+        world: WorldRef,
+        position: Pos,
+        face: u8,
+        slot: u32,
+        amount: u32,
+        simulate: bool,
+        out: Sink,
+    ) -> bool,
+}

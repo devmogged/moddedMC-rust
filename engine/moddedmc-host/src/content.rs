@@ -149,7 +149,7 @@ struct Overlay {
     moving: bool,
 }
 
-const fn block_pos(pos: Pos) -> BlockPos {
+pub const fn block_pos(pos: Pos) -> BlockPos {
     BlockPos(Vector3::new(pos.x, pos.y, pos.z))
 }
 

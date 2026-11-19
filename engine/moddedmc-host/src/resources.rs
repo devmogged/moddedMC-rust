@@ -23,7 +23,9 @@ fn valid_path(path: &str) -> bool {
         && path
             .bytes()
             .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.' | b'/'))
-        && path.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
 fn valid_namespace(namespace: &str) -> bool {
@@ -114,8 +116,7 @@ unsafe extern "C" fn read(id: Str, out: Sink) -> bool {
     };
     let mut bytes = Vec::new();
     let limit = u64::try_from(MAX_RESOURCE_BYTES).unwrap_or(u64::MAX);
-    if handle.take(limit + 1).read_to_end(&mut bytes).is_err() || bytes.len() > MAX_RESOURCE_BYTES
-    {
+    if handle.take(limit + 1).read_to_end(&mut bytes).is_err() || bytes.len() > MAX_RESOURCE_BYTES {
         return false;
     }
     // SAFETY: the bytes are live until the synchronous sink returns.
