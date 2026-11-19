@@ -12,6 +12,13 @@ botstart tester
 wait 3
 expect \[bot\] joined as tester
 expect offered the resource pack to tester
+# Vanilla commands take a modded block's own properties.
+cmd setblock 0 200 0 shaft:shaft[axis=x]
+wait 1
+expect Changed the block at 0, 200, 0
+cmd setblock 0 201 0 shaft:shaft[axis=w]
+wait 1
+expect does not have property
 reject (?i)panic|panicked
 bot quit
 stop

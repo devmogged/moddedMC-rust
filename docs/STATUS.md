@@ -199,3 +199,14 @@ The server and mods build for the Pi 5 (`aarch64-unknown-linux-gnu`, glibc 2.36 
 - It loads `pillar.mmc` from its `linux-aarch64.so` (37 ms); the bot joins and `/pillar` and `/pillarstruct` work.
 - The scenarios on ARM64: `scripts\scenario.ps1 -Exe <wrapper> -WaitScale 4`, where the wrapper is a `.cmd` running `wsl.exe -- qemu-aarch64 -L <arm64 glibc root> <ARM64 pumpkin>` (mods packed with `-Pi`). abi-world, abi-blocks, menus, biomes, drivetrain, worldgen, resource-pack and m2-wayshrine pass. abi-entities passed on its second run (its first missed the cactus damage step under emulation). m1-counter cannot pass emulated: its expected counts are calibrated to wall time at a scale of 1, and at that scale its setup commands run before the slow emulated chunk generation loads the area. Its log still shows the counter surviving a chunk reload (5, unloaded, then 9).
 - Not measured: startup, tick time and memory on a real Pi 5.
+
+## Stock 26.3 client (2026-11-19)
+
+The vanilla 26.3 client (offline, launched straight from Mojang's jars and libraries in `cache/`, joining with `--quickPlayMultiplayer`) against the release server with frost, wisp, backpack, pillar and counter, then shaft:
+
+- It joins through the configuration phase with the modded `frost:glacier` biome in its registries.
+- `/glacier` repaints the area: grass and foliage take the biome's colors (`#b8e8f0`, `#a0d8e8`).
+- `/smelter` opens the furnace-style machine screen titled "Smelter" with its progress arrow.
+- The mods' resource pack is offered, and with the server marked to accept packs the client downloads and applies it: its resource manager loads `server/.../d58f98d2-...`, the SHA-1 the server announced.
+- Found and fixed: vanilla commands rejected a modded block's properties (`/setblock shaft:shaft[axis=y]`: "does not have property 'axis'"). The command parser now resolves modded states by name (engine patch); `tests/scenarios/resource-pack.txt` checks it.
+- Not seen yet: the shaft block and its item name in the client. The client also sometimes stalls while loading resources before it connects (3 of 10 launches), with nothing logged.

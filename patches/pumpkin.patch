@@ -80,6 +80,68 @@ index d4fe77a5f..4c9858843 100644
  pumpkin-data = { path = "crates/pumpkin-data", default-features = false }
  pumpkin-gametest = { path = "crates/pumpkin-gametest", default-features = false }
  pumpkin-inventory = { path = "crates/pumpkin-inventory", default-features = false }
+diff --git a/crates/pumpkin-command/src/argument_types/block.rs b/crates/pumpkin-command/src/argument_types/block.rs
+index 1990552f2..853647b15 100644
+--- a/crates/pumpkin-command/src/argument_types/block.rs
++++ b/crates/pumpkin-command/src/argument_types/block.rs
+@@ -185,6 +185,43 @@ fn read_block_properties(
+     }
+ }
+ 
++/// moddedmc: `[k=v,...]` of a modded block, resolved by `modded::state_with`.
++fn read_modded_properties(
++    reader: &mut StringReader,
++    block: &'static Block,
++    block_id: &str,
++) -> Result<BlockStateId, CommandSyntaxError> {
++    if reader.peek() != Some('[') {
++        return Ok(block.default_state.id);
++    }
++    reader.skip();
++    let start = reader.cursor();
++    let mut raw = String::new();
++    while let Some(c) = reader.peek() {
++        if c == ']' {
++            break;
++        }
++        raw.push(c);
++        reader.skip();
++    }
++    if reader.peek() != Some(']') {
++        return Err(ERROR_UNCLOSED_PROPERTIES.create(reader));
++    }
++    reader.skip();
++    let pairs = raw.split(',').filter(|p| !p.trim().is_empty()).map(|p| {
++        p.split_once('=')
++            .map_or((p.trim(), ""), |(k, v)| (k.trim(), v.trim()))
++    });
++    pumpkin_data::modded::state_with(block, pairs).ok_or_else(|| {
++        reader.set_cursor(start);
++        ERROR_UNKNOWN_PROPERTY.create(
++            reader,
++            TextComponent::text(block_id.to_string()),
++            TextComponent::text(raw.clone()),
++        )
++    })
++}
++
+ pub(crate) fn parse_block_input(
+     reader: &mut StringReader,
+     allow_nbt: bool,
+@@ -209,6 +246,13 @@ fn parse_block_input_inner(
+         return Err(INVALID_BLOCK_ERROR_TYPE.create(reader, TextComponent::text(id_str)));
+     };
+ 
++    // moddedmc: a modded block's properties are not vanilla `Property`s; its state is picked by name.
++    if pumpkin_data::modded::is_modded(block.default_state.id) {
++        let state_id = read_modded_properties(reader, block, &id_str)?;
++        let nbt = if allow_nbt { parse_nbt_compound(reader)? } else { None };
++        return Ok(BlockInput::new(block, state_id, Vec::new(), nbt));
++    }
++
+     let defined_properties = if reader.peek() == Some('[') {
+         read_block_properties(reader, block, &id_str)?
+     } else {
 diff --git a/crates/pumpkin-core/src/block/mod.rs b/crates/pumpkin-core/src/block/mod.rs
 index c851ea4aa..5225adafa 100644
 --- a/crates/pumpkin-core/src/block/mod.rs
