@@ -795,7 +795,7 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
     }
 }
 
-const unsafe fn world<'a>(world: WorldRef) -> Option<&'a World> {
+pub const unsafe fn world<'a>(world: WorldRef) -> Option<&'a World> {
     // SAFETY: the caller keeps the world alive for the operation.
     unsafe { world.cast::<World>().as_ref() }
 }
@@ -978,6 +978,17 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     view: entity_view,
     type_id: entity_type_id,
     change: entity_change,
+    id: crate::entities::id,
+    with_entity: crate::entities::with_entity,
+    flags: crate::entities::flags,
+    move_by: crate::entities::move_by,
+    set_position: crate::entities::set_position,
+    body: crate::entities::body,
+    reset_fall_distance: crate::entities::reset_fall_distance,
+    add_effect: crate::entities::add_effect,
+    step_height: crate::entities::step_height,
+    set_step_height: crate::entities::set_step_height,
+    entities_in: crate::entities::entities_in,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
@@ -995,7 +1006,7 @@ unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> 
 
 /// # Safety
 /// `raw` points at the `&dyn EntityBase` a callback passed, still live.
-const unsafe fn entity<'a>(raw: abi::EntityRef) -> Option<&'a dyn EntityBase> {
+pub const unsafe fn entity<'a>(raw: abi::EntityRef) -> Option<&'a dyn EntityBase> {
     // SAFETY: the caller passes a pointer to a live `&dyn EntityBase`.
     match unsafe { raw.cast::<&dyn EntityBase>().as_ref() } {
         Some(entity) => Some(*entity),

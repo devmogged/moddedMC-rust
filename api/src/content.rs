@@ -226,6 +226,10 @@ unsafe extern "C" fn bytes(ctx: *mut c_void, _key: u64, value: abi::Str) {
 }
 
 impl World<'_> {
+    pub(crate) const fn raw(self) -> abi::WorldRef {
+        self.raw
+    }
+
     /// A world handle another interface's callback passed in, using the block-world table.
     pub(crate) fn borrowed(raw: abi::WorldRef) -> Option<Self> {
         Some(World {

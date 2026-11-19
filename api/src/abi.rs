@@ -608,6 +608,21 @@ pub struct EntityView {
     pub body_yaw: f32,
 }
 
+/// A vector passed by value; bare arrays aren't FFI-safe arguments.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Vec3(pub [f64; 3]);
+
+/// An entity's collision box and, for living entities, its movement input (vanilla `xxa`,
+/// `yya`, `zza`; zero otherwise).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EntityBody {
+    pub min: [f64; 3],
+    pub max: [f64; 3],
+    pub input: [f64; 3],
+}
+
 pub const SET_MOTION: u32 = 1;
 pub const SET_YAW: u32 = 2;
 pub const SET_HEAD_YAW: u32 = 4;
@@ -641,7 +656,55 @@ pub struct EntitiesV1 {
     pub type_id: unsafe extern "C" fn(entity: EntityRef) -> Str,
     /// Apply an `EntityChange`; motion changes are sent to clients like vanilla `hurtMarked`.
     pub change: unsafe extern "C" fn(entity: EntityRef, change: *const EntityChange) -> bool,
+    /// Appended after the first release: ids, lookup and movement. Require
+    /// `EntitiesExtension::Movement`.
+    pub id: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    /// Call `visit` with the loaded entity `id` in `world`, valid only during that call. Returns
+    /// false when there is no such entity.
+    pub with_entity: unsafe extern "C" fn(
+        world: WorldRef,
+        id: i32,
+        ctx: *mut c_void,
+        visit: unsafe extern "C" fn(ctx: *mut c_void, entity: EntityRef),
+    ) -> bool,
+    /// `ENTITY_ALIVE`, `ENTITY_SNEAKING` and `ENTITY_FLYING` bits.
+    pub flags: unsafe extern "C" fn(entity: EntityRef) -> u32,
+    /// Vanilla `Entity.move(MoverType.SELF, delta)`: collide with blocks and step up.
+    pub move_by: unsafe extern "C" fn(entity: EntityRef, delta: Vec3),
+    pub set_position: unsafe extern "C" fn(entity: EntityRef, position: Vec3),
+    pub body: unsafe extern "C" fn(entity: EntityRef, out: *mut EntityBody) -> bool,
+    pub reset_fall_distance: unsafe extern "C" fn(entity: EntityRef),
+    /// Vanilla `LivingEntity.addEffect` for a status effect id such as `minecraft:slowness`.
+    /// False when the entity isn't living or the effect is unknown.
+    pub add_effect: unsafe extern "C" fn(
+        entity: EntityRef,
+        effect: Str,
+        duration: i32,
+        amplifier: u8,
+        ambient: bool,
+        visible: bool,
+    ) -> bool,
+    /// The `minecraft:step_height` base value, or NaN when the entity isn't living.
+    pub step_height: unsafe extern "C" fn(entity: EntityRef) -> f64,
+    pub set_step_height: unsafe extern "C" fn(entity: EntityRef, value: f64),
+    /// Ids of the entities whose boxes intersect `min..max`, except `except`. Returns how many
+    /// there are, which can exceed `capacity`.
+    pub entities_in: unsafe extern "C" fn(
+        world: WorldRef,
+        min: Vec3,
+        max: Vec3,
+        except: i32,
+        out: *mut i32,
+        capacity: usize,
+    ) -> usize,
 }
+
+/// Size of the entities table before `id` was appended.
+pub const ENTITIES_V1_BASE_SIZE: usize = std::mem::offset_of!(EntitiesV1, id);
+
+pub const ENTITY_ALIVE: u32 = 1;
+pub const ENTITY_SNEAKING: u32 = 2;
+pub const ENTITY_FLYING: u32 = 4;
 
 pub const INTERACTION: &str = "moddedmc:interaction";
 
