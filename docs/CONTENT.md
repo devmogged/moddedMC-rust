@@ -1,6 +1,6 @@
 # Content model (design for v1)
 
-This is how mods add blocks, items, entities and the rest so that Create, Saints Dragons and Cataclysm can be ported faithfully. Today's content host (M1/M2: a vanilla stand-in block with opaque state bytes) is a prototype; v1 replaces it with first-class engine registries. Engine work lands in `devmogged/Pumpkin`. All [ports](PORTS.md) get access through named, versioned interfaces.
+This is how mods add blocks, items, entities and the rest so that Create, Saints Dragons and Cataclysm can be ported faithfully. The host supports first-class blocks, items and block entities alongside the legacy M1/M2 stand-in API. Engine work lands in `devmogged/Pumpkin`. All [ports](PORTS.md) get access through named, versioned interfaces.
 
 ## Principles
 
@@ -30,3 +30,12 @@ Blocks and block states, items, block entities, entity types, menus (container G
 2. Items and block entities on the same path.
 3. Entities, display-entity rigs and animated models (GeckoLib format, for Saints Dragons and Cataclysm).
 4. Companion view.
+
+
+## Java vanilla view
+
+The host freezes custom definitions before the root world opens and stores the append-only raw id map under `world/moddedmc/registry.dat` (using the configured level folder name). Unregistered saved state ids resolve to air. Anvil chunks save names and properties. Pumpkin chunks use the persisted numeric ids.
+
+The current Java connections all use the same vanilla view. The host reserves powered note block states for static block models or invisible carriers with tracked item displays. An ordinary note block that occupies a reserved slot is sent as the unpowered variant with the same note and instrument. Custom items use a paper base plus an item-model component. The server keeps the actual item in inventory and uses its own state when processing clicks and item use. An incoming creative stack with a registered model and the matching carrier is restored to the actual item. Chunk palettes and block updates translate at their wire boundaries.
+
+Pack generation copies the referenced model and texture dependencies from local jars. The generated ZIP is required when real content is present and takes the Java pack offer. The stock outline follows the carrier. Server-side collision and outline queries use the registered shapes.

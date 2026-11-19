@@ -2067,6 +2067,9 @@ dependencies = [
  "pumpkin-data",
  "pumpkin-protocol",
  "pumpkin-util",
+ "reqwest",
+ "rustls",
+ "sha1 0.11.0",
  "tokio",
  "uuid",
 ]
@@ -2075,8 +2078,11 @@ dependencies = [
 name = "moddedmc-host"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "bytes",
  "libloading",
  "moddedmc-api",
+ "pumpkin-config",
  "pumpkin-core",
  "pumpkin-data",
  "pumpkin-inventory",
@@ -2085,9 +2091,11 @@ dependencies = [
  "pumpkin-util",
  "pumpkin-world",
  "serde_json",
+ "sha1 0.11.0",
  "sha2 0.11.1",
  "tokio",
  "tracing",
+ "uuid",
  "zip",
 ]
 

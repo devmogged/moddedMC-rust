@@ -56,6 +56,15 @@ const EXT: &str = std::env::consts::DLL_EXTENSION;
 pub struct Native {
     pub api: &'static ModApi,
     pub id: &'static str,
+    pub pre_world: bool,
+}
+
+thread_local! {
+    static PRE_WORLD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+pub fn request_pre_world() {
+    PRE_WORLD.set(true);
 }
 
 /// Loads every mod in `dir`. Problems with one mod are logged and skip only that mod.
@@ -214,11 +223,17 @@ fn load(path: &Path) -> Result<Native, String> {
         let entry = library
             .get::<unsafe extern "C" fn(*const HostApi) -> *const ModApi>(ENTRY_SYMBOL)
             .map_err(|_| "not a moddedMC mod (no moddedmc_mod)".to_owned())?;
+        PRE_WORLD.set(false);
         let api = entry(Box::leak(Box::new(host_api(id))));
+        let pre_world = PRE_WORLD.replace(false);
         if api.is_null() {
             return Err("the mod refused to start".into());
         }
-        Native { api: &*api, id }
+        Native {
+            api: &*api,
+            id,
+            pre_world,
+        }
     };
     // Never unloaded: the mod's code and statics must outlive every call into it.
     std::mem::forget(library);

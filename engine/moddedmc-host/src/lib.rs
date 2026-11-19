@@ -7,6 +7,8 @@
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
 mod console;
+mod content;
+mod content_pack;
 mod interfaces;
 mod live_stats;
 mod native;
@@ -104,6 +106,8 @@ pub struct Staging<'a> {
     commands: Vec<(String, String, u64)>,
     command_trees: Vec<interfaces::CommandTree>,
     on_stopping: Option<abi::StopCallback>,
+    content: Vec<content::Registration>,
+    content_tick: Option<abi::ContentTick>,
 }
 
 /// Loaded custom blocks of one world.
@@ -120,6 +124,7 @@ type PendingPlace = (Weak<World>, BlockPos, usize, Option<Arc<Player>>);
 #[derive(Default)]
 struct Host {
     mods: Mutex<Vec<ContentMod>>,
+    commands: Mutex<Vec<PendingCommands>>,
     registry: RwLock<Registry>,
     /// Placed custom blocks whose block entity appears later this tick.
     pending_places: Mutex<Vec<PendingPlace>>,
@@ -156,10 +161,15 @@ pub fn load_mods() {
                 started.elapsed()
             );
         }
-        lock(&HOST.mods).extend(mods.into_iter().map(|module| ContentMod {
+        lock(&HOST.mods).extend(mods.iter().copied().map(|module| ContentMod {
             module,
-            registered: false,
+            registered: module.pre_world,
         }));
+        for (index, module) in mods.into_iter().enumerate() {
+            if module.pre_world {
+                register_mod(index, module);
+            }
+        }
     });
 }
 
@@ -178,7 +188,7 @@ pub fn attach(server: &Arc<Server>) {
         EventPriority::Normal,
         true,
     );
-    load_mods();
+    install_commands(server);
     interfaces::watch_shutdown(server);
     stats::attach(server);
     live_stats::attach(server);
@@ -191,7 +201,10 @@ fn give_block(player: &Player, block_id: &str) -> bool {
             .block(block_id)
             .and_then(|i| block_item(&registry.blocks[i]))
     };
-    let Some(stack) = stack else {
+    let Some(stack) = stack.or_else(|| {
+        let block = pumpkin_data::content::block(block_id)?;
+        Some(ItemStack::new(1, Item::from_id(block.item_id)?))
+    }) else {
         return false;
     };
     let slot = player.inventory().get_selected_slot() as usize;
@@ -316,7 +329,9 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
         event: &'a mut ServerTickStartEvent,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            register_new_mods(server);
+            if event.tick <= 1 {
+                register_legacy_mods(server);
+            }
             apply_pending_places();
             console::run_queued(server);
             if event.tick % DISCOVERY_INTERVAL == 0 {
@@ -325,77 +340,119 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
                 stats::TIMING.add_discover(started);
             }
             tick_due(event.tick);
+            content::tick(server, event.tick as u64);
         })
     }
 }
 
-fn register_new_mods(server: &Server) {
-    let pending: Vec<(usize, Native)> = {
-        let mut mods = lock(&HOST.mods);
-        mods.iter_mut()
-            .enumerate()
-            .filter(|(_, m)| !m.registered)
-            .map(|(i, m)| {
-                m.registered = true;
-                (i, m.module)
-            })
-            .collect()
-    };
-    for (mod_idx, module) in pending {
-        let (result, entity_types, blocks, commands, command_trees, on_stopping) = {
-            let registry = read(&HOST.registry);
-            let mut staging = Staging {
-                registry: &registry,
-                mod_idx,
-                entity_types: Vec::new(),
-                blocks: Vec::new(),
-                commands: Vec::new(),
-                command_trees: Vec::new(),
-                on_stopping: None,
-            };
-            let result = module.register(&mut staging);
-            (
-                result,
-                staging.entity_types,
-                staging.blocks,
-                staging.commands,
-                staging.command_trees,
-                staging.on_stopping,
-            )
+struct PendingCommands {
+    module: Native,
+    legacy: Vec<(String, String, u64)>,
+    trees: Vec<interfaces::CommandTree>,
+}
+
+fn register_legacy_mods(server: &Server) {
+    let pending: Vec<_> = lock(&HOST.mods)
+        .iter_mut()
+        .enumerate()
+        .filter(|(_, entry)| !entry.registered)
+        .map(|(index, entry)| {
+            entry.registered = true;
+            (index, entry.module)
+        })
+        .collect();
+    for (index, module) in pending {
+        register_mod(index, module);
+    }
+    install_commands(server);
+}
+
+fn register_mod(mod_idx: usize, module: Native) {
+    let (
+        result,
+        entity_types,
+        blocks,
+        commands,
+        command_trees,
+        on_stopping,
+        definitions,
+        content_tick,
+    ) = {
+        let registry = read(&HOST.registry);
+        let mut staging = Staging {
+            registry: &registry,
+            mod_idx,
+            entity_types: Vec::new(),
+            blocks: Vec::new(),
+            commands: Vec::new(),
+            command_trees: Vec::new(),
+            on_stopping: None,
+            content: Vec::new(),
+            content_tick: None,
         };
-        if result != code::OK {
-            tracing::error!(
-                "moddedmc: {} failed to register (code {result}); its content is disabled",
-                module.id
-            );
-            continue;
-        }
-        let mut registry = write(&HOST.registry);
-        for t in &entity_types {
-            tracing::info!("moddedmc: registered block entity {}", t.id);
-        }
-        for b in &blocks {
-            tracing::info!(
-                "moddedmc: registered block {} (stand-in minecraft:{})",
-                b.id,
-                b.stand_in.name
-            );
-        }
-        registry.entity_types.extend(entity_types);
-        registry.blocks.extend(blocks);
-        drop(registry);
-        if let Some(callback) = on_stopping {
-            interfaces::register_stopping(callback);
-        }
-        for tree in command_trees {
+        let result = module.register(&mut staging);
+        (
+            result,
+            staging.entity_types,
+            staging.blocks,
+            staging.commands,
+            staging.command_trees,
+            staging.on_stopping,
+            staging.content,
+            staging.content_tick,
+        )
+    };
+    if result != code::OK {
+        tracing::error!(
+            "moddedmc: {} failed to register (code {result}); its content is disabled",
+            module.id
+        );
+        return;
+    }
+    let mut registry = write(&HOST.registry);
+    for t in &entity_types {
+        tracing::info!("moddedmc: registered block entity {}", t.id);
+    }
+    for b in &blocks {
+        tracing::info!(
+            "moddedmc: registered block {} (stand-in minecraft:{})",
+            b.id,
+            b.stand_in.name
+        );
+    }
+    registry.entity_types.extend(entity_types);
+    registry.blocks.extend(blocks);
+    drop(registry);
+    if let Some(callback) = on_stopping {
+        interfaces::register_stopping(callback);
+    }
+    content::register(mod_idx, definitions, content_tick);
+    lock(&HOST.commands).push(PendingCommands {
+        module,
+        legacy: commands,
+        trees: command_trees,
+    });
+}
+
+fn install_commands(server: &Server) {
+    let pending = std::mem::take(&mut *lock(&HOST.commands));
+    for PendingCommands {
+        module,
+        legacy,
+        trees,
+    } in pending
+    {
+        for tree in trees {
             interfaces::register_tree(server, module, tree);
         }
-        for (name, description, tag) in commands {
+        for (name, description, tag) in legacy {
             tracing::info!("moddedmc: registered command /{name} ({})", module.id);
             native::register_command(server, module, name, description, tag);
         }
     }
 }
+
+pub use content::open_world;
 
 fn apply_pending_places() {
     let pending = std::mem::take(&mut *lock(&HOST.pending_places));

@@ -411,6 +411,19 @@ mod layout {
         assert_eq!(offset_of!(LifecycleV1, on_stopping), 8);
         assert!(size_of::<LifecycleV1>() >= 16);
 
+        assert_eq!(offset_of!(ContentV1, size), 0);
+        assert_eq!(offset_of!(ContentV1, add_block), 8);
+        assert_eq!(offset_of!(ContentV1, state), 16);
+        assert_eq!(offset_of!(ContentV1, on_tick), 24);
+        assert_eq!(offset_of!(BlockWorldV1, size), 0);
+        assert_eq!(offset_of!(BlockWorldV1, read), 8);
+        assert_eq!(offset_of!(BlockWorldV1, write), 16);
+        assert_eq!(offset_of!(BlockWorldV1, command_world), 24);
+        assert_eq!(offset_of!(BlockWorldV1, read_entity), 32);
+        assert_eq!(offset_of!(BlockWorldV1, write_entity), 40);
+        assert_eq!(offset_of!(BlockWorldV1, rotate), 48);
+        assert_eq!(size_of::<ShapeBox>(), 12);
+
         assert_eq!(offset_of!(CommandNode, name), 0);
         assert_eq!(offset_of!(CommandNode, parent), 16);
         assert_eq!(offset_of!(CommandNode, kind), 20);
@@ -429,4 +442,116 @@ mod layout {
         assert_eq!(size_of::<CommandCall>(), 32);
         assert_eq!(size_of::<MenuButton>(), 48);
     }
+}
+pub const CONTENT: &str = "moddedmc:content";
+pub const BLOCK_WORLD: &str = "moddedmc:block_world";
+pub const UNLOADED_STATE: u32 = u32::MAX;
+pub const MAX_WORLD_BATCH: usize = 4096;
+
+pub const UPDATE_NEIGHBORS: u8 = 1;
+pub const UPDATE_CLIENTS: u8 = 2;
+pub const UPDATE_ALL: u8 = UPDATE_NEIGHBORS | UPDATE_CLIENTS;
+
+#[repr(C)]
+pub struct StateDefinition {
+    /// Comma-separated name=value pairs, in any order.
+    pub properties: Str,
+    /// Vanilla state selector used for physics and sound.
+    pub physical: Str,
+    /// Static block model and optional rotating display model.
+    pub model: Str,
+    pub rotating_model: Str,
+    /// Static model rotation in degrees about Y, then X.
+    pub x: i16,
+    pub y: i16,
+    /// Initial orientation for the rotating model, as an XYZW unit quaternion.
+    pub orientation: [f32; 4],
+    /// Optional replacement for physics and outline boxes, in sixteenths of a block.
+    pub shape: *const ShapeBox,
+    pub shape_count: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ShapeBox {
+    pub min: [i16; 3],
+    pub max: [i16; 3],
+}
+
+#[repr(C)]
+pub struct ContentBlockDefinition {
+    pub id: Str,
+    pub display_name: Str,
+    /// Empty for a block with no persistent block entity.
+    pub entity: Str,
+    pub item_model: Str,
+    pub states: *const StateDefinition,
+    pub count: usize,
+    pub on_place: Option<ContentPlacement>,
+}
+
+pub type WorldRef = *const c_void;
+
+#[repr(C)]
+pub struct Placement {
+    pub world: WorldRef,
+    pub state: u32,
+    pub position: Pos,
+    /// Vanilla directions in order down, up, north, south, west, east.
+    pub face: u8,
+    pub sneak: bool,
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+pub type ContentPlacement = unsafe extern "C" fn(placement: *const Placement) -> u32;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BlockUpdate {
+    pub position: Pos,
+    pub state: u32,
+    pub flags: u8,
+}
+
+pub const STATE_CHANGED: u8 = 0;
+pub const NEIGHBOR_CHANGED: u8 = 1;
+pub const LOADED: u8 = 2;
+pub const UNLOADED: u8 = 3;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ContentEvent {
+    pub position: Pos,
+    pub previous: u32,
+    pub state: u32,
+    pub reason: u8,
+}
+
+pub type ContentTick =
+    unsafe extern "C" fn(world: WorldRef, tick: u64, events: *const ContentEvent, count: usize);
+
+#[repr(C)]
+pub struct ContentV1 {
+    pub size: usize,
+    pub add_block: unsafe extern "C" fn(reg: Reg, def: *const ContentBlockDefinition) -> i32,
+    /// Exact name[single=value,...] selector. Missing definitions return UNLOADED_STATE.
+    pub state: unsafe extern "C" fn(selector: Str) -> u32,
+    pub on_tick: unsafe extern "C" fn(reg: Reg, callback: ContentTick) -> i32,
+}
+
+#[repr(C)]
+pub struct BlockWorldV1 {
+    pub size: usize,
+    pub read:
+        unsafe extern "C" fn(world: WorldRef, pos: *const Pos, out: *mut u32, count: usize) -> bool,
+    /// Validate every entry, then apply in input order. Returns the count applied.
+    pub write:
+        unsafe extern "C" fn(world: WorldRef, updates: *const BlockUpdate, count: usize) -> usize,
+    pub command_world: unsafe extern "C" fn(source: *const c_void) -> WorldRef,
+    /// Read/write Java named-root binary NBT for a custom block entity.
+    pub read_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: Sink) -> bool,
+    pub write_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, nbt: Str) -> bool,
+    /// Rotation rate in RPM about positive X (0), Y (1), or Z (2).
+    pub rotate: unsafe extern "C" fn(world: WorldRef, pos: Pos, axis: u8, rpm: f32) -> bool,
 }

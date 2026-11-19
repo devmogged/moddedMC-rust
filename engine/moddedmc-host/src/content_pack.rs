@@ -1,0 +1,390 @@
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    fmt::Write as _,
+    fs::{self, File},
+    io::{self, Cursor, Read, Write},
+    net::{SocketAddr, TcpListener},
+    path::PathBuf,
+};
+
+use axum::{Router, routing::get};
+use bytes::Bytes;
+use pumpkin_config::resource_pack::JavaResourcePackConfig;
+use pumpkin_data::Block;
+use serde_json::{Value, json};
+use sha1::{Digest, Sha1};
+use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
+
+const EMPTY_MODEL: &str = "moddedmc:block/empty";
+const PLACEHOLDER: &str = "moddedmc:block/placeholder";
+const MAX_ASSET: u64 = 8 * 1024 * 1024;
+
+pub struct BlockAssets {
+    pub id: String,
+    pub item_model: String,
+    pub states: Vec<StateAssets>,
+}
+
+pub struct StateAssets {
+    pub model: String,
+    pub rotating_model: String,
+    pub x: i16,
+    pub y: i16,
+    pub orientation: [f32; 4],
+}
+
+pub struct OverlayModel {
+    pub id: String,
+    pub orientation: [f32; 4],
+}
+
+pub fn valid_model(name: &str) -> bool {
+    name.is_empty()
+        || name.split_once(':').is_some_and(|(namespace, path)| {
+            const fn byte(c: u8) -> bool {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'_' | b'-' | b'.')
+            }
+            !namespace.is_empty()
+                && namespace.bytes().all(byte)
+                && path.split('/').all(|piece| {
+                    !piece.is_empty() && piece != "." && piece != ".." && piece.bytes().all(byte)
+                })
+        })
+}
+
+pub fn configure(
+    address: &SocketAddr,
+    config: &mut JavaResourcePackConfig,
+    blocks: &[BlockAssets],
+) -> io::Result<HashMap<u16, OverlayModel>> {
+    if blocks.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let (bytes, display_models) = build_pack(blocks)?;
+    let mut hash = String::with_capacity(40);
+    for byte in Sha1::digest(&bytes) {
+        let _ = write!(hash, "{byte:02x}");
+    }
+    fs::create_dir_all("cache/moddedmc")?;
+    fs::write(format!("cache/moddedmc/resource-pack-{hash}.zip"), &bytes)?;
+
+    let default_bind = SocketAddr::new(
+        address.ip(),
+        address
+            .port()
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("no adjacent resource pack port"))?,
+    );
+    let bind = std::env::var("MODDEDMC_PACK_BIND").map_or(Ok(default_bind), |value| {
+        value.parse().map_err(io::Error::other)
+    })?;
+    let listener = TcpListener::bind(bind)?;
+    listener.set_nonblocking(true)?;
+    let port = listener.local_addr()?.port();
+    let path = format!("/resource-pack-{hash}.zip");
+    let zip = Bytes::from(bytes);
+    let app = Router::new().route(
+        &path,
+        get(move || async move { ([("content-type", "application/zip")], zip) }),
+    );
+    let listener = tokio::net::TcpListener::from_std(listener)?;
+    tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, app).await {
+            tracing::error!("moddedmc: resource pack HTTP server stopped: {error}");
+        }
+    });
+    config.enabled = true;
+    config.force = true;
+    config.url = std::env::var("MODDEDMC_PACK_URL")
+        .unwrap_or_else(|_| format!("http://{{host}}:{port}{path}"));
+    config.sha1 = hash;
+    tracing::info!(
+        "moddedmc: serving resource pack on port {port} (SHA-1 {})",
+        config.sha1
+    );
+    Ok(display_models)
+}
+
+fn build_pack(blocks: &[BlockAssets]) -> io::Result<(Vec<u8>, HashMap<u16, OverlayModel>)> {
+    let mut pack = Pack::default();
+    pack.json(
+        "pack.mcmeta",
+        &json!({"pack": {
+            "description": "moddedMC content",
+            "min_format": [97, 1],
+            "max_format": [97, 1],
+        }}),
+    )?;
+    pack.json(
+        "assets/moddedmc/models/block/empty.json",
+        &json!({"elements": []}),
+    )?;
+    pack.json(
+        "assets/moddedmc/models/block/placeholder.json",
+        &json!({
+            "parent": "minecraft:block/cube_all",
+            "textures": {"all": "moddedmc:block/placeholder"}
+        }),
+    )?;
+    pack.files.insert(
+        "assets/moddedmc/textures/block/placeholder.png".to_owned(),
+        PLACEHOLDER_PNG.to_vec(),
+    );
+
+    let mut note_variants =
+        BTreeMap::from([(String::new(), json!({"model":"minecraft:block/note_block"}))]);
+    let mut display_models = HashMap::new();
+    for block in blocks {
+        let Some(registered) = Block::from_name(&block.id) else {
+            continue;
+        };
+        let Some((namespace, path)) = block.id.split_once(':') else {
+            continue;
+        };
+        pack.item(
+            &format!("assets/{namespace}/items/{path}.json"),
+            &block.item_model,
+        )?;
+        for (index, (state, assets)) in registered.states.iter().zip(&block.states).enumerate() {
+            if assets.model.is_empty() && assets.rotating_model.is_empty() {
+                continue;
+            }
+            let carrier = state.id.vanilla_view();
+            let Some(key) = note_variant(carrier) else {
+                continue;
+            };
+            let model = if assets.model.is_empty() {
+                EMPTY_MODEL
+            } else {
+                pack.model(&assets.model)
+            };
+            note_variants.insert(
+                key,
+                json!({
+                    "model": model,
+                    "x": assets.x.rem_euclid(360),
+                    "y": assets.y.rem_euclid(360),
+                }),
+            );
+            if !assets.rotating_model.is_empty() {
+                let model_id = format!("{namespace}:moddedmc/display/{path}/{index}");
+                pack.item(
+                    &format!("assets/{namespace}/items/moddedmc/display/{path}/{index}.json"),
+                    &assets.rotating_model,
+                )?;
+                display_models.insert(
+                    state.id.as_u16(),
+                    OverlayModel {
+                        id: model_id,
+                        orientation: assets.orientation,
+                    },
+                );
+            }
+        }
+    }
+    if note_variants.len() > 1 {
+        // The stock model is identical for every note variant. Individual carriers override it.
+        let default = note_variants
+            .remove("")
+            .unwrap_or_else(|| json!({"model":"minecraft:block/note_block"}));
+        for state in Block::NOTE_BLOCK.states {
+            if let Some(key) = note_variant(state.id) {
+                note_variants.entry(key).or_insert_with(|| default.clone());
+            }
+        }
+        pack.json(
+            "assets/minecraft/blockstates/note_block.json",
+            &json!({"variants": note_variants}),
+        )?;
+    }
+    if pack.missing {
+        tracing::warn!("moddedmc: some content pack assets are missing; using a placeholder");
+    }
+    Ok((pack.finish()?, display_models))
+}
+
+fn note_variant(state: pumpkin_data::BlockStateId) -> Option<String> {
+    let properties = Block::NOTE_BLOCK.properties(state)?;
+    Some(
+        properties
+            .to_props()
+            .iter()
+            .map(|prop| format!("{}={}", prop.key_str(), prop.value_str()))
+            .collect::<Vec<_>>()
+            .join(","),
+    )
+}
+
+#[derive(Default)]
+struct Pack {
+    files: BTreeMap<String, Vec<u8>>,
+    jars: HashMap<String, Option<ZipArchive<File>>>,
+    missing: bool,
+    visited: HashSet<String>,
+}
+
+impl Pack {
+    fn json(&mut self, path: &str, value: &Value) -> io::Result<()> {
+        self.files
+            .insert(path.to_owned(), serde_json::to_vec(value)?);
+        Ok(())
+    }
+
+    fn item(&mut self, path: &str, id: &str) -> io::Result<()> {
+        let model = self.model(id);
+        self.json(
+            path,
+            &json!({"model": {"type": "minecraft:model", "model": model}}),
+        )
+    }
+
+    fn model<'a>(&mut self, id: &'a str) -> &'a str {
+        if id.is_empty() || !valid_model(id) {
+            return PLACEHOLDER;
+        }
+        let Some((namespace, path)) = id.split_once(':') else {
+            return PLACEHOLDER;
+        };
+        if namespace == "minecraft" || namespace == "moddedmc" {
+            return id;
+        }
+        let key = format!("assets/{namespace}/models/{path}.json");
+        if !self.visited.insert(key.clone()) {
+            return if self.files.contains_key(&key) {
+                id
+            } else {
+                PLACEHOLDER
+            };
+        }
+        let Some(bytes) = self.asset(namespace, &key) else {
+            return PLACEHOLDER;
+        };
+        let Ok(mut model) = serde_json::from_slice::<Value>(&bytes) else {
+            self.missing = true;
+            return PLACEHOLDER;
+        };
+        if let Some(Value::String(parent)) = model.get_mut("parent")
+            && parent.contains(':')
+        {
+            let replacement = self.model(parent);
+            if replacement != parent {
+                *parent = replacement.to_owned();
+            }
+        }
+        if let Some(textures) = model.get_mut("textures").and_then(Value::as_object_mut) {
+            for value in textures.values_mut() {
+                let Some(id) = value.as_str() else {
+                    continue;
+                };
+                let Some((namespace, path)) = id.split_once(':') else {
+                    continue;
+                };
+                if namespace == "minecraft" || id.starts_with('#') || !valid_model(id) {
+                    continue;
+                }
+                let key = format!("assets/{namespace}/textures/{path}.png");
+                if !self.files.contains_key(&key) {
+                    if let Some(data) = self.asset(namespace, &key) {
+                        self.files.insert(key, data);
+                    } else {
+                        *value = Value::String(PLACEHOLDER.to_owned());
+                    }
+                }
+            }
+        }
+        if let Ok(bytes) = serde_json::to_vec(&model) {
+            self.files.insert(key, bytes);
+            id
+        } else {
+            self.missing = true;
+            PLACEHOLDER
+        }
+    }
+
+    fn asset(&mut self, namespace: &str, path: &str) -> Option<Vec<u8>> {
+        let jar = self
+            .jars
+            .entry(namespace.to_owned())
+            .or_insert_with(|| open_jar(namespace));
+        let bytes = jar.as_mut().and_then(|archive| {
+            let file = archive.by_name(path).ok()?;
+            if file.size() > MAX_ASSET {
+                return None;
+            }
+            let mut bytes = Vec::with_capacity(file.size() as usize);
+            file.take(MAX_ASSET + 1).read_to_end(&mut bytes).ok()?;
+            (bytes.len() as u64 <= MAX_ASSET).then_some(bytes)
+        });
+        self.missing |= bytes.is_none();
+        bytes
+    }
+
+    fn finish(self) -> io::Result<Vec<u8>> {
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for (name, bytes) in self.files {
+            zip.start_file(name, options)?;
+            zip.write_all(&bytes)?;
+        }
+        Ok(zip.finish()?.into_inner())
+    }
+}
+
+fn open_jar(namespace: &str) -> Option<ZipArchive<File>> {
+    let mut candidates: Vec<PathBuf> = std::env::var_os("MODDEDMC_ASSET_JARS")
+        .into_iter()
+        .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .collect();
+    let mut directories = std::env::current_dir().map_or_else(
+        |_| Vec::new(),
+        |dir| {
+            dir.ancestors()
+                .map(|parent| parent.join("cache"))
+                .collect::<Vec<_>>()
+        },
+    );
+    directories.push(PathBuf::from("D:/minecraft/buja_server/mods"));
+    for directory in directories {
+        let mut jars: Vec<_> = fs::read_dir(directory)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|file| file.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.starts_with(namespace)
+                            && name.as_bytes().get(namespace.len()) == Some(&b'-')
+                            && path
+                                .extension()
+                                .is_some_and(|ext| ext.eq_ignore_ascii_case("jar"))
+                    })
+            })
+            .collect();
+        jars.sort();
+        candidates.extend(jars.into_iter().rev());
+    }
+    let prefix = format!("assets/{namespace}/");
+    for path in candidates {
+        if let Some(zip) = File::open(&path)
+            .ok()
+            .and_then(|file| ZipArchive::new(file).ok())
+            && zip
+                .file_names()
+                .flatten()
+                .any(|name| name.starts_with(&prefix))
+        {
+            tracing::info!("moddedmc: using local {} resource assets", path.display());
+            return Some(zip);
+        }
+    }
+    None
+}
+
+const PLACEHOLDER_PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0,
+    0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 152, 213, 146, 10, 0, 3,
+    63, 1, 132, 169, 23, 106, 243, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];

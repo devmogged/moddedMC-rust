@@ -2,6 +2,7 @@
 //! connection alive, prints chat it receives, and runs steps read from stdin:
 //!   cmd <command without slash>
 //!   use <x> <y> <z>        right-click the top face of a block with the main hand
+//!   break <x> <y> <z>      start digging the block (instant in Creative)
 //!   click <action-id>      press a dialog button whose action is a custom click
 //!   quit
 //! Usage: moddedmc-bot <host:port> <name>
@@ -19,7 +20,7 @@ use pumpkin_protocol::{
         packet_encoder::TCPNetworkEncoder,
         server::play::{
             SChatCommand, SClientTickEnd, SConfirmTeleport, SCustomClickAction, SKeepAlive,
-            SPlayerPosition, SUseItemOn,
+            SPlayerAction, SPlayerPosition, SUseItemOn, Status,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -79,6 +80,22 @@ async fn main() -> Result<(), String> {
                 Some(position) => {
                     sequence += 1;
                     send(&writer, &use_item_on(position, sequence)).await
+                }
+                None => Err(format!("bad position: {rest}")),
+            },
+            "break" => match parse_pos(rest) {
+                Some(position) => {
+                    sequence += 1;
+                    send(
+                        &writer,
+                        &SPlayerAction {
+                            status: VarInt(Status::StartedDigging as i32),
+                            position,
+                            face: 1,
+                            sequence: VarInt(sequence),
+                        },
+                    )
+                    .await
                 }
                 None => Err(format!("bad position: {rest}")),
             },

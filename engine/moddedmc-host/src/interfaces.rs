@@ -52,6 +52,11 @@ static LIFECYCLE: abi::LifecycleV1 = abi::LifecycleV1 {
 pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void {
     // SAFETY: the name is borrowed for this call.
     match (unsafe { name.str() }, version) {
+        (abi::CONTENT, 1) => {
+            native::request_pre_world();
+            ptr::from_ref(&crate::content::CONTENT).cast()
+        }
+        (abi::BLOCK_WORLD, 1) => ptr::from_ref(&crate::content::WORLD).cast(),
         (abi::WORLD, 1) => ptr::from_ref(&WORLD).cast(),
         (abi::CHUNKS, 1) => ptr::from_ref(&CHUNKS).cast(),
         (abi::COMMANDS, 1) => ptr::from_ref(&COMMANDS).cast(),

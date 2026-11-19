@@ -22,7 +22,7 @@ There are two Cargo workspaces. `engine/` builds the server with Pumpkin's lints
 
 ## Engine changes (devmogged/Pumpkin, branch `moddedmc`)
 
-1. **Embedding** (`crates/pumpkin`). `pumpkin::run(Launch)` starts the server. The pack binary uses `before_worlds_loaded` to load mod libraries and `on_server_created` to attach the host's event handlers. The stock Pumpkin binary uses `Launch::default()`.
+1. **Embedding** (`crates/pumpkin`). `pumpkin::run(Launch)` starts the server. The pack binary uses `before_world_open` to load libraries and freeze real content against the configured world folder. `on_server_created` installs the commands and attaches the host event handlers. The stock Pumpkin binary uses `Launch::default()`.
 2. **`/forceload` fix**: forced chunks also take a chunk-load ticket (upstream only marked them active, so they never loaded). Upstreamable as is.
 3. **Dialog serialization** (`pumpkin-protocol/src/java/client/dialog.rs`): plugin-built Java dialogs are written in vanilla's network form (field names read from the 26.3 `net.minecraft.server.dialog` classes). Upstream returned an error that `try_send_packet` dropped. Inputs and item bodies are still left out.
 4. **Custom data write-through** (`World::set_block_entity_custom_data`): a write also updates the chunk's saved block-entity NBT and marks the chunk dirty. Upstream copies live block entities back into the chunk only in `save_block_entities`, and on player-leave unload the chunk has often already been written and dropped by then, so changes were lost. The same race still affects vanilla block-entity data (e.g. barrel contents); that is an upstream issue to report.
@@ -40,6 +40,8 @@ The full contract is [MOD-ABI.md](MOD-ABI.md). In short:
 - **Unloading.** Libraries stay loaded until the process exits.
 
 ## Content host
+
+The [real content path](CONTENT.md) freezes blocks, states and item definitions before worlds open. The host stages their definitions and builds the Java resource pack. Mods use named C tables for placement, ordered world events, batched world access, block entity NBT and signed display rotation. The legacy path below still serves Counter and Wayshrine.
 
 - **Registration.** On the first server tick the host calls each mod's `register` with a staging registry; blocks, block entities and commands are committed only if it returns success. Legacy commands are open root literals. The commands interface adds typed arguments and operator permissions.
 - **Identity and state.** A custom block is a vanilla stand-in block with a block entity (barrel, dropper, dispenser). The host stores `moddedmc:{id, v, s}` (block id, state layout version, state bytes) as custom data on the stand-in's block entity, which Pumpkin already saves with the chunk. An ordinary barrel has no such data and stays vanilla.
@@ -62,5 +64,5 @@ The full contract is [MOD-ABI.md](MOD-ABI.md). In short:
 - `pack-mod.ps1` packs only the library for the machine it runs on; other platforms are added to the zip by hand for now.
 - Libraries are never unloaded, so mods cannot be hot-reloaded.
 - Stand-ins must have a block entity; blocks without one need an engine-side identity store.
-- No resource pack delivery yet: custom blocks look like their stand-in, and custom items show only a custom name.
+- The stand-in API keeps its original appearance. The real content path requires the generated pack, and its stock-client hit outline follows the carrier.
 - Discovery is O(custom blocks) once a second.

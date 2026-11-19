@@ -1,0 +1,228 @@
+/// Real block registration, ordered events, and batched access to loaded worlds.
+use std::{ffi::c_void, marker::PhantomData, sync::OnceLock};
+
+use crate::{
+    Command, InterfaceUnavailable, Pos, RegistrationError, Registry, abi, guard, require_interface,
+    s,
+};
+
+pub use abi::{
+    BlockUpdate, ContentEvent, LOADED, NEIGHBOR_CHANGED, STATE_CHANGED, ShapeBox, UNLOADED,
+    UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS, UPDATE_NEIGHBORS,
+};
+
+#[derive(Clone, Copy)]
+pub struct Content(&'static abi::ContentV1, &'static abi::BlockWorldV1);
+
+#[derive(Clone, Copy)]
+pub struct World<'a> {
+    raw: abi::WorldRef,
+    api: &'static abi::BlockWorldV1,
+    scope: PhantomData<&'a ()>,
+}
+
+pub struct Placement<'a> {
+    pub world: World<'a>,
+    pub state: u32,
+    pub position: Pos,
+    pub face: u8,
+    pub sneak: bool,
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+pub type Place = fn(Placement<'_>) -> Option<u32>;
+pub type Tick = fn(World<'_>, u64, &[ContentEvent]);
+
+pub struct State<'a> {
+    pub properties: &'a str,
+    pub physical: &'a str,
+    pub model: &'a str,
+    pub rotating_model: &'a str,
+    pub x: i16,
+    pub y: i16,
+    pub orientation: [f32; 4],
+    pub shape: &'a [ShapeBox],
+}
+
+pub struct Block<'a> {
+    pub id: &'a str,
+    pub display_name: &'a str,
+    pub entity: &'a str,
+    pub item_model: &'a str,
+    pub states: &'a [State<'a>],
+}
+
+static WORLD_TABLE: OnceLock<&'static abi::BlockWorldV1> = OnceLock::new();
+static TICK: OnceLock<Tick> = OnceLock::new();
+static PLACE: OnceLock<Place> = OnceLock::new();
+
+pub fn require() -> Result<Content, InterfaceUnavailable> {
+    // SAFETY: each table is read using its published type and version.
+    let (content, world) = unsafe {
+        (
+            require_interface(abi::CONTENT, 1)?,
+            require_interface(abi::BLOCK_WORLD, 1)?,
+        )
+    };
+    let _ = WORLD_TABLE.set(world);
+    Ok(Content(content, world))
+}
+
+unsafe extern "C" fn place(args: *const abi::Placement) -> u32 {
+    guard("content placement", UNLOADED_STATE, || {
+        let Some((&api, callback)) = WORLD_TABLE.get().zip(PLACE.get()) else {
+            return UNLOADED_STATE;
+        };
+        // SAFETY: host passes a live placement and world for this callback.
+        let args = unsafe { &*args };
+        callback(Placement {
+            world: World {
+                raw: args.world,
+                api,
+                scope: PhantomData,
+            },
+            state: args.state,
+            position: args.position,
+            face: args.face,
+            sneak: args.sneak,
+            yaw: args.yaw,
+            pitch: args.pitch,
+        })
+        .unwrap_or(UNLOADED_STATE)
+    })
+}
+
+unsafe extern "C" fn tick(
+    world: abi::WorldRef,
+    time: u64,
+    events: *const ContentEvent,
+    count: usize,
+) {
+    guard("content tick", (), || {
+        let Some((&api, callback)) = WORLD_TABLE.get().zip(TICK.get()) else {
+            return;
+        };
+        // SAFETY: the event slice and world are live for this callback.
+        let events = unsafe { std::slice::from_raw_parts(events, count) };
+        callback(
+            World {
+                raw: world,
+                api,
+                scope: PhantomData,
+            },
+            time,
+            events,
+        );
+    });
+}
+
+impl Content {
+    pub fn add_block(
+        self,
+        reg: &mut Registry<'_>,
+        block: &Block<'_>,
+        placement: Option<Place>,
+    ) -> Result<(), RegistrationError> {
+        if let Some(callback) = placement {
+            let registered = PLACE.get_or_init(|| callback);
+            if !std::ptr::fn_addr_eq(*registered, callback) {
+                return Err(RegistrationError::InvalidDefinition);
+            }
+        }
+        let states: Vec<_> = block
+            .states
+            .iter()
+            .map(|state| abi::StateDefinition {
+                properties: s(state.properties),
+                physical: s(state.physical),
+                model: s(state.model),
+                rotating_model: s(state.rotating_model),
+                x: state.x,
+                y: state.y,
+                orientation: state.orientation,
+                shape: state.shape.as_ptr(),
+                shape_count: state.shape.len(),
+            })
+            .collect();
+        let def = abi::ContentBlockDefinition {
+            id: s(block.id),
+            display_name: s(block.display_name),
+            entity: s(block.entity),
+            item_model: s(block.item_model),
+            states: states.as_ptr(),
+            count: states.len(),
+            on_place: placement.map(|_| place as abi::ContentPlacement),
+        };
+        // SAFETY: registration and borrowed definitions are live for the call.
+        RegistrationError::from_code(unsafe { (self.0.add_block)(reg.reg, &def) })
+    }
+
+    pub fn on_tick(self, reg: &mut Registry<'_>, callback: Tick) -> Result<(), RegistrationError> {
+        TICK.set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        // SAFETY: live registration and a callback defined for the life of the mod.
+        RegistrationError::from_code(unsafe { (self.0.on_tick)(reg.reg, tick) })
+    }
+
+    pub fn state(self, selector: &str) -> Option<u32> {
+        // SAFETY: the selector is borrowed only for this call.
+        let state = unsafe { (self.0.state)(s(selector)) };
+        (state != UNLOADED_STATE).then_some(state)
+    }
+
+    pub fn command_world<'a>(self, command: &'a Command<'_>) -> Option<World<'a>> {
+        // SAFETY: the command source remains live for the returned borrow.
+        let raw = unsafe { (self.1.command_world)(command.source) };
+        (!raw.is_null()).then_some(World {
+            raw,
+            api: self.1,
+            scope: PhantomData,
+        })
+    }
+}
+
+unsafe extern "C" fn bytes(ctx: *mut c_void, _key: u64, value: abi::Str) {
+    // SAFETY: this is the Vec passed to read_entity, and value is live until we return.
+    unsafe { (&mut *ctx.cast::<Vec<u8>>()).extend_from_slice(value.bytes()) };
+}
+
+impl World<'_> {
+    pub fn read(self, positions: &[Pos], states: &mut [u32]) -> bool {
+        // SAFETY: both slices are live and disjoint; the output length is checked.
+        positions.len() == states.len()
+            && unsafe {
+                (self.api.read)(
+                    self.raw,
+                    positions.as_ptr(),
+                    states.as_mut_ptr(),
+                    positions.len(),
+                )
+            }
+    }
+
+    pub fn write(self, updates: &[BlockUpdate]) -> usize {
+        // SAFETY: the slice and world handle are live.
+        unsafe { (self.api.write)(self.raw, updates.as_ptr(), updates.len()) }
+    }
+
+    pub fn entity(self, pos: Pos) -> Option<Vec<u8>> {
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: bytes,
+        };
+        // SAFETY: the sink collects bytes synchronously into the live Vec.
+        unsafe { (self.api.read_entity)(self.raw, pos, sink) }.then_some(data)
+    }
+
+    pub fn set_entity(self, pos: Pos, nbt: &[u8]) -> bool {
+        // SAFETY: World and the bytes are borrowed for this call.
+        unsafe { (self.api.write_entity)(self.raw, pos, abi::Str::new(nbt)) }
+    }
+
+    pub fn rotate(self, pos: Pos, axis: u8, rpm: f32) -> bool {
+        // SAFETY: world is borrowed for this call.
+        unsafe { (self.api.rotate)(self.raw, pos, axis, rpm) }
+    }
+}

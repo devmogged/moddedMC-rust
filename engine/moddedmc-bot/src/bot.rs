@@ -10,7 +10,7 @@ use pumpkin_protocol::{
     codec::var_int::VarInt,
     java::{
         client::{
-            config::{CConfigPing, CFinishConfig, CKnownPacks},
+            config::{CConfigAddResourcePack, CConfigPing, CFinishConfig, CKnownPacks},
             login::CLoginSuccess,
             play::{CLogin, CPlayerPosition},
         },
@@ -18,7 +18,8 @@ use pumpkin_protocol::{
         packet_encoder::TCPNetworkEncoder,
         server::{
             config::{
-                SAcknowledgeFinishConfig, SClientInformationConfig, SConfigPong, SKnownPacks,
+                SAcknowledgeFinishConfig, SClientInformationConfig, SConfigPong,
+                SConfigResourcePack, SKnownPacks,
             },
             handshake::SHandShake,
             login::{SLoginAcknowledged, SLoginStart},
@@ -26,7 +27,7 @@ use pumpkin_protocol::{
         },
     },
     packet::MultiVersionJavaPacket,
-    ser::NetworkWriteExt,
+    ser::{NetworkReadExt, NetworkReadSliceExt, NetworkWriteExt},
 };
 use pumpkin_util::math::vector3::Vector3;
 use tokio::{
@@ -143,10 +144,18 @@ impl HeadlessBot {
 
         let known_packs_id = CKnownPacks::to_id(CURRENT_MC_VERSION);
         let finish_config_id = CFinishConfig::to_id(CURRENT_MC_VERSION);
+        let pack_id = CConfigAddResourcePack::to_id(CURRENT_MC_VERSION);
         let config_ping_id = CConfigPing::to_id(CURRENT_MC_VERSION);
         loop {
             let pkt = bot.next_packet().await?;
-            if pkt.id == config_ping_id {
+            if pkt.id == pack_id {
+                let uuid = download_pack(&pkt.payload, host).await?;
+                bot.send_packet(&SConfigResourcePack {
+                    uuid,
+                    result: VarInt(0),
+                })
+                .await?;
+            } else if pkt.id == config_ping_id {
                 // Fabric waits for this pong before it finishes configuration.
                 let id = pkt
                     .payload
@@ -226,4 +235,71 @@ pub async fn send_framed_packet<P: ClientPacket + MultiVersionJavaPacket, W: Asy
         .flush()
         .await
         .map_err(|err| format!("Failed to flush socket: {err}"))
+}
+
+#[expect(
+    clippy::print_stdout,
+    reason = "the bot reports to the scenario runner on stdout"
+)]
+async fn download_pack(mut payload: &[u8], host: &str) -> Result<Uuid, String> {
+    use sha1::{Digest, Sha1};
+    const MAX_PACK: u64 = 32 * 1024 * 1024;
+    let uuid = payload.get_uuid().map_err(|e| e.to_string())?;
+    let address = payload
+        .get_str_bounded_borrowed(512)
+        .map_err(|e| e.to_string())?;
+    let hash = payload
+        .get_str_bounded_borrowed(40)
+        .map_err(|e| e.to_string())?;
+    let url = reqwest::Url::parse(address).map_err(|e| e.to_string())?;
+    if url.scheme() != "http"
+        || url.host_str() != Some(host)
+        || url
+            .path()
+            .strip_prefix("/resource-pack-")
+            .and_then(|name| name.strip_suffix(".zip"))
+            != Some(hash)
+        || hash.len() != 40
+        || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("unexpected content resource-pack offer".into());
+    }
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(PACKET_TIMEOUT)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut response = client
+        .get(url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| e.to_string())?;
+    if response.content_length().is_none_or(|size| size > MAX_PACK) {
+        return Err("invalid content resource-pack size".into());
+    }
+    let mut remaining = MAX_PACK;
+    let mut digest = Sha1::new();
+    while let Some(bytes) = response.chunk().await.map_err(|e| e.to_string())? {
+        remaining = remaining
+            .checked_sub(bytes.len() as u64)
+            .ok_or("invalid content resource-pack size")?;
+        digest.update(&bytes);
+    }
+    if !digest
+        .finalize()
+        .iter()
+        .zip(hash.as_bytes().as_chunks::<2>().0.iter())
+        .all(|(&byte, pair)| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+                == Some(byte)
+        })
+    {
+        return Err("content resource pack SHA-1 mismatch".into());
+    }
+    println!("[bot] fetched content resource pack SHA-1 {hash}");
+    Ok(uuid)
 }
