@@ -94,6 +94,13 @@ impl Entities {
         unsafe { (self.0.walk_to)(s(dimension), id, to, speed) }
     }
 
+    /// Makes a mob target `target` (a hostile one attacks it); `None` clears its target. False
+    /// if it is not a mob or the target is not found.
+    pub fn set_target(&self, dimension: &str, id: EntityId, target: Option<EntityId>) -> bool {
+        // SAFETY: borrowed for the call.
+        unsafe { (self.0.set_target)(s(dimension), id, target.unwrap_or_default()) }
+    }
+
     /// Stops a walk and gives the mob its own goals back.
     pub fn release(&self, dimension: &str, id: EntityId) -> bool {
         let nan = Vec3 {

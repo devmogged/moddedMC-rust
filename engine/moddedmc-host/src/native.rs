@@ -1141,6 +1141,7 @@ static ENTITIES: EntitiesV1 = EntitiesV1 {
     remove,
     set_ai,
     walk_to,
+    set_target,
 };
 
 /// A live entity of a dimension by id.
@@ -1222,6 +1223,25 @@ unsafe extern "C" fn set_ai(dimension: Str, id: EntityId, enabled: bool) -> bool
         return false;
     };
     mob.get_mob_entity().set_no_ai(!enabled);
+    true
+}
+
+unsafe extern "C" fn set_target(dimension: Str, id: EntityId, target: EntityId) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some((world, entity)) = (unsafe { entity(dimension, id) }) else {
+        return false;
+    };
+    let Some(mob) = entity.get_mob() else {
+        return false;
+    };
+    if target == EntityId::default() {
+        mob.apply_mob_target(None);
+        return true;
+    }
+    let Some(target) = world.get_entity_by_uuid(uuid::Uuid::from_bytes(target.0)) else {
+        return false;
+    };
+    mob.apply_mob_target(Some(target));
     true
 }
 

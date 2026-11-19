@@ -338,6 +338,10 @@ pub struct EntitiesV1 {
     /// Needs its AI on. Mobs driven by a vanilla brain rather than goals may walk elsewhere.
     /// False if it is not a mob.
     pub walk_to: unsafe extern "C" fn(dimension: Str, id: EntityId, at: Vec3, speed: f64) -> bool,
+    /// Makes a mob target another entity (a hostile mob goes after it with its own attack goals);
+    /// an all-zero `target` clears it. Its own targeting goals may pick another target later.
+    /// False if it is not a mob or the target is not found.
+    pub set_target: unsafe extern "C" fn(dimension: Str, id: EntityId, target: EntityId) -> bool,
 }
 
 /// [`BiomesV1`]: biomes mods add and paint into the world.
@@ -647,6 +651,7 @@ mod layout {
             (offset_of!(EntitiesV1, remove), 40),
             (offset_of!(EntitiesV1, set_ai), 48),
             (offset_of!(EntitiesV1, walk_to), 56),
+            (offset_of!(EntitiesV1, set_target), 64),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "EntitiesV1 field #{i} moved");

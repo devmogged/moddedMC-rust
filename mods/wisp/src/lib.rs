@@ -4,6 +4,7 @@
 //! every wisp one block east, `/wisplist` lists where they are. `/wisppet` spawns a chicken with
 //! its vanilla AI off, so it moves only when the mod moves it. `/wispgo` gives the pets their AI
 //! back and walks them five blocks east along a path; `/wisparrived` counts those that got there.
+//! `/wisphunt` spawns a husk that targets the first pet (which shrugs off its blows).
 
 use std::{
     fs,
@@ -59,6 +60,7 @@ impl Mod for Wisp {
         registry.add_command("wisppet", "Spawn a chicken that only the mod moves", 3)?;
         registry.add_command("wispgo", "Walk every pet five blocks east", 4)?;
         registry.add_command("wisparrived", "Count the pets that reached their target", 5)?;
+        registry.add_command("wisphunt", "Spawn a husk that hunts the first pet", 6)?;
         let saved = fs::read_to_string(file()).unwrap_or_default();
         *self.wisps.lock().unwrap_or_else(PoisonError::into_inner) = saved
             .lines()
@@ -142,6 +144,28 @@ impl Mod for Wisp {
                 }
                 command.reply(&format!("wispgo: walking {}", targets.len()));
                 i32::try_from(targets.len()).unwrap_or(0)
+            }
+            6 => {
+                // The first wisp that is a mob: a pet.
+                let pet = wisps
+                    .iter()
+                    .filter(|(d, _)| d == dimension)
+                    .find(|(d, id)| entities.set_ai(d, *id, true));
+                let Some((at, pet)) =
+                    pet.and_then(|(d, id)| Some((entities.position(d, *id)?, *id)))
+                else {
+                    command.reply("wisphunt: no pet");
+                    return 0;
+                };
+                let near = Vec3 {
+                    x: at.x - 3.0,
+                    ..at
+                };
+                let hunting = entities
+                    .spawn(dimension, "minecraft:husk", near)
+                    .is_some_and(|husk| entities.set_target(dimension, husk, Some(pet)));
+                command.reply(&format!("wisphunt: hunting {hunting}"));
+                i32::from(hunting)
             }
             5 => {
                 let targets = self.targets.lock().unwrap_or_else(PoisonError::into_inner);
