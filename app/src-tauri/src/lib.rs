@@ -6,6 +6,7 @@ mod console;
 mod deploy;
 mod devices;
 mod install;
+mod join;
 mod mods;
 mod packs;
 mod ping;
@@ -21,6 +22,7 @@ pub fn run() {
             app.manage(store::Store::load(dir));
             app.manage(devices::Tunnels::default());
             app.manage(console::Consoles::default());
+            app.manage(join::JoinLock::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -34,6 +36,7 @@ pub fn run() {
             ping::friends_list,
             ping::friend_add,
             ping::friend_remove,
+            join::friend_join,
             ping::ping,
             mods::mods_index,
             deploy::build_inspect,

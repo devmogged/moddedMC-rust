@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, Trash2 } from "lucide-react";
+import { Copy, LogIn, Trash2 } from "lucide-react";
 import { api, type Friend, type Status } from "./api";
 import { Bars, ServerIcon, pingBars, usePoll, useIcon } from "./ui";
 import { ConfirmDialog } from "./dialogs";
@@ -77,6 +77,9 @@ export function FriendPane({
   const live = useFriendStatus(friend.address);
   const [confirm, setConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [joinResult, setJoinResult] = useState<string | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const s = live.status;
   const icon = useIcon(friend.address, s?.favicon);
 
@@ -90,9 +93,22 @@ export function FriendPane({
     }
   };
 
+  const join = async () => {
+    setJoining(true);
+    setJoinResult(null);
+    setJoinError(null);
+    try {
+      setJoinResult(await api.joinFriend(friend.id));
+    } catch (err) {
+      setJoinError(String(err));
+    } finally {
+      setJoining(false);
+    }
+  };
+
   return (
     <div className="pane server-identity" style={icon.style}>
-      <header className="pane-head server-heading">
+      <header className="pane-head server-heading friend-heading">
         <div className="row large">
           <ServerIcon name={friend.address} favicon={icon.favicon} />
           <div className="row-text">
@@ -106,14 +122,26 @@ export function FriendPane({
             <Trash2 />
             Remove
           </button>
-          <button className="button primary" onClick={copy}>
+          <button className="button" onClick={copy}>
             <Copy />
             {copied ? "Copied" : "Copy address"}
+          </button>
+          <button className="button primary" disabled={joining} onClick={join}>
+            <LogIn />
+            {joining ? "Preparing…" : "Join"}
           </button>
         </div>
       </header>
       <div className="pane-body ruled">
-        {live.error && !s ? <p className="error-line">{live.error}</p> : null}
+        <div className="join-result" role="status">
+          {joinResult}
+        </div>
+        {joinError ? (
+          <p className="error-line" role="alert">
+            {joinError}
+          </p>
+        ) : null}
+        {live.error && !s && !joinError ? <p className="error-line">{live.error}</p> : null}
         <dl className="facts">
           <dt>Address</dt>
           <dd>{friend.address}</dd>

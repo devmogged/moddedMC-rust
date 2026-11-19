@@ -175,6 +175,7 @@ export const api = {
   friends: () => call<Friend[]>("friends_list"),
   addFriend: (friend: { name: string; address: string }) => call<Friend>("friend_add", { friend }),
   removeFriend: (id: string) => call<void>("friend_remove", { id }),
+  joinFriend: (id: string) => call<string>("friend_join", { id }),
   ping: (address: string) => call<Status>("ping", { address }),
 
   mods: () => call<ModEntry[]>("mods_index"),

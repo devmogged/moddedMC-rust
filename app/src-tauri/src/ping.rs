@@ -64,6 +64,10 @@ pub struct Status {
     players_max: Option<u32>,
     /// A `data:image/png;base64,...` URL, as the server sends it.
     favicon: Option<String>,
+    #[serde(skip)]
+    pub(crate) protocol: Option<u64>,
+    #[serde(skip)]
+    pub(crate) moddedmc: Option<Value>,
 }
 
 #[tauri::command]
@@ -78,8 +82,14 @@ pub async fn ping(address: String) -> Result<Status, String> {
         })
 }
 
-fn split_address(address: &str) -> Result<(String, u16), String> {
+pub(crate) fn split_address(address: &str) -> Result<(String, u16), String> {
     let bad = || format!("{address} isn't a server address.");
+    if address.is_empty()
+        || address.len() > 255
+        || address.contains(|c: char| c.is_control() || c.is_whitespace())
+    {
+        return Err(bad());
+    }
     if let Some(rest) = address.strip_prefix('[') {
         let (host, port) = rest.split_once(']').ok_or_else(bad)?;
         let port = match port.strip_prefix(':') {
@@ -87,13 +97,14 @@ fn split_address(address: &str) -> Result<(String, u16), String> {
             None if port.is_empty() => DEFAULT_PORT,
             None => return Err(bad()),
         };
+        host.parse::<std::net::Ipv6Addr>().map_err(|_| bad())?;
         return Ok((host.to_string(), port));
     }
     match address.rsplit_once(':') {
-        Some((host, port)) if !host.contains(':') => {
+        Some((host, port)) if !host.is_empty() && !host.contains(':') => {
             Ok((host.to_string(), port.parse().map_err(|_| bad())?))
         }
-        _ if address.is_empty() || address.contains(char::is_whitespace) => Err(bad()),
+        _ if address.contains(':') && address.parse::<std::net::Ipv6Addr>().is_err() => Err(bad()),
         _ => Ok((address.to_string(), DEFAULT_PORT)),
     }
 }
@@ -141,6 +152,8 @@ async fn status(host: &str, port: u16) -> std::io::Result<Status> {
             .as_str()
             .filter(|f| f.starts_with("data:image/png;base64,"))
             .map(str::to_owned),
+        protocol: value["version"]["protocol"].as_u64(),
+        moddedmc: value.get("moddedmc").cloned(),
     })
 }
 

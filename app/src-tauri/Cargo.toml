@@ -27,6 +27,9 @@ tokio = { version = "1", features = ["process", "net", "sync", "time", "macros"]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio-tungstenite = "0.27"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+fastnbt = "2.6"
+sha2 = "0.10"
+tempfile = "3"
 
 [profile.release]
 lto = true

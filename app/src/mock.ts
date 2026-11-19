@@ -284,6 +284,12 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
         { id: "sting", name: "sting's world", address: "sting.example.net" },
         { id: "old", name: "Old SMP", address: "smp.example.org:25570" },
       ];
+    case "friend_join":
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      if (args.id === "old") throw "Can't reach smp.example.org:25570.";
+      return scenario === "join-zip"
+        ? "Import moddedMC-sting.zip from Downloads in Prism or MultiMC, then press Play."
+        : "Select the moddedMC installation in Minecraft Launcher and press Play.";
     case "ping": {
       const address = String(args.address);
       if (address.startsWith("smp.")) throw `${address} is offline.`;

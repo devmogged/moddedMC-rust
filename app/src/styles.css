@@ -1057,6 +1057,22 @@ dialog::backdrop {
 .pane-head .row.large {
   gap: 16px;
 }
+.join-result:not(:empty) {
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 940px) {
+  .friend-heading {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  .friend-heading .row {
+    flex-basis: 100%;
+  }
+  .friend-heading .actions {
+    margin-inline-start: auto;
+  }
+}
 .pane-title,
 .row.large .row-name {
   font-size: clamp(24px, 2.5vw, 33px);
