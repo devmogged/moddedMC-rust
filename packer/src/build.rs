@@ -289,8 +289,11 @@ fn build_drop_in(
     }
 }
 
+/// Folders under a mod crate's `resources/` that ship in its `.mmc` under the same name.
+const RESOURCE_FOLDERS: [&str; 2] = ["data", "assets"];
+
 /// A `.mmc` like `scripts/pack-mod.ps1` makes: `mod.json`, the library for this platform and the
-/// crate's `resources/data/` as `data/`.
+/// crate's `resources/data/` and `resources/assets/` as `data/` and `assets/`.
 fn write_mmc(
     repo: &Path,
     out: &Path,
@@ -313,20 +316,28 @@ fn write_mmc(
         .compression_method(zip::CompressionMethod::Deflated);
     let library_bytes = fs::read(library).map_err(|e| e.to_string())?;
     let entry = format!("{}-{}.{}", platform.os, platform.arch, platform.lib_ext);
-    let data_dir = m.path.join("resources").join("data");
-    let mut data = Vec::new();
-    if data_dir.is_dir() {
-        manifest::collect(&data_dir, &data_dir, &mut data)?;
-        data.sort();
+    let mut resources = Vec::new();
+    for folder in RESOURCE_FOLDERS {
+        let dir = m.path.join("resources").join(folder);
+        if dir.is_dir() {
+            let mut files = Vec::new();
+            manifest::collect(&dir, &dir, &mut files)?;
+            files.sort();
+            resources.extend(
+                files
+                    .into_iter()
+                    .map(|relative| (folder, dir.join(&relative), relative)),
+            );
+        }
     }
     let written = (|| -> zip::result::ZipResult<()> {
         zip.start_file("mod.json", options)?;
         zip.write_all(manifest.to_string().as_bytes())?;
         zip.start_file(entry, options)?;
         zip.write_all(&library_bytes)?;
-        for relative in &data {
-            zip.start_file(format!("data/{relative}"), options)?;
-            zip.write_all(&fs::read(data_dir.join(relative))?)?;
+        for (folder, source, relative) in &resources {
+            zip.start_file(format!("{folder}/{relative}"), options)?;
+            zip.write_all(&fs::read(source)?)?;
         }
         zip.finish()?;
         Ok(())

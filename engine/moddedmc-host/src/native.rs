@@ -4,7 +4,8 @@
 //! - `<name>.mmc`: a zip with `mod.json` and one library per platform (`windows-x86_64.dll`, ...).
 //!   The library for this platform is extracted to `mods/.cache/` and loaded. A `data/` folder
 //!   in the zip (recipes, loot tables, tags, ...) is extracted beside it and loads as a built-in
-//!   datapack named `mod/<id>`.
+//!   datapack named `mod/<id>`. An `assets/` folder (models, textures) goes into the resource
+//!   pack the server sends to players.
 //! - `<name>.jar`: a Fabric mod. It is converted once by `recompiler/build-mod.ps1` into
 //!   `mods/.cache/<name>-<hash>.<ext>` and loaded from there.
 //! - A bare `.dll`/`.so`/`.dylib`: loaded as is (handy while developing a mod).
@@ -86,14 +87,14 @@ pub fn load_all(dir: &Path) -> Vec<Native> {
             e if e == EXT => Ok((path.clone(), None)),
             _ => continue,
         };
-        match extracted.and_then(|(lib, data)| Ok((load(&lib)?, data))) {
+        match extracted.and_then(|(lib, resources)| Ok((load(&lib)?, resources))) {
             Ok((m, _)) if mods.iter().any(|o: &Native| o.id == m.id) => {
                 tracing::error!(
                     "moddedmc: {} has the same id as another mod; skipped",
                     path.display()
                 );
             }
-            Ok((m, data)) => {
+            Ok((m, resources)) => {
                 // SAFETY: the version string is static.
                 let version = unsafe { m.api.version.str() };
                 tracing::info!(
@@ -101,11 +102,16 @@ pub fn load_all(dir: &Path) -> Vec<Native> {
                     m.id,
                     path.display()
                 );
-                if let Some(pack) = data {
-                    pumpkin_core::data::datapack::register_builtin_datapack(
-                        format!("mod/{}", m.id),
-                        pack,
-                    );
+                if let Some(resources) = resources {
+                    if resources.join("data").is_dir() {
+                        pumpkin_core::data::datapack::register_builtin_datapack(
+                            format!("mod/{}", m.id),
+                            resources.clone(),
+                        );
+                    }
+                    if resources.join("assets").is_dir() {
+                        crate::content_pack::add_asset_root(resources);
+                    }
                 }
                 mods.push(m);
             }
@@ -131,16 +137,15 @@ fn stem(path: &Path) -> String {
         .map_or_else(|| "mod".into(), |s| s.to_string_lossy().into_owned())
 }
 
-/// Extracts this platform's library and the `data/` folder from a `.mmc` file, once per file
-/// content. Returns the library and, when the mod ships data, the datapack folder.
+/// Extracts this platform's library and the `data/` and `assets/` folders from a `.mmc` file,
+/// once per file content. Returns the library and the folder holding the other two.
 fn extract(path: &Path, cache: &Path) -> Result<(PathBuf, Option<PathBuf>), String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     let key = format!("{}-{}", stem(path), hash(&bytes));
     let out = cache.join(format!("{key}.{EXT}"));
     let pack = cache.join(&key);
-    let data = |pack: PathBuf| pack.join("data").is_dir().then_some(pack);
     if out.exists() && pack.join(EXTRACTED).exists() {
-        return Ok((out, data(pack)));
+        return Ok((out, Some(pack)));
     }
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
     let mut manifest = String::new();
@@ -164,14 +169,14 @@ fn extract(path: &Path, cache: &Path) -> Result<(PathBuf, Option<PathBuf>), Stri
         .map_err(|e| e.to_string())?;
     fs::create_dir_all(cache).map_err(|e| e.to_string())?;
     fs::write(&out, library).map_err(|e| e.to_string())?;
-    extract_data(&mut zip, &pack)?;
-    Ok((out, data(pack)))
+    extract_resources(&mut zip, &pack)?;
+    Ok((out, Some(pack)))
 }
 
-/// Marks a fully extracted `data/` folder, so an interrupted extraction is redone.
+/// Marks fully extracted resources, so an interrupted extraction is redone.
 const EXTRACTED: &str = ".extracted";
 
-fn extract_data<R: Read + std::io::Seek>(
+fn extract_resources<R: Read + std::io::Seek>(
     zip: &mut zip::ZipArchive<R>,
     pack: &Path,
 ) -> Result<(), String> {
@@ -184,7 +189,7 @@ fn extract_data<R: Read + std::io::Seek>(
             let name = entry.name().unwrap_or_default();
             return Err(format!("unsafe path in mod package: {name}"));
         };
-        if !relative.starts_with("data") || entry.is_dir() {
+        if !(relative.starts_with("data") || relative.starts_with("assets")) || entry.is_dir() {
             continue;
         }
         let target = pack.join(relative);

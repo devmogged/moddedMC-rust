@@ -2,7 +2,7 @@
 #   scripts\pack-mod.ps1 -Crate wayshrine [-OutDir target\mods]
 # A .mmc is a zip: mod.json (id, version, abi) plus one library per platform, named
 # <os>-<arch>.<ext> (windows-x86_64.dll, linux-x86_64.so, macos-aarch64.dylib), plus the crate's
-# resources\data\ as data\. This script adds the library for the machine it runs on; add other
+# resources\data\ and resources\assets\ as data\ and assets\. This script adds the library for the machine it runs on; add other
 # platforms' builds to the zip the same way.
 param(
     [Parameter(Mandatory)] [string] $Crate,
@@ -35,11 +35,12 @@ try {
     $manifest.Write($bytes, 0, $bytes.Length)
     $manifest.Dispose()
     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $library, "windows-$arch.dll") | Out-Null
-    # resources\data\ ships as data\: recipes, loot tables and tags, loaded like a datapack.
-    $data = Join-Path $root "mods\$Crate\resources\data"
-    if (Test-Path -LiteralPath $data) {
-        Get-ChildItem -LiteralPath $data -Recurse -File | ForEach-Object {
-            $name = 'data/' + $_.FullName.Substring($data.Length + 1).Replace('\', '/')
+    # resources\data\ loads like a datapack; resources\assets\ goes into the players' resource pack.
+    foreach ($folder in 'data', 'assets') {
+        $dir = Join-Path $root "mods\$Crate\resources\$folder"
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        Get-ChildItem -LiteralPath $dir -Recurse -File | ForEach-Object {
+            $name = "$folder/" + $_.FullName.Substring($dir.Length + 1).Replace('\', '/')
             [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $name) | Out-Null
         }
     }

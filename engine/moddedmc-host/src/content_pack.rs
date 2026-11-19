@@ -5,7 +5,7 @@ use std::{
     io::{self, Cursor, Read, Write},
     net::{SocketAddr, TcpListener},
     path::PathBuf,
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex, OnceLock, PoisonError},
 };
 
 use axum::{Router, extract::Path, http::StatusCode, routing::get};
@@ -22,6 +22,16 @@ const PLACEHOLDER: &str = "moddedmc:block/placeholder";
 const MAX_ASSET: u64 = 8 * 1024 * 1024;
 
 pub static CATALOG: OnceLock<Catalog> = OnceLock::new();
+
+/// Folders holding a mod's own `assets/`, checked before local jars.
+static ASSET_ROOTS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+pub fn add_asset_root(root: PathBuf) {
+    ASSET_ROOTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(root);
+}
 
 pub struct Catalog {
     pub manifest: [u8; 32],
@@ -344,6 +354,20 @@ impl Pack {
     }
 
     fn asset(&mut self, namespace: &str, path: &str) -> Option<Vec<u8>> {
+        let shipped = ASSET_ROOTS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|root| root.join(path))
+            .find(|file| file.is_file());
+        if let Some(file) = shipped {
+            let bytes = fs::metadata(&file)
+                .is_ok_and(|meta| meta.len() <= MAX_ASSET)
+                .then(|| fs::read(&file).ok())
+                .flatten();
+            self.missing |= bytes.is_none();
+            return bytes;
+        }
         let jar = self
             .jars
             .entry(namespace.to_owned())

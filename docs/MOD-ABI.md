@@ -134,6 +134,7 @@ A `.mmc` is a zip with
 
 - `mod.json`: `{"id": "wayshrine", "version": "0.2.0", "abi": 1}`
 - `data/`, optional: the mod’s recipes, loot tables, tags, advancements and functions in datapack layout. The server loads it with every world as the built-in datapack `mod/<id>`, before the world’s own datapacks.
+- `assets/`, optional: the mod’s models and textures, sent to players in the server’s resource pack. A port of a mod whose assets aren’t free to redistribute leaves them out; the server then reads them from a local copy of the original jar (`MODDEDMC_ASSET_JARS`, or a `cache/` folder above the server directory).
 - one library per platform, named `<os>-<arch>.<ext>`: `windows-x86_64.dll`, `windows-aarch64.dll`, `linux-x86_64.so`, `linux-aarch64.so`, `macos-aarch64.dylib`, `macos-x86_64.dylib`.
 
 `scripts/pack-mod.ps1` writes the manifest and the build for the current machine. Builds for other platforms (from CI or cross-compiling) go into the same zip under their names.
