@@ -1,0 +1,168 @@
+# Create stress and transmitters (P1b), from Create 6.0.10. Build with scripts/pack-mod.ps1 -Crate create
+# and scripts/engine.ps1 build. Run scripts/scenario.ps1 -Scenario tests/scenarios/p1b-create.txt -RunDir run/p1b-create -Fresh
+# Expected speeds come from RotationPropagator; see the tests in mods/create/src/kinetics.rs.
+mods target\mods\create.mmc
+start
+expect registered content block create:gearbox
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2015.5 104 2015.5
+wait 3
+cmd fill 1995 99 1995 2040 112 2040 minecraft:air
+wait 1
+
+# A gearbox fed from the west at 16 RPM: east and north reverse, south keeps the direction.
+cmd setblock 2000 100 2000 create:creative_motor[facing=east]
+cmd setblock 2001 100 2000 create:gearbox[axis=y]
+cmd setblock 2002 100 2000 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2001 100 1999 create:shaft[axis=z,waterlogged=false]
+cmd setblock 2001 100 2001 create:shaft[axis=z,waterlogged=false]
+wait 1
+cmd kinetics 2001 100 2000
+wait 0.5
+expect at 2001 100 2000 Speed=16 
+cmd kinetics 2002 100 2000
+wait 0.5
+expect at 2002 100 2000 Speed=-16 
+cmd kinetics 2001 100 1999
+wait 0.5
+expect at 2001 100 1999 Speed=-16 
+cmd kinetics 2001 100 2001
+wait 0.5
+expect at 2001 100 2001 Speed=16 
+
+# A gearshift and a clutch on one line. Redstone reverses past the gearshift and cuts past the clutch.
+cmd setblock 2000 100 2005 create:creative_motor[facing=east]
+cmd setblock 2001 100 2005 create:gearshift[axis=x,powered=false]
+cmd setblock 2002 100 2005 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2003 100 2005 create:clutch[axis=x,powered=false]
+cmd setblock 2004 100 2005 create:shaft[axis=x,waterlogged=false]
+wait 1
+cmd kinetics 2004 100 2005
+wait 0.5
+expect at 2004 100 2005 Speed=16 
+cmd setblock 2001 101 2005 minecraft:redstone_block
+wait 1
+cmd kinetics 2001 100 2005
+wait 0.5
+expect create:gearshift\[axis=x,powered=true\] at 2001 100 2005 Speed=16 
+cmd kinetics 2002 100 2005
+wait 0.5
+expect at 2002 100 2005 Speed=-16 
+cmd kinetics 2004 100 2005
+wait 0.5
+expect at 2004 100 2005 Speed=-16 
+cmd setblock 2003 101 2005 minecraft:redstone_block
+wait 1
+cmd kinetics 2003 100 2005
+wait 0.5
+expect at 2003 100 2005 Speed=-16 
+cmd kinetics 2004 100 2005
+wait 0.5
+expect at 2004 100 2005 Speed=0 
+cmd setblock 2003 101 2005 minecraft:air
+wait 1
+cmd kinetics 2004 100 2005
+wait 0.5
+expect at 2004 100 2005 Speed=-16 
+
+# A 1 RPM motor gives 16384 SU. Eight large-to-small steps reach 256 RPM, where each turntable
+# (impact 4) costs 1024 SU: seventeen overstress the network, sixteen fit exactly.
+cmd setblock 2010 100 2010 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2010 100 2010 1
+wait 0.5
+cmd setblock 2010 101 2010 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 2011 101 2011 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2011 102 2011 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 2012 102 2012 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2012 103 2012 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 2013 103 2013 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2013 104 2013 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 2014 104 2014 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2014 105 2014 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 2015 105 2015 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2015 106 2015 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 2016 106 2016 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2016 107 2016 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 2017 107 2017 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2017 108 2017 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 2018 108 2018 create:cogwheel[axis=y,waterlogged=false]
+cmd fill 2019 108 2018 2034 108 2018 create:cogwheel[axis=y,waterlogged=false]
+cmd fill 2018 109 2018 2034 109 2018 create:turntable
+wait 1
+cmd kinetics 2018 109 2018
+wait 0.5
+expect at 2018 109 2018 Speed=256 Stress=17408 Capacity=16384 Overstressed
+cmd kinetics 2010 100 2010
+wait 0.5
+expect at 2010 100 2010 Speed=1 Stress=17408 Capacity=16384 Overstressed
+cmd setblock 2034 109 2018 minecraft:air
+wait 1
+cmd kinetics 2018 109 2018
+wait 0.5
+expect at 2018 109 2018 Speed=256 Stress=16384 Capacity=16384$
+
+# Two running lines turning opposite ways. The shaft placed between them breaks and drops (the
+# item falls through the cleared area, hence the wide search).
+cmd setblock 2000 100 2030 create:creative_motor[facing=east]
+cmd setblock 2001 100 2030 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2003 100 2030 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2004 100 2030 create:creative_motor[facing=west]
+wait 1
+cmd setblock 2002 100 2030 create:shaft[axis=x,waterlogged=false]
+wait 1
+cmd execute if block 2002 100 2030 minecraft:air
+wait 0.5
+expect Test passed
+cmd execute positioned 2002.5 100 2030.5 if entity @e[type=item,distance=..64]
+wait 0.5
+expect Test passed
+cmd kinetics 2001 100 2030
+wait 0.5
+expect at 2001 100 2030 Speed=16 
+cmd kinetics 2003 100 2030
+wait 0.5
+expect at 2003 100 2030 Speed=-16 
+reject (?i)panicked|trapped|failed to register
+bot quit
+stop
+
+# Everything above survives a restart.
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2015.5 104 2015.5
+wait 3
+cmd kinetics 2001 100 2000
+wait 0.5
+expect at 2001 100 2000 Speed=16 
+cmd kinetics 2002 100 2000
+wait 0.5
+expect at 2002 100 2000 Speed=-16 
+cmd kinetics 2001 100 1999
+wait 0.5
+expect at 2001 100 1999 Speed=-16 
+cmd kinetics 2001 100 2001
+wait 0.5
+expect at 2001 100 2001 Speed=16 
+cmd kinetics 2002 100 2005
+wait 0.5
+expect at 2002 100 2005 Speed=-16 
+cmd kinetics 2004 100 2005
+wait 0.5
+expect at 2004 100 2005 Speed=-16 
+cmd kinetics 2018 109 2018
+wait 0.5
+expect at 2018 109 2018 Speed=256 Stress=16384 Capacity=16384$
+cmd kinetics 2001 100 2030
+wait 0.5
+expect at 2001 100 2030 Speed=16 
+cmd kinetics 2003 100 2030
+wait 0.5
+expect at 2003 100 2030 Speed=-16 
+reject (?i)panicked|trapped|failed to register
+bot quit
+stop

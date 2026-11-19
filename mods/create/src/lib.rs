@@ -1,19 +1,21 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Mutex, OnceLock, PoisonError},
 };
 
 use moddedmc_api::{
     Command, InterfaceUnavailable, Mod, Pos, RegistrationError, Registry,
-    abi::MAX_WORLD_BATCH,
     commands::{self, Argument, Commands, Node},
-    content::{self, Block, Content, ContentEvent, Placement, ShapeBox, State, World},
+    content::{
+        self, Block, BlockUpdate, Content, ContentEvent, Placement, ShapeBox, State, World,
+        WorldExtension,
+    },
     items::{self, Item, Items},
 };
 use serde::{Deserialize, Serialize};
 
-mod rotation;
-use rotation::{FACES, OFFSETS, Piece, Rotation, face_axis, offset, ratio};
+mod kinetics;
+use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
 const AXES: [&str; 3] = ["x", "y", "z"];
 const DIRECTIONS: [&str; 6] = ["down", "up", "north", "south", "west", "east"];
@@ -21,29 +23,44 @@ const SHAFT: &str = "create:shaft";
 const SMALL: &str = "create:cogwheel";
 const LARGE: &str = "create:large_cogwheel";
 const MOTOR: &str = "create:creative_motor";
+const GEARBOX: &str = "create:gearbox";
+const CLUTCH: &str = "create:clutch";
+const GEARSHIFT: &str = "create:gearshift";
+const ENCASED_SHAFT: &str = "create:andesite_encased_shaft";
+const CASING: &str = "create:andesite_casing";
+const TURNTABLE: &str = "create:turntable";
 const ANDESITE_ALLOY: &str = "create:andesite_alloy";
 const BRACKETED: &str = "create:simple_kinetic";
-const DEFAULT_SPEED: i32 = 16;
+/// `CreativeMotorBlockEntity.MAX_SPEED`.
 const MAX_SPEED: i32 = 256;
+/// `SharedProperties.stone()`.
+const STONE: &str = "minecraft:andesite";
 
 static CONTENT: OnceLock<Content> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
-static NETWORK_UPDATE: Mutex<()> = Mutex::new(());
 static STATES: OnceLock<StateIds> = OnceLock::new();
+/// Each loaded world's kinetic block entities and networks, by `World::id`.
+static WORLDS: Mutex<Option<HashMap<usize, Kinetics>>> = Mutex::new(None);
 
-type Relay = fn(u8) -> Piece;
+type Relay = fn(u8) -> Kind;
 const RELAYS: [(&str, &str, Relay); 3] = [
-    (SHAFT, "Shaft", Piece::Shaft),
-    (SMALL, "Cogwheel", Piece::Small),
-    (LARGE, "Large Cogwheel", Piece::Large),
+    (SHAFT, "Shaft", Kind::Shaft),
+    (SMALL, "Cogwheel", Kind::Small),
+    (LARGE, "Large Cogwheel", Kind::Large),
 ];
+
+/// `axis=` blockstate rotations Create's `axisBlock` generator writes: x, y, z.
+const AXIS_ROTATIONS: [(i16, i16); 3] = [(90, 90), (0, 0), (90, 180)];
 
 struct Create;
 
 impl Mod for Create {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
-        let _ = CONTENT.set(content::require()?);
+        let content = content::require()?;
+        content.require_extension(WorldExtension::NeighborSignal)?;
+        content.require_extension(WorldExtension::Destroy)?;
+        let _ = CONTENT.set(content);
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);
         Ok(())
@@ -63,92 +80,9 @@ impl Mod for Create {
                     model: "create:item/andesite_alloy",
                 },
             )?;
-        for (id, name, relay) in RELAYS {
-            let path = &id["create:".len()..];
-            let item_model = format!("create:item/{path}");
-            let rotating_model = format!("create:block/{path}");
-            let selectors: Vec<_> = [1, 0, 2]
-                .into_iter()
-                .flat_map(|axis| {
-                    let name = AXES[axis];
-                    [false, true].map(move |wet| {
-                        (
-                            format!("axis={name},waterlogged={wet}"),
-                            format!("minecraft:iron_chain[axis={name},waterlogged={wet}]"),
-                            relay(axis as u8),
-                        )
-                    })
-                })
-                .collect();
-            let shapes: Vec<_> = selectors
-                .iter()
-                .map(|(_, _, piece)| relay_shape(*piece))
-                .collect();
-            let states: Vec<_> = selectors
-                .iter()
-                .zip(&shapes)
-                .map(|((properties, physical, piece), shape)| State {
-                    properties,
-                    physical,
-                    model: "",
-                    rotating_model: &rotating_model,
-                    x: 0,
-                    y: 0,
-                    orientation: relay_orientation(piece.axis()),
-                    shape,
-                })
-                .collect();
-            content.add_block(
-                registry,
-                &Block {
-                    id,
-                    display_name: name,
-                    entity: BRACKETED,
-                    item_model: &item_model,
-                    states: &states,
-                },
-                Some(placed_state),
-            )?;
-        }
-
-        let model = "create:block/creative_motor/block";
-        let vertical = "create:block/creative_motor/block_vertical";
-        let motor_faces = [2, 3, 4, 5, 1, 0];
-        let motor_shapes = motor_faces.map(|face| [motor_shape(face)]);
-        let motor_states = [
-            ("facing=north", model, 0, 180),
-            ("facing=south", model, 0, 0),
-            ("facing=west", model, 0, 90),
-            ("facing=east", model, 0, 270),
-            ("facing=up", vertical, 0, 0),
-            ("facing=down", vertical, 180, 0),
-        ];
-        let motor_states: Vec<_> = motor_states
-            .into_iter()
-            .zip(motor_faces)
-            .zip(&motor_shapes)
-            .map(|(((properties, model, x, y), face), shape)| State {
-                properties,
-                physical: "minecraft:stone",
-                model,
-                rotating_model: "create:block/shaft_half",
-                x,
-                y,
-                orientation: motor_orientation(face),
-                shape,
-            })
-            .collect();
-        content.add_block(
-            registry,
-            &Block {
-                id: MOTOR,
-                display_name: "Creative Motor",
-                entity: "create:motor",
-                item_model: "create:item/creative_motor",
-                states: &motor_states,
-            },
-            Some(placed_state),
-        )?;
+        register_relays(content, registry)?;
+        register_motor(content, registry)?;
+        register_casings(content, registry)?;
         content.on_tick(registry, tick)?;
 
         COMMANDS
@@ -179,7 +113,7 @@ impl Mod for Create {
         ) else {
             return 0;
         };
-        let Some(world) = content.command_world(&command) else {
+        let (Some(world), Some(states)) = (content.command_world(&command), states()) else {
             return 0;
         };
         let pos = Pos { x, y, z };
@@ -187,55 +121,292 @@ impl Mod for Create {
         if !world.read(&[pos], &mut state) {
             return 0;
         }
-        let Some(block) = states().and_then(|states| states.by_id.get(&state[0])) else {
+        let Some(known) = states.by_id.get(&state[0]).filter(|s| s.kind.is_some()) else {
             command.reply("There is no loaded kinetic block at that position");
             return 0;
         };
-        if tag == 1 {
-            let Some(rpm) = commands.integer(&command, "rpm") else {
+        with_world(world, |kinetics| {
+            if tag == 1 {
+                let Some(rpm) = commands.integer(&command, "rpm") else {
+                    return 0;
+                };
+                if !matches!(known.kind, Some(Kind::Motor(_))) {
+                    command.reply("Only creative motors generate rotation");
+                    return 0;
+                }
+                kinetics.set_generated(&mut WorldLevel { world, states }, pos, rpm);
+                flush(world, kinetics);
+            }
+            let Some(be) = kinetics.get(pos) else {
+                command.reply("Kinetic block entity is unavailable");
                 return 0;
             };
-            if !matches!(block.piece, Piece::Motor(..)) {
-                command.reply("Only creative motors generate rotation");
-                return 0;
-            }
-            update_network(world, [pos], Some((pos, rpm)));
-        }
-        let Some(data) = world
-            .entity(pos)
-            .and_then(|bytes| fastnbt::from_bytes::<KineticData>(&bytes).ok())
-        else {
-            command.reply("Kinetic block entity is unavailable");
-            return 0;
-        };
-        command.reply(&format!(
-            "{} at {x} {y} {z} Speed={}",
-            block.selector, data.speed
-        ));
-        1
+            let overstressed = if be.overstressed { " Overstressed" } else { "" };
+            command.reply(&format!(
+                "{} at {x} {y} {z} Speed={} Stress={} Capacity={}{overstressed}",
+                known.selector, be.speed, be.stress, be.capacity
+            ));
+            1
+        })
     }
 }
 
+fn with_world<T>(world: World<'_>, f: impl FnOnce(&mut Kinetics) -> T) -> T {
+    let mut worlds = WORLDS.lock().unwrap_or_else(PoisonError::into_inner);
+    f(worlds
+        .get_or_insert_with(HashMap::new)
+        .entry(world.id())
+        .or_default())
+}
+
+fn register_relays(
+    content: &Content,
+    registry: &mut Registry<'_>,
+) -> Result<(), RegistrationError> {
+    for (id, name, relay) in RELAYS {
+        let path = &id["create:".len()..];
+        let item_model = format!("create:item/{path}");
+        let rotating_model = format!("create:block/{path}");
+        let selectors: Vec<_> = [1, 0, 2]
+            .into_iter()
+            .flat_map(|axis| {
+                let name = AXES[axis];
+                [false, true].map(move |wet| {
+                    (
+                        format!("axis={name},waterlogged={wet}"),
+                        format!("minecraft:iron_chain[axis={name},waterlogged={wet}]"),
+                        relay(axis as u8),
+                    )
+                })
+            })
+            .collect();
+        let shapes: Vec<_> = selectors
+            .iter()
+            .map(|(_, _, kind)| relay_shape(*kind))
+            .collect();
+        let states: Vec<_> = selectors
+            .iter()
+            .zip(&shapes)
+            .map(|((properties, physical, kind), shape)| State {
+                properties,
+                physical,
+                model: "",
+                rotating_model: &rotating_model,
+                x: 0,
+                y: 0,
+                orientation: relay_orientation(kind.axis()),
+                shape,
+            })
+            .collect();
+        content.add_block(
+            registry,
+            &Block {
+                id,
+                display_name: name,
+                entity: BRACKETED,
+                item_model: &item_model,
+                states: &states,
+            },
+            Some(placed_state),
+        )?;
+    }
+    Ok(())
+}
+
+fn register_motor(content: &Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
+    let model = "create:block/creative_motor/block";
+    let vertical = "create:block/creative_motor/block_vertical";
+    let motor_faces = [2, 3, 4, 5, 1, 0];
+    let motor_shapes = motor_faces.map(|face| [motor_shape(face)]);
+    let motor_states = [
+        ("facing=north", model, 0, 180),
+        ("facing=south", model, 0, 0),
+        ("facing=west", model, 0, 90),
+        ("facing=east", model, 0, 270),
+        ("facing=up", vertical, 0, 0),
+        ("facing=down", vertical, 180, 0),
+    ];
+    let motor_states: Vec<_> = motor_states
+        .into_iter()
+        .zip(motor_faces)
+        .zip(&motor_shapes)
+        .map(|(((properties, model, x, y), face), shape)| State {
+            properties,
+            physical: "minecraft:stone",
+            model,
+            rotating_model: "create:block/shaft_half",
+            x,
+            y,
+            orientation: motor_orientation(face),
+            shape,
+        })
+        .collect();
+    content.add_block(
+        registry,
+        &Block {
+            id: MOTOR,
+            display_name: "Creative Motor",
+            entity: "create:motor",
+            item_model: "create:item/creative_motor",
+            states: &motor_states,
+        },
+        Some(placed_state),
+    )
+}
+
+/// Properties, model, x and y rotation, and the axis the rotating part turns about.
+type StateRow = (String, String, i16, i16, u8);
+
+/// The gearbox, the split shafts, the encased shaft, the casing and the turntable.
+fn register_casings(
+    content: &Content,
+    registry: &mut Registry<'_>,
+) -> Result<(), RegistrationError> {
+    let axis_states = |model: &str| -> Vec<StateRow> {
+        [1u8, 0, 2]
+            .into_iter()
+            .map(|axis| {
+                let (x, y) = AXIS_ROTATIONS[usize::from(axis)];
+                (
+                    format!("axis={}", AXES[usize::from(axis)]),
+                    model.to_owned(),
+                    x,
+                    y,
+                    axis,
+                )
+            })
+            .collect()
+    };
+    let add = |registry: &mut Registry<'_>,
+               id: &str,
+               name: &str,
+               entity: &str,
+               rotating: &str,
+               states: &[StateRow],
+               shape: &[ShapeBox],
+               physical: &str|
+     -> Result<(), RegistrationError> {
+        let states: Vec<_> = states
+            .iter()
+            .map(|(properties, model, x, y, axis)| State {
+                properties,
+                physical,
+                model,
+                rotating_model: rotating,
+                x: *x,
+                y: *y,
+                orientation: relay_orientation(*axis),
+                shape,
+            })
+            .collect();
+        let item_model = format!("create:item/{}", &id["create:".len()..]);
+        content.add_block(
+            registry,
+            &Block {
+                id,
+                display_name: name,
+                entity,
+                item_model: &item_model,
+                states: &states,
+            },
+            Some(placed_state),
+        )
+    };
+    add(
+        registry,
+        GEARBOX,
+        "Gearbox",
+        "create:gearbox",
+        "",
+        &axis_states("create:block/gearbox/block"),
+        &[],
+        STONE,
+    )?;
+    for (id, name, entity, folder) in [
+        (CLUTCH, "Clutch", "create:clutch", "clutch"),
+        (GEARSHIFT, "Gearshift", "create:gearshift", "gearshift"),
+    ] {
+        let states: Vec<_> = [1u8, 0, 2]
+            .into_iter()
+            .flat_map(|axis| {
+                let (x, y) = AXIS_ROTATIONS[usize::from(axis)];
+                [false, true].map(|powered| {
+                    let suffix = if powered { "_powered" } else { "" };
+                    (
+                        format!("axis={},powered={powered}", AXES[usize::from(axis)]),
+                        format!("create:block/{folder}/block{suffix}"),
+                        x,
+                        y,
+                        axis,
+                    )
+                })
+            })
+            .collect();
+        add(registry, id, name, entity, "", &states, &[], STONE)?;
+    }
+    add(
+        registry,
+        ENCASED_SHAFT,
+        "Andesite Encased Shaft",
+        "create:encased_shaft",
+        "create:block/shaft",
+        &axis_states("create:block/encased_shaft/block_andesite"),
+        &[],
+        STONE,
+    )?;
+    let single = |model: &str| vec![(String::new(), model.to_owned(), 0, 0, 1)];
+    add(
+        registry,
+        CASING,
+        "Andesite Casing",
+        "",
+        "",
+        &single("create:block/andesite_casing"),
+        &[],
+        STONE,
+    )?;
+    // AllShapes.TURNTABLE_SHAPE.
+    add(
+        registry,
+        TURNTABLE,
+        "Turntable",
+        "create:turntable",
+        "create:block/turntable",
+        &single(""),
+        &[
+            ShapeBox {
+                min: [1, 4, 1],
+                max: [15, 8, 15],
+            },
+            ShapeBox {
+                min: [5, 0, 5],
+                max: [11, 4, 11],
+            },
+        ],
+        "minecraft:stripped_spruce_wood[axis=y]",
+    )
+}
+
 // Create's AllShapes.SIX_VOXEL_POLE, SMALL_GEAR and LARGE_GEAR.
-fn relay_shape(piece: Piece) -> Vec<ShapeBox> {
+fn relay_shape(kind: Kind) -> Vec<ShapeBox> {
     let mut boxes = vec![ShapeBox {
         min: [5, 0, 5],
         max: [11, 16, 11],
     }];
-    match piece {
-        Piece::Small(_) => boxes.push(ShapeBox {
+    match kind {
+        Kind::Small(_) => boxes.push(ShapeBox {
             min: [2, 6, 2],
             max: [14, 10, 14],
         }),
-        Piece::Large(_) => boxes.push(ShapeBox {
+        Kind::Large(_) => boxes.push(ShapeBox {
             min: [0, 6, 0],
             max: [16, 10, 16],
         }),
         _ => {}
     }
     for bounds in &mut boxes {
-        bounds.min.swap(1, usize::from(piece.axis()));
-        bounds.max.swap(1, usize::from(piece.axis()));
+        bounds.min.swap(1, usize::from(kind.axis()));
+        bounds.max.swap(1, usize::from(kind.axis()));
     }
     boxes
 }
@@ -286,7 +457,9 @@ const fn number(parent: Option<u32>, name: &str, min: i32, max: i32, tag: Option
 
 struct KnownState {
     selector: String,
-    piece: Piece,
+    block: &'static str,
+    /// `None` for the casing, which has no kinetic behaviour.
+    kind: Option<Kind>,
 }
 
 #[derive(Default)]
@@ -296,11 +469,42 @@ struct StateIds {
 }
 
 impl StateIds {
-    fn add(&mut self, content: Content, selector: String, piece: Piece) {
+    fn add(&mut self, content: Content, block: &'static str, properties: &str, kind: Option<Kind>) {
+        let selector = if properties.is_empty() {
+            block.to_owned()
+        } else {
+            format!("{block}[{properties}]")
+        };
         if let Some(id) = content.state(&selector) {
             self.by_selector.insert(selector.clone(), id);
-            self.by_id.insert(id, KnownState { selector, piece });
+            self.by_id.insert(
+                id,
+                KnownState {
+                    selector,
+                    block,
+                    kind,
+                },
+            );
         }
+    }
+
+    fn kind(&self, state: u32) -> Option<Kind> {
+        self.by_id.get(&state)?.kind
+    }
+
+    /// The state for a clutch or gearshift `POWERED` toggle.
+    fn state_of(&self, kind: Kind) -> Option<u32> {
+        let (block, axis, powered) = match kind {
+            Kind::Clutch(axis, powered) => (CLUTCH, axis, powered),
+            Kind::Gearshift(axis, powered) => (GEARSHIFT, axis, powered),
+            _ => return None,
+        };
+        self.by_selector
+            .get(&format!(
+                "{block}[axis={},powered={powered}]",
+                AXES[usize::from(axis)]
+            ))
+            .copied()
     }
 }
 
@@ -308,13 +512,14 @@ fn states() -> Option<&'static StateIds> {
     let content = *CONTENT.get()?;
     Some(STATES.get_or_init(|| {
         let mut ids = StateIds::default();
-        for (name, _, relay) in RELAYS {
+        for (block, _, relay) in RELAYS {
             for (index, axis) in AXES.into_iter().enumerate() {
                 for wet in [false, true] {
                     ids.add(
                         content,
-                        format!("{name}[axis={axis},waterlogged={wet}]"),
-                        relay(index as u8),
+                        block,
+                        &format!("axis={axis},waterlogged={wet}"),
+                        Some(relay(index as u8)),
                     );
                 }
             }
@@ -322,20 +527,54 @@ fn states() -> Option<&'static StateIds> {
         for (face, name) in DIRECTIONS.into_iter().enumerate() {
             ids.add(
                 content,
-                format!("{MOTOR}[facing={name}]"),
-                Piece::Motor(face as u8, DEFAULT_SPEED),
+                MOTOR,
+                &format!("facing={name}"),
+                Some(Kind::Motor(face as u8)),
             );
         }
+        for (index, axis) in AXES.into_iter().enumerate() {
+            let axis_index = index as u8;
+            ids.add(
+                content,
+                GEARBOX,
+                &format!("axis={axis}"),
+                Some(Kind::Gearbox(axis_index)),
+            );
+            ids.add(
+                content,
+                ENCASED_SHAFT,
+                &format!("axis={axis}"),
+                Some(Kind::EncasedShaft(axis_index)),
+            );
+            for powered in [false, true] {
+                let properties = format!("axis={axis},powered={powered}");
+                ids.add(
+                    content,
+                    CLUTCH,
+                    &properties,
+                    Some(Kind::Clutch(axis_index, powered)),
+                );
+                ids.add(
+                    content,
+                    GEARSHIFT,
+                    &properties,
+                    Some(Kind::Gearshift(axis_index, powered)),
+                );
+            }
+        }
+        ids.add(content, TURNTABLE, "", Some(Kind::Turntable));
+        ids.add(content, CASING, "", None);
         ids
     }))
 }
 
+/// Each block's `getStateForPlacement`.
 fn placed_state(args: Placement<'_>) -> Option<u32> {
     if usize::from(args.face) >= FACES.len() {
         return None;
     }
     let states = states()?;
-    let piece = states.by_id.get(&args.state)?.piece;
+    let placed = states.by_id.get(&args.state)?;
     let mut positions = [args.position; 7];
     for (pos, step) in positions.iter_mut().zip(FACES) {
         *pos = offset(args.position, step);
@@ -344,60 +583,87 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     if !args.world.read(&positions, &mut ids) {
         return None;
     }
-    let connected = FACES.iter().enumerate().filter_map(|(face, _)| {
-        let neighbor = states.by_id.get(&ids[face])?.piece;
-        neighbor.shaft_towards(face as u8 ^ 1).then_some(face as u8)
+    // RotatedPillarKineticBlock.getPreferredAxis
+    let connected = (0..6u8).filter(|&face| {
+        states
+            .kind(ids[usize::from(face)])
+            .is_some_and(|neighbor| neighbor.has_shaft_towards(face ^ 1))
     });
-    let preferred = connected.clone().next_back().filter(|w| {
-        connected
-            .clone()
-            .all(|face| face_axis(*w) == face_axis(face))
-    });
+    let preferred = connected
+        .clone()
+        .next_back()
+        .filter(|w| {
+            connected
+                .clone()
+                .all(|face| face_axis(*w) == face_axis(face))
+        })
+        .map(face_axis);
     let look = nearest_looking_direction(args.yaw, args.pitch);
-    let face_axis = face_axis(args.face);
+    let clicked_axis = face_axis(args.face);
     let wet = CONTENT.get()?.state("minecraft:water") == Some(ids[6]);
-    let selector = match piece {
-        Piece::Motor(..) => {
+    // RotatedPillarKineticBlock.getStateForPlacement
+    let pillar_axis = match (preferred, args.sneak) {
+        (Some(axis), false) => axis,
+        (Some(_), true) => clicked_axis,
+        (None, _) => face_axis(look),
+    };
+    let selector = match placed.kind {
+        Some(Kind::Motor(_)) => {
             let face = if args.sneak {
                 look
             } else {
-                preferred.unwrap_or(look ^ 1)
+                connected
+                    .clone()
+                    .next_back()
+                    .filter(|_| preferred.is_some())
+                    .unwrap_or(look ^ 1)
             };
             format!("{MOTOR}[facing={}]", DIRECTIONS[usize::from(face)])
         }
-        Piece::Shaft(_) => {
-            let axis = match (preferred, args.sneak) {
-                (Some(_), true) => face_axis,
-                (Some(face), false) => rotation::face_axis(face),
-                (None, _) => rotation::face_axis(look),
+        Some(Kind::Shaft(_)) => format!(
+            "{SHAFT}[axis={},waterlogged={wet}]",
+            AXES[usize::from(pillar_axis)]
+        ),
+        Some(Kind::Small(_) | Kind::Large(_)) => {
+            // CogWheelBlock.getAxisForPlacement
+            let against = states.kind(ids[usize::from(args.face ^ 1)]);
+            let axis = if args.sneak {
+                clicked_axis
+            } else if let Some(Kind::Small(axis)) = against {
+                axis
+            } else {
+                preferred.unwrap_or(clicked_axis)
             };
             format!(
-                "{SHAFT}[axis={},waterlogged={wet}]",
+                "{}[axis={},waterlogged={wet}]",
+                placed.block,
                 AXES[usize::from(axis)]
             )
         }
-        Piece::Small(_) | Piece::Large(_) => {
-            let against = states.by_id.get(&ids[usize::from(args.face ^ 1)]);
-            let axis = if args.sneak {
-                face_axis
-            } else if let Some(KnownState {
-                piece: Piece::Small(axis),
-                ..
-            }) = against
-            {
-                *axis
-            } else {
-                preferred.map(rotation::face_axis).unwrap_or(face_axis)
-            };
-            let id = if matches!(piece, Piece::Small(_)) {
-                SMALL
-            } else {
-                LARGE
-            };
-            format!("{id}[axis={},waterlogged={wet}]", AXES[usize::from(axis)])
-        }
+        Some(Kind::Gearbox(_)) => format!("{GEARBOX}[axis=y]"),
+        // AbstractEncasedShaftBlock.getStateForPlacement
+        Some(Kind::EncasedShaft(_)) => format!(
+            "{ENCASED_SHAFT}[axis={}]",
+            AXES[usize::from(encased_axis(preferred, pillar_axis, look, args.sneak))]
+        ),
+        Some(Kind::Clutch(..) | Kind::Gearshift(..)) => format!(
+            "{}[axis={},powered={}]",
+            placed.block,
+            AXES[usize::from(encased_axis(preferred, pillar_axis, look, args.sneak))],
+            args.world.has_neighbor_signal(args.position)
+        ),
+        Some(Kind::Turntable) | None => return Some(args.state),
     };
     states.by_selector.get(&selector).copied()
+}
+
+/// `AbstractEncasedShaftBlock.getStateForPlacement`: sneaking falls back to the pillar rule.
+fn encased_axis(preferred: Option<u8>, pillar_axis: u8, look: u8, sneak: bool) -> u8 {
+    if sneak {
+        pillar_axis
+    } else {
+        preferred.unwrap_or_else(|| face_axis(look))
+    }
 }
 
 fn nearest_looking_direction(yaw: f32, pitch: f32) -> u8 {
@@ -418,6 +684,7 @@ fn nearest_looking_direction(yaw: f32, pitch: f32) -> u8 {
     }
 }
 
+/// `KineticBlockEntity.write` and `read`, with Create's field names.
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct KineticData {
@@ -426,168 +693,158 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<fastnbt::IntArray>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    network: Option<KineticNetwork>,
+    network: Option<NetworkData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     scroll_value: Option<i32>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct KineticNetwork {
-    #[serde(rename = "Id")]
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct NetworkData {
     id: i64,
+    #[serde(default)]
+    stress: f32,
+    #[serde(default)]
+    capacity: f32,
+    #[serde(default)]
+    size: i32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    added_stress: f32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    added_capacity: f32,
 }
 
-const fn packed(pos: Pos) -> i64 {
-    ((pos.x as i64 & 0x3ff_ffff) << 38)
-        | ((pos.z as i64 & 0x3ff_ffff) << 12)
-        | (pos.y as i64 & 0xfff)
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde passes a reference"
+)]
+fn is_zero(value: &f32) -> bool {
+    *value == 0.0
 }
 
-fn piece_at(world: World<'_>, pos: Pos, piece: Piece, setting: Option<(Pos, i32)>) -> Piece {
-    let Piece::Motor(face, _) = piece else {
-        return piece;
+fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
+    let mut be = Be::new(kind);
+    let Some(data) = world
+        .entity(pos)
+        .and_then(|bytes| fastnbt::from_bytes::<KineticData>(&bytes).ok())
+    else {
+        return be;
     };
-    let rpm = setting
-        .filter(|(change, _)| *change == pos)
-        .map(|(_, rpm)| rpm)
-        .or_else(|| {
-            let bytes = world.entity(pos)?;
-            fastnbt::from_bytes::<KineticData>(&bytes)
-                .ok()?
-                .scroll_value
-        })
-        .unwrap_or(DEFAULT_SPEED)
-        .clamp(-MAX_SPEED, MAX_SPEED);
-    Piece::Motor(face, rpm)
+    be.speed = data.speed;
+    be.source = data.source.and_then(|pos| match *pos {
+        [x, y, z] => Some(Pos { x, y, z }),
+        _ => None,
+    });
+    if let Some(network) = data.network {
+        be.network = Some(network.id);
+        be.stress = network.stress;
+        be.capacity = network.capacity;
+        be.network_size = network.size;
+        be.last_stress_applied = network.added_stress;
+        be.last_capacity_provided = network.added_capacity;
+        be.overstressed = be.capacity < be.stress;
+    }
+    if let Some(value) = data.scroll_value {
+        be.generated = value.clamp(-MAX_SPEED, MAX_SPEED);
+    }
+    be
+}
+
+fn save(be: &Be) -> KineticData {
+    KineticData {
+        speed: be.speed,
+        source: be
+            .source
+            .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
+        network: be.network.map(|id| NetworkData {
+            id,
+            stress: be.stress,
+            capacity: be.capacity,
+            size: be.network_size,
+            added_stress: be.last_stress_applied,
+            added_capacity: be.last_capacity_provided,
+        }),
+        scroll_value: matches!(be.kind, Kind::Motor(_)).then_some(be.generated),
+    }
+}
+
+struct WorldLevel<'a> {
+    world: World<'a>,
+    states: &'static StateIds,
+}
+
+impl Level for WorldLevel<'_> {
+    fn destroy(&mut self, pos: Pos) {
+        self.world.destroy(pos, true);
+    }
+
+    fn has_neighbor_signal(&self, pos: Pos) -> bool {
+        self.world.has_neighbor_signal(pos)
+    }
+
+    fn is_loaded(&self, pos: Pos) -> bool {
+        let mut state = [content::UNLOADED_STATE];
+        self.world.read(&[pos], &mut state) && state[0] != content::UNLOADED_STATE
+    }
+
+    fn set_kind(&mut self, pos: Pos, kind: Kind) {
+        if let Some(state) = self.states.state_of(kind) {
+            self.world.write(&[BlockUpdate {
+                position: pos,
+                state,
+                flags: content::UPDATE_CLIENTS,
+            }]);
+        }
+    }
 }
 
 fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
-    let mut touched = events
-        .iter()
-        .filter(|event| event.reason != content::NEIGHBOR_CHANGED)
-        .map(|event| event.position)
-        .peekable();
-    if touched.peek().is_some() {
-        update_network(world, touched, None);
-    }
-}
-
-fn discover(
-    world: World<'_>,
-    seeds: impl IntoIterator<Item = Pos>,
-    state_ids: &StateIds,
-) -> HashMap<Pos, Piece> {
-    let roots: HashSet<_> = seeds.into_iter().collect();
-    let mut frontier: HashSet<_> = roots
-        .iter()
-        .copied()
-        .flat_map(|pos| {
-            OFFSETS
-                .into_iter()
-                .map(move |step| offset(pos, step))
-                .chain([pos])
-        })
-        .collect();
-    let mut cache = HashMap::new();
-    let mut nodes = HashMap::new();
-    let mut state = vec![0; MAX_WORLD_BATCH];
-    let mut first = true;
-    while !frontier.is_empty() {
-        let positions: Vec<_> = frontier.drain().collect();
-        for part in positions.chunks(MAX_WORLD_BATCH) {
-            if world.read(part, &mut state[..part.len()]) {
-                cache.extend(
-                    part.iter().copied().zip(
-                        state
-                            .iter()
-                            .map(|id| state_ids.by_id.get(id).map(|block| block.piece)),
-                    ),
-                );
-            }
-        }
-        let mut candidates = Vec::new();
-        if first {
-            candidates.extend(
-                positions
-                    .into_iter()
-                    .filter_map(|pos| Some((pos, (*cache.get(&pos)?)?))),
-            );
-            first = false;
-        } else {
-            for pos in positions {
-                let Some(Some(piece)) = cache.get(&pos).copied() else {
-                    continue;
-                };
-                if OFFSETS.into_iter().any(|step| {
-                    nodes
-                        .get(&offset(pos, step))
-                        .is_some_and(|other| ratio(piece, *other, step).is_some())
-                }) {
-                    candidates.push((pos, piece));
-                }
-            }
-        }
-
-        while let Some((pos, piece)) = candidates.pop() {
-            if nodes.insert(pos, piece).is_some() {
-                continue;
-            }
-            for step in OFFSETS {
-                let next = offset(pos, step);
-                match cache.get(&next) {
-                    Some(Some(other))
-                        if !nodes.contains_key(&next) && ratio(piece, *other, step).is_some() =>
-                    {
-                        candidates.push((next, *other));
-                    }
-                    None => {
-                        frontier.insert(next);
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    nodes
-}
-
-fn update_network(
-    world: World<'_>,
-    seeds: impl IntoIterator<Item = Pos>,
-    setting: Option<(Pos, i32)>,
-) {
-    let _update = NETWORK_UPDATE
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
     let Some(states) = states() else { return };
-    let mut nodes = discover(world, seeds, states);
-    for (&pos, piece) in &mut nodes {
-        *piece = piece_at(world, pos, *piece, setting);
-    }
-    for (
-        pos,
-        Rotation {
-            speed,
-            source,
-            network,
-        },
-    ) in rotation::solve(&nodes)
-    {
-        let piece = nodes[&pos];
-        let data = KineticData {
-            speed,
-            source: source.map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
-            network: network.map(|pos| KineticNetwork { id: packed(pos) }),
-            scroll_value: if let Piece::Motor(_, rpm) = piece {
-                Some(rpm)
-            } else {
-                None
-            },
-        };
-        if let Ok(bytes) = fastnbt::to_bytes(&data) {
+    with_world(world, |kinetics| {
+        let mut level = WorldLevel { world, states };
+        for event in events {
+            let pos = event.position;
+            let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            match event.reason {
+                content::LOADED => {
+                    if let Some(kind) = after {
+                        kinetics.insert(pos, load(world, pos, kind));
+                    }
+                }
+                content::UNLOADED => kinetics.unload(pos),
+                content::NEIGHBOR_CHANGED => kinetics.neighbor_changed(&mut level, pos),
+                _ => match (before, after) {
+                    (Some(before), Some(after)) if before.equivalent(after) => {
+                        kinetics.set_kind(pos, after);
+                    }
+                    (Some(before), Some(after))
+                        if std::mem::discriminant(&before) == std::mem::discriminant(&after) =>
+                    {
+                        kinetics.reset(pos, after);
+                    }
+                    _ => {
+                        if before.is_some() {
+                            kinetics.remove(&mut level, pos);
+                        }
+                        if let Some(kind) = after {
+                            kinetics.insert(pos, Be::new(kind));
+                        }
+                    }
+                },
+            }
+        }
+        kinetics.tick(&mut level);
+        flush(world, kinetics);
+    });
+}
+
+/// Save changed block entities and show their speed (`getSpeed`, zero when overstressed).
+fn flush(world: World<'_>, kinetics: &mut Kinetics) {
+    for (pos, be) in kinetics.drain_dirty() {
+        if let Ok(bytes) = fastnbt::to_bytes(&save(&be)) {
             let _ = world.set_entity(pos, &bytes);
         }
-        let _ = world.rotate(pos, piece.axis(), speed);
+        let _ = world.rotate(pos, be.kind.axis(), be.get_speed());
     }
 }
 

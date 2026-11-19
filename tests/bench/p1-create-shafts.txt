@@ -1,0 +1,72 @@
+# A creative motor driving 256 shafts, reversed 24 times half a second apart, then 10 s of steady
+# ticking. Faster reversals break a shaft, as in Create (RotationPropagator MAX_FLICKER_SCORE).
+# scripts\scenario.ps1 -Scenario tests\bench\p1-create-shafts.txt -RunDir run\bench-create-shafts -Fresh
+# Active CPU seconds are the sum of cpu_pct / 100 x window_s x cores over the measure lines.
+mods target\mods\create.mmc
+start
+botstart bench
+wait 3
+cmd tp bench 1152.5 102 1024.5
+wait 10
+cmd setblock 1024 100 1024 create:creative_motor[facing=east]
+cmd fill 1025 100 1024 1280 100 1024 create:shaft[axis=x,waterlogged=false]
+wait 3
+cmd kinetics 1280 100 1024
+wait 0.5
+expect at 1280 100 1024 Speed=16
+measure 5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 16
+measure 0.5
+cmd kinetics 1024 100 1024 -16
+measure 0.5
+cmd kinetics 1024 100 1024 24
+measure 0.5
+measure 10
+cmd kinetics 1280 100 1024
+wait 0.5
+expect at 1280 100 1024 Speed=24
+reject (?i)panicked|trapped
+bot quit
+stop

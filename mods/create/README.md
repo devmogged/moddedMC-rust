@@ -1,6 +1,6 @@
 # Create kinetics
 
-`create.mmc` adds a shaft, a cogwheel, a large cogwheel and a creative motor. Its mechanics follow the [Create mc1.21.1/dev source](https://github.com/Creators-of-Create/Create/tree/37ea4afcfe5bf85875d4b0749798a45330070a1f/src/main/java/com/simibubi/create/content/kinetics). The mod loads with the ABI 1 content and block-world interfaces.
+`create.mmc` adds the shaft, cogwheel, large cogwheel, creative motor, gearbox, clutch, gearshift, andesite encased shaft, andesite casing and turntable, with Create's stress model. Its mechanics are ported from [Create 6.0.10](https://github.com/Creators-of-Create/Create/tree/mc1.21.1-6.0.10/src/main/java/com/simibubi/create/content/kinetics) (tag `mc1.21.1-6.0.10`, commit `ac0c444`): `src/kinetics.rs` follows `RotationPropagator`, `KineticNetwork`, `KineticBlockEntity` and `GeneratingKineticBlockEntity` method by method, so speeds, sources, networks, overstress and the block that breaks on a conflict match Create. The mod needs the ABI 1 content and block-world interfaces, including the block-world `has_neighbor_signal` and `destroy` extensions.
 
 1. Build with `scripts/pack-mod.ps1 -Crate create`. Place `target/mods/create.mmc` in the server's `mods/`.
 2. Supply your local Create jar through `MODDEDMC_ASSET_JARS`, a platform-separated list of paths. The host also looks in `cache/` and `D:/minecraft/buja_server/mods`. The generated pack and its SHA-1 stay in `cache/moddedmc/`.
@@ -16,4 +16,18 @@ Create code uses the [MIT license](LICENSE.md). The visual assets are reserved b
 4. Break the shaft. Both small cogs and the large cog should stop while the motor continues. Replace the shaft, run `/kinetics 1025 100 1025 24`, then restart the server. On rejoin the motor and large cog should turn at 24 RPM and the two small cogs at -48 and +48 RPM.
 5. Capture one recording from above showing the gears reversing across the mesh, stopping on the shaft break, and resuming after restart.
 
-The [bot scenario](../../tests/scenarios/p1a-create.txt) covers the pack download, item placement, RPMs, restart, and breaking the shaft. Java Create's rotation conflict and overspeed conditions destroy a block. This slice stops the conflicting component and retains its parts. Placement helpers, encasing, powered shafts, belts, stress and the motor's in-world scroll control are later work. The stock selection outline follows the vanilla carrier.
+The [bot scenario](../../tests/scenarios/p1a-create.txt) covers the pack download, item placement, RPMs, restart, and breaking the shaft.
+
+Stress and transmitters (P1b):
+
+1. Get `create:gearbox`, `create:clutch`, `create:gearshift`, `create:turntable` and a few `create:shaft` with `/give`.
+2. Place a motor facing east at `2000 100 2000` and a gearbox east of it, then shafts on the gearbox's east, north and south faces. Expect the east and north shafts to turn opposite to the motor's shaft and the south shaft to turn with it (`/kinetics` reads `Speed=-16`, `-16` and `16`).
+3. On a line motor, gearshift, shaft, clutch, shaft (all along X), put a redstone block on the gearshift. Every shaft past it reverses. Put a redstone block on the clutch: the last shaft stops while the clutch keeps turning. Remove that redstone block and the last shaft turns again.
+4. Set a motor to 1 RPM, gear up eight times (large cog to small cog, `x2` each) to 256 RPM and put 17 turntables on meshed cogs at 256 RPM. Every part of that network, the motor included, stops (`/kinetics` shows `Stress=17408 Capacity=16384 Overstressed`). Break one turntable and everything turns again.
+5. Run two motors at 16 RPM facing each other, each with one shaft, and place a third shaft between them. The new shaft breaks and drops, and both lines keep turning.
+6. Restart, rejoin and check that steps 2 to 5 look the same.
+7. Capture one recording of steps 3 and 4.
+
+[`tests/scenarios/p1b-create.txt`](../../tests/scenarios/p1b-create.txt) checks all of this with the bot, and [`tests/bench/p1-create-shafts.txt`](../../tests/bench/p1-create-shafts.txt) measures a 256-shaft line.
+
+Not ported yet: the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable turns but doesn't spin players and mobs standing on it (that needs entity access, see [INTERFACES-PLAN](../../docs/INTERFACES-PLAN.md)); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.
