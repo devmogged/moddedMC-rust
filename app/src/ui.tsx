@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api, minecraftAddress, type Device, type Health, type ServerInfo } from "./api";
 
 /* ---------- polling ---------- */
@@ -79,6 +79,96 @@ function rng(seed: number) {
 
 const oklch = (l: number, c: number, h: number) => `oklch(${l.toFixed(3)} ${c} ${h})`;
 
+function iconHue(image: HTMLImageElement): number | undefined {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 16;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.drawImage(image, 0, 0, 16, 16);
+  const pixels = ctx.getImageData(0, 0, 16, 16).data;
+  const bins = Array.from({ length: 12 }, () => ({ weight: 0, a: 0, b: 0 }));
+  const linear = (channel: number) => {
+    const v = channel / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i + 3] < 128) continue;
+    const [r, g, b] = [pixels[i], pixels[i + 1], pixels[i + 2]].map(linear);
+    // Linear sRGB to OKLab. Weight the dominant hue by chroma.
+    const l = Math.cbrt(0.41222 * r + 0.53633 * g + 0.05145 * b);
+    const m = Math.cbrt(0.2119 * r + 0.6807 * g + 0.1074 * b);
+    const s = Math.cbrt(0.0883 * r + 0.28172 * g + 0.62998 * b);
+    const a = 1.978 * l - 2.42859 * m + 0.45059 * s;
+    const z = 0.0259 * l + 0.78277 * m - 0.80868 * s;
+    const chroma = Math.hypot(a, z);
+    if (chroma < 0.025) continue;
+    const hue = ((Math.atan2(z, a) * 180) / Math.PI + 360) % 360;
+    const bin = bins[Math.round(hue / 30) % bins.length];
+    bin.weight += chroma;
+    bin.a += a;
+    bin.b += z;
+  }
+  const dominant = bins.reduce((best, bin) => (bin.weight > best.weight ? bin : best));
+  return dominant.weight ? ((Math.atan2(dominant.b, dominant.a) * 180) / Math.PI + 360) % 360 : undefined;
+}
+
+export function useIcon(name: string, favicon?: string | null) {
+  const [sample, setSample] = useState<{ source: string; hue: number | undefined; valid: boolean }>();
+  const localImage = favicon?.startsWith("data:image/png;base64,") ? favicon : null;
+  useEffect(() => {
+    if (!localImage) return;
+    let active = true;
+    const img = new Image();
+    img.src = localImage;
+    img
+      .decode()
+      .then(() => {
+        if (active) setSample({ source: localImage, hue: iconHue(img), valid: true });
+      })
+      .catch(() => {
+        if (active) setSample({ source: localImage, hue: undefined, valid: false });
+      });
+    return () => {
+      active = false;
+    };
+  }, [localImage]);
+  const stone = STONES[hash(name + "#stone") % STONES.length];
+  const ore = ORES[hash(name + "#ore") % ORES.length];
+  const match = sample && sample.source === localImage ? sample : null;
+  return {
+    favicon: match?.valid ? localImage : null,
+    style: { "--server-hue": match?.hue ?? (stone[1] >= 0.085 ? stone[2] : ore[2]) } as CSSProperties,
+  };
+}
+
+const icons = new Map<string, Promise<string | null>>();
+
+export function useServerIcon(device: Device, server: ServerInfo) {
+  const address = minecraftAddress(device, server);
+  const [resolved, setResolved] = useState<{ address: string; favicon: string | null }>();
+  useEffect(() => {
+    let active = true;
+    let request = icons.get(address);
+    if (!request && server.state === "running") {
+      request = api
+        .ping(address)
+        .then((status) => status.favicon)
+        .catch(() => {
+          icons.delete(address);
+          return null;
+        });
+      icons.set(address, request);
+    }
+    request?.then((favicon) => {
+      if (active) setResolved({ address, favicon });
+    });
+    return () => {
+      active = false;
+    };
+  }, [address, server.state]);
+  return useIcon(server.name, resolved?.address === address ? resolved.favicon : null);
+}
+
 /** An 8x8 ore block, stable for a name. Server icons are the only pixel art in the app. */
 export function ServerIcon({ name, favicon }: { name: string; favicon?: string | null }) {
   const cells = useMemo(() => {
@@ -116,7 +206,7 @@ export function ServerIcon({ name, favicon }: { name: string; favicon?: string |
 
 /* ---------- bars ---------- */
 
-export type BarsTone = "ok" | "unknown" | "warn" | "bad" | "starting";
+export type BarsTone = "ok" | "unknown" | "warn" | "bad" | "starting" | "external";
 
 export function Bars({ lit, tone, label }: { lit: number; tone: BarsTone; label: string }) {
   return (
@@ -151,17 +241,36 @@ export function healthBars(health: Health): { lit: number; tone: BarsTone } {
 }
 
 /** The status cluster for a hosted server: tick health and players while it runs. */
-export function ServerCluster({ device, server }: { device: Device; server: ServerInfo }) {
+export function ServerCluster({
+  device,
+  server,
+  detail = false,
+}: {
+  device: Device;
+  server: ServerInfo;
+  detail?: boolean;
+}) {
   const live = useLive(device, server);
   switch (server.state) {
     case "running": {
-      const bars = live.health ? healthBars(live.health) : { lit: 5, tone: "unknown" as const };
+      const bars = live.health
+        ? healthBars(live.health)
+        : { lit: 5, tone: (server.external ? "external" : "ok") as BarsTone };
       const label = live.health
         ? `${live.health.mspt.toFixed(1)} ms per tick, ${live.health.tps.toFixed(1)} TPS`
         : "Running";
       return (
         <span className="cluster">
           <Bars lit={bars.lit} tone={bars.tone} label={label} />
+          {detail ? (
+            <span className="status-text" data-tone={bars.tone}>
+              {server.external
+                ? "External"
+                : bars.tone === "warn" || bars.tone === "bad"
+                  ? "Degraded"
+                  : "Running"}
+            </span>
+          ) : null}
           {live.players != null && live.max != null ? (
             <span>
               {live.players}/{live.max}
@@ -174,21 +283,25 @@ export function ServerCluster({ device, server }: { device: Device; server: Serv
       return (
         <span className="cluster">
           <Bars lit={0} tone="starting" label="Starting" />
-          <span className="word">Starting</span>
+          <span className="word status-text" data-tone="starting">
+            Starting
+          </span>
         </span>
       );
     case "stopping":
       return (
         <span className="cluster">
           <Bars lit={0} tone="starting" label="Stopping" />
-          <span className="word">Stopping</span>
+          <span className="word status-text" data-tone="starting">
+            Stopping
+          </span>
         </span>
       );
     case "crashed":
       return (
         <span className="cluster">
           <Bars lit={1} tone="bad" label="Crashed" />
-          <span className="word" data-tone="bad">
+          <span className="word status-text" data-tone="bad">
             Crashed
           </span>
         </span>
@@ -196,7 +309,9 @@ export function ServerCluster({ device, server }: { device: Device; server: Serv
     default:
       return (
         <span className="cluster">
-          <span className="word">Stopped</span>
+          <span className="word status-text" data-tone={server.external ? "external" : "unknown"}>
+            Stopped
+          </span>
         </span>
       );
   }

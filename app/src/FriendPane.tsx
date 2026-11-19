@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Copy, Trash2 } from "lucide-react";
 import { api, type Friend, type Status } from "./api";
-import { Bars, ServerIcon, pingBars, usePoll } from "./ui";
+import { Bars, ServerIcon, pingBars, usePoll, useIcon } from "./ui";
 import { ConfirmDialog } from "./dialogs";
 
 export interface FriendStatus {
@@ -52,9 +52,10 @@ export function FriendRow({
   current: boolean;
   onSelect: () => void;
 }) {
+  const icon = useIcon(friend.address, status.status?.favicon);
   return (
-    <button className="row" aria-current={current} onClick={onSelect}>
-      <ServerIcon name={friend.address} favicon={status.status?.favicon} />
+    <button className="row server-identity" style={icon.style} aria-current={current} onClick={onSelect}>
+      <ServerIcon name={friend.address} favicon={icon.favicon} />
       <span className="row-text">
         <span className="row-name">{friend.name}</span>
         <span className="row-line">{status.status?.motd || friend.address}</span>
@@ -77,6 +78,7 @@ export function FriendPane({
   const [confirm, setConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
   const s = live.status;
+  const icon = useIcon(friend.address, s?.favicon);
 
   const copy = async () => {
     try {
@@ -89,10 +91,10 @@ export function FriendPane({
   };
 
   return (
-    <div className="pane">
-      <header className="pane-head">
+    <div className="pane server-identity" style={icon.style}>
+      <header className="pane-head server-heading">
         <div className="row large">
-          <ServerIcon name={friend.address} favicon={s?.favicon} />
+          <ServerIcon name={friend.address} favicon={icon.favicon} />
           <div className="row-text">
             <h1 className="row-name">{friend.name}</h1>
             <p className="row-line">{s?.motd || friend.address}</p>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Boxes, Package, Plus } from "lucide-react";
 import { api, type Device, type Friend, type ServerInfo } from "./api";
-import { ServerCluster, ServerIcon, packLine, routeLabel, usePoll } from "./ui";
+import { ServerCluster, ServerIcon, packLine, routeLabel, usePoll, useServerIcon } from "./ui";
 import { ServerPane } from "./ServerPane";
 import { DevicePane } from "./DevicePane";
 import { FriendPane, FriendRow, useFriendStatus } from "./FriendPane";
@@ -354,9 +354,10 @@ function SidebarServer({
   current: boolean;
   onSelect: () => void;
 }) {
+  const icon = useServerIcon(device, server);
   return (
-    <button className="row" aria-current={current} onClick={onSelect}>
-      <ServerIcon name={server.name} />
+    <button className="row server-identity" style={icon.style} aria-current={current} onClick={onSelect}>
+      <ServerIcon name={server.name} favicon={icon.favicon} />
       <span className="row-text">
         <span className="row-name">{server.name}</span>
         <span className="row-line">{packLine(server)}</span>

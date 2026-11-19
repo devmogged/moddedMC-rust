@@ -1,20 +1,31 @@
 :root {
   color-scheme: dark;
-  --ground: oklch(0.165 0.006 70);
-  --raised: oklch(0.195 0.006 70);
-  --selected: oklch(0.235 0.008 70);
-  --hairline: oklch(1 0 0 / 0.075);
-  --hairline-strong: oklch(1 0 0 / 0.13);
-  --text: oklch(0.94 0.004 80);
-  --text-muted: oklch(0.7 0.006 80);
-  --text-faint: oklch(0.56 0.006 80);
-  --brass: oklch(0.8 0.125 82);
-  --brass-ink: oklch(0.2 0.03 82);
-  --ok: oklch(0.77 0.16 148);
-  --warn: oklch(0.8 0.125 82);
-  --bad: oklch(0.66 0.19 27);
-  --bar-off: oklch(1 0 0 / 0.1);
+  --ground: oklch(0.187 0.027 258);
+  --raised: oklch(0.225 0.033 256);
+  --selected: oklch(0.294 0.045 255);
+  --hairline: oklch(0.78 0.04 250 / 0.16);
+  --hairline-strong: oklch(0.79 0.055 250 / 0.29);
+  --text: oklch(0.96 0.013 250);
+  --text-muted: oklch(0.79 0.033 250);
+  --text-faint: oklch(0.71 0.035 253);
+  --brass: oklch(0.85 0.125 83);
+  --brass-ink: oklch(0.225 0.048 62);
+  --ok: oklch(0.83 0.155 155);
+  --warn: oklch(0.83 0.15 63);
+  --bad: oklch(0.78 0.155 24);
+  --bar-off: oklch(0.75 0.05 255 / 0.24);
   --shadow-pop: 0 12px 32px -8px oklch(0 0 0 / 0.6);
+
+  --surface: oklch(0.249 0.038 256);
+  --well: oklch(0.164 0.026 259);
+  --starting: oklch(0.82 0.12 227);
+  --external: oklch(0.81 0.105 302);
+  --brass-hover: oklch(0.9 0.11 83);
+  --log-ink: oklch(0.88 0.025 251);
+  --scrim: oklch(0.1 0.02 260 / 0.67);
+  --scroll: oklch(0.78 0.04 250 / 0.25);
+  --scroll-hover: oklch(0.81 0.04 250 / 0.4);
+  --server-hue: 255;
 
   --ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --mono: "Cascadia Mono", ui-monospace, "SF Mono", Consolas, monospace;
@@ -47,7 +58,7 @@ body {
 }
 
 ::selection {
-  background: oklch(0.8 0.125 82 / 0.28);
+  background: color-mix(in oklch, var(--brass) 28%, transparent);
   color: var(--text);
 }
 
@@ -64,11 +75,11 @@ textarea {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(1 0 0 / 0.12);
+  background: var(--scroll);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(1 0 0 / 0.22);
+  background: var(--scroll-hover);
 }
 
 :focus {
@@ -265,20 +276,24 @@ p {
   transition: background-color var(--t-hover) var(--ease-out);
 }
 button.row:hover {
-  background: oklch(1 0 0 / 0.035);
+  background: var(--surface);
 }
+.server-identity {
+  --server-accent: oklch(0.82 0.1 var(--server-hue));
+  --server-tint: oklch(0.59 0.16 var(--server-hue));
+}
+
 .row[aria-current="true"] {
-  background: var(--selected);
+  background: color-mix(in oklch, var(--server-tint, var(--brass)) 17%, var(--raised));
 }
 .row[aria-current="true"]::before {
   content: "";
   position: absolute;
-  left: -8px;
+  left: 0;
   top: 10px;
   bottom: 10px;
-  width: 2px;
-  border-radius: 0 2px 2px 0;
-  background: var(--brass);
+  width: 1px;
+  background: var(--server-accent, var(--brass));
 }
 
 .row-text {
@@ -335,8 +350,27 @@ button.row:hover {
 .cluster .word {
   font-size: 12px;
 }
-.cluster .word[data-tone="bad"] {
-  color: var(--bad);
+.status-text {
+  color: var(--status-ink, var(--text-faint));
+}
+
+[data-tone="ok"] {
+  --status-ink: var(--ok);
+}
+[data-tone="warn"] {
+  --status-ink: var(--warn);
+}
+[data-tone="bad"] {
+  --status-ink: var(--bad);
+}
+[data-tone="external"] {
+  --status-ink: var(--external);
+}
+[data-tone="starting"] {
+  --status-ink: var(--starting);
+}
+[data-tone="unknown"] {
+  --status-ink: var(--text-faint);
 }
 
 /* Tick-health / ping bars: the multiplayer list's icon, five ascending bars. */
@@ -370,16 +404,7 @@ button.row:hover {
   height: 12px;
 }
 .bars i[data-on] {
-  background: var(--bar-color, var(--ok));
-}
-.bars[data-tone="unknown"] {
-  --bar-color: var(--text-muted);
-}
-.bars[data-tone="warn"] {
-  --bar-color: var(--warn);
-}
-.bars[data-tone="bad"] {
-  --bar-color: var(--bad);
+  background: var(--status-ink, var(--ok));
 }
 .bars[data-tone="starting"] i {
   animation: bar-fill 1.2s var(--ease-out) infinite;
@@ -392,7 +417,7 @@ button.row:hover {
   }
   40%,
   70% {
-    background: var(--warn);
+    background: var(--starting);
   }
   100% {
     background: var(--bar-off);
@@ -493,7 +518,7 @@ button.row:hover {
 }
 .button:hover:not(:disabled) {
   background: var(--raised);
-  border-color: oklch(1 0 0 / 0.2);
+  border-color: var(--hairline-strong);
 }
 .button:active:not(:disabled) {
   background: var(--selected);
@@ -516,7 +541,7 @@ button.row:hover {
   color: var(--brass-ink);
 }
 .button.primary:hover:not(:disabled) {
-  background: oklch(0.85 0.12 82);
+  background: var(--brass-hover);
   border-color: transparent;
 }
 .button.danger {
@@ -554,7 +579,7 @@ button.row:hover {
   bottom: -1px;
   height: 2px;
   border-radius: 2px 2px 0 0;
-  background: var(--brass);
+  background: var(--server-accent, var(--brass));
 }
 
 .pane-body {
@@ -605,7 +630,7 @@ button.row:hover {
   overflow-wrap: anywhere;
   user-select: text;
   cursor: text;
-  color: oklch(0.86 0.005 80);
+  color: var(--log-ink);
 }
 .console-log [data-level="warn"] {
   color: var(--warn);
@@ -759,7 +784,7 @@ dialog[open] {
   animation: dialog-in var(--t-pane) var(--ease-out);
 }
 dialog::backdrop {
-  background: oklch(0 0 0 / 0.5);
+  background: var(--scrim);
   animation: fade-in var(--t-pane) var(--ease-out);
 }
 @keyframes dialog-in {
@@ -802,7 +827,7 @@ dialog::backdrop {
   transition: border-color var(--t-hover) var(--ease-out);
 }
 .input:hover {
-  border-color: oklch(1 0 0 / 0.2);
+  border-color: var(--hairline-strong);
 }
 .input:focus-visible {
   outline: none;
@@ -872,7 +897,7 @@ dialog::backdrop {
   }
   .bars[data-tone="starting"] i {
     animation: none;
-    background: var(--warn);
+    background: var(--starting);
   }
   .pane,
   dialog[open],
@@ -894,7 +919,7 @@ dialog::backdrop {
   transition: border-color var(--t-hover) var(--ease-out);
 }
 .build-pick:hover {
-  border-color: oklch(1 0 0 / 0.24);
+  border-color: var(--hairline-strong);
 }
 .row-line.mono {
   font-family: var(--mono);
@@ -916,12 +941,12 @@ dialog::backdrop {
   padding: 10px 12px;
   border: 1px solid var(--hairline);
   border-radius: 6px;
-  background: oklch(0.145 0.006 70);
+  background: var(--well);
   font: 12px/1.6 var(--mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
-  color: oklch(0.86 0.005 80);
+  color: var(--log-ink);
 }
 
 .pick-list {
@@ -995,4 +1020,14 @@ dialog::backdrop {
 
 .field.inline .input {
   width: 64px;
+}
+
+.server-heading {
+  background:
+    radial-gradient(
+      ellipse at 58px 50%,
+      color-mix(in oklch, var(--server-tint) 34%, var(--raised)),
+      transparent 62%
+    ),
+    var(--raised);
 }

@@ -1,7 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Archive, Grid3x3, History, Pause, Play, Plus, RotateCw, Square, Trash2, Upload } from "lucide-react";
-import { api, minecraftAddress, type Backup, type BackupSchedule, type Device, type ServerInfo, type Stats } from "./api";
-import { ServerCluster, ServerIcon, bytes, duration, packLine, usePoll } from "./ui";
+import {
+  api,
+  minecraftAddress,
+  type Backup,
+  type BackupSchedule,
+  type Device,
+  type ServerInfo,
+  type Stats,
+} from "./api";
+import { ServerCluster, ServerIcon, bytes, duration, packLine, usePoll, useServerIcon } from "./ui";
 import { ConfirmDialog, DeployDialog } from "./dialogs";
 
 type Tab = "console" | "performance" | "mods" | "backups" | "pregen";
@@ -45,6 +53,7 @@ export function ServerPane({
     }
   };
 
+  const icon = useServerIcon(device, server);
   const up = server.state === "running";
   const moving = server.state === "starting" || server.state === "stopping";
   const line = [
@@ -57,15 +66,15 @@ export function ServerPane({
     .join(" · ");
 
   return (
-    <div className="pane">
-      <header className="pane-head">
+    <div className="pane server-identity" style={icon.style}>
+      <header className="pane-head server-heading">
         <div className="row large">
-          <ServerIcon name={server.name} />
+          <ServerIcon name={server.name} favicon={icon.favicon} />
           <div className="row-text">
             <h1 className="row-name">{server.name}</h1>
             <p className="row-line">{line}</p>
           </div>
-          <ServerCluster device={device} server={server} />
+          <ServerCluster device={device} server={server} detail />
         </div>
         <div className="actions">
           {server.external ? null : up || moving ? (
