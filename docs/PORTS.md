@@ -8,7 +8,7 @@ Start with [Chunky](../mods/chunky), [Counter](../mods/counter) or [Wayshrine](.
 
 1. Require the named interface versions the port uses in `Mod::start`. A server that lacks a required version logs its name and skips the mod before worlds load.
 2. Keep mechanics in the mod. Create owns its kinetic networks, and each boss or dragon mod owns its AI. The host exposes operations the engine can perform safely. Plan new operations in [INTERFACES-PLAN.md](INTERFACES-PLAN.md).
-3. Copy the original mod’s `data/<namespace>/` from its jar into `mods/<id>/resources/data/` unchanged. Old (`recipes`, `loot_tables`) and new (`recipe`, `loot_table`) folder names both load. Leave out recipes whose ingredients the port doesn’t register yet. A block’s drops come from `<namespace>:blocks/<path>`, as in vanilla.
+3. Copy the original mod’s data from its jar into `mods/<id>/resources/data/` unchanged: its own `data/<namespace>/`, plus the vanilla tag files it ships (`data/minecraft/tags/blocks/mineable/*.json` sets which tool mines each block). Old (`recipes`, `loot_tables`, `tags/blocks`) and new (`recipe`, `loot_table`, `tags/block`) folder names both load. Tag entries for blocks and items the port doesn’t register yet are skipped; leave out recipes that need them. A block’s drops come from `<namespace>:blocks/<path>`, as in vanilla.
 4. Build with `scripts/pack-mod.ps1 -Crate <name>` or put the crate's path in a [pack manifest](PACKS.md). A pack can also use a prebuilt `.mmc`.
 
 A new mechanic may need a server release that adds a generic engine hook and a named interface. Existing mods use the versions they were built against. This model gives up direct engine access and cross-mod compiler optimization.

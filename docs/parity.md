@@ -14,7 +14,7 @@ What our Pumpkin fork has against vanilla 26.3, from the fork at `engine/pumpkin
 | Worldgen structures | All 16 vanilla structure types | Checked by Pumpkin's own chunk-dump tests for some seeds; not all structures are covered there. |
 | Worldgen features | All 58 vanilla feature types are generated | `sequence` and `template` were no-ops until 2026-11-19; desert wells, deep dark and ancient city sculk, sulfur pools and sulfur springs now place. Templates with several palettes always place the first one. |
 | World | Lighting, ticking, weather, forced chunks, entity tracking | 28 TODOs in `world/`. |
-| Datapacks | Vanilla data is generated at build time. Recipes, loot tables, tags, advancements and functions load at runtime from `world/datapacks` and from each mod’s `data/` | Loading custom worldgen from datapacks at runtime is E2. |
+| Datapacks | Vanilla data is generated at build time. Recipes, loot tables, tags, advancements and functions load at runtime from `world/datapacks` and from each mod’s `data/` | Loading custom worldgen from datapacks at runtime is E2. Datapack tags add blocks and items to gameplay tag checks but can’t remove generated entries (`replace` is ignored), and a generated tag that nests a datapack tag doesn’t pick up its additions. |
 
 ## Next, in order
 
