@@ -2,16 +2,7 @@ import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { api, type Device } from "./api";
 import type { DeviceData, Selection } from "./App";
-import {
-  LoadingRows,
-  LoadError,
-  ServerCluster,
-  ServerIcon,
-  packLine,
-  bytes,
-  routeLabel,
-  usePoll,
-} from "./ui";
+import { LoadingRows, LoadError, HostedServerRow, bytes, routeLabel, usePoll } from "./ui";
 import { ConfirmDialog, NewServerDialog } from "./dialogs";
 
 export function DevicePane({
@@ -82,18 +73,12 @@ export function DevicePane({
               ) : (
                 <div className="list">
                   {servers?.map((server) => (
-                    <button
+                    <HostedServerRow
                       key={server.name}
-                      className="row"
-                      onClick={() => onSelect({ kind: "server", device: device.id, server: server.name })}
-                    >
-                      <ServerIcon name={server.name} />
-                      <span className="row-text">
-                        <span className="row-name">{server.name}</span>
-                        <span className="row-line">{packLine(server)}</span>
-                      </span>
-                      <ServerCluster device={device} server={server} />
-                    </button>
+                      device={device}
+                      server={server}
+                      onSelect={() => onSelect({ kind: "server", device: device.id, server: server.name })}
+                    />
                   ))}
                 </div>
               )}

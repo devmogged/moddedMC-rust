@@ -427,7 +427,7 @@ export function DeployToDialog({
   devices: Device[];
   data: Record<string, DeviceData>;
   onClose: () => void;
-  onDeployed: () => void;
+  onDeployed: (server: string) => void;
 }) {
   const [choice, setChoice] = useState<{ device: Device; server: ServerInfo } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -458,7 +458,7 @@ export function DeployToDialog({
           try {
             await api.deploy(choice.device.id, choice.server.name, buildPath);
             close();
-            onDeployed();
+            onDeployed(choice.server.name);
           } catch (err) {
             setError((err as Error).message);
           }

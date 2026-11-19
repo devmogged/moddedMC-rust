@@ -11,6 +11,7 @@ export function PackPane({
   devices,
   data,
   onChanged,
+  onDeployed,
   onRemoved,
   onError,
 }: {
@@ -18,6 +19,7 @@ export function PackPane({
   devices: Device[];
   data: Record<string, DeviceData>;
   onChanged: () => void;
+  onDeployed: (server: string) => void;
   onRemoved: () => void;
   onError: (err: unknown) => void;
 }) {
@@ -156,7 +158,10 @@ export function PackPane({
         devices={devices}
         data={data}
         onClose={() => setDeployFrom(null)}
-        onDeployed={onChanged}
+        onDeployed={(server) => {
+          onDeployed(server);
+          onChanged();
+        }}
       />
       <ConfirmDialog
         open={confirm}

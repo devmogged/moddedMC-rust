@@ -107,6 +107,13 @@ function servers(device: string) {
   ];
 }
 
+let pregenState = scenario === "pregen-idle" || scenario === "pregen-fast" ? "idle" : "running";
+let pregenStarted = started;
+let pregenPercent = 42;
+const backupLists = new Map<
+  string,
+  { id: string; created: number; files: number; bytes: number; stored: number; scheduled: boolean }[]
+>();
 let mockSchedule: { every_minutes: number; keep: number } | null = { every_minutes: 360, keep: 8 };
 const serverMods: Record<string, { file: string; id: string; version: string; bytes: number }[]> = {};
 
@@ -154,45 +161,83 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           serverMods[mods[1]] = list.filter((m) => m.file !== decodeURIComponent(mods[2]));
         return method === "GET" ? list : null;
       }
-      if (path.endsWith("/backups") && method === "GET")
-        return [
-          {
-            id: "1795030000",
-            created: 1795030000,
-            files: 412,
-            bytes: 182 * 2 ** 20,
-            stored: 3.1 * 2 ** 20,
-            scheduled: true,
-          },
-          {
-            id: "1794940000",
-            created: 1794940000,
-            files: 405,
-            bytes: 176 * 2 ** 20,
-            stored: 151 * 2 ** 20,
-            scheduled: false,
-          },
-        ];
+      if (path.endsWith("/backups")) {
+        const key = device + path;
+        let backups = backupLists.get(key);
+        if (!backups)
+          backups = [
+            {
+              id: "1795030000",
+              created: 1795030000,
+              files: 412,
+              bytes: 182 * 2 ** 20,
+              stored: 3.1 * 2 ** 20,
+              scheduled: true,
+            },
+            {
+              id: "1794940000",
+              created: 1794940000,
+              files: 405,
+              bytes: 176 * 2 ** 20,
+              stored: 151 * 2 ** 20,
+              scheduled: false,
+            },
+          ];
+        backupLists.set(key, backups);
+        if (method === "GET") return backups;
+        await new Promise((r) => setTimeout(r, 350));
+        const created = Math.floor(Date.now() / 1000);
+        const backup = {
+          id: String(Date.now()),
+          created,
+          files: 419,
+          bytes: 183 * 2 ** 20,
+          stored: 3.3 * 2 ** 20,
+          scheduled: false,
+        };
+        backups.unshift(backup);
+        return backup;
+      }
       if (path.endsWith("/backups/schedule")) {
         if (method === "PUT") mockSchedule = (body as typeof mockSchedule) ?? null;
         return mockSchedule;
       }
       if (path.includes("/backups")) return null;
       if (path.endsWith("/pregen") && method === "GET") {
-        const t = 0.42 + (Date.now() - started) / 120_000;
+        const pregenDuration =
+          scenario === "pregen-fast" ? 40 : scenario === "pregen-finish" ? 4500 : 120_000;
+        let percent = pregenPercent;
+        if (pregenState === "running") {
+          percent = Math.min(100, pregenPercent + (100 * (Date.now() - pregenStarted)) / pregenDuration);
+          if (percent >= 100) pregenState = "finished";
+        }
+        if (pregenState === "idle")
+          return { state: "idle", world: null, chunks: null, percent: null, eta_secs: null, rate: null };
         return {
-          state: "running",
+          state: pregenState,
           world: "minecraft:overworld",
-          chunks: Math.round(16129 * t),
-          percent: t * 100,
-          eta_secs: Math.round(30 * (1 - t)),
+          chunks: Math.round((16129 * percent) / 100),
+          percent,
+          eta_secs: Math.round((pregenDuration / 1000) * (1 - percent / 100)),
           rate: 543,
         };
       }
-      if (path.includes("/pregen")) return null;
+      if (path.includes("/pregen")) {
+        if (path.endsWith("/pause")) {
+          pregenPercent = Math.min(100, pregenPercent + (100 * (Date.now() - pregenStarted)) / 120_000);
+          pregenState = "paused";
+        } else if (path.endsWith("/cancel")) pregenState = "cancelled";
+        else {
+          if (!path.endsWith("/continue")) pregenPercent = 0;
+          pregenStarted = Date.now();
+          pregenState = "running";
+        }
+        return null;
+      }
       const match = path.match(/^\/v1\/servers\/([^/]+)\/(\w+)$/);
       if (match && method === "POST") {
         const [, name, action] = match;
+        if (scenario === "action-error") throw "Could not start " + name + ".";
         state[name] = action === "stop" ? "stopping" : "starting";
         setTimeout(() => (state[name] = action === "stop" ? "stopped" : "running"), 2500);
         return null;
@@ -212,7 +257,13 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
     }
     case "console_open": {
       const id = ++consoles;
-      setTimeout(() => log.forEach((line) => listeners.forEach((l) => l({ id, line }))), 30);
+      const serverLog =
+        args.server === "boss-rush"
+          ? [log[0], "[00:00:03] ERROR Server exited with code 101"]
+          : args.server === "create" && state.create === "stopped"
+            ? []
+            : log;
+      setTimeout(() => serverLog.forEach((line) => listeners.forEach((l) => l({ id, line }))), 30);
       return id;
     }
     case "console_send": {
@@ -237,7 +288,7 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           version: "26.3",
           players_online: 3,
           players_max: 20,
-          favicon: null,
+          favicon: scenario === "icon" && address === "pi" ? sampleIcon() : null,
         };
       return {
         latency_ms: 87,
@@ -321,4 +372,18 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
 export function mockListen(handler: Handler): () => void {
   listeners.add(handler);
   return () => listeners.delete(handler);
+}
+
+function sampleIcon() {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 8;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.fillStyle = "oklch(0.48 0.14 220)";
+  ctx.fillRect(0, 0, 8, 8);
+  ctx.fillStyle = "oklch(0.72 0.12 209)";
+  ctx.fillRect(1, 2, 5, 2);
+  ctx.fillStyle = "oklch(0.84 0.10 192)";
+  ctx.fillRect(4, 4, 3, 2);
+  return canvas.toDataURL();
 }

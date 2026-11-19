@@ -23,10 +23,12 @@ import {
 } from "./ui";
 import { HistoryPlot, PregenMap } from "./Metrics";
 import { ConfirmDialog, DeployDialog } from "./dialogs";
+import type { PregenRead } from "./App";
+import { isPregenActive, type Lifecycle } from "./serverCommands";
 
-type Tab = "console" | "performance" | "mods" | "backups" | "pregen";
+export type Tab = "console" | "performance" | "mods" | "backups" | "pregen";
 
-const TABS: { id: Tab; label: string }[] = [
+export const TABS: { id: Tab; label: string }[] = [
   { id: "console", label: "Console" },
   { id: "performance", label: "Performance" },
   { id: "mods", label: "Mods" },
@@ -37,19 +39,30 @@ const TABS: { id: Tab; label: string }[] = [
 export function ServerPane({
   device,
   server,
-  onChanged,
+  tab,
+  onTab,
+  onAct,
+  backupBusy,
+  backupRevision,
+  onBackup,
+  pregen,
+  onPregenChanged,
+  onDeployed,
   onError,
 }: {
   device: Device;
   server: ServerInfo;
-  onChanged: () => void;
+  tab: Tab;
+  onTab: (tab: Tab) => void;
+  onAct: (action: Lifecycle) => void;
+  backupBusy: boolean;
+  backupRevision: number;
+  onBackup: () => void;
+  pregen: PregenRead | undefined;
+  onPregenChanged: (started?: boolean) => void;
+  onDeployed: () => void;
   onError: (err: unknown) => void;
 }) {
-  // Dev previews can open a tab directly: #server/pi/survival/performance.
-  const [tab, setTab] = useState<Tab>(() => {
-    const hashTab = location.hash.split("/")[3];
-    return import.meta.env.DEV && TABS.some((t) => t.id === hashTab) ? (hashTab as Tab) : "console";
-  });
   const tabList = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const list = tabList.current;
@@ -66,7 +79,6 @@ export function ServerPane({
     return () => observer.disconnect();
   }, [tab, server.external]);
 
-  const [busy, setBusy] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const showStats = !server.external && (server.state === "running" || tab === "performance");
   const {
@@ -84,18 +96,6 @@ export function ServerPane({
   }, [latest]);
   const telemetry = server.state === "running" ? (latest?.health ?? server.health) : null;
   const tickTone = telemetry ? healthBars(telemetry).tone : "unknown";
-
-  const act = async (action: "start" | "stop" | "restart") => {
-    setBusy(true);
-    try {
-      await api.action(device.id, server.name, action);
-    } catch (err) {
-      onError(err);
-    } finally {
-      setBusy(false);
-      onChanged();
-    }
-  };
 
   const icon = useServerIcon(device, server);
   const up = server.state === "running";
@@ -123,22 +123,32 @@ export function ServerPane({
         <div className="actions">
           {server.external ? null : up || moving ? (
             <>
-              <button className="button" disabled={busy || moving} onClick={() => act("restart")}>
+              <button
+                className="button"
+                disabled={moving}
+                title={moving ? "Server is changing state" : undefined}
+                onClick={() => onAct("restart")}
+              >
                 <RotateCw />
                 Restart
               </button>
-              <button className="button" disabled={busy || moving} onClick={() => act("stop")}>
+              <button
+                className="button"
+                disabled={moving}
+                title={moving ? "Server is changing state" : undefined}
+                onClick={() => onAct("stop")}
+              >
                 <Square />
                 Stop
               </button>
             </>
           ) : (
             <>
-              <button className="button" disabled={busy} onClick={() => setDeploying(true)}>
+              <button className="button" onClick={() => setDeploying(true)}>
                 <Upload />
                 Deploy
               </button>
-              <button className="button primary" disabled={busy} onClick={() => act("start")}>
+              <button className="button primary" onClick={() => onAct("start")}>
                 <Play />
                 Start
               </button>
@@ -231,10 +241,10 @@ export function ServerPane({
                             : null;
                   if (next == null) return;
                   event.preventDefault();
-                  setTab(TABS[next].id);
+                  onTab(TABS[next].id);
                   document.getElementById("tab-" + TABS[next].id)?.focus();
                 }}
-                onClick={() => setTab(t.id)}
+                onClick={() => onTab(t.id)}
               >
                 {t.label}
               </button>
@@ -255,9 +265,22 @@ export function ServerPane({
             ) : tab === "mods" ? (
               <Mods device={device.id} server={server} onError={onError} />
             ) : tab === "backups" ? (
-              <Backups device={device.id} server={server} onError={onError} />
+              <Backups
+                device={device.id}
+                server={server}
+                busy={backupBusy}
+                revision={backupRevision}
+                onBackup={onBackup}
+                onError={onError}
+              />
             ) : (
-              <Pregen device={device.id} server={server} onError={onError} />
+              <Pregen
+                device={device.id}
+                server={server}
+                snapshot={pregen}
+                onChanged={onPregenChanged}
+                onError={onError}
+              />
             )}
           </div>
         </>
@@ -268,7 +291,7 @@ export function ServerPane({
         device={device}
         server={server.name}
         onClose={() => setDeploying(false)}
-        onDeployed={onChanged}
+        onDeployed={onDeployed}
       />
     </div>
   );
@@ -503,6 +526,7 @@ function Mods({
                 className="icon-button"
                 aria-label={`Remove ${m.id ?? m.file}`}
                 disabled={busy || locked}
+                title={locked ? "Stop the server to change mods" : undefined}
                 onClick={() => change(() => api.removeMod(device, server.name, m.file))}
               >
                 <Trash2 />
@@ -521,33 +545,34 @@ const COUNT = new Intl.NumberFormat();
 function Pregen({
   device,
   server,
+  snapshot,
+  onChanged,
   onError,
 }: {
   device: string;
   server: ServerInfo;
+  snapshot: PregenRead | undefined;
+  onChanged: (started?: boolean) => void;
   onError: (err: unknown) => void;
 }) {
   const up = server.state === "running";
-  const { value, error, refresh } = usePoll(up ? () => api.pregen(device, server.name) : null, 2000, [
-    device,
-    server.name,
-    up,
-  ]);
+  const { value, error } = snapshot ?? {};
   const [radius, setRadius] = useState("1000");
   const [centerX, setCenterX] = useState("0");
   const [centerZ, setCenterZ] = useState("0");
   const [circle, setCircle] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const act = async (run: () => Promise<void>) => {
+  const act = async (run: () => Promise<void>, startsTask = false) => {
     setBusy(true);
     try {
       await run();
+      onChanged(startsTask);
     } catch (err) {
       onError(err);
+      onChanged();
     } finally {
       setBusy(false);
-      refresh();
     }
   };
 
@@ -555,7 +580,7 @@ function Pregen({
   if (error && !value)
     return (
       <div className="pane-body">
-        <LoadError error={error} retry={refresh} />
+        <LoadError error={error} retry={() => onChanged()} />
       </div>
     );
   if (!value)
@@ -564,7 +589,7 @@ function Pregen({
         <LoadingRows />
       </div>
     );
-  const active = value?.state === "running" || value?.state === "paused";
+  const active = isPregenActive(value.state);
   const r = Number(radius);
   const valid = Number.isInteger(r) && r > 0 && [centerX, centerZ].every((v) => Number.isInteger(Number(v)));
 
@@ -629,13 +654,15 @@ function Pregen({
             onSubmit={(e) => {
               e.preventDefault();
               if (!valid) return;
-              act(() =>
-                api.startPregen(device, server.name, {
-                  radius: r,
-                  center_x: Number(centerX),
-                  center_z: Number(centerZ),
-                  circle,
-                }),
+              act(
+                () =>
+                  api.startPregen(device, server.name, {
+                    radius: r,
+                    center_x: Number(centerX),
+                    center_z: Number(centerZ),
+                    circle,
+                  }),
+                true,
               );
             }}
           >
@@ -698,31 +725,27 @@ const WHEN = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle
 function Backups({
   device,
   server,
+  busy: backingUp,
+  revision,
+  onBackup,
   onError,
 }: {
   device: string;
   server: ServerInfo;
+  busy: boolean;
+  revision: number;
+  onBackup: () => void;
   onError: (err: unknown) => void;
 }) {
   const { value, error, refresh } = usePoll(() => api.backups(device, server.name), 30_000, [
     device,
     server.name,
+    revision,
   ]);
-  const [busy, setBusy] = useState(false);
+  const [mutating, setMutating] = useState(false);
+  const busy = mutating || backingUp;
   const [confirm, setConfirm] = useState<{ backup: Backup; action: "restore" | "remove" } | null>(null);
   const stopped = server.state === "stopped" || server.state === "crashed";
-
-  const backUp = async () => {
-    setBusy(true);
-    try {
-      await api.backUp(device, server.name);
-    } catch (err) {
-      onError(err);
-    } finally {
-      setBusy(false);
-      refresh();
-    }
-  };
 
   if (error && !value)
     return (
@@ -736,9 +759,9 @@ function Backups({
       <section className="block">
         <div className="block-head">
           <span>{value ? `${value.length} ${value.length === 1 ? "backup" : "backups"}` : null}</span>
-          <button className="button" disabled={busy} onClick={backUp}>
+          <button className="button" disabled={busy} onClick={onBackup}>
             <Archive />
-            {busy ? "Backing up…" : "Back up now"}
+            {backingUp ? "Backing up…" : "Back up now"}
           </button>
         </div>
         <div>
@@ -789,13 +812,15 @@ function Backups({
         action={confirm?.action === "restore" ? "Restore" : "Remove"}
         onClose={() => setConfirm(null)}
         onConfirm={async () => {
-          if (!confirm) return;
+          if (!confirm || busy) return;
+          setMutating(true);
           try {
             if (confirm.action === "restore") await api.restoreBackup(device, server.name, confirm.backup.id);
             else await api.removeBackup(device, server.name, confirm.backup.id);
           } catch (err) {
             onError(err);
           } finally {
+            setMutating(false);
             refresh();
           }
         }}
@@ -965,6 +990,7 @@ function Performance({
   const tick = samples.map((s) => s.health?.mspt ?? null);
   const cpu = samples.map((s) => s.cpu_percent);
   const ram = samples.map((s) => s.rss_bytes);
+  const readings = ram.filter((value): value is number => value !== null);
   return (
     <div className="pane-body">
       {error && <LoadError error={error} retry={retry} />}
@@ -1005,7 +1031,13 @@ function Performance({
               <div className="stat-value">{bytes(latest?.rss_bytes)}</div>
             </div>
           </div>
-          <HistoryPlot values={ram} tone="external" label="Memory history" format={bytes} />
+          <HistoryPlot
+            values={ram}
+            min={readings.length ? Math.min(...readings) * 0.9 : undefined}
+            tone="external"
+            label="Memory history"
+            format={bytes}
+          />
         </section>
         <section className="chart-panel">
           <div className="chart-head">

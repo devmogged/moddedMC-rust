@@ -284,7 +284,7 @@ button.row:hover {
 }
 
 .row[aria-current="true"] {
-  background: color-mix(in oklch, var(--server-tint, var(--brass)) 17%, var(--raised));
+  background: color-mix(in oklab, var(--server-tint, var(--brass)) 19%, var(--raised));
 }
 .row[aria-current="true"]::before {
   content: "";
@@ -815,10 +815,7 @@ dialog::backdrop {
 
 .toast {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
   max-width: 360px;
-  padding: 10px 14px;
   border-radius: 10px;
   background: var(--selected);
   box-shadow: var(--shadow-pop);
@@ -959,17 +956,17 @@ dialog::backdrop {
   height: 23px;
 }
 .sidebar-scroll {
-  padding-inline: 12px;
+  padding: 0 12px 6px;
 }
 .section {
-  margin-top: 10px;
+  margin-top: 7px;
 }
 .section + .section {
   border-top: 1px solid var(--hairline);
-  padding-top: 8px;
+  padding-top: 5px;
 }
 .section-head {
-  height: 34px;
+  height: 31px;
   padding-inline: 6px 2px;
 }
 .section-head .icon-button {
@@ -977,10 +974,10 @@ dialog::backdrop {
   height: 32px;
 }
 .device-group + .device-group {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .device-head {
-  height: 34px;
+  height: 31px;
   background: var(--raised);
   border-radius: 6px 6px 0 0;
   padding-inline: 9px;
@@ -1032,7 +1029,7 @@ dialog::backdrop {
 }
 .sidebar .row {
   grid-template-columns: 32px minmax(0, 1fr) auto;
-  padding: 6px 7px;
+  padding: 5px 7px;
 }
 .sidebar .server-icon {
   width: 32px;
@@ -1052,7 +1049,7 @@ dialog::backdrop {
   background:
     radial-gradient(
       ellipse 350px 150px at 64px 50%,
-      color-mix(in oklch, var(--server-tint) 42%, var(--raised)),
+      color-mix(in oklab, var(--server-tint) 48%, var(--raised)),
       transparent
     ),
     var(--surface);
@@ -1477,7 +1474,7 @@ button:disabled {
   }
   48% {
     scale: 1 1.32;
-    background: var(--text);
+    background: color-mix(in oklab, var(--bad) 78%, var(--text));
   }
 }
 .rolling-value {
@@ -1555,4 +1552,178 @@ button:disabled {
   .bars[data-tone="starting"] i {
     background: var(--starting);
   }
+}
+
+/* Command palette and notifications */
+
+.command-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  min-height: 32px;
+  padding-inline: 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--text-muted);
+}
+.command-trigger:hover {
+  background: var(--selected);
+  color: var(--text);
+}
+.command-trigger svg {
+  width: 14px;
+  height: 14px;
+}
+kbd {
+  font: 11px var(--mono);
+}
+dialog.palette {
+  width: min(560px, calc(100vw - 48px));
+  margin: min(15vh, 116px) auto auto;
+  background: var(--surface);
+}
+.palette-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 55px;
+  padding: 0 12px 0 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+.palette-field > svg {
+  width: 19px;
+  color: var(--brass);
+}
+.palette-field .icon-button {
+  width: 36px;
+  height: 36px;
+}
+.palette-field input {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1;
+  color: var(--text);
+  font: 16px var(--ui);
+  background: transparent;
+  border: 0;
+}
+.palette-field:focus-within {
+  border-bottom-color: var(--brass);
+}
+.palette-field input::placeholder {
+  color: var(--text-muted);
+}
+.palette-field input:focus-visible {
+  outline: none;
+}
+.palette-list {
+  max-height: min(49vh, 364px);
+  overflow: auto;
+  padding: 6px;
+}
+.palette-list:empty {
+  padding: 0;
+}
+.palette-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding-inline: 11px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.palette-option > svg {
+  width: 16px;
+  color: var(--text-muted);
+}
+.palette-option[aria-selected="true"] {
+  background: var(--selected);
+  box-shadow: inset 1px 0 var(--brass);
+}
+.palette-option[aria-selected="true"] > svg {
+  color: var(--brass);
+}
+.palette-option[aria-disabled="true"] {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.palette-option small,
+.palette-empty {
+  color: var(--text-muted);
+}
+.palette-option small {
+  max-width: 27ch;
+  text-align: right;
+}
+.palette-empty {
+  padding: 18px;
+}
+.palette-keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--hairline);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.palette-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 3px 4px;
+  margin-left: 6px;
+  background: var(--well);
+  color: var(--text);
+}
+.palette-keys kbd:first-child {
+  margin-left: 0;
+}
+.palette-keys svg {
+  width: 11px;
+  height: 11px;
+}
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 6px;
+  z-index: 2;
+}
+.toast {
+  position: static;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 9px;
+  min-width: 230px;
+  padding: 6px 6px 6px 12px;
+  background: var(--selected);
+}
+.toast > svg {
+  width: 16px;
+  color: var(--status-ink);
+}
+.toast .icon-button {
+  width: 34px;
+  height: 34px;
+}
+.toast[data-tone="bad"] {
+  box-shadow: var(--shadow-pop);
+}
+.sidebar-footer {
+  flex: none;
+  padding: 5px 12px 7px;
+  border-top: 1px solid var(--hairline);
+}
+
+.palette-reason {
+  display: block;
+  color: var(--warn);
 }

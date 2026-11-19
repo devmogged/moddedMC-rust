@@ -1,26 +1,39 @@
-import { useCallback, useEffect, useState } from "react";
-import { Boxes, Package, Plus } from "lucide-react";
-import { api, type Device, type Friend, type ServerInfo } from "./api";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  LoadingRows,
-  LoadError,
-  ServerCluster,
-  ServerIcon,
-  packLine,
-  routeLabel,
-  usePoll,
-  useServerIcon,
-} from "./ui";
+  Archive,
+  Boxes,
+  Check,
+  CircleAlert,
+  HardDrive,
+  Package,
+  Play,
+  Plus,
+  RotateCw,
+  Search,
+  Server,
+  Square,
+  X,
+} from "lucide-react";
+import { api, type Device, type Friend, type Pregen, type ServerInfo } from "./api";
+import { LoadingRows, LoadError, HostedServerRow, routeLabel, usePoll } from "./ui";
 import { DeviceMeters } from "./Metrics";
-import { ServerPane } from "./ServerPane";
+import { ServerPane, TABS, type Tab } from "./ServerPane";
 import { DevicePane } from "./DevicePane";
 import { FriendPane, FriendRow, useFriendStatus } from "./FriendPane";
 import { ModsPane } from "./ModsPane";
 import { PackPane } from "./PackPane";
+import { CommandPalette, type Command } from "./CommandPalette";
+import {
+  commandReason,
+  isPregenActive,
+  serverKey,
+  type Lifecycle,
+  type ServerCommand,
+} from "./serverCommands";
 import { AddDeviceDialog, AddFriendDialog } from "./dialogs";
 
 export type Selection =
-  | { kind: "server"; device: string; server: string }
+  | { kind: "server"; device: string; server: string; tab?: Tab }
   | { kind: "device"; device: string }
   | { kind: "friend"; id: string }
   | { kind: "pack"; path: string }
@@ -36,8 +49,9 @@ const SELECTION_KEY = "selection";
 function loadSelection(): Selection {
   // Dev previews open a pane directly: #server/pi/survival, #device/pi, #friend/sting, #mods, #pack/<pack.toml path>.
   if (import.meta.env.DEV && location.hash) {
-    const [kind, a, b] = location.hash.slice(1).split("/");
-    if (kind === "server" && a && b) return { kind, device: a, server: b };
+    const [kind, a, b, tab] = location.hash.slice(1).split("/");
+    if (kind === "server" && a && b)
+      return { kind, device: a, server: b, tab: TABS.find(({ id }) => id === tab)?.id };
     if (kind === "device" && a) return { kind, device: a };
     if (kind === "friend" && a) return { kind, id: a };
     if (kind === "mods") return { kind };
@@ -56,11 +70,35 @@ function loadSelection(): Selection {
 function useDeviceData(devices: Device[]) {
   const [data, setData] = useState<Record<string, DeviceData>>({});
   const [tick, setTick] = useState(0);
+  const [overrides, setOverrides] = useState<Record<string, "starting" | "stopping">>({});
+  const actions = useRef(new Map<string, boolean>());
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const act = async (device: string, server: ServerInfo, action: Lifecycle) => {
+    const key = serverKey(device, server.name);
+    if (actions.current.has(key) || commandReason(server, action, false)) return;
+    actions.current.set(key, false);
+    setOverrides((prev) => ({ ...prev, [key]: action === "stop" ? "stopping" : "starting" }));
+    try {
+      await api.action(device, server.name, action);
+      actions.current.set(key, true);
+    } catch (err) {
+      actions.current.delete(key);
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      throw err;
+    } finally {
+      refresh();
+    }
+  };
   const ids = devices.map((d) => d.id).join("|");
   useEffect(() => {
     let alive = true;
     let timer: number | undefined;
     const run = async () => {
+      const settled = [...actions.current].filter(([, completed]) => completed).map(([key]) => key);
       const results = await Promise.all(
         devices.map(async (device) => {
           try {
@@ -72,6 +110,14 @@ function useDeviceData(devices: Device[]) {
       );
       if (!alive) return;
       setData(Object.fromEntries(results));
+      if (settled.length) {
+        for (const key of settled) actions.current.delete(key);
+        setOverrides((prev) => {
+          const next = { ...prev };
+          for (const key of settled) delete next[key];
+          return next;
+        });
+      }
       timer = window.setTimeout(run, 2000);
     };
     run();
@@ -81,7 +127,20 @@ function useDeviceData(devices: Device[]) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids, tick]);
-  return { data, refresh: useCallback(() => setTick((t) => t + 1), []) };
+  const view = Object.fromEntries(
+    Object.entries(data).map(([id, result]) => [
+      id,
+      {
+        ...result,
+        servers:
+          result.servers?.map((server) => {
+            const state = overrides[serverKey(id, server.name)];
+            return state ? { ...server, state } : server;
+          }) ?? null,
+      },
+    ]),
+  );
+  return { data: view, refresh, act };
 }
 
 export function App() {
@@ -92,10 +151,52 @@ export function App() {
   const packs = packsPoll.value ?? [];
   const devices = devicesPoll.value ?? [];
   const friends = friendsPoll.value ?? [];
-  const { data, refresh } = useDeviceData(devices);
+  const { data, refresh, act } = useDeviceData(devices);
   const [selection, setSelectionState] = useState<Selection>(loadSelection);
   const [dialog, setDialog] = useState<"device" | "friend" | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [palette, setPalette] = useState(false);
+  const [toasts, setToasts] = useState<Notice[]>([]);
+  const toastId = useRef(0);
+  const [backupState, setBackupState] = useState<Record<string, { busy: boolean; revision: number }>>({});
+  const backupLocks = useRef(new Set<string>());
+  const [pregen, setPregen] = useState<Record<string, PregenRead>>({});
+  const previousPregen = useRef<Record<string, Pregen["state"]>>({});
+  const [pregenRevision, setPregenRevision] = useState(0);
+  const [pregenRequested, setPregenRequested] = useState<Record<string, ServerTarget>>({});
+  const notice = useCallback((message: string, tone: Notice["tone"] = "ok") => {
+    const id = ++toastId.current;
+    setToasts((prev) => [...prev.slice(-3), { message, tone, id }]);
+  }, []);
+  const dismiss = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+  const reportPregen = useCallback(
+    (key: string, snapshot: PregenRead, target: ServerTarget) => {
+      if (snapshot.value) {
+        if (snapshot.value.state === "finished" && isPregenActive(previousPregen.current[key])) {
+          notice("Pregen finished · " + target.server);
+        }
+        previousPregen.current[key] = snapshot.value.state;
+      }
+      setPregen((prev) => ({ ...prev, [key]: snapshot }));
+      if (isPregenActive(snapshot.value?.state)) {
+        setPregenRequested((prev) => (key in prev ? prev : { ...prev, [key]: target }));
+      } else if (snapshot.value) {
+        setPregenRequested((prev) => {
+          if (!(key in prev)) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }
+    },
+    [notice],
+  );
+  const focusWorkspace = () =>
+    requestAnimationFrame(() => {
+      const main = document.querySelector<HTMLElement>("main");
+      (main?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? main)?.focus();
+    });
 
   const select = (next: Selection) => {
     setSelectionState(next);
@@ -107,10 +208,21 @@ export function App() {
   };
 
   useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
+    const open = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() !== "k" ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey ||
+        event.repeat
+      )
+        return;
+      if (document.querySelector("dialog[open]:not(.palette)")) return;
+      event.preventDefault();
+      setPalette((current) => !current);
+    };
+    window.addEventListener("keydown", open);
+    return () => window.removeEventListener("keydown", open);
+  }, []);
 
   const addPack = async () => {
     try {
@@ -120,15 +232,104 @@ export function App() {
       packsPoll.refresh();
       select({ kind: "pack", path: pack.path });
     } catch (err) {
-      setToast(err instanceof Error ? err.message : String(err));
+      fail(err);
     }
   };
 
-  const fail = useCallback((err: unknown) => {
-    setToast(err instanceof Error ? err.message : String(err));
-  }, []);
+  const fail = useCallback(
+    (err: unknown) => {
+      notice(err instanceof Error ? err.message : String(err), "bad");
+    },
+    [notice],
+  );
 
   const device = (id: string) => devices.find((d) => d.id === id);
+
+  const run = async (device: string, server: ServerInfo, action: ServerCommand) => {
+    const key = serverKey(device, server.name);
+    if (commandReason(server, action, backupLocks.current.has(key))) return;
+    if (action !== "backup") {
+      try {
+        await act(device, server, action);
+      } catch (err) {
+        fail(err);
+      }
+      return;
+    }
+    backupLocks.current.add(key);
+    setBackupState((prev) => ({ ...prev, [key]: { busy: true, revision: prev[key]?.revision ?? 0 } }));
+    let succeeded = false;
+    try {
+      await api.backUp(device, server.name);
+      succeeded = true;
+      notice("Backup complete · " + server.name);
+    } catch (err) {
+      fail(err);
+    } finally {
+      backupLocks.current.delete(key);
+      setBackupState((prev) => ({
+        ...prev,
+        [key]: { busy: false, revision: (prev[key]?.revision ?? 0) + Number(succeeded) },
+      }));
+    }
+  };
+
+  const commands: Command[] = [];
+  const jump = (id: string, label: string, icon: Command["icon"], target: Selection, context?: string) => {
+    commands.push({ id, label, icon, context, run: () => select(target) });
+  };
+  const watched = new Map<string, ServerTarget>();
+  for (const d of devices) {
+    jump("device:" + d.id, d.name, HardDrive, { kind: "device", device: d.id }, routeLabel[d.route]);
+    for (const s of data[d.id]?.servers ?? []) {
+      const key = serverKey(d.id, s.name);
+      const target = { kind: "server", device: d.id, server: s.name } as const;
+      const context = s.name + " · " + d.name;
+      jump(key, s.name, Server, target, d.name);
+      if (s.external) continue;
+      const visible =
+        selection.kind === "server" &&
+        selection.device === d.id &&
+        selection.server === s.name &&
+        selection.tab === "pregen";
+      if (
+        s.state === "running" &&
+        (visible || isPregenActive(pregen[key]?.value?.state) || pregenRequested[key])
+      ) {
+        watched.set(key, { device: d.id, server: s.name });
+      }
+      for (const tab of TABS)
+        jump(key + "/" + tab.id, tab.label, Server, { ...target, tab: tab.id }, context);
+      for (const command of SERVER_ACTIONS) {
+        commands.push({
+          ...command,
+          id: key + ":" + command.action,
+          context,
+          reason: commandReason(s, command.action, backupState[key]?.busy ?? false),
+          run: () => {
+            select(command.action === "backup" ? { ...target, tab: "backups" } : target);
+            void run(d.id, s, command.action);
+          },
+        });
+      }
+    }
+  }
+  // Keep an observed task after navigation, including across a temporary device outage.
+  for (const [key, target] of Object.entries(pregenRequested)) {
+    if (
+      !data[target.device]?.servers ||
+      data[target.device].servers?.some(
+        (server) => server.name === target.server && server.state === "running",
+      )
+    ) {
+      watched.set(key, target);
+    }
+  }
+  for (const pack of packs)
+    jump("pack:" + pack.path, pack.name, Package, { kind: "pack", path: pack.path }, "Packs");
+  for (const friend of friends)
+    jump("friend:" + friend.id, friend.name, Server, { kind: "friend", id: friend.id }, "Join");
+  jump("mods", "Mods", Boxes, { kind: "mods" });
 
   let pane = null;
   const server =
@@ -137,12 +338,44 @@ export function App() {
       : undefined;
   if (selection.kind === "server" && server && device(selection.device)) {
     const d = device(selection.device) as Device;
+    const key = serverKey(d.id, server.name);
     pane = (
       <ServerPane
         key={`${d.id}/${server.name}`}
         device={d}
         server={server}
-        onChanged={refresh}
+        tab={selection.tab ?? "console"}
+        onTab={(tab) => select({ ...selection, tab })}
+        onAct={(action) => run(d.id, server, action)}
+        backupBusy={backupState[key]?.busy ?? false}
+        backupRevision={backupState[key]?.revision ?? 0}
+        onBackup={() => run(d.id, server, "backup")}
+        pregen={pregen[key]}
+        onPregenChanged={(started) => {
+          if (started) {
+            previousPregen.current[key] = "running";
+            setPregenRequested((prev) => ({ ...prev, [key]: { device: d.id, server: server.name } }));
+            setPregen((prev) => ({
+              ...prev,
+              [key]: {
+                value: {
+                  state: "running",
+                  world: null,
+                  chunks: null,
+                  percent: null,
+                  eta_secs: null,
+                  rate: null,
+                },
+                error: null,
+              },
+            }));
+          }
+          setPregenRevision((version) => version + 1);
+        }}
+        onDeployed={() => {
+          notice("Deploy complete · " + server.name);
+          refresh();
+        }}
         onError={fail}
       />
     );
@@ -187,6 +420,7 @@ export function App() {
         <PackPane
           key={pack.path}
           pack={pack}
+          onDeployed={(server) => notice("Deploy complete · " + server)}
           devices={devices}
           data={data}
           onChanged={() => {
@@ -235,6 +469,15 @@ export function App() {
         <div className="brand">
           <Mark />
           moddedMC
+          <button
+            className="command-trigger"
+            aria-label="Open command palette"
+            aria-keyshortcuts="Control+K Meta+K"
+            onClick={() => setPalette(true)}
+          >
+            <Search aria-hidden />
+            <kbd>{navigator.platform.includes("Mac") ? "⌘ K" : "Ctrl K"}</kbd>
+          </button>
         </div>
         <div className="sidebar-scroll">
           <section className="section" aria-label="Devices">
@@ -297,21 +540,20 @@ export function App() {
               </button>
             ))}
           </section>
-
-          <section className="section" aria-label="Mods">
-            <button
-              className="nav-item"
-              aria-current={selection.kind === "mods"}
-              onClick={() => select({ kind: "mods" })}
-            >
-              <Boxes />
-              Mods
-            </button>
-          </section>
         </div>
+        <section className="sidebar-footer" aria-label="Mods">
+          <button
+            className="nav-item"
+            aria-current={selection.kind === "mods"}
+            onClick={() => select({ kind: "mods" })}
+          >
+            <Boxes />
+            Mods
+          </button>
+        </section>
       </aside>
 
-      <main className="main" aria-label="Workspace">
+      <main className="main" tabIndex={-1} aria-label="Workspace">
         {pane}
       </main>
 
@@ -332,13 +574,77 @@ export function App() {
         }}
       />
 
-      {toast ? (
-        <div className="toast" role="status" data-tone="bad">
-          {toast}
-        </div>
-      ) : null}
+      <CommandPalette
+        open={palette}
+        commands={commands}
+        close={() => setPalette(false)}
+        onRun={(command) => {
+          setPalette(false);
+          command.run();
+          focusWorkspace();
+        }}
+      />
+      {[...watched].map(([key, target]) => (
+        <PregenWatch key={key} id={key} target={target} revision={pregenRevision} onReport={reportPregen} />
+      ))}
+      <div className="toast-stack">
+        {toasts.map((item) => (
+          <Toast key={item.id} item={item} dismiss={dismiss} />
+        ))}
+      </div>
     </div>
   );
+}
+
+const SERVER_ACTIONS = [
+  { label: "Start", icon: Play, action: "start" },
+  { label: "Stop", icon: Square, action: "stop" },
+  { label: "Restart", icon: RotateCw, action: "restart" },
+  { label: "Back up now", icon: Archive, action: "backup" },
+] satisfies { label: string; icon: Command["icon"]; action: ServerCommand }[];
+
+type Notice = { message: string; tone: "ok" | "bad"; id: number };
+type ServerTarget = { device: string; server: string };
+export type PregenRead = { value: Pregen | null; error: string | null };
+
+function Toast({ item, dismiss }: { item: Notice; dismiss: (id: number) => void }) {
+  useEffect(() => {
+    const timer = window.setTimeout(() => dismiss(item.id), item.tone === "bad" ? 9000 : 5500);
+    return () => window.clearTimeout(timer);
+  }, [dismiss, item]);
+  const Icon = item.tone === "ok" ? Check : CircleAlert;
+  return (
+    <div className="toast" data-tone={item.tone}>
+      <Icon aria-hidden />
+      <span role="status">{item.message}</span>
+      <button className="icon-button" onClick={() => dismiss(item.id)} aria-label="Dismiss notification">
+        <X />
+      </button>
+    </div>
+  );
+}
+
+function PregenWatch({
+  id,
+  target,
+  revision,
+  onReport,
+}: {
+  id: string;
+  target: ServerTarget;
+  revision: number;
+  onReport: (id: string, snapshot: PregenRead, target: ServerTarget) => void;
+}) {
+  const { value, error } = usePoll(() => api.pregen(target.device, target.server), 2000, [
+    target.device,
+    target.server,
+    revision,
+  ]);
+  useEffect(() => {
+    if (!value && !error) return;
+    onReport(id, { value, error }, target);
+  }, [value, error, id, onReport, target.device, target.server]);
+  return null;
 }
 
 function DeviceGroup({
@@ -371,7 +677,7 @@ function DeviceGroup({
       </button>
       {state === "online" && info && <DeviceMeters info={info} />}
       {data?.servers?.map((server, index) => (
-        <SidebarServer
+        <HostedServerRow
           key={server.name}
           device={device}
           server={server}
@@ -383,37 +689,6 @@ function DeviceGroup({
         />
       ))}
     </div>
-  );
-}
-
-function SidebarServer({
-  device,
-  server,
-  index,
-  current,
-  onSelect,
-}: {
-  device: Device;
-  server: ServerInfo;
-  index: number;
-  current: boolean;
-  onSelect: () => void;
-}) {
-  const icon = useServerIcon(device, server);
-  return (
-    <button
-      className="row server-identity sidebar-server"
-      style={{ ...icon.style, "--enter-delay": Math.min(index, 4) * 25 + "ms" } as React.CSSProperties}
-      aria-current={current}
-      onClick={onSelect}
-    >
-      <ServerIcon name={server.name} favicon={icon.favicon} />
-      <span className="row-text">
-        <span className="row-name">{server.name}</span>
-        <span className="row-line">{packLine(server)}</span>
-      </span>
-      <ServerCluster device={device} server={server} />
-    </button>
   );
 }
 

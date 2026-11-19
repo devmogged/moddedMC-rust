@@ -272,7 +272,7 @@ export function ServerCluster({
     case "running": {
       const bars = live.health
         ? healthBars(live.health)
-        : { lit: 5, tone: (server.external ? "external" : "ok") as BarsTone };
+        : { lit: server.external ? 5 : 0, tone: (server.external ? "external" : "unknown") as BarsTone };
       const label = live.health
         ? `${live.health.mspt.toFixed(1)} ms per tick, ${live.health.tps.toFixed(1)} TPS`
         : "Running";
@@ -280,7 +280,7 @@ export function ServerCluster({
         <span className="cluster">
           <Bars lit={bars.lit} tone={bars.tone} label={label} />
           {detail ? (
-            <span className="status-text" data-tone={bars.tone}>
+            <span className="status-text" data-tone={bars.tone === "unknown" ? "ok" : bars.tone}>
               {server.external
                 ? "External"
                 : bars.tone === "warn" || bars.tone === "bad"
@@ -340,10 +340,14 @@ export function Dialog({
   open,
   onClose,
   children,
+  label,
+  className,
 }: {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  label?: string;
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -355,7 +359,11 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      onClose={onClose}
+      className={className}
+      aria-label={label}
+      onClose={() => {
+        if (!ref.current?.open) onClose();
+      }}
       onMouseDown={(e) => {
         if (e.target === ref.current) onClose();
       }}
@@ -429,5 +437,43 @@ export function LoadError({ error, retry }: { error: string; retry: () => void }
         Retry
       </button>
     </div>
+  );
+}
+
+export function HostedServerRow({
+  device,
+  server,
+  current,
+  index,
+  onSelect,
+}: {
+  device: Device;
+  server: ServerInfo;
+  current?: boolean;
+  index?: number;
+  onSelect: () => void;
+}) {
+  const icon = useServerIcon(device, server);
+  const style =
+    index == null
+      ? icon.style
+      : ({
+          ...icon.style,
+          "--enter-delay": Math.min(index, 4) * 25 + "ms",
+        } as CSSProperties);
+  return (
+    <button
+      className={index == null ? "row server-identity" : "row server-identity sidebar-server"}
+      style={style}
+      aria-current={current}
+      onClick={onSelect}
+    >
+      <ServerIcon name={server.name} favicon={icon.favicon} />
+      <span className="row-text">
+        <span className="row-name">{server.name}</span>
+        <span className="row-line">{packLine(server)}</span>
+      </span>
+      <ServerCluster device={device} server={server} />
+    </button>
   );
 }
