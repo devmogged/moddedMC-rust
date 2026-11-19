@@ -2,7 +2,8 @@
 //! an armor stand named "Wisp"; the mod saves the ids of its wisps in `config/wisp/wisps.txt`
 //! (they survive restarts with the world). `/wisp` spawns one where you stand, `/wispstep` moves
 //! every wisp one block east, `/wisplist` lists where they are. `/wisppet` spawns a chicken with
-//! its vanilla AI off, so it moves only when the mod moves it.
+//! its vanilla AI off, so it moves only when the mod moves it. `/wispgo` gives the pets their AI
+//! back and walks them five blocks east along a path; `/wisparrived` counts those that got there.
 
 use std::{
     fs,
@@ -18,6 +19,8 @@ use moddedmc_api::{
 struct Wisp {
     /// (dimension, id)
     wisps: Mutex<Vec<(String, EntityId)>>,
+    /// Where `/wispgo` sent each walking wisp.
+    targets: Mutex<Vec<(EntityId, Vec3)>>,
 }
 
 fn file() -> std::path::PathBuf {
@@ -54,6 +57,8 @@ impl Mod for Wisp {
         registry.add_command("wispstep", "Move every wisp one block east", 1)?;
         registry.add_command("wisplist", "List the wisps", 2)?;
         registry.add_command("wisppet", "Spawn a chicken that only the mod moves", 3)?;
+        registry.add_command("wispgo", "Walk every pet five blocks east", 4)?;
+        registry.add_command("wisparrived", "Count the pets that reached their target", 5)?;
         let saved = fs::read_to_string(file()).unwrap_or_default();
         *self.wisps.lock().unwrap_or_else(PoisonError::into_inner) = saved
             .lines()
@@ -107,6 +112,38 @@ impl Mod for Wisp {
                     at.x, at.y, at.z
                 ));
                 1
+            }
+            4 => {
+                let mut targets = self.targets.lock().unwrap_or_else(PoisonError::into_inner);
+                targets.clear();
+                for (d, id) in wisps.iter().filter(|(d, _)| d == dimension) {
+                    let Some(at) = entities.position(d, *id) else {
+                        continue;
+                    };
+                    let to = Vec3 {
+                        x: at.x + 5.0,
+                        ..at
+                    };
+                    // Armor stands are not mobs: only pets walk.
+                    if entities.set_ai(d, *id, true) && entities.walk_to(d, *id, to, 1.0) {
+                        targets.push((*id, to));
+                    }
+                }
+                command.reply(&format!("wispgo: walking {}", targets.len()));
+                i32::try_from(targets.len()).unwrap_or(0)
+            }
+            5 => {
+                let targets = self.targets.lock().unwrap_or_else(PoisonError::into_inner);
+                let arrived = targets
+                    .iter()
+                    .filter(|(id, to)| {
+                        entities
+                            .position(dimension, *id)
+                            .is_some_and(|at| (at.x - to.x).hypot(at.z - to.z) < 1.5)
+                    })
+                    .count();
+                command.reply(&format!("wisparrived: {arrived} of {}", targets.len()));
+                i32::try_from(arrived).unwrap_or(0)
             }
             3 => {
                 let at = player.position();
@@ -170,6 +207,7 @@ impl Wisp {
 
 moddedmc_api::export_mod!(Wisp {
     wisps: Mutex::new(Vec::new()),
+    targets: Mutex::new(Vec::new()),
 });
 
 #[cfg(test)]

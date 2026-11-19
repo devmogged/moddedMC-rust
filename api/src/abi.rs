@@ -333,6 +333,11 @@ pub struct EntitiesV1 {
     /// Turns a mob's vanilla AI (goals, pathfinding, its own movement) on or off; off, it stays
     /// where `move_to` puts it. Saved with the entity. False if it is not a mob.
     pub set_ai: unsafe extern "C" fn(dimension: Str, id: EntityId, enabled: bool) -> bool,
+    /// Sends a mob walking to `at` along a path, `speed` times its walking speed, and stops its
+    /// own wandering goals until it is released: `at.x` NaN stops it and gives its goals back.
+    /// Needs its AI on. Mobs driven by a vanilla brain rather than goals may walk elsewhere.
+    /// False if it is not a mob.
+    pub walk_to: unsafe extern "C" fn(dimension: Str, id: EntityId, at: Vec3, speed: f64) -> bool,
 }
 
 /// [`BiomesV1`]: biomes mods add and paint into the world.
@@ -607,6 +612,7 @@ mod layout {
             (offset_of!(EntitiesV1, set_name), 32),
             (offset_of!(EntitiesV1, remove), 40),
             (offset_of!(EntitiesV1, set_ai), 48),
+            (offset_of!(EntitiesV1, walk_to), 56),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "EntitiesV1 field #{i} moved");

@@ -1100,6 +1100,7 @@ static ENTITIES: EntitiesV1 = EntitiesV1 {
     set_name,
     remove,
     set_ai,
+    walk_to,
 };
 
 /// A live entity of a dimension by id.
@@ -1182,6 +1183,68 @@ unsafe extern "C" fn set_ai(dimension: Str, id: EntityId, enabled: bool) -> bool
     };
     mob.get_mob_entity().set_no_ai(!enabled);
     true
+}
+
+/// A walk in progress: dimension, entity, target, speed.
+type Walk = (String, uuid::Uuid, Vector3<f64>, f64);
+
+static WALKS: std::sync::Mutex<Vec<Walk>> = std::sync::Mutex::new(Vec::new());
+
+unsafe extern "C" fn walk_to(dimension: Str, id: EntityId, at: Vec3, speed: f64) -> bool {
+    use pumpkin_core::entity::ai::goal::Controls;
+    // SAFETY: borrowed for the call.
+    let Some((_, entity)) = (unsafe { entity(dimension, id) }) else {
+        return false;
+    };
+    let Some(mob) = entity.get_mob() else {
+        return false;
+    };
+    let mob = mob.get_mob_entity();
+    let uuid = uuid::Uuid::from_bytes(id.0);
+    let mut walks = crate::lock(&WALKS);
+    walks.retain(|(_, w, _, _)| *w != uuid);
+    if at.x.is_nan() {
+        mob.steered().navigator().stop();
+        mob.goals_selector.enable_control(Controls::MOVE);
+        return true;
+    }
+    // As a leash does: goals that move the mob pause, its navigator still runs.
+    mob.goals_selector.disable_control(Controls::MOVE);
+    let to = Vector3::new(at.x, at.y, at.z);
+    walk(mob, to, speed);
+    // SAFETY: borrowed for the call.
+    walks.push((unsafe { dimension.str() }.to_owned(), uuid, to, speed));
+    true
+}
+
+fn walk(mob: &pumpkin_core::entity::mob::MobEntity, to: Vector3<f64>, speed: f64) {
+    use pumpkin_core::entity::ai::pathfinder::NavigatorGoal;
+    let from = mob.living_entity.entity.pos.load();
+    mob.steered()
+        .navigator()
+        .set_progress(NavigatorGoal::new(from, to, speed));
+}
+
+/// Keeps walks going: a goal stopping as it loses control, or anything else, clears the
+/// navigator, so an idle walker that has not arrived is sent again. Arrived or gone walkers drop.
+pub fn tick_walks() {
+    crate::lock(&WALKS).retain(|(dimension, id, to, speed)| {
+        let Some(entity) = world(dimension).and_then(|w| w.get_entity_by_uuid(*id)) else {
+            return false;
+        };
+        let Some(mob) = entity.get_mob() else {
+            return false;
+        };
+        let mob = mob.get_mob_entity();
+        let at = mob.living_entity.entity.pos.load();
+        if (at.x - to.x).hypot(at.z - to.z) < 1.0 {
+            return false;
+        }
+        if mob.steered().navigator().is_idle() {
+            walk(mob, *to, *speed);
+        }
+        true
+    });
 }
 
 unsafe extern "C" fn remove(dimension: Str, id: EntityId) -> bool {

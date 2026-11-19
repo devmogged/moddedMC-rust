@@ -353,6 +353,7 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
             apply_pending_places();
             deliver_block_events(event.tick);
             biome::flush();
+            native::tick_walks();
             console::run_queued(server);
             if event.tick % DISCOVERY_INTERVAL == 0 {
                 let started = Instant::now();

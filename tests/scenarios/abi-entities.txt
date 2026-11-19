@@ -65,6 +65,14 @@ expect \[bot\] chat: .*wispstep: moved 2
 bot cmd wisplist
 wait 1
 expect \[bot\] chat: .*wisplist: 4099.5 100.0 4097.5, 4095.5 100.0 4094.5
+# Pathfinding: the pet walks to a target the mod picks.
+bot cmd wispgo
+wait 1
+expect \[bot\] chat: .*wispgo: walking 1
+wait 8
+bot cmd wisparrived
+wait 1
+expect \[bot\] chat: .*wisparrived: 1 of 1
 reject (?i)panic|panicked
 bot quit
 stop
