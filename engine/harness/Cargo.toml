@@ -1,0 +1,22 @@
+[package]
+name = "moddedmc-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+glob = "0.3"
+md-5 = "0.10"
+pumpkin-data = { workspace = true, features = ["default"] }
+pumpkin-nbt.workspace = true
+pumpkin-util.workspace = true
+pumpkin-world.workspace = true
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+tempfile = "3"
+uuid.workspace = true
+
+[lints]
+workspace = true

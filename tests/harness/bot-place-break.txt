@@ -1,0 +1,19 @@
+# Exercise real place and break packets with the same inventory and reach.
+seed 12345
+area 0 150 0 4 152 4
+properties gamemode=creative
+start
+cmd fill 0 150 0 4 150 4 minecraft:stone
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+cmd item replace entity alice hotbar.0 with minecraft:glass
+bot alice place 2 150 2
+probe execute if block 2 151 2 minecraft:glass
+expect Test passed
+snapshot placed
+bot alice break 2 151 2
+probe execute if block 2 151 2 minecraft:air
+expect Test passed
+snapshot broken
+stop

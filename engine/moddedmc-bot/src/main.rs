@@ -16,7 +16,10 @@ use pumpkin_protocol::{
     ServerPacket,
     codec::var_int::VarInt,
     java::{
-        client::play::{CKeepAlive, CPlayShowDialog, CPlayerPosition, CSystemChatMessage},
+        client::play::{
+            CAcknowledgeBlockChange, CKeepAlive, CPlayShowDialog, CPlayerPosition,
+            CSystemChatMessage,
+        },
         packet_encoder::TCPNetworkEncoder,
         server::play::{
             SChatCommand, SClientTickEnd, SConfirmTeleport, SCustomClickAction, SKeepAlive,
@@ -50,24 +53,27 @@ async fn main() -> Result<(), String> {
 
     // Like a real client, report our position every second; the server loads chunks from it.
     let (tick_writer, tick_position) = (writer.clone(), position.clone());
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            let current = *tick_position.lock().await;
-            let _ = send(
-                &tick_writer,
-                &SPlayerPosition {
-                    position: current,
-                    collision: 0,
-                },
-            )
-            .await;
-            // Vanilla allows one position per client tick and resets that on tick end.
-            let _ = send(&tick_writer, &SClientTickEnd).await;
-        }
-    });
+    let harness = std::env::var_os("MODDEDMC_BOT_HARNESS").is_some();
+    if !harness {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                let current = *tick_position.lock().await;
+                let _ = send(
+                    &tick_writer,
+                    &SPlayerPosition {
+                        position: current,
+                        collision: 0,
+                    },
+                )
+                .await;
+                // Vanilla allows one position per client tick and resets that on tick end.
+                let _ = send(&tick_writer, &SClientTickEnd).await;
+            }
+        });
+    }
 
-    tokio::spawn(pump(bot.reader, writer.clone(), position.clone()));
+    tokio::spawn(pump(bot.reader, writer.clone(), position.clone(), harness));
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut sequence = 0;
@@ -76,7 +82,7 @@ async fn main() -> Result<(), String> {
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
             "cmd" => send(&writer, &SChatCommand { command: rest }).await,
-            "use" => match parse_pos(rest) {
+            "use" | "place" => match parse_pos(rest) {
                 Some(position) => {
                     sequence += 1;
                     send(&writer, &use_item_on(position, sequence)).await
@@ -131,11 +137,13 @@ async fn pump(
     >,
     writer: Writer,
     position: Arc<Mutex<Vector3<f64>>>,
+    harness: bool,
 ) {
     let keep_alive_id = CKeepAlive::to_id(CURRENT_MC_VERSION);
     let position_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
     let system_chat = CSystemChatMessage::to_id(CURRENT_MC_VERSION);
     let show_dialog = CPlayShowDialog::to_id(CURRENT_MC_VERSION);
+    let ack = CAcknowledgeBlockChange::to_id(CURRENT_MC_VERSION);
     let trace = std::env::var_os("MODDEDMC_BOT_TRACE").is_some();
     loop {
         let Ok(packet) = reader.get_raw_packet().await else {
@@ -171,6 +179,11 @@ async fn pump(
                     println!("[bot] teleported to {:?}", teleport.position);
                 }
                 Err(error) => println!("[bot] error: bad teleport packet: {error}"),
+            }
+        } else if harness && packet.id == ack {
+            use pumpkin_protocol::ser::NetworkReadExt as _;
+            if let Ok(sequence) = payload.get_var_int() {
+                println!("[bot] block ack {}", sequence.0);
             }
         } else if packet.id == system_chat {
             println!("[bot] chat: {}", printable_text(&packet.payload));

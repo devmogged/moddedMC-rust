@@ -1,0 +1,13 @@
+# Both the moving piston and the settled push are observable.
+seed 12345
+area 0 150 0 4 152 2
+start
+cmd fill 0 150 0 4 150 2 minecraft:stone
+cmd setblock 1 151 1 minecraft:piston[facing=east]
+cmd setblock 2 151 1 minecraft:stone
+cmd setblock 0 151 1 minecraft:redstone_block
+tick 1
+snapshot moving
+tick 5
+snapshot pushed
+stop

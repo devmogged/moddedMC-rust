@@ -1,0 +1,10 @@
+# A fill, a stateful setblock and a block entity.
+seed 12345
+area 0 150 0 4 152 4
+start
+cmd fill 0 150 0 4 150 4 minecraft:stone
+cmd setblock 1 151 1 minecraft:oak_stairs[facing=east,half=top]
+cmd setblock 3 151 3 minecraft:barrel[facing=up]
+probe execute if block 1 151 1 minecraft:oak_stairs[facing=east,half=top]
+snapshot built
+stop

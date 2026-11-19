@@ -1,0 +1,14 @@
+# A shallow channel limits the test to horizontal water spread.
+seed 12345
+area 0 150 0 6 152 2
+start
+cmd fill 0 150 0 6 150 2 minecraft:stone
+cmd fill 0 151 0 6 151 0 minecraft:stone
+cmd fill 0 151 2 6 151 2 minecraft:stone
+cmd setblock 6 151 1 minecraft:stone
+cmd setblock 0 151 1 minecraft:water[level=0]
+tick 5
+snapshot first-flow
+tick 15
+snapshot downstream
+stop

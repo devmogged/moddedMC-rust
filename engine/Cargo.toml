@@ -3,7 +3,7 @@
 #
 [workspace]
 resolver = "3"
-members = ["moddedmc-host", "moddedmc-bot", "packs/*"]
+members = ["moddedmc-host", "moddedmc-bot", "harness", "packs/*"]
 exclude = ["pumpkin"]
 
 [workspace.package]

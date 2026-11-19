@@ -10,7 +10,7 @@ The harness decides whether something is done. It runs one scenario against a **
 - **Deterministic.** Scenarios turn off what neither side can reproduce, unless that behavior is the thing under test: `doMobSpawning`, `randomTickSpeed 0`, `doWeatherCycle`, `doDaylightCycle`, fixed seed, fixed spawn. A scenario that tests randomness compares distributions over many runs, not single outcomes.
 - **No changes to the reference.** Vanilla runs unmodified. Everything the harness learns about the reference comes from its console, its saved world and a bot's packets.
 - **Readable failures.** A mismatch names the position, the field, the reference value and the subject value, plus the scenario line that produced it.
-- **Cross-platform and agent-friendly.** It's a Rust binary (`harness/`, crate `moddedmc-harness`), not a PowerShell script, and it runs on Windows and Linux. Output is human-readable by default and JSON with `--json`.
+- **Cross-platform and agent-friendly.** The Rust binary is in `engine/harness/` (crate `moddedmc-harness`). Output is human-readable by default and JSON with `--json`.
 
 ## Scenario files
 
@@ -76,6 +76,33 @@ moddedmc-harness run-all tests/harness --reference ... --subject ...   # summary
 ```
 
 The reference jar never goes into the repo. Each machine points at its own copy. For speed, the harness runs scenarios in parallel, each on its own ports and directories.
+
+### F2 implementation
+
+Build the harness and its bot from the repository root. Use the provided or separately built `pack-dev` for the subject.
+
+```powershell
+$env:PUMPKIN_MINECRAFT_SERVER_JAR = 'D:/mc-ref/26.3/server-bundler.jar'
+cargo build --manifest-path engine/Cargo.toml --profile pack -p moddedmc-harness -p moddedmc-bot
+engine/target/pack/moddedmc-harness.exe run-all tests/harness --reference vanilla:D:/mc-ref/26.3/server-bundler.jar --subject engine/target/pack/pack-dev.exe --jobs 2
+engine/target/pack/moddedmc-harness.exe self-test --reference vanilla:D:/mc-ref/26.3/server-bundler.jar
+```
+
+`--bot` overrides the bot executable next to the harness. `--run-root` overrides `run/harness`. Each checkpoint preserves both consoles, bot logs and worlds. `run-all` finds `.txt` scenarios recursively and prints in path order. The default worker count is half the available logical CPUs, with a minimum of one. `--jobs` accepts up to the available CPU count.
+
+Exit 0 means every check passed. Exit 1 means at least one unexplained difference. Exit 2 means a parse, launch, synchronization or snapshot error prevented a verdict and no mismatch was recorded. JSON carries the scenario and error separately from the mismatch and allow records. The `self-test` command passes only when the identical run matches and the deliberate mutation produces the exact expected mismatch.
+
+**Timing and snapshots.** Ready, freeze and the first readable game clock establish each side's scenario tick 0. Both vanilla and Pumpkin report step acceptance. Their `tick query` continues to say frozen during a step, so the harness also polls `time query gametime` to the exact requested relative value. An overrun, a stalled clock or a failed freeze fails the run. The harness checks both clocks again before each subsequent step or capture. Startup uses seed 12345 unless overridden, a fixed world spawn at `0 150 0`, respawn radius 0, and the four deterministic game rules. The comparison area is force-loaded and checked before any scenario command.
+
+Pumpkin's `Saved the game` can precede its async Anvil writes. Each snapshot sends `save-all flush`, waits for confirmation and captures live player saves, then gracefully shuts down both sides before opening their region files. Every later checkpoint replays the same prefix from fresh worlds. Earlier snapshot steps still issue the save command. Console assertions in a prefix are reported at their first checkpoint. The on-disk reader fails on missing or partial terrain and malformed NBT. An absent entity region represents an empty entity set.
+
+**Comparison rules.** `area` is an inclusive overworld block box within the 26.3 build height, capped at 256 chunks and 1,048,576 blocks. Entity anchors lie in the corresponding half-open spatial box. Block palettes use the vanilla 26.3 default-state strings and `id/properties` maps or Pumpkin's `Name/Properties` maps. Comparison fills known default properties from the generated 26.3 registry and retains explicit properties and unknown identifiers. Entities with the same type and position within `1e-6` per axis are matched as a multiset, preferring equal payloads before reporting mismatches. NBT compound key order is immaterial, list order and tag types are retained, and only doubles use the tolerance.
+
+The default ignored NBT keys are `UUID`, `UUIDMost`, `UUIDLeast`, `LastUpdate`, `InhabitedTime` and `LastPlayed`. Gameplay timers and missing-versus-present tags are compared. Player checks cover position, rotation, dimension, health, food, XP progress and totals, effects, inventory, ender items, equipment and held slot. `allow` requires an inline explanation and matches full field paths such as `block_entity.keepPacked`. The report lists every allowed difference and its reason.
+
+**Scenario input.** `properties` accepts shared settings for difficulty, gamemode, hardcore, view distance, simulation distance, spawn protection and player limit. The harness owns ports, seed, world directory and test networking. `probe` supports read-only console queries and compares their full feedback, including error text, after removing log prefixes. `expect` consumes a matching line from each server's unread scenario console output. Console fences read a reserved empty storage path and keep their own output out of comparisons. Bots support `await-teleport`, `use x y z`, `place x y z` and `break x y z`; use and place target the top face. Placement and breaking require a server sequence acknowledgement. The baseline additionally probes the changed block so an acknowledgement alone cannot pass the test.
+
+Packet normalization, move/look/attack and inventory-click synchronization, and cross-version mod-oracle launch and ID maps are open work. A scenario that requests an unsupported bot action or packet comparison fails explicitly.
 
 ## Done means
 

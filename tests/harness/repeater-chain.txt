@@ -1,0 +1,15 @@
+# Power reaches two west-facing repeaters after their configured delay.
+seed 12345
+area 0 150 0 5 152 2
+start
+cmd fill 0 150 0 5 150 2 minecraft:stone
+cmd setblock 1 151 1 minecraft:repeater[facing=west,delay=2]
+cmd setblock 2 151 1 minecraft:repeater[facing=west,delay=3]
+cmd setblock 3 151 1 minecraft:redstone_lamp
+tick 2
+cmd setblock 0 151 1 minecraft:redstone_block
+tick 4
+snapshot first-delay
+tick 12
+snapshot settled
+stop
