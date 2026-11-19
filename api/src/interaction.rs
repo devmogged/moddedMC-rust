@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use crate::{
     InterfaceUnavailable, Pos, RegistrationError, Registry, abi, content::World, entities::Entity,
-    guard, require_interface,
+    guard, require_interface_prefix,
 };
 
 pub use abi::MAX_STACK_DATA;
@@ -53,13 +53,144 @@ static TABLE: OnceLock<&'static abi::InteractionV1> = OnceLock::new();
 static USE: OnceLock<Use> = OnceLock::new();
 
 pub fn require() -> Result<Interaction, InterfaceUnavailable> {
-    // SAFETY: this is the published table type for moddedmc:interaction v1.
-    let table = unsafe { require_interface::<abi::InteractionV1>(abi::INTERACTION, 1) }?;
+    // SAFETY: this is the published table type for moddedmc:interaction v1; appended fields are
+    // read only after require_extension checks the size.
+    let table = unsafe {
+        require_interface_prefix::<abi::InteractionV1>(
+            abi::INTERACTION,
+            1,
+            abi::INTERACTION_V1_BASE_SIZE,
+        )
+    }?;
     let _ = TABLE.set(table);
     Ok(Interaction(table))
 }
 
+/// Interaction functions added after the first ABI 1 release. Require the ones a mod uses in
+/// `Mod::start`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InteractionExtension {
+    /// Using content blocks, reading and writing the held stack, and giving players items.
+    BlockUse,
+}
+
+/// The result of using a content block. `TryEmptyHand` from `useItemOn` runs `useWithoutItem`
+/// next for the main hand, as vanilla `TRY_WITH_EMPTY_HAND` does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BlockUseResult {
+    Pass,
+    Success,
+    Consume,
+    Fail,
+    TryEmptyHand,
+}
+
+/// Vanilla `useItemOn` (`with_item`) or `useWithoutItem` on one of the mod's blocks, valid only
+/// during the callback.
+pub struct UseBlock<'a> {
+    pub world: World<'a>,
+    pub player: Option<Entity<'a>>,
+    /// The held stack for `useItemOn`, an empty one for `useWithoutItem`.
+    pub stack: Stack<'a>,
+    pub position: Pos,
+    pub state: u32,
+    /// Vanilla directions in order down, up, north, south, west, east.
+    pub face: u8,
+    pub hit: [f32; 3],
+    pub sneaking: bool,
+    pub creative: bool,
+    pub main_hand: bool,
+    pub with_item: bool,
+    raw_player: abi::EntityRef,
+    api: &'static abi::InteractionV1,
+}
+
+pub type UseBlockCallback = fn(&mut UseBlock<'_>) -> BlockUseResult;
+static USE_BLOCK: OnceLock<UseBlockCallback> = OnceLock::new();
+
+unsafe extern "C" fn use_block(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    stack: abi::StackRef,
+    context: *const abi::UseBlock,
+) -> i32 {
+    guard("use_block", abi::USE_PASS, || {
+        // SAFETY: the host passes a context that is live for this call.
+        let (Some(&api), Some(callback), Some(world), Some(context)) = (
+            TABLE.get(),
+            USE_BLOCK.get(),
+            World::borrowed(world),
+            unsafe { context.as_ref() },
+        ) else {
+            return abi::USE_PASS;
+        };
+        let mut use_block = UseBlock {
+            world,
+            player: Entity::borrowed(player),
+            stack: Stack {
+                raw: stack,
+                api,
+                scope: PhantomData,
+            },
+            position: context.position,
+            state: context.state,
+            face: context.face,
+            hit: context.hit,
+            sneaking: context.sneaking,
+            creative: context.creative,
+            main_hand: context.main_hand,
+            with_item: context.with_item,
+            raw_player: player,
+            api,
+        };
+        match callback(&mut use_block) {
+            BlockUseResult::Pass => abi::USE_PASS,
+            BlockUseResult::Success => abi::USE_SUCCESS,
+            BlockUseResult::Consume => abi::USE_CONSUME,
+            BlockUseResult::Fail => abi::USE_FAIL,
+            BlockUseResult::TryEmptyHand => abi::USE_TRY_EMPTY_HAND,
+        }
+    })
+}
+
+impl UseBlock<'_> {
+    /// Vanilla `Inventory.placeItemBackInInventory` with a saved stack; what doesn't fit drops.
+    pub fn give(&self, stack: &[u8]) -> bool {
+        // SAFETY: the player is live for this callback and the bytes are borrowed for the call.
+        unsafe { (self.api.give)(self.raw_player, abi::Str::new(stack)) }
+    }
+}
+
 impl Interaction {
+    pub fn require_extension(
+        self,
+        extension: InteractionExtension,
+    ) -> Result<(), InterfaceUnavailable> {
+        let InteractionExtension::BlockUse = extension;
+        if self.0.size >= size_of::<abi::InteractionV1>() {
+            Ok(())
+        } else {
+            Err(InterfaceUnavailable {
+                name: "moddedmc:interaction.block_use",
+                version: 1,
+            })
+        }
+    }
+
+    /// Vanilla `useItemOn` and `useWithoutItem` for every content block this mod registers.
+    /// Needs `InteractionExtension::BlockUse`.
+    pub fn on_use_block(
+        self,
+        reg: &mut Registry<'_>,
+        callback: UseBlockCallback,
+    ) -> Result<(), RegistrationError> {
+        if USE_BLOCK.set(callback).is_err() {
+            return Err(RegistrationError::DuplicateId);
+        }
+        // SAFETY: the extension was required; registration is live and the trampoline static.
+        RegistrationError::from_code(unsafe { (self.0.on_use_block)(reg.reg, use_block) })
+    }
+
     /// Vanilla `Item.useOn` for every content item this mod registers.
     pub fn on_use_on_block(
         self,
@@ -150,5 +281,22 @@ impl Stack<'_> {
     pub fn set_data(&mut self, data: &[u8]) -> bool {
         // SAFETY: the stack is live and the slice is borrowed for the call.
         unsafe { (self.api.set_stack_data)(self.raw, data.as_ptr(), data.len()) }
+    }
+
+    /// The stack as saved NBT, `None` when empty. Needs `InteractionExtension::BlockUse`.
+    pub fn read(&self) -> Option<Vec<u8>> {
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: the stack is live and the sink collects into the local Vec synchronously.
+        unsafe { (self.api.stack_read)(self.raw, sink) }.then_some(data)
+    }
+
+    /// Replace the stack with saved NBT; empty clears it. Needs `InteractionExtension::BlockUse`.
+    pub fn write(&mut self, stack: &[u8]) -> bool {
+        // SAFETY: the stack is live and the bytes are borrowed for the call.
+        unsafe { (self.api.stack_write)(self.raw, abi::Str::new(stack)) }
     }
 }

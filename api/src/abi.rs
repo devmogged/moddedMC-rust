@@ -763,6 +763,81 @@ pub struct InteractionV1 {
     pub set_stack_data: unsafe extern "C" fn(stack: StackRef, data: *const u8, len: usize) -> bool,
     /// Vanilla `ItemCooldowns.addCooldown` for the item's cooldown group.
     pub cooldown: unsafe extern "C" fn(player: EntityRef, item: Str, ticks: u32),
+    // Appended after the first release: require `InteractionExtension::BlockUse`.
+    /// One callback per mod for its content blocks, staged during registration.
+    pub on_use_block: unsafe extern "C" fn(reg: Reg, callback: UseBlockFn) -> i32,
+    /// The stack as saved NBT (vanilla `ItemStack.CODEC`). False when it is empty.
+    pub stack_read: unsafe extern "C" fn(stack: StackRef, out: Sink) -> bool,
+    /// Replace the stack from saved NBT; empty clears it.
+    pub stack_write: unsafe extern "C" fn(stack: StackRef, nbt: Str) -> bool,
+    /// Vanilla `Inventory.placeItemBackInInventory`: add a saved stack to the player's inventory
+    /// and drop what doesn't fit.
+    pub give: unsafe extern "C" fn(player: EntityRef, stack: Str) -> bool,
+}
+
+/// Size of the interaction table before `on_use_block` was appended.
+pub const INTERACTION_V1_BASE_SIZE: usize = std::mem::offset_of!(InteractionV1, on_use_block);
+
+/// From `useItemOn`: try `useWithoutItem` next (vanilla `TRY_WITH_EMPTY_HAND`).
+pub const USE_TRY_EMPTY_HAND: i32 = 4;
+
+/// A player using one of the mod's content blocks.
+#[repr(C)]
+pub struct UseBlock {
+    pub position: Pos,
+    pub state: u32,
+    /// Vanilla directions in order down, up, north, south, west, east.
+    pub face: u8,
+    /// Hit point inside the block, each axis 0 to 1.
+    pub hit: [f32; 3],
+    pub sneaking: bool,
+    pub creative: bool,
+    pub main_hand: bool,
+    /// True for vanilla `useItemOn` (the held stack, possibly empty), false for `useWithoutItem`
+    /// (an empty stack).
+    pub with_item: bool,
+}
+
+/// Returns a `USE_*` code.
+pub type UseBlockFn = unsafe extern "C" fn(
+    world: WorldRef,
+    player: EntityRef,
+    stack: StackRef,
+    context: *const UseBlock,
+) -> i32;
+
+pub const EFFECTS: &str = "moddedmc:effects";
+
+/// Vanilla `SoundSource` ids, in declaration order.
+pub const SOUND_MASTER: u8 = 0;
+pub const SOUND_BLOCKS: u8 = 4;
+pub const SOUND_NEUTRAL: u8 = 6;
+pub const SOUND_PLAYERS: u8 = 7;
+pub const SOUND_AMBIENT: u8 = 8;
+
+#[repr(C)]
+pub struct EffectsV1 {
+    pub size: usize,
+    /// Vanilla `Level.playSound(null, ...)` for players in range. `sound` is a sound event id;
+    /// ids outside `minecraft:` play from the resource pack. False for an unknown source.
+    pub play_sound: unsafe extern "C" fn(
+        world: WorldRef,
+        position: Vec3,
+        sound: Str,
+        source: u8,
+        volume: f32,
+        pitch: f32,
+    ) -> bool,
+    /// Vanilla `ServerLevel.sendParticles` for a particle type without options. False for an
+    /// unknown particle.
+    pub particles: unsafe extern "C" fn(
+        world: WorldRef,
+        particle: Str,
+        position: Vec3,
+        spread: Vec3,
+        speed: f32,
+        count: u32,
+    ) -> bool,
 }
 
 pub const MAX_STACK_DATA: usize = 1024;

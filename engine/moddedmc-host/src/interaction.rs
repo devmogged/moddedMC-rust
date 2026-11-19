@@ -8,6 +8,7 @@ use pumpkin_core::{
     entity::{EntityBase, player::Player},
     item::{ItemBehaviour, registry::install_content_behaviour},
     server::Server,
+    world::World,
 };
 use pumpkin_data::{
     Block, BlockDirection, data_component::DataComponent, data_component_impl::CustomDataImpl,
@@ -26,6 +27,10 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     stack_data,
     set_stack_data,
     cooldown,
+    on_use_block: crate::content::on_use_block_content,
+    stack_read,
+    stack_write,
+    give,
 };
 
 /// The `custom_data` key that holds a mod's bytes on its item stacks.
@@ -165,5 +170,67 @@ unsafe extern "C" fn cooldown(player: abi::EntityRef, item: Str, ticks: u32) {
     };
     if let Some(player) = entity.get_player() {
         player.start_cooldown(item.to_owned(), i32::try_from(ticks).unwrap_or(i32::MAX));
+    }
+}
+
+unsafe extern "C" fn stack_read(raw: abi::StackRef, out: abi::Sink) -> bool {
+    // SAFETY: the stack is live for the callback.
+    let Some(saved) = unsafe { stack(raw) }.and_then(|stack| stack.to_nbt()) else {
+        return false;
+    };
+    let bytes = pumpkin_nbt::Nbt::from(saved).write();
+    // SAFETY: the bytes are live until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
+unsafe extern "C" fn stack_write(raw: abi::StackRef, nbt: Str) -> bool {
+    // SAFETY: the stack is live for the callback.
+    let Some(stack) = (unsafe { stack(raw) }) else {
+        return false;
+    };
+    if nbt.len == 0 {
+        *stack = ItemStack::EMPTY.clone();
+        return true;
+    }
+    let Some(replacement) = crate::stacks::read_stack(nbt) else {
+        return false;
+    };
+    *stack = replacement;
+    true
+}
+
+unsafe extern "C" fn give(player: abi::EntityRef, nbt: Str) -> bool {
+    // SAFETY: the player is live for the callback.
+    let (Some(entity), Some(stack)) = (
+        unsafe { player.cast::<&dyn EntityBase>().as_ref() },
+        crate::stacks::read_stack(nbt),
+    ) else {
+        return false;
+    };
+    let Some(player) = entity.get_player() else {
+        return false;
+    };
+    pumpkin_inventory::screen_handler::offer_or_drop_stack(player, stack);
+    true
+}
+
+/// Vanilla `BlockBehaviour.useItemOn` and `useWithoutItem` for content blocks.
+pub fn use_block(
+    callback: abi::UseBlockFn,
+    world: &World,
+    player: &Player,
+    stack: &mut ItemStack,
+    context: &abi::UseBlock,
+) -> i32 {
+    let entity: &dyn EntityBase = player;
+    // SAFETY: the world, player, stack and context outlive this synchronous callback.
+    unsafe {
+        callback(
+            ptr::from_ref(world).cast(),
+            ptr::from_ref(&entity).cast(),
+            ptr::from_mut(stack).cast(),
+            context,
+        )
     }
 }

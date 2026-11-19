@@ -10,6 +10,7 @@ mod companion;
 mod console;
 mod content;
 mod content_pack;
+mod effects;
 mod entities;
 mod interaction;
 mod interfaces;

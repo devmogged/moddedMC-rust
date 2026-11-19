@@ -23,6 +23,7 @@ pub mod abi;
 pub mod chunks;
 pub mod commands;
 pub mod content;
+pub mod effects;
 pub mod entities;
 pub mod interaction;
 pub mod items;

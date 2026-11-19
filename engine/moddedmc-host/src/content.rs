@@ -12,23 +12,24 @@ use moddedmc_api::abi::{self, BlockUpdate, ContentEvent, Pos, Reg, Sink, Str, Wo
 use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
-        BlockBehaviour, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
+        BlockBehaviour, BlockHitResult, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
+        OnPlaceArgs, UseWithItemArgs,
         blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
             content::{self as engine, Change, ContentBlockEntity},
         },
-        registry::install_content_behaviour,
+        registry::{BlockActionResult, install_content_behaviour},
     },
     command::context::CommandContext,
-    entity::{Entity, EntityBase, decoration::display::ItemDisplayEntity},
+    entity::{Entity, EntityBase, decoration::display::ItemDisplayEntity, player::Player},
     server::Server,
     world::World,
 };
 use pumpkin_data::{
     Block, BlockDirection, BlockState, BlockStateId, Property,
     content::{self, BlockDefinition, ItemDefinition, StateDefinition},
-    data_component_impl::ItemModelImpl,
+    data_component_impl::{EquipmentSlot, ItemModelImpl},
     entity::EntityType,
     item::Item,
     item_stack::ItemStack,
@@ -38,7 +39,7 @@ use pumpkin_util::math::{position::BlockPos, vector3::Vector3};
 use pumpkin_world::world::BlockFlags;
 use uuid::Uuid;
 
-use crate::{MAX_STATE_BYTES, content_pack, load_mods, lock, native};
+use crate::{MAX_STATE_BYTES, content_pack, interaction, load_mods, lock, native};
 
 pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     size: size_of::<abi::ContentV1>(),
@@ -99,6 +100,7 @@ struct Runtime {
     ticks: BTreeMap<usize, abi::ContentTick>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    use_block: BTreeMap<usize, abi::UseBlockFn>,
     /// Owning mod of each content item, block items included.
     item_owners: HashMap<u16, usize>,
 }
@@ -109,6 +111,7 @@ pub struct Hooks {
     pub tick: Option<abi::ContentTick>,
     pub entity_inside: Option<abi::EntityInside>,
     pub use_on_block: Option<abi::UseOnBlockFn>,
+    pub use_block: Option<abi::UseBlockFn>,
 }
 
 #[derive(Default)]
@@ -118,6 +121,7 @@ struct Pending {
     ticks: BTreeMap<usize, abi::ContentTick>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    use_block: BTreeMap<usize, abi::UseBlockFn>,
 }
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
@@ -125,6 +129,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     ticks: BTreeMap::new(),
     entity_inside: BTreeMap::new(),
     use_on_block: BTreeMap::new(),
+    use_block: BTreeMap::new(),
 });
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static WORLDS: LazyLock<Mutex<HashMap<Uuid, WorldState>>> = LazyLock::new(Mutex::default);
@@ -415,6 +420,9 @@ pub fn register(
     if let Some(callback) = hooks.use_on_block {
         pending.use_on_block.insert(owner, callback);
     }
+    if let Some(callback) = hooks.use_block {
+        pending.use_block.insert(owner, callback);
+    }
 }
 
 fn split_items(
@@ -487,6 +495,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         ticks,
         entity_inside,
         use_on_block,
+        use_block,
     } = std::mem::take(&mut *lock(&PENDING));
     blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
     items.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
@@ -520,6 +529,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         ticks,
         entity_inside,
         use_on_block,
+        use_block,
         item_owners: HashMap::new(),
     };
     let mut assets = Vec::with_capacity(blocks.len());
@@ -615,6 +625,48 @@ impl BlockBehaviour for Behaviour {
                 u32::from(args.state.id.as_u16()),
                 ptr::from_ref(&entity).cast(),
             );
+        }
+    }
+
+    fn use_with_item(&self, args: UseWithItemArgs<'_>) -> BlockActionResult {
+        let Some(callback) = use_block_callback(args.block) else {
+            return BlockActionResult::PassToDefaultBlockAction;
+        };
+        let context = use_context(
+            args.world,
+            *args.position,
+            args.hit,
+            args.player,
+            args.equipment_slot == &EquipmentSlot::MAIN_HAND,
+            true,
+        );
+        match interaction::use_block(callback, args.world, args.player, args.item_stack, &context) {
+            abi::USE_SUCCESS => BlockActionResult::Success,
+            abi::USE_CONSUME => BlockActionResult::Consume,
+            abi::USE_FAIL => BlockActionResult::Fail,
+            abi::USE_PASS => BlockActionResult::Pass,
+            _ => BlockActionResult::PassToDefaultBlockAction,
+        }
+    }
+
+    fn normal_use(&self, args: NormalUseArgs<'_>) -> BlockActionResult {
+        let Some(callback) = use_block_callback(args.block) else {
+            return BlockActionResult::Pass;
+        };
+        let context = use_context(
+            args.world,
+            *args.position,
+            args.hit,
+            args.player,
+            true,
+            false,
+        );
+        let mut empty = ItemStack::EMPTY.clone();
+        match interaction::use_block(callback, args.world, args.player, &mut empty, &context) {
+            abi::USE_SUCCESS => BlockActionResult::Success,
+            abi::USE_CONSUME => BlockActionResult::Consume,
+            abi::USE_FAIL => BlockActionResult::Fail,
+            _ => BlockActionResult::Pass,
         }
     }
 
@@ -1097,6 +1149,45 @@ unsafe extern "C" fn entity_change(raw: abi::EntityRef, change: *const abi::Enti
         entity.on_ground.store(change.on_ground, Ordering::Relaxed);
     }
     true
+}
+
+fn use_block_callback(block: &Block) -> Option<abi::UseBlockFn> {
+    let runtime = RUNTIME.get()?;
+    let owner = runtime.blocks.get(&block.id.as_u16())?.owner;
+    runtime.use_block.get(&owner).copied()
+}
+
+fn use_context(
+    world: &World,
+    position: BlockPos,
+    hit: &BlockHitResult<'_>,
+    player: &Player,
+    main_hand: bool,
+    with_item: bool,
+) -> abi::UseBlock {
+    abi::UseBlock {
+        position: abi_pos(position),
+        state: u32::from(world.get_block_state_id(&position).as_u16()),
+        face: hit.face.to_index(),
+        hit: [hit.cursor_pos.x, hit.cursor_pos.y, hit.cursor_pos.z],
+        sneaking: player.get_entity().is_sneaking(),
+        creative: player.is_creative(),
+        main_hand,
+        with_item,
+    }
+}
+
+pub unsafe extern "C" fn on_use_block_content(reg: Reg, callback: abi::UseBlockFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.use_block;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
 }
 
 /// The mod callback for using a content item on a block.

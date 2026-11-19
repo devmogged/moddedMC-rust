@@ -26,7 +26,7 @@ const MAX_DISPLAY_CONTEXT: u8 = 9;
 static DISPLAYS: LazyLock<Mutex<HashMap<i32, Arc<ItemDisplayEntity>>>> =
     LazyLock::new(Mutex::default);
 
-fn read_stack(stack: Str) -> Option<ItemStack> {
+pub fn read_stack(stack: Str) -> Option<ItemStack> {
     if stack.len > abi::MAX_STACK_BYTES {
         return None;
     }
