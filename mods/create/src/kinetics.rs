@@ -24,6 +24,8 @@ pub const MAX_ROTATION_SPEED: f32 = 256.0;
 const KINETIC_VALIDATION_FREQUENCY: i32 = 60;
 /// `RotationPropagator.MAX_FLICKER_SCORE`.
 const MAX_FLICKER_SCORE: i32 = 128;
+/// The `limit` Create's belt chain walks use.
+const MAX_CHAIN_WALK: usize = 1000;
 /// `CreativeMotorBlockEntity.DEFAULT_SPEED`.
 pub const DEFAULT_SPEED: i32 = 16;
 
@@ -76,6 +78,117 @@ pub enum Kind {
     Gearshift(u8, bool),
     EncasedShaft(u8),
     Turntable,
+    Belt(Belt),
+}
+
+/// `BeltSlope`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Slope {
+    Horizontal,
+    Upward,
+    Downward,
+    Vertical,
+    Sideways,
+}
+
+impl Slope {
+    pub const ALL: [Self; 5] = [
+        Self::Horizontal,
+        Self::Upward,
+        Self::Downward,
+        Self::Vertical,
+        Self::Sideways,
+    ];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Horizontal => "horizontal",
+            Self::Upward => "upward",
+            Self::Downward => "downward",
+            Self::Vertical => "vertical",
+            Self::Sideways => "sideways",
+        }
+    }
+
+    pub const fn diagonal(self) -> bool {
+        matches!(self, Self::Upward | Self::Downward)
+    }
+}
+
+/// `BeltPart`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Part {
+    Start,
+    Middle,
+    End,
+    Pulley,
+}
+
+impl Part {
+    pub const ALL: [Self; 4] = [Self::Start, Self::Middle, Self::End, Self::Pulley];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Middle => "middle",
+            Self::End => "end",
+            Self::Pulley => "pulley",
+        }
+    }
+}
+
+/// A belt segment's `HORIZONTAL_FACING`, `SLOPE` and `PART`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Belt {
+    pub facing: u8,
+    pub slope: Slope,
+    pub part: Part,
+}
+
+impl Belt {
+    /// `BeltBlock.nextSegmentPosition`.
+    pub const fn next_segment(self, pos: Pos, forward: bool) -> Option<Pos> {
+        if matches!(
+            (self.part, forward),
+            (Part::End, true) | (Part::Start, false)
+        ) {
+            return None;
+        }
+        let offset = if forward { 1 } else { -1 };
+        if matches!(self.slope, Slope::Vertical) {
+            let up = if positive(self.facing) {
+                offset
+            } else {
+                -offset
+            };
+            return Some(Pos {
+                y: pos.y + up,
+                ..pos
+            });
+        }
+        let [x, _, z] = FACES[self.facing as usize];
+        let pos = Pos {
+            x: pos.x + x * offset,
+            y: pos.y,
+            z: pos.z + z * offset,
+        };
+        Some(match self.slope {
+            Slope::Upward => Pos {
+                y: pos.y + offset,
+                ..pos
+            },
+            Slope::Downward => Pos {
+                y: pos.y - offset,
+                ..pos
+            },
+            _ => pos,
+        })
+    }
+
+    /// `BeltBlockEntity.hasPulley`.
+    pub const fn has_pulley(self) -> bool {
+        !matches!(self.part, Part::Middle)
+    }
 }
 
 impl Kind {
@@ -91,6 +204,13 @@ impl Kind {
             | Self::EncasedShaft(axis) => axis,
             Self::Motor(facing) => face_axis(facing),
             Self::Turntable => 1,
+            // BeltBlock.getRotationAxis: sideways belts turn on Y, others on the facing's
+            // clockwise axis.
+            Self::Belt(belt) => match belt.slope {
+                Slope::Sideways => 1,
+                _ if face_axis(belt.facing) == 2 => 0,
+                _ => 2,
+            },
         }
     }
 
@@ -100,6 +220,7 @@ impl Kind {
             Self::Motor(facing) => facing == face,
             Self::Gearbox(axis) => face_axis(face) != axis,
             Self::Turntable => face == DOWN,
+            Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
             _ => face_axis(face) == self.axis(),
         }
     }
@@ -144,16 +265,29 @@ impl Kind {
         std::mem::discriminant(&self) == std::mem::discriminant(&other)
     }
 
-    /// `KineticBlock.areStatesKineticallyEquivalent`.
+    /// `KineticBlock.areStatesKineticallyEquivalent`; belts also keep their `PART`.
     pub fn equivalent(self, other: Self) -> bool {
-        self.same_block(other) && self.axis() == other.axis()
+        let same_part = match (self, other) {
+            (Self::Belt(a), Self::Belt(b)) => a.part == b.part,
+            _ => true,
+        };
+        self.same_block(other) && self.axis() == other.axis() && same_part
+    }
+
+    /// `canPropagateDiagonally`: small cogs and sloped belts.
+    const fn propagates_diagonally(self) -> bool {
+        match self {
+            Self::Small(_) => true,
+            Self::Belt(belt) => belt.slope.diagonal(),
+            _ => false,
+        }
     }
 
     /// `getPotentialNeighbourLocations` offsets: the six faces, then `addPropagationLocations`
     /// (small cogs: their in-plane diagonals; large cogs: every edge neighbour).
     fn neighbour_offsets(self) -> Vec<[i32; 3]> {
         let mut offsets = FACES.to_vec();
-        if self.small_cog() || self.large_cog() {
+        if self.propagates_diagonally() || self.large_cog() {
             // BlockPos.betweenClosedStream order: x fastest, then y, then z.
             for z in -1..=1 {
                 for y in -1..=1 {
@@ -162,7 +296,7 @@ impl Kind {
                         if x * x + y * y + z * z != 2 {
                             continue;
                         }
-                        if self.small_cog() && step[usize::from(self.axis())] != 0 {
+                        if !self.large_cog() && step[usize::from(self.axis())] != 0 {
                             continue;
                         }
                         offsets.push(step);
@@ -198,6 +332,10 @@ pub struct Be {
     initialized: bool,
     /// Changed since the last save: write the NBT and the rendered speed.
     pub dirty: bool,
+    /// `BeltBlockEntity` chain fields; `controller` is `None` before `initBelt`.
+    pub controller: Option<Pos>,
+    pub belt_length: i32,
+    pub belt_index: i32,
 }
 
 impl Be {
@@ -223,7 +361,15 @@ impl Be {
             re_activate_source: false,
             initialized: false,
             dirty: true,
+            controller: None,
+            belt_length: 0,
+            belt_index: 0,
         }
+    }
+
+    /// `BeltBlockEntity.getController`.
+    pub fn controller_or(&self, pos: Pos) -> Pos {
+        self.controller.unwrap_or(pos)
     }
 
     /// `CreativeMotorBlockEntity.getGeneratedSpeed`: `convertToDirection(value, facing)`.
@@ -273,6 +419,12 @@ impl Be {
         self.capacity = 0.0;
         self.last_stress_applied = 0.0;
         self.last_capacity_provided = 0.0;
+        // BeltBlockEntity.clearKineticInformation
+        if matches!(self.kind, Kind::Belt(_)) {
+            self.belt_length = 0;
+            self.belt_index = 0;
+            self.controller = None;
+        }
     }
 }
 
@@ -315,6 +467,9 @@ pub trait Level {
     /// Replace the block state with `kind` without neighbor updates (clutch and gearshift
     /// `POWERED` toggles).
     fn set_kind(&mut self, pos: Pos, kind: Kind);
+    /// `Level.setBlock(pos, state, UPDATE_ALL)` with `kind`'s default state (keeping water),
+    /// or air.
+    fn replace(&mut self, pos: Pos, kind: Option<Kind>);
 }
 
 /// The kinetic block entities and networks of one world.
@@ -396,6 +551,9 @@ impl Kinetics {
             self.network_remove(id, pos, be.serial, be.is_source());
         }
         self.handle_removed(level, pos, &be);
+        if let Kind::Belt(belt) = be.kind {
+            self.remove_belt_neighbours(level, pos, belt);
+        }
     }
 
     /// A state change that keeps the block entity (same block, same axis).
@@ -490,6 +648,13 @@ impl Kinetics {
     }
 
     fn tick_be(&mut self, level: &mut dyn Level, pos: Pos, serial: u64) {
+        // BeltBlockEntity.tick runs initBelt before KineticBlockEntity.tick.
+        if matches!(self.bes[&pos].kind, Kind::Belt(_)) && self.bes[&pos].belt_length == 0 {
+            self.init_belt(level, pos);
+            if !self.alive(pos, serial) {
+                return;
+            }
+        }
         // KineticBlockEntity.tick
         if self.bes[&pos].update_speed {
             self.attach(level, pos);
@@ -608,6 +773,14 @@ impl Kinetics {
             && state_from.has_shaft_towards(direction)
             && state_to.has_shaft_towards(direction ^ 1);
         let connected_by_gears = state_from.small_cog() && state_to.small_cog();
+
+        // BeltBlockEntity.propagateRotationTo: segments of one belt turn together.
+        if let (Kind::Belt(_), Kind::Belt(_)) = (state_from, state_to)
+            && !connected_by_axis
+            && from_be.controller_or(from) == to_be.controller_or(to)
+        {
+            return 1.0;
+        }
 
         if connected_by_axis {
             let mut axis_modifier = Self::axis_modifier(to, to_be, direction ^ 1);
@@ -893,6 +1066,74 @@ impl Kinetics {
                 self.propagate_new_source(level, new_source);
                 return;
             }
+        }
+    }
+
+    /// `BeltBlock.getBeltChain` from the controller.
+    pub fn belt_chain(&self, controller: Pos) -> Vec<Pos> {
+        let mut chain = Vec::new();
+        let mut current = Some(controller);
+        for _ in 0..MAX_CHAIN_WALK {
+            let Some(pos) = current else { break };
+            let Some(Kind::Belt(belt)) = self.kind(pos) else {
+                break;
+            };
+            chain.push(pos);
+            current = belt.next_segment(pos, true);
+        }
+        chain
+    }
+
+    /// `BeltBlock.initBelt`: find the controller walking backwards, then number the chain.
+    fn init_belt(&mut self, level: &mut dyn Level, pos: Pos) {
+        let mut current = pos;
+        for _ in 0..MAX_CHAIN_WALK {
+            let Some(Kind::Belt(belt)) = self.kind(current) else {
+                self.destroy(level, pos);
+                return;
+            };
+            let Some(next) = belt.next_segment(current, false) else {
+                break;
+            };
+            if !level.is_loaded(next) {
+                return;
+            }
+            current = next;
+        }
+        let chain = self.belt_chain(current);
+        if chain.len() < 2 {
+            self.destroy(level, current);
+            return;
+        }
+        let length = chain.len() as i32;
+        for (index, belt) in chain.into_iter().enumerate() {
+            let Some(be) = self.bes.get_mut(&belt) else {
+                self.destroy(level, current);
+                return;
+            };
+            be.controller = Some(current);
+            be.belt_length = length;
+            be.belt_index = index as i32;
+            be.dirty = true;
+            self.attach(level, belt);
+        }
+    }
+
+    /// `BeltBlock.onRemove`: the segments on either side turn back into shafts (pulleys) or
+    /// air, which removes the rest of the chain the same way.
+    fn remove_belt_neighbours(&mut self, level: &mut dyn Level, pos: Pos, belt: Belt) {
+        for forward in [true, false] {
+            let Some(next) = belt.next_segment(pos, forward) else {
+                continue;
+            };
+            let Some(Kind::Belt(next_belt)) = self.kind(next) else {
+                continue;
+            };
+            let shaft = next_belt
+                .has_pulley()
+                .then(|| Kind::Shaft(Kind::Belt(next_belt).axis()));
+            level.replace(next, shaft);
+            self.remove(level, next);
         }
     }
 
@@ -1279,7 +1520,7 @@ fn large_to_small(from: Kind, to: Kind, diff: [i32; 3]) -> bool {
 mod tests {
     use std::collections::HashSet;
 
-    use super::{Be, Kind, Kinetics, Level, Pos};
+    use super::{Be, Belt, Kind, Kinetics, Level, Part, Pos, Slope};
 
     const UP: u8 = 1;
     const WEST: u8 = 4;
@@ -1295,6 +1536,7 @@ mod tests {
     #[derive(Default)]
     struct TestLevel {
         destroyed: Vec<Pos>,
+        replaced: Vec<Pos>,
         signal: HashSet<Pos>,
     }
 
@@ -1309,6 +1551,9 @@ mod tests {
             true
         }
         fn set_kind(&mut self, _pos: Pos, _kind: Kind) {}
+        fn replace(&mut self, pos: Pos, _kind: Option<Kind>) {
+            self.replaced.push(pos);
+        }
     }
 
     struct Rig {
@@ -1528,5 +1773,54 @@ mod tests {
         let be = rig.kinetics.get(pos(0, 2, 0)).expect("shaft");
         assert_eq!((be.speed, be.source, be.network), (0.0, None, None));
         assert_eq!(rig.speed(pos(0, 0, 0)), 16.0);
+    }
+
+    /// A three-segment belt running south between X-axis pulleys, driven from the west.
+    fn belt_rig() -> Rig {
+        const SOUTH: u8 = 3;
+        let belt = |part| {
+            Kind::Belt(Belt {
+                facing: SOUTH,
+                slope: Slope::Horizontal,
+                part,
+            })
+        };
+        let mut rig = Rig::new();
+        rig.motor(pos(0, 0, 0), 16, EAST);
+        rig.place(&[
+            (pos(1, 0, 0), belt(Part::Start)),
+            (pos(1, 0, 1), belt(Part::Middle)),
+            (pos(1, 0, 2), belt(Part::End)),
+            (pos(2, 0, 2), Kind::Shaft(X)),
+        ]);
+        rig.ticks(3);
+        rig
+    }
+
+    /// `initBelt` numbers the chain from its start, and every segment turns with the pulley
+    /// that drives it (`BeltBlockEntity.propagateRotationTo`), out to the far pulley's shaft.
+    #[test]
+    fn belt_segments_share_one_controller_and_speed() {
+        let rig = belt_rig();
+        for (index, z) in (0..3).enumerate() {
+            let be = rig.kinetics.get(pos(1, 0, z)).expect("belt");
+            assert_eq!(be.controller, Some(pos(1, 0, 0)));
+            assert_eq!((be.belt_length, be.belt_index), (3, index as i32));
+            assert_eq!(be.get_speed(), 16.0);
+        }
+        assert_eq!(rig.speed(pos(2, 0, 2)), 16.0);
+    }
+
+    /// `BeltBlock.onRemove`: breaking the middle turns both pulleys back into shafts, and the
+    /// shaft past the belt loses its source.
+    #[test]
+    fn breaking_a_belt_segment_takes_the_chain_with_it() {
+        let mut rig = belt_rig();
+        rig.kinetics.remove(&mut rig.level, pos(1, 0, 1));
+        rig.ticks(1);
+        assert_eq!(rig.level.replaced, [pos(1, 0, 2), pos(1, 0, 0)]);
+        assert!(rig.kinetics.get(pos(1, 0, 0)).is_none());
+        assert!(rig.kinetics.get(pos(1, 0, 2)).is_none());
+        assert_eq!(rig.speed(pos(2, 0, 2)), 0.0);
     }
 }

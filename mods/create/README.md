@@ -1,6 +1,6 @@
 # Create kinetics
 
-`create.mmc` adds the shaft, cogwheel, large cogwheel, creative motor, gearbox, clutch, gearshift, andesite encased shaft, andesite casing and turntable, with Create's stress model. Its mechanics are ported from [Create 6.0.10](https://github.com/Creators-of-Create/Create/tree/mc1.21.1-6.0.10/src/main/java/com/simibubi/create/content/kinetics) (tag `mc1.21.1-6.0.10`, commit `ac0c444`): `src/kinetics.rs` follows `RotationPropagator`, `KineticNetwork`, `KineticBlockEntity` and `GeneratingKineticBlockEntity` method by method, so speeds, sources, networks, overstress and the block that breaks on a conflict match Create. The mod needs the ABI 1 content and block-world interfaces, including the block-world `has_neighbor_signal` and `destroy` extensions.
+`create.mmc` adds the shaft, cogwheel, large cogwheel, creative motor, gearbox, clutch, gearshift, andesite encased shaft, andesite casing, turntable and mechanical belt, with Create's stress model. Its mechanics are ported from [Create 6.0.10](https://github.com/Creators-of-Create/Create/tree/mc1.21.1-6.0.10/src/main/java/com/simibubi/create/content/kinetics) (tag `mc1.21.1-6.0.10`, commit `ac0c444`): `src/kinetics.rs` follows `RotationPropagator`, `KineticNetwork`, `KineticBlockEntity` and `GeneratingKineticBlockEntity` method by method, so speeds, sources, networks, overstress and the block that breaks on a conflict match Create. The mod needs the ABI 1 content and block-world interfaces, including the block-world `has_neighbor_signal` and `destroy` extensions.
 
 1. Build with `scripts/pack-mod.ps1 -Crate create`. Place `target/mods/create.mmc` in the server's `mods/`.
 2. Supply your local Create jar through `MODDEDMC_ASSET_JARS`, a platform-separated list of paths. The host also looks in `cache/` and `D:/minecraft/buja_server/mods`. The generated pack and its SHA-1 stay in `cache/moddedmc/`.
@@ -30,4 +30,15 @@ Stress and transmitters (P1b):
 
 [`tests/scenarios/p1b-create.txt`](../../tests/scenarios/p1b-create.txt) checks all of this with the bot, and [`tests/bench/p1-create-shafts.txt`](../../tests/bench/p1-create-shafts.txt) measures a 256-shaft line.
 
-Not ported yet: the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.
+Belts (P1c stage 1, `src/belt.rs` and the belt parts of `src/kinetics.rs`, from `BeltBlock`, `BeltBlockEntity` and `BeltConnectorItem`):
+
+1. Craft a mechanical belt from six dried kelp, or `/give` yourself `create:belt_connector`.
+2. Place a motor facing east at `2049 100 2010`, X-axis shafts at `2050 100 2010` and `2050 100 2014`, and one more at `2051 100 2014`. Click the first shaft, then the second, with the belt. A four-block belt appears between them and one belt item is used up in survival. Every segment and the far shaft turn at the motor's speed.
+3. Try joining shafts that don't line up (different axes, or more than 20 blocks apart). Nothing is placed. Sneak-click to forget a started connection.
+4. Break the middle of the belt. The whole belt goes, the two pulley segments become shafts again, and the far shaft stops.
+5. Restart and check that the belt still turns.
+6. Capture one recording of steps 2 and 4.
+
+[`tests/scenarios/p1c-belt.txt`](../../tests/scenarios/p1c-belt.txt) checks steps 2 and 4 with the bot.
+
+Not ported yet: belts don't carry items or entities yet, the belt surface doesn't scroll, only its top half is drawn, and sideways belts (between vertical shafts) are drawn turned the wrong way, because block models can't take the Z rotation `BeltRenderer` uses; breaking a pulley segment doesn't drop its shaft, belts can't be dyed or cased, and their placement makes no sound; the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.

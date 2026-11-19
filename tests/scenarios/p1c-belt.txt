@@ -1,0 +1,66 @@
+# Create mechanical belts (P1c stage 1), from Create 6.0.10: BeltConnectorItem joins two shafts,
+# initBelt chains the segments, they turn with their pulleys, and breaking one takes the chain.
+# Build with scripts/pack-mod.ps1 -Crate create and scripts/engine.ps1 build, then run
+# scripts/scenario.ps1 -Scenario tests/scenarios/p1c-belt.txt -RunDir run/p1c-belt -Fresh
+mods target\mods\create.mmc
+start
+expect registered content item create:belt_connector
+expect registered content block create:belt
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2050.5 101 2012.5
+wait 3
+cmd fill 2045 99 2005 2056 104 2020 minecraft:air
+cmd gamemode survival tester
+cmd give tester create:belt_connector 2
+wait 1
+
+# Two X-axis shafts four blocks apart, the first driven from the west at 16 RPM.
+cmd setblock 2049 100 2010 create:creative_motor[facing=east]
+cmd setblock 2050 100 2010 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2050 100 2014 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2051 100 2014 create:shaft[axis=x,waterlogged=false]
+wait 1
+bot use 2050 100 2010
+wait 0.5
+bot use 2050 100 2014
+wait 1.5
+# Pumpkin's block-state arguments reject content-only properties such as part, so read the
+# states back through /kinetics.
+cmd kinetics 2050 100 2010
+wait 0.5
+expect create:belt\[facing=south,part=start,slope=horizontal,waterlogged=false\] at 2050 100 2010 Speed=16
+cmd kinetics 2050 100 2012
+wait 0.5
+expect create:belt\[facing=south,part=middle,slope=horizontal,waterlogged=false\] at 2050 100 2012 Speed=16
+cmd kinetics 2050 100 2014
+wait 0.5
+expect create:belt\[facing=south,part=end,slope=horizontal,waterlogged=false\] at 2050 100 2014 Speed=16
+# One connector was used up in survival.
+cmd clear tester create:belt_connector 0
+wait 0.5
+expect Found 1 matching item
+cmd kinetics 2051 100 2014
+wait 0.5
+expect at 2051 100 2014 Speed=16
+reject (?i)panicked|trapped
+
+# Breaking the middle turns both pulleys back into shafts and stops the far shaft.
+cmd setblock 2050 100 2012 minecraft:air
+wait 1.5
+cmd execute if block 2050 100 2010 create:shaft[axis=x]
+wait 0.5
+expect Test passed
+cmd execute if block 2050 100 2014 create:shaft[axis=x]
+wait 0.5
+expect Test passed
+cmd execute if block 2050 100 2011 minecraft:air
+wait 0.5
+expect Test passed
+cmd kinetics 2051 100 2014
+wait 0.5
+expect at 2051 100 2014 Speed=0
+reject (?i)panicked|trapped|failed to register
+bot quit
+stop

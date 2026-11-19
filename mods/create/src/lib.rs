@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Mutex, OnceLock, PoisonError},
 };
 
@@ -11,10 +11,12 @@ use moddedmc_api::{
         WorldExtension,
     },
     entities::{self, ENTITY_LIVING, ENTITY_PLAYER, Entities, Entity, EntityChange},
+    interaction::{self, Interaction},
     items::{self, Item, Items},
 };
 use serde::{Deserialize, Serialize};
 
+mod belt;
 mod kinetics;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
@@ -41,6 +43,7 @@ static CONTENT: OnceLock<Content> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
+static INTERACTION: OnceLock<Interaction> = OnceLock::new();
 static STATES: OnceLock<StateIds> = OnceLock::new();
 /// Each loaded world's kinetic block entities and networks, by `World::id`.
 static WORLDS: Mutex<Option<HashMap<usize, Kinetics>>> = Mutex::new(None);
@@ -66,6 +69,7 @@ impl Mod for Create {
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);
         let _ = ENTITIES.set(entities::require()?);
+        let _ = INTERACTION.set(interaction::require()?);
         Ok(())
     }
 
@@ -86,6 +90,23 @@ impl Mod for Create {
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         register_casings(content, registry)?;
+        belt::register(content, registry)?;
+        ITEMS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add_item(
+                registry,
+                &Item {
+                    id: belt::BELT_CONNECTOR,
+                    display_name: "Mechanical Belt",
+                    carrier: "minecraft:leather",
+                    model: "create:item/belt_connector",
+                },
+            )?;
+        INTERACTION
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .on_use_on_block(registry, belt::use_on_block)?;
         content.on_tick(registry, tick)?;
         ENTITIES
             .get()
@@ -473,6 +494,14 @@ struct KnownState {
 struct StateIds {
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
+    /// Vanilla blocks a belt may run through (`canBeReplaced`).
+    replaceable: HashSet<u32>,
+    /// Vanilla blocks with `getDestroySpeed == -1`.
+    unbreakable: HashSet<u32>,
+    /// States holding water: water itself and waterlogged content states.
+    water: HashSet<u32>,
+    /// Vanilla states the belt code writes, by selector.
+    vanilla: HashMap<String, u32>,
 }
 
 impl StateIds {
@@ -497,6 +526,19 @@ impl StateIds {
 
     fn kind(&self, state: u32) -> Option<Kind> {
         self.by_id.get(&state)?.kind
+    }
+
+    /// A content or recorded vanilla state by exact selector.
+    fn lookup(&self, selector: &str) -> Option<u32> {
+        self.by_selector
+            .get(selector)
+            .or_else(|| self.vanilla.get(selector))
+            .copied()
+    }
+
+    /// `ProperWaterloggedBlock.withWater`: whether this state holds a water source.
+    fn wet(&self, state: u32) -> bool {
+        self.water.contains(&state)
     }
 
     /// The state for a clutch or gearshift `POWERED` toggle.
@@ -571,6 +613,38 @@ fn states() -> Option<&'static StateIds> {
         }
         ids.add(content, TURNTABLE, "", Some(Kind::Turntable));
         ids.add(content, CASING, "", None);
+        belt::add_states(&mut ids, content);
+        for name in [
+            "air",
+            "cave_air",
+            "void_air",
+            "water",
+            "short_grass",
+            "fern",
+            "dead_bush",
+        ] {
+            if let Some(id) = content.state(&format!("minecraft:{name}")) {
+                ids.replaceable.insert(id);
+                ids.vanilla.insert(format!("minecraft:{name}"), id);
+            }
+        }
+        for name in [
+            "bedrock",
+            "barrier",
+            "end_portal_frame",
+            "reinforced_deepslate",
+        ] {
+            if let Some(id) = content.state(&format!("minecraft:{name}")) {
+                ids.unbreakable.insert(id);
+            }
+        }
+        ids.water = ids
+            .by_id
+            .iter()
+            .filter(|(_, known)| known.selector.contains("waterlogged=true"))
+            .map(|(id, _)| *id)
+            .chain(content.state("minecraft:water"))
+            .collect();
         ids
     }))
 }
@@ -659,7 +733,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             AXES[usize::from(encased_axis(preferred, pillar_axis, look, args.sneak))],
             args.world.has_neighbor_signal(args.position)
         ),
-        Some(Kind::Turntable) | None => return Some(args.state),
+        Some(Kind::Turntable | Kind::Belt(_)) | None => return Some(args.state),
     };
     states.by_selector.get(&selector).copied()
 }
@@ -703,6 +777,19 @@ struct KineticData {
     network: Option<NetworkData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     scroll_value: Option<i32>,
+    // BeltBlockEntity.write and read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    controller: Option<fastnbt::IntArray>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_controller: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    length: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    index: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    casing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    covered: Option<bool>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -754,10 +841,22 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if let Some(value) = data.scroll_value {
         be.generated = value.clamp(-MAX_SPEED, MAX_SPEED);
     }
+    if matches!(kind, Kind::Belt(_)) {
+        be.controller = if data.is_controller == Some(true) {
+            Some(pos)
+        } else {
+            data.controller.and_then(|pos| match *pos {
+                [x, y, z] => Some(Pos { x, y, z }),
+                _ => None,
+            })
+        };
+        be.belt_length = data.length.unwrap_or(0);
+        be.belt_index = data.index.unwrap_or(0);
+    }
     be
 }
 
-fn save(be: &Be) -> KineticData {
+fn save(pos: Pos, be: &Be) -> KineticData {
     KineticData {
         speed: be.speed,
         source: be
@@ -772,6 +871,24 @@ fn save(be: &Be) -> KineticData {
             added_capacity: be.last_capacity_provided,
         }),
         scroll_value: matches!(be.kind, Kind::Motor(_)).then_some(be.generated),
+        ..belt_data(pos, be)
+    }
+}
+
+fn belt_data(pos: Pos, be: &Be) -> KineticData {
+    if !matches!(be.kind, Kind::Belt(_)) {
+        return KineticData::default();
+    }
+    KineticData {
+        controller: be
+            .controller
+            .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
+        is_controller: Some(be.controller == Some(pos)),
+        length: Some(be.belt_length),
+        index: Some(be.belt_index),
+        casing: Some("NONE".to_owned()),
+        covered: Some(false),
+        ..KineticData::default()
     }
 }
 
@@ -792,6 +909,20 @@ impl Level for WorldLevel<'_> {
     fn is_loaded(&self, pos: Pos) -> bool {
         let mut state = [content::UNLOADED_STATE];
         self.world.read(&[pos], &mut state) && state[0] != content::UNLOADED_STATE
+    }
+
+    fn replace(&mut self, pos: Pos, kind: Option<Kind>) {
+        let mut current = [content::UNLOADED_STATE];
+        if !self.world.read(&[pos], &mut current) {
+            return;
+        }
+        if let Some(state) = belt::leftover(self.states, kind, self.states.wet(current[0])) {
+            self.world.write(&[BlockUpdate {
+                position: pos,
+                state,
+                flags: content::UPDATE_ALL,
+            }]);
+        }
     }
 
     fn set_kind(&mut self, pos: Pos, kind: Kind) {
@@ -883,7 +1014,7 @@ fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
 /// Save changed block entities and show their speed (`getSpeed`, zero when overstressed).
 fn flush(world: World<'_>, kinetics: &mut Kinetics) {
     for (pos, be) in kinetics.drain_dirty() {
-        if let Ok(bytes) = fastnbt::to_bytes(&save(&be)) {
+        if let Ok(bytes) = fastnbt::to_bytes(&save(pos, &be)) {
             let _ = world.set_entity(pos, &bytes);
         }
         let _ = world.rotate(pos, be.kind.axis(), be.get_speed());
