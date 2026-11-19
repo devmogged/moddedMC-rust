@@ -30,6 +30,7 @@ use crate::{
     bot::send_framed_packet,
     collision::{back_off_from_edge, collide},
     controls::{Controls, yaw_sin_cos},
+    entities::Entities,
     fluids::{self, Contact, Kind},
     terrain::World,
 };
@@ -57,6 +58,7 @@ pub struct Player {
     pub position: Vector3<f64>,
     pub mode: Mode,
     pub controls: Controls,
+    pub entities: Entities,
     pub vehicle: Option<i32>,
     vehicle_position_unknown: bool,
     velocity: Vector3<f64>,
@@ -85,6 +87,9 @@ impl Player {
             }
         }
         self.controls
+            .observe(packet.id, &packet.payload)
+            .map_err(|error| error.to_string())?;
+        self.entities
             .observe(packet.id, &packet.payload)
             .map_err(|error| error.to_string())?;
         self.observe_motion(packet.id, &packet.payload)
@@ -252,6 +257,21 @@ impl Player {
         } else {
             Err(format!(
                 "expected bot {kind} {target:?} within {tolerance}, got {actual:?} (distance {distance})"
+            ))
+        }
+    }
+
+    pub fn check_vehicle(&self, expected: &str) -> Result<(), String> {
+        let actual = self.vehicle.and_then(|id| self.entities.kind(id));
+        let actual = actual.map_or("none", |kind| kind.resource_name);
+        if actual == expected.strip_prefix("minecraft:").unwrap_or(expected)
+            && (actual != "none" || self.vehicle.is_none())
+        {
+            Ok(())
+        } else {
+            Err(format!(
+                "expected riding {expected}, got {actual} (id {:?})",
+                self.vehicle
             ))
         }
     }
@@ -431,6 +451,7 @@ impl Player {
         if self.world.block(self.position.floor_to_i32()).is_none() {
             return Ok(None);
         }
+        self.entities.tick();
         let before = self.bounds();
         let eye_height = if self.swimming {
             SWIMMING_SIZE.eye_height
@@ -477,6 +498,7 @@ impl Player {
         let delta = if self.controls.sneaking() {
             back_off_from_edge(
                 &self.world,
+                &self.entities,
                 bounds,
                 speed,
                 self.on_ground,
@@ -509,6 +531,8 @@ impl Player {
                 retained.z * drag,
             )
         };
+        let current = bounds.shift(self.position - previous);
+        self.velocity += self.entities.push_at(self.position, current);
         Ok(Some(SPlayerPosition {
             position: self.position,
             collision: (u8::from(self.on_ground) * FLAG_ON_GROUND)
@@ -527,6 +551,7 @@ impl Player {
                 velocity + Vector3::new(0.0, f64::from(0.6f32) - self.position.y + previous.y, 0.0);
             let target = bounds.shift(self.position - previous + out);
             if self.world.shapes(target).is_empty()
+                && self.entities.solid_shapes(target).is_empty()
                 && Contact::sample(&self.world, target, target.min)
                     .kind()
                     .is_none()
@@ -544,7 +569,7 @@ impl Player {
         delta: Vector3<f64>,
     ) -> Vector3<f64> {
         let previous = self.position;
-        let moved = collide(&self.world, bounds, delta, self.on_ground);
+        let moved = collide(&self.world, &self.entities, bounds, delta, self.on_ground);
         let distance = moved.length_squared();
         if distance > 1.0e-7 || delta.length_squared() - distance < 1.0e-7 {
             self.position += moved;

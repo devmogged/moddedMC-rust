@@ -12,6 +12,7 @@ mod bot;
 mod capture;
 mod collision;
 mod controls;
+mod entities;
 mod fluids;
 mod inventory;
 mod movement;
@@ -113,11 +114,9 @@ async fn main() -> Result<(), String> {
                 .check_inventory(rest)
                 .map(|result| println!("[bot] expect inventory ok {result}")),
             "expect" if let Some(vehicle) = rest.strip_prefix("riding ") => {
-                let id = player.lock().await.vehicle;
-                actions
-                    .lock()
-                    .await
-                    .check_vehicle(id, vehicle)
+                let player = player.lock().await;
+                player
+                    .check_vehicle(vehicle)
                     .map(|()| println!("[bot] expect riding ok {vehicle}"))
             }
             "expect" => player

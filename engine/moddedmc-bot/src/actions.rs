@@ -1,18 +1,12 @@
 use std::collections::HashMap;
 
-use pumpkin_data::{
-    entity::EntityType,
-    packet::{CURRENT_MC_VERSION, PacketId, clientbound::play as p},
-};
+use pumpkin_data::packet::{CURRENT_MC_VERSION, PacketId, clientbound::play as p};
 use pumpkin_protocol::{
     VarInt,
     codec::item_stack_seralizer::OptionalItemStackHash,
-    java::{
-        client::play::CSpawnEntity,
-        server::play::{
-            ActionType, SAttack, SClickSlot, SClientTickEnd, SCloseContainer, SInteract,
-            SPlayerPosition, SPlayerRotation, SSetHeldItem, SlotActionType,
-        },
+    java::server::play::{
+        ActionType, SAttack, SClickSlot, SClientTickEnd, SCloseContainer, SInteract,
+        SPlayerPosition, SPlayerRotation, SSetHeldItem, SlotActionType,
     },
     ser::NetworkReadExt as _,
 };
@@ -23,7 +17,6 @@ use crate::{Writer, bot::send_framed_packet, inventory::Inventory, movement::Pla
 
 #[derive(Default)]
 pub struct State {
-    entities: HashMap<i32, CSpawnEntity>,
     window: i32,
     revisions: HashMap<i32, VarInt>,
     inventory: Inventory,
@@ -34,20 +27,6 @@ impl State {
     pub fn observe(&mut self, kind: i32, mut payload: &[u8]) -> Result<(), String> {
         let inventory_payload = payload;
         match PacketId(kind) {
-            p::ADD_ENTITY => {
-                let spawn = CSpawnEntity::read_packet_data(payload, &CURRENT_MC_VERSION)
-                    .map_err(|e| e.to_string())?;
-                self.entities.insert(spawn.entity_id.0, spawn);
-            }
-            p::REMOVE_ENTITIES => {
-                let count = read_id(&mut payload)?.0 as usize;
-                if count > payload.len() {
-                    return Err("invalid entity removal count".into());
-                }
-                for _ in 0..count {
-                    self.entities.remove(&read_id(&mut payload)?.0);
-                }
-            }
             p::OPEN_SCREEN | p::MOUNT_SCREEN_OPEN => {
                 self.window = read_id(&mut payload)?.0;
                 self.revisions.remove(&self.window);
@@ -66,7 +45,6 @@ impl State {
                 self.revisions.insert(id.0, read_id(&mut payload)?);
             }
             p::RESPAWN => {
-                self.entities.clear();
                 self.window = 0;
                 self.revisions.clear();
                 self.inventory_error = None;
@@ -84,40 +62,6 @@ impl State {
             return Err(format!("could not decode inventory: {error}"));
         }
         self.inventory.check(args, self.window)
-    }
-
-    pub fn check_vehicle(&self, vehicle: Option<i32>, expected: &str) -> Result<(), String> {
-        let actual = vehicle.and_then(|id| self.entities.get(&id));
-        if expected == "none" && vehicle.is_none() {
-            return Ok(());
-        }
-        if let Some(kind) = EntityType::from_name(expected)
-            && actual.is_some_and(|entity| entity.r#type.0 == i32::from(kind.id))
-        {
-            return Ok(());
-        }
-        Err(format!(
-            "expected riding {expected}, current vehicle id {vehicle:?}, type id {:?}",
-            actual.map(|entity| entity.r#type.0)
-        ))
-    }
-
-    fn target(&self, name: &str, anchor: Vector3<f64>) -> Result<VarInt, String> {
-        let kind =
-            EntityType::from_name(name).ok_or_else(|| format!("unknown entity type {name}"))?;
-        let mut targets = self.entities.values().filter(|entity| {
-            entity.r#type.0 == i32::from(kind.id)
-                && (entity.position.x - anchor.x).abs() <= 1e-6
-                && (entity.position.y - anchor.y).abs() <= 1e-6
-                && (entity.position.z - anchor.z).abs() <= 1e-6
-        });
-        let entity = targets
-            .next()
-            .ok_or_else(|| format!("no visible {name} spawned at {anchor:?}"))?;
-        if targets.next().is_some() {
-            return Err(format!("multiple visible {name} spawned at {anchor:?}"));
-        }
-        Ok(entity.entity_id)
     }
 
     fn click(&self, slot: i16, button: &str) -> Result<SClickSlot, String> {
@@ -212,13 +156,18 @@ pub async fn perform(
         }
         ("attack", [name, coords @ ..]) => {
             let anchor = vector(coords)?;
-            let entity_id = state.lock().await.target(name, anchor)?;
+            let entity_id = player.lock().await.entities.target(name, anchor)?;
             send(writer, &SAttack { entity_id }).await
         }
         ("interact", [name, x, y, z, hand]) => {
             let anchor = vector(&[x, y, z])?;
-            let entity_id = state.lock().await.target(name, anchor)?;
-            let sneaking = player.lock().await.controls.shift_pressed();
+            let (entity_id, sneaking) = {
+                let player = player.lock().await;
+                (
+                    player.entities.target(name, anchor)?,
+                    player.controls.shift_pressed(),
+                )
+            };
             send(
                 writer,
                 &SInteract {

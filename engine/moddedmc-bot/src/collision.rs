@@ -3,13 +3,14 @@ use pumpkin_util::math::{
     vector3::{Axis, Vector3},
 };
 
-use crate::terrain::World;
+use crate::{entities::Entities, terrain::World};
 
 const STEP_HEIGHT: f32 = 0.6;
 const SHAPE_EPSILON: f64 = 1.0e-7;
 
 pub fn back_off_from_edge(
     world: &World,
+    entities: &Entities,
     bounds: BoundingBox,
     mut delta: Vector3<f64>,
     grounded: bool,
@@ -20,12 +21,8 @@ pub fn back_off_from_edge(
         let min =
             bounds.min + Vector3::new(x + SHAPE_EPSILON, -depth - SHAPE_EPSILON, z + SHAPE_EPSILON);
         let max = bounds.max + Vector3::new(x - SHAPE_EPSILON, 0.0, z - SHAPE_EPSILON);
-        world
-            .shapes(BoundingBox::new(
-                min,
-                Vector3::new(max.x, bounds.min.y, max.z),
-            ))
-            .is_empty()
+        let area = BoundingBox::new(min, Vector3::new(max.x, bounds.min.y, max.z));
+        world.shapes(area).is_empty() && entities.solid_shapes(area).is_empty()
     };
     let height = f64::from(STEP_HEIGHT);
     if delta.y > 0.0
@@ -55,6 +52,7 @@ pub fn back_off_from_edge(
 
 pub fn collide(
     world: &World,
+    entities: &Entities,
     bounds: BoundingBox,
     delta: Vector3<f64>,
     grounded: bool,
@@ -62,7 +60,11 @@ pub fn collide(
     if delta == Vector3::default() {
         return delta;
     }
-    let shapes = world.shapes(bounds.stretch(delta));
+    let mut area = bounds.stretch(delta);
+    area.max.y += f64::from(STEP_HEIGHT);
+    let colliders = entities.solid_shapes(area.expand_all(SHAPE_EPSILON));
+    let mut shapes = world.shapes(bounds.stretch(delta));
+    shapes.extend_from_slice(&colliders);
     let clipped = clip(bounds, delta, &shapes);
     let landed = delta.y < 0.0 && clipped.y != delta.y;
     if !(landed || grounded) || (clipped.x == delta.x && clipped.z == delta.z) {
@@ -75,7 +77,8 @@ pub fn collide(
     if !landed {
         scan.min.y -= f64::from(1.0e-5f32);
     }
-    let shapes = world.shapes(scan);
+    let mut shapes = world.shapes(scan);
+    shapes.extend(colliders);
     let mut heights = shapes
         .iter()
         .flat_map(|shape| [shape.min.y, shape.max.y])

@@ -1,0 +1,32 @@
+# Boats and closed shulkers clip motion. An overlapping player gives a soft impulse.
+seed 12345
+area 0 150 0 9 154 6
+start
+cmd fill 0 150 0 9 150 6 minecraft:stone
+# Boats are shorter than the player step height. Limit headroom to exercise the side.
+cmd fill 1 153 0 4 153 2 minecraft:stone
+bot join alice
+cmd tp alice 1.5 151 1.5 -90 0
+bot alice await-teleport
+cmd summon minecraft:oak_boat 3.5 151 1.5
+cmd summon minecraft:shulker 3.5 151 4.5 {NoAI:1b}
+bot alice physics manual
+bot alice physics-tick 2
+bot alice input forward
+bot alice physics-tick 12
+bot alice expect pos 2.5125 151 1.5 within 0.000001
+bot alice input none
+bot alice move 1.5 151 4.5
+bot alice physics-tick 2
+bot alice input forward
+bot alice physics-tick 12
+bot alice expect pos 2.7 151 4.5 within 0.000001
+bot alice input none
+bot alice move 6.5 151 1.5
+bot join bob
+cmd tp bob 6.9 151 1.5 0 0
+bot bob await-teleport
+tick 1
+bot alice physics-tick 1
+bot alice expect vel -0.031622777  -0.0784000015 0 within 0.00002
+stop
