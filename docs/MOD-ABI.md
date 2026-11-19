@@ -177,6 +177,8 @@ A `.mmc` is a zip with
 | `moddedmc:resources` v1 | `list(directory, out)` | Vanilla `ResourceManager.listResources`: every file under `data/<namespace>/<directory>/` across mod data, the world's datapacks and Pumpkin's bundled packs, as sorted `namespace:directory/...` ids. Directory packs only. |
 | | `read(id, out)` | The highest-priority pack's bytes for an id, at most 4 MiB. |
 | | `generation()` | 0 before datapacks first load, then a new value after each load, `/reload` included. Calls read the disk, so cache parsed data and reparse when it changes. |
+| `moddedmc:tags` v1 | `values(registry, tag, out)` | A tag's entry ids by string, so content blocks and items count: Pumpkin's generated vanilla entries plus every loaded pack's, nested tags flattened, sorted. A pack's `replace` doesn't drop the generated vanilla entries. |
+| | `contains(registry, tag, id)` | Whether the id is in the tag. Cache results per `moddedmc:resources` generation. |
 | `moddedmc:containers` v1 | `slots(world, position, face)` | NeoForge `Capabilities.ItemHandler.BLOCK` for the vanilla container at a position (what a hopper sees, the composter included), as `InvWrapper` or, for a sided container, `SidedInvWrapper` for that face. `NO_FACE` is the null side. -1 when there is none. |
 | | `stack`, `slot_limit` | `getStackInSlot` as saved NBT, `getSlotLimit` (brewing stand bottles 1). |
 | | `insert(..., slot, stack, simulate, out)`, `insert_stacked(..., stack, simulate, out)` | `insertItem` and `ItemHandlerHelper.insertItemStacked`; the remainder goes to `out`. Includes NeoForge's one-bucket furnace fuel limit and `VanillaHopperItemHandler`'s cooldown when filling an empty hopper. |

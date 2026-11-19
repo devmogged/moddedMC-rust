@@ -987,3 +987,19 @@ pub struct ContainersV1 {
         out: Sink,
     ) -> bool,
 }
+
+pub const TAGS: &str = "moddedmc:tags";
+
+/// Vanilla tags merged with every loaded datapack's, by id string so content mods' blocks and
+/// items count too. `registry` is a registry name such as `block`, `item`, `fluid` or
+/// `entity_type`; `tag` is `namespace:path`, with or without `#`, `minecraft:` when bare. Nested
+/// tags are flattened. Results change with `moddedmc:resources` `generation`; cache them.
+#[repr(C)]
+pub struct TagsV1 {
+    pub size: usize,
+    /// Every entry id of the tag, sorted, one `out` call each. False for an unknown registry or
+    /// a tag no pack defines.
+    pub values: unsafe extern "C" fn(registry: Str, tag: Str, out: Sink) -> bool,
+    /// Whether `id` is in the tag.
+    pub contains: unsafe extern "C" fn(registry: Str, tag: Str, id: Str) -> bool,
+}

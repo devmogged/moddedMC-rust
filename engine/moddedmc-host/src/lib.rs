@@ -20,6 +20,7 @@ mod native;
 mod resources;
 mod stacks;
 mod stats;
+mod tags;
 
 use std::{
     collections::{HashMap, HashSet},

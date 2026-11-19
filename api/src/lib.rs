@@ -31,6 +31,7 @@ pub mod items;
 pub mod lifecycle;
 pub mod resources;
 pub mod stacks;
+pub mod tags;
 pub mod world;
 
 use std::{
