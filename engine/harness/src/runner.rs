@@ -530,12 +530,13 @@ impl Bot {
             "move"
                 | "look"
                 | "attack"
+                | "interact"
                 | "inventory-click"
                 | "inventory-close"
                 | "hotbar"
                 | "release-item"
         ) {
-            if matches!(verb, "attack" | "inventory-click") {
+            if matches!(verb, "attack" | "interact" | "inventory-click") {
                 self.fence()?;
             }
             self.send_and_wait(input, None)?;

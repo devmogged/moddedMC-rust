@@ -91,13 +91,12 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
     if !parser.stopped {
         return Err("scenario must end with stop".into());
     }
-    if !parser.steps.iter().any(|step| {
-        matches!(
-            step.action,
-            Action::Snapshot { .. } | Action::Probe(_) | Action::Expect(_)
-        )
+    if !parser.steps.iter().any(|step| match &step.action {
+        Action::Snapshot { .. } | Action::Probe(_) | Action::Expect(_) => true,
+        Action::Bot { input, .. } => input.starts_with("expect "),
+        _ => false,
     }) {
-        return Err("scenario must contain at least one snapshot, probe, or expect".into());
+        return Err("scenario must contain at least one snapshot, probe, or assertion".into());
     }
     Ok(Scenario {
         seed: parser.seed.unwrap_or(12345),
@@ -285,6 +284,9 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
         }
         ("expect", ["slot", slot, name, count]) => slot_index(slot) && item(name, count),
         ("expect", ["cursor", name, count]) => item(name, count),
+        ("expect", ["riding", vehicle]) => {
+            *vehicle == "none" || pumpkin_data::entity::EntityType::from_name(vehicle).is_some()
+        }
         ("use" | "place" | "break", xyz @ [_, _, _]) => block(xyz),
         ("use" | "place", [x, y, z, direction]) | ("dig", ["start", x, y, z, direction]) => {
             block(&[x, y, z]) && face(direction)
@@ -303,6 +305,11 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
         }
         ("attack", [entity, position @ ..]) => {
             pumpkin_data::entity::EntityType::from_name(entity).is_some() && coords(position)
+        }
+        ("interact", [entity, x, y, z, which]) => {
+            pumpkin_data::entity::EntityType::from_name(entity).is_some()
+                && coords(&[x, y, z])
+                && hand(which)
         }
         ("inventory-click", [slot, button]) => {
             slot_index(slot)

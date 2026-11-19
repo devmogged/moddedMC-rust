@@ -47,6 +47,8 @@ pub struct Player {
     pub position: Vector3<f64>,
     pub mode: Mode,
     pub controls: Controls,
+    pub vehicle: Option<i32>,
+    vehicle_position_unknown: bool,
     velocity: Vector3<f64>,
     id: i32,
     yaw: f32,
@@ -94,6 +96,30 @@ impl Player {
             self.terrain_error = None;
             self.velocity = Vector3::default();
             self.on_ground = false;
+            self.vehicle = None;
+            self.vehicle_position_unknown = false;
+        } else if id == p::SET_PASSENGERS.0 {
+            let vehicle = bytes.get_var_int()?.0;
+            let count = entity_count(&mut bytes)?;
+            let mut riding = false;
+            for _ in 0..count {
+                riding |= bytes.get_var_int()?.0 == self.id;
+            }
+            if riding {
+                self.vehicle = Some(vehicle);
+                self.vehicle_position_unknown = true;
+            } else if self.vehicle == Some(vehicle) {
+                self.vehicle = None;
+            }
+        } else if id == p::REMOVE_ENTITIES.0
+            && let Some(vehicle) = self.vehicle
+        {
+            let count = entity_count(&mut bytes)?;
+            for _ in 0..count {
+                if bytes.get_var_int()?.0 == vehicle {
+                    self.vehicle = None;
+                }
+            }
         }
         Ok(())
     }
@@ -137,6 +163,7 @@ impl Player {
         // Legacy scenarios need a changed position to make Pumpkin stream the new chunk.
         self.legacy_heartbeat.y -= 0.1;
         self.fall_distance = 0.0;
+        self.vehicle_position_unknown = false;
         SConfirmTeleport {
             teleport_id: update.teleport_id,
             position: self.position,
@@ -162,6 +189,12 @@ impl Player {
     }
 
     pub fn check(&self, args: &str) -> Result<(&'static str, Vector3<f64>), String> {
+        if self.vehicle.is_some() || self.vehicle_position_unknown {
+            return Err(
+                "local pos and vel assertions require an unmounted bot with a known position"
+                    .into(),
+            );
+        }
         let args = args.split_whitespace().collect::<Vec<_>>();
         let [kind, x, y, z, "within", tolerance] = args.as_slice() else {
             return Err("expect requires pos or vel followed by x y z within tolerance".into());
@@ -208,6 +241,7 @@ impl Player {
         self.velocity = Vector3::default();
         self.on_ground = false;
         self.fall_distance = 0.0;
+        self.vehicle_position_unknown = false;
     }
 
     fn bounds(&mut self) -> BoundingBox {
@@ -372,6 +406,15 @@ impl Player {
     }
 }
 
+fn entity_count(bytes: &mut &[u8]) -> Result<usize, ReadingError> {
+    let count = bytes.get_var_int()?.0 as usize;
+    if count > bytes.len() {
+        Err(ReadingError::Message("invalid entity list length".into()))
+    } else {
+        Ok(count)
+    }
+}
+
 pub async fn control(
     player: &Mutex<Player>,
     writer: &Writer,
@@ -417,12 +460,19 @@ pub async fn tick(
     heartbeat: bool,
 ) -> Result<(), String> {
     let mut writer = writer.lock().await;
-    let (report, sprint, landed) = {
+    let (report, sprint, landed, mounted) = {
         let mut player = player.lock().await;
         if player.mode != mode {
             return Ok(());
         }
-        if mode == Mode::Off {
+        if player.vehicle.is_some() {
+            (None, None, None, true)
+        } else if player.vehicle_position_unknown {
+            if mode == Mode::Manual {
+                return Err("local physics needs a position update after dismounting".into());
+            }
+            return Ok(());
+        } else if mode == Mode::Off {
             if !heartbeat {
                 return Ok(());
             }
@@ -433,6 +483,7 @@ pub async fn tick(
                 }),
                 None,
                 None,
+                false,
             )
         } else {
             let was_sprinting = player.controls.sprinting;
@@ -451,7 +502,7 @@ pub async fn tick(
             } else {
                 None
             };
-            (report, sprint, landed)
+            (report, sprint, landed, false)
         }
     };
     if let Some(sprint) = sprint {
@@ -462,7 +513,7 @@ pub async fn tick(
     }
     if let Some(report) = report {
         send_framed_packet(&mut *writer, &report).await?;
-    } else if mode == Mode::Manual {
+    } else if mode == Mode::Manual && !mounted {
         return Err("cannot tick physics before the bot receives its current chunk".into());
     }
     send_framed_packet(&mut *writer, &SClientTickEnd).await
@@ -473,6 +524,21 @@ mod tests {
     use super::*;
     use pumpkin_data::Block;
     use pumpkin_protocol::ser::NetworkWriteExt as _;
+
+    #[test]
+    fn tracks_own_mount_and_ignores_other_passengers() -> Result<(), ReadingError> {
+        let mut player = Player {
+            id: 5,
+            ..Player::default()
+        };
+        player.observe_motion(p::SET_PASSENGERS.0, &[9, 2, 2, 5])?;
+        assert_eq!(player.vehicle, Some(9));
+        player.observe_motion(p::SET_PASSENGERS.0, &[10, 1, 2])?;
+        assert_eq!(player.vehicle, Some(9));
+        player.observe_motion(p::SET_PASSENGERS.0, &[9, 1, 2])?;
+        assert_eq!(player.vehicle, None);
+        Ok(())
+    }
 
     #[test]
     fn owns_motion_and_adds_explosion_knockback() -> Result<(), Box<dyn std::error::Error>> {

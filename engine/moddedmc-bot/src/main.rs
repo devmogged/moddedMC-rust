@@ -96,7 +96,7 @@ async fn main() -> Result<(), String> {
                 )
                 .await
             }
-            "look" | "hotbar" | "attack" | "inventory-click" | "inventory-close" => {
+            "look" | "hotbar" | "attack" | "interact" | "inventory-click" | "inventory-close" => {
                 actions::perform(&actions, &player, &writer, verb, rest).await
             }
             "move" if harness => actions::perform(&actions, &player, &writer, verb, rest).await,
@@ -111,6 +111,14 @@ async fn main() -> Result<(), String> {
                 .await
                 .check_inventory(rest)
                 .map(|result| println!("[bot] expect inventory ok {result}")),
+            "expect" if let Some(vehicle) = rest.strip_prefix("riding ") => {
+                let id = player.lock().await.vehicle;
+                actions
+                    .lock()
+                    .await
+                    .check_vehicle(id, vehicle)
+                    .map(|()| println!("[bot] expect riding ok {vehicle}"))
+            }
             "expect" => player
                 .lock()
                 .await

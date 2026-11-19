@@ -10,8 +10,8 @@ use pumpkin_protocol::{
     java::{
         client::play::CSpawnEntity,
         server::play::{
-            SAttack, SClickSlot, SClientTickEnd, SCloseContainer, SPlayerPosition, SPlayerRotation,
-            SSetHeldItem, SlotActionType,
+            ActionType, SAttack, SClickSlot, SClientTickEnd, SCloseContainer, SInteract,
+            SPlayerPosition, SPlayerRotation, SSetHeldItem, SlotActionType,
         },
     },
     ser::NetworkReadExt as _,
@@ -86,6 +86,22 @@ impl State {
         self.inventory.check(args, self.window)
     }
 
+    pub fn check_vehicle(&self, vehicle: Option<i32>, expected: &str) -> Result<(), String> {
+        let actual = vehicle.and_then(|id| self.entities.get(&id));
+        if expected == "none" && vehicle.is_none() {
+            return Ok(());
+        }
+        if let Some(kind) = EntityType::from_name(expected)
+            && actual.is_some_and(|entity| entity.r#type.0 == i32::from(kind.id))
+        {
+            return Ok(());
+        }
+        Err(format!(
+            "expected riding {expected}, current vehicle id {vehicle:?}, type id {:?}",
+            actual.map(|entity| entity.r#type.0)
+        ))
+    }
+
     fn target(&self, name: &str, anchor: Vector3<f64>) -> Result<VarInt, String> {
         let kind =
             EntityType::from_name(name).ok_or_else(|| format!("unknown entity type {name}"))?;
@@ -134,6 +150,19 @@ impl State {
             // Leave slot prediction to the server and predict an empty cursor.
             array_of_changed_slots: Vec::new(),
             carried_item: OptionalItemStackHash(None),
+        })
+    }
+
+    fn close(&mut self) -> Result<SCloseContainer, String> {
+        let id = self.window;
+        if id == 0 {
+            return Err("no container is open".into());
+        }
+        self.window = 0;
+        self.revisions.remove(&id);
+        self.inventory.close_menu();
+        Ok(SCloseContainer {
+            window_id: VarInt(id),
         })
     }
 }
@@ -186,6 +215,22 @@ pub async fn perform(
             let entity_id = state.lock().await.target(name, anchor)?;
             send(writer, &SAttack { entity_id }).await
         }
+        ("interact", [name, x, y, z, hand]) => {
+            let anchor = vector(&[x, y, z])?;
+            let entity_id = state.lock().await.target(name, anchor)?;
+            let sneaking = player.lock().await.controls.shift_pressed();
+            send(
+                writer,
+                &SInteract {
+                    entity_id,
+                    r#type: VarInt(ActionType::InteractAt as i32),
+                    target_position: Some(Vector3::default()),
+                    hand: Some(crate::hand(hand)?),
+                    sneaking,
+                },
+            )
+            .await
+        }
         ("inventory-click", [slot, button]) => {
             let slot = slot
                 .parse::<i16>()
@@ -211,24 +256,8 @@ pub async fn perform(
             .await
         }
         ("inventory-close", []) => {
-            let id = {
-                let mut state = state.lock().await;
-                let id = state.window;
-                if id == 0 {
-                    return Err("no container is open".into());
-                }
-                state.window = 0;
-                state.revisions.remove(&id);
-                state.inventory.close_menu();
-                id
-            };
-            send(
-                writer,
-                &SCloseContainer {
-                    window_id: VarInt(id),
-                },
-            )
-            .await
+            let packet = state.lock().await.close()?;
+            send(writer, &packet).await
         }
         _ => Err(format!("invalid {verb} arguments")),
     }

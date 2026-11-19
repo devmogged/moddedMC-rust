@@ -82,7 +82,11 @@ impl Controls {
     }
 
     pub const fn sneaking(&self) -> bool {
-        !self.flying() && self.has(SPlayerInput::SNEAK)
+        !self.flying() && self.shift_pressed()
+    }
+
+    pub const fn shift_pressed(&self) -> bool {
+        self.has(SPlayerInput::SNEAK)
     }
 
     pub const fn jumping(&self) -> bool {

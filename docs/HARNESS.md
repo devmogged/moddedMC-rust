@@ -132,6 +132,8 @@ Capture excludes block acknowledgement tokens, keepalive and ping traffic, bundl
 
 **Player actions.** Use `bot alice move x y z` for absolute feet coordinates and `bot alice look yaw pitch` for rotation in degrees. `bot alice attack minecraft:pig x y z` selects one visible entity by its type and spawn anchor within `1e-6` on each axis. Missing or ambiguous targets fail the step.
 
+`bot alice interact minecraft:oak_boat x y z main` right-clicks a visible entity using the same spawn anchor. Use `expect riding minecraft:oak_boat` to check the client's passenger list and `input sneak` to dismount. `expect riding none` verifies the dismount. Vehicle steering and mounted position prediction are pending. Wait for a position update, or teleport explicitly, before resuming local movement assertions after dismounting.
+
 Use `bot alice use 2 151 1 west main` to click the middle of the west face. The defaults are `up main`. Either hand, `main` or `off`, also works with `use-item` for items used in air. Hit targets are explicit so a test can exercise exact placement without camera ray picking.
 
 Use `bot alice dig start 2 151 1 west`, advance the server by the intended mining time with `tick`, then send `dig finish` or `dig abort`. The bot remembers the block and sends the matching client action. The scenario chooses the timing for its tool, block and effects. `break` remains the one-packet Creative shortcut. For items such as bows, `use-item main` starts held use and `release-item` releases it after the chosen number of ticks.

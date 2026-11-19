@@ -1,0 +1,16 @@
+# Right-click a boat to mount it and sneak to dismount.
+seed 12345
+area 0 150 0 5 153 5
+start
+cmd fill 0 150 0 5 150 5 minecraft:stone
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+cmd summon minecraft:oak_boat 2.75 151 1.5
+bot alice expect riding none
+bot alice interact minecraft:oak_boat 2.75 151 1.5 main
+bot alice expect riding minecraft:oak_boat
+bot alice input sneak
+bot alice expect riding none
+bot alice input none
+stop

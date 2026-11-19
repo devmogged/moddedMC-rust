@@ -21,13 +21,15 @@ An earlier version also used `execute if items entity`. Vanilla returned counts 
 
 [The held-actions fixture](../tests/harness/bot-mining.txt) passed with zero differences. It verified that aborting a Survival stone dig leaves the block intact, finishing after 23 ticks breaks it, and releasing a drawn bow uses one arrow. [JSON](../run/harness-mining/pack/scenario-Drz9SN/report.json)
 
+[The riding fixture](../tests/harness/bot-riding.txt) passed with zero differences. The bot right-clicked an oak boat, saw itself in the passenger list, then dismounted with sneak. [JSON](../run/harness-riding/final/scenario-e6BjYB/report.json)
+
 ## Port checks and remaining automation
 
 | Priority | Behavior | Bot coverage and remaining work |
 | --- | --- | --- |
 | 1 | Create belt carries a standing player | The bot accepts its own motion packet and follows the vanilla dry-ground movement path. Use a local position assertion for progress and centering and a server probe to confirm the move was received. Scripts can hold movement or sneak and toggle Creative flight to check escape conditions. |
 | 2 | Create belt connector, other targeted block uses, and inventory | The bot can target a face, use and release either hand, sneak-use, open and close a container, select a hotbar slot, and assert the active slot and cursor stacks. It also sends swap, double-click and throw menu actions. Ray picking, Creative slot editing, drag and full client stack prediction remain. |
-| 3 | Movement and riding | Absolute move and look send player packets. Local physics covers held directional input, dry drag, gravity, static block shapes, steps, knockback, jumping, sprinting, sneaking at an edge and Creative flight. Dynamic collisions, fluid and climbing travel, pose/attribute/effect changes, and mounting, steering and dismounting vehicles remain. |
+| 3 | Movement and riding | Absolute move and look send player packets. Local physics covers held directional input, dry drag, gravity, static block shapes, steps, knockback, jumping, sprinting, sneaking at an edge and Creative flight. The bot can mount and dismount and assert its vehicle. Dynamic collisions, fluid and climbing travel, pose/attribute/effect changes, vehicle steering and mounted position prediction remain. |
 | 4 | Breaks and combat | Creative break sends start-dig. Survival mining supports start, cancel and finish on an explicitly timed scenario. Automatic mining duration from the active tool and effects remains. Attack targets a visible entity by its spawn anchor. Combat still needs ray picking, current entity positions, reach, cooldown and per-tick attack timing. |
 | 5 | Item pickup, drops and other observable effects | A fixture verifies pickup with a local inventory assertion. Ground items can be checked in snapshots. Local health, effects, item model/name metadata and cooldown assertions remain. Check sound, particles, chat and action-bar text through decoded packets where the expected behavior is their delivery. |
 
