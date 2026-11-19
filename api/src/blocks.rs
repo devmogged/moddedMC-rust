@@ -109,6 +109,8 @@ pub enum EventKind {
     Tick,
     /// A neighboring block changed (also redstone power).
     Neighbor,
+    /// Its chunk loaded, including after a restart.
+    Load,
 }
 
 /// Something happened to one of this mod's blocks.

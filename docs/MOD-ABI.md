@@ -13,7 +13,7 @@ myserver/
 
 - **`.mmc`**: a moddedMC mod. One file holds builds for every platform the author packed; the server picks the one for your machine. It loads in milliseconds.
 - **`.jar`**: a Fabric mod. The first start with a new jar converts it to native code, which takes a few minutes and needs the converter tools (see [recompiler/README.md](../recompiler/README.md)). The result is cached in `mods/.cache/`, so later starts are instant. Most Fabric mods use Mixin and cannot be converted yet; the server logs why a jar was skipped.
-- To remove a mod, delete its file and restart. `mods/.cache/` can be deleted at any time; it is rebuilt. Blocks of a removed mod stay in your worlds as they were (inert, listed in `config/moddedmc/blocks.txt`) and work again when you put the mod back. Keep `config/moddedmc/`: it records which modded blocks your worlds contain.
+- To remove a mod, delete its file and restart. `mods/.cache/` can be deleted at any time; it is rebuilt. Blocks of a removed mod stay in your worlds as they were (inert, listed in `config/moddedmc/blocks.txt`) and work again when you put the mod back. Keep `config/moddedmc/`: it records which modded blocks your worlds contain. The first start without a mod's blocks copies `world/` to `backups/moddedmc-<time>/` first. If the server cannot set up modded blocks at all while your worlds contain some, it refuses to start rather than lose them.
 - A mod's own files live in `config/<mod id>/`. Fabric mods use `config/` as on a Fabric server.
 - The server log shows each mod it loaded (`moddedmc: loaded wayshrine 0.2.0 from mods\wayshrine.mmc`) and why any mod was skipped. One broken mod never stops the others or the server.
 
@@ -89,9 +89,8 @@ A `blocks/1` block is a real block: its states have their own ids, the world sav
 
 - Define blocks in `define_blocks`; it runs before any world loads, and an error disables all of that mod's blocks.
 - `Player::give_block("shaft:shaft")` gives the look-alike's item, tagged. Placing it places your block in the state whose look-alike matches what the player placed (so `facing` and `axis` carry over), then sends `Place`.
-- `Use`, `Place`, `Break`, `Tick` and `Neighbor` arrive in `block_event`. Breaking drops the item. `Tick` comes when you asked for it with `blocks::get()?.schedule_tick(...)`; scheduled ticks are not saved, so schedule again after a restart (keep the positions you need in your data folder, as `mods/drivetrain` does with its motors). `Neighbor` comes once per block and tick when a block next to it changed, including redstone power; read the power with `is_powered`.
+- `Use`, `Place`, `Break`, `Tick`, `Neighbor` and `Load` arrive in `block_event`. `Load` comes for each of your blocks when its chunk loads, including after a restart. Breaking drops the item. `Tick` comes when you asked for it with `blocks::get()?.schedule_tick(...)`; scheduled ticks are not saved, so schedule again after a restart (keep the positions you need in your data folder, as `mods/drivetrain` does with its motors). `Neighbor` comes once per block and tick when a block next to it changed, including redstone power; read the power with `is_powered`.
 - Events arrive at the start of a server tick, never in the middle of a world update, so it is safe to read and write blocks from them.
-- There are no chunk load events yet: a mod that must notice its blocks loading uses a periodic tick, like the drivetrain's motors.
 - Property names and values use lowercase letters, digits, `_`, `-` and `.`.
 
 ## The ABI
@@ -129,7 +128,7 @@ Interfaces:
 | `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`; `schedule_tick`, `is_powered`. Events come through `ModApi::block_event`. |
 | `moddedmc:entities/1` | 1.1 | Spawn, find, move, name and remove entities by UUID. |
 
-Planned (see [DECISIONS.md](DECISIONS.md)): chunk load events, entity events (damage, interaction, death) and AI hooks for `entities/2` or later additions to `entities/1`, `menus/1` and `worldgen/1`, each when a real port needs it.
+Planned (see [DECISIONS.md](DECISIONS.md)): entity events (damage, interaction, death) and AI hooks for `entities/2` or later additions to `entities/1`, `menus/1` and `worldgen/1`, each when a real port needs it.
 
 Packaging (`.mmc`): a zip with
 

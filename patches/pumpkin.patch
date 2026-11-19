@@ -78,10 +78,10 @@ index d4fe77a5f..4c9858843 100644
  pumpkin-gametest = { path = "crates/pumpkin-gametest", default-features = false }
  pumpkin-inventory = { path = "crates/pumpkin-inventory", default-features = false }
 diff --git a/crates/pumpkin-core/src/block/mod.rs b/crates/pumpkin-core/src/block/mod.rs
-index c851ea4aa..35483ed38 100644
+index c851ea4aa..5225adafa 100644
 --- a/crates/pumpkin-core/src/block/mod.rs
 +++ b/crates/pumpkin-core/src/block/mod.rs
-@@ -17,6 +17,14 @@ pub mod fluid;
+@@ -17,6 +17,20 @@ pub mod fluid;
  pub mod registry;
  pub mod viewer;
  
@@ -91,6 +91,12 @@ index c851ea4aa..35483ed38 100644
 +/// this hands the update to whoever installed them. It runs inside world updates: only queue.
 +pub static MODDED_NEIGHBOR_HOOK: std::sync::OnceLock<
 +    fn(&std::sync::Arc<crate::world::World>, &pumpkin_util::math::position::BlockPos),
++> = std::sync::OnceLock::new();
++
++/// Called from the world tick for every chunk that finished loading, so whoever installed modded
++/// blocks can find theirs in it. Must only queue work.
++pub static MODDED_CHUNK_HOOK: std::sync::OnceLock<
++    fn(&crate::world::World, pumpkin_util::math::vector2::Vector2<i32>),
 +> = std::sync::OnceLock::new();
 +
  use crate::block::registry::BlockActionResult;
@@ -199,10 +205,18 @@ index 4fdd48b97..f435e7054 100644
 +    chunk_loading.send_change();
 +}
 diff --git a/crates/pumpkin-core/src/world/mod.rs b/crates/pumpkin-core/src/world/mod.rs
-index bf658e514..5fc529f30 100644
+index bf658e514..6c34ded33 100644
 --- a/crates/pumpkin-core/src/world/mod.rs
 +++ b/crates/pumpkin-core/src/world/mod.rs
-@@ -6872,6 +6872,11 @@ impl World {
+@@ -521,6 +521,7 @@ impl World {
+         for change in self.level.loaded_chunk_changes() {
+             match change {
+                 pumpkin_world::level::LoadedChunkChange::Loaded(pos) => {
++                    let _ = crate::block::MODDED_CHUNK_HOOK.get().map(|hook| hook(self, pos));
+                     if active_chunks.contains(&pos)
+                         && self.level.is_chunk_loaded(&pos)
+                         && tracker.loaded_active_chunks.insert(pos)
+@@ -6872,6 +6873,11 @@ impl World {
              return;
          }
  
@@ -214,7 +228,7 @@ index bf658e514..5fc529f30 100644
          if let Some(pumpkin_block) = self.block_registry.get_pumpkin_block(block.id) {
              pumpkin_block.on_neighbor_update(OnNeighborUpdateArgs {
                  world: self,
-@@ -8042,6 +8047,39 @@ impl World {
+@@ -8042,6 +8048,39 @@ impl World {
              namespace.into(),
              pumpkin_nbt::tag::NbtTag::Compound(namespace_data),
          );

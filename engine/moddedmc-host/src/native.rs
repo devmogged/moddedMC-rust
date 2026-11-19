@@ -827,9 +827,11 @@ pub fn define_blocks(mods: &[Native]) {
     }
     // Blocks of mods that are gone stay defined, inert, so their chunks keep them.
     let known = fs::read_to_string(KNOWN_BLOCKS).unwrap_or_default();
+    let mut missing = Vec::new();
     for def in known.lines().filter_map(decode) {
         let fits = defining.states + def.appearance.len() <= STATE_BUDGET;
         if fits && defining.taken.insert(def.name.clone()) {
+            missing.push(def.name.clone());
             tracing::warn!(
                 "moddedmc: no mod defines {}; its blocks are kept as they are until it is back",
                 def.name
@@ -846,14 +848,24 @@ pub fn define_blocks(mods: &[Native]) {
     if let Err(e) = saved {
         tracing::warn!("moddedmc: could not write {KNOWN_BLOCKS}: {e}");
     }
+    snapshot_once(&missing);
     // Must be on disk before any chunk is saved with these ids.
     let saved: Vec<String> = fs::read_to_string(SAVED_STATES)
         .unwrap_or_default()
         .lines()
         .map(str::to_owned)
         .collect();
+    let had_modded = !saved.is_empty();
     let saved = match modded::install(all, saved) {
         Ok(saved) => saved,
+        Err(e) if had_modded => {
+            // Without the table, saved modded blocks would load as air and be saved that way.
+            tracing::error!(
+                "moddedmc: could not install modded blocks ({e}); refusing to start, because \
+                 the worlds contain modded blocks that would be lost"
+            );
+            std::process::exit(1);
+        }
         Err(e) => {
             tracing::error!("moddedmc: could not install modded blocks: {e}");
             return;
@@ -867,6 +879,57 @@ pub fn define_blocks(mods: &[Native]) {
         .filter_map(|(name, idx)| Some((Block::from_name(&name)?.id.as_u16(), idx)))
         .collect();
     let _ = OWNERS.set(owners);
+}
+
+/// Snapshot of the worlds, taken before the first start with a new set of missing blocks.
+const SNAPSHOT_KEY: &str = "config/moddedmc/snapshot.txt";
+
+/// Copies `world/` to `backups/moddedmc-<unix time>/` the first time blocks in `missing` have no
+/// mod, so a removal can be undone even if something goes wrong while the mod is away.
+// shortcut: assumes the default world folder `world`, until the host reads the level name.
+fn snapshot_once(missing: &[String]) {
+    if missing.is_empty() {
+        return;
+    }
+    let mut key = missing.to_vec();
+    key.sort();
+    let key = key.join("\n");
+    if fs::read_to_string(SNAPSHOT_KEY).is_ok_and(|k| k == key) || !Path::new("world").is_dir() {
+        return;
+    }
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let to = PathBuf::from(format!("backups/moddedmc-{secs}"));
+    match copy_dir(Path::new("world"), &to) {
+        Ok(()) => {
+            tracing::warn!(
+                "moddedmc: blocks without a mod; saved a copy of the world to {}",
+                to.display()
+            );
+            if let Err(e) = fs::write(SNAPSHOT_KEY, key) {
+                tracing::warn!("moddedmc: could not write {SNAPSHOT_KEY}: {e}");
+            }
+        }
+        Err(e) => tracing::error!(
+            "moddedmc: could not copy the world to {}: {e}",
+            to.display()
+        ),
+    }
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 /// Every modded block this server has had: name, properties and look-alikes, one per line.
@@ -963,14 +1026,13 @@ unsafe extern "C" fn position(dimension: Str, id: EntityId, out: *mut Vec3) -> b
         return false;
     };
     let p = entity.get_entity().pos.load();
-    // SAFETY: the mod passes a writable position.
-    unsafe {
-        out.write(Vec3 {
-            x: p.x,
-            y: p.y,
-            z: p.z,
-        })
+    let at = Vec3 {
+        x: p.x,
+        y: p.y,
+        z: p.z,
     };
+    // SAFETY: the mod passes a writable position.
+    unsafe { out.write(at) };
     true
 }
 

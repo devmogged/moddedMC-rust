@@ -40,6 +40,8 @@ botstart tester
 wait 3
 cmd tp tester 3073.5 101 3071.5
 wait 3
+# The chunk loading again tells the mod about its block.
+expect shaft: loaded shaft:shaft\[axis=z\] at 3073 100 3073
 bot cmd shaftcheck
 wait 1
 expect \[bot\] chat: .*shaftcheck: 1 found: shaft:shaft\[axis=z\] at 3073 100 3073
@@ -52,6 +54,7 @@ unmod shaft.mmc
 start
 wait 1
 expect no mod defines shaft:shaft
+expect saved a copy of the world to backups.moddedmc-
 botstart tester
 wait 3
 cmd tp tester 3073.5 101 3071.5

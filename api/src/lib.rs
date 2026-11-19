@@ -619,6 +619,7 @@ unsafe extern "C" fn block_event<M: Mod>(
                 abi::block_event::BREAK => blocks::EventKind::Break,
                 abi::block_event::TICK => blocks::EventKind::Tick,
                 abi::block_event::NEIGHBOR => blocks::EventKind::Neighbor,
+                abi::block_event::LOAD => blocks::EventKind::Load,
                 _ => return false,
             };
             instance::<M>(inst).block_event(blocks::Event {

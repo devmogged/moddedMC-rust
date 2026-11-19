@@ -345,6 +345,9 @@ pub mod block_event {
     /// A neighboring block changed (also redstone power). Delivered at the start of the next
     /// server tick, once per block and tick.
     pub const NEIGHBOR: u32 = 4;
+    /// Its chunk loaded (also the first time after a start). Delivered at the start of the next
+    /// server tick; there is no player.
+    pub const LOAD: u32 = 5;
 }
 
 #[repr(C)]

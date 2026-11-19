@@ -128,6 +128,8 @@ struct Host {
     pending_modded: Mutex<Vec<PendingModded>>,
     /// `blocks/1` blocks whose neighbors changed, delivered at the next tick.
     neighbors: Mutex<Vec<At>>,
+    /// Chunks that loaded since the last tick: (world, chunk x, chunk z).
+    chunks: Mutex<Vec<(Weak<World>, i32, i32)>>,
     /// Scheduled `blocks/1` ticks by due server tick.
     scheduled: Mutex<std::collections::BTreeMap<i64, Vec<At>>>,
     index: Mutex<Vec<WorldIndex>>,
@@ -185,6 +187,9 @@ pub fn attach(server: &Arc<Server>) {
         true,
     );
     let _ = pumpkin_core::block::MODDED_NEIGHBOR_HOOK.set(on_modded_neighbor);
+    if modded::state_count() > 0 {
+        let _ = pumpkin_core::block::MODDED_CHUNK_HOOK.set(on_chunk_loaded);
+    }
     stats::attach(server);
 }
 
@@ -1009,6 +1014,58 @@ fn on_modded_neighbor(world: &Arc<World>, pos: &BlockPos) {
     lock(&HOST.neighbors).push((Arc::downgrade(world), *pos));
 }
 
+/// Runs in the world tick: only queue.
+fn on_chunk_loaded(world: &World, pos: pumpkin_util::math::vector2::Vector2<i32>) {
+    let Some(arc) = native::SERVER.get().and_then(|s| {
+        s.worlds
+            .load()
+            .iter()
+            .find(|w| std::ptr::eq(Arc::as_ptr(w), world))
+            .cloned()
+    }) else {
+        return;
+    };
+    lock(&HOST.chunks).push((Arc::downgrade(&arc), pos.x, pos.y));
+}
+
+/// The modded blocks in a loaded chunk.
+fn modded_in_chunk(world: &World, cx: i32, cz: i32) -> Vec<(BlockPos, BlockStateId)> {
+    let Some(chunk) = world
+        .level
+        .loaded_chunks
+        .get(&pumpkin_util::math::vector2::Vector2::new(cx, cz))
+        .map(|c| c.clone())
+    else {
+        return Vec::new();
+    };
+    let min_y = chunk.section.min_y;
+    let sections = read(&chunk.section.block_sections);
+    let mut found = Vec::new();
+    for (i, section) in sections.iter().enumerate() {
+        if !section.contains_matching(modded::is_modded) {
+            continue;
+        }
+        let base_y = min_y + i32::try_from(i * 16).unwrap_or(0);
+        for y in 0..16 {
+            for z in 0..16 {
+                for x in 0..16 {
+                    let state = section.get(x, y, z);
+                    if modded::is_modded(state) {
+                        let at = |v: usize| i32::try_from(v).unwrap_or(0);
+                        let pos = BlockPos(pumpkin_util::math::vector3::Vector3::new(
+                            cx * 16 + at(x),
+                            base_y + at(y),
+                            cz * 16 + at(z),
+                        ));
+                        found.push((pos, state));
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
 fn schedule_tick(world: &Arc<World>, pos: BlockPos, delay: u32) {
     let now = native::SERVER.get().map_or(0, |s| {
         s.tick_count.load(std::sync::atomic::Ordering::Relaxed)
@@ -1033,9 +1090,25 @@ fn deliver_block_events(tick: i32) {
             .flatten()
             .collect()
     };
-    let events = neighbors
+    let chunks = std::mem::take(&mut *lock(&HOST.chunks));
+    let loaded = chunks
         .into_iter()
-        .map(|e| (abi::block_event::NEIGHBOR, e))
+        .filter_map(|(w, cx, cz)| {
+            let world = w.upgrade()?;
+            Some(
+                modded_in_chunk(&world, cx, cz)
+                    .into_iter()
+                    .map(move |(pos, _)| (w.clone(), pos)),
+            )
+        })
+        .flatten();
+    let events = loaded
+        .map(|e| (abi::block_event::LOAD, e))
+        .chain(
+            neighbors
+                .into_iter()
+                .map(|e| (abi::block_event::NEIGHBOR, e)),
+        )
         .chain(due.into_iter().map(|e| (abi::block_event::TICK, e)));
     for (kind, (world, pos)) in events {
         let Some(world) = world.upgrade() else {

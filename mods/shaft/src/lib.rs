@@ -117,6 +117,10 @@ impl Mod for Shaft {
                 info(&format!("shaft: broke {name} at {}", at(event.pos)));
                 false
             }
+            EventKind::Load => {
+                info(&format!("shaft: loaded {name} at {}", at(event.pos)));
+                false
+            }
             EventKind::Tick | EventKind::Neighbor => false,
         }
     }
