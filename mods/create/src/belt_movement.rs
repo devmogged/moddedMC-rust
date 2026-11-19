@@ -10,19 +10,19 @@ use moddedmc_api::{
 };
 
 use crate::{
-    ENTITIES, StateIds,
+    ENTITIES, StateIds, belt_inventory,
     kinetics::{Belt, Kind, Kinetics, Part, Passenger, Slope, face_axis, positive},
 };
 
 /// `BeltBlockEntity.getBeltMovementSpeed` divides the speed by this.
-const SPEED_DIVISOR: f32 = 480.0;
+pub const SPEED_DIVISOR: f32 = 480.0;
 /// The top of a flat belt in `transportEntity`.
 const TOP: f32 = 13.0 / 16.0;
 /// `transportEntity` gives a moving up entity at least this much downward push first.
 const MIN_VELOCITY: f32 = 0.13;
 
 /// `BeltBlock.canTransportObjects`.
-const fn can_transport_objects(belt: Belt) -> bool {
+pub const fn can_transport_objects(belt: Belt) -> bool {
     !matches!(belt.slope, Slope::Vertical | Slope::Sideways)
 }
 
@@ -39,8 +39,8 @@ fn is_belt(kinetics: &Kinetics, pos: Pos) -> bool {
     matches!(kinetics.kind(pos), Some(Kind::Belt(_)))
 }
 
-/// `BeltBlock.entityInside`. Item entities go into the belt's inventory there, which isn't
-/// ported yet, and cardboard boots don't exist, so sneaking players always step off.
+/// `BeltBlock.entityInside`. Cardboard boots and diving boots don't exist, so sneaking players
+/// always step off.
 pub fn entity_inside(
     kinetics: &mut Kinetics,
     pos: Pos,
@@ -55,13 +55,21 @@ pub fn entity_inside(
     if view.kind & ENTITY_PLAYER != 0 && entity.flags() & (ENTITY_SNEAKING | ENTITY_FLYING) != 0 {
         return;
     }
-    // BeltHelper.getSegmentBE, then getControllerBE.
-    let Some(controller) = kinetics.get(pos).and_then(|segment| segment.controller) else {
+    // BeltHelper.getSegmentBE.
+    let Some(segment) = kinetics.get(pos) else {
         return;
     };
-    if view.kind & ENTITY_ITEM != 0 || !is_belt(kinetics, controller) {
+    if view.kind & ENTITY_ITEM != 0 {
+        belt_inventory::entity_inside(kinetics, pos, entity, view.motion[1]);
         return;
     }
+    // getControllerBE.
+    let Some(controller) = segment
+        .controller
+        .filter(|&controller| is_belt(kinetics, controller))
+    else {
+        return;
+    };
     let Some(passengers) = kinetics
         .get_mut(controller)
         .and_then(|be| be.passengers.as_mut())
@@ -221,7 +229,7 @@ fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 }
 
 /// `Vec3.normalize`.
-fn normalize(v: [f64; 3]) -> [f64; 3] {
+pub fn normalize(v: [f64; 3]) -> [f64; 3] {
     let length = v.iter().map(|c| c * c).sum::<f64>().sqrt();
     if length < f64::from(1.0e-5_f32) {
         [0.0; 3]

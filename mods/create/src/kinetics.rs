@@ -6,6 +6,8 @@ use std::collections::{HashMap, VecDeque};
 
 use moddedmc_api::Pos;
 
+use crate::belt_inventory::{BeltInventory, Chain};
+
 /// `Direction.values()`: down, up, north, south, west, east.
 pub const FACES: [[i32; 3]; 6] = [
     [0, -1, 0],
@@ -356,6 +358,8 @@ pub struct Be {
     pub belt_index: i32,
     /// A belt controller's entities by id, created on its first moving tick.
     pub passengers: Option<HashMap<i32, Passenger>>,
+    /// A belt controller's items, created when the first one arrives.
+    pub inventory: Option<BeltInventory>,
 }
 
 impl Be {
@@ -384,6 +388,7 @@ impl Be {
             controller: None,
             belt_length: 0,
             belt_index: 0,
+            inventory: None,
             passengers: None,
         }
     }
@@ -503,6 +508,16 @@ pub struct Kinetics {
     next_serial: u64,
     /// Block ticks scheduled one tick ahead (gearshift and clutch re-attach).
     scheduled: Vec<Pos>,
+    /// Belt inventories whose controller left since the last tick.
+    dropped: Vec<Dropped>,
+}
+
+/// A belt inventory whose controller was removed (`eject`, as `BeltBlockEntity.destroy`) or
+/// unloaded.
+pub struct Dropped {
+    pub chain: Chain,
+    pub inventory: BeltInventory,
+    pub eject: bool,
 }
 
 enum Step {
@@ -578,7 +593,30 @@ impl Kinetics {
 
     /// Chunk unload: the block entity leaves without `remove()`, as `SmartBlockEntity` skips it.
     pub fn unload(&mut self, pos: Pos) {
-        self.bes.remove(&pos);
+        if let Some(be) = self.bes.remove(&pos) {
+            self.drop_inventory(pos, be, false);
+        }
+    }
+
+    fn drop_inventory(&mut self, pos: Pos, mut be: Be, eject: bool) {
+        let (Kind::Belt(belt), Some(inventory)) = (be.kind, be.inventory.take()) else {
+            return;
+        };
+        let chain = Chain {
+            pos,
+            belt,
+            length: be.belt_length,
+            speed: be.get_speed(),
+        };
+        self.dropped.push(Dropped {
+            chain,
+            inventory,
+            eject,
+        });
+    }
+
+    pub fn take_dropped(&mut self) -> Vec<Dropped> {
+        std::mem::take(&mut self.dropped)
     }
 
     /// `KineticBlockEntity.remove()` after its block is gone: leave the network, then
@@ -591,7 +629,9 @@ impl Kinetics {
             self.network_remove(id, pos, be.serial, be.is_source());
         }
         self.handle_removed(level, pos, &be);
-        if let Kind::Belt(belt) = be.kind {
+        let kind = be.kind;
+        self.drop_inventory(pos, be, true);
+        if let Kind::Belt(belt) = kind {
             self.remove_belt_neighbours(level, pos, belt);
         }
     }

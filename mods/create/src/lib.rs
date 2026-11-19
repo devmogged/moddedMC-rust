@@ -15,10 +15,12 @@ use moddedmc_api::{
     },
     interaction::{self, Interaction},
     items::{self, Item, Items},
+    stacks::{self, Displays, ItemStacks},
 };
 use serde::{Deserialize, Serialize};
 
 mod belt;
+mod belt_inventory;
 mod belt_movement;
 mod kinetics;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
@@ -47,6 +49,8 @@ static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static INTERACTION: OnceLock<Interaction> = OnceLock::new();
+static STACKS: OnceLock<ItemStacks> = OnceLock::new();
+static DISPLAYS: OnceLock<Displays> = OnceLock::new();
 static STATES: OnceLock<StateIds> = OnceLock::new();
 /// Each loaded world's kinetic block entities and networks, by `World::id`.
 static WORLDS: Mutex<Option<HashMap<usize, Kinetics>>> = Mutex::new(None);
@@ -68,6 +72,7 @@ impl Mod for Create {
         let content = content::require()?;
         content.require_extension(WorldExtension::NeighborSignal)?;
         content.require_extension(WorldExtension::Destroy)?;
+        content.require_extension(WorldExtension::FaceSturdy)?;
         let _ = CONTENT.set(content);
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);
@@ -75,6 +80,8 @@ impl Mod for Create {
         entities.require_extension(EntitiesExtension::Movement)?;
         let _ = ENTITIES.set(entities);
         let _ = INTERACTION.set(interaction::require()?);
+        let _ = STACKS.set(stacks::require()?);
+        let _ = DISPLAYS.set(stacks::require_displays()?);
         Ok(())
     }
 
@@ -795,6 +802,8 @@ struct KineticData {
     casing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     covered: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inventory: Option<belt_inventory::BeltInventory>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -857,6 +866,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         };
         be.belt_length = data.length.unwrap_or(0);
         be.belt_index = data.index.unwrap_or(0);
+        if be.controller == Some(pos) {
+            be.inventory = data.inventory;
+        }
     }
     be
 }
@@ -893,6 +905,7 @@ fn belt_data(pos: Pos, be: &Be) -> KineticData {
         index: Some(be.belt_index),
         casing: Some("NONE".to_owned()),
         covered: Some(false),
+        inventory: (be.controller == Some(pos)).then(|| be.inventory.clone().unwrap_or_default()),
         ..KineticData::default()
     }
 }
@@ -978,6 +991,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         }
         kinetics.tick(&mut level);
         belt_movement::tick(world, kinetics, states);
+        belt_inventory::tick(world, kinetics);
         flush(world, kinetics);
     });
 }

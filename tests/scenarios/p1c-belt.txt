@@ -59,6 +59,25 @@ expect Test passed
 cmd kill @e[type=armor_stand]
 wait 0.5
 
+# BeltBlock.entityInside takes an item entity into the belt's inventory, BeltInventory.tick
+# carries it at the same 16/480 a tick, drawn by an item display, and with air past the far end the
+# stack is ejected onto the floor there.
+cmd fill 2049 98 2015 2052 98 2018 minecraft:stone
+cmd summon minecraft:item 2050.5 101 2011.5 {Item:{id:"minecraft:iron_ingot",count:3},PickupDelay:32767}
+wait 2
+cmd execute positioned 2050.5 101 2012 unless entity @e[type=item,distance=..4]
+wait 0.5
+expect Test passed
+cmd execute positioned 2050.5 100.9 2013 if entity @e[type=item_display,distance=..0.9]
+wait 0.5
+expect Test passed
+wait 6
+cmd execute positioned 2050.5 99 2016 if entity @e[type=item,distance=..2.5]
+wait 0.5
+expect Test passed
+cmd kill @e[type=item]
+wait 0.5
+
 # Breaking the middle turns both pulleys back into shafts and stops the far shaft.
 cmd setblock 2050 100 2012 minecraft:air
 wait 1.5
