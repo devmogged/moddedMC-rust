@@ -78,6 +78,19 @@ wait 5
 bot cmd wisparrived
 wait 1
 expect \[bot\] chat: .*wisparrived: 1 of 1
+# Damage from any source reaches the mod, which cancels it; /kill it lets through.
+cmd damage @e[type=minecraft:chicken,limit=1] 50 minecraft:cactus
+wait 1
+expect wisp: shrugged off cactus
+bot cmd wisplist
+wait 1
+expect \[bot\] chat: .*wisplist: 4099.5 100.0 4097.5, 4\d+\.\d 100.0 4\d+\.\d
+cmd kill @e[type=minecraft:chicken]
+wait 1
+expect wisp: a wisp died
+bot cmd wisplist
+wait 1
+expect \[bot\] chat: .*wisplist: 4099.5 100.0 4097.5$
 reject (?i)panic|panicked
 bot quit
 stop

@@ -31,6 +31,7 @@ use pumpkin_core::{
         BoxFuture, Cancellable, EventHandler, EventPriority,
         block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent},
         dialog::dialog_click_action::DialogClickActionEvent,
+        entity::{entity_damage::EntityDamageEvent, entity_death::EntityDeathEvent},
         player::{
             player_interact_entity_event::PlayerInteractEntityEvent,
             player_interact_event::PlayerInteractEvent,
@@ -194,6 +195,8 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<BlockBreakEvent, _>(Arc::new(BreakHandler), EventPriority::Normal, true);
     pm.register::<PlayerInteractEvent, _>(Arc::new(UseHandler), EventPriority::Normal, true);
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
+    pm.register::<EntityDamageEvent, _>(Arc::new(DamageHandler), EventPriority::Normal, true);
+    pm.register::<EntityDeathEvent, _>(Arc::new(DeathHandler), EventPriority::Normal, true);
     pm.register::<PlayerInteractEntityEvent, _>(
         Arc::new(EntityHandler),
         EventPriority::Normal,
@@ -1234,11 +1237,67 @@ impl EventHandler<PlayerInteractEntityEvent> for EntityHandler {
             let mods: Vec<Native> = lock(&HOST.mods).iter().map(|m| m.module).collect();
             let mut handled = false;
             for module in mods {
-                handled |= module.entity_event(kind, &world, id, &event.player);
+                handled |= module.entity_event(kind, &world, id, Some(&event.player), (0.0, ""));
             }
             if handled {
                 event.set_cancelled(true);
             }
+        })
+    }
+}
+
+/// Finds a non-player entity by its network id: its world and UUID.
+fn entity_by_id(server: &Server, id: i32) -> Option<(Arc<World>, uuid::Uuid)> {
+    server.worlds.load().iter().find_map(|world| {
+        let entity = world.get_entity_by_id(id)?;
+        (entity.get_player().is_none())
+            .then(|| (Arc::clone(world), entity.get_entity().entity_uuid))
+    })
+}
+
+/// Sends every mod an entity's damage or death; true if any mod cancelled it.
+fn entity_fate(server: &Server, entity_id: i32, kind: u32, damage: (f32, &str)) -> bool {
+    let Some((world, id)) = entity_by_id(server, entity_id) else {
+        return false;
+    };
+    let mods: Vec<Native> = lock(&HOST.mods).iter().map(|m| m.module).collect();
+    let mut handled = false;
+    for module in mods {
+        handled |= module.entity_event(kind, &world, id, None, damage);
+    }
+    handled
+}
+
+struct DamageHandler;
+
+impl EventHandler<EntityDamageEvent> for DamageHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut EntityDamageEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if event.cancelled() {
+                return;
+            }
+            let damage = (event.damage, event.damage_type.message_id);
+            if entity_fate(server, event.entity_id, abi::entity_event::DAMAGE, damage) {
+                event.set_cancelled(true);
+            }
+        })
+    }
+}
+
+struct DeathHandler;
+
+impl EventHandler<EntityDeathEvent> for DeathHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut EntityDeathEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            entity_fate(server, event.entity_id, abi::entity_event::DEATH, (0.0, ""));
         })
     }
 }

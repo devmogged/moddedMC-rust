@@ -1450,13 +1450,15 @@ impl Native {
         unsafe { (self.api.block_event)(self.api.instance, &raw const event) }
     }
 
-    /// Sends a player's use or attack of an entity; true if the mod handled it.
+    /// Sends an entity event (`player` for uses and attacks, `damage` for damage); true if the mod
+    /// handled it.
     pub fn entity_event(
         self,
         kind: u32,
         world: &World,
         id: uuid::Uuid,
-        player: &Arc<Player>,
+        player: Option<&Arc<Player>>,
+        (damage, cause): (f32, &str),
     ) -> bool {
         if self.api.size < abi::MOD_API_V1_0_SIZE + 4 * size_of::<usize>() {
             return false;
@@ -1465,7 +1467,9 @@ impl Native {
             kind,
             dimension: Str::from(world.dimension.minecraft_name),
             id: EntityId(id.into_bytes()),
-            player: player_ref(player),
+            player: player.map_or(PlayerRef(std::ptr::null()), player_ref),
+            damage,
+            cause: Str::from(cause),
         };
         // SAFETY: see above; `event` outlives the call.
         unsafe { (self.api.entity_event)(self.api.instance, &raw const event) }

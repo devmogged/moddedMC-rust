@@ -450,8 +450,9 @@ pub trait Mod: Send + Sync + 'static {
     /// ores and features with [`world`], inside chunk (`chunk_x`, `chunk_z`) only.
     fn chunk_generated(&self, _dimension: &str, _chunk_x: i32, _chunk_z: i32) {}
 
-    /// A player used or attacked an entity. Every mod sees every one: act only on your own ids.
-    /// Return true to cancel the vanilla interaction or the damage.
+    /// Something happened to an entity: used, attacked, about to take damage, died. Every mod
+    /// sees every one: act only on your own ids. Return true to cancel the interaction, the attack
+    /// or the damage.
     fn entity_event(&self, _event: entities::Event<'_>) -> bool {
         false
     }
@@ -672,6 +673,11 @@ unsafe extern "C" fn entity_event<M: Mod>(
             let kind = match e.kind {
                 abi::entity_event::USE => entities::EventKind::Use,
                 abi::entity_event::ATTACK => entities::EventKind::Attack,
+                abi::entity_event::DAMAGE => entities::EventKind::Damage {
+                    amount: e.damage,
+                    cause: e.cause.str(),
+                },
+                abi::entity_event::DEATH => entities::EventKind::Death,
                 _ => return false,
             };
             instance::<M>(inst).entity_event(entities::Event {

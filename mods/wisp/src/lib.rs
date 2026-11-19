@@ -13,7 +13,7 @@ use std::{
 use moddedmc_api::{
     Command, Mod, RegistrationError, Registry,
     abi::{EntityId, Vec3},
-    data_dir, entities, warn,
+    data_dir, entities, info, warn,
 };
 
 struct Wisp {
@@ -74,13 +74,24 @@ impl Mod for Wisp {
         if !self.is_mine(event.id) {
             return false;
         }
-        let Some(player) = event.player else {
-            return false;
-        };
-        match event.kind {
-            entities::EventKind::Use => player.send_message("wisp: the wisp hums"),
+        match (event.kind, event.player) {
+            (entities::EventKind::Use, Some(player)) => player.send_message("wisp: the wisp hums"),
             // Handled: a wisp takes no damage.
-            entities::EventKind::Attack => player.send_message("wisp: your hand passes through"),
+            (entities::EventKind::Attack, Some(player)) => {
+                player.send_message("wisp: your hand passes through");
+            }
+            // Wisps and pets shrug off everything but /kill.
+            (entities::EventKind::Damage { cause, .. }, _) if cause != "genericKill" => {
+                info(&format!("wisp: shrugged off {cause}"));
+            }
+            (entities::EventKind::Death, _) => {
+                info("wisp: a wisp died");
+                let mut wisps = self.wisps.lock().unwrap_or_else(PoisonError::into_inner);
+                wisps.retain(|(_, id)| *id != event.id);
+                Self::save(&wisps);
+                return false;
+            }
+            _ => return false,
         }
         true
     }

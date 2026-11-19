@@ -422,16 +422,24 @@ pub mod entity_event {
     pub const USE: u32 = 0;
     /// Attacked it.
     pub const ATTACK: u32 = 1;
+    /// It is about to take `damage` from `cause` (any source; `player` is null). True cancels it.
+    pub const DAMAGE: u32 = 2;
+    /// It died (`player` is null). The return value is ignored.
+    pub const DEATH: u32 = 3;
 }
 
-/// A player used or attacked an entity. Every mod with `entity_event` sees it: check the id is one
-/// of yours.
+/// Something happened to an entity: a player used or attacked it, it is about to take damage, or
+/// it died. Every mod with `entity_event` sees it: check the id is one of yours.
 #[repr(C)]
 pub struct EntityEvent {
     pub kind: u32,
     pub dimension: Str,
     pub id: EntityId,
     pub player: PlayerRef,
+    // Read these only for `DAMAGE`, which servers without them never send.
+    pub damage: f32,
+    /// The damage type's message id: `genericKill` (`/kill`), `cactus`, `player`, `mob`, ...
+    pub cause: Str,
 }
 
 /// What happened to a `blocks/1` block, in [`BlockEvent::kind`].
@@ -647,7 +655,9 @@ mod layout {
         assert_eq!(offset_of!(EntityEvent, dimension), 8);
         assert_eq!(offset_of!(EntityEvent, id), 24);
         assert_eq!(offset_of!(EntityEvent, player), 40);
-        assert_eq!(size_of::<EntityEvent>(), 48);
+        assert_eq!(offset_of!(EntityEvent, damage), 48);
+        assert_eq!(offset_of!(EntityEvent, cause), 56);
+        assert_eq!(size_of::<EntityEvent>(), 72);
     }
 
     #[test]

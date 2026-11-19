@@ -6,17 +6,23 @@ use crate::{
     interface, s,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EventKind {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EventKind<'a> {
     /// A player right-clicked it.
     Use,
     /// A player attacked it.
     Attack,
+    /// It is about to take `amount` damage from `cause`, a damage type's message id
+    /// (`genericKill` for `/kill`, `cactus`, `player`, ...). Return true to cancel it.
+    Damage { amount: f32, cause: &'a str },
+    /// It died.
+    Death,
 }
 
-/// A player used or attacked an entity. Every mod sees every one: check `id` is yours.
+/// Something happened to an entity. Every mod sees every one: check `id` is yours. `player` is
+/// set for `Use` and `Attack`.
 pub struct Event<'a> {
-    pub kind: EventKind,
+    pub kind: EventKind<'a>,
     pub dimension: &'a str,
     pub id: EntityId,
     pub player: Option<Player<'a>>,
