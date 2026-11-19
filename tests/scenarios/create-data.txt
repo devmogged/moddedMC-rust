@@ -3,7 +3,8 @@
 # Run scripts/scenario.ps1 -Scenario tests/scenarios/create-data.txt -RunDir run/create-data -Fresh
 mods target\mods\create.mmc
 start
-expect Loaded built-in datapack 'mod/create': 3 recipe\(s\), 4 loot table\(s\), 2 tag\(s\)
+expect registered content item create:andesite_alloy
+expect Loaded built-in datapack 'mod/create': 5 recipe\(s\), 4 loot table\(s\), 2 tag\(s\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester
@@ -12,6 +13,12 @@ wait 3
 cmd recipe give tester create:crafting/kinetics/cogwheel
 wait 1
 expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/shaft
+wait 1
+expect Unlocked 1 recipe
+cmd give tester create:andesite_alloy 2
+wait 1
+expect Gave 2 .*Andesite Alloy
 cmd setblock 1025 100 1025 create:shaft
 wait 1
 cmd execute if block 1025 100 1025 #minecraft:mineable/pickaxe

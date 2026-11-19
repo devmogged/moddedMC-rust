@@ -8,6 +8,7 @@ use moddedmc_api::{
     abi::MAX_WORLD_BATCH,
     commands::{self, Argument, Commands, Node},
     content::{self, Block, Content, ContentEvent, Placement, ShapeBox, State, World},
+    items::{self, Item, Items},
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,12 +21,14 @@ const SHAFT: &str = "create:shaft";
 const SMALL: &str = "create:cogwheel";
 const LARGE: &str = "create:large_cogwheel";
 const MOTOR: &str = "create:creative_motor";
+const ANDESITE_ALLOY: &str = "create:andesite_alloy";
 const BRACKETED: &str = "create:simple_kinetic";
 const DEFAULT_SPEED: i32 = 16;
 const MAX_SPEED: i32 = 256;
 
 static CONTENT: OnceLock<Content> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
+static ITEMS: OnceLock<Items> = OnceLock::new();
 static NETWORK_UPDATE: Mutex<()> = Mutex::new(());
 static STATES: OnceLock<StateIds> = OnceLock::new();
 
@@ -42,11 +45,24 @@ impl Mod for Create {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let _ = CONTENT.set(content::require()?);
         let _ = COMMANDS.set(commands::require()?);
+        let _ = ITEMS.set(items::require()?);
         Ok(())
     }
 
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let content = CONTENT.get().ok_or(RegistrationError::InvalidDefinition)?;
+        ITEMS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add_item(
+                registry,
+                &Item {
+                    id: ANDESITE_ALLOY,
+                    display_name: "Andesite Alloy",
+                    carrier: "minecraft:iron_ingot",
+                    model: "create:item/andesite_alloy",
+                },
+            )?;
         for (id, name, relay) in RELAYS {
             let path = &id["create:".len()..];
             let item_model = format!("create:item/{path}");
