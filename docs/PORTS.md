@@ -4,11 +4,13 @@ Every port ships as a `.mmc` in the server's `mods/` folder. Add or remove the f
 
 ## Build a port
 
+Port the mod's **latest release**, whatever loader or Minecraft version it targets, and check which one that is on Modrinth or CurseForge before you start. Take behaviour, data and assets from that release, never from an older copy such as a jar in a local modpack. Record the version in the crate's `description`.
+
 Run `scripts/new-mod.ps1 -Id <id>`. It creates `mods/<id>`, a crate that already builds and runs: one block with its model, texture, recipe, loot table and mineable tag, and `tests/scenarios/<id>.txt`, which checks it on a fresh server. [Create](../mods/create) and [Chunky](../mods/chunky) show larger mods. The SDK is in [api](../api), and its C tables are defined in [MOD-ABI.md](MOD-ABI.md).
 
 1. Require the named interface versions the port uses in `Mod::start`. A server that lacks a required version logs its name and skips the mod before worlds load.
 2. Keep mechanics in the mod. Create owns its kinetic networks, and each boss or dragon mod owns its AI. The host exposes operations the engine can perform safely. Plan new operations in [INTERFACES-PLAN.md](INTERFACES-PLAN.md).
-3. Copy the original mod’s data from its jar into `mods/<id>/resources/data/` unchanged: its own `data/<namespace>/`, plus the vanilla tag files it ships (`data/minecraft/tags/blocks/mineable/*.json` sets which tool mines each block). Old (`recipes`, `loot_tables`, `tags/blocks`) and new (`recipe`, `loot_table`, `tags/block`) folder names both load, and Forge 1.20 tags such as `#forge:nuggets/iron` resolve as their shared `c:` tags. Tag entries for blocks and items the port doesn’t register yet are skipped; leave out recipes that need them. A block’s drops come from `<namespace>:blocks/<path>`, as in vanilla.
+3. Copy the data from the latest release’s jar into `mods/<id>/resources/data/` unchanged: its own `data/<namespace>/`, plus the vanilla tag files it ships (`data/minecraft/tags/block/mineable/*.json` sets which tool mines each block). Mods whose latest release is older than 1.21 use plural folder names (`recipes`, `loot_tables`, `tags/blocks`); those load too. Tag entries for blocks and items the port doesn’t register yet are skipped; leave out recipes that need them. A block’s drops come from `<namespace>:blocks/<path>`, as in vanilla.
 4. Build with `scripts/pack-mod.ps1 -Crate <name>` or put the crate's path in a [pack manifest](PACKS.md). A pack can also use a prebuilt `.mmc`.
 
 ## Where each part of a Java mod goes

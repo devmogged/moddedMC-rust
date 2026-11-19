@@ -3,7 +3,7 @@ name = "create"
 version = "0.1.0"
 edition.workspace = true
 license = "MIT"
-description = "Create kinetics for moddedMC."
+description = "Create kinetics for moddedMC, ported from Create 6.0.10 (Minecraft 1.21.1, NeoForge)."
 publish = false
 
 [lib]

@@ -15,7 +15,8 @@ What we never compromise on:
 2. **Engine changes are commits in our fork.** `engine/pumpkin` is `devmogged/Pumpkin`, branch `moddedmc`. Commit there (conventional commits with a scope), push the branch, then commit the new submodule pointer here. Keep engine changes generic and in the Pumpkin style so upstreamable fixes can go to Pumpkin-MC; that PR is opened by a human, never an agent.
 3. **The ABI is append-only.** In `api/src/abi.rs`, add new fields at the end of `HostApi` or `ModApi`; never reorder, remove or change existing ones. Update docs/MOD-ABI.md in the same change.
 4. **No game files in git.** Minecraft jars, assets and downloaded mods live in the ignored `cache/`.
-5. **PowerShell 5.1 gotchas:** a native command's stderr under `$ErrorActionPreference = 'Stop'` becomes a terminating error, so run long builds through `powershell -File` from bash or without stderr redirection; `$PSScriptRoot` is empty inside `param()` defaults.
+5. **Port the latest release.** The server is Minecraft Java 26.3. Each port follows the mod's newest release on Modrinth or CurseForge, whatever loader or Minecraft version that release targets. Check it before you start, take behaviour, data and assets from that release only (never from an older jar, such as one in a local modpack), and record the version in the crate's `description`. Don't add engine support for an older version's quirks unless a planned port's latest release needs it.
+6. **PowerShell 5.1 gotchas:** a native command's stderr under `$ErrorActionPreference = 'Stop'` becomes a terminating error, so run long builds through `powershell -File` from bash or without stderr redirection; `$PSScriptRoot` is empty inside `param()` defaults.
 
 ## Verifying
 
