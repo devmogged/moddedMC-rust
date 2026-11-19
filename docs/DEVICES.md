@@ -34,7 +34,7 @@ The agent listens on loopback and on its tailnet address only, never on `0.0.0.0
 
 | Method | Path | What |
 | --- | --- | --- |
-| GET | `/v1/device` | Name, OS, arch, CPU count, RAM, disk free, agent version, Tailscale name. |
+| GET | `/v1/device` | Name, OS, arch, CPU count and load (`cpu_percent`, since the previous request), RAM, disk free and total (the disk holding the servers), agent version, Tailscale name. |
 | GET | `/v1/servers` | Every server folder: name, pack, state (`stopped`, `starting`, `running`, `stopping`, `crashed`), PID, port, players online. Also lists Minecraft servers running on the machine that the agent didn't start: a Java (`*.jar` or `nogui`) or Pumpkin process with a listening TCP port that answers the status ping, marked `external: true` with `program` and `folder`. Scanned at most every 10 s. Stopped external servers are listed too: folders an external server was seen running in (kept in `external.json`), and subfolders with a `server.properties` in the `find_in` folders of `agent.toml`. |
 | POST | `/v1/servers` | Create a server: `{name, exe, port, pack}`. A new folder gets a `pumpkin.toml` with that port, offline mode, telemetry off and no Bedrock listener. |
 | POST | `/v1/servers/<name>/start`, `/stop`, `/restart` | Lifecycle. `stop` sends `stop` on the console and waits; kill only after a timeout. |
