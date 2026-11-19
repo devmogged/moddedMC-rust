@@ -5,19 +5,31 @@ use std::{
     io::{self, Cursor, Read, Write},
     net::{SocketAddr, TcpListener},
     path::PathBuf,
+    sync::{Arc, OnceLock},
 };
 
-use axum::{Router, routing::get};
+use axum::{Router, extract::Path, http::StatusCode, routing::get};
 use bytes::Bytes;
 use pumpkin_config::resource_pack::JavaResourcePackConfig;
 use pumpkin_data::Block;
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
+use sha2::Sha256;
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 const EMPTY_MODEL: &str = "moddedmc:block/empty";
 const PLACEHOLDER: &str = "moddedmc:block/placeholder";
 const MAX_ASSET: u64 = 8 * 1024 * 1024;
+
+pub static CATALOG: OnceLock<Catalog> = OnceLock::new();
+
+pub struct Catalog {
+    pub manifest: [u8; 32],
+    pub zip_sha1: [u8; 20],
+    pub zip_url: String,
+}
+
+type CatalogFiles = (Vec<u8>, HashMap<String, Bytes>);
 
 pub struct BlockAssets {
     pub id: String,
@@ -60,11 +72,11 @@ pub fn configure(
     if blocks.is_empty() {
         return Ok(HashMap::new());
     }
-    let (bytes, display_models) = build_pack(blocks)?;
-    let mut hash = String::with_capacity(40);
-    for byte in Sha1::digest(&bytes) {
-        let _ = write!(hash, "{byte:02x}");
-    }
+    let (pack, display_models) = build_pack(blocks)?;
+    let bytes = pack.zip()?;
+    let zip_sha1: [u8; 20] = Sha1::digest(&bytes).into();
+    let pack_version = hex(&Sha256::digest(&bytes));
+    let hash = hex(&zip_sha1);
     fs::create_dir_all("cache/moddedmc")?;
     fs::write(format!("cache/moddedmc/resource-pack-{hash}.zip"), &bytes)?;
 
@@ -83,10 +95,33 @@ pub fn configure(
     let port = listener.local_addr()?.port();
     let path = format!("/resource-pack-{hash}.zip");
     let zip = Bytes::from(bytes);
-    let app = Router::new().route(
+    let mut app = Router::new().route(
         &path,
         get(move || async move { ([("content-type", "application/zip")], zip) }),
     );
+    let zip_url = std::env::var("MODDEDMC_PACK_URL")
+        .unwrap_or_else(|_| format!("http://{{host}}:{port}{path}"));
+    if let Some((manifest, blobs)) = pack.catalog(&pack_version)? {
+        let manifest_hash: [u8; 32] = Sha256::digest(&manifest).into();
+        let manifest = Bytes::from(manifest);
+        let blobs = Arc::new(blobs);
+        app = app
+            .route(
+                &format!("/manifest-{}.json", hex(&manifest_hash)),
+                get(move || async move { ([("content-type", "application/json")], manifest) }),
+            )
+            .route(
+                "/assets/{hash}",
+                get(move |Path(hash): Path<String>| async move {
+                    blobs.get(&hash).cloned().ok_or(StatusCode::NOT_FOUND)
+                }),
+            );
+        let _ = CATALOG.set(Catalog {
+            manifest: manifest_hash,
+            zip_sha1,
+            zip_url: zip_url.clone(),
+        });
+    }
     let listener = tokio::net::TcpListener::from_std(listener)?;
     tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, app).await {
@@ -95,8 +130,7 @@ pub fn configure(
     });
     config.enabled = true;
     config.force = true;
-    config.url = std::env::var("MODDEDMC_PACK_URL")
-        .unwrap_or_else(|_| format!("http://{{host}}:{port}{path}"));
+    config.url = zip_url;
     config.sha1 = hash;
     tracing::info!(
         "moddedmc: serving resource pack on port {port} (SHA-1 {})",
@@ -105,7 +139,15 @@ pub fn configure(
     Ok(display_models)
 }
 
-fn build_pack(blocks: &[BlockAssets]) -> io::Result<(Vec<u8>, HashMap<u16, OverlayModel>)> {
+pub fn hex(bytes: &[u8]) -> String {
+    let mut result = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(result, "{byte:02x}");
+    }
+    result
+}
+
+fn build_pack(blocks: &[BlockAssets]) -> io::Result<(Pack, HashMap<u16, OverlayModel>)> {
     let mut pack = Pack::default();
     pack.json(
         "pack.mcmeta",
@@ -200,7 +242,7 @@ fn build_pack(blocks: &[BlockAssets]) -> io::Result<(Vec<u8>, HashMap<u16, Overl
     if pack.missing {
         tracing::warn!("moddedmc: some content pack assets are missing; using a placeholder");
     }
-    Ok((pack.finish()?, display_models))
+    Ok((pack, display_models))
 }
 
 fn note_variant(state: pumpkin_data::BlockStateId) -> Option<String> {
@@ -319,15 +361,41 @@ impl Pack {
         bytes
     }
 
-    fn finish(self) -> io::Result<Vec<u8>> {
+    fn zip(&self) -> io::Result<Vec<u8>> {
         let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
         let options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        for (name, bytes) in self.files {
+        for (name, bytes) in &self.files {
             zip.start_file(name, options)?;
-            zip.write_all(&bytes)?;
+            zip.write_all(bytes)?;
         }
         Ok(zip.finish()?.into_inner())
+    }
+
+    fn catalog(self, version: &str) -> io::Result<Option<CatalogFiles>> {
+        if self.files.len() > 10_000
+            || self
+                .files
+                .values()
+                .any(|bytes| bytes.len() as u64 > MAX_ASSET)
+            || self.files.values().map(Vec::len).sum::<usize>() > 256 * 1024 * 1024
+        {
+            tracing::warn!("moddedmc: asset catalog exceeds companion limits");
+            return Ok(None);
+        }
+        let mut assets = Vec::with_capacity(self.files.len());
+        let mut blobs = HashMap::new();
+        for (path, bytes) in self.files {
+            let sha256 = hex(&Sha256::digest(&bytes));
+            assets.push(json!({"path": path, "sha256": sha256, "size": bytes.len()}));
+            blobs.entry(sha256).or_insert_with(|| Bytes::from(bytes));
+        }
+        let manifest = serde_json::to_vec(&json!({"pack_version": version, "assets": assets}))?;
+        if manifest.len() > 2 * 1024 * 1024 {
+            tracing::warn!("moddedmc: asset catalog exceeds companion limits");
+            return Ok(None);
+        }
+        Ok(Some((manifest, blobs)))
     }
 }
 

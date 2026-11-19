@@ -130,62 +130,7 @@ impl HeadlessBot {
 
         bot.send_packet(&SLoginAcknowledged).await?;
 
-        // 2. Configuration state
-        bot.send_packet(&SClientInformationConfig {
-            locale: "en_us",
-            view_distance: 4,
-            chat_mode: VarInt(0),
-            chat_colors: true,
-            skin_parts: 0x7F,
-            main_hand: VarInt(1),
-            text_filtering: false,
-            server_listing: true,
-            particle_status: VarInt(0),
-        })
-        .await?;
-
-        let known_packs_id = CKnownPacks::to_id(CURRENT_MC_VERSION);
-        let finish_config_id = CFinishConfig::to_id(CURRENT_MC_VERSION);
-        let pack_id = CConfigAddResourcePack::to_id(CURRENT_MC_VERSION);
-        let config_ping_id = CConfigPing::to_id(CURRENT_MC_VERSION);
-        let companion_version = std::env::var("MODDEDMC_BOT_COMPANION")
-            .ok()
-            .and_then(|value| value.parse::<u16>().ok());
-        let mut received_answer = false;
-        loop {
-            let pkt = bot.next_packet().await?;
-            if pkt.id == CPluginMessage::to_id(CURRENT_MC_VERSION)
-                && let Some(version) = companion_version
-            {
-                received_answer |= bot.companion_message(&pkt.payload, version).await?;
-            } else if pkt.id == pack_id {
-                let uuid = download_pack(&pkt.payload, host).await?;
-                bot.send_packet(&SConfigResourcePack {
-                    uuid,
-                    result: VarInt(0),
-                })
-                .await?;
-            } else if pkt.id == config_ping_id {
-                // Fabric waits for this pong before it finishes configuration.
-                let id = pkt
-                    .payload
-                    .get(..4)
-                    .and_then(|b| b.try_into().ok())
-                    .map_or(0, i32::from_be_bytes);
-                bot.send_packet(&SConfigPong { id }).await?;
-            } else if pkt.id == known_packs_id {
-                bot.send_packet(&SKnownPacks {
-                    known_packs: Vec::new(),
-                })
-                .await?;
-            } else if pkt.id == finish_config_id {
-                if companion_version.is_some() && !received_answer {
-                    return Err("No companion configuration answer".into());
-                }
-                bot.send_packet(&SAcknowledgeFinishConfig).await?;
-                break;
-            }
-        }
+        bot.configure(host).await?;
 
         // 3. Play state: wait for CLogin and initial CPlayerPosition synchronize packet
         let play_login_id = CLogin::to_id(CURRENT_MC_VERSION);
@@ -220,6 +165,63 @@ impl HeadlessBot {
         Ok(bot)
     }
 
+    async fn configure(&mut self, host: &str) -> Result<(), String> {
+        self.send_packet(&SClientInformationConfig {
+            locale: "en_us",
+            view_distance: 4,
+            chat_mode: VarInt(0),
+            chat_colors: true,
+            skin_parts: 0x7F,
+            main_hand: VarInt(1),
+            text_filtering: false,
+            server_listing: true,
+            particle_status: VarInt(0),
+        })
+        .await?;
+
+        let known_packs_id = CKnownPacks::to_id(CURRENT_MC_VERSION);
+        let finish_config_id = CFinishConfig::to_id(CURRENT_MC_VERSION);
+        let pack_id = CConfigAddResourcePack::to_id(CURRENT_MC_VERSION);
+        let config_ping_id = CConfigPing::to_id(CURRENT_MC_VERSION);
+        let companion_version = std::env::var("MODDEDMC_BOT_COMPANION")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok());
+        let mut received_answer = false;
+        loop {
+            let pkt = self.next_packet().await?;
+            if pkt.id == CPluginMessage::to_id(CURRENT_MC_VERSION)
+                && let Some(version) = companion_version
+            {
+                received_answer |= self.companion_message(&pkt.payload, version).await?;
+            } else if pkt.id == pack_id {
+                let uuid = download_pack(&pkt.payload, host).await?;
+                self.send_packet(&SConfigResourcePack {
+                    uuid,
+                    result: VarInt(0),
+                })
+                .await?;
+            } else if pkt.id == config_ping_id {
+                // Fabric waits for this pong before it finishes configuration.
+                let id = pkt
+                    .payload
+                    .get(..4)
+                    .and_then(|b| b.try_into().ok())
+                    .map_or(0, i32::from_be_bytes);
+                self.send_packet(&SConfigPong { id }).await?;
+            } else if pkt.id == known_packs_id {
+                self.send_packet(&SKnownPacks {
+                    known_packs: Vec::new(),
+                })
+                .await?;
+            } else if pkt.id == finish_config_id {
+                if companion_version.is_some() && !received_answer {
+                    return Err("No companion configuration answer".into());
+                }
+                return self.send_packet(&SAcknowledgeFinishConfig).await;
+            }
+        }
+    }
+
     #[expect(
         clippy::print_stdout,
         reason = "the bot reports configuration evidence to stdout"
@@ -231,7 +233,7 @@ impl HeadlessBot {
         }
         if data.is_empty() {
             let mut hello = version.to_be_bytes().to_vec();
-            hello.extend_from_slice(&0u32.to_be_bytes());
+            hello.extend_from_slice(&1u32.to_be_bytes());
             self.send_packet(&SPluginMessage {
                 channel: CHANNEL,
                 data: &hello,
@@ -239,10 +241,20 @@ impl HeadlessBot {
             .await?;
             return Ok(false);
         }
-        if data != [0, 1, 0, 0, 0, 0] {
-            return Err(format!("Unexpected companion answer {data:?}"));
+        match data {
+            [0, 1, 0, 0, 0, 0] => println!("[bot] companion protocol 1, active capabilities 0"),
+            [0, 1, 0, 0, 0, 1, rest @ ..] if rest.len() == 52 && version == 1 => {
+                use std::fmt::Write as _;
+                let mut manifest = String::with_capacity(64);
+                for byte in &rest[..32] {
+                    let _ = write!(manifest, "{byte:02x}");
+                }
+                println!(
+                    "[bot] companion protocol 1, active capabilities 1, asset manifest {manifest}"
+                );
+            }
+            _ => return Err(format!("Unexpected companion answer {data:?}")),
         }
-        println!("[bot] companion protocol 1, active capabilities 0");
         Ok(true)
     }
 }
