@@ -71,6 +71,7 @@ What the SDK offers:
 | `Mod::chunk_generated` | World generation: once per chunk, the first time it loads with your mod installed (new chunks, and old ones your mod has not seen). Place ores and features with `world`, inside that chunk. The server records decorated chunks in `config/moddedmc/decorated/<mod>/`. |
 | `blocks::get()` | `schedule_tick(dimension, pos, delay)` and `is_powered(dimension, pos)` for `blocks/1` blocks. |
 | `entities::get()` | `moddedmc:entities/1`: `spawn` a vanilla entity type as a creature's look-alike, then `position`, `move_to`, `set_name`, `remove` by its id. Ids survive restarts (the world saves the entity): store them. |
+| `Mod::entity_event` | A player right-clicked (`Use`) or attacked (`Attack`) an entity. Every mod sees every one: act only on ids you spawned. Return true to cancel the vanilla interaction or the damage. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
 | `world::get()` | The `moddedmc:world/1` interface, if the server has it: `get_blocks`, `set_blocks` (batched, any vanilla block state), `state_id("minecraft:oak_log[axis=x]")`, `state_name(id)`. State ids are valid for this Minecraft version only: keep them in memory, save names. |
@@ -129,11 +130,11 @@ Interfaces:
 | --- | --- | --- |
 | `moddedmc:world/1` | 1.1 | Batched block reads and writes by state id (vanilla and `blocks/1`); state names to ids and back. |
 | `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`; `schedule_tick`, `is_powered`. Events come through `ModApi::block_event`. |
-| `moddedmc:entities/1` | 1.1 | Spawn, find, move, name and remove entities by UUID. |
+| `moddedmc:entities/1` | 1.1 | Spawn, find, move, name and remove entities by UUID. Uses and attacks arrive through `ModApi::entity_event` (1.1). |
 
 World generation is the `ModApi::chunk_generated` callback (1.1) rather than an interface table: the mod places blocks itself through `world/1`.
 
-Planned (see [DECISIONS.md](DECISIONS.md)): entity events (damage, interaction, death) and AI hooks, structures and biomes for world generation, and inventory menus, each when a real port needs it. Menus today are `Player::show_menu` (dialogs with buttons).
+Planned (see [DECISIONS.md](DECISIONS.md)): more entity events (damage from other sources, death) and AI hooks, structures and biomes for world generation, and inventory menus, each when a real port needs it. Menus today are `Player::show_menu` (dialogs with buttons).
 
 Packaging (`.mmc`): a zip with
 

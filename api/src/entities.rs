@@ -1,9 +1,26 @@
 //! `moddedmc:entities/1`: entities a mod drives (see [`crate::abi::EntitiesV1`]).
 
 use crate::{
+    Player,
     abi::{self, EntitiesV1, EntityId, Vec3},
     interface, s,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventKind {
+    /// A player right-clicked it.
+    Use,
+    /// A player attacked it.
+    Attack,
+}
+
+/// A player used or attacked an entity. Every mod sees every one: check `id` is yours.
+pub struct Event<'a> {
+    pub kind: EventKind,
+    pub dimension: &'a str,
+    pub id: EntityId,
+    pub player: Option<Player<'a>>,
+}
 
 /// The entities interface, if the server offers it.
 #[must_use]

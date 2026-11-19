@@ -447,6 +447,12 @@ pub trait Mod: Send + Sync + 'static {
     /// World generation: once per chunk, the first time it loads with this mod installed. Place
     /// ores and features with [`world`], inside chunk (`chunk_x`, `chunk_z`) only.
     fn chunk_generated(&self, _dimension: &str, _chunk_x: i32, _chunk_z: i32) {}
+
+    /// A player used or attacked an entity. Every mod sees every one: act only on your own ids.
+    /// Return true to cancel the vanilla interaction or the damage.
+    fn entity_event(&self, _event: entities::Event<'_>) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------- export glue
@@ -649,6 +655,29 @@ unsafe extern "C" fn chunk_generated<M: Mod>(
     });
 }
 
+unsafe extern "C" fn entity_event<M: Mod>(
+    inst: *const c_void,
+    event: *const abi::EntityEvent,
+) -> bool {
+    guard("entity_event", false, || {
+        // SAFETY: a live event borrowed for the call, and our own instance.
+        unsafe {
+            let e = &*event;
+            let kind = match e.kind {
+                abi::entity_event::USE => entities::EventKind::Use,
+                abi::entity_event::ATTACK => entities::EventKind::Attack,
+                _ => return false,
+            };
+            instance::<M>(inst).entity_event(entities::Event {
+                kind,
+                dimension: e.dimension.str(),
+                id: e.id,
+                player: Player::new(e.player),
+            })
+        }
+    })
+}
+
 /// Used by [`export_mod!`].
 #[doc(hidden)]
 pub fn export<M: Mod>(
@@ -679,6 +708,7 @@ pub fn export<M: Mod>(
         define_blocks: define_blocks::<M>,
         block_event: block_event::<M>,
         chunk_generated: chunk_generated::<M>,
+        entity_event: entity_event::<M>,
     };
     Box::into_raw(Box::new(api))
 }

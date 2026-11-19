@@ -15,11 +15,14 @@ use pumpkin_protocol::{
     ServerPacket,
     codec::var_int::VarInt,
     java::{
-        client::play::{CKeepAlive, CPlayShowDialog, CPlayerPosition, CSystemChatMessage},
+        client::play::{
+            CChunkBatchEnd, CKeepAlive, CPlayShowDialog, CPlayerPosition, CSpawnEntity,
+            CSystemChatMessage,
+        },
         packet_encoder::TCPNetworkEncoder,
         server::play::{
-            SChatCommand, SClientTickEnd, SConfirmTeleport, SCustomClickAction, SKeepAlive,
-            SPlayerPosition, SUseItemOn,
+            SAttack, SChatCommand, SClientTickEnd, SConfirmTeleport, SCustomClickAction, SInteract,
+            SChunkBatch, SKeepAlive, SPlayerPosition, SUseItemOn,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -92,6 +95,22 @@ async fn main() -> Result<(), String> {
                 )
                 .await
             }
+            // The last armor stand the bot saw spawn (mods' creatures in the scenarios).
+            "interact" => {
+                let entity_id = VarInt(LAST_STAND.load(std::sync::atomic::Ordering::Relaxed));
+                let interact = SInteract {
+                    entity_id,
+                    r#type: VarInt(2),
+                    target_position: Some(Vector3::new(0.0, 1.0, 0.0)),
+                    hand: Some(VarInt(0)),
+                    sneaking: false,
+                };
+                send(&writer, &interact).await
+            }
+            "attack" => {
+                let entity_id = VarInt(LAST_STAND.load(std::sync::atomic::Ordering::Relaxed));
+                send(&writer, &SAttack { entity_id }).await
+            }
             "quit" => break,
             _ => Err(format!("unknown step: {line}")),
         };
@@ -118,6 +137,8 @@ async fn pump(
     let keep_alive_id = CKeepAlive::to_id(CURRENT_MC_VERSION);
     let position_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
     let system_chat = CSystemChatMessage::to_id(CURRENT_MC_VERSION);
+    let spawn_entity = CSpawnEntity::to_id(CURRENT_MC_VERSION);
+    let batch_end = CChunkBatchEnd::to_id(CURRENT_MC_VERSION);
     let show_dialog = CPlayShowDialog::to_id(CURRENT_MC_VERSION);
     let trace = std::env::var_os("MODDEDMC_BOT_TRACE").is_some();
     loop {
@@ -155,6 +176,21 @@ async fn pump(
                 }
                 Err(error) => println!("[bot] error: bad teleport packet: {error}"),
             }
+        } else if packet.id == batch_end {
+            // Ack like a client: unacked, Pumpkin stops sending chunks, and with them entities.
+            let _ = send(&writer, &SChunkBatch { chunks_per_tick: 64.0 }).await;
+        } else if packet.id == spawn_entity {
+            // id, uuid, type
+            use pumpkin_protocol::ser::NetworkReadExt;
+            if let (Ok(id), Ok(_), Ok(kind)) = (
+                payload.get_var_int(),
+                payload.get_uuid(),
+                payload.get_var_int(),
+            ) && kind.0 == i32::from(pumpkin_data::entity::EntityType::ARMOR_STAND.id)
+            {
+                LAST_STAND.store(id.0, std::sync::atomic::Ordering::Relaxed);
+                println!("[bot] armor stand spawned");
+            }
         } else if packet.id == system_chat {
             println!("[bot] chat: {}", printable_text(&packet.payload));
         } else if packet.id == show_dialog {
@@ -168,6 +204,9 @@ async fn pump(
         }
     }
 }
+
+/// Network id of the last armor stand that spawned near the bot.
+static LAST_STAND: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
 async fn send<P: pumpkin_protocol::ClientPacket + MultiVersionJavaPacket>(
     writer: &Writer,

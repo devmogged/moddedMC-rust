@@ -332,6 +332,24 @@ pub struct EntitiesV1 {
     pub remove: unsafe extern "C" fn(dimension: Str, id: EntityId) -> bool,
 }
 
+/// What a player did to an entity, in [`EntityEvent::kind`].
+pub mod entity_event {
+    /// Right-clicked it.
+    pub const USE: u32 = 0;
+    /// Attacked it.
+    pub const ATTACK: u32 = 1;
+}
+
+/// A player used or attacked an entity. Every mod with `entity_event` sees it: check the id is one
+/// of yours.
+#[repr(C)]
+pub struct EntityEvent {
+    pub kind: u32,
+    pub dimension: Str,
+    pub id: EntityId,
+    pub player: PlayerRef,
+}
+
 /// What happened to a `blocks/1` block, in [`BlockEvent::kind`].
 pub mod block_event {
     /// A player used (right-clicked) it.
@@ -404,6 +422,10 @@ pub struct ModApi {
     /// features with `moddedmc:world/1`, inside this chunk only. Delivered at the start of a tick.
     pub chunk_generated:
         unsafe extern "C" fn(instance: *const c_void, dimension: Str, chunk_x: i32, chunk_z: i32),
+    /// A player used or attacked an entity (see [`EntityEvent`]). True means handled: the
+    /// vanilla interaction or the damage does not happen.
+    pub entity_event:
+        unsafe extern "C" fn(instance: *const c_void, event: *const EntityEvent) -> bool,
 }
 
 /// `ModApi` size of ABI 1.0, before `define_blocks`.
@@ -479,12 +501,13 @@ mod layout {
             (offset_of!(ModApi, define_blocks), 96),
             (offset_of!(ModApi, block_event), 104),
             (offset_of!(ModApi, chunk_generated), 112),
+            (offset_of!(ModApi, entity_event), 120),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "ModApi field #{i} moved");
         }
         assert_eq!(MOD_API_V1_0_SIZE, 96);
-        assert!(size_of::<ModApi>() >= 120);
+        assert!(size_of::<ModApi>() >= 128);
     }
 
     #[test]
@@ -525,6 +548,10 @@ mod layout {
             assert_eq!(actual, expected, "EntitiesV1 field #{i} moved");
         }
         assert_eq!((size_of::<EntityId>(), size_of::<Vec3>()), (16, 24));
+        assert_eq!(offset_of!(EntityEvent, dimension), 8);
+        assert_eq!(offset_of!(EntityEvent, id), 24);
+        assert_eq!(offset_of!(EntityEvent, player), 40);
+        assert_eq!(size_of::<EntityEvent>(), 48);
     }
 
     #[test]

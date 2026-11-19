@@ -29,7 +29,10 @@ use pumpkin_core::{
         BoxFuture, Cancellable, EventHandler, EventPriority,
         block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent},
         dialog::dialog_click_action::DialogClickActionEvent,
-        player::player_interact_event::PlayerInteractEvent,
+        player::{
+            player_interact_entity_event::PlayerInteractEntityEvent,
+            player_interact_event::PlayerInteractEvent,
+        },
         server::{server_command::ServerCommandEvent, server_tick_start::ServerTickStartEvent},
     },
     server::Server,
@@ -45,6 +48,7 @@ use pumpkin_protocol::{
         dialog::{Dialog, DialogNBT},
         play::CPlayShowDialog,
     },
+    java::server::play::ActionType,
 };
 use pumpkin_util::{math::position::BlockPos, text::TextComponent};
 use pumpkin_world::world::BlockFlags;
@@ -187,6 +191,11 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<BlockBreakEvent, _>(Arc::new(BreakHandler), EventPriority::Normal, true);
     pm.register::<PlayerInteractEvent, _>(Arc::new(UseHandler), EventPriority::Normal, true);
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
+    pm.register::<PlayerInteractEntityEvent, _>(
+        Arc::new(EntityHandler),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<pumpkin_core::plugin::player::player_join::PlayerJoinEvent, _>(
         Arc::new(pack::JoinHandler),
         EventPriority::Normal,
@@ -1195,6 +1204,37 @@ fn deliver_block_events(tick: i32) {
         if let Some(module) = native::owner(state).and_then(module) {
             module.block_event(kind, &world, pos, state, None);
         }
+    }
+}
+
+/// Entity uses and attacks go to every mod; each acts only on its own entities.
+struct EntityHandler;
+
+impl EventHandler<PlayerInteractEntityEvent> for EntityHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut PlayerInteractEntityEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if event.cancelled() {
+                return;
+            }
+            let kind = match event.action {
+                ActionType::Attack => abi::entity_event::ATTACK,
+                ActionType::Interact | ActionType::InteractAt => abi::entity_event::USE,
+            };
+            let world = event.player.world();
+            let id = event.target.get_entity().entity_uuid;
+            let mods: Vec<Native> = lock(&HOST.mods).iter().map(|m| m.module).collect();
+            let mut handled = false;
+            for module in mods {
+                handled |= module.entity_event(kind, &world, id, &event.player);
+            }
+            if handled {
+                event.set_cancelled(true);
+            }
+        })
     }
 }
 

@@ -206,6 +206,29 @@ index 4fdd48b97..f435e7054 100644
 +    }
 +    chunk_loading.send_change();
 +}
+diff --git a/crates/pumpkin-core/src/net/java/play/attack.rs b/crates/pumpkin-core/src/net/java/play/attack.rs
+index 7b84c3232..c0ed64cfd 100644
+--- a/crates/pumpkin-core/src/net/java/play/attack.rs
++++ b/crates/pumpkin-core/src/net/java/play/attack.rs
+@@ -38,6 +38,18 @@ impl JavaClient {
+             ));
+             return;
+         };
++        // 26.1+ clients attack with their own packet; plugins still get the interact event.
++        let mut event = PlayerInteractEntityEvent::new(
++            player,
++            Arc::clone(&target),
++            ActionType::Attack,
++            None,
++            false,
++        );
++        server.plugin_manager.fire_blocking(server, &mut event);
++        if event.cancelled {
++            return;
++        }
+         if !player.can_interact_with_entity(target.as_ref(), 1.0) {
+             return;
+         }
 diff --git a/crates/pumpkin-core/src/world/mod.rs b/crates/pumpkin-core/src/world/mod.rs
 index bf658e514..6c34ded33 100644
 --- a/crates/pumpkin-core/src/world/mod.rs

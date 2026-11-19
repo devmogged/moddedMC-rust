@@ -63,6 +63,21 @@ impl Mod for Wisp {
         Ok(())
     }
 
+    fn entity_event(&self, event: entities::Event<'_>) -> bool {
+        if !self.is_mine(event.id) {
+            return false;
+        }
+        let Some(player) = event.player else {
+            return false;
+        };
+        match event.kind {
+            entities::EventKind::Use => player.send_message("wisp: the wisp hums"),
+            // Handled: a wisp takes no damage.
+            entities::EventKind::Attack => player.send_message("wisp: your hand passes through"),
+        }
+        true
+    }
+
     fn command(&self, tag: u64, command: Command<'_>) -> i32 {
         let (Some(player), Some(entities)) = (command.player, entities::get()) else {
             return 0;
@@ -120,6 +135,16 @@ impl Mod for Wisp {
                 i32::try_from(found.len()).unwrap_or(0)
             }
         }
+    }
+}
+
+impl Wisp {
+    fn is_mine(&self, id: EntityId) -> bool {
+        self.wisps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .any(|(_, w)| *w == id)
     }
 }
 

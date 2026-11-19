@@ -24,6 +24,18 @@ expect \[bot\] chat: .*wispstep: moved 1
 bot cmd wisplist
 wait 1
 expect \[bot\] chat: .*wisplist: 4098.5 100.0 4097.5
+# Entity events: the mod answers a right-click and cancels an attack.
+bot interact
+wait 1
+expect \[bot\] chat: .*wisp: the wisp hums
+bot attack
+wait 1
+expect \[bot\] chat: .*wisp: your hand passes through
+bot attack
+wait 1
+bot cmd wisplist
+wait 1
+expect \[bot\] chat: .*wisplist: 4098.5 100.0 4097.5
 reject (?i)panic|panicked
 bot quit
 stop
