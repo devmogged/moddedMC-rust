@@ -1,0 +1,40 @@
+# Read the same stacks the stock client receives after real interactions.
+seed 12345
+area 0 150 0 5 153 4
+start
+cmd fill 0 150 0 4 150 4 minecraft:stone
+cmd setblock 2 151 1 minecraft:chest
+cmd item replace block 2 151 1 container.0 with minecraft:stone 3
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+bot alice use 2 151 1 west main
+bot alice expect slot 0 minecraft:stone 3
+bot alice inventory-click 0 right
+bot alice expect cursor minecraft:stone 2
+bot alice expect slot 0 minecraft:stone 1
+bot alice inventory-click 1 left
+bot alice expect cursor minecraft:air 0
+bot alice expect slot 1 minecraft:stone 2
+bot alice inventory-click 1 swap-2
+bot alice expect slot 1 minecraft:air 0
+bot alice inventory-close
+bot alice expect slot 38 minecraft:stone 2
+bot alice hotbar 2
+bot alice use 1 150 2 up main
+probe execute if block 1 151 2 minecraft:stone
+expect Test passed
+bot alice expect slot 38 minecraft:stone 1
+cmd item replace entity alice weapon.offhand with minecraft:glass
+bot alice use 4 150 1 east off
+probe execute if block 5 150 1 minecraft:glass
+expect Test passed
+bot alice expect slot 45 minecraft:air 0
+cmd item replace entity alice weapon.offhand with minecraft:snowball
+bot alice expect slot 45 minecraft:snowball 1
+bot alice use-item off
+bot alice expect slot 45 minecraft:air 0
+cmd summon minecraft:item 1.5 151 1.5 {Item:{id:"minecraft:stick",count:3},PickupDelay:0s}
+tick 8
+bot alice expect slot 36 minecraft:stick 3
+stop

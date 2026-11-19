@@ -134,7 +134,6 @@ impl HeadlessBot {
         // 3. Play state: wait for CLogin and initial CPlayerPosition synchronize packet
         let play_login_id = CLogin::to_id(CURRENT_MC_VERSION);
         let player_pos_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
-        let harness = std::env::var_os("MODDEDMC_BOT_HARNESS").is_some();
         let mut saw_play_login = false;
         let mut saw_initial_pos = false;
 
@@ -143,9 +142,7 @@ impl HeadlessBot {
             if let Some(capture) = &mut bot.capture {
                 capture.record(&pkt)?;
             }
-            if harness {
-                bot.actions.observe(pkt.id, &pkt.payload)?;
-            }
+            bot.actions.observe(pkt.id, &pkt.payload)?;
             bot.player.observe(&pkt)?;
             if pkt.id == play_login_id {
                 saw_play_login = true;

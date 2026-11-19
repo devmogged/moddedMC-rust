@@ -15,15 +15,19 @@ The 26.3 movement constants and order were checked against the decompiled `Livin
 | Sneak on a live Create belt | The bot advanced 0.119 blocks as its existing motion decayed. Its horizontal velocity reached zero while sneak was held. Releasing sneak let the belt carry it another 0.513 blocks in one second. |
 | Pack-profile unit tests | Check that another entity's motion leaves the player unchanged, explosion knockback adds to existing motion, and the client lands and steps up a slab. |
 
+[The inventory fixture](../tests/harness/bot-inventory.txt) passed with zero differences against pack-dev. It checks half-stack pickup, cursor clearing, hotbar swaps and selection, main- and offhand placement, throwing an item, and item pickup. [JSON](../run/harness-inventory/verified/scenario-TxruIZ/report.json)
+
+An earlier version also used `execute if items entity`. Vanilla returned counts of 2 and 3 for the selected stone and picked-up sticks. Pack-dev rejected both command predicates. The bot saw the same stacks on each connection. The fixture now verifies the selected stack by placing a block and the picked-up stack directly from the client's inventory packets. [Command differences](../run/harness-inventory/pack-3/scenario-QzLtMv/report.json)
+
 ## Port checks and remaining automation
 
 | Priority | Behavior | Bot coverage and remaining work |
 | --- | --- | --- |
 | 1 | Create belt carries a standing player | The bot accepts its own motion packet and follows the vanilla dry-ground movement path. Use a local position assertion for progress and centering and a server probe to confirm the move was received. Scripts can hold movement or sneak and toggle Creative flight to check escape conditions. |
-| 2 | Create belt connector, other targeted block uses, and inventory | Basic placement, top-face use and sneak-use work. Exact ray hits, face and hand selection, held item use, Creative selection and hotbar changes are missing. Left, right and shift menu clicks work with the server's current revision. Drag, swap, double-click, stack and cursor prediction, and client inventory assertions remain. These are needed for belt loading and unloading, crafting, and picking up the result. |
+| 2 | Create belt connector, other targeted block uses, and inventory | The bot can target a face, use either hand, sneak-use, open and close a container, select a hotbar slot, and assert the active slot and cursor stacks. It also sends swap, double-click and throw menu actions. Ray picking, held-use release, Creative slot editing, drag and full client stack prediction remain. |
 | 3 | Movement and riding | Absolute move and look send player packets. Local physics covers held directional input, dry drag, gravity, static block shapes, steps, knockback, jumping, sprinting, sneaking at an edge and Creative flight. Dynamic collisions, fluid and climbing travel, pose/attribute/effect changes, and mounting, steering and dismounting vehicles remain. |
 | 4 | Breaks and combat | Creative break sends start-dig, and attack targets a visible entity by its spawn anchor. Survival mining needs progress from the active tool and effects, cancel, and finish. Combat needs current entity positions, aim and reach, item cooldown and per-tick attack timing. |
-| 5 | Item pickup, drops and other observable effects | Server probes/snapshots can check inventory and ground items. Add bot assertions for own slot and cursor contents, pickup, health, effects and cooldowns. Check sound, particles, chat, action-bar text, and item names through decoded packets where the expected behavior is their delivery. |
+| 5 | Item pickup, drops and other observable effects | A fixture verifies pickup with a local inventory assertion. Ground items can be checked in snapshots. Local health, effects, item model/name metadata and cooldown assertions remain. Check sound, particles, chat and action-bar text through decoded packets where the expected behavior is their delivery. |
 
 ## Documented play tests
 

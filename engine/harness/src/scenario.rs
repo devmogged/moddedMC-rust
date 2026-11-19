@@ -249,8 +249,20 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
                 .iter()
                 .all(|word| word.parse::<f64>().is_ok_and(f64::is_finite))
     };
+    let block = |coords: &[&str]| coords.iter().all(|word| word.parse::<i32>().is_ok());
+    let face = |value| matches!(value, "up" | "down" | "north" | "south" | "east" | "west");
+    let hand = |value| matches!(value, "main" | "off");
+    let hotbar = |value: &str| value.parse::<u8>().is_ok_and(|slot| slot <= 8);
+    let slot_index = |value: &str| {
+        value
+            .parse::<i16>()
+            .is_ok_and(|slot| (0..4096).contains(&slot))
+    };
+    let item = |name, count: &str| {
+        pumpkin_data::item::Item::from_registry_key(name).is_some() && count.parse::<u8>().is_ok()
+    };
     match (verb, args.as_slice()) {
-        ("await-teleport", [])
+        ("await-teleport" | "inventory-close", [])
         | ("physics", ["off" | "manual"])
         | ("fly", ["on" | "off"])
         | ("input", ["none"]) => true,
@@ -270,9 +282,15 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
                     .parse::<f64>()
                     .is_ok_and(|d| d.is_finite() && d >= 0.0)
         }
-        ("use" | "place" | "break", [x, y, z]) => [x, y, z]
-            .into_iter()
-            .all(|word| word.parse::<i32>().is_ok()),
+        ("expect", ["slot", slot, name, count]) => slot_index(slot) && item(name, count),
+        ("expect", ["cursor", name, count]) => item(name, count),
+        ("use" | "place" | "break", xyz @ [_, _, _]) => block(xyz),
+        ("use" | "place", [x, y, z, direction]) => block(&[x, y, z]) && face(direction),
+        ("use" | "place", [x, y, z, direction, which]) => {
+            block(&[x, y, z]) && face(direction) && hand(which)
+        }
+        ("use-item", [which]) => hand(which),
+        ("hotbar", [index]) => hotbar(index),
         ("move", position) => coords(position),
         ("look", [yaw, pitch]) => {
             yaw.parse::<f32>().is_ok_and(f32::is_finite)
@@ -284,8 +302,17 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
             pumpkin_data::entity::EntityType::from_name(entity).is_some() && coords(position)
         }
         ("inventory-click", [slot, button]) => {
-            slot.parse::<i16>().is_ok_and(|slot| slot >= 0)
-                && matches!(*button, "left" | "right" | "shift-left" | "shift-right")
+            slot_index(slot)
+                && (matches!(
+                    *button,
+                    "left"
+                        | "right"
+                        | "shift-left"
+                        | "shift-right"
+                        | "double"
+                        | "drop"
+                        | "drop-stack"
+                ) || button.strip_prefix("swap-").is_some_and(hotbar))
         }
         _ => false,
     }

@@ -12,12 +12,16 @@ mod bot;
 mod capture;
 mod collision;
 mod controls;
+mod inventory;
 mod movement;
 mod terrain;
 
 use std::sync::Arc;
 
-use pumpkin_data::packet::{CURRENT_MC_VERSION, clientbound::play::CHUNK_BATCH_FINISHED};
+use pumpkin_data::{
+    BlockDirection,
+    packet::{CURRENT_MC_VERSION, clientbound::play::CHUNK_BATCH_FINISHED},
+};
 use pumpkin_protocol::{
     ServerPacket,
     codec::var_int::VarInt,
@@ -28,8 +32,8 @@ use pumpkin_protocol::{
         },
         packet_encoder::TCPNetworkEncoder,
         server::play::{
-            SChatCommand, SChunkBatch, SCustomClickAction, SKeepAlive, SPlayerAction, SUseItemOn,
-            Status,
+            SChatCommand, SChunkBatch, SCustomClickAction, SKeepAlive, SPlayerAction, SUseItem,
+            SUseItemOn, Status,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -79,29 +83,9 @@ async fn main() -> Result<(), String> {
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
             "cmd" => send(&writer, &SChatCommand { command: rest }).await,
-            "use" | "place" => match parse_pos(rest) {
-                Some(position) => {
-                    sequence += 1;
-                    send(&writer, &use_item_on(position, sequence)).await
-                }
-                None => Err(format!("bad position: {rest}")),
-            },
-            "break" => match parse_pos(rest) {
-                Some(position) => {
-                    sequence += 1;
-                    send(
-                        &writer,
-                        &SPlayerAction {
-                            status: VarInt(Status::StartedDigging as i32),
-                            position,
-                            face: 1,
-                            sequence: VarInt(sequence),
-                        },
-                    )
-                    .await
-                }
-                None => Err(format!("bad position: {rest}")),
-            },
+            "use" | "place" | "use-item" | "break" => {
+                world_action(&player, &writer, &mut sequence, verb, rest).await
+            }
             "click" => {
                 send(
                     &writer,
@@ -112,16 +96,21 @@ async fn main() -> Result<(), String> {
                 )
                 .await
             }
-            "look" => actions::perform(&actions, &player, &writer, verb, rest).await,
-            "move" | "attack" | "inventory-click" if harness => {
+            "look" | "hotbar" | "attack" | "inventory-click" | "inventory-close" => {
                 actions::perform(&actions, &player, &writer, verb, rest).await
             }
+            "move" if harness => actions::perform(&actions, &player, &writer, verb, rest).await,
             "physics" if harness && rest == "on" => {
                 Err("use physics manual in a frozen harness scenario".into())
             }
             "physics" => player.lock().await.set_mode(rest),
             "input" | "fly" => movement::control(&player, &writer, verb, rest).await,
             "physics-tick" => manual_ticks(&player, &writer, rest).await,
+            "expect" if rest.starts_with("slot ") || rest.starts_with("cursor ") => actions
+                .lock()
+                .await
+                .check_inventory(rest)
+                .map(|result| println!("[bot] expect inventory ok {result}")),
             "expect" => player
                 .lock()
                 .await
@@ -177,7 +166,8 @@ async fn pump(
                 }
             }
         }
-        if harness && let Err(error) = actions.lock().await.observe(packet.id, &packet.payload) {
+        let observed_actions = actions.lock().await.observe(packet.id, &packet.payload);
+        if let Err(error) = observed_actions {
             println!("[bot] error: {error}");
             std::process::exit(2);
         }
@@ -258,15 +248,93 @@ async fn send<P: pumpkin_protocol::ClientPacket + MultiVersionJavaPacket>(
     bot::send_framed_packet(&mut *writer.lock().await, packet).await
 }
 
-const fn use_item_on(position: BlockPos, sequence: i32) -> SUseItemOn {
-    SUseItemOn {
-        hand: VarInt(0),
-        position,
-        face: VarInt(1),
-        cursor_pos: Vector3::new(0.5, 1.0, 0.5),
+async fn world_action(
+    player: &Mutex<movement::Player>,
+    writer: &Writer,
+    sequence: &mut i32,
+    verb: &str,
+    args: &str,
+) -> Result<(), String> {
+    let next = *sequence + 1;
+    match verb {
+        "use" | "place" => {
+            let packet = use_item_on(args, next)?;
+            *sequence = next;
+            send(writer, &packet).await
+        }
+        "use-item" => {
+            let hand = hand(args)?;
+            let (yaw, pitch) = player.lock().await.rotation();
+            *sequence = next;
+            send(
+                writer,
+                &SUseItem {
+                    hand,
+                    sequence: VarInt(next),
+                    yaw,
+                    pitch,
+                },
+            )
+            .await
+        }
+        "break" => {
+            let position = parse_pos(args).ok_or_else(|| format!("bad position: {args}"))?;
+            *sequence = next;
+            send(
+                writer,
+                &SPlayerAction {
+                    status: VarInt(Status::StartedDigging as i32),
+                    position,
+                    face: 1,
+                    sequence: VarInt(next),
+                },
+            )
+            .await
+        }
+        _ => Err(format!("unknown block action {verb}")),
+    }
+}
+
+fn use_item_on(args: &str, sequence: i32) -> Result<SUseItemOn, String> {
+    let args = args.split_whitespace().collect::<Vec<_>>();
+    let [x, y, z, options @ ..] = args.as_slice() else {
+        return Err("use requires x y z with optional face and hand".into());
+    };
+    let coordinates = [x, y, z].map(|value| value.parse::<i32>());
+    let [Ok(x), Ok(y), Ok(z)] = coordinates else {
+        return Err("use requires integer block coordinates".into());
+    };
+    let (face, hand) = match options {
+        [] => ("up", "main"),
+        [face] => (*face, "main"),
+        [face, hand] => (*face, *hand),
+        _ => return Err("use requires x y z with optional face and hand".into()),
+    };
+    let (face, cursor_pos) = match face {
+        "down" => (BlockDirection::Down, Vector3::new(0.5, 0.0, 0.5)),
+        "up" => (BlockDirection::Up, Vector3::new(0.5, 1.0, 0.5)),
+        "north" => (BlockDirection::North, Vector3::new(0.5, 0.5, 0.0)),
+        "south" => (BlockDirection::South, Vector3::new(0.5, 0.5, 1.0)),
+        "west" => (BlockDirection::West, Vector3::new(0.0, 0.5, 0.5)),
+        "east" => (BlockDirection::East, Vector3::new(1.0, 0.5, 0.5)),
+        _ => return Err(format!("invalid block face {face}")),
+    };
+    Ok(SUseItemOn {
+        hand: self::hand(hand)?,
+        position: BlockPos(Vector3::new(x, y, z)),
+        face: VarInt(face as i32),
+        cursor_pos,
         inside_block: false,
         is_against_world_border: false,
         sequence: VarInt(sequence),
+    })
+}
+
+fn hand(name: &str) -> Result<VarInt, String> {
+    match name {
+        "main" => Ok(VarInt(0)),
+        "off" => Ok(VarInt(1)),
+        _ => Err(format!("invalid hand {name}")),
     }
 }
 

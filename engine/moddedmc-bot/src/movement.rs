@@ -198,6 +198,10 @@ impl Player {
         (self.on_ground, self.horizontal_collision)
     }
 
+    pub const fn rotation(&self) -> (f32, f32) {
+        (self.yaw, self.pitch)
+    }
+
     pub fn reposition(&mut self, position: Vector3<f64>) {
         self.position = position;
         self.legacy_heartbeat = position;

@@ -10,7 +10,8 @@ use pumpkin_protocol::{
     java::{
         client::play::CSpawnEntity,
         server::play::{
-            SAttack, SClickSlot, SClientTickEnd, SPlayerPosition, SPlayerRotation, SlotActionType,
+            SAttack, SClickSlot, SClientTickEnd, SCloseContainer, SPlayerPosition, SPlayerRotation,
+            SSetHeldItem, SlotActionType,
         },
     },
     ser::NetworkReadExt as _,
@@ -18,17 +19,20 @@ use pumpkin_protocol::{
 use pumpkin_util::math::vector3::Vector3;
 use tokio::sync::Mutex;
 
-use crate::{Writer, bot::send_framed_packet, movement::Player, send};
+use crate::{Writer, bot::send_framed_packet, inventory::Inventory, movement::Player, send};
 
 #[derive(Default)]
 pub struct State {
     entities: HashMap<i32, CSpawnEntity>,
     window: i32,
     revisions: HashMap<i32, VarInt>,
+    inventory: Inventory,
+    inventory_error: Option<String>,
 }
 
 impl State {
     pub fn observe(&mut self, kind: i32, mut payload: &[u8]) -> Result<(), String> {
+        let inventory_payload = payload;
         match PacketId(kind) {
             p::ADD_ENTITY => {
                 let spawn = CSpawnEntity::read_packet_data(payload, &CURRENT_MC_VERSION)
@@ -65,10 +69,21 @@ impl State {
                 self.entities.clear();
                 self.window = 0;
                 self.revisions.clear();
+                self.inventory_error = None;
             }
             _ => {}
         }
+        if let Err(error) = self.inventory.observe(kind, inventory_payload, self.window) {
+            self.inventory_error = Some(error.to_string());
+        }
         Ok(())
+    }
+
+    pub fn check_inventory(&self, args: &str) -> Result<String, String> {
+        if let Some(error) = &self.inventory_error {
+            return Err(format!("could not decode inventory: {error}"));
+        }
+        self.inventory.check(args, self.window)
     }
 
     fn target(&self, name: &str, anchor: Vector3<f64>) -> Result<VarInt, String> {
@@ -95,6 +110,12 @@ impl State {
             "right" => (1, SlotActionType::Pickup),
             "shift-left" => (0, SlotActionType::QuickMove),
             "shift-right" => (1, SlotActionType::QuickMove),
+            "double" => (0, SlotActionType::PickupAll),
+            "drop" => (0, SlotActionType::Throw),
+            "drop-stack" => (1, SlotActionType::Throw),
+            swap if swap.starts_with("swap-") => {
+                (hotbar_slot(&swap[5..])? as i8, SlotActionType::Swap)
+            }
             _ => return Err(format!("invalid inventory button {button}")),
         };
         let revision = self
@@ -110,7 +131,7 @@ impl State {
             button,
             mode,
             length_of_array: 0.into(),
-            // The server resends any slots and cursor state affected by the click.
+            // Leave slot prediction to the server and predict an empty cursor.
             array_of_changed_slots: Vec::new(),
             carried_item: OptionalItemStackHash(None),
         })
@@ -171,11 +192,54 @@ pub async fn perform(
                 .ok()
                 .filter(|slot| *slot >= 0)
                 .ok_or("invalid inventory slot")?;
-            let packet = state.lock().await.click(slot, button)?;
-            send(writer, &packet).await
+            let mut writer = writer.lock().await;
+            let packet = {
+                let mut state = state.lock().await;
+                let packet = state.click(slot, button)?;
+                state.inventory.predict_empty_cursor();
+                packet
+            };
+            send_framed_packet(&mut *writer, &packet).await
+        }
+        ("hotbar", [slot]) => {
+            send(
+                writer,
+                &SSetHeldItem {
+                    slot: hotbar_slot(slot)?,
+                },
+            )
+            .await
+        }
+        ("inventory-close", []) => {
+            let id = {
+                let mut state = state.lock().await;
+                let id = state.window;
+                if id == 0 {
+                    return Err("no container is open".into());
+                }
+                state.window = 0;
+                state.revisions.remove(&id);
+                state.inventory.close_menu();
+                id
+            };
+            send(
+                writer,
+                &SCloseContainer {
+                    window_id: VarInt(id),
+                },
+            )
+            .await
         }
         _ => Err(format!("invalid {verb} arguments")),
     }
+}
+
+fn hotbar_slot(value: &str) -> Result<i16, String> {
+    value
+        .parse::<i16>()
+        .ok()
+        .filter(|slot| (0..=8).contains(slot))
+        .ok_or_else(|| format!("invalid hotbar slot {value}"))
 }
 
 fn read_id(payload: &mut &[u8]) -> Result<VarInt, String> {
@@ -204,8 +268,8 @@ mod tests {
         let mut state = State::default();
         state.observe(p::OPEN_SCREEN.0, &[7])?;
         assert!(state.click(2, "left").is_err());
-        state.observe(p::CONTAINER_SET_CONTENT.0, &[7, 4])?;
-        state.observe(p::CONTAINER_SET_SLOT.0, &[7, 5])?;
+        state.observe(p::CONTAINER_SET_CONTENT.0, &[7, 4, 3, 0, 0, 0, 0])?;
+        state.observe(p::CONTAINER_SET_SLOT.0, &[7, 5, 0, 2, 0])?;
         let click = state.click(2, "shift-right")?;
         assert_eq!(
             (click.sync_id.0, click.revision.0, click.slot, click.button),
