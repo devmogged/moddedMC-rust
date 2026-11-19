@@ -22,7 +22,7 @@ Everything else depends on these.
 | # | Task | Status |
 | --- | --- | --- |
 | E1 | Audit Pumpkin against vanilla 26.3: list every missing or partial system, with the vanilla classes involved. Output `docs/parity.md`. | done (first pass, breadth): [parity.md](parity.md). Nearly every vanilla command, entity type, structure, feature and screen exists; `sequence` and `template` features now place (desert wells, deep dark and ancient city sculk, sulfur pools and springs). Fidelity is F2's job. |
-| E2 | Datapack worldgen: load custom biomes, noise settings, density functions, features, structures from datapacks (Terralith, Tectonic, Incendium, Nullscape are datapacks). Harness against vanilla with the same datapacks. | todo |
+| E2 | Datapack worldgen: load custom biomes, noise settings, density functions, features, structures from datapacks (Terralith, Tectonic, Incendium, Nullscape are datapacks). Harness against vanilla with the same datapacks. | planned: [E2-PLAN.md](E2-PLAN.md), stages E2a to E2e. |
 | E3 | Worldgen determinism across x86_64 and aarch64 (no platform-dependent float paths). Byte-identical chunks on both. | todo |
 | E4 | Lighting parity. | todo |
 | E5 | Mobs: AI goals and brains per Pumpkin's planned design, spawning, loot. | todo |
