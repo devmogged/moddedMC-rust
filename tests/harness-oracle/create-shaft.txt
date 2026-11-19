@@ -1,0 +1,8 @@
+# The subject needs the Create port to answer the same probe.
+seed 12345
+area 0 150 0 0 150 0
+start
+cmd setblock 0 150 0 create:shaft
+tick 1
+probe data get block 0 150 0 Speed
+stop

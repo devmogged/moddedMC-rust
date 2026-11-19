@@ -1,0 +1,10 @@
+# Run with a Minecraft 1.21.1 oracle. Boats used one shared entity type in 1.21.1.
+seed 12345
+area 0 150 0 1 151 1
+idmap minecraft:oak_boat minecraft:boat
+start
+cmd setblock 0 150 0 minecraft:stone
+cmd summon minecraft:oak_boat 0.5 151 0.5
+tick 1
+probe execute if entity @e[type=minecraft:oak_boat] if block 0 150 0 minecraft:stone
+stop

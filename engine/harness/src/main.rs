@@ -1,4 +1,5 @@
 mod diff;
+mod oracle;
 mod packets;
 mod process;
 mod runner;
@@ -24,7 +25,7 @@ use serde::Serialize;
 use crate::{diff::Report, process::ServerProgram, runner::Options};
 
 const USAGE: &str = "moddedmc-harness run <scenario> | run-all <directory> | self-test \
---reference vanilla:<jar> [--subject <exe|vanilla:jar>] [--bot <exe>] [--run-root <dir>] [--jobs <n>] [--keep] [--json]";
+--reference <vanilla:jar|oracle:descriptor.json> [--subject <exe|vanilla:jar>] [--subject-mods <directory>] [--bot <exe>] [--run-root <dir>] [--jobs <n>] [--keep] [--json]";
 
 #[expect(clippy::print_stderr, reason = "CLI diagnostics")]
 fn main() -> ExitCode {
@@ -72,6 +73,10 @@ fn cli(args: &[String]) -> Result<u8, String> {
                 .ok_or("--subject is required")?,
         )?
     };
+    if matches!(subject, ServerProgram::Oracle(_)) {
+        return Err("oracle is a reference-only server program".into());
+    }
+    let subject_mods = subject_mods_for(flags.get("--subject-mods").copied(), &subject)?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let sibling = exe.with_file_name(format!("moddedmc-bot{}", std::env::consts::EXE_SUFFIX));
     let bot = flags.get("--bot").map_or(sibling, PathBuf::from);
@@ -95,6 +100,7 @@ fn cli(args: &[String]) -> Result<u8, String> {
     let options = Options {
         reference,
         subject,
+        subject_mods,
         bot,
         root,
         keep: flags.contains_key("--keep"),
@@ -126,6 +132,24 @@ fn cli(args: &[String]) -> Result<u8, String> {
     })
 }
 
+fn subject_mods_for(
+    value: Option<&str>,
+    subject: &ServerProgram,
+) -> Result<Option<PathBuf>, String> {
+    value
+        .map(|path| {
+            if !matches!(subject, ServerProgram::Pumpkin(_)) {
+                return Err("--subject-mods requires a pack executable".into());
+            }
+            let path = std::path::absolute(path).map_err(|error| error.to_string())?;
+            if !path.is_dir() {
+                return Err(format!("{} is not a mod directory", path.display()));
+            }
+            Ok(path)
+        })
+        .transpose()
+}
+
 fn parse_flags<'a>(
     mut args: impl Iterator<Item = &'a str>,
 ) -> Result<BTreeMap<&'a str, &'a str>, String> {
@@ -133,10 +157,11 @@ fn parse_flags<'a>(
     while let Some(flag) = args.next() {
         let value = match flag {
             "--json" | "--keep" => "",
-            "--reference" | "--subject" | "--bot" | "--run-root" | "--jobs" => args
-                .next()
-                .filter(|v| !v.starts_with("--"))
-                .ok_or_else(|| format!("missing value for {flag}"))?,
+            "--reference" | "--subject" | "--subject-mods" | "--bot" | "--run-root" | "--jobs" => {
+                args.next()
+                    .filter(|v| !v.starts_with("--"))
+                    .ok_or_else(|| format!("missing value for {flag}"))?
+            }
             _ => return Err(format!("unknown flag {flag}")),
         };
         if flags.insert(flag, value).is_some() {

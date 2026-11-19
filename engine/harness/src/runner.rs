@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     diff::{Check, Report},
-    packets,
+    oracle, packets,
     process::{Process, Server, ServerProgram},
     scenario::{self, Action, Area, Scenario, Step},
     snapshot,
@@ -20,6 +20,7 @@ const SELF_TEST: &str = "seed 12345\narea 0 150 0 0 150 0\nstart\ncmd setblock 0
 pub struct Options {
     pub reference: ServerProgram,
     pub subject: ServerProgram,
+    pub subject_mods: Option<PathBuf>,
     pub bot: PathBuf,
     pub root: PathBuf,
     pub keep: bool,
@@ -130,6 +131,28 @@ fn execute(
     report: &mut Report,
     perturb: bool,
 ) -> Result<(), String> {
+    if matches!(options.reference, ServerProgram::Oracle(_)) {
+        for step in &scenario.steps {
+            if matches!(
+                step.action,
+                Action::Snapshot { .. } | Action::Join(_) | Action::Bot { .. }
+            ) {
+                return Err(format!(
+                    "line {}: oracle scenarios compare console probes only",
+                    step.line
+                ));
+            }
+        }
+        if !scenario
+            .steps
+            .iter()
+            .any(|step| matches!(step.action, Action::Probe(_)))
+        {
+            return Err("oracle scenarios require a probe".into());
+        }
+    } else if !scenario.ids.is_empty() {
+        return Err("idmap requires an oracle reference".into());
+    }
     let dir = tempfile::Builder::new()
         .prefix("scenario-")
         .tempdir_in(&options.root)
@@ -188,14 +211,20 @@ struct Pair {
     area: Area,
     bot_exe: PathBuf,
     capture_packets: bool,
+    ids: BTreeMap<String, String>,
 }
 
 impl Pair {
     fn start(scenario: &Scenario, options: &Options, dir: &Path) -> Result<Self, String> {
         let (reference, subject) = std::thread::scope(|scope| {
-            let reference =
-                scope.spawn(|| Server::start(&options.reference, scenario, dir.join("reference")));
-            let subject = Server::start(&options.subject, scenario, dir.join("subject"));
+            let reference = scope
+                .spawn(|| Server::start(&options.reference, scenario, dir.join("reference"), None));
+            let subject = Server::start(
+                &options.subject,
+                scenario,
+                dir.join("subject"),
+                options.subject_mods.as_deref(),
+            );
             (
                 reference
                     .join()
@@ -218,6 +247,7 @@ impl Pair {
             bots: BTreeMap::new(),
             elapsed: 0,
             area: scenario.area,
+            ids: scenario.ids.clone(),
             bot_exe: options.bot.clone(),
             capture_packets: scenario
                 .steps
@@ -270,7 +300,7 @@ impl Pair {
         check: &mut Check<'_>,
         compare: bool,
     ) -> Result<(), String> {
-        let a = self.reference.command(command)?;
+        let a = self.reference_command(command)?;
         let b = self.subject.command(command)?;
         if compare && (rejection(&a) || rejection(&b)) {
             check.add(
@@ -283,8 +313,20 @@ impl Pair {
         Ok(())
     }
 
+    fn reference_command(&mut self, command: &str) -> Result<Vec<String>, String> {
+        if self.ids.is_empty() {
+            return self.reference.command(command);
+        }
+        let mapped = oracle::rewrite(command, &self.ids, true);
+        let feedback = self.reference.command(&mapped)?;
+        Ok(feedback
+            .iter()
+            .map(|line| oracle::rewrite(line, &self.ids, false))
+            .collect())
+    }
+
     fn probe(&mut self, command: &str, check: &mut Check<'_>, compare: bool) -> Result<(), String> {
-        let a = self.reference.command(command)?;
+        let a = self.reference_command(command)?;
         let b = self.subject.command(command)?;
         if compare && (a != b || a.is_empty() || rejection(&a) || rejection(&b)) {
             check.add(None, "probe.output".into(), as_output(&a), as_output(&b));

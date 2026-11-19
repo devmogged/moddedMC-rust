@@ -82,3 +82,11 @@ Run `tests/harness/bot-actions.txt` against the same server pair. It checks the 
 
 - Vanilla against itself exited 0 with no differences. The runner kept `report.json` and removed its checkpoints. See `run/harness-actions/vanilla-checked.json`.
 - Both servers passed the position and rotation selector and reported pig health of 9. The pack run exited 1 with 36 differences and no run errors. It retained a checkpoint and a report. The differences include two probe outputs, two player NBT fields and 32 pig NBT fields. The pack rendered health as `9f` and rejected the inventory `execute if items` probe. Both saved the stone in the same slot. See `run/harness-actions/pumpkin-checked.json`.
+
+## Cross-version oracles
+
+The Windows reference loaded Create 6.0.10 on NeoForge 21.1.219 and Minecraft 1.21.1 with Java 21. The subject remained the 26.3 pack at engine pin `68296347e`. The reference installation is shared across runs. [Create 6.0.10 for NeoForge](https://modrinth.com/mod/create/version/UjX6dr61)
+
+- `tests/harness-oracle/oak-boat.txt` translated `minecraft:oak_boat` to `minecraft:boat` for the reference. Both servers completed one exact tick and passed the probe. The run kept its JSON and removed its checkpoints.
+- `tests/harness-oracle/create-shaft.txt` read `Speed: 0.0f` from the original mod. The base pack rejected the block ID and found no block entity. `run-all` returned 1 with two differences and zero run errors. The full results are in `run/harness-oracle/final.json`.
+- The stock self-test still matched identical vanilla worlds and caught one deliberate block mismatch. See `run/harness-oracle/stock-self-test.json`.

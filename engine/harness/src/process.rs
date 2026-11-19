@@ -9,7 +9,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::scenario::Scenario;
+use crate::{
+    oracle::{self, Oracle},
+    scenario::Scenario,
+};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 const BOOT_TIMEOUT: Duration = Duration::from_secs(180);
@@ -19,6 +22,7 @@ const STORAGE: &str = "moddedmc_harness:sync";
 #[derive(Clone, PartialEq, Eq)]
 pub enum ServerProgram {
     Vanilla(PathBuf),
+    Oracle(Oracle),
     Pumpkin(PathBuf),
 }
 
@@ -26,6 +30,8 @@ impl ServerProgram {
     pub fn parse(value: &str) -> Result<Self, String> {
         if let Some(jar) = value.strip_prefix("vanilla:") {
             Ok(Self::Vanilla(file(jar)?))
+        } else if let Some(descriptor) = value.strip_prefix("oracle:") {
+            Ok(Self::Oracle(Oracle::read(&file(descriptor)?)?))
         } else {
             Ok(Self::Pumpkin(file(value)?))
         }
@@ -70,6 +76,12 @@ impl ServerProgram {
     fn command(&self) -> Command {
         match self {
             Self::Vanilla(jar) => vanilla_java(jar, false),
+            Self::Oracle(oracle) => {
+                let exe = oracle.java.as_deref().unwrap_or_else(|| Path::new("java"));
+                let mut command = java(exe);
+                command.args(&oracle.args).arg("nogui");
+                command
+            }
             Self::Pumpkin(exe) => {
                 let mut command = Command::new(exe);
                 command
@@ -81,19 +93,23 @@ impl ServerProgram {
     }
 }
 
+fn java(exe: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new(exe);
+    command.args([
+        "-Xmx1G",
+        "-XX:ActiveProcessorCount=2",
+        "-Duser.language=en",
+        "-Duser.country=US",
+        "-Dfile.encoding=UTF-8",
+    ]);
+    command
+}
+
 fn vanilla_java(jar: &Path, extract_only: bool) -> Command {
-    let mut command = Command::new("java");
+    let mut command = java("java");
     let mut cache = std::ffi::OsString::from("-DbundlerRepoDir=");
     cache.push(jar.with_file_name("META-INF"));
-    command
-        .args([
-            "-Xmx1G",
-            "-XX:ActiveProcessorCount=2",
-            "-Duser.language=en",
-            "-Duser.country=US",
-            "-Dfile.encoding=UTF-8",
-        ])
-        .arg(cache);
+    command.arg(cache);
     if extract_only {
         command.arg("-DbundlerMainClass=");
     }
@@ -235,6 +251,8 @@ fn hide_window(command: &mut Command) {
 pub struct Server {
     process: Process,
     vanilla: bool,
+    legacy_commands: bool,
+    legacy_console: bool,
     pub dir: PathBuf,
     pub port: u16,
     pub origin: u64,
@@ -248,6 +266,7 @@ impl Server {
         program: &ServerProgram,
         scenario: &Scenario,
         dir: PathBuf,
+        subject_mods: Option<&Path>,
     ) -> Result<Self, String> {
         let socket = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
         let port = socket
@@ -255,13 +274,26 @@ impl Server {
             .map_err(|error| error.to_string())?
             .port();
         fs::create_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        configure(scenario, &dir, port, program.is_vanilla())?;
+        let advertised_java = match program {
+            ServerProgram::Vanilla(_) => Some("26.3"),
+            ServerProgram::Oracle(oracle) => Some(oracle.minecraft.as_str()),
+            ServerProgram::Pumpkin(_) => None,
+        };
+        configure(scenario, &dir, port, advertised_java.is_some())?;
+        if let ServerProgram::Oracle(oracle) = program {
+            oracle.mount(&dir)?;
+        }
+        if let Some(mods) = subject_mods {
+            oracle::stage_subject_mods(mods, &dir)?;
+        }
         let command = program.command();
         drop(socket);
         let process = Process::spawn(command, &dir, "console")?;
         let mut server = Self {
             process,
-            vanilla: program.is_vanilla(),
+            vanilla: advertised_java.is_some(),
+            legacy_console: advertised_java.is_some_and(|version| version.starts_with("1.")),
+            legacy_commands: matches!(program, ServerProgram::Oracle(oracle) if oracle.legacy_commands),
             dir,
             port,
             origin: 0,
@@ -277,16 +309,18 @@ impl Server {
                 line.contains("Started server; took")
             }
         })?;
+        let version_line =
+            advertised_java.map(|version| format!("Starting minecraft server version {version}"));
         if !server.history.iter().any(|line| {
-            if vanilla {
-                line.ends_with("Starting minecraft server version 26.3")
-            } else {
-                line.contains("Java Minecraft (Protocol 777)")
-            }
+            version_line.as_deref().map_or_else(
+                || line.contains("Java Minecraft (Protocol 777)"),
+                |expected| line.ends_with(expected),
+            )
         }) {
             return Err(format!(
-                "{} did not advertise Java 26.3 at startup",
-                server.dir.display()
+                "{} did not advertise Java {} at startup",
+                server.dir.display(),
+                advertised_java.unwrap_or("26.3")
             ));
         }
         server.require("tick freeze", "The game is frozen")?;
@@ -295,17 +329,35 @@ impl Server {
     }
 
     pub fn prepare(&mut self, scenario: &Scenario) -> Result<(), String> {
-        for (rule, value) in [
-            ("spawn_mobs", "false"),
-            ("advance_time", "false"),
-            ("advance_weather", "false"),
-            ("random_tick_speed", "0"),
-            ("respawn_radius", "0"),
-        ] {
-            self.require(
-                &format!("gamerule minecraft:{rule} {value}"),
-                &format!("is now set to {value}"),
-            )?;
+        let rules = if self.legacy_commands {
+            [
+                ("doMobSpawning", "false"),
+                ("doDaylightCycle", "false"),
+                ("doWeatherCycle", "false"),
+                ("randomTickSpeed", "0"),
+                ("spawnRadius", "0"),
+            ]
+        } else {
+            [
+                ("minecraft:spawn_mobs", "false"),
+                ("minecraft:advance_time", "false"),
+                ("minecraft:advance_weather", "false"),
+                ("minecraft:random_tick_speed", "0"),
+                ("minecraft:respawn_radius", "0"),
+            ]
+        };
+        for (rule, value) in rules {
+            let command = format!("gamerule {rule} {value}");
+            let feedback = self.command(&command)?;
+            if !feedback.iter().any(|line| {
+                line.rsplit_once(" is now set to")
+                    .is_some_and(|(_, output)| output.trim_start_matches(':').trim_start() == value)
+            }) {
+                return Err(format!(
+                    "{} rejected {command:?}: {feedback:?}",
+                    self.dir.display()
+                ));
+            }
         }
         self.require("setworldspawn 0 150 0", "Set the world spawn point")?;
         let [min_x, _, min_z] = scenario.area.min;
@@ -344,13 +396,14 @@ impl Server {
             .send(&format!("data get storage {STORAGE} {marker}"))?;
         let marker = format!("Found no elements matching {marker}");
         let vanilla = self.vanilla;
+        let legacy_console = self.legacy_console;
         let raw = self.process.until(command, COMMAND_TIMEOUT, |line| {
-            feedback(line, vanilla).is_some_and(|text| text == marker)
+            feedback(line, vanilla, legacy_console).is_some_and(|text| text == marker)
         })?;
         let mut output = Vec::new();
         let mut continuation = false;
         for line in raw {
-            if let Some(text) = feedback(&line, vanilla) {
+            if let Some(text) = feedback(&line, vanilla, legacy_console) {
                 output.push(text.into());
                 continuation = vanilla;
             } else if continuation && !line.starts_with('[') {
@@ -378,8 +431,9 @@ impl Server {
         self.command("time query gametime")?
             .iter()
             .find_map(|line| {
-                line.strip_prefix("The game time is ")?
-                    .strip_suffix(" tick(s)")?
+                line.strip_prefix("The game time is ")
+                    .and_then(|clock| clock.strip_suffix(" tick(s)"))
+                    .or_else(|| line.strip_prefix("The time is "))?
                     .parse()
                     .ok()
             })
@@ -435,9 +489,10 @@ impl Server {
     pub fn flush(&mut self) -> Result<(), String> {
         self.process.send("save-all flush")?;
         let vanilla = self.vanilla;
+        let legacy_console = self.legacy_console;
         let mut saved = false;
         let raw = self.process.until("save-all flush", BOOT_TIMEOUT, |line| {
-            let Some(text) = feedback(line, vanilla) else {
+            let Some(text) = feedback(line, vanilla, legacy_console) else {
                 return false;
             };
             saved = text == "Saved the game";
@@ -476,10 +531,20 @@ impl Server {
     }
 }
 
-fn feedback(line: &str, vanilla: bool) -> Option<&str> {
+fn feedback(line: &str, vanilla: bool, legacy_console: bool) -> Option<&str> {
     if vanilla {
-        let (_, text) = line.split_once("]: ")?;
-        text.strip_prefix("System chat: ")
+        let (prefix, text) = line.split_once("]: ")?;
+        if let Some(reply) = text.strip_prefix("System chat: ") {
+            return Some(reply);
+        }
+        if legacy_console {
+            let server = prefix.ends_with("[Server thread/INFO")
+                || (prefix.contains("[Server thread/INFO] ")
+                    && prefix.ends_with("[minecraft/MinecraftServer"));
+            server.then_some(text)
+        } else {
+            None
+        }
     } else if line.as_bytes().get(2) == Some(&b':')
         || line.starts_with('[') && line.contains(" INFO ")
     {
@@ -549,4 +614,19 @@ fn upper_first(text: &str) -> String {
         first.make_ascii_uppercase();
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::feedback;
+
+    #[test]
+    fn legacy_feedback_keeps_command_values_and_drops_other_loggers() {
+        let command =
+            "[12:00:00] [Server thread/INFO] [minecraft/MinecraftServer]: Result [text]: value";
+        let other = "[12:00:00] [Server thread/INFO] [neoforge/PermissionAPI]: Ready";
+        assert_eq!(feedback(command, true, true), Some("Result [text]: value"));
+        assert_eq!(feedback(other, true, true), None);
+        assert_eq!(feedback(command, true, false), None);
+    }
 }

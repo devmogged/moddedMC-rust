@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use glob::Pattern;
 use regex::Regex;
 
+use crate::oracle;
+
 pub type Position = [i32; 3];
 
 #[derive(Clone, Copy, Debug)]
@@ -55,6 +57,7 @@ pub struct Scenario {
     pub seed: i64,
     pub area: Area,
     pub properties: BTreeMap<String, String>,
+    pub ids: BTreeMap<String, String>,
     pub steps: Vec<Step>,
     pub allows: Vec<Allow>,
 }
@@ -64,6 +67,7 @@ struct Parser {
     seed: Option<i64>,
     area: Option<Area>,
     properties: BTreeMap<String, String>,
+    ids: BTreeMap<String, String>,
     explicit_rules: bool,
     started: bool,
     stopped: bool,
@@ -99,6 +103,7 @@ pub fn parse(text: &str) -> Result<Scenario, String> {
         seed: parser.seed.unwrap_or(12345),
         area: parser.area.ok_or("scenario requires an area")?,
         properties: parser.properties,
+        ids: parser.ids,
         steps: parser.steps,
         allows: parser.allows,
     })
@@ -178,6 +183,16 @@ impl Parser {
             "area" if self.area.is_none() => self.area = Some(parse_area(rest)?),
             "gamerules" if rest == "deterministic" && !self.explicit_rules => {
                 self.explicit_rules = true;
+            }
+            "idmap" => {
+                let (subject, reference) = split(rest);
+                if !oracle::resource_id(subject) || !oracle::resource_id(reference) {
+                    return Err("idmap requires subject and reference resource IDs".into());
+                }
+                if self.ids.contains_key(subject) || self.ids.values().any(|old| old == reference) {
+                    return Err("idmap entries must be one to one".into());
+                }
+                self.ids.insert(subject.into(), reference.into());
             }
             "properties" => {
                 let (key, value) = rest
