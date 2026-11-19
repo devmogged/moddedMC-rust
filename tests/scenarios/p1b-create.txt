@@ -104,6 +104,18 @@ cmd kinetics 2018 109 2018
 wait 0.5
 expect at 2018 109 2018 Speed=256 Stress=16384 Capacity=16384$
 
+# TurntableBlock.entityInside: a mob standing on a turntable turning at 16 RPM loses 4.8 degrees of
+# yaw a tick. Players turn on their own client.
+cmd fill 2040 99 2010 2040 101 2010 minecraft:air
+cmd setblock 2040 99 2010 create:creative_motor[facing=up]
+cmd setblock 2040 100 2010 create:turntable
+wait 1
+cmd summon minecraft:armor_stand 2040.5 100.6 2010.5
+wait 0.5
+cmd execute if entity @e[type=armor_stand,y_rotation=-170..-10]
+wait 0.5
+expect Test passed
+
 # Two running lines turning opposite ways. The shaft placed between them breaks and drops (the
 # item falls through the cleared area, hence the wide search).
 cmd setblock 2000 100 2030 create:creative_motor[facing=east]

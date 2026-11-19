@@ -10,6 +10,7 @@ use moddedmc_api::{
         self, Block, BlockUpdate, Content, ContentEvent, Placement, ShapeBox, State, World,
         WorldExtension,
     },
+    entities::{self, ENTITY_LIVING, ENTITY_PLAYER, Entities, Entity, EntityChange},
     items::{self, Item, Items},
 };
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,7 @@ const STONE: &str = "minecraft:andesite";
 static CONTENT: OnceLock<Content> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
+static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static STATES: OnceLock<StateIds> = OnceLock::new();
 /// Each loaded world's kinetic block entities and networks, by `World::id`.
 static WORLDS: Mutex<Option<HashMap<usize, Kinetics>>> = Mutex::new(None);
@@ -63,6 +65,7 @@ impl Mod for Create {
         let _ = CONTENT.set(content);
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);
+        let _ = ENTITIES.set(entities::require()?);
         Ok(())
     }
 
@@ -84,6 +87,10 @@ impl Mod for Create {
         register_motor(content, registry)?;
         register_casings(content, registry)?;
         content.on_tick(registry, tick)?;
+        ENTITIES
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .on_entity_inside(registry, entity_inside)?;
 
         COMMANDS
             .get()
@@ -836,6 +843,41 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         kinetics.tick(&mut level);
         flush(world, kinetics);
     });
+}
+
+/// `TurntableBlock.entityInside`. Players turn on their own client, so the server leaves them alone.
+fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
+    if states().and_then(|states| states.kind(state)) != Some(Kind::Turntable) {
+        return;
+    }
+    let Some(view) = entity.view() else { return };
+    if !view.on_ground || view.motion[1] > 0.0 || view.position[1] < f64::from(pos.y as f32 + 0.5) {
+        return;
+    }
+    let speed = with_world(world, |kinetics| kinetics.get(pos).map(Be::get_speed)).unwrap_or(0.0)
+        * 3.0
+        / 10.0;
+    if speed == 0.0 || view.kind & ENTITY_PLAYER != 0 {
+        return;
+    }
+    let mut change = EntityChange {
+        mask: entities::SET_YAW,
+        yaw: view.yaw - speed,
+        ..EntityChange::default()
+    };
+    if view.kind & ENTITY_LIVING != 0 {
+        // setNoActionTime(20) has no Pumpkin counterpart yet; hurtMarked resends the motion.
+        let diff = view.head_yaw - speed;
+        change.mask |= entities::SET_BODY_YAW
+            | entities::SET_HEAD_YAW
+            | entities::SET_ON_GROUND
+            | entities::SET_MOTION;
+        change.body_yaw = diff;
+        change.head_yaw = diff;
+        change.on_ground = false;
+        change.motion = view.motion;
+    }
+    entity.change(&change);
 }
 
 /// Save changed block entities and show their speed (`getSpeed`, zero when overstressed).
