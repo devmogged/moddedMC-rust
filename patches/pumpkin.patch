@@ -206,6 +206,42 @@ index 4fdd48b97..f435e7054 100644
 +    }
 +    chunk_loading.send_change();
 +}
+diff --git a/crates/pumpkin-core/src/data/datapack/mod.rs b/crates/pumpkin-core/src/data/datapack/mod.rs
+index a02eb8fd7..b6d35a6ba 100644
+--- a/crates/pumpkin-core/src/data/datapack/mod.rs
++++ b/crates/pumpkin-core/src/data/datapack/mod.rs
+@@ -39,6 +39,11 @@ use self::test_loader::{
+ };
+ use self::trade_loader::{DynamicVillagerTradeSet, TradeRegistry};
+ 
++/// Registry entries mods add (moddedmc): `(registry, entry id, JSON)`, merged on every load.
++pub static MODDED_REGISTRY_ENTRIES: std::sync::OnceLock<
++    Vec<(&'static str, String, serde_json::Value)>,
++> = std::sync::OnceLock::new();
++
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub struct KnownPackData {
+     pub namespace: String,
+@@ -247,6 +252,19 @@ impl DatapackManager {
+                 .or_default()
+                 .insert(id.clone(), entry.to_registry_entry());
+         }
++        // Registry entries mods add (moddedmc), e.g. their biomes: on every (re)load.
++        for (registry, id, json) in MODDED_REGISTRY_ENTRIES.get().into_iter().flatten() {
++            all_dynamic_registries
++                .entry((*registry).to_string())
++                .or_default()
++                .insert(
++                    id.clone(),
++                    RegistryEntryData {
++                        entry_id: id.clone(),
++                        data: Some(dynamic_registry_loader::json_to_registry_nbt_bytes(json)),
++                    },
++                );
++        }
+         self.dynamic_registry_manager
+             .apply_custom_registries(&all_dynamic_registries);
+ 
 diff --git a/crates/pumpkin-core/src/net/java/play/attack.rs b/crates/pumpkin-core/src/net/java/play/attack.rs
 index 7b84c3232..c0ed64cfd 100644
 --- a/crates/pumpkin-core/src/net/java/play/attack.rs
@@ -413,6 +449,32 @@ index b5bd363aa..c0aacee98 100644
          Block::from_id(self)
      }
  
+diff --git a/crates/pumpkin-data/src/generated/biome.rs b/crates/pumpkin-data/src/generated/biome.rs
+index aecef3b4a..0f25cafcd 100644
+--- a/crates/pumpkin-data/src/generated/biome.rs
++++ b/crates/pumpkin-data/src/generated/biome.rs
+@@ -9659,10 +9659,10 @@ impl Biome {
+             "windswept_hills" => Some(&Self::WINDSWEPT_HILLS),
+             "windswept_savanna" => Some(&Self::WINDSWEPT_SAVANNA),
+             "wooded_badlands" => Some(&Self::WOODED_BADLANDS),
+-            _ => None,
++            _ => crate::modded_biome::by_name(name),
+         }
+     }
+-    pub const fn from_id(id: u8) -> Option<&'static Self> {
++    pub fn from_id(id: u8) -> Option<&'static Self> {
+         match id {
+             0 => Some(&Self::BADLANDS),
+             1 => Some(&Self::BAMBOO_JUNGLE),
+@@ -9731,7 +9731,7 @@ impl Biome {
+             64 => Some(&Self::WINDSWEPT_HILLS),
+             65 => Some(&Self::WINDSWEPT_SAVANNA),
+             66 => Some(&Self::WOODED_BADLANDS),
+-            _ => None,
++            _ => crate::modded_biome::by_id(id),
+         }
+     }
+ }
 diff --git a/crates/pumpkin-data/src/generated/block.rs b/crates/pumpkin-data/src/generated/block.rs
 index d549ba33d..13cda22aa 100644
 --- a/crates/pumpkin-data/src/generated/block.rs
@@ -497,10 +559,19 @@ index d549ba33d..13cda22aa 100644
      }
  }
 diff --git a/crates/pumpkin-data/src/lib.rs b/crates/pumpkin-data/src/lib.rs
-index 7b27804ea..0db553234 100644
+index 7b27804ea..3c8c2a7cc 100644
 --- a/crates/pumpkin-data/src/lib.rs
 +++ b/crates/pumpkin-data/src/lib.rs
-@@ -473,6 +473,8 @@ pub mod block_rotation;
+@@ -128,6 +128,8 @@ pub mod noise_parameter;
+ #[rustfmt::skip]
+ #[path = "generated/biome.rs"]
+ pub mod biome;
++#[cfg(feature = "biome")]
++pub mod modded_biome;
+ 
+ #[cfg(feature = "chunk_status")]
+ #[rustfmt::skip]
+@@ -473,6 +475,8 @@ pub mod block_rotation;
  pub mod block_state;
  #[cfg(feature = "block")]
  mod blocks;
@@ -844,6 +915,97 @@ index 000000000..6a0f6f830
 +        assert!(install(Vec::new(), Vec::new()).is_err());
 +    }
 +}
+diff --git a/crates/pumpkin-data/src/modded_biome.rs b/crates/pumpkin-data/src/modded_biome.rs
+new file mode 100644
+index 000000000..ba0682f5e
+--- /dev/null
++++ b/crates/pumpkin-data/src/modded_biome.rs
+@@ -0,0 +1,85 @@
++//! Biomes mods add (moddedmc). They are installed once, before any world loads, with ids after
++//! vanilla's in a fixed order the host keeps, so ids saved in chunks stay valid. Server-side a
++//! modded biome behaves like its vanilla look-alike (spawns, weather); clients get its own
++//! definition through the registry sync, where custom biomes come after vanilla's sorted by name,
++//! so network ids are mapped when chunks are sent.
++
++use std::sync::OnceLock;
++
++use crate::biome::Biome;
++
++/// The client reads directly-encoded biomes with 7 bits: at most 128 biomes in all.
++pub const MAX_TOTAL: usize = 128;
++
++static MODDED: OnceLock<Vec<&'static Biome>> = OnceLock::new();
++static NETWORK: OnceLock<Vec<u8>> = OnceLock::new();
++
++/// Installs `(name, look-alike)` pairs in order; ids follow vanilla's. Once only.
++pub fn install(defs: &[(String, &'static Biome)]) -> Result<(), String> {
++    if Biome::ALL.len() + defs.len() > MAX_TOTAL {
++        return Err(format!(
++            "{} modded biomes: at most {} fit",
++            defs.len(),
++            MAX_TOTAL - Biome::ALL.len()
++        ));
++    }
++    let mut biomes = Vec::with_capacity(defs.len());
++    for (i, (name, look)) in defs.iter().enumerate() {
++        // SAFETY: a `Biome` holds only `'static` borrows and plain data and has no `Drop`, so a
++        // bitwise copy of a static one shares nothing that could be freed or mutated.
++        let mut biome: Biome = unsafe { std::ptr::read(*look) };
++        biome.id = u8::try_from(Biome::ALL.len() + i).map_err(|e| e.to_string())?;
++        biome.registry_id = Box::leak(name.clone().into_boxed_str());
++        biomes.push(&*Box::leak(Box::new(biome)));
++    }
++    MODDED
++        .set(biomes)
++        .map_err(|_| "modded biomes are already installed".to_owned())
++}
++
++#[must_use]
++pub fn by_id(id: u8) -> Option<&'static Biome> {
++    MODDED.get()?.get(usize::from(id).checked_sub(Biome::ALL.len())?).copied()
++}
++
++#[must_use]
++pub fn by_name(name: &str) -> Option<&'static Biome> {
++    MODDED.get()?.iter().copied().find(|b| b.registry_id == name)
++}
++
++/// Sets each modded biome's network id (its index in the synced biome registry). Once only.
++pub fn set_network(ids: Vec<u8>) {
++    let _ = NETWORK.set(ids);
++}
++
++/// The id a client knows this biome by.
++#[must_use]
++pub fn to_client(id: u8) -> u8 {
++    usize::from(id)
++        .checked_sub(Biome::ALL.len())
++        .and_then(|i| NETWORK.get()?.get(i).copied())
++        .unwrap_or(id)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn install_and_look_up() {
++        let defs = vec![("demo:glacier".to_owned(), &Biome::SNOWY_PLAINS)];
++        assert!(install(&defs).is_ok());
++        let first = u8::try_from(Biome::ALL.len()).unwrap_or(u8::MAX);
++        let biome = by_id(first).map(|b| (b.id, b.registry_id, b.be_network_id));
++        assert_eq!(
++            biome,
++            Some((first, "demo:glacier", Biome::SNOWY_PLAINS.be_network_id))
++        );
++        assert_eq!(by_name("demo:glacier").map(|b| b.id), Some(first));
++        assert_eq!(to_client(first), first);
++        set_network(vec![first + 1]);
++        assert_eq!(to_client(first), first + 1);
++        assert_eq!(to_client(3), 3);
++        assert!(by_id(first + 1).is_none());
++    }
++}
 diff --git a/crates/pumpkin-inventory/src/generic_container_screen_handler.rs b/crates/pumpkin-inventory/src/generic_container_screen_handler.rs
 index e8ddd0a6e..2e54f1dad 100644
 --- a/crates/pumpkin-inventory/src/generic_container_screen_handler.rs
@@ -1181,7 +1343,7 @@ index ae0a6184c..1eef1dfc2 100644
  
  #[cfg(test)]
 diff --git a/crates/pumpkin-world/src/chunk/format/mod.rs b/crates/pumpkin-world/src/chunk/format/mod.rs
-index ec64a88a2..201c8b44b 100644
+index ec64a88a2..277c10bdc 100644
 --- a/crates/pumpkin-world/src/chunk/format/mod.rs
 +++ b/crates/pumpkin-world/src/chunk/format/mod.rs
 @@ -146,6 +146,9 @@ fn extract_u16_array(tag: &pumpkin_nbt::tag::NbtTag) -> Option<Box<[BlockStateId
@@ -1216,11 +1378,57 @@ index ec64a88a2..201c8b44b 100644
                      }
                      NbtTag::Compound(comp)
                  })
+@@ -619,7 +628,7 @@ impl ChunkData {
+                 .map(|&val| {
+                     let name = pumpkin_data::biome::Biome::from_id(val)
+                         .map_or("plains", |b| b.registry_id);
+-                    let full_name = if name.starts_with("minecraft:") {
++                    let full_name = if name.contains(':') {
+                         name.to_string()
+                     } else {
+                         format!("minecraft:{name}")
 diff --git a/crates/pumpkin-world/src/chunk/palette.rs b/crates/pumpkin-world/src/chunk/palette.rs
-index 963e40d8f..11286da6a 100644
+index 963e40d8f..f0b06dad2 100644
 --- a/crates/pumpkin-world/src/chunk/palette.rs
 +++ b/crates/pumpkin-world/src/chunk/palette.rs
-@@ -838,7 +838,7 @@ impl BlockPalette {
+@@ -622,13 +622,18 @@ impl<V: Default + Hash + Eq + Copy, const DIM: usize> Default for PalettedContai
+     }
+ }
+ 
++/// Modded biomes have their own network ids (moddedmc).
++fn to_client(id: u8) -> u8 {
++    pumpkin_data::modded_biome::to_client(id)
++}
++
+ impl BiomePalette {
+     #[must_use]
+     pub fn convert_network(&self) -> NetworkSerialization<u8> {
+         match self {
+             Self::Homogeneous(registry_id) => NetworkSerialization {
+                 bits_per_entry: 0,
+-                palette: NetworkPalette::Single(*registry_id),
++                palette: NetworkPalette::Single(to_client(*registry_id)),
+                 packed_data: Box::new([]),
+             },
+             Self::Heterogeneous(data) => {
+@@ -646,7 +651,7 @@ impl BiomePalette {
+                                 let y = (current_idx + i) / (Self::SIZE * Self::SIZE);
+                                 let z = ((current_idx + i) / Self::SIZE) % Self::SIZE;
+                                 let x = (current_idx + i) % Self::SIZE;
+-                                let value = data.get(x, y, z);
++                                let value = to_client(data.get(x, y, z));
+                                 debug_assert!((1 << bits_per_entry) > value);
+                                 acc |= (value as u64) << (bits_per_entry as u64 * i as u64);
+                             }
+@@ -663,6 +668,7 @@ impl BiomePalette {
+                 } else {
+                     let bits_per_entry = raw_bits_per_entry.max(BIOME_NETWORK_MIN_MAP_BITS);
+                     let (palette, packed) = self.to_palette_and_packed_data(bits_per_entry);
++                    let palette = palette.iter().map(|&id| to_client(id)).collect();
+ 
+                     NetworkSerialization {
+                         bits_per_entry,
+@@ -838,7 +844,7 @@ impl BlockPalette {
          match self {
              Self::Homogeneous(registry_id) => NetworkSerialization {
                  bits_per_entry: 0,
@@ -1229,7 +1437,7 @@ index 963e40d8f..11286da6a 100644
                  packed_data: Box::new([]),
              },
              Self::Heterogeneous(data) => {
-@@ -856,7 +856,7 @@ impl BlockPalette {
+@@ -856,7 +862,7 @@ impl BlockPalette {
                                  let y = (current_idx + i) / (Self::SIZE * Self::SIZE);
                                  let z = ((current_idx + i) / Self::SIZE) % Self::SIZE;
                                  let x = (current_idx + i) % Self::SIZE;
@@ -1238,7 +1446,7 @@ index 963e40d8f..11286da6a 100644
                                  debug_assert!((1u32 << bits_per_entry) > u32::from(value));
                                  acc |= (value as u64) << (bits_per_entry as u64 * i as u64);
                              }
-@@ -877,7 +877,7 @@ impl BlockPalette {
+@@ -877,7 +883,7 @@ impl BlockPalette {
                      NetworkSerialization {
                          bits_per_entry,
                          palette: NetworkPalette::Indirect(
@@ -1247,7 +1455,7 @@ index 963e40d8f..11286da6a 100644
                          ),
                          packed_data: packed,
                      }
-@@ -1065,14 +1065,14 @@ impl BlockPalette {
+@@ -1065,14 +1071,14 @@ impl BlockPalette {
          match self {
              Self::Homogeneous(id) => {
                  out.put_u8(0);
@@ -1264,7 +1472,7 @@ index 963e40d8f..11286da6a 100644
                          out.put_u16(count);
                      }
                      out.extend_from_slice(indices.as_flattened().as_flattened());
-@@ -1080,7 +1080,7 @@ impl BlockPalette {
+@@ -1080,7 +1086,7 @@ impl BlockPalette {
                  PaletteStorage::Dense(cube) => {
                      out.put_u8(2);
                      for &id in cube.as_flattened().as_flattened() {
@@ -1273,7 +1481,7 @@ index 963e40d8f..11286da6a 100644
                      }
                  }
              },
-@@ -1102,7 +1102,7 @@ impl BlockPalette {
+@@ -1102,7 +1108,7 @@ impl BlockPalette {
                          "Unexpected EOF reading homogeneous block palette".into(),
                      ));
                  }
@@ -1282,7 +1490,7 @@ index 963e40d8f..11286da6a 100644
              }
              1 => {
                  if buf.remaining() < 2 {
-@@ -1120,7 +1120,7 @@ impl BlockPalette {
+@@ -1120,7 +1126,7 @@ impl BlockPalette {
                  }
                  let mut palette = Vec::with_capacity(palette_len);
                  for _ in 0..palette_len {
@@ -1291,7 +1499,7 @@ index 963e40d8f..11286da6a 100644
                      buf.advance(2);
                  }
                  if palette_len == 1 {
-@@ -1154,7 +1154,7 @@ impl BlockPalette {
+@@ -1154,7 +1160,7 @@ impl BlockPalette {
                  let mut cube =
                      Box::new([[[BlockStateId::AIR; Self::SIZE]; Self::SIZE]; Self::SIZE]);
                  for slot in cube.as_flattened_mut().as_flattened_mut() {

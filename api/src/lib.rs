@@ -20,6 +20,7 @@
 //! ```
 
 pub mod abi;
+pub mod biomes;
 pub mod blocks;
 pub mod entities;
 pub mod menus;

@@ -335,6 +335,27 @@ pub struct EntitiesV1 {
     pub set_ai: unsafe extern "C" fn(dimension: Str, id: EntityId, enabled: bool) -> bool,
 }
 
+/// [`BiomesV1`]: biomes mods add and paint into the world.
+pub const BIOMES_V1: &str = "moddedmc:biomes/1";
+
+/// Biomes. A mod defines a biome once, before any world loads: clients get its definition (the
+/// JSON of a vanilla `worldgen/biome` file: colors, sounds, particles, weather), and the server
+/// treats it like its vanilla look-alike (mob spawns, rain or snow). Biomes cover 4x4x4 cells.
+#[repr(C)]
+pub struct BiomesV1 {
+    pub size: usize,
+    /// During `ModApi::define_blocks`: defines biome `name` (`frost:glacier`) like vanilla
+    /// `look_alike` (`minecraft:snowy_plains`) with client definition `json`. Returns a [`code`].
+    pub define_biome:
+        unsafe extern "C" fn(defs: Defs, name: Str, look_alike: Str, json: Str) -> i32,
+    /// Sets the biome of the cell holding `pos`. Players see it from the next tick. False if the
+    /// biome is unknown or the chunk is not loaded.
+    pub set_biome: unsafe extern "C" fn(dimension: Str, pos: Pos, name: Str) -> bool,
+    /// Puts the name of the biome at `pos` into `out` under key 0. False if the chunk is not
+    /// loaded.
+    pub biome_at: unsafe extern "C" fn(dimension: Str, pos: Pos, out: Sink) -> bool,
+}
+
 /// [`MenusV1`]: chest-style inventories a mod fills and reads back.
 pub const MENUS_V1: &str = "moddedmc:menus/1";
 
@@ -595,6 +616,13 @@ mod layout {
         assert_eq!(offset_of!(EntityEvent, id), 24);
         assert_eq!(offset_of!(EntityEvent, player), 40);
         assert_eq!(size_of::<EntityEvent>(), 48);
+    }
+
+    #[test]
+    fn biomes_v1() {
+        assert_eq!(offset_of!(BiomesV1, define_biome), 8);
+        assert_eq!(offset_of!(BiomesV1, set_biome), 16);
+        assert_eq!(offset_of!(BiomesV1, biome_at), 24);
     }
 
     #[test]

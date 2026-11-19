@@ -6,6 +6,7 @@
 //! custom data on a vanilla stand-in block entity (saved by Pumpkin with the
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
+mod biome;
 mod console;
 mod menu;
 mod native;
@@ -186,6 +187,7 @@ pub fn load_mods() {
 /// the server starts ticking.
 pub fn attach(server: &Arc<Server>) {
     let _ = native::SERVER.set(server.clone());
+    biome::map_network(server);
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
     pm.register::<BlockPlaceEvent, _>(Arc::new(PlaceHandler), EventPriority::Normal, true);
@@ -350,6 +352,7 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
             register_new_mods(server);
             apply_pending_places();
             deliver_block_events(event.tick);
+            biome::flush();
             console::run_queued(server);
             if event.tick % DISCOVERY_INTERVAL == 0 {
                 let started = Instant::now();

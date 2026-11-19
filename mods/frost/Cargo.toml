@@ -1,0 +1,12 @@
+[package]
+name = "frost"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Demo of the moddedmc:biomes/1 interface: a biome of its own, painted where you stand."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true

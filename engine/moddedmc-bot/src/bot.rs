@@ -10,7 +10,7 @@ use pumpkin_protocol::{
     codec::var_int::VarInt,
     java::{
         client::{
-            config::{CConfigPing, CFinishConfig, CKnownPacks},
+            config::{CConfigPing, CFinishConfig, CKnownPacks, CRegistryData},
             login::CLoginSuccess,
             play::{CLogin, CPlayerPosition},
         },
@@ -144,6 +144,7 @@ impl HeadlessBot {
         let known_packs_id = CKnownPacks::to_id(CURRENT_MC_VERSION);
         let finish_config_id = CFinishConfig::to_id(CURRENT_MC_VERSION);
         let config_ping_id = CConfigPing::to_id(CURRENT_MC_VERSION);
+        let registry_data_id = CRegistryData::to_id(CURRENT_MC_VERSION);
         loop {
             let pkt = bot.next_packet().await?;
             if pkt.id == config_ping_id {
@@ -154,6 +155,8 @@ impl HeadlessBot {
                     .and_then(|b| b.try_into().ok())
                     .map_or(0, i32::from_be_bytes);
                 bot.send_packet(&SConfigPong { id }).await?;
+            } else if pkt.id == registry_data_id {
+                print_modded_entries(&pkt.payload);
             } else if pkt.id == known_packs_id {
                 bot.send_packet(&SKnownPacks {
                     known_packs: Vec::new(),
@@ -226,4 +229,32 @@ pub async fn send_framed_packet<P: ClientPacket + MultiVersionJavaPacket, W: Asy
         .flush()
         .await
         .map_err(|err| format!("Failed to flush socket: {err}"))
+}
+
+/// Prints the non-vanilla entries of a registry the server syncs, with their network ids, e.g.
+/// `[bot] registry minecraft:worldgen/biome 67 frost:glacier`.
+#[expect(clippy::print_stdout, reason = "the bot reports on stdout")]
+fn print_modded_entries(mut payload: &[u8]) {
+    use pumpkin_protocol::ser::NetworkReadExt;
+    let (Ok(registry), Ok(count)) = (payload.get_str(), payload.get_var_int()) else {
+        return;
+    };
+    for index in 0..count.0 {
+        let (Ok(id), Ok(has_data)) = (payload.get_str(), payload.get_bool()) else {
+            return;
+        };
+        if has_data {
+            let mut cursor = std::io::Cursor::new(payload);
+            let mut reader = pumpkin_nbt::deserializer::NbtReadHelperJava::new(&mut cursor);
+            if pumpkin_nbt::Nbt::read_unnamed(&mut reader).is_err() {
+                println!("[bot] registry {registry}: unreadable data for {id}");
+                return;
+            }
+            let read = usize::try_from(cursor.position()).unwrap_or(usize::MAX);
+            payload = payload.get(read..).unwrap_or_default();
+        }
+        if !id.starts_with("minecraft:") && id.contains(':') {
+            println!("[bot] registry {registry} {index} {id}");
+        }
+    }
 }

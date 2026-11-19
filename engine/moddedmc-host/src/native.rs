@@ -18,9 +18,9 @@ use std::{
 };
 
 use moddedmc_api::abi::{
-    self, ABI_SYMBOL, ABI_VERSION, BlockCall, BlockEvent, BlockWrite, BlocksV1, Defs, ENTRY_SYMBOL,
-    EntitiesV1, EntityId, HostApi, ID_SYMBOL, MenuButton, MenusV1, ModApi, PlayerRef, Pos,
-    Property, Reg, Sink, Str, TickEntry, Vec3, WorldV1, code, level,
+    self, ABI_SYMBOL, ABI_VERSION, BiomesV1, BlockCall, BlockEvent, BlockWrite, BlocksV1, Defs,
+    ENTRY_SYMBOL, EntitiesV1, EntityId, HostApi, ID_SYMBOL, MenuButton, MenusV1, ModApi, PlayerRef,
+    Pos, Property, Reg, Sink, Str, TickEntry, Vec3, WorldV1, code, level,
 };
 use pumpkin_core::{
     command::{
@@ -521,6 +521,7 @@ unsafe extern "C" fn query_interface(name: Str) -> *const c_void {
         abi::BLOCKS_V1 => std::ptr::from_ref(&BLOCKS).cast(),
         abi::ENTITIES_V1 => std::ptr::from_ref(&ENTITIES).cast(),
         abi::MENUS_V1 => std::ptr::from_ref(&MENUS).cast(),
+        abi::BIOMES_V1 => std::ptr::from_ref(&BIOMES).cast(),
         _ => std::ptr::null(),
     }
 }
@@ -533,7 +534,7 @@ static WORLD: WorldV1 = WorldV1 {
     state_name,
 };
 
-fn world(dimension: &str) -> Option<Arc<World>> {
+pub fn world(dimension: &str) -> Option<Arc<World>> {
     SERVER.get().and_then(|s| {
         s.worlds
             .load()
@@ -702,6 +703,7 @@ struct Defining {
     taken: HashSet<String>,
     states: usize,
     defs: Vec<BlockDef>,
+    biomes: Vec<crate::biome::Def>,
 }
 
 /// Most states mods can add: the client sees `u16` ids, vanilla uses the rest.
@@ -796,7 +798,9 @@ pub fn define_blocks(mods: &[Native]) {
         taken: HashSet::new(),
         states: 0,
         defs: Vec::new(),
+        biomes: Vec::new(),
     };
+    let mut biomes = Vec::new();
     let mut all = Vec::new();
     let mut owners = Vec::new();
     for (idx, module) in mods.iter().enumerate() {
@@ -807,6 +811,7 @@ pub fn define_blocks(mods: &[Native]) {
         // SAFETY: the mod's own instance; `defining` outlives the call.
         let result = unsafe { (module.api.define_blocks)(module.api.instance, defs) };
         let defined = std::mem::take(&mut defining.defs);
+        let defined_biomes = std::mem::take(&mut defining.biomes);
         if result != code::OK {
             tracing::error!(
                 "moddedmc: {} failed to define its blocks (code {result}); they are disabled",
@@ -825,7 +830,9 @@ pub fn define_blocks(mods: &[Native]) {
             owners.push((def.name.clone(), idx));
             all.push(def);
         }
+        biomes.extend(defined_biomes);
     }
+    crate::biome::install(biomes);
     // Blocks of mods that are gone stay defined, inert, so their chunks keep them.
     let known = fs::read_to_string(KNOWN_BLOCKS).unwrap_or_default();
     let mut missing = Vec::new();
@@ -984,6 +991,56 @@ pub fn owner(state: BlockStateId) -> Option<usize> {
 }
 
 // ---------------------------------------------------------------- entities/1
+
+// ---------------------------------------------------------------- biomes/1
+
+static BIOMES: BiomesV1 = BiomesV1 {
+    size: size_of::<BiomesV1>(),
+    define_biome,
+    set_biome,
+    biome_at,
+};
+
+unsafe extern "C" fn define_biome(defs: Defs, name: Str, look_alike: Str, json: Str) -> i32 {
+    // SAFETY: `defs` is the `Defining` of the `define_blocks` call in progress; the strings are
+    // borrowed for the call.
+    let (Some(defining), name, look_alike, json) = (
+        unsafe { defs.cast::<Defining>().as_mut() },
+        unsafe { text(name) },
+        unsafe { text(look_alike) },
+        unsafe { text(json) },
+    ) else {
+        return code::INVALID_DEFINITION;
+    };
+    if !crate::biome::valid(&name, &look_alike, &json) {
+        return code::INVALID_DEFINITION;
+    }
+    if !defining.taken.insert(name.clone()) {
+        return code::DUPLICATE_ID;
+    }
+    defining.biomes.push(crate::biome::Def {
+        name,
+        look_alike,
+        json,
+    });
+    code::OK
+}
+
+unsafe extern "C" fn set_biome(dimension: Str, pos: Pos, name: Str) -> bool {
+    // SAFETY: borrowed for the call.
+    let (dimension, name) = unsafe { (dimension.str(), name.str()) };
+    crate::biome::set(dimension, pos.x, pos.y, pos.z, name)
+}
+
+unsafe extern "C" fn biome_at(dimension: Str, pos: Pos, out: Sink) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some(name) = crate::biome::at(unsafe { dimension.str() }, pos.x, pos.y, pos.z) else {
+        return false;
+    };
+    // SAFETY: the mod's sink copies before returning.
+    unsafe { (out.put)(out.ctx, 0, Str::from(name.as_str())) };
+    true
+}
 
 // ---------------------------------------------------------------- menus/1
 

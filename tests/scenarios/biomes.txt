@@ -1,0 +1,73 @@
+# moddedmc:biomes/1 through the frost mod: a biome clients receive in the registry sync, painted
+# into a chunk, kept across a restart, kept while the mod is removed, and back with it.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\biomes.txt -RunDir run\biomes -Fresh
+mods target\mods\frost.mmc
+start
+wait 1
+expect defined biome frost:glacier \(like minecraft:snowy_plains\)
+expect biome frost:glacier is network id 67
+botstart tester
+wait 3
+expect \[bot\] registry minecraft:worldgen/biome 67 frost:glacier
+expect \[bot\] joined as tester
+cmd op tester
+cmd tp tester 2056.5 100 2056.5
+wait 3
+bot cmd biomehere
+wait 1
+reject \[bot\] chat: .*biomehere: frost:glacier
+bot cmd glacier
+wait 1
+expect \[bot\] chat: .*glacier: painted 144
+bot cmd biomehere
+wait 1
+expect \[bot\] chat: .*biomehere: frost:glacier
+cmd tp tester 2156.5 100 2156.5
+wait 3
+reject (?i)panic|panicked
+bot quit
+stop
+
+# The world keeps it across a restart.
+start
+wait 1
+botstart tester
+wait 3
+cmd tp tester 2056.5 100 2056.5
+wait 3
+bot cmd biomehere
+wait 1
+expect \[bot\] chat: .*biomehere: frost:glacier
+bot quit
+stop
+
+# Without the mod the biome stays defined, so the chunk keeps it ...
+unmod frost.mmc
+start
+wait 1
+expect defined biome frost:glacier
+botstart tester
+wait 3
+expect \[bot\] registry minecraft:worldgen/biome 67 frost:glacier
+cmd tp tester 2056.5 100 2056.5
+wait 3
+cmd setblock 2058 99 2058 minecraft:stone
+wait 1
+reject (?i)panic|panicked
+bot quit
+stop
+
+# ... and it is still there when the mod is back.
+mods target\mods\frost.mmc
+start
+wait 1
+botstart tester
+wait 3
+cmd tp tester 2056.5 100 2056.5
+wait 3
+bot cmd biomehere
+wait 1
+expect \[bot\] chat: .*biomehere: frost:glacier
+reject (?i)panic|panicked
+bot quit
+stop

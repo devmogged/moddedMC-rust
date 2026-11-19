@@ -63,6 +63,25 @@ impl Definitions<'_> {
     }
 }
 
+impl Definitions<'_> {
+    /// Defines biome `name` (`frost:glacier`): the server treats it like vanilla `look_alike`
+    /// (`minecraft:snowy_plains`), clients draw it from `json`, the body of a vanilla
+    /// `worldgen/biome` file. Fails with `InvalidDefinition` if the server has no `biomes/1`.
+    pub fn biome(
+        &mut self,
+        name: &str,
+        look_alike: &str,
+        json: &str,
+    ) -> Result<(), RegistrationError> {
+        let Some(table) = crate::biomes::table() else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        // SAFETY: a live definition handle; everything is borrowed for the call.
+        let code = unsafe { (table.define_biome)(self.defs, s(name), s(look_alike), s(json)) };
+        RegistrationError::from_code(code)
+    }
+}
+
 pub(crate) fn table() -> Option<&'static BlocksV1> {
     interface::<BlocksV1>(abi::BLOCKS_V1)
 }

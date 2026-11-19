@@ -73,6 +73,8 @@ What the SDK offers:
 | `entities::get()` | `moddedmc:entities/1`: `spawn` a vanilla entity type as a creature's look-alike, then `position`, `move_to`, `set_name`, `remove` by its id, and `set_ai` to switch a mob's vanilla AI off so only your mod moves it. Ids survive restarts (the world saves the entity): store them. |
 | `Mod::entity_event` | A player right-clicked (`Use`) or attacked (`Attack`) an entity. Every mod sees every one: act only on ids you spawned. Return true to cancel the vanilla interaction or the damage. |
 | `menus::get()` | `moddedmc:menus/1`: `open` a chest screen of 1 to 6 rows filled with your items; players move items in and out as in vanilla. An item is opaque bytes (vanilla item NBT, every component kept): store them as they are, and use `item(id, count)` and `describe(bytes)` to make and read them. |
+| `Definitions::biome` | In `define_blocks`: a biome of your own (`frost:glacier`). The server treats it like a vanilla look-alike (mob spawns, rain or snow); clients draw it from your JSON, the body of a vanilla `worldgen/biome` file (`effects` colors, `attributes` such as `minecraft:visual/sky_color`). At most 61 modded biomes fit. |
+| `biomes::get()` | `moddedmc:biomes/1`: `set` the biome of a 4x4x4 cell (e.g. from `chunk_generated`; players see it from the next tick) and read it with `at`. |
 | `Mod::menu_closed` | A player closed a `menus/1` menu: its key and one item per slot. Every mod sees every close: start your keys with your mod id and act only on those. Opening a menu from here fails. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
@@ -86,7 +88,7 @@ Rules:
 - Block entity state is opaque bytes, at most 64 KiB, saved with the chunk. Bump `state_version` when its layout changes; the server will not hand old-layout state to the new code.
 - You do not need the server's source, compiler version or build to build a mod. Any Rust toolchain that builds `api/` works.
 
-`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block), `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress), `mods/wisp` (a creature through `entities/1`), `mods/backpack` (an inventory through `menus/1`) and `mods/ores` (zinc ore through `chunk_generated`) are complete examples.
+`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block), `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress), `mods/wisp` (a creature through `entities/1`), `mods/backpack` (an inventory through `menus/1`), `mods/frost` (a biome through `biomes/1`) and `mods/ores` (zinc ore through `chunk_generated`) are complete examples.
 
 ### Modded blocks (`blocks/1`)
 
@@ -133,11 +135,12 @@ Interfaces:
 | `moddedmc:world/1` | 1.1 | Batched block reads and writes by state id (vanilla and `blocks/1`); state names to ids and back. |
 | `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`; `schedule_tick`, `is_powered`. Events come through `ModApi::block_event`. |
 | `moddedmc:entities/1` | 1.1 | Spawn, find, move, name and remove entities by UUID. Uses and attacks arrive through `ModApi::entity_event` (1.1). |
+| `moddedmc:biomes/1` | 1.1 | Biomes: defined in `define_blocks`, set and read per 4x4x4 cell. |
 | `moddedmc:menus/1` | 1.1 | Chest-style inventories; contents come back through `ModApi::menu_closed` (1.1). |
 
 World generation is the `ModApi::chunk_generated` callback (1.1) rather than an interface table: the mod places blocks itself through `world/1`.
 
-Planned (see [DECISIONS.md](DECISIONS.md)): more entity events (damage from other sources, death), AI beyond on/off (custom goals, pathfinding), structures and biomes for world generation, and machine screens (furnace-like progress, slot rules), each when a real port needs it. Button menus are `Player::show_menu` (dialogs); inventories are `menus/1`.
+Planned (see [DECISIONS.md](DECISIONS.md)): more entity events (damage from other sources, death), AI beyond on/off (custom goals, pathfinding), structure helpers for world generation, and machine screens (furnace-like progress, slot rules), each when a real port needs it. Button menus are `Player::show_menu` (dialogs); inventories are `menus/1`.
 
 Packaging (`.mmc`): a zip with
 
