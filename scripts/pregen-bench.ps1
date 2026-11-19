@@ -41,7 +41,10 @@ enabled = false
     $result = node $driver $rust 'Started server' 'Task finished' $commands -- $pack
     if ($LASTEXITCODE -ne 0) { throw "Rust benchmark failed; see $rust\bench.log" }
     Write-Output "rust radius=$Radius run=${i}: $result"
+    # Generated worlds are hundreds of MB per run; a failed run is kept above for its log.
+    Remove-Item -Recurse -Force $rust
 }
+Remove-Item -Recurse -Force $suite
 if ($SkipJava) { return }
 
 $cache = Join-Path $root 'cache\fabric'
@@ -62,4 +65,5 @@ for ($i = 1; $i -le $Runs; $i++) {
     Pop-Location
     if ($LASTEXITCODE -ne 0) { throw "Java benchmark failed; see $java\bench.log" }
     Write-Output "java radius=$Radius run=${i}: $result"
+    Remove-Item -Recurse -Force (Join-Path $java 'world')
 }

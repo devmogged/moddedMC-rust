@@ -7,8 +7,9 @@ Where work stopped and how to carry on. Read [ROADMAP.md](ROADMAP.md) and [BACKL
 - This repo is `devmogged/moddedMC-rust`, branch `main`. The engine is the submodule `engine/pumpkin` (`devmogged/Pumpkin`, branch `moddedmc`). Run `git submodule update --init` after pulling.
 - Build the server and the test bot: `cargo build --profile pack -p pack-dev -p moddedmc-bot` in `engine/`.
 - Build the Create mod: `powershell -NoProfile -File scripts/pack-mod.ps1 -Crate create`.
-- Run a scenario: `powershell -NoProfile -File scripts/scenario.ps1 -Scenario tests/scenarios/<file>.txt -RunDir run/<name> -Fresh`. The verbs are listed at the top of `scripts/scenario.ps1`.
+- Run a scenario: `powershell -NoProfile -File scripts/scenario.ps1 -Scenario tests/scenarios/<file>.txt -RunDir run/<name> -Fresh`. The verbs are listed at the top of `scripts/scenario.ps1`. A passing run deletes its run dir; add `-Keep` to look at the world or log.
 - Unit tests for Create's kinetics: `cargo test -p create` (seven tests).
+- Disk: build caches and worlds grew to about 170 GB before cleanup. `scripts/clean.ps1` frees run dirs, debug builds, incremental caches and cross builds (`-All` also drops pack and release). `.cargo/config.toml` files point every workspace at `target/` or `engine/target/`, so the submodule and the app no longer keep their own. Build with the `pack` profile and clean up what you leave behind.
 
 ## Mod side: Create port (P1)
 
@@ -18,7 +19,7 @@ Source of truth: Create 6.0.10 for MC 1.21.1 NeoForge, tag `mc1.21.1-6.0.10`. Po
 - P1a: shafts, cogs and the creative motor.
 - P1b: `mods/create/src/kinetics.rs` ports Create's rotation propagation, kinetic networks and stress. It adds the gearbox, clutch, gearshift, encased shaft, casing and turntable. `tests/scenarios/p1b-create.txt` covers it. See the P1 row in BACKLOG.
 
-**In the last commits, not yet run end to end:**
+**Also done** (`p1a-create.txt`, `p1b-create.txt` and `create-data.txt` all pass as of 2026-11-19):
 
 1. **The `moddedmc:entities` v1 mod interface.**
    - Lets a mod hear vanilla `entityInside` for its blocks, read an entity (kind, position, motion, rotation) and change it.
@@ -28,12 +29,8 @@ Source of truth: Create 6.0.10 for MC 1.21.1 NeoForge, tag `mc1.21.1-6.0.10`. Po
    - A debug run showed an armor stand losing 4.8° of yaw per tick at 16 RPM, which is correct.
 3. **Engine fix in `engine/pumpkin`:** the selector options `x_rotation` and `y_rotation` were swapped in `entity_selector/parser.rs` (`y_rotation` checked pitch). Vanilla maps x to pitch and y to yaw.
    - The turntable check in `p1b-create.txt` failed only because of this bug.
-   - **This fix has not been built yet.**
 
-**Next steps:**
-1. Build the engine, rebuild the mod, and run `p1b-create.txt`. The turntable section (`y_rotation=-170..-10`) should pass now.
-2. If it does, also run `create-data.txt` and `p1a-create.txt` to check for regressions.
-3. Then start P1c, belts. INTERFACES-PLAN section 1 lists the generic operations belts still need:
+**Next:** P1c, belts. INTERFACES-PLAN section 1 lists the generic operations belts still need:
    - item use on a block,
    - entity queries in a box,
    - item stacks across the interface,

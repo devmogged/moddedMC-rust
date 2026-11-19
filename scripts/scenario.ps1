@@ -1,5 +1,6 @@
 # Runs a console scenario against the built server and checks the log.
-#   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh]
+#   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh] [-Keep]
+# A passing run deletes its run dir, because worlds add up fast. -Keep leaves it; a failing run is always kept.
 # Scenario lines (blank lines and # comments ignored):
 #   mods <path> [...]        copy mods (.mmc, .jar, .dll) into the run dir's mods/ (before the first start)
 #   start                    start the server and wait until it is ready
@@ -15,6 +16,7 @@ param(
     [Parameter(Mandatory)] [string]$Scenario,
     [string]$RunDir = 'run\scenario',
     [switch]$Fresh,
+    [switch]$Keep,
     [string]$Exe = 'engine\target\pack\pack-dev.exe',
     [string]$BotExe = 'engine\target\pack\moddedmc-bot.exe',
     [string]$ExeArgs = ''   # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
@@ -154,4 +156,6 @@ if ($script:p -and -not $script:p.HasExited) { $script:p.Kill() }
 Get-NewLines | Out-Null
 $script:all | Set-Content -Encoding utf8 (Join-Path $RunDir 'scenario.log')
 if ($failures) { Write-Host "$failures check(s) failed; log: $RunDir\scenario.log" -ForegroundColor Red; exit 1 }
-Write-Host "all checks passed; log: $RunDir\scenario.log" -ForegroundColor Green
+if ($Keep) { Write-Host "all checks passed; log: $RunDir\scenario.log" -ForegroundColor Green; exit 0 }
+Remove-Item -Recurse -Force $RunDir
+Write-Host "all checks passed; removed $RunDir (pass -Keep to keep it)" -ForegroundColor Green

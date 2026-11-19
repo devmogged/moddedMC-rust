@@ -55,7 +55,7 @@ function Wait-For($regex, $seconds) {
 try {
     $t0 = Get-Date
     $app = Start-Logged (Join-Path $root 'target\release\moddedmc.exe') `
-        "run --dir `"$dir`" --server `"$root\engine\pumpkin\target\release\pumpkin.exe`" --tunnel $Tunnel"
+        "run --dir `"$dir`" --server `"$root\engine\target\release\pumpkin.exe`" --tunnel $Tunnel"
     $address = '127.0.0.1:25565'
     if ($Tunnel -eq 'playit') {
         $m = [regex]::Match((Wait-For 'players join' 30), 'players join (\S+) \(or [0-9.]+:([0-9]+)\)')
@@ -69,7 +69,7 @@ try {
         if ($agent) { Write-Host "== playit agent: $([int]($agent.WorkingSet64 / 1MB)) MB working set" }
     }
     Write-Host "== bot dials $address"
-    $bot = Start-Logged (Join-Path $root 'engine\pumpkin\target\debug\moddedmc-bot.exe') "$address hostbot"
+    $bot = Start-Logged (Join-Path $root 'engine\target\debug\moddedmc-bot.exe') "$address hostbot"
     Wait-For '\[bot\] joined as hostbot' 60 | Out-Null
     Wait-For 'hostbot joined the game' 10 | Out-Null
     $bot.StandardInput.WriteLine('quit'); Start-Sleep -Seconds 2

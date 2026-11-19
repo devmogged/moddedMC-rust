@@ -9,7 +9,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exe = Join-Path $root 'engine\pumpkin\target\release\pumpkin.exe'
+$exe = Join-Path $root 'engine\target\release\pumpkin.exe'
 $RunDir = Join-Path $root $RunDir
 New-Item -ItemType Directory -Force (Join-Path $RunDir 'mods') | Out-Null
 foreach ($m in $Mods) { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'mods') -Force }

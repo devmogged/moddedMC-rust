@@ -1,0 +1,4 @@
+# One build cache for the engine workspace and the Pumpkin submodule. Separate target dirs
+# per workspace each grew to tens of GB.
+[build]
+target-dir = "target"
