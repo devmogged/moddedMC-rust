@@ -12,15 +12,16 @@ What our Pumpkin fork has against vanilla 26.3, from the fork at `engine/pumpkin
 | Items | About 50 item behaviours (tools, buckets, bows, crossbow, trident, mace, spear, maps, fishing rod, bundles, minecarts, boats) | Armor stand equipment slots and drops. |
 | Inventories | Every vanilla screen: crafting, furnaces, anvil, enchanting, brewing, smithing, grindstone, loom, stonecutter, cartography, beacon, lectern, crafter, merchant, horse | Fidelity unknown. |
 | Worldgen structures | All 16 vanilla structure types | Checked by Pumpkin's own chunk-dump tests for some seeds; not all structures are covered there. |
-| Worldgen features | 58 vanilla feature types are handled by the code generator except two | **`minecraft:sequence` and `minecraft:template` are generated as no-ops** (`tools/pumpkin-codegen/src/configured_feature.rs`). That drops `desert_well`, `sculk_patch_deep_dark`, `sculk_patch_ancient_city`, `sulfur_pool` and `sulfur_spring` from generated worlds. |
+| Worldgen features | All 58 vanilla feature types are generated | `sequence` and `template` were no-ops until 2026-11-19; desert wells, deep dark and ancient city sculk, sulfur pools and sulfur springs now place. Inline placements still turn `minecraft:cuboid` into a biome filter, which changes `warm_ocean_vegetation`. Templates with several palettes always place the first one. |
 | World | Lighting, ticking, weather, forced chunks, entity tracking | 28 TODOs in `world/`. |
 | Datapacks | Vanilla data is generated at build time | Loading custom worldgen from datapacks at runtime is E2. |
 
 ## Next, in order
 
-1. Implement `sequence` and `template` features (E2-adjacent, small): vanilla worlds are visibly missing desert wells and deep dark sculk.
-2. F2 harness scenarios for the areas players notice first: redstone (pistons, hoppers, repeaters), mob spawning and AI pathing, containers, then worldgen against vanilla chunk dumps.
-3. The TODO hotspots above, each checked against the decompiled vanilla method named in its comment.
+1. Done: `sequence` and `template` features, with the `random_chance` and `randomly_selected` placements they use.
+2. The `cuboid` placement in inline placed features (`warm_ocean_vegetation`).
+3. F2 harness scenarios for the areas players notice first: redstone (pistons, hoppers, repeaters), mob spawning and AI pathing, containers, then worldgen against vanilla chunk dumps.
+4. The TODO hotspots above, each checked against the decompiled vanilla method named in its comment.
 
 ## How this was measured
 
