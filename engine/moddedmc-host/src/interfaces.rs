@@ -56,6 +56,10 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
             native::request_pre_world();
             ptr::from_ref(&crate::content::CONTENT).cast()
         }
+        (abi::ITEMS, 1) => {
+            native::request_pre_world();
+            ptr::from_ref(&crate::content::ITEMS).cast()
+        }
         (abi::BLOCK_WORLD, 1) => ptr::from_ref(&crate::content::WORLD).cast(),
         (abi::WORLD, 1) => ptr::from_ref(&WORLD).cast(),
         (abi::CHUNKS, 1) => ptr::from_ref(&CHUNKS).cast(),

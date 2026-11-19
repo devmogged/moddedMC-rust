@@ -415,6 +415,9 @@ mod layout {
         assert_eq!(offset_of!(ContentV1, add_block), 8);
         assert_eq!(offset_of!(ContentV1, state), 16);
         assert_eq!(offset_of!(ContentV1, on_tick), 24);
+        assert_eq!(offset_of!(ItemsV1, size), 0);
+        assert_eq!(offset_of!(ItemsV1, add_item), 8);
+        assert_eq!(offset_of!(ContentItemDefinition, carrier), 32);
         assert_eq!(offset_of!(BlockWorldV1, size), 0);
         assert_eq!(offset_of!(BlockWorldV1, read), 8);
         assert_eq!(offset_of!(BlockWorldV1, write), 16);
@@ -445,6 +448,7 @@ mod layout {
 }
 pub const CONTENT: &str = "moddedmc:content";
 pub const BLOCK_WORLD: &str = "moddedmc:block_world";
+pub const ITEMS: &str = "moddedmc:items";
 pub const UNLOADED_STATE: u32 = u32::MAX;
 pub const MAX_WORLD_BATCH: usize = 4096;
 
@@ -538,6 +542,22 @@ pub struct ContentV1 {
     /// Exact name[single=value,...] selector. Missing definitions return UNLOADED_STATE.
     pub state: unsafe extern "C" fn(selector: Str) -> u32,
     pub on_tick: unsafe extern "C" fn(reg: Reg, callback: ContentTick) -> i32,
+}
+
+#[repr(C)]
+pub struct ContentItemDefinition {
+    pub id: Str,
+    pub display_name: Str,
+    /// Vanilla item to copy components from (stack size, food, tool). Stock clients see it, drawn
+    /// with `model`.
+    pub carrier: Str,
+    pub model: Str,
+}
+
+#[repr(C)]
+pub struct ItemsV1 {
+    pub size: usize,
+    pub add_item: unsafe extern "C" fn(reg: Reg, def: *const ContentItemDefinition) -> i32,
 }
 
 #[repr(C)]

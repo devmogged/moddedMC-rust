@@ -108,6 +108,7 @@ pub struct Staging<'a> {
     command_trees: Vec<interfaces::CommandTree>,
     on_stopping: Option<abi::StopCallback>,
     content: Vec<content::Registration>,
+    content_items: Vec<content::ItemRegistration>,
     content_tick: Option<abi::ContentTick>,
 }
 
@@ -378,6 +379,7 @@ fn register_mod(mod_idx: usize, module: Native) {
         command_trees,
         on_stopping,
         definitions,
+        content_items,
         content_tick,
     ) = {
         let registry = read(&HOST.registry);
@@ -390,6 +392,7 @@ fn register_mod(mod_idx: usize, module: Native) {
             command_trees: Vec::new(),
             on_stopping: None,
             content: Vec::new(),
+            content_items: Vec::new(),
             content_tick: None,
         };
         let result = module.register(&mut staging);
@@ -401,6 +404,7 @@ fn register_mod(mod_idx: usize, module: Native) {
             staging.command_trees,
             staging.on_stopping,
             staging.content,
+            staging.content_items,
             staging.content_tick,
         )
     };
@@ -428,7 +432,7 @@ fn register_mod(mod_idx: usize, module: Native) {
     if let Some(callback) = on_stopping {
         interfaces::register_stopping(callback);
     }
-    content::register(mod_idx, definitions, content_tick);
+    content::register(mod_idx, definitions, content_items, content_tick);
     lock(&HOST.commands).push(PendingCommands {
         module,
         legacy: commands,

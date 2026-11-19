@@ -26,7 +26,7 @@ use pumpkin_core::{
 };
 use pumpkin_data::{
     Block, BlockState, BlockStateId, Property,
-    content::{self, BlockDefinition, StateDefinition},
+    content::{self, BlockDefinition, ItemDefinition, StateDefinition},
     data_component_impl::ItemModelImpl,
     entity::EntityType,
     item::Item,
@@ -44,6 +44,10 @@ pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     add_block,
     state,
     on_tick,
+};
+pub static ITEMS: abi::ItemsV1 = abi::ItemsV1 {
+    size: size_of::<abi::ItemsV1>(),
+    add_item,
 };
 pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     size: size_of::<abi::BlockWorldV1>(),
@@ -64,6 +68,13 @@ pub struct Registration {
     item_model: String,
     states: Vec<RegisteredState>,
     placement: Option<abi::ContentPlacement>,
+}
+
+pub struct ItemRegistration {
+    id: String,
+    name: String,
+    carrier: &'static Item,
+    model: String,
 }
 
 struct RegisteredState {
@@ -87,10 +98,12 @@ struct Runtime {
 #[derive(Default)]
 struct Pending {
     blocks: Vec<(usize, Registration)>,
+    items: Vec<ItemRegistration>,
     ticks: BTreeMap<usize, abi::ContentTick>,
 }
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
+    items: Vec::new(),
     ticks: BTreeMap::new(),
 });
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -221,7 +234,9 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
     if staging.blocks.iter().any(|b| b.id == id)
         || staging.registry.block(id).is_some()
         || staging.content.iter().any(|b| b.id == id)
+        || staging.content_items.iter().any(|i| i.id == id)
         || lock(&PENDING).blocks.iter().any(|(_, b)| b.id == id)
+        || lock(&PENDING).items.iter().any(|i| i.id == id)
     {
         return code::DUPLICATE_ID;
     }
@@ -280,6 +295,50 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
     code::OK
 }
 
+unsafe extern "C" fn add_item(reg: Reg, def: *const abi::ContentItemDefinition) -> i32 {
+    // SAFETY: the host owns staging and the definition is borrowed by the registration call.
+    let (staging, Some(def)) = (unsafe { (native::staging(reg), def.as_ref()) }) else {
+        return code::INVALID_DEFINITION;
+    };
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the strings belong to the live definition.
+    let (id, name, carrier, model) = unsafe {
+        (
+            def.id.str(),
+            def.display_name.str(),
+            def.carrier.str(),
+            def.model.str(),
+        )
+    };
+    let Some(carrier) = Item::from_registry_key(carrier)
+        .filter(|item| item.id < Item::VANILLA_COUNT && **item != Item::AIR)
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    if !crate::valid_id(id) || !content_pack::valid_model(model) {
+        return code::INVALID_DEFINITION;
+    }
+    let pending = lock(&PENDING);
+    if staging.content.iter().any(|b| b.id == id)
+        || staging.content_items.iter().any(|i| i.id == id)
+        || staging.registry.block(id).is_some()
+        || pending.blocks.iter().any(|(_, b)| b.id == id)
+        || pending.items.iter().any(|i| i.id == id)
+    {
+        return code::DUPLICATE_ID;
+    }
+    drop(pending);
+    staging.content_items.push(ItemRegistration {
+        id: id.into(),
+        name: name.into(),
+        carrier,
+        model: model.into(),
+    });
+    code::OK
+}
+
 unsafe extern "C" fn on_tick(reg: Reg, callback: abi::ContentTick) -> i32 {
     // SAFETY: the staging handle is valid only during registration.
     if RUNTIME.get().is_some() {
@@ -314,20 +373,52 @@ unsafe extern "C" fn state(text: Str) -> u32 {
     state.map_or(abi::UNLOADED_STATE, |state| u32::from(state.as_u16()))
 }
 
-pub fn register(owner: usize, definitions: Vec<Registration>, tick: Option<abi::ContentTick>) {
+pub fn register(
+    owner: usize,
+    definitions: Vec<Registration>,
+    items: Vec<ItemRegistration>,
+    tick: Option<abi::ContentTick>,
+) {
     let mut pending = lock(&PENDING);
     pending
         .blocks
         .extend(definitions.into_iter().map(|def| (owner, def)));
+    pending.items.extend(items);
     if let Some(tick) = tick {
         pending.ticks.insert(owner, tick);
     }
 }
 
+fn split_items(
+    items: Vec<ItemRegistration>,
+) -> (Vec<ItemDefinition>, Vec<content_pack::ItemAssets>) {
+    items
+        .into_iter()
+        .map(|item| {
+            (
+                ItemDefinition {
+                    name: item.id.clone(),
+                    display_name: item.name,
+                    carrier: item.carrier,
+                },
+                content_pack::ItemAssets {
+                    id: item.id,
+                    model: item.model,
+                },
+            )
+        })
+        .unzip()
+}
+
 pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result<()> {
     load_mods();
-    let Pending { mut blocks, ticks } = std::mem::take(&mut *lock(&PENDING));
+    let Pending {
+        mut blocks,
+        mut items,
+        ticks,
+    } = std::mem::take(&mut *lock(&PENDING));
     blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
+    items.sort_by(|a, b| a.id.cmp(&b.id));
 
     // Preserve instrument and note for ordinary note blocks by borrowing only powered variants.
     let mut carriers = Block::NOTE_BLOCK.states.iter().filter_map(|state| {
@@ -365,7 +456,15 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
             states,
         });
     }
-    let registry = content::Registry::open(&path.join("moddedmc/registry.dat"), &definitions)?;
+    let (item_definitions, item_assets) = split_items(items);
+    let registry = content::Registry::open(
+        &path.join("moddedmc/registry.dat"),
+        &definitions,
+        &item_definitions,
+    )?;
+    for item in &item_assets {
+        tracing::info!("moddedmc: registered content item {}", item.id);
+    }
     let mut runtime = Runtime {
         blocks: HashMap::new(),
         overlays: HashMap::new(),
@@ -399,6 +498,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         &config.networking.java.address,
         &mut config.resource_pack.java,
         &assets,
+        &item_assets,
     )?;
     if RUNTIME.set(runtime).is_err()
         || !install_content_behaviour(Arc::new(Behaviour))

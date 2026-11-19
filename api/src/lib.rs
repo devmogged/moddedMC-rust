@@ -23,6 +23,7 @@ pub mod abi;
 pub mod chunks;
 pub mod commands;
 pub mod content;
+pub mod items;
 pub mod lifecycle;
 pub mod world;
 

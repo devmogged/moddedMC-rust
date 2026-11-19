@@ -47,6 +47,11 @@ pub struct BlockAssets {
     pub states: Vec<StateAssets>,
 }
 
+pub struct ItemAssets {
+    pub id: String,
+    pub model: String,
+}
+
 pub struct StateAssets {
     pub model: String,
     pub rotating_model: String,
@@ -78,11 +83,12 @@ pub fn configure(
     address: &SocketAddr,
     config: &mut JavaResourcePackConfig,
     blocks: &[BlockAssets],
+    items: &[ItemAssets],
 ) -> io::Result<HashMap<u16, OverlayModel>> {
-    if blocks.is_empty() {
+    if blocks.is_empty() && items.is_empty() {
         return Ok(HashMap::new());
     }
-    let (pack, display_models) = build_pack(blocks)?;
+    let (pack, display_models) = build_pack(blocks, items)?;
     let bytes = pack.zip()?;
     let zip_sha1: [u8; 20] = Sha1::digest(&bytes).into();
     let pack_version = hex(&Sha256::digest(&bytes));
@@ -157,7 +163,10 @@ pub fn hex(bytes: &[u8]) -> String {
     result
 }
 
-fn build_pack(blocks: &[BlockAssets]) -> io::Result<(Pack, HashMap<u16, OverlayModel>)> {
+fn build_pack(
+    blocks: &[BlockAssets],
+    items: &[ItemAssets],
+) -> io::Result<(Pack, HashMap<u16, OverlayModel>)> {
     let mut pack = Pack::default();
     pack.json(
         "pack.mcmeta",
@@ -186,6 +195,7 @@ fn build_pack(blocks: &[BlockAssets]) -> io::Result<(Pack, HashMap<u16, OverlayM
     let mut note_variants =
         BTreeMap::from([(String::new(), json!({"model":"minecraft:block/note_block"}))]);
     let mut display_models = HashMap::new();
+    pack.standalone_items(items)?;
     for block in blocks {
         let Some(registered) = Block::from_name(&block.id) else {
             continue;
@@ -279,6 +289,18 @@ impl Pack {
     fn json(&mut self, path: &str, value: &Value) -> io::Result<()> {
         self.files
             .insert(path.to_owned(), serde_json::to_vec(value)?);
+        Ok(())
+    }
+
+    fn standalone_items(&mut self, items: &[ItemAssets]) -> io::Result<()> {
+        for item in items {
+            if let Some((namespace, path)) = item.id.split_once(':') {
+                self.item(
+                    &format!("assets/{namespace}/items/{path}.json"),
+                    &item.model,
+                )?;
+            }
+        }
         Ok(())
     }
 
