@@ -26,6 +26,33 @@ An earlier version also used `execute if items entity`. Vanilla returned counts 
 
 The [Windows suite report](../run/harness-bot-regression/windows.json) recorded 89 expected engine differences across the existing scenarios. It also caught a half-block origin error during the supporting-block change. The corrected build passed [the ledge and controls fixture](../run/harness-dry-final/bot-controls/scenario-vQLgwb/report.json), [gravity](../run/harness-dry-final/bot-gravity/scenario-A3wx51/report.json), [mining](../run/harness-dry-final/bot-mining/scenario-8pJ5fm/report.json), and the single-tick Create belt check.
 
+Both Windows and native Linux passed pack-profile Clippy and all 15 bot and harness unit tests. Ubuntu 24.04 under WSL2 ran the five new fixtures with vanilla 26.3 on both sides and produced zero differences. The pack-dev comparison used Windows. [Linux report](../run/harness-bot-linux/vanilla.json)
+
+To reproduce the single-tick check, use the P1c belt setup through its 16 RPM assertion in a scratch scenario. Append these steps before the test tears down the belt.
+
+```text
+cmd tick freeze
+wait 0.5
+expect The game is frozen
+bot physics manual
+cmd tp tester 2050.5 101 2011.5 0 0
+wait 0.5
+bot physics-tick 2
+bot expect pos 2050.5 101 2011.5 within 0.000001
+wait 0.25
+expect ^\[bot\] expect pos ok
+cmd tick step 1
+wait 0.5
+expect Stepping 1 tick
+bot expect vel 0 0 0.0333333333333333 within 0.00007
+wait 0.25
+expect ^\[bot\] expect vel ok
+bot physics-tick 1
+bot expect pos 2050.5 101 2011.5333333333333 within 0.00007
+wait 0.25
+expect ^\[bot\] expect pos ok
+```
+
 ## Port checks and remaining automation
 
 | Priority | Behavior | Bot coverage and remaining work |
