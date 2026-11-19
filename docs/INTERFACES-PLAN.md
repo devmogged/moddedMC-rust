@@ -7,6 +7,13 @@ Release each table with the first port that needs it and pin its version. Preser
 - **Real block and item registry.** Register namespaced blocks, states and items before world load. Store the F4 ids in chunk palettes and inventories. Start with shaft and cogwheel states, axis properties, shapes and placement. Translate them through the vanilla resource pack and later through the companion.
 - **Block entities and batched world access.** Add persistent block entity state, ordered tick and neighbor callbacks, bulk reads of positions and state ids, and bounded bulk writes with explicit update flags. Keep network discovery, stress and rotation in the mod. Compare placement, removal, speed and direction with the original shaft-and-cogwheel rig.
 - **Rendering and later mechanics.** Send versioned kinetic state to the companion for rotation and belts. Add engine operations for contraption assembly, transport, fluids, inventories and trains as those slices land. Put ore placement through the worldgen path when needed. [Kinetic block entity](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/base/KineticBlockEntity.java), [rotation propagation](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/RotationPropagator.java)
+- **Belts (P1c) and the turntable.** Create's belts and turntable need these generic operations, none of them belt specific:
+  - Item use on a block: a callback with the player, held stack, clicked face and hit point that can consume or replace the stack (belt connectors on two shafts, casing on a shaft, the wrench).
+  - Entity collision for content blocks, like vanilla `entityInside` (items and mobs landing on a belt or turntable).
+  - Entities in a box: type, id, position, motion, on-ground flag and, for item entities, the stack; plus set motion, set yaw, remove, and spawn an item entity with a stack and motion.
+  - Item stacks across the ABI as id, count and component NBT, with bounded sizes.
+  - Container access both ways: insert into and extract from the inventory at a position and face (hoppers, chests, funnels), and register a mod block entity as an inventory hoppers can push into and pull from.
+  - Host-managed display entities for moving parts and items in transit: an item model, a transform and an interpolation length, keyed by the mod, generalising what the host already does for rotating models.
 
 ## 2. Saint's Dragons
 
