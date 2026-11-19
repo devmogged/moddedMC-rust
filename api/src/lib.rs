@@ -115,6 +115,18 @@ unsafe fn require_interface<T>(
     name: &'static str,
     version: u32,
 ) -> Result<&'static T, InterfaceUnavailable> {
+    // SAFETY: forwarded from the caller; the full table size is required.
+    unsafe { require_interface_prefix(name, version, size_of::<T>()) }
+}
+
+/// # Safety
+/// T must be the published table for this name/version, starting with a usize size. Fields past
+/// `min_size` are appended extensions; read them only after checking the table's size.
+unsafe fn require_interface_prefix<T>(
+    name: &'static str,
+    version: u32,
+    min_size: usize,
+) -> Result<&'static T, InterfaceUnavailable> {
     let unavailable = InterfaceUnavailable { name, version };
     // SAFETY: size is part of the checked ABI 1 prefix.
     if unsafe { host_field!(size) } < size_of::<HostApi>() {
@@ -124,10 +136,11 @@ unsafe fn require_interface<T>(
     let table = unsafe { (host_field!(get_interface))(s(name), version) };
     // SAFETY: a non-null result points to a static, aligned table with a leading size.
     let size = unsafe { table.cast::<usize>().as_ref() }.ok_or(unavailable)?;
-    if *size < size_of::<T>() {
+    if *size < min_size {
         return Err(unavailable);
     }
-    // SAFETY: the caller identifies T and the checked table contains all its fields.
+    // SAFETY: the caller identifies T, the table holds every field below min_size, and the caller
+    // checks the size before reading later fields.
     Ok(unsafe { &*table.cast::<T>() })
 }
 

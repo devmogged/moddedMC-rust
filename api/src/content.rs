@@ -3,7 +3,7 @@ use std::{ffi::c_void, marker::PhantomData, sync::OnceLock};
 
 use crate::{
     Command, InterfaceUnavailable, Pos, RegistrationError, Registry, abi, guard, require_interface,
-    s,
+    require_interface_prefix, s,
 };
 
 pub use abi::{
@@ -45,6 +45,33 @@ pub struct State<'a> {
     pub shape: &'a [ShapeBox],
 }
 
+/// Block world functions added after the first ABI 1 release. Require the ones a mod uses in
+/// `Mod::start`, so an older server skips the mod instead of running it without them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorldExtension {
+    NeighborSignal,
+    Destroy,
+}
+
+impl WorldExtension {
+    const fn field(self) -> (usize, &'static str) {
+        match self {
+            Self::NeighborSignal => (
+                std::mem::offset_of!(abi::BlockWorldV1, has_neighbor_signal),
+                "moddedmc:block_world.has_neighbor_signal",
+            ),
+            Self::Destroy => (
+                std::mem::offset_of!(abi::BlockWorldV1, destroy),
+                "moddedmc:block_world.destroy",
+            ),
+        }
+    }
+
+    const fn available(self, api: &abi::BlockWorldV1) -> bool {
+        api.size >= self.field().0 + size_of::<usize>()
+    }
+}
+
 pub struct Block<'a> {
     pub id: &'a str,
     pub display_name: &'a str,
@@ -62,7 +89,7 @@ pub fn require() -> Result<Content, InterfaceUnavailable> {
     let (content, world) = unsafe {
         (
             require_interface(abi::CONTENT, 1)?,
-            require_interface(abi::BLOCK_WORLD, 1)?,
+            require_interface_prefix(abi::BLOCK_WORLD, 1, abi::BLOCK_WORLD_V1_BASE_SIZE)?,
         )
     };
     let _ = WORLD_TABLE.set(world);
@@ -118,6 +145,17 @@ unsafe extern "C" fn tick(
 }
 
 impl Content {
+    pub fn require_extension(self, extension: WorldExtension) -> Result<(), InterfaceUnavailable> {
+        if extension.available(self.1) {
+            Ok(())
+        } else {
+            Err(InterfaceUnavailable {
+                name: extension.field().1,
+                version: 1,
+            })
+        }
+    }
+
     pub fn add_block(
         self,
         reg: &mut Registry<'_>,
@@ -224,5 +262,24 @@ impl World<'_> {
     pub fn rotate(self, pos: Pos, axis: u8, rpm: f32) -> bool {
         // SAFETY: world is borrowed for this call.
         unsafe { (self.api.rotate)(self.raw, pos, axis, rpm) }
+    }
+
+    /// Vanilla `Level.hasNeighborSignal`. False when unloaded or on a server without it.
+    pub fn has_neighbor_signal(self, pos: Pos) -> bool {
+        // SAFETY: the size check covers the appended field; world is borrowed for this call.
+        WorldExtension::NeighborSignal.available(self.api)
+            && unsafe { (self.api.has_neighbor_signal)(self.raw, pos) }
+    }
+
+    /// Vanilla `Level.destroyBlock(pos, drop)`. False when nothing broke or the server lacks it.
+    pub fn destroy(self, pos: Pos, drop: bool) -> bool {
+        // SAFETY: the size check covers the appended field; world is borrowed for this call.
+        WorldExtension::Destroy.available(self.api)
+            && unsafe { (self.api.destroy)(self.raw, pos, drop) }
+    }
+
+    /// Tells loaded worlds apart. Stable while the world stays loaded.
+    pub fn id(self) -> usize {
+        self.raw as usize
     }
 }

@@ -13,6 +13,7 @@ use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
         BlockBehaviour, OnNeighborUpdateArgs, OnPlaceArgs,
+        blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
             content::{self as engine, Change, ContentBlockEntity},
@@ -57,6 +58,8 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     read_entity,
     write_entity,
     rotate,
+    has_neighbor_signal,
+    destroy,
 };
 
 const MAX_BATCH: usize = 4096;
@@ -742,19 +745,23 @@ unsafe extern "C" fn read(raw: WorldRef, pos: *const Pos, out: *mut u32, count: 
     true
 }
 
+/// The server's owning handle for a borrowed world, for engine calls that need an `Arc`.
+fn shared(world: &World) -> Option<Arc<World>> {
+    let server = native::SERVER.get()?;
+    server
+        .worlds
+        .load()
+        .iter()
+        .find(|w| w.uuid == world.uuid)
+        .cloned()
+}
+
 unsafe extern "C" fn write(raw: WorldRef, updates: *const BlockUpdate, count: usize) -> usize {
     if count > MAX_BATCH || updates.is_null() {
         return 0;
     }
     // SAFETY: world and update list are live for the call.
-    let Some(world) = (unsafe { world(raw) }) else {
-        return 0;
-    };
-    let Some(server) = native::SERVER.get() else {
-        return 0;
-    };
-    let worlds = server.worlds.load();
-    let Some(world) = worlds.iter().find(|w| w.uuid == world.uuid) else {
+    let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
         return 0;
     };
     // SAFETY: the caller provides count consecutive updates.
@@ -864,4 +871,29 @@ unsafe extern "C" fn rotate(raw: WorldRef, pos: Pos, axis: u8, rpm: f32) -> bool
     }
     w.rotation.insert(pos, (axis, rpm));
     true
+}
+
+unsafe extern "C" fn has_neighbor_signal(raw: WorldRef, pos: Pos) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    world.get_block_state_id_if_loaded(&pos).is_some() && block_receives_redstone_power(world, &pos)
+}
+
+unsafe extern "C" fn destroy(raw: WorldRef, pos: Pos, drop: bool) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return false;
+    }
+    let mut flags = BlockFlags::NOTIFY_ALL;
+    if !drop {
+        flags.insert(BlockFlags::SKIP_DROPS);
+    }
+    world.break_block_naturally(&pos, None, true, flags)
 }

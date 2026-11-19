@@ -574,4 +574,13 @@ pub struct BlockWorldV1 {
     pub write_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, nbt: Str) -> bool,
     /// Rotation rate in RPM about positive X (0), Y (1), or Z (2).
     pub rotate: unsafe extern "C" fn(world: WorldRef, pos: Pos, axis: u8, rpm: f32) -> bool,
+    // Fields below were appended after the first ABI 1 release; check `size` before reading them.
+    /// Vanilla `Level.hasNeighborSignal`. False for unloaded positions.
+    pub has_neighbor_signal: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
+    /// Vanilla `Level.destroyBlock(pos, drop)`: break particles, loot when `drop`, then air or the
+    /// block's water. False when nothing was broken.
+    pub destroy: unsafe extern "C" fn(world: WorldRef, pos: Pos, drop: bool) -> bool,
 }
+
+/// Size of the block world table before `has_neighbor_signal` was appended.
+pub const BLOCK_WORLD_V1_BASE_SIZE: usize = std::mem::offset_of!(BlockWorldV1, has_neighbor_signal);
