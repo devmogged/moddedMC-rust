@@ -342,6 +342,47 @@ pub struct EntitiesV1 {
     /// an all-zero `target` clears it. Its own targeting goals may pick another target later.
     /// False if it is not a mob or the target is not found.
     pub set_target: unsafe extern "C" fn(dimension: Str, id: EntityId, target: EntityId) -> bool,
+    /// Adds an AI goal to a mob, run by its goal selector among its vanilla goals: lower
+    /// `priority` wins, `controls` ([`goal_control`] bits) are what it takes over while running.
+    /// Every mod's `ModApi::goal_event` is asked whether it may start or continue and told when it
+    /// starts, ticks and stops: start `key` with your mod id. Goals are not saved with the mob.
+    /// False if it is not a mob, or called from a goal event.
+    pub add_goal: unsafe extern "C" fn(
+        dimension: Str,
+        id: EntityId,
+        priority: u32,
+        controls: u32,
+        key: Str,
+    ) -> bool,
+}
+
+/// What a mod goal takes over while it runs, for [`EntitiesV1::add_goal`].
+pub mod goal_control {
+    pub const MOVE: u32 = 1;
+    pub const LOOK: u32 = 2;
+    pub const JUMP: u32 = 4;
+    pub const TARGET: u32 = 8;
+}
+
+/// What a goal's selector asks or tells, in [`GoalEvent::phase`].
+pub mod goal_event {
+    /// May it start? (return true)
+    pub const CAN_START: u32 = 0;
+    /// May it keep running? (return true)
+    pub const CONTINUE: u32 = 1;
+    pub const START: u32 = 2;
+    /// Every tick while it runs.
+    pub const TICK: u32 = 3;
+    pub const STOP: u32 = 4;
+}
+
+/// A mod goal's selector asking or telling (see [`EntitiesV1::add_goal`]).
+#[repr(C)]
+pub struct GoalEvent {
+    pub phase: u32,
+    pub key: Str,
+    pub dimension: Str,
+    pub id: EntityId,
 }
 
 /// [`BiomesV1`]: biomes mods add and paint into the world.
@@ -531,6 +572,9 @@ pub struct ModApi {
         items: *const Str,
         count: usize,
     ),
+    /// A mob's goal selector asks about or reports on a goal added with `add_goal` (see
+    /// [`GoalEvent`]); answer `CAN_START` and `CONTINUE` for your own keys, false otherwise.
+    pub goal_event: unsafe extern "C" fn(instance: *const c_void, event: *const GoalEvent) -> bool,
 }
 
 /// `ModApi` size of ABI 1.0, before `define_blocks`.
@@ -608,12 +652,13 @@ mod layout {
             (offset_of!(ModApi, chunk_generated), 112),
             (offset_of!(ModApi, entity_event), 120),
             (offset_of!(ModApi, menu_closed), 128),
+            (offset_of!(ModApi, goal_event), 136),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "ModApi field #{i} moved");
         }
         assert_eq!(MOD_API_V1_0_SIZE, 96);
-        assert!(size_of::<ModApi>() >= 136);
+        assert!(size_of::<ModApi>() >= 144);
     }
 
     #[test]
@@ -652,6 +697,7 @@ mod layout {
             (offset_of!(EntitiesV1, set_ai), 48),
             (offset_of!(EntitiesV1, walk_to), 56),
             (offset_of!(EntitiesV1, set_target), 64),
+            (offset_of!(EntitiesV1, add_goal), 72),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "EntitiesV1 field #{i} moved");
@@ -663,6 +709,10 @@ mod layout {
         assert_eq!(offset_of!(EntityEvent, damage), 48);
         assert_eq!(offset_of!(EntityEvent, cause), 56);
         assert_eq!(size_of::<EntityEvent>(), 72);
+        assert_eq!(offset_of!(GoalEvent, key), 8);
+        assert_eq!(offset_of!(GoalEvent, dimension), 24);
+        assert_eq!(offset_of!(GoalEvent, id), 40);
+        assert_eq!(size_of::<GoalEvent>(), 56);
     }
 
     #[test]

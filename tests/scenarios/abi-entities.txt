@@ -85,12 +85,21 @@ expect wisp: shrugged off cactus
 bot cmd wisplist
 wait 1
 expect \[bot\] chat: .*wisplist: 4099.5 100.0 4097.5, 4\d+\.\d 100.0 4\d+\.\d
+# A goal of the mod's own runs in the pet's goal selector.
+bot cmd wispwatch
+wait 1
+expectany wisp: watch goal started
+expect \[bot\] chat: .*wispwatch: added 1
+wait 1
+bot cmd wispwatched
+wait 1
+expect \[bot\] chat: .*wispwatched: running
 # Targeting: a husk goes after the pet (the player is creative, so not a target).
 cmd gamemode creative tester
 bot cmd wisphunt
 wait 1
 expect \[bot\] chat: .*wisphunt: hunting true
-wait 6
+wait 12
 expect wisp: shrugged off mob
 cmd kill @e[type=minecraft:husk]
 cmd kill @e[type=minecraft:chicken]

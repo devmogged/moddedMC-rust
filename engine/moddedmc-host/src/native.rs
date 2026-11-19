@@ -1142,6 +1142,7 @@ static ENTITIES: EntitiesV1 = EntitiesV1 {
     set_ai,
     walk_to,
     set_target,
+    add_goal,
 };
 
 /// A live entity of a dimension by id.
@@ -1243,6 +1244,25 @@ unsafe extern "C" fn set_target(dimension: Str, id: EntityId, target: EntityId) 
     };
     mob.apply_mob_target(Some(target));
     true
+}
+
+unsafe extern "C" fn add_goal(
+    dimension: Str,
+    id: EntityId,
+    priority: u32,
+    controls: u32,
+    key: Str,
+) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some((_, entity)) = (unsafe { entity(dimension, id) }) else {
+        return false;
+    };
+    let Some(mob) = entity.get_mob() else {
+        return false;
+    };
+    // SAFETY: borrowed for the call.
+    let key = unsafe { text(key) };
+    crate::goal::add(mob.get_mob_entity(), priority, controls, key)
 }
 
 /// A walk in progress: dimension, entity, target, speed.
@@ -1493,6 +1513,21 @@ impl Native {
         };
         // SAFETY: see above; `event` outlives the call.
         unsafe { (self.api.entity_event)(self.api.instance, &raw const event) }
+    }
+
+    /// Asks or tells the mod about a goal; its answer for `CAN_START` and `CONTINUE`.
+    pub fn goal_event(self, phase: u32, key: &str, dimension: &str, id: uuid::Uuid) -> bool {
+        if self.api.size < abi::MOD_API_V1_0_SIZE + 6 * size_of::<usize>() {
+            return false;
+        }
+        let event = abi::GoalEvent {
+            phase,
+            key: Str::from(key),
+            dimension: Str::from(dimension),
+            id: EntityId(id.into_bytes()),
+        };
+        // SAFETY: see above; `event` outlives the call.
+        unsafe { (self.api.goal_event)(self.api.instance, &raw const event) }
     }
 
     /// Hands a closed menu's contents to the mod.

@@ -460,6 +460,13 @@ pub trait Mod: Send + Sync + 'static {
     /// A player closed a `menus/1` menu; `items` holds one item per slot. Every mod sees every
     /// one: act only on keys that start with your mod id.
     fn menu_closed(&self, _player: Player<'_>, _key: &str, _items: Vec<menus::Item>) {}
+
+    /// A mob's goal selector asks about or reports on a goal added with
+    /// [`entities::Entities::add_goal`]. Answer `CanStart` and `Continue` (true: yes) only for
+    /// keys that start with your mod id; return false for others.
+    fn goal_event(&self, _event: entities::GoalEvent<'_>) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------- export glue
@@ -714,6 +721,29 @@ unsafe extern "C" fn menu_closed<M: Mod>(
     });
 }
 
+unsafe extern "C" fn goal_event<M: Mod>(inst: *const c_void, event: *const abi::GoalEvent) -> bool {
+    guard("goal_event", false, || {
+        // SAFETY: a live event borrowed for the call, and our own instance.
+        unsafe {
+            let e = &*event;
+            let phase = match e.phase {
+                abi::goal_event::CAN_START => entities::GoalPhase::CanStart,
+                abi::goal_event::CONTINUE => entities::GoalPhase::Continue,
+                abi::goal_event::START => entities::GoalPhase::Start,
+                abi::goal_event::TICK => entities::GoalPhase::Tick,
+                abi::goal_event::STOP => entities::GoalPhase::Stop,
+                _ => return false,
+            };
+            instance::<M>(inst).goal_event(entities::GoalEvent {
+                phase,
+                key: e.key.str(),
+                dimension: e.dimension.str(),
+                id: e.id,
+            })
+        }
+    })
+}
+
 /// Used by [`export_mod!`].
 #[doc(hidden)]
 pub fn export<M: Mod>(
@@ -746,6 +776,7 @@ pub fn export<M: Mod>(
         chunk_generated: chunk_generated::<M>,
         entity_event: entity_event::<M>,
         menu_closed: menu_closed::<M>,
+        goal_event: goal_event::<M>,
     };
     Box::into_raw(Box::new(api))
 }

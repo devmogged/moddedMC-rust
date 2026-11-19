@@ -5,6 +5,8 @@
 //! its vanilla AI off, so it moves only when the mod moves it. `/wispgo` gives the pets their AI
 //! back and walks them five blocks east along a path; `/wisparrived` counts those that got there.
 //! `/wisphunt` spawns a husk that targets the first pet (which shrugs off its blows).
+//! `/wispwatch` gives the pets a goal of the mod's own, `wisp:watch`; `/wispwatched` says whether
+//! it runs.
 
 use std::{
     fs,
@@ -22,6 +24,8 @@ struct Wisp {
     wisps: Mutex<Vec<(String, EntityId)>>,
     /// Where `/wispgo` sent each walking wisp.
     targets: Mutex<Vec<(EntityId, Vec3)>>,
+    /// Ticks the `wisp:watch` goal has run.
+    watched: std::sync::atomic::AtomicU64,
 }
 
 fn file() -> std::path::PathBuf {
@@ -61,6 +65,8 @@ impl Mod for Wisp {
         registry.add_command("wispgo", "Walk every pet five blocks east", 4)?;
         registry.add_command("wisparrived", "Count the pets that reached their target", 5)?;
         registry.add_command("wisphunt", "Spawn a husk that hunts the first pet", 6)?;
+        registry.add_command("wispwatch", "Give every pet the wisp:watch goal", 7)?;
+        registry.add_command("wispwatched", "How many ticks wisp:watch has run", 8)?;
         let saved = fs::read_to_string(file()).unwrap_or_default();
         *self.wisps.lock().unwrap_or_else(PoisonError::into_inner) = saved
             .lines()
@@ -95,6 +101,22 @@ impl Mod for Wisp {
             }
             _ => return false,
         }
+        true
+    }
+
+    fn goal_event(&self, event: entities::GoalEvent<'_>) -> bool {
+        if event.key != "wisp:watch" || !self.is_mine(event.id) {
+            return false;
+        }
+        match event.phase {
+            entities::GoalPhase::Start => info("wisp: watch goal started"),
+            entities::GoalPhase::Tick => {
+                self.watched
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            _ => {}
+        }
+        // Always willing to start and to keep running.
         true
     }
 
@@ -144,6 +166,23 @@ impl Mod for Wisp {
                 }
                 command.reply(&format!("wispgo: walking {}", targets.len()));
                 i32::try_from(targets.len()).unwrap_or(0)
+            }
+            7 => {
+                let added = wisps
+                    .iter()
+                    .filter(|(d, _)| d == dimension)
+                    .filter(|(d, id)| entities.add_goal(d, *id, 0, 0, "wisp:watch"))
+                    .count();
+                command.reply(&format!("wispwatch: added {added}"));
+                i32::try_from(added).unwrap_or(0)
+            }
+            8 => {
+                let ticks = self.watched.load(std::sync::atomic::Ordering::Relaxed);
+                command.reply(&format!(
+                    "wispwatched: {}",
+                    if ticks > 0 { "running" } else { "idle" }
+                ));
+                i32::from(ticks > 0)
             }
             6 => {
                 // The first wisp that is a mob: a pet.
@@ -243,6 +282,7 @@ impl Wisp {
 moddedmc_api::export_mod!(Wisp {
     wisps: Mutex::new(Vec::new()),
     targets: Mutex::new(Vec::new()),
+    watched: std::sync::atomic::AtomicU64::new(0),
 });
 
 #[cfg(test)]

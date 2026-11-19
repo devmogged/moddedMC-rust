@@ -8,6 +8,7 @@
 
 mod biome;
 mod console;
+mod goal;
 mod menu;
 mod native;
 mod pack;

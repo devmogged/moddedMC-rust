@@ -19,6 +19,29 @@ pub enum EventKind<'a> {
     Death,
 }
 
+/// What a mob's goal selector asks or tells about a mod goal (see [`Entities::add_goal`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GoalPhase {
+    /// May it start? Return true to start it.
+    CanStart,
+    /// May it keep running? Return true to keep it.
+    Continue,
+    Start,
+    /// Every tick while it runs.
+    Tick,
+    Stop,
+}
+
+/// A goal event: answer only for keys that start with your mod id.
+pub struct GoalEvent<'a> {
+    pub phase: GoalPhase,
+    pub key: &'a str,
+    pub dimension: &'a str,
+    pub id: EntityId,
+}
+
+pub use abi::goal_control;
+
 /// Something happened to an entity. Every mod sees every one: check `id` is yours. `player` is
 /// set for `Use` and `Attack`.
 pub struct Event<'a> {
@@ -99,6 +122,22 @@ impl Entities {
     pub fn set_target(&self, dimension: &str, id: EntityId, target: Option<EntityId>) -> bool {
         // SAFETY: borrowed for the call.
         unsafe { (self.0.set_target)(s(dimension), id, target.unwrap_or_default()) }
+    }
+
+    /// Adds an AI goal to a mob, run by its goal selector among its vanilla goals: lower
+    /// `priority` wins, `controls` ([`goal_control`] bits) are what it takes over while running.
+    /// [`crate::Mod::goal_event`] decides and runs it: start `key` with your mod id. Goals are not
+    /// saved: add them again when the mob comes back. False if it is not a mob.
+    pub fn add_goal(
+        &self,
+        dimension: &str,
+        id: EntityId,
+        priority: u32,
+        controls: u32,
+        key: &str,
+    ) -> bool {
+        // SAFETY: borrowed for the call.
+        unsafe { (self.0.add_goal)(s(dimension), id, priority, controls, s(key)) }
     }
 
     /// Stops a walk and gives the mob its own goals back.
