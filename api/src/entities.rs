@@ -72,4 +72,11 @@ impl Entities {
         // SAFETY: borrowed for the call.
         unsafe { (self.0.remove)(s(dimension), id) }
     }
+
+    /// Turns a mob's vanilla AI on or off; off, the mod drives it with [`Self::move_to`]. False
+    /// if it is not a mob.
+    pub fn set_ai(&self, dimension: &str, id: EntityId, enabled: bool) -> bool {
+        // SAFETY: borrowed for the call.
+        unsafe { (self.0.set_ai)(s(dimension), id, enabled) }
+    }
 }

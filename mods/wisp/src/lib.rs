@@ -1,7 +1,8 @@
 //! `moddedmc:entities/1` in its smallest real use: a creature the mod owns and moves. A wisp is
 //! an armor stand named "Wisp"; the mod saves the ids of its wisps in `config/wisp/wisps.txt`
 //! (they survive restarts with the world). `/wisp` spawns one where you stand, `/wispstep` moves
-//! every wisp one block east, `/wisplist` lists where they are.
+//! every wisp one block east, `/wisplist` lists where they are. `/wisppet` spawns a chicken with
+//! its vanilla AI off, so it moves only when the mod moves it.
 
 use std::{
     fs,
@@ -52,6 +53,7 @@ impl Mod for Wisp {
         registry.add_command("wisp", "Spawn a wisp where you stand", 0)?;
         registry.add_command("wispstep", "Move every wisp one block east", 1)?;
         registry.add_command("wisplist", "List the wisps", 2)?;
+        registry.add_command("wisppet", "Spawn a chicken that only the mod moves", 3)?;
         let saved = fs::read_to_string(file()).unwrap_or_default();
         *self.wisps.lock().unwrap_or_else(PoisonError::into_inner) = saved
             .lines()
@@ -105,6 +107,24 @@ impl Mod for Wisp {
                     at.x, at.y, at.z
                 ));
                 1
+            }
+            3 => {
+                let at = player.position();
+                let at = Vec3 {
+                    x: at.x,
+                    y: at.y.round(),
+                    z: at.z,
+                };
+                let Some(id) = entities.spawn(dimension, "minecraft:chicken", at) else {
+                    return 0;
+                };
+                // Its vanilla AI would wander off; the mod moves it with /wispstep instead.
+                let off = entities.set_ai(dimension, id, false);
+                entities.set_name(dimension, id, "Pet");
+                wisps.push((dimension.to_owned(), id));
+                Self::save(&wisps);
+                command.reply(&format!("wisppet: ai off {off}"));
+                i32::from(off)
             }
             1 => {
                 let mut moved = 0;

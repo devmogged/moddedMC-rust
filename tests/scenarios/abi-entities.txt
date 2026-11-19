@@ -49,6 +49,22 @@ wait 3
 bot cmd wisplist
 wait 1
 expect \[bot\] chat: .*wisplist: 4098.5 100.0 4097.5
+# AI hooks: a chicken with its AI off stays put until the mod moves it.
+cmd tp tester 4094.5 100 4094.5
+wait 2
+bot cmd wisppet
+wait 1
+expect \[bot\] chat: .*wisppet: ai off true
+wait 8
+bot cmd wisplist
+wait 1
+expect \[bot\] chat: .*wisplist: 4098.5 100.0 4097.5, 4094.5 100.0 4094.5
+bot cmd wispstep
+wait 1
+expect \[bot\] chat: .*wispstep: moved 2
+bot cmd wisplist
+wait 1
+expect \[bot\] chat: .*wisplist: 4099.5 100.0 4097.5, 4095.5 100.0 4094.5
 reject (?i)panic|panicked
 bot quit
 stop

@@ -330,6 +330,9 @@ pub struct EntitiesV1 {
     /// Shows `name` above it; an empty name hides it.
     pub set_name: unsafe extern "C" fn(dimension: Str, id: EntityId, name: Str) -> bool,
     pub remove: unsafe extern "C" fn(dimension: Str, id: EntityId) -> bool,
+    /// Turns a mob's vanilla AI (goals, pathfinding, its own movement) on or off; off, it stays
+    /// where `move_to` puts it. Saved with the entity. False if it is not a mob.
+    pub set_ai: unsafe extern "C" fn(dimension: Str, id: EntityId, enabled: bool) -> bool,
 }
 
 /// [`MenusV1`]: chest-style inventories a mod fills and reads back.
@@ -582,6 +585,7 @@ mod layout {
             (offset_of!(EntitiesV1, move_to), 24),
             (offset_of!(EntitiesV1, set_name), 32),
             (offset_of!(EntitiesV1, remove), 40),
+            (offset_of!(EntitiesV1, set_ai), 48),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "EntitiesV1 field #{i} moved");

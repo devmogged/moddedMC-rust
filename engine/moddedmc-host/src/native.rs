@@ -1042,6 +1042,7 @@ static ENTITIES: EntitiesV1 = EntitiesV1 {
     move_to,
     set_name,
     remove,
+    set_ai,
 };
 
 /// A live entity of a dimension by id.
@@ -1111,6 +1112,18 @@ unsafe extern "C" fn set_name(dimension: Str, id: EntityId, name: Str) -> bool {
     let e = entity.get_entity();
     e.set_custom_name_visible(!name.is_empty());
     e.set_custom_name(TextComponent::text(name));
+    true
+}
+
+unsafe extern "C" fn set_ai(dimension: Str, id: EntityId, enabled: bool) -> bool {
+    // SAFETY: borrowed for the call.
+    let Some((_, entity)) = (unsafe { entity(dimension, id) }) else {
+        return false;
+    };
+    let Some(mob) = entity.get_mob() else {
+        return false;
+    };
+    mob.get_mob_entity().set_no_ai(!enabled);
     true
 }
 
