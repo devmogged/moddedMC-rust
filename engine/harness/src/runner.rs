@@ -527,7 +527,13 @@ impl Bot {
         }
         if matches!(
             verb,
-            "move" | "look" | "attack" | "inventory-click" | "inventory-close" | "hotbar"
+            "move"
+                | "look"
+                | "attack"
+                | "inventory-click"
+                | "inventory-close"
+                | "hotbar"
+                | "release-item"
         ) {
             if matches!(verb, "attack" | "inventory-click") {
                 self.fence()?;

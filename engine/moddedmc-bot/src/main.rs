@@ -77,14 +77,14 @@ async fn main() -> Result<(), String> {
     ));
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
-    let mut sequence = 0;
+    let mut world_actions = WorldActions::default();
     while let Ok(Some(line)) = lines.next_line().await {
         let line = line.trim();
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
             "cmd" => send(&writer, &SChatCommand { command: rest }).await,
-            "use" | "place" | "use-item" | "break" => {
-                world_action(&player, &writer, &mut sequence, verb, rest).await
+            "use" | "place" | "use-item" | "release-item" | "break" | "dig" => {
+                world_actions.perform(&player, &writer, verb, rest).await
             }
             "click" => {
                 send(
@@ -248,50 +248,112 @@ async fn send<P: pumpkin_protocol::ClientPacket + MultiVersionJavaPacket>(
     bot::send_framed_packet(&mut *writer.lock().await, packet).await
 }
 
-async fn world_action(
-    player: &Mutex<movement::Player>,
-    writer: &Writer,
-    sequence: &mut i32,
-    verb: &str,
-    args: &str,
-) -> Result<(), String> {
-    let next = *sequence + 1;
-    match verb {
-        "use" | "place" => {
-            let packet = use_item_on(args, next)?;
-            *sequence = next;
-            send(writer, &packet).await
+#[derive(Default)]
+struct WorldActions {
+    sequence: i32,
+    digging: Option<(BlockPos, BlockDirection)>,
+}
+
+impl WorldActions {
+    async fn perform(
+        &mut self,
+        player: &Mutex<movement::Player>,
+        writer: &Writer,
+        verb: &str,
+        args: &str,
+    ) -> Result<(), String> {
+        let next = self
+            .sequence
+            .checked_add(1)
+            .ok_or("block action sequence exhausted")?;
+        match verb {
+            "use" | "place" => {
+                let packet = use_item_on(args, next)?;
+                self.sequence = next;
+                send(writer, &packet).await
+            }
+            "use-item" => {
+                let hand = hand(args)?;
+                let (yaw, pitch) = player.lock().await.rotation();
+                self.sequence = next;
+                send(
+                    writer,
+                    &SUseItem {
+                        hand,
+                        sequence: VarInt(next),
+                        yaw,
+                        pitch,
+                    },
+                )
+                .await
+            }
+            "break" => {
+                let coords = args.split_whitespace().collect::<Vec<_>>();
+                let position = parse_block(&coords)?;
+                self.sequence = next;
+                send(
+                    writer,
+                    &player_action(Status::StartedDigging, position, BlockDirection::Up, next),
+                )
+                .await
+            }
+            "dig" => {
+                let (status, position, face) = self.dig(args)?;
+                self.sequence = next;
+                send(writer, &player_action(status, position, face, next)).await
+            }
+            "release-item" if args.is_empty() => {
+                send(
+                    writer,
+                    &player_action(
+                        Status::ReleaseItemInUse,
+                        BlockPos::new(0, 0, 0),
+                        BlockDirection::Down,
+                        0,
+                    ),
+                )
+                .await
+            }
+            _ => Err(format!("unknown block action {verb}")),
         }
-        "use-item" => {
-            let hand = hand(args)?;
-            let (yaw, pitch) = player.lock().await.rotation();
-            *sequence = next;
-            send(
-                writer,
-                &SUseItem {
-                    hand,
-                    sequence: VarInt(next),
-                    yaw,
-                    pitch,
-                },
-            )
-            .await
+    }
+
+    fn dig(&mut self, args: &str) -> Result<(Status, BlockPos, BlockDirection), String> {
+        let args = args.split_whitespace().collect::<Vec<_>>();
+        match args.as_slice() {
+            ["start", x, y, z, face] => {
+                if self.digging.is_some() {
+                    return Err("finish or abort the previous dig before starting another".into());
+                }
+                let position = parse_block(&[x, y, z])?;
+                let (face, _) = face_hit(face)?;
+                self.digging = Some((position, face));
+                Ok((Status::StartedDigging, position, face))
+            }
+            [phase @ ("finish" | "abort")] => {
+                let (position, face) = self.digging.take().ok_or("no dig is active")?;
+                if *phase == "finish" {
+                    Ok((Status::FinishedDigging, position, face))
+                } else {
+                    Ok((Status::CancelledDigging, position, BlockDirection::Down))
+                }
+            }
+            _ => Err("dig requires start x y z face, finish or abort".into()),
         }
-        "break" => {
-            let position = parse_pos(args).ok_or_else(|| format!("bad position: {args}"))?;
-            *sequence = next;
-            send(
-                writer,
-                &SPlayerAction {
-                    status: VarInt(Status::StartedDigging as i32),
-                    position,
-                    face: 1,
-                    sequence: VarInt(next),
-                },
-            )
-            .await
-        }
-        _ => Err(format!("unknown block action {verb}")),
+    }
+}
+
+const fn player_action(
+    status: Status,
+    position: BlockPos,
+    face: BlockDirection,
+    sequence: i32,
+) -> SPlayerAction {
+    SPlayerAction {
+        status: VarInt(status as i32),
+        position,
+        face: face as u8,
+        sequence: VarInt(sequence),
     }
 }
 
@@ -300,17 +362,27 @@ fn use_item_on(args: &str, sequence: i32) -> Result<SUseItemOn, String> {
     let [x, y, z, options @ ..] = args.as_slice() else {
         return Err("use requires x y z with optional face and hand".into());
     };
-    let coordinates = [x, y, z].map(|value| value.parse::<i32>());
-    let [Ok(x), Ok(y), Ok(z)] = coordinates else {
-        return Err("use requires integer block coordinates".into());
-    };
+    let position = parse_block(&[x, y, z])?;
     let (face, hand) = match options {
         [] => ("up", "main"),
         [face] => (*face, "main"),
         [face, hand] => (*face, *hand),
         _ => return Err("use requires x y z with optional face and hand".into()),
     };
-    let (face, cursor_pos) = match face {
+    let (face, cursor_pos) = face_hit(face)?;
+    Ok(SUseItemOn {
+        hand: self::hand(hand)?,
+        position,
+        face: VarInt(face as i32),
+        cursor_pos,
+        inside_block: false,
+        is_against_world_border: false,
+        sequence: VarInt(sequence),
+    })
+}
+
+fn face_hit(face: &str) -> Result<(BlockDirection, Vector3<f32>), String> {
+    Ok(match face {
         "down" => (BlockDirection::Down, Vector3::new(0.5, 0.0, 0.5)),
         "up" => (BlockDirection::Up, Vector3::new(0.5, 1.0, 0.5)),
         "north" => (BlockDirection::North, Vector3::new(0.5, 0.5, 0.0)),
@@ -318,15 +390,6 @@ fn use_item_on(args: &str, sequence: i32) -> Result<SUseItemOn, String> {
         "west" => (BlockDirection::West, Vector3::new(0.0, 0.5, 0.5)),
         "east" => (BlockDirection::East, Vector3::new(1.0, 0.5, 0.5)),
         _ => return Err(format!("invalid block face {face}")),
-    };
-    Ok(SUseItemOn {
-        hand: self::hand(hand)?,
-        position: BlockPos(Vector3::new(x, y, z)),
-        face: VarInt(face as i32),
-        cursor_pos,
-        inside_block: false,
-        is_against_world_border: false,
-        sequence: VarInt(sequence),
     })
 }
 
@@ -338,14 +401,16 @@ fn hand(name: &str) -> Result<VarInt, String> {
     }
 }
 
-fn parse_pos(text: &str) -> Option<BlockPos> {
-    let mut parts = text.split_whitespace().map(str::parse::<i32>);
-    let (Some(Ok(x)), Some(Ok(y)), Some(Ok(z)), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return None;
-    };
-    Some(BlockPos(Vector3::new(x, y, z)))
+fn parse_block(parts: &[&str]) -> Result<BlockPos, String> {
+    if let [x, y, z] = parts
+        && let [Ok(x), Ok(y), Ok(z)] = [x, y, z].map(|value| value.parse::<i32>())
+    {
+        return Ok(BlockPos::new(x, y, z));
+    }
+    Err(format!(
+        "expected three integer block coordinates, got {}",
+        parts.join(" ")
+    ))
 }
 
 /// Chat arrives as network NBT; the readable strings are enough for test assertions.

@@ -262,10 +262,11 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
         pumpkin_data::item::Item::from_registry_key(name).is_some() && count.parse::<u8>().is_ok()
     };
     match (verb, args.as_slice()) {
-        ("await-teleport" | "inventory-close", [])
+        ("await-teleport" | "inventory-close" | "release-item", [])
         | ("physics", ["off" | "manual"])
         | ("fly", ["on" | "off"])
-        | ("input", ["none"]) => true,
+        | ("input", ["none"])
+        | ("dig", ["finish" | "abort"]) => true,
         ("input", keys) => {
             !keys.is_empty()
                 && keys.iter().all(|key| {
@@ -285,7 +286,9 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
         ("expect", ["slot", slot, name, count]) => slot_index(slot) && item(name, count),
         ("expect", ["cursor", name, count]) => item(name, count),
         ("use" | "place" | "break", xyz @ [_, _, _]) => block(xyz),
-        ("use" | "place", [x, y, z, direction]) => block(&[x, y, z]) && face(direction),
+        ("use" | "place", [x, y, z, direction]) | ("dig", ["start", x, y, z, direction]) => {
+            block(&[x, y, z]) && face(direction)
+        }
         ("use" | "place", [x, y, z, direction, which]) => {
             block(&[x, y, z]) && face(direction) && hand(which)
         }

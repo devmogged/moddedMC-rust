@@ -1,0 +1,34 @@
+# A wooden pickaxe needs ceil(1 / (2 / 1.5 / 30)) = 23 grounded ticks for stone.
+seed 12345
+area 0 150 0 4 154 4
+start
+cmd fill 0 150 0 4 150 4 minecraft:stone
+cmd setblock 2 151 1 minecraft:stone
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+bot alice physics manual
+bot alice physics-tick 2
+cmd item replace entity alice weapon.mainhand with minecraft:wooden_pickaxe
+bot alice dig start 2 151 1 west
+tick 10
+probe execute if block 2 151 1 minecraft:stone
+expect Test passed
+bot alice dig abort
+tick 24
+probe execute if block 2 151 1 minecraft:stone
+expect Test passed
+bot alice dig start 2 151 1 west
+tick 23
+bot alice dig finish
+probe execute if block 2 151 1 minecraft:air
+expect Test passed
+# Holding use draws the bow without spending ammo. Releasing fires one arrow.
+cmd item replace entity alice weapon.mainhand with minecraft:bow
+cmd item replace entity alice hotbar.1 with minecraft:arrow 2
+bot alice use-item main
+tick 20
+bot alice expect slot 37 minecraft:arrow 2
+bot alice release-item
+bot alice expect slot 37 minecraft:arrow 1
+stop
