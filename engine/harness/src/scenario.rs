@@ -250,7 +250,19 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
                 .all(|word| word.parse::<f64>().is_ok_and(f64::is_finite))
     };
     match (verb, args.as_slice()) {
-        ("await-teleport", []) | ("physics", ["off" | "manual"]) => true,
+        ("await-teleport", [])
+        | ("physics", ["off" | "manual"])
+        | ("fly", ["on" | "off"])
+        | ("input", ["none"]) => true,
+        ("input", keys) => {
+            !keys.is_empty()
+                && keys.iter().all(|key| {
+                    matches!(
+                        *key,
+                        "forward" | "back" | "left" | "right" | "jump" | "sneak" | "sprint"
+                    )
+                })
+        }
         ("physics-tick", [count]) => count.parse::<u16>().is_ok_and(|n| (1..=1200).contains(&n)),
         ("expect", ["pos" | "vel", x, y, z, "within", tolerance]) => {
             coords(&[x, y, z])

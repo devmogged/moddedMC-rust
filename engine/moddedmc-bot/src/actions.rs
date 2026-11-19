@@ -18,7 +18,7 @@ use pumpkin_protocol::{
 use pumpkin_util::math::vector3::Vector3;
 use tokio::sync::Mutex;
 
-use crate::{Writer, send};
+use crate::{Writer, bot::send_framed_packet, movement::Player, send};
 
 #[derive(Default)]
 pub struct State {
@@ -119,6 +119,7 @@ impl State {
 
 pub async fn perform(
     state: &Mutex<State>,
+    player: &Mutex<Player>,
     writer: &Writer,
     verb: &str,
     args: &str,
@@ -126,15 +127,18 @@ pub async fn perform(
     let parts = args.split_whitespace().collect::<Vec<_>>();
     match (verb, parts.as_slice()) {
         ("move", coords) => {
-            send(
-                writer,
+            let position = vector(coords)?;
+            let mut writer = writer.lock().await;
+            player.lock().await.reposition(position);
+            send_framed_packet(
+                &mut *writer,
                 &SPlayerPosition {
-                    position: vector(coords)?,
+                    position,
                     collision: 0,
                 },
             )
             .await?;
-            send(writer, &SClientTickEnd).await
+            send_framed_packet(&mut *writer, &SClientTickEnd).await
         }
         ("look", [yaw, pitch]) => {
             let yaw: f32 = yaw.parse().map_err(|_| "invalid yaw")?;
@@ -142,17 +146,19 @@ pub async fn perform(
             if !yaw.is_finite() || !(-90.0..=90.0).contains(&pitch) {
                 return Err("look requires finite yaw and pitch from -90 to 90".into());
             }
-            send(
-                writer,
+            let mut writer = writer.lock().await;
+            let (ground, horizontal_collision) = player.lock().await.look(yaw, pitch);
+            send_framed_packet(
+                &mut *writer,
                 &SPlayerRotation {
                     yaw,
                     pitch,
-                    ground: false,
-                    horizontal_collision: false,
+                    ground,
+                    horizontal_collision,
                 },
             )
             .await?;
-            send(writer, &SClientTickEnd).await
+            send_framed_packet(&mut *writer, &SClientTickEnd).await
         }
         ("attack", [name, coords @ ..]) => {
             let anchor = vector(coords)?;

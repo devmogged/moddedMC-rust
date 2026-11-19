@@ -1,0 +1,36 @@
+# Drive real key and ability packets and check the resulting local travel.
+seed 12345
+area 0 150 0 4 154 8
+properties gamemode=creative
+start
+cmd fill 0 150 0 4 150 7 minecraft:stone
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+bot alice physics manual
+bot alice physics-tick 2
+bot alice input forward sprint
+bot alice physics-tick 1
+bot alice expect pos 1.5 151 1.6274 within 0.000001
+bot alice input none
+bot alice move 1.5 151 8.29
+bot alice physics-tick 2
+bot alice input forward sneak
+bot alice physics-tick 4
+# The feet may overhang while the bounding box still touches the floor.
+bot alice expect pos 1.5 151 8.295 within 0.005001
+bot alice input none
+bot alice move 1.5 151 1.5
+bot alice physics-tick 2
+bot alice input jump
+bot alice physics-tick 1
+bot alice expect pos 1.5 151.41999998688698 1.5 within 0.000001
+bot alice move 1.5 154 1.5
+bot alice fly on
+bot alice physics-tick 2
+bot alice expect pos 1.5 154.39 1.5 within 0.000001
+probe execute if entity @a[name=alice,x=1.5,y=154.39,z=1.5,distance=..0.000001]
+expect Test passed
+bot alice input none
+bot alice fly off
+stop

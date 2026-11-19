@@ -8,6 +8,51 @@ use crate::terrain::World;
 const STEP_HEIGHT: f32 = 0.6;
 const SHAPE_EPSILON: f64 = 1.0e-7;
 
+pub fn back_off_from_edge(
+    world: &World,
+    bounds: BoundingBox,
+    mut delta: Vector3<f64>,
+    grounded: bool,
+    fall_distance: f64,
+) -> Vector3<f64> {
+    const STEP: f64 = 0.05;
+    let can_fall = |x, z, depth: f64| {
+        let min =
+            bounds.min + Vector3::new(x + SHAPE_EPSILON, -depth - SHAPE_EPSILON, z + SHAPE_EPSILON);
+        let max = bounds.max + Vector3::new(x - SHAPE_EPSILON, 0.0, z - SHAPE_EPSILON);
+        world
+            .shapes(BoundingBox::new(
+                min,
+                Vector3::new(max.x, bounds.min.y, max.z),
+            ))
+            .is_empty()
+    };
+    let height = f64::from(STEP_HEIGHT);
+    if delta.y > 0.0
+        || !(grounded || fall_distance < height && !can_fall(0.0, 0.0, height - fall_distance))
+    {
+        return delta;
+    }
+    let step_towards_zero = |v: f64| {
+        if v.abs() <= STEP {
+            0.0
+        } else {
+            v - v.signum() * STEP
+        }
+    };
+    while delta.x != 0.0 && can_fall(delta.x, 0.0, height) {
+        delta.x = step_towards_zero(delta.x);
+    }
+    while delta.z != 0.0 && can_fall(0.0, delta.z, height) {
+        delta.z = step_towards_zero(delta.z);
+    }
+    while delta.x != 0.0 && delta.z != 0.0 && can_fall(delta.x, delta.z, height) {
+        delta.x = step_towards_zero(delta.x);
+        delta.z = step_towards_zero(delta.z);
+    }
+    delta
+}
+
 pub fn collide(
     world: &World,
     bounds: BoundingBox,

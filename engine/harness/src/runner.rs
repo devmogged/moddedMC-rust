@@ -513,10 +513,13 @@ impl Bot {
             return Ok(());
         }
         let verb = input.split_whitespace().next().unwrap_or_default();
-        if matches!(verb, "physics" | "physics-tick" | "expect") {
+        if matches!(
+            verb,
+            "physics" | "physics-tick" | "expect" | "input" | "fly"
+        ) {
             self.fence()?;
             self.send_and_wait(input, None)?;
-            return if verb == "physics-tick" {
+            return if matches!(verb, "physics-tick" | "input" | "fly") {
                 self.fence()
             } else {
                 Ok(())

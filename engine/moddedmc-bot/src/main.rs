@@ -11,6 +11,7 @@ mod actions;
 mod bot;
 mod capture;
 mod collision;
+mod controls;
 mod movement;
 mod terrain;
 
@@ -111,13 +112,15 @@ async fn main() -> Result<(), String> {
                 )
                 .await
             }
-            "move" | "look" | "attack" | "inventory-click" if harness => {
-                actions::perform(&actions, &writer, verb, rest).await
+            "look" => actions::perform(&actions, &player, &writer, verb, rest).await,
+            "move" | "attack" | "inventory-click" if harness => {
+                actions::perform(&actions, &player, &writer, verb, rest).await
             }
             "physics" if harness && rest == "on" => {
                 Err("use physics manual in a frozen harness scenario".into())
             }
             "physics" => player.lock().await.set_mode(rest),
+            "input" | "fly" => movement::control(&player, &writer, verb, rest).await,
             "physics-tick" => manual_ticks(&player, &writer, rest).await,
             "expect" => player
                 .lock()
