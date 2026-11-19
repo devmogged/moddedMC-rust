@@ -10,7 +10,9 @@ use pumpkin_protocol::{
     codec::var_int::VarInt,
     java::{
         client::{
-            config::{CConfigAddResourcePack, CConfigPing, CFinishConfig, CKnownPacks},
+            config::{
+                CConfigAddResourcePack, CConfigPing, CFinishConfig, CKnownPacks, CPluginMessage,
+            },
             login::CLoginSuccess,
             play::{CLogin, CPlayerPosition},
         },
@@ -19,7 +21,7 @@ use pumpkin_protocol::{
         server::{
             config::{
                 SAcknowledgeFinishConfig, SClientInformationConfig, SConfigPong,
-                SConfigResourcePack, SKnownPacks,
+                SConfigResourcePack, SKnownPacks, SPluginMessage,
             },
             handshake::SHandShake,
             login::{SLoginAcknowledged, SLoginStart},
@@ -146,9 +148,17 @@ impl HeadlessBot {
         let finish_config_id = CFinishConfig::to_id(CURRENT_MC_VERSION);
         let pack_id = CConfigAddResourcePack::to_id(CURRENT_MC_VERSION);
         let config_ping_id = CConfigPing::to_id(CURRENT_MC_VERSION);
+        let companion_version = std::env::var("MODDEDMC_BOT_COMPANION")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok());
+        let mut received_answer = false;
         loop {
             let pkt = bot.next_packet().await?;
-            if pkt.id == pack_id {
+            if pkt.id == CPluginMessage::to_id(CURRENT_MC_VERSION)
+                && let Some(version) = companion_version
+            {
+                received_answer |= bot.companion_message(&pkt.payload, version).await?;
+            } else if pkt.id == pack_id {
                 let uuid = download_pack(&pkt.payload, host).await?;
                 bot.send_packet(&SConfigResourcePack {
                     uuid,
@@ -169,6 +179,9 @@ impl HeadlessBot {
                 })
                 .await?;
             } else if pkt.id == finish_config_id {
+                if companion_version.is_some() && !received_answer {
+                    return Err("No companion configuration answer".into());
+                }
                 bot.send_packet(&SAcknowledgeFinishConfig).await?;
                 break;
             }
@@ -205,6 +218,32 @@ impl HeadlessBot {
         }
 
         Ok(bot)
+    }
+
+    #[expect(
+        clippy::print_stdout,
+        reason = "the bot reports configuration evidence to stdout"
+    )]
+    async fn companion_message(&mut self, mut data: &[u8], version: u16) -> Result<bool, String> {
+        const CHANNEL: &str = "moddedmc:negotiate";
+        if data.get_str_borrowed().map_err(|error| error.to_string())? != CHANNEL {
+            return Ok(false);
+        }
+        if data.is_empty() {
+            let mut hello = version.to_be_bytes().to_vec();
+            hello.extend_from_slice(&0u32.to_be_bytes());
+            self.send_packet(&SPluginMessage {
+                channel: CHANNEL,
+                data: &hello,
+            })
+            .await?;
+            return Ok(false);
+        }
+        if data != [0, 1, 0, 0, 0, 0] {
+            return Err(format!("Unexpected companion answer {data:?}"));
+        }
+        println!("[bot] companion protocol 1, active capabilities 0");
+        Ok(true)
     }
 }
 
