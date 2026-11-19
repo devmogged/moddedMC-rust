@@ -399,6 +399,11 @@ pub struct ModApi {
     /// true means handled and skips the appearance's own interaction.
     pub block_event:
         unsafe extern "C" fn(instance: *const c_void, event: *const BlockEvent) -> bool,
+    /// World generation: called once per chunk and mod, the first time the chunk loads with
+    /// this mod installed (new chunks, and old ones the mod has not seen). Place ores and
+    /// features with `moddedmc:world/1`, inside this chunk only. Delivered at the start of a tick.
+    pub chunk_generated:
+        unsafe extern "C" fn(instance: *const c_void, dimension: Str, chunk_x: i32, chunk_z: i32),
 }
 
 /// `ModApi` size of ABI 1.0, before `define_blocks`.
@@ -473,12 +478,13 @@ mod layout {
             (offset_of!(ModApi, menu_click), 88),
             (offset_of!(ModApi, define_blocks), 96),
             (offset_of!(ModApi, block_event), 104),
+            (offset_of!(ModApi, chunk_generated), 112),
         ];
         for (i, (actual, expected)) in fields.into_iter().enumerate() {
             assert_eq!(actual, expected, "ModApi field #{i} moved");
         }
         assert_eq!(MOD_API_V1_0_SIZE, 96);
-        assert!(size_of::<ModApi>() >= 112);
+        assert!(size_of::<ModApi>() >= 120);
     }
 
     #[test]

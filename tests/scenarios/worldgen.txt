@@ -1,0 +1,34 @@
+# World generation through the ores mod: a chunk gets zinc ore the first time it loads, and is
+# not decorated again after a restart.
+# Run: scripts\scenario.ps1 -Scenario tests\scenarios\worldgen.txt -RunDir run\worldgen -Fresh
+mods target\mods\ores.mmc
+start
+wait 1
+expect defined block ores:zinc_ore \(1 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd tp tester 6008.5 120 6008.5
+wait 6
+expect ores: decorated chunk 375 375 with [1-8]
+bot cmd zinc
+wait 3
+expect \[bot\] chat: .*zinc: [1-8] in chunk 375 375
+reject (?i)panic|panicked
+bot quit
+stop
+
+start
+wait 1
+botstart tester
+wait 3
+cmd tp tester 6008.5 120 6008.5
+wait 6
+bot cmd zinc
+wait 3
+expect \[bot\] chat: .*zinc: [1-8] in chunk 375 375
+reject ores: decorated chunk 375 375
+reject (?i)panic|panicked
+bot quit
+stop

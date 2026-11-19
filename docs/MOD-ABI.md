@@ -67,6 +67,7 @@ What the SDK offers:
 | `Mod::menu_click` | A player picked a button of a menu (`Player::show_menu`). Every mod sees every click: check the action id is yours. |
 | `Mod::define_blocks` | Once, before any world loads: `blocks.block("shaft:shaft", &[("axis", &["x", "y", "z"])], &[look-alikes])` defines a real modded block (`moddedmc:blocks/1`). |
 | `Mod::block_event` | One of your `blocks/1` blocks was used, placed, broken, ticked, or a neighbor changed. Return true from a use to skip the look-alike's own interaction. |
+| `Mod::chunk_generated` | World generation: once per chunk, the first time it loads with your mod installed (new chunks, and old ones your mod has not seen). Place ores and features with `world`, inside that chunk. The server records decorated chunks in `config/moddedmc/decorated/<mod>/`. |
 | `blocks::get()` | `schedule_tick(dimension, pos, delay)` and `is_powered(dimension, pos)` for `blocks/1` blocks. |
 | `entities::get()` | `moddedmc:entities/1`: `spawn` a vanilla entity type as a creature's look-alike, then `position`, `move_to`, `set_name`, `remove` by its id. Ids survive restarts (the world saves the entity): store them. |
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
@@ -81,7 +82,7 @@ Rules:
 - Block entity state is opaque bytes, at most 64 KiB, saved with the chunk. Bump `state_version` when its layout changes; the server will not hand old-layout state to the new code.
 - You do not need the server's source, compiler version or build to build a mod. Any Rust toolchain that builds `api/` works.
 
-`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block), `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress) and `mods/wisp` (a creature through `entities/1`) are complete examples.
+`mods/counter` (a ticking block), `mods/wayshrine` (blocks, a menu, teleport, saved data), `mods/pillar` (the world interface), `mods/shaft` (a `blocks/1` block), `mods/drivetrain` (a Create-style drivetrain: networks, gears, clutch, stress), `mods/wisp` (a creature through `entities/1`) and `mods/ores` (zinc ore through `chunk_generated`) are complete examples.
 
 ### Modded blocks (`blocks/1`)
 
@@ -128,7 +129,9 @@ Interfaces:
 | `moddedmc:blocks/1` | 1.1 | `define_block` during `ModApi::define_blocks`; `schedule_tick`, `is_powered`. Events come through `ModApi::block_event`. |
 | `moddedmc:entities/1` | 1.1 | Spawn, find, move, name and remove entities by UUID. |
 
-Planned (see [DECISIONS.md](DECISIONS.md)): entity events (damage, interaction, death) and AI hooks for `entities/2` or later additions to `entities/1`, `menus/1` and `worldgen/1`, each when a real port needs it.
+World generation is the `ModApi::chunk_generated` callback (1.1) rather than an interface table: the mod places blocks itself through `world/1`.
+
+Planned (see [DECISIONS.md](DECISIONS.md)): entity events (damage, interaction, death) and AI hooks, structures and biomes for world generation, and inventory menus, each when a real port needs it. Menus today are `Player::show_menu` (dialogs with buttons).
 
 Packaging (`.mmc`): a zip with
 

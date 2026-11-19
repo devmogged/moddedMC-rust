@@ -443,6 +443,10 @@ pub trait Mod: Send + Sync + 'static {
     fn block_event(&self, _event: blocks::Event<'_>) -> bool {
         false
     }
+
+    /// World generation: once per chunk, the first time it loads with this mod installed. Place
+    /// ores and features with [`world`], inside chunk (`chunk_x`, `chunk_z`) only.
+    fn chunk_generated(&self, _dimension: &str, _chunk_x: i32, _chunk_z: i32) {}
 }
 
 // ---------------------------------------------------------------- export glue
@@ -633,6 +637,18 @@ unsafe extern "C" fn block_event<M: Mod>(
     })
 }
 
+unsafe extern "C" fn chunk_generated<M: Mod>(
+    inst: *const c_void,
+    dimension: Str,
+    chunk_x: i32,
+    chunk_z: i32,
+) {
+    guard("chunk_generated", (), || {
+        // SAFETY: borrowed for the call, and our own instance.
+        unsafe { instance::<M>(inst).chunk_generated(dimension.str(), chunk_x, chunk_z) };
+    });
+}
+
 /// Used by [`export_mod!`].
 #[doc(hidden)]
 pub fn export<M: Mod>(
@@ -662,6 +678,7 @@ pub fn export<M: Mod>(
         menu_click: menu_click::<M>,
         define_blocks: define_blocks::<M>,
         block_event: block_event::<M>,
+        chunk_generated: chunk_generated::<M>,
     };
     Box::into_raw(Box::new(api))
 }

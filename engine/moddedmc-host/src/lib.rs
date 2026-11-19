@@ -113,6 +113,8 @@ struct WorldIndex {
 
 /// (world, pos, block, player)
 type PendingPlace = (Weak<World>, BlockPos, usize, Option<Arc<Player>>);
+/// Chunk coordinates a worldgen mod has decorated.
+type Decorated = HashSet<(i32, i32)>;
 /// A block in a world that may unload.
 type At = (Weak<World>, BlockPos);
 /// (world, pos, modded block, player)
@@ -130,6 +132,8 @@ struct Host {
     neighbors: Mutex<Vec<At>>,
     /// Chunks that loaded since the last tick: (world, chunk x, chunk z).
     chunks: Mutex<Vec<(Weak<World>, i32, i32)>>,
+    /// Chunks each worldgen mod has decorated, by (mod id, dimension); loaded on first use.
+    decorated: Mutex<HashMap<(String, String), Decorated>>,
     /// Scheduled `blocks/1` ticks by due server tick.
     scheduled: Mutex<std::collections::BTreeMap<i64, Vec<At>>>,
     index: Mutex<Vec<WorldIndex>>,
@@ -187,9 +191,7 @@ pub fn attach(server: &Arc<Server>) {
         true,
     );
     let _ = pumpkin_core::block::MODDED_NEIGHBOR_HOOK.set(on_modded_neighbor);
-    if modded::state_count() > 0 {
-        let _ = pumpkin_core::block::MODDED_CHUNK_HOOK.set(on_chunk_loaded);
-    }
+    let _ = pumpkin_core::block::MODDED_CHUNK_HOOK.set(on_chunk_loaded);
     stats::attach(server);
 }
 
@@ -1066,6 +1068,66 @@ fn modded_in_chunk(world: &World, cx: i32, cz: i32) -> Vec<(BlockPos, BlockState
     found
 }
 
+/// `config/moddedmc/decorated/<mod>/<dimension>.txt`: one `x z` line per decorated chunk.
+fn decorated_file(mod_id: &str, dimension: &str) -> std::path::PathBuf {
+    std::path::Path::new("config/moddedmc/decorated")
+        .join(mod_id)
+        .join(format!("{}.txt", dimension.replace(':', "_")))
+}
+
+/// Sends each worldgen mod the loaded chunks it has not decorated yet, and records them.
+fn generate(chunks: &[(Weak<World>, i32, i32)]) {
+    use std::io::Write;
+    let mods: Vec<Native> = lock(&HOST.mods)
+        .iter()
+        .map(|m| m.module)
+        .filter(|m| m.has_worldgen())
+        .collect();
+    for module in mods {
+        for (world, cx, cz) in chunks {
+            let Some(world) = world.upgrade() else {
+                continue;
+            };
+            let dimension = world.dimension.minecraft_name;
+            let fresh = {
+                let mut decorated = lock(&HOST.decorated);
+                let seen = decorated
+                    .entry((module.id.to_owned(), dimension.to_owned()))
+                    .or_insert_with(|| {
+                        std::fs::read_to_string(decorated_file(module.id, dimension))
+                            .unwrap_or_default()
+                            .lines()
+                            .filter_map(|l| {
+                                let (x, z) = l.split_once(' ')?;
+                                Some((x.parse().ok()?, z.parse().ok()?))
+                            })
+                            .collect()
+                    });
+                seen.insert((*cx, *cz))
+            };
+            if !fresh {
+                continue;
+            }
+            module.chunk_generated(&world, *cx, *cz);
+            // Recorded after the mod ran: a crash in between decorates the chunk again.
+            let file = decorated_file(module.id, dimension);
+            let written = file
+                .parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| {
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&file)?
+                        .write_all(format!("{cx} {cz}\n").as_bytes())
+                });
+            if let Err(e) = written {
+                tracing::warn!("moddedmc: could not record {}: {e}", file.display());
+            }
+        }
+    }
+}
+
 fn schedule_tick(world: &Arc<World>, pos: BlockPos, delay: u32) {
     let now = native::SERVER.get().map_or(0, |s| {
         s.tick_count.load(std::sync::atomic::Ordering::Relaxed)
@@ -1091,6 +1153,12 @@ fn deliver_block_events(tick: i32) {
             .collect()
     };
     let chunks = std::mem::take(&mut *lock(&HOST.chunks));
+    generate(&chunks);
+    let chunks = if modded::state_count() > 0 {
+        chunks
+    } else {
+        Vec::new()
+    };
     let loaded = chunks
         .into_iter()
         .filter_map(|(w, cx, cz)| {

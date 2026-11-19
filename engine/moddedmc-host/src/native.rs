@@ -1220,6 +1220,17 @@ impl Native {
         unsafe { (self.api.block_event)(self.api.instance, &raw const event) }
     }
 
+    /// Whether this mod was built with `chunk_generated`.
+    pub const fn has_worldgen(self) -> bool {
+        self.api.size >= abi::MOD_API_V1_0_SIZE + 3 * size_of::<usize>()
+    }
+
+    pub fn chunk_generated(self, world: &World, chunk_x: i32, chunk_z: i32) {
+        let dimension = Str::from(world.dimension.minecraft_name);
+        // SAFETY: see above.
+        unsafe { (self.api.chunk_generated)(self.api.instance, dimension, chunk_x, chunk_z) };
+    }
+
     pub fn menu_click(self, player: &Arc<Player>, action: &str) {
         // SAFETY: see above; the player is kept alive by the caller.
         unsafe { (self.api.menu_click)(self.api.instance, player_ref(player), Str::from(action)) };

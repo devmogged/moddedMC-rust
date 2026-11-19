@@ -1,0 +1,12 @@
+[package]
+name = "ores"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "World generation demo: zinc ore placed in new chunks through chunk_generated and moddedmc:world/1."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true
