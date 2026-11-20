@@ -289,6 +289,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "farmersdelight"
+version = "1.3.4"
+dependencies = [
+ "moddedmc-api",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fastcdc"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
