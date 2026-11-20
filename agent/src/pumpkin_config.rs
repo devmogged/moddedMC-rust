@@ -6,7 +6,7 @@ use std::path::Path;
 use toml::{Table, Value};
 use tracing::warn;
 
-const FILE: &str = "pumpkin.toml";
+pub const FILE: &str = "pumpkin.toml";
 
 /// Settings for a new server: its port, offline mode, telemetry off (like `host`), and no
 /// Bedrock listener, so several servers on one machine don't fight over Bedrock's fixed ports.
@@ -57,7 +57,7 @@ fn address(port: u16) -> String {
     format!("0.0.0.0:{port}")
 }
 
-fn section<'a>(table: &'a mut Table, path: &[&str]) -> &'a mut Table {
+pub fn section<'a>(table: &'a mut Table, path: &[&str]) -> &'a mut Table {
     let mut current = table;
     for key in path {
         let entry = current
@@ -74,7 +74,7 @@ fn section<'a>(table: &'a mut Table, path: &[&str]) -> &'a mut Table {
     current
 }
 
-async fn write(dir: &Path, table: &Table) -> std::io::Result<()> {
+pub async fn write(dir: &Path, table: &Table) -> std::io::Result<()> {
     let text = toml::to_string_pretty(table).map_err(std::io::Error::other)?;
     let tmp = dir.join("pumpkin.toml.tmp");
     tokio::fs::write(&tmp, text).await?;

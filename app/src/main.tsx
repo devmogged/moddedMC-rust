@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import { Shell } from "./Shell";
 import { applyAppearance } from "./settings";
 import "./theme.css";
-import "./legacy.css";
 
 applyAppearance();
 const root = document.getElementById("root");

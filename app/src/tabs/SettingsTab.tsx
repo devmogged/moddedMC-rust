@@ -1,5 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { HardDrive, Monitor, Moon, Plus, Sun, Trash2 } from "lucide-react";
+import { api, type Route } from "~/api";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { errorText, usePoll } from "~/lib/hooks";
+import { toast } from "~/lib/toast";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { Switch } from "~/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group";
@@ -67,6 +73,8 @@ export function SettingsTab() {
             <Switch checked={settings.autoUpdate} onCheckedChange={(on) => setSetting("autoUpdate", on)} />
           </Row>
         </Section>
+
+        <DevicesSection />
       </div>
     </div>
   );
@@ -90,5 +98,88 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
       </div>
       {children}
     </div>
+  );
+}
+
+const ROUTES: { id: Exclude<Route, "local">; label: string; host: string }[] = [
+  { id: "tailscale", label: "Tailscale", host: "machine name or 100.x address" },
+  { id: "ssh", label: "SSH", host: "user@host" },
+];
+
+/** Other machines running the moddedMC agent, such as a Raspberry Pi. */
+function DevicesSection() {
+  const devices = usePoll(api.devices, 30_000, []);
+  const [route, setRoute] = useState<"tailscale" | "ssh">("tailscale");
+  const [name, setName] = useState("");
+  const [host, setHost] = useState("");
+
+  const add = async () => {
+    try {
+      await api.addDevice({ name: name.trim(), route, host: host.trim() });
+      setName("");
+      setHost("");
+      devices.refresh();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await api.removeDevice(id);
+      devices.refresh();
+    } catch (err) {
+      toast(errorText(err), "error");
+    }
+  };
+
+  return (
+    <Section title="Devices">
+      {devices.value?.map((d) => (
+        <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+          <HardDrive className="size-4 text-muted-foreground" />
+          <div className="flex flex-1 flex-col">
+            <span className="font-medium text-sm">{d.name}</span>
+            <span className="text-muted-foreground text-xs">
+              {d.route === "local" ? "This PC" : `${d.route === "ssh" ? "SSH" : "Tailscale"} · ${d.host}`}
+            </span>
+          </div>
+          {d.route !== "local" && (
+            <Button
+              size="icon-sm"
+              variant="ghost-destructive"
+              aria-label={`Remove ${d.name}`}
+              onClick={() => remove(d.id)}
+            >
+              <Trash2 />
+            </Button>
+          )}
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <Input className="w-36" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Select value={route} onValueChange={(v) => v && setRoute(v as "tailscale" | "ssh")}>
+          <SelectTrigger className="w-32">
+            <SelectValue>{(v: string) => ROUTES.find((r) => r.id === v)?.label}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {ROUTES.map((r) => (
+              <SelectItem key={r.id} value={r.id}>
+                {r.label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+        <Input
+          className="min-w-40 flex-1"
+          placeholder={ROUTES.find((r) => r.id === route)?.host}
+          value={host}
+          onChange={(e) => setHost(e.target.value)}
+        />
+        <Button size="sm" variant="outline" disabled={!name.trim() || !host.trim()} onClick={add}>
+          <Plus /> Add
+        </Button>
+      </div>
+    </Section>
   );
 }

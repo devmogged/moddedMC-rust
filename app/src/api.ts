@@ -144,6 +144,26 @@ export type Backup = {
 };
 export type BackupSchedule = { every_minutes: number; keep: number };
 
+/** The `pumpkin.toml` settings the app edits (agent `/config`); they apply on the next start. */
+export type ServerConfig = {
+  java: boolean;
+  bedrock: boolean;
+  online_mode: boolean;
+  max_players: number;
+  motd: string;
+  view_distance: number;
+  simulation_distance: number;
+  difficulty: "Peaceful" | "Easy" | "Normal" | "Hard";
+  gamemode: "Survival" | "Creative" | "Adventure" | "Spectator";
+  hardcore: boolean;
+  white_list: boolean;
+  allow_nether: boolean;
+  allow_end: boolean;
+  spawn_protection: number;
+  /** PNG bytes of the server-list icon. */
+  icon: number[] | null;
+};
+
 /** A drop-in mod in a server's `mods/`. */
 export type ServerMod = { file: string; id: string | null; version: string | null; bytes: number };
 
@@ -212,6 +232,10 @@ export const api = {
       "DELETE",
       `/v1/servers/${encodeURIComponent(server)}/mods/${encodeURIComponent(file)}`,
     ),
+  config: (device: string, server: string) =>
+    agent<ServerConfig>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/config`),
+  setConfig: (device: string, server: string, config: ServerConfig) =>
+    agent<void>(device, "PUT", `/v1/servers/${encodeURIComponent(server)}/config`, config),
   backups: (device: string, server: string) =>
     agent<Backup[]>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/backups`),
   backUp: (device: string, server: string) =>

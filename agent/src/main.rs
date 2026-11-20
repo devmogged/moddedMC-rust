@@ -11,6 +11,7 @@ mod mods;
 mod pregen;
 mod pumpkin_config;
 mod servers;
+mod settings;
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -58,6 +59,10 @@ async fn main() {
         .route("/v1/servers/{name}/stop", post(servers::stop))
         .route("/v1/servers/{name}/restart", post(servers::restart))
         .route("/v1/servers/{name}/stats", get(servers::stats))
+        .route(
+            "/v1/servers/{name}/config",
+            get(settings::get).put(settings::put),
+        )
         .route("/v1/servers/{name}/console", get(servers::console))
         .route("/v1/servers/{name}/deploy", post(servers::deploy))
         .route("/v1/servers/{name}/mods", get(mods::list))
