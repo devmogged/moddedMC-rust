@@ -21,6 +21,7 @@ mod mob_ai;
 mod mobs;
 mod native;
 mod resources;
+mod saved_data;
 mod stacks;
 mod stats;
 mod tags;
@@ -45,6 +46,7 @@ use pumpkin_core::{
         dialog::dialog_click_action::DialogClickActionEvent,
         player::player_interact_event::PlayerInteractEvent,
         server::{server_command::ServerCommandEvent, server_tick_start::ServerTickStartEvent},
+        world::world_save::WorldSaveEvent,
     },
     server::Server,
     world::World,
@@ -122,6 +124,7 @@ pub struct Staging<'a> {
     content_hooks: content::Hooks,
     mobs: Vec<mobs::Registration>,
     mob_ai: std::collections::BTreeMap<String, mob_ai::TypeAi>,
+    saved_keys: Vec<(u64, String)>,
 }
 
 /// Loaded custom blocks of one world.
@@ -194,6 +197,7 @@ pub fn attach(server: &Arc<Server>) {
     companion::attach(server);
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
+    pm.register::<WorldSaveEvent, _>(Arc::new(SavedDataSaveHandler), EventPriority::Normal, true);
     pm.register::<BlockPlaceEvent, _>(Arc::new(PlaceHandler), EventPriority::Normal, true);
     pm.register::<BlockBreakEvent, _>(Arc::new(BreakHandler), EventPriority::Normal, true);
     pm.register::<PlayerInteractEvent, _>(Arc::new(UseHandler), EventPriority::Normal, true);
@@ -335,6 +339,18 @@ fn valid_id(id: &str) -> bool {
 
 // ---------------------------------------------------------------- tick
 
+struct SavedDataSaveHandler;
+
+impl EventHandler<WorldSaveEvent> for SavedDataSaveHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        _event: &'a mut WorldSaveEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move { saved_data::flush_all() })
+    }
+}
+
 struct TickHandler;
 
 impl EventHandler<ServerTickStartEvent> for TickHandler {
@@ -395,6 +411,7 @@ fn register_mod(mod_idx: usize, module: Native) {
         content_hooks,
         mobs,
         ai,
+        saved_keys,
     ) = {
         let registry = read(&HOST.registry);
         let mut staging = Staging {
@@ -410,6 +427,7 @@ fn register_mod(mod_idx: usize, module: Native) {
             content_hooks: content::Hooks::default(),
             mobs: Vec::new(),
             mob_ai: std::collections::BTreeMap::new(),
+            saved_keys: Vec::new(),
         };
         let result = module.register(&mut staging);
         (
@@ -424,6 +442,7 @@ fn register_mod(mod_idx: usize, module: Native) {
             staging.content_hooks,
             staging.mobs,
             staging.mob_ai,
+            staging.saved_keys,
         )
     };
     if result != code::OK {
@@ -453,6 +472,7 @@ fn register_mod(mod_idx: usize, module: Native) {
     content::register(mod_idx, definitions, content_items, content_hooks);
     mobs::register(mobs);
     mob_ai::register(ai);
+    saved_data::register(module.id, saved_keys);
     lock(&HOST.commands).push(PendingCommands {
         module,
         legacy: commands,

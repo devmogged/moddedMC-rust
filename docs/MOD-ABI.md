@@ -204,3 +204,32 @@ A `.mmc` is a zip with
 Require the tables from `Mod::start` and register definitions in `Mod::register`. Requesting `moddedmc:content` or `moddedmc:items` during startup moves that mod's registration before world load. Legacy mods continue to register on the first tick. State numbers are runtime handles. Store names and properties in mod-owned data. Mods with a placement hook can choose one of the placing block's states from the clicked face, look direction, sneak state and loaded neighbors.
 
 The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects`, `moddedmc_api::mobs` and `moddedmc_api::mob_ai`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.
+
+## Save-global data (`moddedmc:saved_data` v1)
+
+This table exposes a save-global NBT snapshot to drop-in mods without tying data to a
+loaded chunk, block entity or process-local world pointer. It is available by exact
+`HostApi::get_interface("moddedmc:saved_data", 1)`; the table begins with its byte `size`
+and contains:
+
+- `register_key(Reg, Str name, *mut u64 out) -> i32`: stage a mod-local name (1–128
+  lowercase ASCII bytes: `a-z0-9_.-/`, no empty, `.` or `..` path segments). A successful
+  registration returns a nonzero process-local handle; the handle is activated only when
+  the entire mod registration succeeds. Duplicate names within a registration fail.
+- `read(WorldRef, u64 handle, Sink) -> bool`: return the complete value under sink key 0,
+  or false if it has never been written or the handle/world is invalid. An empty stored
+  payload is distinct from a missing key.
+- `write(WorldRef, u64 handle, Str bytes) -> bool`: atomically replace the in-memory value;
+  return false for invalid input or a payload larger than `MAX_SAVED_DATA_BYTES` (8 MiB).
+  No borrowed pointer is retained. Data is scoped by the mod id associated with its
+  registration handle; another mod cannot accidentally register the same persistent key.
+
+The payload is opaque bytes. Mods can use named-root binary NBT, JSON or their own stable
+encoding. The host stores owner-qualified keys in a save-global snapshot at
+`<save>/moddedmc/saved_data.nbt`, separate from per-dimension world data. It loads once per save and flushes dirty data on world save and shutdown via an atomic temporary file rename. Corrupt or unreadable files fail closed without silent replacement. A crash before world save can lose recent writes; `write` does not flush immediately. Each save is bounded to 64 MiB and 4096 keys and shared by all its dimensions. The host never loads chunks; `WorldRef` is borrowed for the current callback only.
+
+Mods require this interface in `Mod::start`, reserve their handles in `Mod::register`,
+and read from the first appropriate world callback after worlds load (e.g. the registered
+Create content-tick callback). Do not read a world in `Mod::start`; do not persist
+handles across restarts. Use SDK `saved_data::{require, SavedData, Key}`. A server lacking
+the named table fails the mod's `start` requirement without changing ABI major 1.

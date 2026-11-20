@@ -13,8 +13,19 @@
 
 ## M1: ABI request loop
 
-- Pending for review and implementation: `WS-2-01` fluid handlers, `WS-2-02` fluid-state operations, `WS-3-01` save-global data, `WS-5-01..08` combat/items/projectiles/boss bars/spawning/structures and additional requests. Verify against the available baseline interfaces before accepting a design. Implement with append-only guards, documentation and targeted scenarios, then republish binaries.
-- No M1 code or parity checks completed yet.
+### WS-3-01: Save-global data (implemented and tested)
+
+- Added ABI 1 table `moddedmc:saved_data` with fixed 64-bit offsets (size 32), opaque mod-scoped runtime keys and up to 8 MiB per key. No existing C-ABI offsets changed. The SDK requires the table at mod startup, stages a key in `Mod::register`, and reads/writes with a live world callback.
+- Per-server-save file `<world>/moddedmc/saved_data.nbt` shares data across dimensions without per-block-entity storage. Binary NBT round-trips exactly; names are owner-qualified; file totals are bounded to 64 MiB and 4096 keys. Invalid payloads or corrupt reads fail closed. An atomic temporary-file replacement runs on world save and graceful shutdown; concurrent flushes are serialized. A crash before save can still lose recent writes.
+- Corrected the named-root NBT reader to match the writer after a real restart scenario first exposed silent empty loads. The host unit test now covers this parsing boundary. Content tick callbacks now run for mods without custom blocks; the tiny test mod exercises that case.
+- Unit tests: `cargo test -p moddedmc-api` **7 passed**; `cargo test --manifest-path engine/Cargo.toml -p moddedmc-host --lib saved_data::tests` **2 passed**; both cargo format checks and SDK Clippy with `-D warnings` **passed**.
+- Scenario: `tests/fixtures/abi-saved-data/verify.ps1 -Port 26000` **PASS** on two fresh independent server saves, including separate process restart with exact binary bytes unchanged. Corrupt saved NBT was rejected with no write; SHA-256 of the file remained unchanged. Run directories were cleaned.
+- Existing Create compatibility: `tests/scenarios/p1a-create.txt` **PASS** after saved-data host changes (gear ratios, resource pack, save/restart and breaking a shaft). The previously compiled Create `.mmc` was reused unchanged. No claim of Java Create parity from this regression.
+- Host `cargo clippy --manifest-path engine/Cargo.toml -p moddedmc-host --lib -- -D warnings` **PASS**. The final pack build **PASS** and the saved-data verification suite was rerun successfully after the last code change. Shared artifact publication follows the pushed implementation commit.
+
+### Other requests
+
+- Pending: `WS-1-01..03`, `WS-2-01..02`, `WS-3-02`, `WS-4-01..05`, `WS-5-01..11`, and `WS-6-01..02`. Several overlap; share generic host surfaces instead of introducing mod-specific duplicates. A Cataclysm implementation remains blocked by the source rights requirement; generic host functionality can be independently developed and tested.
 
 ## M2: Inter-mod services
 
