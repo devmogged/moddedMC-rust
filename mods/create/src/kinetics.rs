@@ -80,6 +80,7 @@ pub enum Kind {
     Gearshift(u8, bool),
     EncasedShaft(u8),
     Turntable,
+    Press(u8),
     Belt(Belt),
 }
 
@@ -203,7 +204,8 @@ impl Kind {
             | Self::Gearbox(axis)
             | Self::Clutch(axis, _)
             | Self::Gearshift(axis, _)
-            | Self::EncasedShaft(axis) => axis,
+            | Self::EncasedShaft(axis)
+            | Self::Press(axis) => axis,
             Self::Motor(facing) => face_axis(facing),
             Self::Turntable => 1,
             // BeltBlock.getRotationAxis: sideways belts turn on Y, others on the facing's
@@ -247,6 +249,7 @@ impl Kind {
     pub const fn impact(self) -> f32 {
         match self {
             Self::Turntable => 4.0,
+            Self::Press(_) => 8.0,
             _ => 0.0,
         }
     }
@@ -360,6 +363,7 @@ pub struct Be {
     pub passengers: Option<HashMap<i32, Passenger>>,
     /// A belt controller's items, created when the first one arrives.
     pub inventory: Option<BeltInventory>,
+    pub press: Option<crate::press::PressingBehaviour>,
 }
 
 impl Be {
@@ -390,6 +394,13 @@ impl Be {
             belt_index: 0,
             inventory: None,
             passengers: None,
+            press: if matches!(kind, Kind::Press(_)) {
+                Some(crate::press::PressingBehaviour::new(
+                    crate::press::PressingData::EMPTY,
+                ))
+            } else {
+                None
+            },
         }
     }
 
@@ -504,6 +515,7 @@ pub struct Kinetics {
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub chutes: crate::chute::Chutes,
     pub funnels: crate::funnel::Funnels,
+    pub recipes: Option<std::sync::Arc<crate::processing_recipes::RecipeBook>>,
     bes: HashMap<Pos, Be>,
     /// Tick order, `(position, serial)`, in insertion order like the level's ticker list.
     order: Vec<(Pos, u64)>,
@@ -553,6 +565,16 @@ impl Kinetics {
 
     pub fn get_mut(&mut self, pos: Pos) -> Option<&mut Be> {
         self.bes.get_mut(&pos)
+    }
+
+    pub fn positions(&self, select: impl Fn(Kind) -> bool) -> Vec<Pos> {
+        self.order
+            .iter()
+            .filter_map(|&(pos, serial)| {
+                let be = self.bes.get(&pos)?;
+                (be.serial == serial && select(be.kind)).then_some(pos)
+            })
+            .collect()
     }
 
     /// Belt controllers in ticker order.
