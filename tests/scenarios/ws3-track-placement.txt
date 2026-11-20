@@ -1,0 +1,75 @@
+# WS-3 Create track blockstate and placement smoke proof.
+# Real block placement/orientation and chunk persistence; graph saves are not yet hooked.
+mods target\mods\create.mmc
+start
+expect registered content block create:track \(76 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+# Load the destination chunks BEFORE preparing the test floor.
+cmd tp tester 2204.5 102 2202.5 90 30
+wait 6
+cmd fill 2198 100 2198 2210 108 2210 minecraft:air
+cmd fill 2198 99 2198 2210 99 2210 minecraft:stone
+wait 1
+
+# X-facing placement from player yaw +90 (west).
+cmd item replace entity tester weapon.mainhand with create:track
+wait 1
+bot use 2204 99 2204
+wait 1
+cmd track 2204 100 2204
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2204 100 2204
+
+# Facing south creates Z-orthogonal track.
+cmd tp tester 2206.5 102 2202.5 0 30
+wait 1
+bot use 2206 99 2204
+wait 1
+cmd track 2206 100 2204
+wait 0.5
+expect create:track\[shape=zo,turn=false,waterlogged=false\] at 2206 100 2204
+
+# A solid west neighbor, no ceiling -> slope up to west.
+cmd setblock 2202 100 2206 minecraft:stone
+cmd tp tester 2203.5 102 2204.5 90 30
+wait 1
+bot use 2203 99 2206
+wait 1
+cmd track 2203 100 2206
+wait 0.5
+expect create:track\[shape=aw,turn=false,waterlogged=false\] at 2203 100 2206
+
+# 315 degrees yaw looks southeast; select positive diagonal.
+cmd tp tester 2207.5 102 2204.5 315 30
+wait 1
+bot use 2208 99 2206
+wait 1
+cmd track 2208 100 2206
+wait 0.5
+expect create:track\[shape=pd,turn=false,waterlogged=false\] at 2208 100 2206
+
+reject (?i)panicked|trapped
+bot quit
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd track 2204 100 2204
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2204 100 2204
+cmd track 2206 100 2204
+wait 0.5
+expect create:track\[shape=zo,turn=false,waterlogged=false\] at 2206 100 2204
+cmd track 2203 100 2206
+wait 0.5
+expect create:track\[shape=aw,turn=false,waterlogged=false\] at 2203 100 2206
+cmd track 2208 100 2206
+wait 0.5
+expect create:track\[shape=pd,turn=false,waterlogged=false\] at 2208 100 2206
+bot quit
+stop

@@ -1,0 +1,59 @@
+# WS-3: Save-global railway graph NBT across real server process restart.
+# The admin rebuild is temporary until WorldRef.dimension is available.
+mods target\mods\create.mmc
+start
+expect registered content block create:track \(76 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2416.5 102 2412.5 90 35
+wait 6
+cmd fill 2408 100 2408 2424 108 2420 minecraft:air
+cmd fill 2408 99 2408 2424 99 2420 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:track
+wait 1
+# First rail x2413, second rail x2420 straddle the chunk boundary at 2416.
+bot use 2413 99 2414
+wait 0.5
+bot use 2420 99 2414
+wait 0.5
+cmd track 2413 100 2414
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2413 100 2414
+cmd track 2420 100 2414
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2420 100 2414
+bot use 2413 100 2414
+wait 0.5
+bot use 2420 100 2414
+wait 0.5
+cmd track 2416 100 2414
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2416 100 2414
+cmd railway 2416 100 2414
+wait 0.5
+expect Create railway: Graphs=0 Nodes=0 DirectedEdges=0
+cmd railwaybuild 2416 100 2414
+wait 1
+expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
+cmd railwaybuild 2416 100 2414
+wait 1
+expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
+reject (?i)panicked|trapped
+bot quit
+stop
+# Different server process must decode saved global create_tracks payload.
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd railway 2416 100 2414
+wait 0.5
+expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
+cmd track 2416 100 2414
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2416 100 2414
+bot quit
+stop
