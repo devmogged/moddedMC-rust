@@ -84,6 +84,7 @@ pub enum Kind {
     Fan(u8),
     Bearing(u8),
     Windmill(u8),
+    Piston(crate::piston::PistonBlock),
     Millstone,
     Wheel(u8),
     Belt(Belt),
@@ -217,6 +218,7 @@ impl Kind {
             | Self::Bearing(facing)
             | Self::Windmill(facing) => face_axis(facing),
             Self::Turntable | Self::Millstone => 1,
+            Self::Piston(block) => block.shaft_axis(),
             // BeltBlock.getRotationAxis: sideways belts turn on Y, others on the facing's
             // clockwise axis.
             Self::Belt(belt) => match belt.slope {
@@ -260,7 +262,7 @@ impl Kind {
     /// `CStress` impact at 1 RPM, from the `setImpact` calls in `AllBlocks`.
     pub const fn impact(self) -> f32 {
         match self {
-            Self::Turntable | Self::Millstone | Self::Bearing(_) => 4.0,
+            Self::Turntable | Self::Millstone | Self::Bearing(_) | Self::Piston(_) => 4.0,
             Self::Press(_) | Self::Wheel(_) => 8.0,
             Self::Fan(_) => 2.0,
             _ => 0.0,
@@ -295,6 +297,7 @@ impl Kind {
             (Self::Fan(a), Self::Fan(b))
             | (Self::Bearing(a), Self::Bearing(b))
             | (Self::Windmill(a), Self::Windmill(b)) => a == b,
+            (Self::Piston(a), Self::Piston(b)) => a == b,
             _ => true,
         };
         self.same_block(other) && self.axis() == other.axis() && same_part
@@ -387,6 +390,7 @@ pub struct Be {
     pub press: Option<crate::press::PressingBehaviour>,
     pub fan: Option<Box<crate::fan::AirCurrent>>,
     pub bearing: Option<Box<crate::bearing::MechanicalBearing>>,
+    pub piston: Option<Box<crate::piston::MechanicalPiston>>,
     pub millstone: Option<Box<crate::millstone::Millstone>>,
 }
 
@@ -424,6 +428,7 @@ impl Be {
             passengers: None,
             fan: None,
             bearing: None,
+            piston: None,
             millstone: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
@@ -560,6 +565,11 @@ pub struct Kinetics {
     dropped: Vec<Dropped>,
     pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
+    pub dropped_pistons: Vec<(
+        Pos,
+        crate::piston::PistonBlock,
+        Box<crate::piston::MechanicalPiston>,
+    )>,
 }
 
 /// A belt inventory whose controller was removed (`eject`, as `BeltBlockEntity.destroy`) or
@@ -648,6 +658,9 @@ impl Kinetics {
         if be.kind.is_bearing() && be.bearing.is_none() {
             be.bearing = Some(Box::default());
         }
+        if matches!(be.kind, Kind::Piston(_)) && be.piston.is_none() {
+            be.piston = Some(Box::default());
+        }
         if be.kind == Kind::Millstone && be.millstone.is_none() {
             be.millstone = Some(Box::default());
         }
@@ -670,6 +683,9 @@ impl Kinetics {
         }
         if eject && let Some(bearing) = be.bearing.take() {
             self.dropped_bearings.push((pos, be.kind.axis(), bearing));
+        }
+        if eject && let (Kind::Piston(block), Some(piston)) = (be.kind, be.piston.take()) {
+            self.dropped_pistons.push((pos, block, piston));
         }
         let (Kind::Belt(belt), Some(inventory)) = (be.kind, be.inventory.take()) else {
             return;

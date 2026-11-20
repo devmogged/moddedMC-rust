@@ -38,6 +38,7 @@ mod fan;
 mod funnel;
 mod kinetics;
 mod millstone;
+mod piston;
 mod press;
 mod processing_recipes;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
@@ -146,6 +147,7 @@ impl Mod for Create {
         press::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
+        piston::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -699,6 +701,7 @@ fn states() -> Option<&'static StateIds> {
         press::add_states(content, &mut ids);
         fan::add_states(content, &mut ids);
         bearing::add_states(content, &mut ids);
+        piston::add_states(content, &mut ids);
         ids.contraption_blocks.register_states(content);
         millstone::add_states(content, &mut ids);
         crusher::add_states(content, &mut ids);
@@ -786,6 +789,10 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::Piston(block)) => {
+            let facing = if args.sneak { look } else { look ^ 1 };
+            return piston::placed_state(args, facing, connected, block.sticky);
+        }
         Some(Kind::Motor(_)) => {
             let face = if args.sneak {
                 look
@@ -833,6 +840,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             };
             format!("{}[facing={}]", placed.block, DIRECTIONS[usize::from(face)])
         }
+        None if placed.block == piston::POLE => return piston::pole_placement(args, wet),
         Some(Kind::Shaft(_)) => format!(
             "{SHAFT}[axis={},waterlogged={wet}]",
             AXES[usize::from(pillar_axis)]
@@ -930,6 +938,8 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     bearing: Option<bearing::BearingData>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    piston: Option<piston::PistonData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<fastnbt::IntArray>,
     #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<NetworkData>,
@@ -1001,6 +1011,13 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         }
         be.bearing = Some(Box::new(bearing));
     }
+    if matches!(kind, Kind::Piston(_))
+        && let Some(data) = data.piston
+    {
+        let mut piston = piston::MechanicalPiston::default();
+        piston.data = data;
+        be.piston = Some(Box::new(piston));
+    }
     be.source = data.source.and_then(|pos| match *pos {
         [x, y, z] => Some(Pos { x, y, z }),
         _ => None,
@@ -1041,6 +1058,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         press: be.press.as_ref().map(|press| press.data),
         millstone: be.millstone.as_ref().map(|millstone| millstone.save()),
         bearing: be.bearing.as_ref().map(|bearing| bearing.data.clone()),
+        piston: be.piston.as_ref().map(|piston| piston.data.clone()),
         source: be
             .source
             .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
@@ -1137,9 +1155,13 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
                     }
                 }
                 content::UNLOADED => {
-                    if let Some(bearing) = kinetics.get_mut(pos).and_then(|be| be.bearing.as_mut())
-                    {
-                        bearing.clear_displays(world);
+                    if let Some(be) = kinetics.get_mut(pos) {
+                        if let Some(bearing) = &mut be.bearing {
+                            bearing.clear_displays(world);
+                        }
+                        if let Some(piston) = &mut be.piston {
+                            piston.displays.clear(world);
+                        }
                     }
                     kinetics.unload(pos);
                 }
@@ -1175,6 +1197,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
+        piston::tick(world, &states.contraption_blocks, kinetics);
         for (pos, millstone) in kinetics.dropped_millstones.drain(..) {
             millstone.drop_contents(world, pos);
         }
@@ -1231,6 +1254,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         }),
         Some(Kind::Bearing(_) | Kind::Windmill(_)) => with_world(context.world, |kinetics| {
             bearing::use_item_on(kinetics, &states.contraption_blocks, context)
+        }),
+        Some(Kind::Piston(_)) => with_world(context.world, |kinetics| {
+            piston::use_item_on(kinetics, context)
         }),
         _ => BlockUseResult::TryEmptyHand,
     }
