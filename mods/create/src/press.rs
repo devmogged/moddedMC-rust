@@ -262,7 +262,10 @@ pub fn is_blocked(world: World<'_>, pos: Pos) -> bool {
     };
     let mut block = [content::UNLOADED_STATE];
     world.read(&[above(pos, 1)], &mut block);
-    !states.funnels.contains_key(&block[0]) && !states.replaceable.contains(&block[0])
+    !states.funnels.contains_key(&block[0])
+        && world
+            .collision_shape(above(pos, 1))
+            .is_none_or(|shape| !shape.is_empty())
 }
 
 fn above(pos: Pos, dist: i32) -> Pos {

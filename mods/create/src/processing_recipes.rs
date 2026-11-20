@@ -15,6 +15,11 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Process {
     Pressing,
+    Splashing,
+    Haunting,
+    Smoking,
+    Smelting,
+    Blasting,
     Milling,
     Crushing,
 }
@@ -23,6 +28,11 @@ impl Process {
     const fn from_type(id: &str) -> Option<Self> {
         match id.as_bytes() {
             b"create:pressing" => Some(Self::Pressing),
+            b"create:splashing" => Some(Self::Splashing),
+            b"create:haunting" => Some(Self::Haunting),
+            b"minecraft:smoking" => Some(Self::Smoking),
+            b"minecraft:smelting" => Some(Self::Smelting),
+            b"minecraft:blasting" => Some(Self::Blasting),
             b"create:milling" => Some(Self::Milling),
             b"create:crushing" => Some(Self::Crushing),
             _ => None,
@@ -185,6 +195,10 @@ impl ResultStack {
 impl Recipe {
     pub fn outputs(&self) -> Vec<Value> {
         self.outputs.clone()
+    }
+
+    pub fn first_output(&self) -> Option<&str> {
+        item_id(self.outputs.first()?)
     }
 
     /// RecipeApplier rolls each input independently and stacks the products.

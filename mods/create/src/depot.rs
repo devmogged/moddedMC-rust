@@ -18,8 +18,10 @@ use crate::{
         TransportedItemStack, count, item_display, next_int, remove_display, render_stack,
         with_count,
     },
+    fan::{self, FanProcessingType},
     kinetics::{FACES, Kinetics, face_axis},
     press::{self, ProcessingResult},
+    processing_recipes::RecipeBook,
 };
 
 pub const ID: &str = "create:depot";
@@ -92,6 +94,39 @@ impl Default for OutputBufferData {
 }
 
 impl DepotBehaviour {
+    pub fn fan_process(
+        &mut self,
+        world: World<'_>,
+        pos: Pos,
+        kind: FanProcessingType,
+        recipes: &RecipeBook,
+    ) {
+        let Some(item) = &mut self.held_item else {
+            return;
+        };
+        if 0.5 - item.pos > 0.51 {
+            return;
+        }
+        let old = item.fan_processing;
+        let products = fan::process_transported(kind, recipes, item);
+        self.dirty |= old != item.fan_processing;
+        let Some(products) = products else { return };
+        if matches!(products.as_slice(), [product] if *product == item.item) {
+            return;
+        }
+        remove_display(world, item);
+        let mut products = products.into_iter();
+        self.held_item = products.next().map(|product| {
+            let mut output = item.similar(product);
+            output.pos = 0.5;
+            output.prev_pos = 0.5;
+            output
+        });
+        for product in products {
+            self.insert_output(world, pos, product);
+        }
+    }
+
     fn load(world: World<'_>, pos: Pos) -> Self {
         world
             .entity(pos)

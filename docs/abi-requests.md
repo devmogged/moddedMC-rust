@@ -4,11 +4,9 @@
 
 Create's Depot supplies an analog signal derived from its held stack and eight output slots. The content registration also needs a per-block analog-output flag. Pumpkin reads the static `HAS_ANALOG_OUTPUT_SIGNAL` state flag before calling the block, and content currently inherits that flag from its vanilla physical template. A generic `moddedmc:block_world` extension can expose `set_analog_output(world: WorldRef, position: Pos, strength: u8) -> bool`. A successful call marks the loaded content block as an analog source and records a value in the range 0 through 15. The host notifies adjacent comparators when the value changes and invalidates the value on removal or unload. The mod recomputes it from its persisted inventory after loading the block.
 
-## Vanilla cooking resources
+## Vanilla cooking resources (resolved)
 
-Expose the base vanilla datapack as the lowest-priority source for both resources calls. On fresh pack-dev at `08d7edc`, `create-fan.txt` leaves potatoes unchanged behind a lit campfire and burns raw iron behind lava. The fan reads `resources.list("recipe")`, but the host enumerates only the paths in `get_loaded_packs()`. Verify that `minecraft:recipe/baked_potato_from_smoking.json` and `minecraft:recipe/iron_ingot_from_smelting_raw_iron.json` appear in the list and can be read, with world overrides winning.
-
-The full fan scenario passed with a scratch world datapack containing just those two unchanged 26.3 recipes. The saved loose-item timer went from 76 ticks before the save to 17 after reconnecting, then the bot picked up the haunted result.
+Host commit `0538639` exposes the vanilla cooking recipes with datapack overrides taking precedence. `create-fan.txt` passed on a fresh world with default datapacks. The saved loose-item timer had 71 ticks left before saving and 11 after reconnecting, then the bot picked up the haunted result.
 
 ## Effective stack components
 
@@ -18,7 +16,7 @@ Fan blasting checks the effective fire resistance of a stack. Saved stack NBT co
 
 Fan catalysts and transparent blocks match tags at any property combination. Add `describe_state(state: u32, out: Sink) -> bool` to content to return the canonical block selector including properties, and `fluid_id(world: WorldRef, pos: Pos, out: Sink) -> bool` to block-world to return the fluid registry id, including fluids supplied by waterlogged or aquatic blocks. Both callbacks return false for unknown or unloaded input. The complete selector also lets contraptions rotate vanilla states and look up the result through `Content::state`.
 
-## Crushing collision context
+## Crushing collision context (deferred)
 
 Create's controller keeps its normal 13/16 collision for other entities and returns an empty collision shape for its captured entity and its ejected items. The existing shape query reads the standard shape. A content collision callback taking `(world: WorldRef, pos: Pos, state: u32, entity: EntityRef) -> bool` could let a mod opt a particular entity out of the state's collision. A null entity keeps the standard shape. The callback must answer synchronously from current state and avoid changing the world.
 

@@ -81,6 +81,7 @@ pub enum Kind {
     EncasedShaft(u8),
     Turntable,
     Press(u8),
+    Fan(u8),
     Millstone,
     Wheel(u8),
     Belt(Belt),
@@ -209,7 +210,7 @@ impl Kind {
             | Self::EncasedShaft(axis)
             | Self::Wheel(axis)
             | Self::Press(axis) => axis,
-            Self::Motor(facing) => face_axis(facing),
+            Self::Motor(facing) | Self::Fan(facing) => face_axis(facing),
             Self::Turntable | Self::Millstone => 1,
             // BeltBlock.getRotationAxis: sideways belts turn on Y, others on the facing's
             // clockwise axis.
@@ -225,6 +226,7 @@ impl Kind {
     pub const fn has_shaft_towards(self, face: u8) -> bool {
         match self {
             Self::Motor(facing) => facing == face,
+            Self::Fan(facing) => facing ^ 1 == face,
             Self::Gearbox(axis) => face_axis(face) != axis,
             Self::Turntable | Self::Millstone => face == DOWN,
             Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
@@ -253,6 +255,7 @@ impl Kind {
         match self {
             Self::Turntable | Self::Millstone => 4.0,
             Self::Press(_) | Self::Wheel(_) => 8.0,
+            Self::Fan(_) => 2.0,
             _ => 0.0,
         }
     }
@@ -277,6 +280,7 @@ impl Kind {
     pub fn equivalent(self, other: Self) -> bool {
         let same_part = match (self, other) {
             (Self::Belt(a), Self::Belt(b)) => a.part == b.part,
+            (Self::Fan(a), Self::Fan(b)) => a == b,
             _ => true,
         };
         self.same_block(other) && self.axis() == other.axis() && same_part
@@ -367,6 +371,7 @@ pub struct Be {
     /// A belt controller's items, created when the first one arrives.
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
+    pub fan: Option<Box<crate::fan::AirCurrent>>,
     pub millstone: Option<Box<crate::millstone::Millstone>>,
 }
 
@@ -398,6 +403,7 @@ impl Be {
             belt_index: 0,
             inventory: None,
             passengers: None,
+            fan: None,
             millstone: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(

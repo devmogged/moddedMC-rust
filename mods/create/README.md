@@ -86,6 +86,14 @@ The [funnel bot scenario](../../tests/scenarios/create-funnel.txt) checks these 
 
 The [press bot scenario](../../tests/scenarios/create-press.txt) checks all three inputs. Pressing recipes come from the merged datapack view, and tag ingredients resolve through the item tag registry on reload. The stock client sees the press housing and item displays and hears each stroke. The moving head and item particles are pending.
 
+### Encased Fan
+
+1. Power a fan with water in its airflow and run ice through it on a slow belt. Pick up Packed Ice downstream.
+2. Blow through a regular lit campfire towards potatoes on a Depot, then through a lit soul campfire towards sand. Take the baked potatoes and soul sand. Putting out a campfire removes its catalyst.
+3. Blow through lava onto raw iron on a Depot. Take the iron ingot. Save and stop partway through haunting a loose item. On restart the same item should finish with the remaining timer.
+
+The [fan bot scenario](../../tests/scenarios/create-fan.txt) covers all four catalysts and the restart. Smoking and blasting require the base cooking recipes in the resources ABI. Fan particles, the spinning propeller and effects on living entities are pending.
+
 ### Millstone and Crushing Wheels
 
 1. Power a Millstone from below or from a neighbouring cog. Drop two clay blocks onto it. Empty-hand use gives eight clay balls once both have milled. Stop it with clay still inside and use it again to recover the unprocessed input once the output slots are empty.

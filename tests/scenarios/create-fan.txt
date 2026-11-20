@@ -1,0 +1,148 @@
+# Fan catalysts and Create's 150-tick stack-processing timer.
+mods target\mods\create.mmc
+start
+expect registered content block create:encased_fan
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2174.5 100 2172.5 0 0
+wait 2
+cmd fill 2167 99 2168 2184 99 2181 minecraft:stone
+cmd fill 2167 100 2168 2184 104 2181 minecraft:air
+cmd gamemode survival tester
+
+# A lit soul campfire haunts a Depot, a regular campfire smokes a second Depot.
+cmd setblock 2170 101 2172 create:creative_motor[facing=east]
+cmd setblock 2171 101 2172 create:encased_fan[facing=east]
+cmd setblock 2172 101 2172 minecraft:soul_campfire[lit=true]
+cmd setblock 2174 100 2172 create:depot
+cmd setblock 2170 101 2176 create:creative_motor[facing=east]
+cmd setblock 2171 101 2176 create:encased_fan[facing=east]
+cmd setblock 2172 101 2176 minecraft:campfire[lit=true]
+cmd setblock 2174 100 2176 create:depot
+cmd item replace entity tester hotbar.0 with minecraft:sand 2
+wait 0.5
+bot use 2174 100 2172
+cmd tp tester 2174.5 100 2175.5 0 0
+cmd item replace entity tester hotbar.1 with minecraft:potato 2
+bot hotbar 1
+wait 0.5
+bot use 2174 100 2176
+wait 0.5
+
+# Unlit campfires leave the input unchanged until a catalyst is active.
+cmd setblock 2172 101 2176 minecraft:campfire[lit=false]
+wait 8.5
+bot use 2174 100 2176
+wait 0.5
+bot expect slot 36 minecraft:potato 2
+wait 0.5
+expect ^\[bot\] expect inventory ok
+cmd setblock 2172 101 2176 minecraft:campfire[lit=true]
+bot hotbar 0
+wait 0.5
+bot use 2174 100 2176
+wait 8.5
+bot expect entity minecraft:item_display near 2174.5 100.9 2176.5 within 0.24 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot use 2174 100 2176
+wait 0.5
+bot expect slot 36 minecraft:baked_potato 2
+wait 0.5
+expect ^\[bot\] expect inventory ok
+cmd tp tester 2174.5 100 2173.5 180 0
+bot hotbar 1
+wait 0.5
+bot use 2174 100 2172
+wait 0.5
+bot expect slot 37 minecraft:soul_sand 2
+wait 0.5
+expect ^\[bot\] expect inventory ok
+
+# Save a partially haunted loose stack, then require it to finish before a fresh 151-tick timer could.
+cmd setblock 2174 100 2172 minecraft:stone
+cmd setblock 2175 100 2172 minecraft:stone
+cmd setblock 2176 101 2172 minecraft:stone
+cmd summon minecraft:item 2174.5 101.1 2172.5 {Item:{id:"minecraft:sand",count:1},NoGravity:1b,PickupDelay:32767s}
+wait 4
+cmd data get entity @e[type=minecraft:item,x=2174,y=101,z=2172,distance=..3,limit=1] data.create.CreateData.Processing.Time
+wait 0.5
+expect following entity data: [5-9][0-9]$
+cmd save-all flush
+wait 0.5
+stop
+start
+botstart tester
+wait 2
+expect \[bot\] joined as tester
+cmd data get entity @e[type=minecraft:item,x=2174,y=101,z=2172,distance=..3,limit=1] data.create.CreateData.Processing.Time
+wait 0.5
+expect following entity data: [1-9][0-9]?$
+wait 3.5
+bot expect entity minecraft:item near 2175.8 101.1 2172.5 within 1.3 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd data merge entity @e[type=minecraft:item,x=2174,y=101,z=2172,distance=..3,limit=1] {PickupDelay:0s}
+cmd tp tester 2175.75 101 2172.5
+wait 0.75
+bot expect slot 37 minecraft:soul_sand 3
+wait 0.5
+expect ^\[bot\] expect inventory ok
+
+# Wash ice on a slow belt, then run the belt to a Depot. Blast raw iron on a second Depot.
+cmd tp tester 2175.5 100 2180.5 0 0
+cmd fill 2169 99 2178 2181 99 2188 minecraft:stone
+cmd fill 2169 100 2178 2181 104 2188 minecraft:air
+cmd setblock 2170 101 2180 create:creative_motor[facing=east]
+cmd setblock 2171 101 2180 create:encased_fan[facing=east]
+cmd setblock 2172 100 2180 minecraft:stone
+cmd setblock 2173 100 2178 create:creative_motor[facing=east]
+cmd setblock 2174 100 2178 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2174 100 2182 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2174 100 2183 create:depot
+bot hotbar 2
+cmd item replace entity tester hotbar.2 with create:belt_connector
+wait 0.5
+bot use 2174 100 2178
+wait 0.5
+bot use 2174 100 2182
+wait 0.75
+cmd kinetics 2173 100 2178 1
+cmd kinetics 2174 100 2180
+wait 0.5
+expect create:belt.*at 2174 100 2180 Speed=1
+cmd setblock 2172 101 2180 minecraft:iron_bars[waterlogged=true]
+cmd summon minecraft:item 2174.5 101.1 2180.4 {Item:{id:"minecraft:ice",count:1},PickupDelay:32767s}
+cmd setblock 2170 101 2187 create:creative_motor[facing=east]
+cmd setblock 2171 101 2187 create:encased_fan[facing=east]
+cmd setblock 2172 100 2187 minecraft:stone
+cmd setblock 2172 101 2187 minecraft:lava
+cmd setblock 2174 100 2187 create:depot
+cmd tp tester 2175.5 100 2187.5
+cmd item replace entity tester hotbar.2 with minecraft:raw_iron
+wait 0.5
+bot use 2174 100 2187
+wait 9
+bot use 2174 100 2187
+wait 0.5
+bot expect slot 38 minecraft:iron_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok
+# Reserve the slot so the washing check is independent of the blasting result.
+cmd item replace entity tester hotbar.2 with minecraft:cobblestone
+cmd kinetics 2173 100 2178 64
+cmd tp tester 2175.5 100 2183.5
+wait 3
+bot expect entity minecraft:item_display near 2174.5 100.9 2183.5 within 0.24 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot hotbar 3
+wait 0.5
+bot use 2174 100 2183
+wait 0.5
+bot expect slot 39 minecraft:packed_ice 1
+wait 0.5
+expect ^\[bot\] expect inventory ok
+reject (?i)panicked|trapped|\[bot\] error
+stop
