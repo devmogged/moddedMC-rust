@@ -11,7 +11,8 @@ original mods, and runs much faster with much less RAM (the target is a Raspberr
 ## 0. Where things stand (2026-11-20)
 
 A merged slice is the first working part of a mod. It's not the finished port. The live
-status of each workstream is in the coordination repo (`status/`, `claims.md`).
+status of each workstream is on the issue board of `devmogged/mmc-coord`
+(`node coord.mjs status` prints it).
 
 | Mod or area | Merged to main so far | Still missing |
 | --- | --- | --- |
@@ -27,33 +28,44 @@ status of each workstream is in the coordination repo (`status/`, `claims.md`).
 
 ## 1. Starting an agent
 
-Agents can run on the owner's laptop or on anyone else's machine (a friend's, a second PC).
-Before starting one, open `claims.md` in the coordination repo and pick a workstream nobody
-holds (section 5 lists the ones that are free and suit another machine). Then open a new chat
-and paste this, with the workstream id and the machine filled in:
+Every chat gets the same prompt, on any machine. It picks its own job, claims it, works for one
+session (a chat lasts at most 80 minutes), hands off and releases it. Paste this, unchanged:
 
 ```text
-You are the agent for workstream <WS-ID> of moddedMC-rust, a Rust Minecraft Java 26.3 server
-(a fork of Pumpkin) that runs Rust ports of Java mods. You have shell access to this machine:
-<"the owner's Windows laptop" or "a separate machine, set up as in section 3.1">.
-Nobody gives you more context than what's in the files named below.
+You are one of many agents porting the buja Minecraft modpack (Create and about 60 other Java
+mods) to moddedMC-rust, a Rust Minecraft Java 26.3 server forked from Pumpkin. Each chat does
+one job for one session and hands off to the next. You have a shell on this machine, git and
+the gh CLI. Nobody will give you more context than this.
 
-Before doing anything else, read in full and follow:
-1. docs/PARALLEL-PLAN.md in github.com/devmogged/moddedMC-rust (this plan: rules,
-   coordination, your workstream's scope and milestones). On the owner's laptop the checkout
-   is N:\git repos\moddedMC-rust. Elsewhere, clone it as section 3.1 says.
-2. Appendix A of the plan (the engineering contract).
-3. AGENTS.md and engine/pumpkin/AGENTS.md in the repo (porting rules).
-4. The docs your workstream lists under "Read first".
+1. Find the coordination checkout: N:\mmc-coord on the owner's laptop; otherwise
+   $MMC_ROOT/mmc-coord if MMC_ROOT is set, else ~/mmc/mmc-coord. If it isn't there, run
+   git clone https://github.com/devmogged/mmc-coord <that path>. Then run git pull in it.
+2. Run: node <that path>/coord.mjs start
+3. Do exactly what it prints. It chooses your job, claims it on GitHub, prepares your worktree,
+   and tells you what to read, how to work, when to wrap up and how to finish.
 
-Then claim the workstream in the coordination repo (section 4.2), set up your worktree as in
-section 3, write your status file, and start on your first unfinished milestone. Work
-milestone by milestone, verify each one as the plan says, commit and push your branch,
-update your log and status, and keep going. Stop and ask the owner only for things only
-they can decide or provide.
+You have at most 80 minutes. Before you stop, for any reason, push your work and run the
+release (or verdict) command it gave you, with a handoff that lets the next chat continue.
+Never end without it. Ask the person running you only for things only they can provide.
 ```
 
-One chat per workstream. Never two chats on the same workstream, on any machine.
+`coord.mjs start` does this:
+
+1. Checks the machine (clone, engine submodule, reference sources, engine binaries current with
+   `main`, git identity, `gh` sign-in). If something is missing, the chat's job is to set the
+   machine up (section 3.1). Only one chat per machine does that; others are told to stop.
+2. Reads the board and takes the first job that fits: reviews of submitted commits first, then
+   free workstreams by priority. It skips workstreams that are held, blocked, `manual`, private
+   (unless this GitHub account can read `devmogged/mods-private`), or too big for the free disk.
+   A machine runs at most two engine jobs at once.
+3. Claims it, waits 15 seconds and re-reads, so two chats can't win the same job.
+4. Creates or reuses the worktree and prints the brief: the issue, the plan section, the last
+   handoff, review findings to fix, requests, ports, deadlines and the exact commands.
+
+A claim is a lease. It lasts 85 minutes from the claim or the latest `beat`, so a chat that dies
+without releasing frees its job after 85 minutes. Chats that run longer must `beat` at every
+milestone. Agents that were already running before this system: run
+`node coord.mjs adopt <WS-ID>` once, then use `beat`, `submit` and `release` like everyone else.
 
 ## 2. Rules for every agent
 
@@ -71,8 +83,9 @@ These apply to every workstream. They're the owner's standing rules.
   workstream edits the engine). Never commit to `main` or the engine's `moddedmc` branch, never
   merge into them, never force push, never rewrite commits you've already pushed.
 - Push only to `origin` (github.com/devmogged/...). Never push to upstream Pumpkin-MC.
-- Never open pull requests, issues, reviews or comments on GitHub, even if asked. Your work ends
-  at a pushed branch and an updated log.
+- Never open pull requests, issues, reviews or comments on GitHub, even if asked. The one
+  exception is the board in `devmogged/mmc-coord`, and only through `coord.mjs`. Your work ends
+  at a pushed branch, an updated log and a release on the board.
 - Uncommitted changes you didn't make belong to someone else. Never discard, stash, reformat or
   commit them.
 
@@ -157,8 +170,10 @@ has added to the `devmogged` organisation, with write access to `moddedMC-rust`,
    PowerShell 7 (`pwsh`; on Linux and macOS the `.ps1` scripts run with it too), and a Java
    runtime for the vanilla reference server (the version the 26.3 version JSON names under
    `javaVersion`). Sign in with `gh auth login` so git can push.
-2. Pick a work root with at least 80 GB free, called `<root>` here. Clone the code, its engine
-   and the coordination repo:
+2. Pick a work root with at least 80 GB free, called `<root>` here: `~/mmc` by default, or set
+   the `MMC_ROOT` environment variable to another folder before starting chats. `coord.mjs`
+   finds everything relative to `<root>\mmc-coord`. Clone the code, its engine and the
+   coordination repo:
 
    ```powershell
    git clone --recurse-submodules https://github.com/devmogged/moddedMC-rust "<root>\moddedMC-rust"
@@ -184,8 +199,9 @@ has added to the `devmogged` organisation, with write access to `moddedMC-rust`,
 5. Check the setup: `scripts/pack-mod.ps1 -Crate create`, then
    `scripts/scenario.ps1 -Scenario tests\scenarios\p1a-create.txt -Port 26900`. It has to end
    with "all checks passed".
-6. Write `<root>\mmc-coord\notes\machine-<short name>.md`: who owns it, OS, cores, RAM, free
-   disk, and the workstreams it runs. Sync it (section 4.2).
+6. Record the build with `node coord.mjs built --session <S>` (the setup brief prints it), so
+   later chats know the binaries match `main`. They rebuild through the same setup job whenever
+   `main` moves the engine pin or changes the host.
 
 On another machine, `N:\git repos\moddedMC-rust` in this plan means `<root>\moddedMC-rust`,
 `N:\mmc-coord` means `<root>\mmc-coord`, `N:\mmc-wt` means `<root>\wt`, and the shared binaries
@@ -196,7 +212,8 @@ ranges as they are.
 
 The main checkout `N:\git repos\moddedMC-rust` (branch `main`) belongs to the integrator and its
 worker. Don't work in it. On another machine, keep your clone on `main`, untouched, and work in
-worktrees too. Each workstream gets its own worktree:
+worktrees too. Each workstream gets its own worktree, and `coord.mjs start` creates or reuses
+it for you (`<root>\wt\<id>`, or the laptop's existing one). By hand it would be:
 
 ```powershell
 cd "N:\git repos\moddedMC-rust"
@@ -254,41 +271,36 @@ subfolder) and touch shared files (`lib.rs`, `README.md`, `Cargo.toml`) only to 
 module and its registration call, each in one block marked with a comment naming the
 workstream. That keeps merges with main small.
 
-### 4.2 The coordination repo
+### 4.2 The board
 
-Coordination lives in the private repo `devmogged/mmc-coord`, so agents on every machine see
-the same files. On the owner's laptop its checkout is `N:\mmc-coord`; elsewhere,
-`<root>\mmc-coord`. Several agents can share one checkout, so each writes only its own files and
-never stages anyone else's.
+Coordination lives in the private repo `devmogged/mmc-coord`: its issues are the board, and
+`coord.mjs` in it is the only way agents touch them. On the owner's laptop the checkout is
+`N:\mmc-coord`; elsewhere, `<root>\mmc-coord`.
 
-- Start of every session: `.\sync.ps1` in the checkout, to get everyone else's files.
-- After you write or change your files:
-  `.\sync.ps1 -Paths <your files> -Message "<type>(<WS-ID>): <what changed>"`. It commits only
-  those paths, merges what others pushed and pushes. Never `git add -A` there, never rebase,
-  never force push.
-- `claims.md`: one row per active workstream (WS, machine or person, branch, state, date).
-  Claim yours before you touch any code, and pick a different workstream if the push shows
-  someone beat you to it. Mark it `released` when you stop for good.
-- `status\<WS-ID>.md`: each agent writes only its own. Update it when you start, at every
-  milestone, and whenever you're blocked. Format:
+- **One issue per workstream** (label `ws`). The body holds its brief and a hidden meta line
+  (id, kind, priority, branch, plan section). Labels (`state:*`, `review:*`, `kind:*`,
+  `private`, `manual`) are a summary for people; the truth is the comments.
+- **One issue per request** (label `request`, title `[WS-12 → WS-0] ...`), section 4.3.
+- **Every action is a comment** written by `coord.mjs`, ending in a hidden `coord` line:
+  `claim`, `beat`, `submit`, `release`, `verdict`, `answer`, and the integrator's `merged` and
+  `set`. Every agent replays them in order with the same rules, so they all agree on who holds
+  what. Never edit or delete these comments by hand.
+- **The handoff is the release comment.** It replaces the old status files: what was done
+  (commits), what was verified and how, what isn't verified, and exactly where to start next.
+  The next chat on that workstream gets it in its brief, on whatever machine it runs.
+- **States**: `free` (work left), `blocked` (until listed issues close, or until a condition the
+  integrator clears), `finished` (every milestone done and submitted), closed when merged and
+  done. A workstream with open requests addressed to it is offered even when finished.
+- **Reviews**: `submit` puts a pushed commit in the review queue; a review job ends with a
+  `verdict` (approve or changes). The work lease and the review lease are separate, so work
+  continues while a review runs.
+- Notes for everyone (a gotcha, a harness trick) still go in `notes\` of the checkout, one file
+  per topic, synced with `.\sync.ps1 -Paths <file> -Message "<what>"`. Read
+  `notes\INTEGRATOR-*.md` first: those are the integrator's decisions and override older notes.
+- Large logs (over about 200 KB) go nowhere public. Keep the failing excerpt and the command.
 
-  ```text
-  # WS-5 L_Ender's Cataclysm
-  Updated: 2026-11-20 14:10 IST
-  Branch: ws/cataclysm @ 1a2b3c4 (pushed)
-  Milestone: M2 Ignitium items and blocks (in progress)
-  Done: M0, M1 (see docs/ws/cataclysm.md)
-  Blocked on: ABI request WS-5-03 (entity attributes)
-  Next: M3 Ender Golem
-  ```
-
-- `requests\<WS-ID>-<NN>.md`: ABI and engine requests (section 4.3).
-- `reviews\<WS-ID>\<commit>.md`: review notes (section 7).
-- `notes\`: anything every agent should know (a gotcha, a harness trick). One file per topic.
-  Read the folder when you start a session, `notes\INTEGRATOR-*.md` first: those are the
-  integrator's decisions and override older notes.
-- Large logs (over about 200 KB) don't go in the repo. Keep the failing excerpt and the command.
-- `ports.md`: the port table (section 4.4).
+`claims.md`, `status\` and `requests\` in the checkout are the old system, kept read-only for
+history.
 
 ### 4.3 Requests for the ABI or the engine
 
@@ -296,18 +308,25 @@ When a port needs something the host doesn't offer (an entity operation, a world
 recipe hook):
 
 1. Check docs/MOD-ABI.md on `origin/main` and on `origin/ws/abi` first. It may already exist.
-2. Write `requests\<WS-ID>-<NN>.md` in the coordination repo, and sync it, with: what the original mod calls (class and
+2. Search the open `request` issues on the board and add to an existing one rather than filing a
+   duplicate. Otherwise write the request to a file: what the original mod calls (class and
    method, with the Java snippet), the exact Rust signature and contract you propose (append-only,
    C ABI, what it returns for unloaded or invalid input, who owns memory), and how you'll test it.
+   File it with `node coord.mjs request --session <S> --for WS-0 --title "<short>" --file <file>`
+   (`--for WS-7`, or `WS-31` to `WS-36`, for vanilla engine behaviour).
 3. Work around it meanwhile behind one function in your crate, marked
-   `// TODO(abi): <request id>`, so swapping in the real call is one change.
-4. WS-0 answers in the same file (`## Answer`: accepted, commit on `ws/abi`, or a counter-design)
-   and publishes binaries. Merge `origin/ws/abi` into your branch to use it.
+   `// TODO(abi): #<issue>`, so swapping in the real call is one change. If nothing useful is
+   left without it, release with `--state blocked --blocked-by <issue>`. The workstream is
+   offered again as soon as that issue closes.
+4. The owner answers with `coord.mjs answer --issue <n> --file <file>` (accepted with the commit
+   on `ws/abi`, or a counter-design), and closes it with `--close` once binaries that include it
+   are published. Merge `origin/ws/abi` into your branch to use it.
 
 ### 4.4 Ports and run directories
 
 Each workstream uses the ports `26000 + 10 * n` to `26000 + 10 * n + 9`, where `n` is its number
-(WS-5 uses 26050 to 26059, WS-23 uses 26230 to 26239). Sub-streams like WS-1a share their
+(WS-5 uses 26050 to 26059, WS-23 uses 26230 to 26239). Review jobs use `26400 + 10 * n` to
+`26400 + 10 * n + 9`, and machine setup uses 26990 to 26999. The brief prints your range. Sub-streams like WS-1a share their
 parent's range on different machines; on the same machine, ask the parent for two of its ports. Run directories go under your worktree's `run\`, which is ignored.
 The harness picks its own ports. Pass `--run-root run\harness-<id>` so its directories stay yours.
 
@@ -320,10 +339,11 @@ isn't verified, and open issues. Keep it current. It's the handoff.
 
 ## 5. How many agents, and in what order
 
-Running on the owner's laptop now: WS-0 to WS-7 and WS-R (see `claims.md`). Keep the laptop at
-about ten agents, two of them building the engine.
+The board hands out jobs in priority order, so nobody picks by hand: reviews first, then WS-0
+to WS-7 (furthest along), then this table. Keep the laptop at about ten chats; the script allows
+two engine jobs per machine.
 
-Free to claim, best first. Mod ports need only the shared engine build of section 3.1, so
+The order after WS-0 to WS-7: Mod ports need only the shared engine build of section 3.1, so
 they fit any machine with about 80 GB free. Engine workstreams need about 120 GB.
 
 | Order | Workstream | Kind | Can start now? |
@@ -354,12 +374,11 @@ they fit any machine with about 80 GB free. Engine workstreams need about 120 GB
 | 24 | WS-34 Nether, End, portals, dragon | engine | yes |
 | 25 | WS-35 Advancements, statistics, commands | engine | yes |
 | 26 | WS-36 Lighting and worldgen determinism | engine | yes |
-| 27 | WS-37 Second reviewer | review | yes, once five or more workstreams run off the laptop |
-| 28 | WS-8, WS-9, WS-10 (section 6) | client, perf, app | WS-9 needs a Raspberry Pi 5 |
+| 27 | WS-8, WS-9, WS-10 (section 6) | client, perf, app | WS-9 needs a Raspberry Pi 5 |
 
 Farmer's Delight stays in WS-1 and the Create add-ons stay in WS-4. Either may hand a whole
 mod to another machine as a sub-stream (`WS-1a Farmer's Delight`, `WS-4a New Age`) by writing
-its brief in their log and adding a free row to `claims.md`.
+its brief in their log and asking for it in their handoff. The integrator adds the issue.
 
 Client-only mods (AppleSkin, Jade, JEI, Embeddium, Mouse Tweaks and the like), performance mods
 (FerriteCore, ModernFix, Canary and the like) and libraries (Architectury, Balm, Citadel,
@@ -387,11 +406,12 @@ Owns: branch `ws/abi` (outer) and `ws/abi` (engine), `api/`, `engine/moddedmc-ho
   (ABI_VERSION and the list of interfaces and extensions), and point `LATEST.txt` at it.
   Smoke test: `scripts/scenario.ps1` with `p1a-create.txt` on your port using those binaries.
   Write `notes\shared-binaries.md` telling everyone how to use them.
-- **M1 Request loop.** Watch `requests\`, answer each request within your session, implement
+- **M1 Request loop.** Work the open `request` issues addressed to WS-0 (your brief lists them),
+  oldest and most-blocking first, answer each with `coord.mjs answer`, implement
   accepted ones on `ws/abi` (append-only; follow the existing extension pattern: append the
   field, add an `*Extension` variant whose check is the field's end offset, document it in
   MOD-ABI.md, and add a host test where a host test can catch a real bug), publish new
-  binaries, and answer in the request file. Merge `origin/main` into `ws/abi` often, because
+  binaries, then close the issue (`answer --close`). Merge `origin/main` into `ws/abi` often, because
   main also appends to the ABI. When both append to the same table, keep main's order first and
   put yours after.
 - **M2 Inter-mod services.** Create addons (WS-4) need Create's internals: registering kinetic
@@ -609,20 +629,17 @@ and the Pi.
 Read first: PRODUCT.md, DESIGN.md, docs/DEVICES.md, `app/`, the impeccable skill (required).
 Optional; start only when the owner asks.
 
-### WS-R Reviewer
+### Reviews (formerly WS-R and WS-37)
 
-Owns nothing. Reviews other workstreams' pushed commits the way a maintainer would.
-
-- Pick the oldest unreviewed milestone (from `status\`), read the diff next to the Java source
-  it ports, run its unit tests and scenarios on your own port range, and check the rules in
-  section 2 (licences, no AI mentions, explicit names, append-only ABI).
-- Write `reviews\<WS-ID>\<commit>.md` in the coordination repo: verdict (`ok`, `fix needed`), each finding
-  with file and line, what's wrong, the evidence (Java line, failing run), and what correct
-  looks like.
-- The author fixes `fix needed` findings in new commits and replies in the same file. A
-  milestone counts as done only with an `ok` review.
-- Also look across branches for duplicated work and for two workstreams heading into each
-  other's files, and say so in `notes\`.
+Reviewing is a job, not a workstream. `coord.mjs start` hands out the oldest submitted commit
+before any other work. The reviewer reads the diff next to the Java source it ports, runs the
+unit tests and scenarios on its review ports, checks section 2's rules (licences, no AI
+mentions, private mods, append-only ABI), and posts a `verdict`: approve, or changes with each
+finding's file and line, what's wrong, the evidence (Java line, failing run) and what correct
+looks like. The next work session on that workstream gets the findings in its brief and fixes
+them first. A milestone counts as done only with an approving verdict, and the integrator merges
+only approved commits. Reviewers also write in `notes\` when they see duplicated work or two
+workstreams heading into each other's files.
 
 ### The mod port template (WS-11 to WS-30)
 
@@ -791,11 +808,6 @@ same function.
 
 WS-7 keeps M1 (mobs). Its M2 to M7 now belong to WS-31 to WS-36.
 
-### WS-37 Second reviewer
-
-Same job as WS-R, for the workstreams that run off the owner's laptop. Split the work with WS-R
-in `notes\reviewers.md` by workstream, so each commit gets one review.
-
 ## 7. Verification ladder
 
 From cheapest to most convincing. Each milestone climbs as high as its behaviour allows:
@@ -812,7 +824,8 @@ From cheapest to most convincing. Each milestone climbs as high as its behaviour
 
 ## 8. Integration later
 
-The integrator merges branches into `main` in dependency order: `ws/abi` first, then the
+The integrator merges approved commits into `main` (`node coord.mjs queue` lists them, and
+`coord.mjs merged` records each merge) in dependency order: `ws/abi` first, then the
 workstreams that used it, after reading each log and the reviewer's notes, re-running the
 scenarios on main, and fixing conflicts with the main line of work. Branches that keep
 merging `origin/main` in and keep their changes to their own files merge cleanly. Anything a
@@ -827,7 +840,7 @@ Every agent on every machine follows this.
    docs/ARCHITECTURE.md, docs/MOD-ABI.md and your workstream's docs. Re-check the source and
    `HEAD` every session instead of trusting what you remember.
 2. Decide whether the task is an audit (no code changes) or implementation.
-3. Look at `git status --short --branch`, `git log -5`, who else is active (`claims.md`) and the
+3. Look at `git status --short --branch`, `git log -5`, who else is active (the board) and the
    `engine/pumpkin` submodule state. Keep uncommitted work you didn't make: no blind resets,
    stashes, checkouts or force pushes.
 4. Use the pinned engine submodule `engine/pumpkin`, never a separate Pumpkin clone.
