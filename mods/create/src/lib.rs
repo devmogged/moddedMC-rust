@@ -112,9 +112,11 @@ impl Mod for Create {
         let entities = entities::require()?;
         entities.require_extension(EntitiesExtension::Movement)?;
         entities.require_extension(EntitiesExtension::Data)?;
+        entities.require_extension(EntitiesExtension::MayBuild)?;
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
+        interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
         let _ = INTERACTION.set(interaction);
         let _ = EFFECTS.set(effects::require()?);
         let item_stacks = stacks::require()?;
@@ -183,14 +185,12 @@ impl Mod for Create {
                     model: "create:item/belt_connector",
                 },
             )?;
-        INTERACTION
+        let interaction = INTERACTION
             .get()
-            .ok_or(RegistrationError::InvalidDefinition)?
-            .on_use_on_block(registry, use_on_block)?;
-        INTERACTION
-            .get()
-            .ok_or(RegistrationError::InvalidDefinition)?
-            .on_use_block(registry, use_block)?;
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        interaction.on_use_on_block(registry, use_on_block)?;
+        interaction.on_use_block(registry, use_block)?;
+        interaction.on_player_will_destroy(registry, piston::player_will_destroy)?;
         content.on_tick(registry, tick)?;
         ENTITIES
             .get()
@@ -1257,7 +1257,11 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
                     }
                     _ => {
                         if before.is_some() {
-                            kinetics.remove(&mut level, pos);
+                            if event.reason == content::MOVED_STATE_CHANGED {
+                                kinetics.remove_moved(&mut level, pos);
+                            } else {
+                                kinetics.remove(&mut level, pos);
+                            }
                         }
                         if let Some(kind) = after {
                             kinetics.insert(pos, Be::new(kind));
@@ -1340,8 +1344,8 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         Some(Kind::Bearing(_) | Kind::Windmill(_)) => with_world(context.world, |kinetics| {
             bearing::use_item_on(kinetics, &states.contraption_blocks, context)
         }),
-        Some(Kind::Piston(_)) => with_world(context.world, |kinetics| {
-            piston::use_item_on(kinetics, context)
+        Some(Kind::Piston(block)) => with_world(context.world, |kinetics| {
+            piston::use_item_on(kinetics, block, context)
         }),
         Some(Kind::GantryCarriage(_)) => with_world(context.world, |kinetics| {
             gantry::use_item_on(kinetics, context)

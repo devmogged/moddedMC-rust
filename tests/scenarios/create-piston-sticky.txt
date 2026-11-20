@@ -1,0 +1,46 @@
+# Only a build-permitted player can apply slime to the front of a retracted piston.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2493.5 100 2490.5
+wait 2
+cmd fill 2488 98 2488 2495 98 2492 minecraft:stone
+cmd fill 2488 99 2488 2495 99 2492 minecraft:stone
+cmd fill 2488 100 2488 2495 103 2492 minecraft:air
+cmd gamemode creative tester
+cmd item replace entity tester hotbar.0 with create:mechanical_piston
+bot look 90 0
+wait 0.3
+bot place 2490 99 2490 up
+wait 0.5
+cmd gamemode adventure tester
+cmd item replace entity tester hotbar.0 with minecraft:slime_ball 2
+wait 0.5
+bot use 2490 100 2490 east
+wait 0.5
+cmd kinetics 2490 100 2490
+wait 0.5
+expect ^create:mechanical_piston\[axis_along_first=false,facing=east,state=retracted\] at 2490 100 2490
+bot expect slot 36 minecraft:slime_ball 2
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+
+cmd gamemode survival tester
+wait 0.5
+bot use 2490 100 2490 north
+wait 0.5
+bot expect slot 36 minecraft:slime_ball 2
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36 .* 2$
+bot use 2490 100 2490 east
+wait 0.5
+cmd kinetics 2490 100 2490
+wait 0.5
+expect ^create:sticky_mechanical_piston\[axis_along_first=false,facing=east,state=retracted\] at 2490 100 2490
+bot expect slot 36 minecraft:slime_ball 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36 .* 1$
+reject (?i)panicked|trapped|\[bot\] error
+stop

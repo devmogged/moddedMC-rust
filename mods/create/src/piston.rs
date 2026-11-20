@@ -7,12 +7,14 @@ use moddedmc_api::{
     content::{
         self, Block, BlockUpdate, Content, Placement, ShapeBox, State, UNLOADED_STATE, World,
     },
-    interaction::{BlockUseResult, UseBlock},
+    effects::SOUND_BLOCKS,
+    interaction::{BlockUseResult, PlayerWillDestroy, UseBlock},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CONTENT, DIRECTIONS, STONE, StateIds,
+    CONTENT, DIRECTIONS, EFFECTS, STONE, StateIds, TAGS,
+    belt_inventory::{count, with_count},
     collider::{self, Collider},
     contraption::{
         BlockMovement, BlockMovementChecks, Blocks, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES,
@@ -21,6 +23,8 @@ use crate::{
     kinetics::{
         FACES, Kind, Kinetics, actuator_speed, directional_shaft_axis, face_axis, offset, positive,
     },
+    processing_recipes::item_id,
+    with_world,
 };
 
 const ID: &str = "create:mechanical_piston";
@@ -383,16 +387,135 @@ fn block_state(world: World<'_>, pos: Pos) -> Option<PaletteEntry> {
     ))
 }
 
+fn facing(entry: &PaletteEntry) -> Option<u8> {
+    let direction = entry.properties.get("facing")?;
+    DIRECTIONS
+        .iter()
+        .position(|&name| name == direction)
+        .map(|face| face as u8)
+}
+
+fn scan_poles(
+    world: World<'_>,
+    origin: Pos,
+    direction: u8,
+) -> (Vec<Pos>, Option<(Pos, PaletteEntry)>) {
+    let axis = face_axis(direction);
+    let mut poles = Vec::new();
+    for distance in 1..MAX_PISTON_POLES {
+        let pos = offset(origin, FACES[usize::from(direction)].map(|n| n * distance));
+        let Some(entry) = block_state(world, pos) else {
+            break;
+        };
+        if entry.name != POLE || !facing(&entry).is_some_and(|face| face_axis(face) == axis) {
+            return (poles, Some((pos, entry)));
+        }
+        poles.push(pos);
+    }
+    (poles, None)
+}
+
+pub fn player_will_destroy(context: &PlayerWillDestroy<'_>) {
+    let world = context.world;
+    let origin = context.position;
+    let Some(entry) = CONTENT
+        .get()
+        .and_then(|content| content.describe_state(context.state))
+        .map(|selector| PaletteEntry::parse(&selector))
+        .filter(|entry| matches!(entry.name.as_str(), ID | STICKY | HEAD | POLE))
+    else {
+        return;
+    };
+    let Some(direction) = facing(&entry) else {
+        return;
+    };
+    let drop = !context.creative;
+    if matches!(entry.name.as_str(), ID | STICKY) {
+        let (mut front, end) = scan_poles(world, origin, direction);
+        if let Some((head, entry)) = end
+            && entry.name == HEAD
+            && facing(&entry) == Some(direction)
+        {
+            front.push(head);
+            destroy_front(world, &mut front, drop);
+        }
+        let (back, _) = scan_poles(world, origin, direction ^ 1);
+        for pos in back {
+            world.destroy(pos, drop);
+        }
+        return;
+    }
+
+    let (mut front, end) = scan_poles(world, origin, direction ^ 1);
+    let (base, mut base_entry) = if entry.name == HEAD {
+        let Some(base) = end else { return };
+        base
+    } else {
+        let (other_poles, other_end) = scan_poles(world, origin, direction);
+        let (Some(end), Some(other_end)) = (end, other_end) else {
+            return;
+        };
+        let (base, head) = if end.1.name == HEAD {
+            (other_end, end)
+        } else {
+            (end, other_end)
+        };
+        let Some(head_facing) = facing(&head.1) else {
+            return;
+        };
+        if head.1.name != HEAD || face_axis(head_facing) != face_axis(direction) {
+            return;
+        }
+        front.extend(other_poles);
+        front.push(head.0);
+        if facing(&base.1) != Some(head_facing) {
+            return;
+        }
+        base
+    };
+    if !matches!(base_entry.name.as_str(), ID | STICKY)
+        || (entry.name == HEAD && facing(&base_entry) != Some(direction))
+    {
+        return;
+    }
+    base_entry
+        .properties
+        .insert("state".into(), PistonState::Retracted.name().into());
+    let Some(state) = base_entry.state() else {
+        return;
+    };
+    destroy_front(world, &mut front, drop);
+    world.write(&[BlockUpdate {
+        position: base,
+        state,
+        flags: content::UPDATE_ALL,
+    }]);
+    if entry.name == POLE {
+        with_world(world, |kinetics| {
+            if let Some(be) = kinetics.get_mut(base)
+                && let Some(piston) = &mut be.piston
+            {
+                piston.data.offset = 0.0;
+                be.dirty = true;
+            }
+        });
+    }
+}
+
+fn destroy_front(world: World<'_>, parts: &mut [Pos], drop: bool) {
+    // `BlockPos.betweenClosed` visits the lowest coordinate first.
+    parts.sort_unstable_by_key(|pos| (pos.x, pos.y, pos.z));
+    for &pos in parts.iter() {
+        world.destroy(pos, drop);
+    }
+}
+
 impl PistonContraption {
     fn collect_extensions(world: World<'_>, base: Pos, piston: PistonBlock) -> Option<(i32, i32)> {
         let direction = DIRECTIONS[usize::from(piston.facing)];
         let is_pole = |entry: &PaletteEntry| {
             entry.name == POLE
-                && entry
-                    .properties
-                    .get("facing")
-                    .and_then(|face| DIRECTIONS.iter().position(|&name| name == face))
-                    .is_some_and(|face| face_axis(face as u8) == face_axis(piston.facing))
+                && facing(entry).is_some_and(|face| face_axis(face) == face_axis(piston.facing))
         };
         let mut front = 0;
         if block_state(world, base)?
@@ -693,9 +816,16 @@ impl MechanicalPiston {
     }
 }
 
-pub fn use_item_on(kinetics: &mut Kinetics, context: &UseBlock<'_>) -> BlockUseResult {
-    if context.sneaking || context.stack.read().is_some() {
+pub fn use_item_on(
+    kinetics: &mut Kinetics,
+    block: PistonBlock,
+    context: &mut UseBlock<'_>,
+) -> BlockUseResult {
+    if context.sneaking || !context.player.is_some_and(|player| player.may_build()) {
         return BlockUseResult::TryEmptyHand;
+    }
+    if let Some(bytes) = context.stack.read() {
+        return apply_slime(block, context, &bytes);
     }
     let Some(piston) = kinetics
         .get_mut(context.position)
@@ -704,6 +834,70 @@ pub fn use_item_on(kinetics: &mut Kinetics, context: &UseBlock<'_>) -> BlockUseR
         return BlockUseResult::Pass;
     };
     piston.assemble_next_tick = true;
+    BlockUseResult::Success
+}
+
+fn apply_slime(block: PistonBlock, context: &mut UseBlock<'_>, held: &[u8]) -> BlockUseResult {
+    if block.sticky
+        || block.facing != context.face
+        || block.state(PistonState::Retracted) != Some(context.state)
+    {
+        return BlockUseResult::TryEmptyHand;
+    }
+    let Ok(item) = fastnbt::from_bytes(held) else {
+        return BlockUseResult::TryEmptyHand;
+    };
+    if !item_id(&item).is_some_and(|id| {
+        id == "minecraft:slime_ball"
+            || TAGS
+                .get()
+                .is_some_and(|tags| tags.contains("item", "c:slime_balls", id))
+    }) {
+        return BlockUseResult::TryEmptyHand;
+    }
+    let sticky = PistonBlock {
+        sticky: true,
+        ..block
+    };
+    let Some(state) = sticky.state(PistonState::Retracted) else {
+        return BlockUseResult::Pass;
+    };
+    if !context.creative {
+        let remaining = count(&item) - 1;
+        let Ok(bytes) = (if remaining > 0 {
+            fastnbt::to_bytes(&with_count(&item, remaining))
+        } else {
+            Ok(Vec::new())
+        }) else {
+            return BlockUseResult::Pass;
+        };
+        if !context.stack.write(&bytes) {
+            return BlockUseResult::Pass;
+        }
+    }
+    let context_position = context.position;
+    if context.world.write(&[BlockUpdate {
+        position: context_position,
+        state,
+        flags: content::UPDATE_ALL,
+    }]) != 1
+    {
+        if !context.creative {
+            context.stack.write(held);
+        }
+        return BlockUseResult::Pass;
+    }
+    if let Some(effects) = EFFECTS.get() {
+        effects.play_sound(
+            context.world,
+            [context_position.x, context_position.y, context_position.z]
+                .map(|x| f64::from(x) + 0.5),
+            "minecraft:block.slime_block.place",
+            SOUND_BLOCKS,
+            0.5,
+            1.0,
+        );
+    }
     BlockUseResult::Success
 }
 

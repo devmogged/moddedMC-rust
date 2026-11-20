@@ -759,18 +759,30 @@ impl Kinetics {
     /// `KineticBlockEntity.remove()` after its block is gone: leave the network, then
     /// `detachKinetics`.
     pub fn remove(&mut self, level: &mut dyn Level, pos: Pos) {
-        let Some(be) = self.bes.remove(&pos) else {
+        let Some(be) = self.detach_removed(level, pos) else {
             return;
         };
-        if let Some(id) = be.network {
-            self.network_remove(id, pos, be.serial, be.is_source());
-        }
-        self.handle_removed(level, pos, &be);
         let kind = be.kind;
         self.drop_inventory(pos, be, true);
         if let Kind::Belt(belt) = kind {
             self.remove_belt_neighbours(level, pos, belt);
         }
+    }
+
+    /// `BeltBlock.onRemove` skips the chain breakup when `isMoving` is true.
+    pub fn remove_moved(&mut self, level: &mut dyn Level, pos: Pos) {
+        if let Some(be) = self.detach_removed(level, pos) {
+            self.drop_inventory(pos, be, false);
+        }
+    }
+
+    fn detach_removed(&mut self, level: &mut dyn Level, pos: Pos) -> Option<Be> {
+        let be = self.bes.remove(&pos)?;
+        if let Some(id) = be.network {
+            self.network_remove(id, pos, be.serial, be.is_source());
+        }
+        self.handle_removed(level, pos, &be);
+        Some(be)
     }
 
     /// A state change that keeps the block entity (same block, same axis).
@@ -2053,5 +2065,20 @@ mod tests {
         assert!(rig.kinetics.get(pos(1, 0, 0)).is_none());
         assert!(rig.kinetics.get(pos(1, 0, 2)).is_none());
         assert_eq!(rig.speed(pos(2, 0, 2)), 0.0);
+    }
+
+    #[test]
+    fn moving_a_belt_controller_detaches_without_tearing_down_its_chain() {
+        let mut rig = belt_rig();
+        let controller = pos(1, 0, 0);
+        rig.kinetics.get_mut(controller).unwrap().inventory = Some(Default::default());
+        rig.kinetics.remove_moved(&mut rig.level, controller);
+        assert!(rig.kinetics.get(controller).is_none());
+        assert!(rig.kinetics.get(pos(1, 0, 1)).is_some());
+        assert!(rig.kinetics.get(pos(1, 0, 2)).is_some());
+        assert!(rig.level.replaced.is_empty());
+        let removed = rig.kinetics.take_dropped();
+        assert_eq!(removed.len(), 1);
+        assert!(!removed[0].eject);
     }
 }

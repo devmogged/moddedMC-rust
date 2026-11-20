@@ -116,7 +116,9 @@ Place a Windmill Bearing with a shaft on the back and eight wool blocks attached
 
 Place a Sticky Mechanical Piston facing east above a Creative Motor facing up. Add three extension poles behind the piston, and attach a slime frame and platform at the front. Drive the motor at -128 RPM to extend three blocks. Reverse it to pull the platform back. Put obsidian in the platform's path and extend again. The platform should stop at the last clear block. Capture the extension, return and collision in one recording.
 
-The [piston scenario](../../tests/scenarios/create-mechanical-piston.txt) checks placement, moving displays, all three steps of travel, and pole and head placement. The port uses the default movement mode and stops at loaded terrain collisions. Collisions between moving contraptions, actor block exceptions, pole break cleanup and slimeball conversion are pending.
+The [piston scenario](../../tests/scenarios/create-mechanical-piston.txt) checks placement, moving displays, all three steps of travel, and pole and head placement. The port uses the default movement mode and stops at loaded terrain collisions. Collisions between moving contraptions and actor block exceptions are pending.
+
+Click the front of a retracted Mechanical Piston with a slimeball in Survival. It becomes sticky and consumes one slimeball. Try Adventure mode or click a side face and check that the stack stays intact. Extend a piston and break a front pole or the head. The front assembly comes off and the base retracts. Breaking the base also removes the rear poles. The [conversion](../../tests/scenarios/create-piston-sticky.txt) and [break](../../tests/scenarios/create-piston-break.txt) scenarios cover those paths.
 
 ### Gantry
 
