@@ -589,6 +589,14 @@ fn handle_downward_output(
         ))
     } else if let Some(depot) = kinetics.depots.get_mut(&below) {
         Some(depot.insert_item(world, below, item, simulate))
+    } else if kinetics.kind(below) == Some(Kind::Millstone) {
+        Some(crate::millstone::insert(
+            kinetics, below, &item.item, simulate,
+        ))
+    } else if crate::crusher::is_controller(kinetics, below, DOWN) {
+        Some(crate::crusher::insert(
+            kinetics, below, &item.item, simulate,
+        ))
     } else if let Some(container) = CONTAINERS
         .get()
         .and_then(|containers| containers.at(world, below, UP))
@@ -647,6 +655,9 @@ fn extract_from_above(world: World<'_>, kinetics: &mut Kinetics, pos: Pos) -> Op
             EXTRACTION_AMOUNT as i32,
             false,
         );
+    }
+    if kinetics.kind(source) == Some(Kind::Millstone) {
+        return crate::millstone::extract(kinetics, source, EXTRACTION_AMOUNT as i32, false);
     }
     let container = CONTAINERS.get()?.at(world, source, DOWN)?;
     extract_container(container, EXTRACTION_AMOUNT, false)

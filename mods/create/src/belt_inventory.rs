@@ -1,8 +1,7 @@
 //! Create 6.0.10's `BeltInventory`, `TransportedItemStack` and `ItemHandlerBeltSegment`: items
 //! riding a belt chain, picked up from item entities and handed on, ejected or held at the end.
 //!
-//! Belt processing, funnels, tunnels and crushers aren't ported, so no item is ever held by
-//! them. Items are drawn with item displays, since a stock client has no belt renderer.
+//! Items are drawn with item displays, since a stock client has no belt renderer.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -540,6 +539,16 @@ impl BeltInventory {
                             crate::funnel::insert_from_belt_end(world, kinetics, next, item),
                             false,
                         )
+                    } else if kinetics.kind(next) == Some(Kind::Millstone) {
+                        (
+                            crate::millstone::insert(kinetics, next, &item.item, false),
+                            false,
+                        )
+                    } else if crate::crusher::is_controller(kinetics, next, movement_facing) {
+                        (
+                            crate::crusher::insert(kinetics, next, &item.item, false),
+                            false,
+                        )
                     } else if try_inserting_from_side(
                         kinetics,
                         Some(chain.pos),
@@ -679,10 +688,11 @@ fn resolve_ending(
     positive_order: bool,
 ) -> Ending {
     let next = chain.position_for_offset(if positive_order { chain.length } else { -1 });
-    if matches!(kinetics.kind(next), Some(Kind::Belt(_)))
+    if matches!(kinetics.kind(next), Some(Kind::Belt(_) | Kind::Millstone))
         || kinetics.depots.contains_key(&next)
         || kinetics.chutes.entries.contains_key(&next)
         || crate::funnel::direct_input_present(&kinetics.funnels, next)
+        || crate::crusher::is_controller(kinetics, next, chain.movement_facing())
     {
         return Ending::Insert;
     }

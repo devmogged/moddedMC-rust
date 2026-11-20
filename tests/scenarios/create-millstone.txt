@@ -1,0 +1,73 @@
+# Grounded input, speed-dependent milling, empty-hand retrieval and belt/chute logistics.
+mods target\mods\create.mmc
+start
+expect registered content block create:millstone
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2203.5 100 2205.5 0 0
+wait 2
+cmd fill 2197 99 2199 2212 99 2210 minecraft:stone
+cmd fill 2197 100 2199 2212 104 2210 minecraft:air
+cmd gamemode survival tester
+cmd setblock 2202 100 2205 create:millstone
+cmd setblock 2202 99 2205 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2202 99 2205 0
+cmd summon minecraft:item 2202.5 102 2205.5 {Item:{id:"minecraft:clay",count:2},PickupDelay:32767s}
+wait 1.5
+bot expect entity minecraft:item near 2202.5 101 2205.5 within 0.5 count 0
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot use 2202 100 2205
+wait 0.5
+bot expect slot 36 minecraft:clay 2
+wait 0.5
+expect ^\[bot\] expect inventory ok
+
+cmd summon minecraft:item 2202.5 102 2205.5 {Item:{id:"minecraft:clay",count:2},PickupDelay:32767s}
+wait 0.75
+cmd kinetics 2202 99 2205 128
+wait 1.5
+bot hotbar 1
+wait 0.5
+bot use 2202 100 2205
+wait 0.5
+bot expect slot 37 minecraft:clay_ball 8
+wait 0.5
+expect ^\[bot\] expect inventory ok
+
+# The belt inserts into the millstone. A chute underneath extracts only the finished output.
+cmd setblock 2206 101 2208 create:millstone
+cmd setblock 2206 100 2208 create:chute
+cmd setblock 2206 99 2208 create:depot
+cmd setblock 2205 101 2208 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2205 100 2208 create:creative_motor[facing=up]
+cmd setblock 2205 101 2203 create:creative_motor[facing=east]
+cmd setblock 2206 101 2203 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2206 101 2207 create:shaft[axis=x,waterlogged=false]
+cmd tp tester 2207.5 101 2205.5
+cmd item replace entity tester hotbar.2 with create:belt_connector
+bot hotbar 2
+wait 0.5
+bot use 2206 101 2203
+wait 0.5
+bot use 2206 101 2207
+wait 0.75
+cmd kinetics 2205 101 2203 64
+cmd kinetics 2205 100 2208 128
+cmd summon minecraft:item 2206.5 102.15 2205.5 {Item:{id:"minecraft:clay",count:1},PickupDelay:32767s}
+wait 5
+cmd tp tester 2207.5 99 2208.5
+bot expect entity minecraft:item_display near 2206.5 99.9 2208.5 within 0.24 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot hotbar 3
+wait 0.5
+bot use 2206 99 2208
+wait 0.5
+bot expect slot 37 minecraft:clay_ball 12
+wait 0.5
+expect ^\[bot\] expect inventory ok
+reject (?i)panicked|trapped|\[bot\] error
+stop

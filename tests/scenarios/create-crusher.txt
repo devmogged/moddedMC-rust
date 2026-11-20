@@ -1,0 +1,52 @@
+# Opposite wheels create the controller and crush loose items into the Depot below.
+mods target\mods\create.mmc
+start
+expect registered content block create:crushing_wheel \(3 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2221.5 100 2227.5 0 0
+wait 2
+cmd fill 2217 98 2222 2226 98 2235 minecraft:stone
+cmd fill 2217 99 2222 2226 104 2235 minecraft:air
+cmd gamemode survival tester
+cmd setblock 2220 101 2228 create:crushing_wheel[axis=z]
+cmd setblock 2222 101 2228 create:crushing_wheel[axis=z]
+cmd setblock 2220 101 2227 create:creative_motor[facing=south]
+cmd setblock 2222 101 2227 create:creative_motor[facing=south]
+cmd setblock 2221 100 2228 create:depot
+wait 0.5
+bot expect block 2221 101 2228 minecraft:note_block
+wait 0.5
+expect ^\[bot\] expect block ok
+cmd summon minecraft:item 2221.5 103 2228.5 {Item:{id:"minecraft:andesite",count:1},PickupDelay:32767s}
+wait 1.5
+bot expect entity minecraft:item near 2221.5 101.84 2228.5 within 0.3 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd kinetics 2220 101 2227 -128
+cmd kinetics 2222 101 2227 128
+wait 4
+bot expect entity minecraft:item_display near 2221.5 100.9 2228.5 within 0.24 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot use 2221 100 2228
+wait 0.5
+bot expect slot 36 minecraft:cobblestone 1
+wait 0.5
+expect ^\[bot\] expect inventory ok
+
+cmd summon minecraft:item 2221.5 103 2228.5 {Item:{id:"minecraft:gravel",count:1},PickupDelay:32767s}
+wait 4
+bot use 2221 100 2228
+wait 0.5
+bot expect slot 37 minecraft:sand 1
+wait 0.5
+expect ^\[bot\] expect inventory ok
+cmd setblock 2222 101 2228 minecraft:air
+wait 0.5
+bot expect block 2221 101 2228 minecraft:air
+wait 0.5
+expect ^\[bot\] expect block ok
+reject (?i)panicked|trapped|\[bot\] error
+stop
