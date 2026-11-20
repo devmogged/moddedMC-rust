@@ -32,13 +32,28 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
     names = [part[0] for part in registrations]
     assert len(set(names)) == len(names), "duplicate Rust item IDs"
     assert all(carrier for _, _, carrier in registrations)
+    guide_book = re.search(
+        r'id: "legendary_monsters:guide_book",\s*display_name: "Guide Book",'
+        r'\s*carrier: "minecraft:writable_book",\s*model: "legendary_monsters:item/guide_book"',
+        source,
+    )
+    assert guide_book, "guide_book must delegate to vanilla writable_book with its original model"
     with ZipFile(jar_path) as original:
         archive = set(original.namelist())
         models = [
             f"assets/{NAMESPACE}/models/item/{name}.json"
             for name in names
         ]
+        models.append("assets/legendary_monsters/models/item/guide_book.json")
         assert set(models) <= archive, "original model reference missing: " + str(set(models) - archive)
+        original_english = json.loads(original.read("assets/legendary_monsters/lang/en_us.json"))
+        for name, display_name, _ in registrations:
+            translation_key = f"item.legendary_monsters.{name}"
+            original_display = original_english.get(translation_key, translation_key)
+            assert display_name == original_display, (
+                f"{name}: display {display_name!r} differs from original {original_display!r}"
+            )
+        assert original_english.get("item.legendary_monsters.guide_book") == "Guide Book"
         # The original models and textures are intentionally never copied.
         recipes = sorted((MOD / "resources/data/legendary_monsters/recipe").glob("*.json"))
         assert len(recipes) == 2, f"unexpected locally shipped recipes: {len(recipes)}"
@@ -63,7 +78,7 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
             assert set(actual["values"]) <= set(expected["values"]), f"tag differs from original: {tag.name}"
             assert all(v.split(":", 1)[1] in names for v in actual["values"])
         assert not (MOD / "resources/assets").exists(), "restricted original visuals may not be bundled"
-        print(f"Verified {len(registrations)} original item model paths, {len(recipes)} recipes, {len(tags)} source tags")
+        print(f"Verified {len(models)} original item model paths, {len(recipes)} recipes, {len(tags)} source tags")
     if java_path:
         java = java_path.read_text(encoding="utf-8")
         matches = list(re.finditer(r'ITEMS\.register\(\s*"([^"]+)"', java))
@@ -83,7 +98,14 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
             if resistant:
                 fires.append(name)
         assert len(fires) == 5, f"unexpected fire-resistant item count: {fires}"
-        print(f"Verified source registrations and vanilla property flags for {len(names)} items (5 fire-resistant)")
+        guide_ctor = entries.get("guide_book", "").split(";", 1)[0]
+        assert "new WritableBookItem(new Properties())" in guide_ctor, (
+            "the original guide_book must be an unmodified vanilla WritableBookItem"
+        )
+        print(
+            f"Verified source registrations and vanilla property flags for {len(names)} "
+            "plain items (5 fire-resistant) plus the vanilla WritableBookItem"
+        )
     print("PASS: exact 2.2.4 artifact audit")
 
 

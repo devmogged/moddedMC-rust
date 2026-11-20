@@ -1,0 +1,37 @@
+# WS-6 M1: ModItems.GUIDE_BOOK delegates to vanilla WritableBookItem.
+# Tests vanilla book carrier, one-per-stack, and restart persistence.
+# Editing/signing the book requires a modded real client and remains unverified.
+mods target\mods\legendary-monsters.mmc
+start
+expect registered content item legendary_monsters:guide_book
+botstart book_tester
+wait 3
+expect \[bot\] joined as book_tester
+cmd give book_tester legendary_monsters:guide_book 2
+wait 1
+expect Gave 2 .*Guide Book
+bot expect slot 36 minecraft:writable_book 1
+wait 1
+expect \[bot\] expect inventory ok slot 36
+bot expect slot 37 minecraft:writable_book 1
+wait 1
+expect \[bot\] expect inventory ok slot 37
+bot hotbar 0
+bot use-item main
+wait 1
+expect \[bot\] did: use-item main
+cmd clear book_tester legendary_monsters:guide_book 0
+wait 1
+expect Found 2 matching item
+bot quit
+stop
+start
+botstart book_tester
+wait 3
+expect \[bot\] joined as book_tester
+cmd clear book_tester legendary_monsters:guide_book 0
+wait 1
+expect Found 2 matching item
+reject (?i)panic|unknown item|incorrect argument
+bot quit
+stop

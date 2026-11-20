@@ -53,12 +53,12 @@ const PASSIVE_MATERIALS: &[(&str, &str, &str)] = &[
     ("ancient_spike", "Ancient Spike", "minecraft:iron_ingot"),
     (
         "falling_cloud_projectile",
-        "Falling Cloud Projectile",
+        "item.legendary_monsters.falling_cloud_projectile",
         "minecraft:iron_ingot",
     ),
     (
         "falling_cloud_small_projectile",
-        "Falling Cloud Small Projectile",
+        "item.legendary_monsters.falling_cloud_small_projectile",
         "minecraft:iron_ingot",
     ),
     ("air_rune", "Air Rune", "minecraft:netherite_ingot"),
@@ -95,7 +95,7 @@ const PASSIVE_MATERIALS: &[(&str, &str, &str)] = &[
     ),
     (
         "crystal_of_sandstorm",
-        "Crystal of Sandstorm",
+        "Crystal Of Sandstorm",
         "minecraft:amethyst_shard",
     ),
     ("cloud_rod", "Cloud Rod", "minecraft:stick"),
@@ -131,6 +131,17 @@ impl Mod for LegendaryMonsters {
                 },
             )?;
         }
+        // ModItems.GUIDE_BOOK instantiates vanilla WritableBookItem directly.
+        // Keep its native one-per-stack and book-edit behavior, not a plain material carrier.
+        items.add_item(
+            registry,
+            &Item {
+                id: "legendary_monsters:guide_book",
+                display_name: "Guide Book",
+                carrier: "minecraft:writable_book",
+                model: "legendary_monsters:item/guide_book",
+            },
+        )?;
         Ok(())
     }
 }

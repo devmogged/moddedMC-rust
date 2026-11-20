@@ -4,7 +4,7 @@ Original target: **Legendary Monsters 2.2.4** for **Minecraft 1.21.1 NeoForge**,
 published October 23, 2026. Server target: moddedMC-rust / Pumpkin's Minecraft Java 26.3.
 The version gap requires explicit behavior tests against the Java original.
 
-## Implemented: M1 passive materials (partial)
+## Implemented: M1 passive materials and vanilla guide book (partial)
 
 Exactly **24** source registrations using vanilla Item and default properties or
 fireResistant() only, transcribed from the official release's ModItems.java.
@@ -16,8 +16,14 @@ even though the drop-in package ID is legendary-monsters.
 These entries have **no custom Rust behavior** because the original registrations
 are plain items. Their visual models are referenced by resource location, but the
 original models/textures are **not** embedded; they must come from the user's
-locally installed original JAR. The 24 model JSON paths were verified to exist
+locally installed original JAR. The 25 model JSON paths (24 materials and one guide book) were verified to exist
 in the original 2.2.4 archive.
+
+The 25th item, `legendary_monsters:guide_book`, delegates to the built-in
+`minecraft:writable_book` carrier. Its original Java class directly constructs
+vanilla `WritableBookItem`; the bot verified two separate one-book slots,
+an item-use packet and stack persistence after restart. Editing/signing pages
+still requires a real modded-client play test.
 
 Two source-matched recipes and two additive vanilla item tags for Enderitium
 are packaged as data. The shapeless ingot-to-gems recipe was executed through a
@@ -45,23 +51,29 @@ library. For runtime verification, use the shared server/bot binaries and run:
 
     powershell -NoProfile -File scripts/scenario.ps1 -Scenario tests/scenarios/legendary-monsters-materials.txt -RunDir run/legendary-monsters-m1 -Port 26060 -Fresh
 
-All three scenarios **passed** on shared engine d6e5e8d560 (ABI 1):
-legendary-monsters-materials.txt verifies registration, recipe availability,
-/give and restart, legendary-monsters-crafting.txt executes the shapeless
-recipe, and legendary-monsters-crafting-table.txt executes the shaped recipe
-with save/restart and consumed-ingredient checks. Some content-pack
-assets still render as placeholders. Runtime parity against the original
-NeoForge 2.2.4 mod is **not yet established**.
+Five Rust scenarios **passed** on shared engine d6e5e8d560 (ABI 1):
+`legendary-monsters-materials.txt` (registration, recipe availability, grants,
+restart); `legendary-monsters-all-items.txt` (24 material IDs in player inventory
+before/after restart, twice); `legendary-monsters-guide-book.txt` (book stacking,
+use packet and restart); `legendary-monsters-crafting.txt` (2x2 shapeless), and
+`legendary-monsters-crafting-table.txt` (3x3 shaped and ingredients consumed).
+The original NeoForge 1.21.1 oracle independently confirmed all 24 material IDs
+and persisted chest inventory, the guide-book ID, and original lava survival of
+five fire-resistant materials versus an ordinary crystal. The original mod's
+client-assisted crafting, book UI and most behavior still lack differential
+checks. Some content-pack assets render as placeholders.
 
 Optional source-artifact audit (standard Python 3 library only):
 
     & "$env:LOCALAPPDATA\Programs\Python\Python314\python.exe" mods/legendary-monsters/tools/audit_artifact.py --jar cache/legendary_monsters-2.2.4-MC-1.21.1.jar --decompiled D:/mc-ref/legendary-monsters-2.2.4-decompiled/net/miauczel/legendary_monsters/item/ModItems.java
 
-It requires the exact original JAR hash and compares item constructors, model
-paths, recipe payloads and tag subsets without copying restricted assets.
+It requires the exact original JAR hash and compares item constructors, source
+translations, 25 model paths, recipe payloads and tag subsets without copying
+restricted assets.
 
-See docs/ws/legendary-monsters.md and docs/ws/legendary-monsters-inventory.md
-for the full version-pinned inventory, constraints, remaining scope and ABI dependencies.
+See `docs/ws/legendary-monsters.md`, `docs/ws/legendary-monsters-inventory.md`,
+`docs/ws/legendary-monsters-blocks.md` and `docs/ws/legendary-monsters-oracle.md`
+for version-pinned inventories, Java comparison commands, remaining scope and ABI dependencies.
 
 ## Rights
 
