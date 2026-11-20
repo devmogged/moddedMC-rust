@@ -35,8 +35,10 @@ become their Tauri plugin equivalents (`updater`, `autostart`, `window-state`, `
 
 Each stage is one or more commits on `main`, checked with `npm run check` and `npm run build`.
 
-1. Foundation: Tailwind 4, the T3 Code UI kit and tokens, the tab shell, the Settings tab.
-2. Brand: the new icon (a pumpkin made "modded"), app and tray icons from one SVG.
+1. Foundation: Tailwind 4, the T3 Code UI kit and tokens, the tab shell, the Settings tab. Done: the old
+   screens run inside the Servers and Mods tabs (scoped by `legacy.css`) until stages 4 and 5
+   replace them; DESIGN.md describes those old screens until then.
+2. Brand: Pumpkin's logo with a MODDED banner (`app/app-icon.png`). Done for the app icon.
 3. Launch: splash, updater, first-run install, local agent start.
 4. Servers: list, detail views reskinned, the new-server setup with hosting, the settings editor
    (agent: read and write `pumpkin.toml` and the server icon).

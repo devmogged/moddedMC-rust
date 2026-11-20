@@ -143,7 +143,8 @@ function useDeviceData(devices: Device[]) {
   return { data: view, refresh, act };
 }
 
-export function App() {
+/** The pre-revamp workspace (sidebar and panes), shown inside the new tabs until rebuilt. */
+export function LegacyWorkspace({ initial }: { initial?: Selection } = {}) {
   const devicesPoll = usePoll(api.devices, 60_000, []);
   const friendsPoll = usePoll(api.friends, 60_000, []);
   // Packs are files on this machine; reread them so a build or an edit shows up.
@@ -152,7 +153,7 @@ export function App() {
   const devices = devicesPoll.value ?? [];
   const friends = friendsPoll.value ?? [];
   const { data, refresh, act } = useDeviceData(devices);
-  const [selection, setSelectionState] = useState<Selection>(loadSelection);
+  const [selection, setSelectionState] = useState<Selection>(() => initial ?? loadSelection());
   const [dialog, setDialog] = useState<"device" | "friend" | null>(null);
   const [palette, setPalette] = useState(false);
   const [toasts, setToasts] = useState<Notice[]>([]);
