@@ -1232,9 +1232,25 @@ fn belt_data(pos: Pos, be: &Be) -> KineticData {
         index: Some(be.belt_index),
         casing: Some("NONE".to_owned()),
         covered: Some(false),
-        inventory: (be.controller == Some(pos)).then(|| be.inventory.clone().unwrap_or_default()),
+        inventory: (be.controller == Some(pos)).then(|| {
+            be.inventory
+                .as_ref()
+                .map_or_else(Default::default, belt_inventory::BeltInventory::captured)
+        }),
         ..KineticData::default()
     }
+}
+
+fn restore_moved_belt(world: World<'_>, pos: Pos, saved: &[u8]) -> bool {
+    let Ok(saved) = fastnbt::from_bytes::<KineticData>(saved) else {
+        return false;
+    };
+    let data = KineticData {
+        is_controller: saved.is_controller,
+        inventory: saved.inventory,
+        ..KineticData::default()
+    };
+    fastnbt::to_bytes(&data).is_ok_and(|bytes| world.set_entity(pos, &bytes))
 }
 
 struct WorldLevel<'a> {
@@ -1347,7 +1363,12 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
                             }
                         }
                         if let Some(kind) = after {
-                            kinetics.insert(pos, Be::new(kind));
+                            let mut be = Be::new(kind);
+                            if matches!(kind, Kind::Belt(belt) if belt.part == kinetics::Part::Start)
+                            {
+                                be.inventory = load(world, pos, kind).inventory;
+                            }
+                            kinetics.insert(pos, be);
                         }
                     }
                 },

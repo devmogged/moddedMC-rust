@@ -1,0 +1,77 @@
+# A bearing captures the whole belt and preserves its stack through a restart.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2562.5 101 2562.5
+wait 2
+cmd fill 2555 97 2555 2566 97 2566 minecraft:stone
+cmd fill 2555 98 2555 2566 106 2566 minecraft:air
+cmd setblock 2560 98 2560 create:creative_motor[facing=up]
+cmd setblock 2559 101 2560 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2560 98 2560 0
+cmd setblock 2560 99 2560 create:mechanical_bearing[facing=up]
+cmd setblock 2560 100 2560 minecraft:slime_block
+cmd setblock 2560 101 2560 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2560 101 2562 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.0 with create:belt_connector
+wait 0.5
+bot use 2560 101 2560
+wait 0.5
+bot use 2560 101 2562
+wait 0.5
+cmd summon minecraft:item 2560.5 102 2561.5 {Item:{id:"minecraft:iron_ingot",count:3},PickupDelay:32767s}
+wait 0.5
+cmd kinetics 2559 101 2560 0
+bot expect entity minecraft:item_display near 2560.5 101.85 2561.6 within 0.5 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display
+cmd setblock 2559 101 2560 minecraft:air
+wait 0.5
+
+cmd kinetics 2560 98 2560 15
+wait 0.55
+bot expect entity minecraft:block_display near 2560.5 100.5 2560.5 within 0.05 count 4
+bot expect block 2560 101 2562 minecraft:air
+bot expect entity minecraft:item_display near 2561.3 101.89 2561.3 within 0.45 count 1
+wait 0.15
+cmd kinetics 2560 98 2560 1
+wait 0.3
+expect ^\[bot\] expect entity ok minecraft:block_display
+expect ^\[bot\] expect block ok 2560 101 2562
+expect ^\[bot\] expect entity ok minecraft:item_display near 2561.3
+cmd save-all flush
+stop
+start
+botstart tester
+wait 2.5
+expect \[bot\] joined as tester
+bot expect entity minecraft:block_display near 2560.5 100.5 2560.5 within 0.05 count 4
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display
+cmd kinetics 2560 98 2560 0
+wait 0.5
+bot expect entity minecraft:item near 2561 102 2561 within 4 count 0
+bot expect entity minecraft:item_display near 2561.65 101.85 2560.5 within 0.5 count 1
+bot expect block 2562 101 2560 minecraft:note_block
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item near 2561
+expect ^\[bot\] expect entity ok minecraft:item_display
+expect ^\[bot\] expect block ok 2562 101 2560
+
+cmd clear tester
+wait 0.5
+bot use 2561 101 2560 up
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 3
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36 iron_ingot 3$
+cmd setblock 2560 101 2559 create:creative_motor[facing=south]
+wait 0.5
+cmd kinetics 2562 101 2560
+wait 0.5
+expect create:belt\[facing=east,part=end,slope=horizontal,waterlogged=false\] at 2562 101 2560 Speed=16
+reject (?i)panicked|trapped|\[bot\] error
+stop

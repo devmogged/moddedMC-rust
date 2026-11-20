@@ -201,7 +201,7 @@ pub struct BeltInventory {
 }
 
 /// A controller and the fields `BeltInventory` reads from it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Chain {
     pub pos: Pos,
     pub belt: Belt,
@@ -348,6 +348,15 @@ impl Ending {
 }
 
 impl BeltInventory {
+    /// `BeltInventory.write` applies pending insertions before capturing the inventory.
+    pub fn captured(&self) -> Self {
+        let mut captured = self.clone();
+        for stack in std::mem::take(&mut captured.to_insert) {
+            captured.insert(stack);
+        }
+        captured
+    }
+
     /// `canInsertAtFromSide`. `facing` is the controller's movement facing.
     fn can_insert_at_from_side(&self, segment: i32, side: u8, facing: u8) -> bool {
         let mut segment_pos = segment as f32;
@@ -1063,17 +1072,18 @@ impl TransportedItemStack {
 }
 
 /// Show each stack where Create's client would draw it.
-fn render(
+pub fn render(
     world: World<'_>,
     stacks: ItemStacks,
     displays: Displays,
     chain: Chain,
     inventory: &mut BeltInventory,
+    transform: impl Fn(ItemDisplay) -> ItemDisplay,
 ) {
     for item in &mut inventory.items {
         let block = item.places_block(stacks);
         let shown = display_for(chain, item, block);
-        render_stack(world, displays, item, shown);
+        render_stack(world, displays, item, transform(shown));
     }
 }
 
@@ -1100,7 +1110,14 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
             continue;
         };
         let changed = inventory.tick(world, kinetics, chain);
-        render(world, stacks, displays, chain, &mut inventory);
+        render(
+            world,
+            stacks,
+            displays,
+            chain,
+            &mut inventory,
+            std::convert::identity,
+        );
         if let Some(be) = kinetics.get_mut(controller) {
             be.dirty |= changed;
             be.inventory = Some(inventory);

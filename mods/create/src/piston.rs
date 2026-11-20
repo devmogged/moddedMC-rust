@@ -558,6 +558,7 @@ impl PistonContraption {
         base: Pos,
         piston: PistonBlock,
         extending: bool,
+        kinetics: &Kinetics,
     ) -> Option<Self> {
         let (front, back) = Self::collect_extensions(world, base, piston)?;
         if (extending && back == 0) || (!extending && front == 0) {
@@ -587,7 +588,7 @@ impl PistonContraption {
         };
         let (mut blocks, mut palette) =
             checks.collect_attached(world, start, frontier, ignored, Some(forced))?;
-        blocks.capture_entities(world, start)?;
+        blocks.capture_entities(world, start, kinetics)?;
         let origin = Pos { x: 0, y: 0, z: 0 };
         for index in -back..=front {
             let entry = if index == front {
@@ -644,9 +645,10 @@ impl MechanicalPiston {
         base: Pos,
         piston: PistonBlock,
         extending: bool,
+        kinetics: &mut Kinetics,
     ) -> bool {
         let (Some(contraption), Some(moving), Some(air)) = (
-            PistonContraption::assemble(world, checks, base, piston, extending),
+            PistonContraption::assemble(world, checks, base, piston, extending, kinetics),
             piston.state(PistonState::Moving),
             checks.state("minecraft:air"),
         ) else {
@@ -693,6 +695,7 @@ impl MechanicalPiston {
         {
             return false;
         }
+        crate::contraption::detach_moved_belts(world, &remove, kinetics);
         self.data = data;
         true
     }
@@ -747,13 +750,16 @@ impl MechanicalPiston {
         base: Pos,
         piston: PistonBlock,
         rpm: f32,
+        kinetics: &mut Kinetics,
     ) -> bool {
         let previous = std::mem::replace(&mut self.previous_speed, rpm);
         let speed = piston.movement_speed(rpm);
         let extending = speed > 0.0;
         let queued = std::mem::take(&mut self.assemble_next_tick) || previous != rpm;
         if self.data.contraption.is_none() {
-            return queued && speed != 0.0 && self.assemble(world, checks, base, piston, extending);
+            return queued
+                && speed != 0.0
+                && self.assemble(world, checks, base, piston, extending, kinetics);
         }
         if speed == 0.0 && self.disassemble(world, checks, base, piston, false) {
             return true;
@@ -920,8 +926,13 @@ pub fn tick(world: World<'_>, checks: &BlockMovementChecks, kinetics: &mut Kinet
             continue;
         };
         let speed = be.get_speed();
-        if let Some(piston) = &mut be.piston {
-            be.dirty |= piston.tick(world, checks, pos, block, speed);
+        let Some(mut piston) = be.piston.take() else {
+            continue;
+        };
+        let dirty = piston.tick(world, checks, pos, block, speed, kinetics);
+        if let Some(be) = kinetics.get_mut(pos) {
+            be.piston = Some(piston);
+            be.dirty |= dirty;
         }
     }
 }
