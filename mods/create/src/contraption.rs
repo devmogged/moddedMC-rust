@@ -15,9 +15,10 @@ use crate::{
     WorldLevel,
     belt::BELT,
     belt_inventory::{self, BeltInventory, Chain},
+    belt_movement::can_transport_objects,
     chassis,
     collider::Collider,
-    kinetics::{Belt, FACES, Kind, Kinetics, Part, Slope, face_axis, offset, packed, positive},
+    kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
     states, sticker,
 };
 
@@ -91,7 +92,7 @@ impl BlockMovementChecks {
             |pos, entry| self.attachments(world, pos, entry, None),
         )?;
         let anchor = contraption.anchor()?;
-        // shortcut: horizontal belts can yaw, allow other axes with BeltBlock.transformInner.
+        // shortcut: belts can yaw, allow other axes with BeltBlock.transformInner.
         if face_axis(facing) != 1
             && contraption
                 .blocks
@@ -128,14 +129,7 @@ impl BlockMovementChecks {
             return Some(BlockMovement::Movable(entry));
         }
         let movable = matches!(entry.name.as_str(), SHAFT | ENCASED_SHAFT)
-            || (entry.name == BELT
-                && matches!(
-                    states()?.kind(state[0]),
-                    Some(Kind::Belt(Belt {
-                        slope: Slope::Horizontal,
-                        ..
-                    }))
-                ))
+            || entry.name == BELT
             || entry.name.strip_prefix("minecraft:").is_some_and(|id| {
                 id.ends_with("_log")
                     || id.ends_with("_stairs")
@@ -294,6 +288,14 @@ impl Blocks {
                     return None;
                 }
                 let data = crate::belt_data(position, be);
+                if !can_transport_objects(belt)
+                    && data
+                        .inventory
+                        .as_ref()
+                        .is_some_and(|inventory| !inventory.items.is_empty())
+                {
+                    return None;
+                }
                 block.nbt = Some(fastnbt::from_bytes(&fastnbt::to_bytes(&data).ok()?).ok()?);
             } else if entry.has_storage() || chassis::is_chassis(&entry.name) {
                 let bytes = world.block_entity(position)?;
@@ -798,6 +800,7 @@ impl StructureTransform {
         else {
             return rotated;
         };
+        let original_facing = face;
         let stair = entry.name.ends_with("_stairs");
         if self.axis == 1 || (turns == 2 && !stair) {
             if self.axis == 1 || face_axis(face) != self.axis {
@@ -826,6 +829,22 @@ impl StructureTransform {
         rotated
             .properties
             .insert("facing".into(), DIRECTIONS[usize::from(face)].into());
+        // BeltBlock.rotate reverses ends when yaw changes a vertical belt's facing sign.
+        if entry.name == BELT
+            && self.axis == 1
+            && positive(face) != positive(original_facing)
+            && entry
+                .properties
+                .get("slope")
+                .is_some_and(|slope| slope == "vertical")
+            && let Some(part) = rotated.properties.get_mut("part")
+        {
+            if part == "start" {
+                *part = "end".into();
+            } else if part == "end" {
+                *part = "start".into();
+            }
+        }
         rotated
     }
 
