@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import logo from "~/assets/logo.png";
+import banner from "~/assets/intro-banner.png";
+import pumpkin from "~/assets/intro-pumpkin.png";
 import { api } from "~/api";
 import { formatBytes } from "~/lib/hooks";
 import { getSettings } from "~/settings";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 /** Long enough for the intro to play once, short enough not to get in the way. */
-const MIN_INTRO_MS = 1600;
+const MIN_INTRO_MS = 2100;
 
 export type LaunchResult = { runtime: string | null; notice: string | null };
 
@@ -38,16 +39,26 @@ export function Launch({ onDone }: { onDone: (result: LaunchResult) => void }) {
       className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-background transition-opacity duration-300 ${leaving ? "opacity-0" : ""}`}
     >
       <div data-tauri-drag-region className="flex flex-col items-center gap-5">
-        <div className="relative">
+        {/* The pumpkin lands, then the MODDED banner slams onto it and the pumpkin takes the hit. */}
+        <div className="relative size-44">
           <div className="absolute inset-0 animate-[launch-glow_2.4s_ease-in-out_infinite] rounded-full bg-primary/30 blur-3xl" />
-          <img
-            src={logo}
-            alt=""
-            draggable={false}
-            className="relative size-40 animate-[launch-drop_900ms_cubic-bezier(0.34,1.56,0.64,1)_both]"
-          />
+          <div className="absolute inset-0 animate-[launch-shake_320ms_ease-out_1100ms_both]">
+            <img
+              src={pumpkin}
+              alt=""
+              draggable={false}
+              className="absolute inset-0 size-full animate-[launch-drop_700ms_cubic-bezier(0.34,1.56,0.64,1)_both]"
+            />
+            <div className="absolute inset-x-6 bottom-6 h-6 animate-[launch-dust_500ms_ease-out_1100ms_both] rounded-full bg-white/50 blur-md" />
+            <img
+              src={banner}
+              alt="moddedMC"
+              draggable={false}
+              className="absolute inset-0 size-full animate-[launch-slam_380ms_cubic-bezier(0.5,0,0.75,0)_720ms_both]"
+            />
+          </div>
         </div>
-        <div className="animate-[launch-fade_600ms_ease-out_500ms_both] text-center">
+        <div className="animate-[launch-fade_600ms_ease-out_1300ms_both] text-center">
           <div className="font-semibold text-2xl tracking-tight">moddedMC</div>
           <div className="text-muted-foreground text-sm">Modded Minecraft, fast.</div>
         </div>
