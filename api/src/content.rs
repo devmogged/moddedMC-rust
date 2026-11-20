@@ -60,6 +60,8 @@ pub enum WorldExtension {
     BlockDrops,
     /// Custom block comparator output registration and updates.
     AnalogOutput,
+    /// Canonical dimension identity, stable across restart.
+    Dimension,
 }
 
 impl WorldExtension {
@@ -100,6 +102,10 @@ impl WorldExtension {
             Self::AnalogOutput => (
                 std::mem::offset_of!(abi::BlockWorldV1, set_analog_output),
                 "moddedmc:block_world.set_analog_output",
+            ),
+            Self::Dimension => (
+                std::mem::offset_of!(abi::BlockWorldV1, dimension),
+                "moddedmc:block_world.dimension",
             ),
         }
     }
@@ -459,6 +465,21 @@ impl World<'_> {
         // SAFETY: size guard validates the appended field; world is borrowed for the call.
         WorldExtension::AnalogOutput.available(self.api)
             && unsafe { (self.api.set_analog_output)(self.raw, pos, strength) }
+    }
+
+    /// Canonical registry dimension key, stable across restart.
+    /// Requires WorldExtension::Dimension; returns None on a legacy host or invalid world.
+    pub fn dimension(self) -> Option<&'static str> {
+        if !WorldExtension::Dimension.available(self.api) {
+            return None;
+        }
+        // SAFETY: host returns static bytes from the borrowed live world.
+        let name = unsafe { (self.api.dimension)(self.raw) };
+        if name.len == 0 {
+            return None;
+        }
+        let bytes = unsafe { name.bytes() };
+        std::str::from_utf8(bytes).ok()
     }
 
     /// Tells loaded worlds apart. Stable while the world stays loaded.

@@ -3,6 +3,8 @@
 mods target\mods\abi-analog.mmc
 start
 expect registered content block abi_analog:source
+cmd abi_analog_dimension
+expect abi_analog dimension=minecraft:overworld
 cmd forceload add 1025 1025
 wait 2
 cmd fill 1024 99 1024 1039 103 1039 minecraft:air
@@ -53,6 +55,8 @@ cmd data get block 1036 100 1032 OutputSignal
 expect ^1036, 100, 1032 has the following block data: 7$
 stop
 start
+cmd abi_analog_dimension
+expect abi_analog dimension=minecraft:overworld
 cmd forceload add 1025 1025
 wait 2
 cmd data get block 1024 100 1025 OutputSignal

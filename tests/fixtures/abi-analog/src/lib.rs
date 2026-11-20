@@ -15,6 +15,7 @@ impl Mod for Analog {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let content = content::require()?;
         content.require_extension(WorldExtension::AnalogOutput)?;
+        content.require_extension(WorldExtension::Dimension)?;
         let _ = CONTENT.set(content);
         Ok(())
     }
@@ -50,6 +51,7 @@ impl Mod for Analog {
         registry.add_command("abi_analog_13", "Set the second source to thirteen", 13)?;
         registry.add_command("abi_analog_16", "Reject strength above 15", 16)?;
         registry.add_command("abi_analog_air", "Reject a missing source", 101)?;
+        registry.add_command("abi_analog_dimension", "Report current world dimension", 102)?;
         Ok(())
     }
 
@@ -60,6 +62,11 @@ impl Mod for Analog {
         let Some(world) = api.command_world(&command) else {
             return 0;
         };
+        if tag == 102 {
+            let actual = world.dimension().unwrap_or("<missing>");
+            moddedmc_api::info(&format!("abi_analog dimension={actual}"));
+            return 1;
+        }
         let (x, y, z, strength) = match tag {
             0 => (1025, 100, 1025, 0),
             7 => (1025, 100, 1025, 7),

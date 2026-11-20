@@ -75,3 +75,9 @@
   vanilla comparator continuity. They are not a full Minecraft 26.3 Java
   differential suite or a whole-mod parity claim. No controlled performance
   benchmark was run for comparator-heavy redstone builds.
+
+## M4 — borrowed content World dimension identity (WS-3-04)
+
+- Added append-only `BlockWorldV1.dimension(WorldRef) -> Str` at offset 136, table size 144 (64-bit). Host returns `World.dimension.minecraft_name` for the valid borrowed world and an empty string for null; no process-local pointer is used as a persistent key.
+- SDK `WorldExtension::Dimension` size-guards the new function, and `World::dimension()` yields the canonical namespaced key. `ABI_VERSION` remains 1, prior fields/offsets unchanged; an older host cannot satisfy the new requirement.
+- Built pack-dev, checked `moddedmc-host`, 8/8 `moddedmc-api` tests, fmt, API strict Clippy and host strict Clippy. Live `abi_analog_dimension` fixture returned `minecraft:overworld` before and after a clean restart, and the existing native comparator and vanilla composter fixtures passed (port 26000). Nether/End, independent save isolation and Java oracle comparisons remain untested, so this verifies the tested surface, not full multi-dimension railway parity.

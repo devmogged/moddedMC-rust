@@ -74,6 +74,7 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     restore_block_entity,
     block_drops,
     set_analog_output,
+    dimension,
 };
 
 const MAX_BATCH: usize = 4096;
@@ -959,6 +960,11 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
 pub const unsafe fn world<'a>(world: WorldRef) -> Option<&'a World> {
     // SAFETY: the caller keeps the world alive for the operation.
     unsafe { world.cast::<World>().as_ref() }
+}
+
+unsafe extern "C" fn dimension(raw: WorldRef) -> Str {
+    // SAFETY: a callback borrows the world for its duration; dimension keys are static.
+    unsafe { world(raw) }.map_or(Str::EMPTY, |level| Str::from(level.dimension.minecraft_name))
 }
 
 unsafe extern "C" fn read(raw: WorldRef, pos: *const Pos, out: *mut u32, count: usize) -> bool {

@@ -433,7 +433,8 @@ mod layout {
         assert_eq!(offset_of!(BlockWorldV1, restore_block_entity), 112);
         assert_eq!(offset_of!(BlockWorldV1, block_drops), 120);
         assert_eq!(offset_of!(BlockWorldV1, set_analog_output), 128);
-        assert_eq!(size_of::<BlockWorldV1>(), 136);
+        assert_eq!(offset_of!(BlockWorldV1, dimension), 136);
+        assert_eq!(size_of::<BlockWorldV1>(), 144);
         assert_eq!(size_of::<ShapeBox>(), 12);
 
         assert_eq!(offset_of!(CommandNode, name), 0);
@@ -639,6 +640,9 @@ pub struct BlockWorldV1 {
     /// Appended ABI 1: persist a custom block's comparator output and notify comparators.
     /// The strength must be 0..15; false for invalid/unloaded/unregistered blocks.
     pub set_analog_output: unsafe extern "C" fn(world: WorldRef, pos: Pos, strength: u8) -> bool,
+    /// Canonical namespaced dimension key for a borrowed world. Empty for null worlds.
+    /// Borrowed static bytes remain valid after this call; no dimension index is exposed.
+    pub dimension: unsafe extern "C" fn(world: WorldRef) -> Str,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
