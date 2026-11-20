@@ -81,6 +81,8 @@ pub enum Kind {
     EncasedShaft(u8),
     Turntable,
     Press(u8),
+    Millstone,
+    Wheel(u8),
     Belt(Belt),
 }
 
@@ -205,9 +207,10 @@ impl Kind {
             | Self::Clutch(axis, _)
             | Self::Gearshift(axis, _)
             | Self::EncasedShaft(axis)
+            | Self::Wheel(axis)
             | Self::Press(axis) => axis,
             Self::Motor(facing) => face_axis(facing),
-            Self::Turntable => 1,
+            Self::Turntable | Self::Millstone => 1,
             // BeltBlock.getRotationAxis: sideways belts turn on Y, others on the facing's
             // clockwise axis.
             Self::Belt(belt) => match belt.slope {
@@ -223,14 +226,14 @@ impl Kind {
         match self {
             Self::Motor(facing) => facing == face,
             Self::Gearbox(axis) => face_axis(face) != axis,
-            Self::Turntable => face == DOWN,
+            Self::Turntable | Self::Millstone => face == DOWN,
             Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
             _ => face_axis(face) == self.axis(),
         }
     }
 
     const fn small_cog(self) -> bool {
-        matches!(self, Self::Small(_))
+        matches!(self, Self::Small(_) | Self::Millstone)
     }
 
     const fn large_cog(self) -> bool {
@@ -248,8 +251,8 @@ impl Kind {
     /// `CStress` impact at 1 RPM, from the `setImpact` calls in `AllBlocks`.
     pub const fn impact(self) -> f32 {
         match self {
-            Self::Turntable => 4.0,
-            Self::Press(_) => 8.0,
+            Self::Turntable | Self::Millstone => 4.0,
+            Self::Press(_) | Self::Wheel(_) => 8.0,
             _ => 0.0,
         }
     }
@@ -282,7 +285,7 @@ impl Kind {
     /// `canPropagateDiagonally`: small cogs and sloped belts.
     const fn propagates_diagonally(self) -> bool {
         match self {
-            Self::Small(_) => true,
+            Self::Small(_) | Self::Millstone => true,
             Self::Belt(belt) => belt.slope.diagonal(),
             _ => false,
         }
@@ -364,6 +367,7 @@ pub struct Be {
     /// A belt controller's items, created when the first one arrives.
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
+    pub millstone: Option<Box<crate::millstone::Millstone>>,
 }
 
 impl Be {
@@ -394,6 +398,7 @@ impl Be {
             belt_index: 0,
             inventory: None,
             passengers: None,
+            millstone: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
                     crate::press::PressingData::EMPTY,
@@ -515,6 +520,7 @@ pub struct Kinetics {
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub chutes: crate::chute::Chutes,
     pub funnels: crate::funnel::Funnels,
+    pub crushers: HashMap<Pos, crate::crusher::Controller>,
     pub recipes: Option<std::sync::Arc<crate::processing_recipes::RecipeBook>>,
     bes: HashMap<Pos, Be>,
     /// Tick order, `(position, serial)`, in insertion order like the level's ticker list.
@@ -525,6 +531,7 @@ pub struct Kinetics {
     scheduled: Vec<Pos>,
     /// Belt inventories whose controller left since the last tick.
     dropped: Vec<Dropped>,
+    pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
 }
 
 /// A belt inventory whose controller was removed (`eject`, as `BeltBlockEntity.destroy`) or
@@ -610,6 +617,9 @@ impl Kinetics {
 
     /// A block entity created by placement or loaded with its saved fields.
     pub fn insert(&mut self, pos: Pos, mut be: Be) {
+        if be.kind == Kind::Millstone && be.millstone.is_none() {
+            be.millstone = Some(Box::default());
+        }
         self.next_serial += 1;
         be.serial = self.next_serial;
         self.order.push((pos, be.serial));
@@ -624,6 +634,9 @@ impl Kinetics {
     }
 
     fn drop_inventory(&mut self, pos: Pos, mut be: Be, eject: bool) {
+        if eject && let Some(millstone) = be.millstone.take() {
+            self.dropped_millstones.push((pos, millstone));
+        }
         let (Kind::Belt(belt), Some(inventory)) = (be.kind, be.inventory.take()) else {
             return;
         };
