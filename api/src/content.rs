@@ -283,7 +283,7 @@ pub(crate) unsafe extern "C" fn bytes(ctx: *mut c_void, _key: u64, value: abi::S
 }
 
 impl World<'_> {
-    pub(crate) const fn raw(self) -> abi::WorldRef {
+    pub(crate) const fn raw(&self) -> abi::WorldRef {
         self.raw
     }
 

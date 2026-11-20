@@ -788,7 +788,9 @@ fn queue(world: &World, pos: BlockPos, old: BlockStateId, state: BlockStateId, r
 
 pub fn tick(server: &Arc<Server>, time: u64) {
     let Some(runtime) = RUNTIME.get() else { return };
-    if runtime.blocks.is_empty() {
+    // A mod may only subscribe to world ticks (e.g. save-global data) without
+    // registering any custom blocks. It still needs its callback every tick.
+    if runtime.blocks.is_empty() && runtime.ticks.is_empty() {
         return;
     }
     for world in server.worlds.load().iter() {

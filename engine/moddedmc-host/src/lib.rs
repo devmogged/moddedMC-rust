@@ -17,10 +17,13 @@ mod entities;
 mod interaction;
 mod interfaces;
 mod live_stats;
+mod load_order;
 mod mob_ai;
 mod mobs;
 mod native;
 mod resources;
+mod saved_data;
+mod services;
 mod stacks;
 mod stats;
 mod tags;
@@ -45,6 +48,7 @@ use pumpkin_core::{
         dialog::dialog_click_action::DialogClickActionEvent,
         player::player_interact_event::PlayerInteractEvent,
         server::{server_command::ServerCommandEvent, server_tick_start::ServerTickStartEvent},
+        world::world_save::WorldSaveEvent,
     },
     server::Server,
     world::World,
@@ -122,6 +126,8 @@ pub struct Staging<'a> {
     content_hooks: content::Hooks,
     mobs: Vec<mobs::Registration>,
     mob_ai: std::collections::BTreeMap<String, mob_ai::TypeAi>,
+    saved_keys: Vec<(u64, String)>,
+    services: Vec<services::Registration>,
 }
 
 /// Loaded custom blocks of one world.
@@ -167,22 +173,21 @@ pub fn load_mods() {
     static LOAD: Once = Once::new();
     LOAD.call_once(|| {
         let started = Instant::now();
-        let mods = native::load_all(std::path::Path::new("mods"));
-        if !mods.is_empty() {
-            tracing::info!(
-                "moddedmc: loaded {} mods in {:?}",
-                mods.len(),
-                started.elapsed()
-            );
-        }
-        lock(&HOST.mods).extend(mods.iter().copied().map(|module| ContentMod {
-            module,
-            registered: module.pre_world,
-        }));
-        for (index, module) in mods.into_iter().enumerate() {
-            if module.pre_world {
-                register_mod(index, module);
-            }
+        let count = native::load_all(std::path::Path::new("mods"), |module, provider| {
+            let eager = module.pre_world || provider;
+            let index = {
+                let mut mods = lock(&HOST.mods);
+                let index = mods.len();
+                mods.push(ContentMod {
+                    module,
+                    registered: eager,
+                });
+                index
+            };
+            !eager || register_mod(index, module)
+        });
+        if count != 0 {
+            tracing::info!("moddedmc: loaded {count} mods in {:?}", started.elapsed());
         }
     });
 }
@@ -194,6 +199,7 @@ pub fn attach(server: &Arc<Server>) {
     companion::attach(server);
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
+    pm.register::<WorldSaveEvent, _>(Arc::new(SavedDataSaveHandler), EventPriority::Normal, true);
     pm.register::<BlockPlaceEvent, _>(Arc::new(PlaceHandler), EventPriority::Normal, true);
     pm.register::<BlockBreakEvent, _>(Arc::new(BreakHandler), EventPriority::Normal, true);
     pm.register::<PlayerInteractEvent, _>(Arc::new(UseHandler), EventPriority::Normal, true);
@@ -335,6 +341,18 @@ fn valid_id(id: &str) -> bool {
 
 // ---------------------------------------------------------------- tick
 
+struct SavedDataSaveHandler;
+
+impl EventHandler<WorldSaveEvent> for SavedDataSaveHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        _event: &'a mut WorldSaveEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move { saved_data::flush_all() })
+    }
+}
+
 struct TickHandler;
 
 impl EventHandler<ServerTickStartEvent> for TickHandler {
@@ -382,7 +400,7 @@ fn register_legacy_mods(server: &Server) {
     install_commands(server);
 }
 
-fn register_mod(mod_idx: usize, module: Native) {
+fn register_mod(mod_idx: usize, module: Native) -> bool {
     let (
         result,
         entity_types,
@@ -395,6 +413,8 @@ fn register_mod(mod_idx: usize, module: Native) {
         content_hooks,
         mobs,
         ai,
+        saved_keys,
+        services,
     ) = {
         let registry = read(&HOST.registry);
         let mut staging = Staging {
@@ -410,6 +430,8 @@ fn register_mod(mod_idx: usize, module: Native) {
             content_hooks: content::Hooks::default(),
             mobs: Vec::new(),
             mob_ai: std::collections::BTreeMap::new(),
+            saved_keys: Vec::new(),
+            services: Vec::new(),
         };
         let result = module.register(&mut staging);
         (
@@ -424,14 +446,21 @@ fn register_mod(mod_idx: usize, module: Native) {
             staging.content_hooks,
             staging.mobs,
             staging.mob_ai,
+            staging.saved_keys,
+            staging.services,
         )
+    };
+    let result = if result == code::OK && !services::available(&services) {
+        code::DUPLICATE_ID
+    } else {
+        result
     };
     if result != code::OK {
         tracing::error!(
             "moddedmc: {} failed to register (code {result}); its content is disabled",
             module.id
         );
-        return;
+        return false;
     }
     let mut registry = write(&HOST.registry);
     for t in &entity_types {
@@ -453,11 +482,14 @@ fn register_mod(mod_idx: usize, module: Native) {
     content::register(mod_idx, definitions, content_items, content_hooks);
     mobs::register(mobs);
     mob_ai::register(ai);
+    saved_data::register(module.id, saved_keys);
+    services::commit(services);
     lock(&HOST.commands).push(PendingCommands {
         module,
         legacy: commands,
         trees: command_trees,
     });
+    true
 }
 
 fn install_commands(server: &Server) {

@@ -1,0 +1,18 @@
+# The consumer sorts before the provider; the loader must register the provider first.
+mods target\mods\a-abi-consumer.mmc target\mods\z-abi-provider.mmc
+start
+expect abi_provider published echo v1
+expect abi_consumer resolved echo v1 during startup
+cmd abi_echo
+wait 1
+expect abi_consumer service result=42
+reject (?i)panicked|trapped|failed to register|dependencies missing
+stop
+start
+expect abi_provider published echo v1
+expect abi_consumer resolved echo v1 during startup
+cmd abi_echo
+wait 1
+expect abi_consumer service result=42
+reject (?i)panicked|trapped|failed to register|dependencies missing
+stop

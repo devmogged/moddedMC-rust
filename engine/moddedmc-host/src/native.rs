@@ -70,16 +70,48 @@ pub fn request_pre_world() {
     PRE_WORLD.set(true);
 }
 
-/// Loads every mod in `dir`. Problems with one mod are logged and skip only that mod.
-pub fn load_all(dir: &Path) -> Vec<Native> {
+/// Loads mods in dependency order. Providers register before their dependents
+/// run `Mod::start`, while standalone mods retain their old startup timing.
+pub fn load_all(dir: &Path, mut on_loaded: impl FnMut(Native, bool) -> bool) -> usize {
+    use std::collections::HashSet;
+
     let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
+        return 0;
     };
     let mut files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
     files.sort();
+    let mut pending = Vec::new();
+    for path in files.into_iter().filter(|p| p.is_file()) {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !matches!(ext, "mmc" | "jar") && ext != EXT {
+            continue;
+        }
+        match crate::load_order::inspect(path.clone()) {
+            Ok(candidate) => pending.push(candidate),
+            Err(error) => tracing::error!("moddedmc: {}: {error}", path.display()),
+        }
+    }
+    let providers: HashSet<String> = pending
+        .iter()
+        .flat_map(|candidate| candidate.dependencies.iter().cloned())
+        .collect();
+    let mut completed = HashSet::new();
+    let mut seen = HashSet::new();
     let cache = dir.join(".cache");
-    let mut mods = Vec::new();
-    for path in files.iter().filter(|p| p.is_file()) {
+    let mut loaded = 0usize;
+    while !pending.is_empty() {
+        let Some(index) = crate::load_order::next_ready(&pending, &completed) else {
+            for candidate in pending {
+                tracing::error!(
+                    "moddedmc: skipped {}: dependencies missing, failed or cyclic: {}",
+                    candidate.path.display(),
+                    candidate.dependencies.join(", ")
+                );
+            }
+            break;
+        };
+        let candidate = pending.remove(index);
+        let path = &candidate.path;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         let extracted = match ext {
             "mmc" => extract(path, &cache),
@@ -88,24 +120,42 @@ pub fn load_all(dir: &Path) -> Vec<Native> {
             _ => continue,
         };
         match extracted.and_then(|(lib, resources)| Ok((load(&lib)?, resources))) {
-            Ok((m, _)) if mods.iter().any(|o: &Native| o.id == m.id) => {
+            Ok((module, _)) if seen.contains(module.id) => {
                 tracing::error!(
-                    "moddedmc: {} has the same id as another mod; skipped",
+                    "moddedmc: duplicate mod id {} from {}",
+                    module.id,
                     path.display()
                 );
             }
-            Ok((m, resources)) => {
-                // SAFETY: the version string is static.
-                let version = unsafe { m.api.version.str() };
+            Ok((module, resources)) => {
+                if candidate.id.as_deref().is_some_and(|id| id != module.id) {
+                    tracing::error!(
+                        "moddedmc: {}: manifest id disagrees with exported mod id {}",
+                        path.display(),
+                        module.id
+                    );
+                    continue;
+                }
+                seen.insert(module.id.to_owned());
+                let eager = providers.contains(module.id);
+                if !on_loaded(module, eager) {
+                    tracing::error!(
+                        "moddedmc: {}: registration failed, dependents skipped",
+                        module.id
+                    );
+                    continue;
+                }
+                // SAFETY: the version string is static in the process-lifetime library.
+                let version = unsafe { module.api.version.str() };
                 tracing::info!(
                     "moddedmc: loaded {} {version} from {}",
-                    m.id,
+                    module.id,
                     path.display()
                 );
                 if let Some(resources) = resources {
                     if resources.join("data").is_dir() {
                         pumpkin_core::data::datapack::register_builtin_datapack(
-                            format!("mod/{}", m.id),
+                            format!("mod/{}", module.id),
                             resources.clone(),
                         );
                     }
@@ -113,12 +163,13 @@ pub fn load_all(dir: &Path) -> Vec<Native> {
                         crate::content_pack::add_asset_root(resources);
                     }
                 }
-                mods.push(m);
+                completed.insert(module.id.to_owned());
+                loaded += 1;
             }
-            Err(e) => tracing::error!("moddedmc: {}: {e}", path.display()),
+            Err(error) => tracing::error!("moddedmc: {}: {error}", path.display()),
         }
     }
-    mods
+    loaded
 }
 
 fn hash(bytes: &[u8]) -> String {

@@ -213,3 +213,72 @@ A `.mmc` is a zip with
 Require the tables from `Mod::start` and register definitions in `Mod::register`. Requesting `moddedmc:content` or `moddedmc:items` during startup moves that mod's registration before world load. Legacy mods continue to register on the first tick. State numbers are runtime handles. Store names and properties in mod-owned data. Mods with a placement hook can choose one of the placing block's states from the clicked face, look direction, sneak state and loaded neighbors.
 
 The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects`, `moddedmc_api::mobs` and `moddedmc_api::mob_ai`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.
+
+## Save-global data (`moddedmc:saved_data` v1)
+
+This table exposes a save-global NBT snapshot to drop-in mods without tying data to a
+loaded chunk, block entity or process-local world pointer. It is available by exact
+`HostApi::get_interface("moddedmc:saved_data", 1)`; the table begins with its byte `size`
+and contains:
+
+- `register_key(Reg, Str name, *mut u64 out) -> i32`: stage a mod-local name (1–128
+  lowercase ASCII bytes: `a-z0-9_.-/`, no empty, `.` or `..` path segments). A successful
+  registration returns a nonzero process-local handle; the handle is activated only when
+  the entire mod registration succeeds. Duplicate names within a registration fail.
+- `read(WorldRef, u64 handle, Sink) -> bool`: return the complete value under sink key 0,
+  or false if it has never been written or the handle/world is invalid. An empty stored
+  payload is distinct from a missing key.
+- `write(WorldRef, u64 handle, Str bytes) -> bool`: atomically replace the in-memory value;
+  return false for invalid input or a payload larger than `MAX_SAVED_DATA_BYTES` (8 MiB).
+  No borrowed pointer is retained. Data is scoped by the mod id associated with its
+  registration handle; another mod cannot accidentally register the same persistent key.
+
+The payload is opaque bytes. Mods can use named-root binary NBT, JSON or their own stable
+encoding. The host stores owner-qualified keys in a save-global snapshot at
+`<save>/moddedmc/saved_data.nbt`, separate from per-dimension world data. It loads once per save and flushes dirty data on world save and shutdown via an atomic temporary file rename. Corrupt or unreadable files fail closed without silent replacement. A crash before world save can lose recent writes; `write` does not flush immediately. Each save is bounded to 64 MiB and 4096 keys and shared by all its dimensions. The host never loads chunks; `WorldRef` is borrowed for the current callback only.
+
+Mods require this interface in `Mod::start`, reserve their handles in `Mod::register`,
+and read from the first appropriate world callback after worlds load (e.g. the registered
+Create content-tick callback). Do not read a world in `Mod::start`; do not persist
+handles across restarts. Use SDK `saved_data::{require, SavedData, Key}`. A server lacking
+the named table fails the mod's `start` requirement without changing ABI major 1.
+
+## Inter-mod services (`moddedmc:services` v1)
+
+Mods can publish immutable, process-lifetime `#[repr(C)]` function tables to other native
+`.mmc` mods. The service registry is a host interface discovered from `Mod::start` with
+`moddedmc_api::services::require_host()`. Its C table begins with `size: usize` followed by
+`publish(Reg, Str name, u32 version, *const c_void table) -> i32`. The service name uses
+`<provider_mod_id>:<path>`; only a mod can register a service under its own namespace.
+Versions are independent for each service. Duplicate (name, version) or invalid pointers
+and names are rejected. No Rust-owned objects, string allocations or vtables cross the ABI.
+
+The publisher uses `unsafe { services.publish(registry, "create:kinetics", 1, TABLE_PTR)? }`
+from its `Mod::register`. The pointer must identify an immutable static table beginning
+with its byte `size` and stay valid until the server exits. The host stages service
+publication along with other mod definitions and makes it visible only after successful
+registration. The SDK consumer uses `unsafe { moddedmc_api::services::require::<T>("create:kinetics", 1)? }`
+inside `Mod::start`. `T` must match the provider's exact published C layout. The SDK
+checks the table's byte size and fails initialization if it is unavailable; mods must
+check the published table's `size` before reading any appended extension.
+
+For a consumer to require a service during startup, its `.mmc` `mod.json` must declare
+a `dependencies` array of provider mod IDs, e.g.
+
+```json
+{"id":"my_addon","version":"1.0.0","abi":1,"dependencies":["create"]}
+```
+
+The loader processes dependencies deterministically, registering providers before running
+their consumers' `Mod::start`. Missing or failed providers and cycles skip the affected
+mods with an explicit log message. A missing service version also fails `Mod::start`
+without starting the consumer. Mods without dependencies retain existing startup order
+and first-tick registration timing unless they request a pre-world content interface.
+Providers needed by an addon register eagerly before worlds load.
+
+Only explicit dependencies on native `.mmc`/other discovered mod IDs are supported;
+this is not a Java classloader, Java `ServiceLoader` or a binary interface for Rust
+trait objects. The table is synchronous and its callbacks must not unwind across C.
+Tests: `tests/fixtures/abi-services` packs two independent native DLLs;
+`tests/scenarios/abi-services.txt` verifies startup ordering and round trips, and
+`tests/scenarios/abi-services-missing.txt` verifies a missing provider is skipped.
