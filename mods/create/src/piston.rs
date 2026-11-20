@@ -647,10 +647,9 @@ impl MechanicalPiston {
         extending: bool,
         kinetics: &mut Kinetics,
     ) -> bool {
-        let (Some(contraption), Some(moving), Some(air)) = (
+        let (Some(contraption), Some(moving)) = (
             PistonContraption::assemble(world, checks, base, piston, extending, kinetics),
             piston.state(PistonState::Moving),
-            checks.state("minecraft:air"),
         ) else {
             return false;
         };
@@ -673,17 +672,15 @@ impl MechanicalPiston {
             return false;
         }
         let anchor = piston.at(base, initial);
-        let remove: Vec<_> = contraption
-            .blocks
-            .block_list
-            .iter()
-            .map(|block| {
-                let position = offset(anchor, block.local_pos());
-                BlockUpdate {
-                    position,
-                    state: if position == base { moving } else { air },
-                    flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
+        let Some(removals) = contraption.blocks.removals(anchor, checks) else {
+            return false;
+        };
+        let remove: Vec<_> = removals
+            .map(|mut update| {
+                if update.position == base {
+                    update.state = moving;
                 }
+                update
             })
             .collect();
         let data = PistonData {

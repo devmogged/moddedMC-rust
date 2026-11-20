@@ -239,6 +239,9 @@ impl RopePulley {
         ) else {
             return false;
         };
+        let Some(removals) = blocks.removals(anchor, checks) else {
+            return false;
+        };
         let remove: Vec<_> = (1..=initial)
             .rev()
             .map(|distance| {
@@ -252,11 +255,7 @@ impl RopePulley {
                     flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
                 }
             })
-            .chain(blocks.positions(anchor).map(|position| BlockUpdate {
-                position,
-                state: air,
-                flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
-            }))
+            .chain(removals)
             .collect();
         let data = PulleyData {
             running: true,

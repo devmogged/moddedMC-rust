@@ -559,15 +559,7 @@ fn try_assemble(
     if blocks.is_colliding_with_world(world, at(pos, direction, 1), direction, &sources, None) {
         return None;
     }
-    let air = checks.state("minecraft:air")?;
-    let remove: Vec<_> = blocks
-        .positions(pos)
-        .map(|position| BlockUpdate {
-            position,
-            state: air,
-            flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
-        })
-        .collect();
+    let remove: Vec<_> = blocks.removals(pos, checks)?.collect();
     let be = kinetics.get_mut(shaft_pos)?;
     be.gantries.push(GantryContraption {
         anchor: [pos.x, pos.y, pos.z],

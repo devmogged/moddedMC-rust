@@ -76,6 +76,9 @@ impl BlockMovementChecks {
                 self.names.insert(name, state);
             }
         }
+        if let Some(water) = content.state("minecraft:water") {
+            self.names.insert("minecraft:water", water);
+        }
     }
 
     pub fn scan(
@@ -125,11 +128,13 @@ impl BlockMovementChecks {
             return Some(known.clone());
         }
         let entry = PaletteEntry::parse(&CONTENT.get()?.describe_state(state[0])?);
-        if chassis::is_chassis(&entry.name) || entry.name == sticker::ID {
+        if entry.name == "minecraft:water" {
+            return Some(BlockMovement::Air);
+        }
+        if chassis::is_chassis(&entry.name) || matches!(entry.name.as_str(), BELT | sticker::ID) {
             return Some(BlockMovement::Movable(entry));
         }
         let movable = matches!(entry.name.as_str(), SHAFT | ENCASED_SHAFT)
-            || entry.name == BELT
             || entry.name.strip_prefix("minecraft:").is_some_and(|id| {
                 id.ends_with("_log")
                     || id.ends_with("_stairs")
@@ -239,6 +244,28 @@ impl Blocks {
         self.block_list
             .iter()
             .map(move |block| offset(anchor, block.local_pos()))
+    }
+
+    pub fn removals(
+        &self,
+        anchor: Pos,
+        checks: &BlockMovementChecks,
+    ) -> Option<impl Iterator<Item = BlockUpdate>> {
+        let air = checks.state("minecraft:air")?;
+        let water = checks.state("minecraft:water")?;
+        Some(self.block_list.iter().map(move |block| {
+            let entry = &self.palette[block.palette_index()];
+            let wet = entry.name == BELT
+                && entry
+                    .properties
+                    .get("waterlogged")
+                    .is_some_and(|wet| wet == "true");
+            BlockUpdate {
+                position: offset(anchor, block.local_pos()),
+                state: if wet { water } else { air },
+                flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
+            }
+        }))
     }
 
     pub fn is_colliding_with_world(
@@ -389,20 +416,50 @@ impl Blocks {
         transform: StructureTransform,
         controller: Option<Pos>,
     ) -> bool {
-        let Some((place, saved_entities)) = self
+        let targets: Vec<_> = self
             .block_list
             .iter()
-            .filter(|block| Some(transform.apply(block.local_pos())) != controller)
-            .map(|block| {
+            .filter_map(|block| {
+                let pos = transform.apply(block.local_pos());
+                (Some(pos) != controller).then_some((pos, block))
+            })
+            .collect();
+        if targets.is_empty() {
+            return true;
+        }
+        let positions: Vec<_> = targets.iter().map(|&(position, _)| position).collect();
+        let mut destination = vec![UNLOADED_STATE; positions.len()];
+        world.read(&positions, &mut destination);
+        let Some((place, saved_entities)) = targets
+            .into_iter()
+            .zip(&destination)
+            .map(|((position, block), &previous)| {
                 let entry = self.palette.get(block.palette_index())?;
+                let belt = entry.name == BELT;
+                let air = checks.is_air(previous);
+                // shortcut: plain water is replaceable by belts, extend with the other placement rules.
+                if !air
+                    && (!belt
+                        || CONTENT.get()?.describe_state(previous)?.split('[').next()
+                            != Some("minecraft:water"))
+                {
+                    return None;
+                }
+                let mut state = transform.block_state(entry);
+                if belt {
+                    let wet = !air && world.fluid_id(position)? == "minecraft:water";
+                    state
+                        .properties
+                        .insert("waterlogged".into(), wet.to_string());
+                }
                 Some((
                     BlockUpdate {
-                        position: transform.apply(block.local_pos()),
-                        state: transform.block_state(entry).state()?,
+                        position,
+                        state: state.state()?,
                         flags: content::UPDATE_ALL,
                     },
                     (
-                        entry.name == BELT,
+                        belt,
                         block.nbt.as_ref().map(fastnbt::to_bytes).transpose().ok()?,
                     ),
                 ))
@@ -411,16 +468,7 @@ impl Blocks {
         else {
             return false;
         };
-        if place.is_empty() {
-            return true;
-        }
-        let positions: Vec<_> = place.iter().map(|update| update.position).collect();
-        let mut destination = vec![UNLOADED_STATE; place.len()];
-        world.read(&positions, &mut destination);
-        // shortcut: retain the assembly if any destination needs unported replacement rules.
-        if !destination.iter().all(|&state| checks.is_air(state))
-            || world.write(&place) != place.len()
-        {
+        if world.write(&place) != place.len() {
             return false;
         }
         for (update, (belt, saved)) in place.iter().zip(saved_entities) {
