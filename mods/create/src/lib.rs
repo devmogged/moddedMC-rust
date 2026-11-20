@@ -29,9 +29,11 @@ mod belt;
 mod belt_inventory;
 mod belt_movement;
 mod chute;
+mod crusher;
 mod depot;
 mod funnel;
 mod kinetics;
+mod millstone;
 mod press;
 mod processing_recipes;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
@@ -94,6 +96,7 @@ impl Mod for Create {
         let _ = ITEMS.set(items::require()?);
         let entities = entities::require()?;
         entities.require_extension(EntitiesExtension::Movement)?;
+        entities.require_extension(EntitiesExtension::Data)?;
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
@@ -129,6 +132,8 @@ impl Mod for Create {
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
         press::register(*content, registry)?;
+        millstone::register(*content, registry)?;
+        crusher::register(*content, registry)?;
         ITEMS
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -548,6 +553,7 @@ struct KnownState {
 struct StateIds {
     chutes: HashMap<u32, chute::ChuteState>,
     funnels: HashMap<u32, funnel::FunnelState>,
+    crusher_controllers: HashMap<u32, (u8, bool)>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
     /// Vanilla blocks a belt may run through (`canBeReplaced`).
@@ -676,6 +682,8 @@ fn states() -> Option<&'static StateIds> {
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
+        millstone::add_states(content, &mut ids);
+        crusher::add_states(content, &mut ids);
         for name in [
             "air",
             "cave_air",
@@ -792,6 +800,21 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                 AXES[usize::from(axis)]
             )
         }
+        Some(Kind::Wheel(_)) => {
+            for face in 0..6u8 {
+                let block = ids[usize::from(face)];
+                if let Some(Kind::Wheel(other_axis)) = states.kind(block) {
+                    if other_axis != pillar_axis || face_axis(face) != pillar_axis {
+                        return None;
+                    }
+                } else if face_axis(face) != pillar_axis
+                    && states.crusher_controllers.contains_key(&block)
+                {
+                    return None;
+                }
+            }
+            format!("{}[axis={}]", crusher::ID, AXES[usize::from(pillar_axis)])
+        }
         Some(Kind::Gearbox(_)) => format!("{GEARBOX}[axis=y]"),
         // AbstractEncasedShaftBlock.getStateForPlacement
         Some(Kind::EncasedShaft(_)) => format!(
@@ -807,7 +830,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         None if placed.block == depot::ID => {
             format!("{}[waterlogged={}]", depot::ID, states.wet(ids[6]))
         }
-        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_)) | None => return Some(args.state),
+        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Millstone) | None => {
+            return Some(args.state);
+        }
     };
     states.by_selector.get(&selector).copied()
 }
@@ -847,6 +872,8 @@ struct KineticData {
     speed: f32,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     press: Option<press::PressingData>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    millstone: Option<millstone::MillstoneData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<fastnbt::IntArray>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -906,6 +933,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if let Some(press) = &mut be.press {
         press.data = data.press.unwrap_or_default();
     }
+    if kind == Kind::Millstone {
+        be.millstone = data.millstone.map(millstone::Millstone::load).map(Box::new);
+    }
     be.source = data.source.and_then(|pos| match *pos {
         [x, y, z] => Some(Pos { x, y, z }),
         _ => None,
@@ -944,6 +974,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
     KineticData {
         speed: be.speed,
         press: be.press.as_ref().map(|press| press.data),
+        millstone: be.millstone.as_ref().map(|millstone| millstone.save()),
         source: be
             .source
             .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
@@ -1030,6 +1061,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
             funnel::event(world, &mut kinetics.funnels, states, event);
+            crusher::event(world, states, kinetics, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             match event.reason {
@@ -1063,12 +1095,17 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         kinetics.tick(&mut level);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
+        for (pos, millstone) in kinetics.dropped_millstones.drain(..) {
+            millstone.drop_contents(world, pos);
+        }
+        millstone::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);
         belt_inventory::tick(world, kinetics);
         chute::tick(world, states, kinetics);
         funnel::tick(world, kinetics);
         funnel::pull_from_depots(world, kinetics);
         depot::tick(world, kinetics);
+        crusher::tick(world, states, kinetics);
         flush(world, kinetics);
     });
 }
@@ -1108,12 +1145,25 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         Some(Kind::Belt(_)) => with_world(context.world, |kinetics| {
             belt_inventory::use_item_on(kinetics, context)
         }),
+        Some(Kind::Millstone) => with_world(context.world, |kinetics| {
+            millstone::use_item_on(kinetics, context)
+        }),
         _ => BlockUseResult::TryEmptyHand,
     }
 }
 
 fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
     let Some(states) = states() else { return };
+    if states
+        .crusher_controllers
+        .get(&state)
+        .is_some_and(|(_, valid)| *valid)
+    {
+        with_world(world, |kinetics| {
+            crusher::entity_inside(kinetics, pos, entity)
+        });
+        return;
+    }
     if depot::is_depot(states, state) {
         with_world(world, |kinetics| {
             if let Some(depot) = kinetics.depots.get_mut(&pos) {
