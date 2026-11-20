@@ -1,0 +1,77 @@
+# Mechanical Press, belts and Depots. The press consumes one input per stroke.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_press
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2162.5 101 2152.5 0 0
+wait 2
+cmd fill 2156 99 2148 2168 99 2159 minecraft:stone
+cmd fill 2156 100 2148 2168 104 2159 minecraft:air
+cmd gamemode survival tester
+cmd tp tester 2162.5 100 2152.5 0 0
+
+# The first result goes into the buffer and the last result occupies the held slot.
+cmd setblock 2161 100 2152 create:depot
+cmd setblock 2161 102 2152 create:mechanical_press[facing=east]
+cmd setblock 2160 102 2152 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2160 102 2152 128
+cmd item replace entity tester hotbar.0 with minecraft:sugar_cane 2
+wait 0.5
+bot use 2161 100 2152
+wait 3
+bot expect entity minecraft:item_display near 2161.5 100.9 2152.5 within 0.43 count 2
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot use 2161 100 2152
+wait 0.5
+bot expect slot 36 minecraft:paper 2
+wait 0.5
+expect ^\[bot\] expect inventory ok
+
+# A press catches a belt item at its center and lets the product continue to the Depot.
+cmd setblock 2164 100 2150 create:creative_motor[facing=east]
+cmd setblock 2165 100 2150 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2165 100 2154 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2165 100 2155 create:depot
+cmd setblock 2165 102 2153 create:mechanical_press[facing=east]
+cmd setblock 2164 102 2153 create:creative_motor[facing=east]
+cmd tp tester 2166.5 100 2152.5
+cmd item replace entity tester hotbar.1 with create:belt_connector
+bot hotbar 1
+wait 0.5
+bot use 2165 100 2150
+wait 0.5
+bot use 2165 100 2154
+wait 1
+cmd kinetics 2164 102 2153 128
+cmd summon minecraft:item 2165.5 101.1 2152.5 {Item:{id:"minecraft:iron_ingot",count:1},PickupDelay:32767s}
+wait 6
+bot expect entity minecraft:item_display near 2165.5 100.9 2155.5 within 0.24 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot use 2165 100 2155
+wait 0.5
+bot expect slot 37 minecraft:iron_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok
+cmd clear tester create:iron_sheet 0
+wait 0.5
+expect Found 1 matching item
+
+# The world scan processes a settled item when there is no transported stack holder.
+cmd setblock 2161 100 2152 minecraft:stone
+cmd summon minecraft:item 2161.5 101.4 2152.5 {Item:{id:"minecraft:sugar_cane",count:1}}
+wait 2
+bot expect entity minecraft:item near 2161.5 101 2152.5 within 0.3 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd tp tester 2161.5 101 2152.5
+wait 1.25
+bot expect slot 36 minecraft:paper 3
+wait 0.5
+expect ^\[bot\] expect inventory ok
+reject (?i)panicked|trapped|\[bot\] error
+stop

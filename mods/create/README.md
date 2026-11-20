@@ -78,4 +78,34 @@ The [Chute bot scenario](../../tests/scenarios/create-chute.txt) exercises these
 
 The [funnel bot scenario](../../tests/scenarios/create-funnel.txt) checks these transfers and the chest, barrel, furnace and hopper inventory paths. Brass filters, package handling and the animated flap are deferred. The transfer sounds play through the stock client.
 
+### Mechanical Press
+
+1. Place a Mechanical Press two blocks above a Depot. Feed power into either end of its shaft. Put two sugar cane on the Depot and watch each turn into paper on a separate stroke. Take both pieces of paper with an empty hand.
+2. Run a belt under the press, with a Depot at its outlet. Drop an iron ingot onto the belt. It should stop under the press, then continue to the outlet as an Iron Sheet.
+3. Put a full block below the press in place of the Depot. Drop sugar cane on it, let the item settle, and pick up the paper after the press runs.
+
+The [press bot scenario](../../tests/scenarios/create-press.txt) checks all three inputs. Pressing recipes come from the merged datapack view, and tag ingredients resolve through the item tag registry on reload. The stock client sees the press housing and item displays and hears each stroke. The moving head and item particles are pending.
+
+### Encased Fan
+
+1. Power a fan with water in its airflow and run ice through it on a slow belt. Pick up Packed Ice downstream.
+2. Blow through a regular lit campfire towards potatoes on a Depot, then through a lit soul campfire towards sand. Take the baked potatoes and soul sand. Putting out a campfire removes its catalyst.
+3. Blow through lava onto raw iron on a Depot. Take the iron ingot. Save and stop partway through haunting a loose item. On restart the same item should finish with the remaining timer.
+
+The [fan bot scenario](../../tests/scenarios/create-fan.txt) covers all four catalysts and the restart. Smoking and blasting require the base cooking recipes in the resources ABI. Fan particles, the spinning propeller and effects on living entities are pending.
+
+### Millstone and Crushing Wheels
+
+1. Power a Millstone from below or from a neighbouring cog. Drop two clay blocks onto it. Empty-hand use gives eight clay balls once both have milled. Stop it with clay still inside and use it again to recover the unprocessed input once the output slots are empty.
+2. End a belt at the Millstone. Put a chute directly underneath, with a Depot below it. Send a clay block down the belt and take four clay balls from the Depot.
+3. Place two Crushing Wheels on the same axis with one block between them. Drive them in opposite directions so the gap feeds downward, then put a Depot beneath it. Drop andesite into the gap for cobblestone, followed by gravel for sand and a chance of bonus drops. Break either wheel and check the gap.
+
+The [Millstone scenario](../../tests/scenarios/create-millstone.txt) and [Crushing Wheels scenario](../../tests/scenarios/create-crusher.txt) cover these paths. The wheels use a stock model until the companion can draw Create's OBJ. Mechanical crafting, crushing damage to mobs and players, and the original processing sounds and particles are pending.
+
+### Mechanical Bearing
+
+Place a bearing with a slime block on its rotating face and attach cobblestone to the slime. Power the bearing at 15 RPM. Stop it after about one second and check that the cobblestone appears a quarter turn from its starting point. An empty-hand click disassembles a running bearing.
+
+The [bearing scenario](../../tests/scenarios/create-bearing.txt) checks attachment, rotation and disassembly. This first slice moves a fixed set of simple blocks. It leaves an assembly in place when a neighbour needs unsupported handling and keeps a moving assembly intact when its destination is obstructed. Stock clients see the moving block displays. Collision with moving structures is pending.
+
 Not ported yet: the rest of `BeltBlock.useItemOn` (dyes and water, the wrench and the connector on an existing belt, packages, a shaft turning a middle segment into a pulley, casings), and its `mayBuild` check; belt processing, tunnels and crushers; the belt surface doesn't scroll, only its top half is drawn, and sideways belts (between vertical shafts) are drawn turned the wrong way, because block models can't take the Z rotation `BeltRenderer` uses; breaking a pulley segment doesn't drop its shaft, belts can't be dyed or cased, and their placement makes no sound; the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.

@@ -399,6 +399,12 @@ pub fn insert(
     if matches!(kinetics.kind(pos), Some(Kind::Belt(_))) {
         return belt_inventory::insert_into_segment(kinetics, pos, item, simulate);
     }
+    if kinetics.kind(pos) == Some(Kind::Millstone) {
+        return crate::millstone::insert(kinetics, pos, &item.item, simulate);
+    }
+    if kinetics.crushers.contains_key(&pos) {
+        return crate::crusher::insert(kinetics, pos, &item.item, simulate);
+    }
     let Some(container) = CONTAINERS
         .get()
         .and_then(|containers| containers.at(world, pos, face))
@@ -426,6 +432,9 @@ fn extract(
     }
     if matches!(kinetics.kind(pos), Some(Kind::Belt(_))) {
         return belt_inventory::extract_from_segment(world, kinetics, pos, amount, simulate);
+    }
+    if kinetics.kind(pos) == Some(Kind::Millstone) {
+        return crate::millstone::extract(kinetics, pos, amount, simulate);
     }
     let container = CONTAINERS.get()?.at(world, pos, face)?;
     chute::extract_container(container, amount as u32, simulate)
