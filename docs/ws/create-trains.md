@@ -43,5 +43,6 @@ Checked the source directly at tag `mc1.21.1-6.0.10` / commit `ac0c444`. This is
 
 ## Milestone log
 
-- M0: source inventory and ABI analysis recorded here. Full M0 verification and commit recorded below when completed.
-- M1: in progress; initial goal is Java-matched graph location and graph node selection logic with independent test vectors. Track placement, world saves and original-mod oracle remain open until verified.
+- M0 complete: source survey and interface inventory committed and pushed as `2fcdfaf` (`docs(create-trains): map railway sources and host gaps`) on 2026-11-20. `git diff --check` clean; no runtime tests for the documentation-only milestone. `N:\mmc-coord\requests\WS-3-01.md` asks WS-0 for persistent per-save global data.
+- M1 partial, graph and curve kernel: `mods/create/src/trains/graph.rs` reproduces half-block position rounding, adjacent chunk probes, graph-node reductions, directed straight edges, connect/removal and connected components. `mods/create/src/trains/bezier.rs` models Create's handle calculation, 16-step length approximation, reverse curve, step LUT and track costs. Both modules are **test-only** and not registered into live world behavior until the rest of M1 exists. Original Java integration tests, straight/diagonal/curve placement, graph save/reload, branch/signal edges and network synchronization are still open.
+- M1 unit evidence: 12 new Rust tests (seven graph and five curve), 26 Create tests in total, passed on 2026-11-20; `cargo clippy -p create --all-targets -- -D warnings`, `cargo fmt -p create -- --check`, and `git diff --check` passed. These are source-derived fixtures, not execution against original Java mod.

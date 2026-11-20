@@ -30,6 +30,9 @@ mod chute;
 mod depot;
 mod funnel;
 mod kinetics;
+// WS-3: verify railway graph geometry before enabling world hooks.
+#[cfg(test)]
+mod trains;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
 const AXES: [&str; 3] = ["x", "y", "z"];
