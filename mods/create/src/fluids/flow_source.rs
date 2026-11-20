@@ -102,6 +102,9 @@ mod tests {
     }
 
     impl FluidHandler for Source {
+        fn handler_identity(&self) -> u64 {
+            self as *const Self as usize as u64
+        }
         fn tank_count(&self) -> usize {
             self.tanks.len()
         }

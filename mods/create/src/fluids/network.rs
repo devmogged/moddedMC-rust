@@ -2,6 +2,7 @@
 //! Topology discovery and the persistent world endpoints are provided by the caller.
 
 use super::pipe_connection::FluidStack;
+use std::collections::HashMap;
 
 /// The subset of NeoForge IFluidHandler used by Create's FluidNetwork.tick.
 /// A host adapter must preserve simulation semantics and fluid components.
@@ -11,6 +12,11 @@ pub trait FluidHandler {
     fn drain(&mut self, request: &FluidStack, simulate: bool) -> Option<FluidStack>;
     fn drain_any(&mut self, amount: u32, simulate: bool) -> Option<FluidStack>;
     fn fill(&mut self, offered: &FluidStack, simulate: bool) -> u32;
+    /// Identifies the underlying handler, not an adapter or queried face.
+    /// All faces of one tank must share this ID for the duration of a tick;
+    /// distinct tanks must have distinct IDs. The eventual host adapter must
+    /// obtain this from the host (TODO(abi): #42), not its wrapper address.
+    fn handler_identity(&self) -> u64;
 }
 
 /// FluidNetwork uses one half of inbound pressure (minimum 1 mB/tick).
@@ -58,7 +64,7 @@ pub fn transfer_tick(
         return 0;
     }
     let mut speed = transfer_speed(inbound_pressure);
-    let mut accumulated_fill = vec![0u32; targets.len()];
+    let mut accumulated_fill = HashMap::<u64, u32>::new();
     let mut accepted = 0u32;
 
     for simulate in [true, false] {
@@ -85,17 +91,21 @@ pub fn transfer_tick(
                     remainder -= 1;
                 }
 
+                let handler_identity = targets[index].handler_identity();
+                let previously_filled = *accumulated_fill.get(&handler_identity).unwrap_or(&0);
                 let simulated_amount = if simulate {
-                    to_transfer.saturating_add(accumulated_fill[index])
+                    to_transfer.saturating_add(previously_filled)
                 } else {
                     to_transfer
                 };
                 let mut divided_stack = transfer.clone();
                 divided_stack.amount = simulated_amount;
-                let raw_fill = targets[index].fill(&divided_stack, simulate);
+                let raw_fill = targets[index]
+                    .fill(&divided_stack, simulate)
+                    .min(simulated_amount);
                 let filled = if simulate {
-                    accumulated_fill[index] = raw_fill;
-                    raw_fill.saturating_sub(simulated_amount - to_transfer)
+                    accumulated_fill.insert(handler_identity, raw_fill.max(previously_filled));
+                    raw_fill.saturating_sub(previously_filled).min(to_transfer)
                 } else {
                     raw_fill
                 };
@@ -145,6 +155,10 @@ mod tests {
     }
 
     impl FluidHandler for Tank {
+        fn handler_identity(&self) -> u64 {
+            self as *const Self as usize as u64
+        }
+
         fn tank_count(&self) -> usize {
             1
         }
@@ -246,5 +260,96 @@ mod tests {
         assert_eq!(source.fluid.amount, 30);
         assert_eq!(transfer_tick(&mut source, &mut [], &water, 256.0), 0);
         assert_eq!(source.fluid.amount, 30);
+    }
+}
+
+#[cfg(test)]
+mod shared_handler_regression {
+    use super::{FluidHandler, transfer_tick};
+    use crate::fluids::pipe_connection::FluidStack;
+    use std::{cell::RefCell, rc::Rc};
+
+    fn water(amount: u32) -> FluidStack {
+        FluidStack {
+            id: "minecraft:water".into(),
+            amount,
+            components: None,
+        }
+    }
+    struct Source {
+        remaining: u32,
+    }
+    impl FluidHandler for Source {
+        fn handler_identity(&self) -> u64 {
+            self as *const Self as usize as u64
+        }
+        fn tank_count(&self) -> usize {
+            1
+        }
+        fn fluid_in_tank(&self, tank: usize) -> Option<FluidStack> {
+            (tank == 0).then(|| water(self.remaining))
+        }
+        fn drain(&mut self, request: &FluidStack, simulate: bool) -> Option<FluidStack> {
+            let count = self.remaining.min(request.amount);
+            if !simulate {
+                self.remaining -= count;
+            }
+            Some(water(count))
+        }
+        fn drain_any(&mut self, amount: u32, simulate: bool) -> Option<FluidStack> {
+            self.drain(&water(amount), simulate)
+        }
+        fn fill(&mut self, _offered: &FluidStack, _simulate: bool) -> u32 {
+            0
+        }
+    }
+    struct AliasTarget {
+        shared: Rc<RefCell<u32>>,
+    }
+    impl FluidHandler for AliasTarget {
+        fn handler_identity(&self) -> u64 {
+            Rc::as_ptr(&self.shared) as usize as u64
+        }
+        fn tank_count(&self) -> usize {
+            1
+        }
+        fn fluid_in_tank(&self, _tank: usize) -> Option<FluidStack> {
+            Some(water(*self.shared.borrow()))
+        }
+        fn drain(&mut self, _request: &FluidStack, _simulate: bool) -> Option<FluidStack> {
+            None
+        }
+        fn drain_any(&mut self, _amount: u32, _simulate: bool) -> Option<FluidStack> {
+            None
+        }
+        fn fill(&mut self, offered: &FluidStack, simulate: bool) -> u32 {
+            let accepted = offered.amount.min(40 - *self.shared.borrow());
+            if !simulate {
+                *self.shared.borrow_mut() += accepted;
+            }
+            accepted
+        }
+    }
+    #[test]
+    fn same_handler_referenced_by_two_endpoint_faces_does_not_lose_fluid() {
+        let shared = Rc::new(RefCell::new(0u32));
+        let mut left = AliasTarget {
+            shared: Rc::clone(&shared),
+        };
+        let mut right = AliasTarget {
+            shared: Rc::clone(&shared),
+        };
+        let mut source = Source { remaining: 64 };
+        let moved = transfer_tick(&mut source, &mut [&mut left, &mut right], &water(64), 128.0);
+        assert_eq!(
+            moved,
+            *shared.borrow(),
+            "reported transfer must equal delivered"
+        );
+        assert_eq!(
+            source.remaining,
+            64 - moved,
+            "source fluid must be conserved"
+        );
     }
 }
