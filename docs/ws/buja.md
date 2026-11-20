@@ -40,3 +40,21 @@ Checks run in WS-1 worktree:
 Unverified: the actual 3x3 crafting GUI output and stack consumption, visual model in a real stock client, the Java 1.21.1 NeoForge original-mod oracle, and the disabled-crates config option. The simulation's native recipe registrations plus copied JSON are narrower evidence than full original-mod parity. Before claiming this portion complete per section 7, perform the original Java comparison and owner visual play test.
 
 Next content slice: basic ingredients straw/canvas/tree bark/rice panicle, then more of the small genuinely passive content with source-checked model/recipe data. Gameplay features requiring tool, crop, food, or cooking APIs must be requested through WS-0 and tested separately.
+
+## M1: launch briefs (ready for owner allocation)
+
+The ranked queue and individual scopes are in docs/BUJA.md under "WS-1 launch queue". Nine medium-size candidates have explicit source links, ownership boundaries, prerequisites and staged milestones. The owner starts separate chats after allocating non-overlapping worktrees and ports. M0 inventory remains provisional until the intended pack snapshot is confirmed.
+
+## M2b: Farmer's Delight basic materials (verified native slice)
+
+Source remains official Farmer's Delight 1.3.4, revision dd8b9b0. New item registrations exactly follow ModItems.java: STRAW, CANVAS, TREE_BARK, RICE_PANICLE use new Item(basicItem()) with no custom class or extra behavior. Registered as 64-stack vanilla-like items through moddedmc:items v1, with original item models/textures. Copied the original vanilla-format canvas, book_from_canvas, painting_from_canvas and scaffolding_from_canvas recipes. No new host interface was needed.
+
+Tests:
+- cargo fmt --all --check: PASS.
+- cargo clippy -p farmersdelight --all-targets -- -D warnings: PASS.
+- cargo test -p farmersdelight: PASS, 0 Rust unit tests because this slice has only literal definitions.
+- powershell -NoProfile -File scripts/pack-mod.ps1 -Crate farmersdelight: PASS, 74,262-byte package.
+- tests/scenarios/farmersdelight-ingredients.txt using WS-0 shared pack and bot, port 26011: PASS. Four items given with exact names, four recipe IDs unlocked, fetched resource pack, 3 straw persisted in player inventory across logout and restart (clear ... 0 found 3).
+- tests/scenarios/farmersdelight-crates.txt on port 26010, with the expanded 10-recipe pack: PASS. All three crate placements, loot and saved-world reload checks passed again.
+
+Unverified: obtaining straw through cutting with a knife, harvesting rice panicles, tree bark extraction and original-Java recipe output and rendering comparison; none is claimed implemented. Source fixtures give implementation evidence for the passive items only. Continue to expand in stages after checking the original class behavior, implementing only exposed mechanics.
