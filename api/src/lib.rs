@@ -33,6 +33,7 @@ pub mod lifecycle;
 pub mod mob_ai;
 pub mod mobs;
 pub mod resources;
+pub mod saved_data;
 pub mod stacks;
 pub mod tags;
 pub mod world;

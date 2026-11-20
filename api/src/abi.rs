@@ -1215,3 +1215,38 @@ mod mob_ai_layout {
         assert_eq!(size_of::<GoalDefinition>(), 40);
     }
 }
+
+/// A mod-registered, save-global byte payload. Keys belong to the registering mod
+/// and are saved by Pumpkin with the world, not with a chunk or entity.
+pub const SAVED_DATA: &str = "moddedmc:saved_data";
+/// Maximum payload size for a save-global key (8 MiB).
+pub const MAX_SAVED_DATA_BYTES: usize = 8 << 20;
+
+#[repr(C)]
+pub struct SavedDataV1 {
+    pub size: usize,
+    /// Reserve a mod-local key in a staged registration; returns a process-local handle.
+    /// The handle becomes usable only if the full registration succeeds. Returns a code.
+    pub register_key: unsafe extern "C" fn(reg: Reg, name: Str, out: *mut u64) -> i32,
+    /// Read bytes from the current world's save. False if the key is absent or the
+    /// handle/world is invalid. Sink key 0 contains the complete borrowed value.
+    pub read: unsafe extern "C" fn(world: WorldRef, key: u64, out: Sink) -> bool,
+    /// Atomically replace a key in the world's in-memory save data (including empty
+    /// bytes); persisted by the standard world-save lifecycle. False on invalid input.
+    pub write: unsafe extern "C" fn(world: WorldRef, key: u64, value: Str) -> bool,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod saved_data_layout {
+    use super::*;
+    use std::mem::offset_of;
+
+    #[test]
+    fn saved_data_v1() {
+        assert_eq!(offset_of!(SavedDataV1, size), 0);
+        assert_eq!(offset_of!(SavedDataV1, register_key), 8);
+        assert_eq!(offset_of!(SavedDataV1, read), 16);
+        assert_eq!(offset_of!(SavedDataV1, write), 24);
+        assert_eq!(size_of::<SavedDataV1>(), 32);
+    }
+}

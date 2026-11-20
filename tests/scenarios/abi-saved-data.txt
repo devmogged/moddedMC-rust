@@ -1,0 +1,18 @@
+# Requires target/mods/abi-saved-data.mmc only. No content blocks are registered.
+# First invocation must write; after a clean shutdown the same save must read it.
+mods target\mods\abi-saved-data.mmc
+start
+expect loaded abi_saved_data
+cmd abi_data
+wait 2
+expect abi_saved_data wrote binary payload
+cmd abi_data
+wait 2
+expect abi_saved_data persisted binary payload
+stop
+start
+cmd abi_data
+wait 2
+expect abi_saved_data persisted binary payload
+reject (?i)abi_saved_data corrupt|abi_saved_data write failed|panicked|trapped
+stop
