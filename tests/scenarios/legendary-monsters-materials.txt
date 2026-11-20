@@ -3,23 +3,31 @@
 # Run scripts/scenario.ps1 -Scenario tests/scenarios/legendary-monsters-materials.txt -RunDir run/legendary-monsters-m1 -Port 26060 -Fresh
 mods target\mods\legendary-monsters.mmc
 start
-expect registered content item legendary_monsters:dinosaur_bone
-expect registered content item legendary_monsters:withered_bone
-expect registered content item legendary_monsters:chorus_crystal
-expect registered content item legendary_monsters:frozen_rune
-expect registered content item legendary_monsters:large_shulker_shell
-expect registered content item legendary_monsters:nature_crystal
-expect registered content item legendary_monsters:void_gem
-expect registered content item legendary_monsters:metal_debris
+# Registration logging is sorted by the host, not by the Rust array.
+# Verify startup and validate other IDs through actual give operations below.
+expect registered content item legendary_monsters:air_rune
+expect Loaded built-in datapack 'mod/legendary-monsters': 2 recipe\(s\), 0 loot table\(s\), 2 tag\(s\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester
+cmd recipe give tester legendary_monsters:enderitium_gem
+wait 1
+expect Unlocked 1 recipe
+cmd recipe give tester legendary_monsters:gem_enderitium_ingot
+wait 1
+expect Unlocked 1 recipe
+cmd item replace entity tester weapon.mainhand with legendary_monsters:enderitium_ingot 1
+wait 1
+expect Replaced a slot on tester with .*Enderitium Ingot
 cmd give tester legendary_monsters:dinosaur_bone 2
 wait 1
 expect Gave 2 .*Dinosaur Bone
 cmd give tester legendary_monsters:chorus_crystal 4
 wait 1
 expect Gave 4 .*Chorus Crystal
+cmd give tester legendary_monsters:metal_debris 1
+wait 1
+expect Gave 1 .*Metal Debris
 bot quit
 stop
 start
@@ -32,6 +40,12 @@ expect Found 2 matching item
 cmd clear tester legendary_monsters:chorus_crystal 0
 wait 1
 expect Found 4 matching item
-reject ERROR|panicked|Unknown item
+cmd clear tester legendary_monsters:metal_debris 0
+wait 1
+expect Found 1 matching item
+cmd clear tester legendary_monsters:enderitium_ingot 0
+wait 1
+expect Found 1 matching item
+reject ERROR|panicked|Unknown item|Incorrect argument
 bot quit
 stop

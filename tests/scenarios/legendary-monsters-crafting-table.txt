@@ -1,0 +1,55 @@
+# WS-6 M1 crafting-table transaction: nine gems in a 3x3 grid -> one ingot.
+# Uses original release 2.2.4's gem_enderitium_ingot recipe.
+mods target\mods\legendary-monsters.mmc
+start
+expect Loaded built-in datapack 'mod/legendary-monsters': 2 recipe\(s\)
+botstart crafter
+wait 3
+expect \[bot\] joined as crafter
+cmd tp crafter 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:crafting_table
+wait 1
+cmd item replace entity crafter weapon.mainhand with legendary_monsters:enderitium_gem 9
+wait 1
+expect Replaced a slot on crafter with .*Enderitium Gem
+bot use 1025 100 1025
+wait 2
+bot inventory-click 37 left
+wait 1
+bot inventory-click 1 right
+bot inventory-click 2 right
+bot inventory-click 3 right
+bot inventory-click 4 right
+bot inventory-click 5 right
+bot inventory-click 6 right
+bot inventory-click 7 right
+bot inventory-click 8 right
+bot inventory-click 9 right
+wait 2
+bot inventory-click 0 shift-left
+wait 1
+cmd clear crafter legendary_monsters:enderitium_ingot 0
+wait 1
+expect Found 1 matching item
+cmd clear crafter legendary_monsters:enderitium_gem 0
+wait 1
+expect No items were found on player crafter
+bot inventory-close
+wait 1
+bot quit
+stop
+start
+botstart crafter
+wait 3
+expect \[bot\] joined as crafter
+cmd clear crafter legendary_monsters:enderitium_ingot 0
+wait 1
+expect Found 1 matching item
+cmd clear crafter legendary_monsters:enderitium_gem 0
+wait 1
+expect No items were found on player crafter
+reject (?i)error|panic|incorrect argument
+bot quit
+stop
