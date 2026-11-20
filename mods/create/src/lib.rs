@@ -220,7 +220,10 @@ impl Mod for Create {
         let pos = Pos { x, y, z };
         if tag == 200 {
             match fluids::runtime::inspect(world, pos) {
-                Some(selector) => command.reply(&format!("{selector} at {x} {y} {z}")),
+                Some(selector) => command.reply(&format!(
+                    "{selector} at {x} {y} {z}{}",
+                    fluids::runtime::pressure_text(world, pos)
+                )),
                 None => command.reply("There is no loaded Create fluid block at that position"),
             }
             return 1;
@@ -1104,6 +1107,8 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             }
         }
         kinetics.tick(&mut level);
+        // WS-2: distribute pump RPM as directional pipe pressures.
+        fluids::runtime::pressure_tick(world, kinetics, events);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);

@@ -4,7 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    sync::OnceLock,
+    sync::{Mutex, OnceLock, PoisonError},
 };
 
 use moddedmc_api::{
@@ -15,8 +15,13 @@ use moddedmc_api::{
 use super::{
     blocks::PipeState,
     pipe_states::{OpenFaces, update_block_state},
+    pump_graph::{PumpTopology, distribute_pressure},
 };
-use crate::{CONTENT, DIRECTIONS, FACES, face_axis, nearest_looking_direction, offset};
+use crate::{
+    CONTENT, DIRECTIONS, FACES, face_axis,
+    kinetics::{Kind as KineticKind, Kinetics},
+    nearest_looking_direction, offset,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -32,6 +37,8 @@ struct StateIndex {
     glass: [[[Option<u32>; 2]; 2]; 3],
     pump: [[Option<u32>; 2]; 6],
     water: HashSet<u32>,
+    /// Known vanilla open-end states. Unknown world blocks fail closed until WS-2-02.
+    known_open_ends: HashSet<u32>,
 }
 
 static IDS: OnceLock<StateIndex> = OnceLock::new();
@@ -49,6 +56,7 @@ impl StateIndex {
             glass: [[[None; 2]; 2]; 3],
             pump: [[None; 2]; 6],
             water: HashSet::new(),
+            known_open_ends: HashSet::new(),
         };
         for mask in 0..64u8 {
             for wet in [false, true] {
@@ -112,6 +120,32 @@ impl StateIndex {
         }
         if let Some(id) = content.state("minecraft:water") {
             result.water.insert(id);
+        }
+        result.known_open_ends.extend(result.water.iter().copied());
+        for name in [
+            "air",
+            "cave_air",
+            "void_air",
+            "lava",
+            "cauldron",
+            "lava_cauldron",
+            "short_grass",
+            "fern",
+            "dead_bush",
+        ] {
+            if let Some(id) = content.state(&format!("minecraft:{name}")) {
+                result.known_open_ends.insert(id);
+            }
+        }
+        for level in 0..=15 {
+            if let Some(id) = content.state(&format!("minecraft:lava[level={level}]")) {
+                result.known_open_ends.insert(id);
+            }
+        }
+        for level in 1..=3 {
+            if let Some(id) = content.state(&format!("minecraft:water_cauldron[level={level}]")) {
+                result.known_open_ends.insert(id);
+            }
         }
         result
     }
@@ -307,9 +341,230 @@ pub fn inspect(world: World<'_>, pos: Pos) -> Option<String> {
     Some(describe(*ids.kinds.get(&current[0])?))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PumpSource {
+    pos: Pos,
+    facing: u8,
+    speed: f32,
+}
+
+#[derive(Default)]
+struct WorldPressure {
+    pumps: Vec<PumpSource>,
+    /// PipeConnection pressure (inbound, outward) by position and face.
+    faces: HashMap<(Pos, u8), [f32; 2]>,
+}
+
+static PRESSURES: Mutex<Option<HashMap<usize, WorldPressure>>> = Mutex::new(None);
+
+/// Read-only block topology from the currently loaded server world.
+/// The unknown vanilla and cross-mod endpoint cases deliberately fail
+/// closed until WS-2-01/02; no chunk is loaded by this adapter.
+struct LoadedTopology<'a> {
+    world: World<'a>,
+    states: &'static StateIndex,
+}
+
+impl LoadedTopology<'_> {
+    fn read(&self, pos: Pos) -> Option<(u32, Option<Kind>)> {
+        let mut current = [content::UNLOADED_STATE];
+        if !self.world.read(&[pos], &mut current) {
+            return None;
+        }
+        Some((current[0], self.states.kinds.get(&current[0]).copied()))
+    }
+}
+
+fn pipe_faces(kind: Kind) -> Option<OpenFaces> {
+    match kind {
+        Kind::Normal(pipe) => Some(pipe.openings),
+        Kind::Encased(open) => Some(open),
+        Kind::Glass { axis, .. } => Some(std::array::from_fn(|face| face_axis(face as u8) == axis)),
+        Kind::Pump { .. } => None,
+    }
+}
+
+impl PumpTopology for LoadedTopology<'_> {
+    fn is_loaded(&self, pos: Pos) -> bool {
+        self.read(pos).is_some()
+    }
+
+    fn pipe_faces(&self, pos: Pos) -> Option<OpenFaces> {
+        pipe_faces(self.read(pos)?.1?)
+    }
+
+    fn has_valid_endpoint(&self, pipe: Pos, face: u8, pull: bool) -> bool {
+        if usize::from(face) >= FACES.len() {
+            return false;
+        }
+        let connected = offset(pipe, FACES[usize::from(face)]);
+        let Some((state, kind)) = self.read(connected) else {
+            return false;
+        };
+        match kind {
+            // PumpBlockEntity.hasReachedValidEndpoint: two pumps can meet
+            // only along their fluid axes and when facing transfer oppositely.
+            Some(Kind::Pump { facing, .. }) if face_axis(facing) == face_axis(face) => {
+                let neighbor_front = facing == (face ^ 1);
+                return (!neighbor_front) != pull;
+            }
+            // A neighboring Create transport is not an open-world source.
+            Some(_) => return false,
+            None => {}
+        }
+        // The complete Java isOpenEnd rule needs replaceability,
+        // face sturdiness, block tags and sided fluid capabilities.
+        // This proven subset accepts only explicitly resolved vanilla
+        // replaceable blocks / cauldrons, never arbitrary unknown blocks.
+        self.states.known_open_ends.contains(&state)
+    }
+}
+
+fn add_pressure(map: &mut HashMap<(Pos, u8), [f32; 2]>, face: super::pump_graph::PressureFace) {
+    let slot = map.entry((face.pos, face.face)).or_insert([0.0, 0.0]);
+    slot[usize::from(!face.inbound)] += face.pressure;
+}
+
+/// Recompute pump-induced PipeConnection pressure after the kinetic tick,
+/// only when absolute RPM, topology, or a pump's facing changes. Java
+/// PumpBlockEntity.onSpeedChanged similarly ignores sign-only changes.
+/// The resulting read-only pressures are available to the fluid network
+/// integration and admin diagnostics; no fluids are moved yet.
+pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEvent]) {
+    let Some(states) = index() else { return };
+    let mut pumps: Vec<_> = kinetics
+        .positions(|kind| matches!(kind, KineticKind::Pump(_)))
+        .into_iter()
+        .filter_map(|pos| {
+            let be = kinetics.get(pos)?;
+            let KineticKind::Pump(facing) = be.kind else {
+                return None;
+            };
+            let speed = be.get_speed().abs();
+            speed
+                .is_finite()
+                .then_some(PumpSource { pos, facing, speed })
+        })
+        .collect();
+    pumps.sort_by_key(|pump| (pump.pos.x, pump.pos.y, pump.pos.z, pump.facing));
+
+    let topology_changed = events.iter().any(|event| {
+        states.kinds.contains_key(&event.previous) || states.kinds.contains_key(&event.state)
+    });
+    let refresh = {
+        let cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
+        topology_changed
+            || cache
+                .as_ref()
+                .and_then(|worlds| worlds.get(&world.id()))
+                .is_none_or(|before| before.pumps != pumps)
+    };
+    if !refresh {
+        return;
+    }
+
+    let topology = LoadedTopology { world, states };
+    let mut faces = HashMap::new();
+    for pump in &pumps {
+        if pump.speed == 0.0 {
+            continue;
+        }
+        for side in [pump.facing, pump.facing ^ 1] {
+            let pull = side != pump.facing;
+            for face in distribute_pressure(
+                &topology, pump.pos, side, pull, pump.speed,
+                16, // CFluids.mechanicalPumpRange default (configurable in Java)
+            ) {
+                add_pressure(&mut faces, face);
+            }
+        }
+    }
+    let mut cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
+    cache
+        .get_or_insert_with(HashMap::new)
+        .insert(world.id(), WorldPressure { pumps, faces });
+}
+
+/// Pending engine ABI integration, show computed pressure as the two
+/// Create/NeoForge directional values for each pipe face.
+pub fn pressure_text(world: World<'_>, pos: Pos) -> String {
+    let cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(pressure) = cache.as_ref().and_then(|worlds| worlds.get(&world.id())) else {
+        return String::new();
+    };
+    let mut parts = Vec::new();
+    for (face, name) in DIRECTIONS.into_iter().enumerate() {
+        if let Some([inbound, outward]) = pressure.faces.get(&(pos, face as u8))
+            && (*inbound != 0.0 || *outward != 0.0)
+        {
+            parts.push(format!("{name}={inbound:.2}/{outward:.2}"));
+        }
+    }
+    if parts.is_empty() {
+        " Pressure(none)".into()
+    } else {
+        format!(" Pressure({})", parts.join(","))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Kind, can_connect_to, describe, pump_facing};
+    use super::{Kind, add_pressure, can_connect_to, describe, pipe_faces, pump_facing};
+    use crate::fluids::pump_graph::PressureFace;
+    use moddedmc_api::Pos;
+    use std::collections::HashMap;
+
+    #[test]
+    fn pump_geometry_is_not_a_traversable_pipe_and_glass_has_two_axis_faces() {
+        assert!(
+            pipe_faces(Kind::Pump {
+                facing: 1,
+                wet: false
+            })
+            .is_none()
+        );
+        let horizontal = pipe_faces(Kind::Glass {
+            axis: 0,
+            alt: true,
+            wet: false,
+        })
+        .unwrap();
+        assert_eq!(horizontal, [false, false, false, false, true, true]);
+    }
+
+    #[test]
+    fn pressure_values_accumulate_inbound_and_outward_independently() {
+        let pos = Pos { x: 1, y: 2, z: 3 };
+        let mut pressures = HashMap::new();
+        add_pressure(
+            &mut pressures,
+            PressureFace {
+                pos,
+                face: 0,
+                inbound: true,
+                pressure: 32.0,
+            },
+        );
+        add_pressure(
+            &mut pressures,
+            PressureFace {
+                pos,
+                face: 0,
+                inbound: false,
+                pressure: 16.0,
+            },
+        );
+        add_pressure(
+            &mut pressures,
+            PressureFace {
+                pos,
+                face: 0,
+                inbound: true,
+                pressure: 8.0,
+            },
+        );
+        assert_eq!(pressures.get(&(pos, 0)), Some(&[40.0, 16.0]));
+    }
 
     #[test]
     fn state_diagnostics_preserve_all_create_properties() {
