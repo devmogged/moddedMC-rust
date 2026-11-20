@@ -4,6 +4,8 @@
 use super::math::Vec3;
 use std::f64::consts::PI;
 
+// Pending: M3 train navigation will consume the cached Bezier fields
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(super) struct BezierGeometry {
     starts: [Vec3; 2],
@@ -17,6 +19,8 @@ pub(super) struct BezierGeometry {
     step_lut: Vec<f32>,
 }
 
+// Pending: M3 trains use per-segment positions, lengths and traversal rate
+#[cfg_attr(not(test), allow(dead_code))]
 impl BezierGeometry {
     pub fn new(starts: [Vec3; 2], axes: [Vec3; 2], primary: bool, girder: bool) -> Option<Self> {
         let [start, end] = starts;
@@ -145,6 +149,8 @@ fn point([a, b]: [Vec3; 2], [c, d]: [Vec3; 2], t: f64) -> Vec3 {
         .plus(b.scale(t * t * t))
 }
 
+// Pending: M3 carriage traversal integrates Bezier derivatives
+#[cfg_attr(not(test), allow(dead_code))]
 fn derivative([a, b]: [Vec3; 2], [c, d]: [Vec3; 2], t: f64) -> Vec3 {
     let s = 1.0 - t;
     c.minus(a)

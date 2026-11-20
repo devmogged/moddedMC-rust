@@ -35,6 +35,7 @@ impl DimensionPalette {
             .map_or(OVERWORLD, String::as_str)
     }
 
+    #[cfg(test)]
     pub fn to_nbt(&self) -> Result<Vec<u8>, String> {
         fastnbt::to_bytes(&SavedPalette {
             dimensions: self
@@ -47,6 +48,7 @@ impl DimensionPalette {
         .map_err(|err| err.to_string())
     }
 
+    #[cfg(test)]
     pub fn from_nbt(bytes: &[u8]) -> Result<Self, String> {
         let palette: SavedPalette = fastnbt::from_bytes(bytes).map_err(|err| err.to_string())?;
         Ok(Self {
@@ -59,6 +61,7 @@ impl DimensionPalette {
     }
 }
 
+#[cfg(test)]
 #[derive(Serialize, Deserialize)]
 struct SavedPalette {
     #[serde(rename = "DimensionPalette")]
@@ -296,6 +299,99 @@ pub(super) fn decode_track_graph(
     Ok((graph, id, saved.color))
 }
 
+/// Complete save-global Create RailwaySavedData root. Signal groups, stations and
+/// trains are not implemented in M1, so nonempty values are rejected on load.
+#[derive(Debug, Default)]
+pub(super) struct RailwayData {
+    pub graphs: Vec<RailwayGraph>,
+}
+
+#[derive(Debug)]
+pub(super) struct RailwayGraph {
+    pub uuid: [i32; 4],
+    pub color: i32,
+    pub graph: TrackGraph,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RailwayNbt {
+    #[serde(rename = "RailGraphs", default)]
+    rail_graphs: Vec<HashMap<String, Value>>,
+    #[serde(rename = "SignalBlocks", default)]
+    signal_blocks: Vec<HashMap<String, Value>>,
+    #[serde(rename = "Trains", default)]
+    trains: Vec<HashMap<String, Value>>,
+    #[serde(rename = "DimensionPalette", default)]
+    dimensions: Vec<SavedDimension>,
+}
+
+impl RailwayData {
+    /// RailwaySavedData.save: write RailGraphs, SignalBlocks, Trains and
+    /// DimensionPalette. Graph serialization itself reuses TrackGraph.write.
+    pub fn to_nbt(&self) -> Result<Vec<u8>, String> {
+        let mut palette = DimensionPalette::default();
+        let mut graphs = Vec::with_capacity(self.graphs.len());
+        let mut seen = HashSet::new();
+        for network in &self.graphs {
+            if !seen.insert(network.uuid) {
+                return Err("duplicate railway graph UUID".into());
+            }
+            let bytes =
+                encode_track_graph(&network.graph, network.uuid, network.color, &mut palette)?;
+            graphs.push(fastnbt::from_bytes(&bytes).map_err(|err| err.to_string())?);
+        }
+        fastnbt::to_bytes(&RailwayNbt {
+            rail_graphs: graphs,
+            signal_blocks: Vec::new(),
+            trains: Vec::new(),
+            dimensions: palette
+                .dimensions
+                .into_iter()
+                .map(|id| SavedDimension { id })
+                .collect(),
+        })
+        .map_err(|err| err.to_string())
+    }
+
+    /// RailwaySavedData.load: decode dimension palette before graphs; reject
+    /// future milestone data rather than silently discarding it on next save.
+    pub fn from_nbt(bytes: &[u8]) -> Result<Self, String> {
+        let data: RailwayNbt = fastnbt::from_bytes(bytes).map_err(|err| err.to_string())?;
+        if !data.signal_blocks.is_empty() {
+            return Err("signal groups require M2".into());
+        }
+        if !data.trains.is_empty() {
+            return Err("trains require M3".into());
+        }
+        let palette = DimensionPalette {
+            dimensions: data.dimensions.into_iter().map(|row| row.id).collect(),
+        };
+        let mut seen = HashSet::new();
+        let mut graphs = Vec::with_capacity(data.rail_graphs.len());
+        for raw in data.rail_graphs {
+            let bytes = fastnbt::to_bytes(&raw).map_err(|err| err.to_string())?;
+            let (graph, uuid, color) = decode_track_graph(&bytes, &palette)?;
+            if !seen.insert(uuid) {
+                return Err("duplicate railway graph UUID".into());
+            }
+            graphs.push(RailwayGraph { uuid, color, graph });
+        }
+        Ok(Self { graphs })
+    }
+
+    pub fn total_nodes(&self) -> usize {
+        self.graphs.iter().map(|g| g.graph.nodes.len()).sum()
+    }
+
+    pub fn total_directed_edges(&self) -> usize {
+        self.graphs
+            .iter()
+            .flat_map(|g| g.graph.connections.values())
+            .map(HashMap::len)
+            .sum()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,6 +417,89 @@ mod tests {
         graph.create_node_if_absent(c, up);
         assert!(graph.connect_nodes(&a, &b, "create:andesite"));
         (graph, a, b)
+    }
+
+    #[test]
+    fn railway_saved_data_matches_java_root_and_preserves_graphs_and_dimensions() {
+        let (first, a, b) = graph_fixture();
+        let (curved, c, d) = curve_fixture();
+        let data = RailwayData {
+            graphs: vec![
+                RailwayGraph {
+                    uuid: [1, 2, 3, 4],
+                    color: 0x445566,
+                    graph: first,
+                },
+                RailwayGraph {
+                    uuid: [5, 6, 7, 8],
+                    color: 0x112233,
+                    graph: curved,
+                },
+            ],
+        };
+        let bytes = data.to_nbt().unwrap();
+        let raw: RailwayNbt = fastnbt::from_bytes(&bytes).unwrap();
+        assert_eq!(raw.rail_graphs.len(), 2);
+        assert!(raw.signal_blocks.is_empty());
+        assert!(raw.trains.is_empty());
+        assert_eq!(raw.dimensions[0].id, OVERWORLD);
+        assert_eq!(raw.dimensions[1].id, "minecraft:the_nether");
+        let loaded = RailwayData::from_nbt(&bytes).unwrap();
+        assert_eq!(loaded.graphs.len(), 2);
+        assert_eq!(loaded.total_nodes(), 5);
+        assert_eq!(loaded.total_directed_edges(), 4);
+        assert_eq!(loaded.graphs[0].color, 0x445566);
+        assert_eq!(
+            loaded.graphs[0].graph.connections[&a][&b].material,
+            "create:andesite"
+        );
+        assert!(loaded.graphs[1].graph.connections[&c][&d].turn.is_some());
+        // HashMap iteration changes NBT compound field order; compare the
+        // serialized meaning, not bytes for unordered Java CompoundTags.
+        let twice = RailwayData::from_nbt(&loaded.to_nbt().unwrap()).unwrap();
+        assert_eq!(twice.total_nodes(), loaded.total_nodes());
+        assert_eq!(twice.total_directed_edges(), loaded.total_directed_edges());
+        assert_eq!(twice.graphs[1].uuid, [5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn railway_saved_data_rejects_unsupported_records_and_duplicate_ids() {
+        let (graph, _, _) = graph_fixture();
+        let duplicate = RailwayData {
+            graphs: vec![
+                RailwayGraph {
+                    uuid: [7; 4],
+                    color: 0,
+                    graph,
+                },
+                RailwayGraph {
+                    uuid: [7; 4],
+                    color: 1,
+                    graph: TrackGraph::default(),
+                },
+            ],
+        };
+        assert!(duplicate.to_nbt().unwrap_err().contains("duplicate"));
+        let mut root: RailwayNbt =
+            fastnbt::from_bytes(&RailwayData::default().to_nbt().unwrap()).unwrap();
+        root.trains
+            .push(HashMap::from([("Id".into(), Value::Int(3))]));
+        let bytes = fastnbt::to_bytes(&root).unwrap();
+        assert!(
+            RailwayData::from_nbt(&bytes)
+                .unwrap_err()
+                .contains("trains")
+        );
+        root.trains.clear();
+        root.signal_blocks
+            .push(HashMap::from([("Id".into(), Value::Int(3))]));
+        let bytes = fastnbt::to_bytes(&root).unwrap();
+        assert!(
+            RailwayData::from_nbt(&bytes)
+                .unwrap_err()
+                .contains("signal")
+        );
+        assert!(RailwayData::from_nbt(&[1, 2, 3]).is_err());
     }
 
     #[test]

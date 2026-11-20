@@ -1,21 +1,18 @@
-// WS-3: track block content can be placed without train-entity host APIs.
-mod math;
-mod runtime;
-mod track;
-
-// The remaining railway systems are tested against Java source fixtures but
-// not loaded until the world-wide saved-data host interface is available.
-#[cfg(test)]
+//! Create train tracks, graph geometry and persisted global railway state.
 mod bezier;
-#[cfg(test)]
 mod curve;
-#[cfg(test)]
 mod graph;
 mod item;
-#[cfg(test)]
+mod math;
 mod propagate;
-#[cfg(test)]
+mod railway;
+mod runtime;
 mod save;
+mod track;
+mod world_graph;
 
 pub(crate) use item::use_on_block;
+pub(crate) use railway::{
+    rebuild_at, register as register_saved, require as require_saved, summary,
+};
 pub(super) use runtime::{describe_state, placed_state, register};

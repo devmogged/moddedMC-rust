@@ -31,7 +31,6 @@ impl Vec3 {
         }
     }
 
-    #[cfg(test)]
     pub(super) fn cross(self, other: Self) -> Self {
         Self {
             x: self.y * other.z - self.z * other.y,
@@ -60,7 +59,6 @@ impl Vec3 {
         }
     }
 
-    #[cfg(test)]
     pub(super) fn distance(self, other: Self) -> f64 {
         self.minus(other).dot(self.minus(other)).sqrt()
     }

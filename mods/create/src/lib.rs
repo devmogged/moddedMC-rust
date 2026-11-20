@@ -92,6 +92,8 @@ impl Mod for Create {
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
         let _ = CONTENT.set(content);
+        // WS-3: save-global Create railway data through the generic ABI.
+        trains::require_saved()?;
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);
         let entities = entities::require()?;
@@ -128,6 +130,7 @@ impl Mod for Create {
         register_casings(content, registry)?;
         // WS-3: official Create 6.0.10 track blockstates and placement.
         trains::register(content, registry)?;
+        trains::register_saved(registry)?;
         belt::register(content, registry)?;
         depot::register(*content, registry)?;
         chute::register(*content, registry)?;
@@ -200,7 +203,33 @@ impl Mod for Create {
                     number(Some(0), "y", -2_048, 2_047, None),
                     number(Some(1), "z", -30_000_000, 30_000_000, Some(2)),
                 ],
-            )
+            )?;
+        // WS-3: read the saved railway root, or rebuild at a known-dimension
+        // admin command position while world callback dimension is unavailable.
+        for (name, help, tag) in [
+            ("railway", "Inspect stored Create railway networks", 3),
+            (
+                "railwaybuild",
+                "Build and save a Create railway at a rail position",
+                4,
+            ),
+        ] {
+            COMMANDS
+                .get()
+                .ok_or(RegistrationError::InvalidDefinition)?
+                .add(
+                    registry,
+                    name,
+                    help,
+                    2,
+                    &[
+                        number(None, "x", -30_000_000, 30_000_000, None),
+                        number(Some(0), "y", -2_048, 2_047, None),
+                        number(Some(1), "z", -30_000_000, 30_000_000, Some(tag)),
+                    ],
+                )?;
+        }
+        Ok(())
     }
 
     fn command(&self, tag: u64, command: Command<'_>) -> i32 {
@@ -218,6 +247,23 @@ impl Mod for Create {
             return 0;
         };
         let pos = Pos { x, y, z };
+        if tag == 3 || tag == 4 {
+            let result = if tag == 3 {
+                trains::summary(&world)
+            } else {
+                trains::rebuild_at(&world, &command, *content, pos)
+            };
+            match result {
+                Ok(message) => {
+                    command.reply(&message);
+                    return 1;
+                }
+                Err(message) => {
+                    command.reply(&message);
+                    return 0;
+                }
+            }
+        }
         let mut state = [0];
         if !world.read(&[pos], &mut state) {
             return 0;

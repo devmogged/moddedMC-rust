@@ -111,6 +111,8 @@ pub(super) fn is_valid_graph_node(
     }
 }
 
+// Pending: M3 train graph uses network node IDs
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(super) struct TrackNode {
     pub net_id: i32,
@@ -118,6 +120,8 @@ pub(super) struct TrackNode {
 }
 
 /// Cached runtime curve; controls and length are not recalculated per train tick.
+// Pending: M3 carriage motion uses cached curve runtime geometry
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(super) struct TrackTurn {
     pub record: CurveRecord,
@@ -132,6 +136,8 @@ impl TrackTurn {
 }
 
 /// A directed edge, straight or curved, with matching reverse edge.
+// Pending: M3 pathfinding consumes directed edge endpoints
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(super) struct TrackEdge {
     pub from: TrackNodeLocation,
@@ -140,6 +146,8 @@ pub(super) struct TrackEdge {
     pub turn: Option<TrackTurn>,
 }
 
+// Pending: M3 graph traversal consumes directed travel predicates
+#[cfg_attr(not(test), allow(dead_code))]
 impl TrackEdge {
     pub fn length(&self) -> f64 {
         if self.from.dimension != self.to.dimension {
@@ -182,6 +190,8 @@ pub(super) struct TrackGraph {
     pub connections: HashMap<TrackNodeLocation, HashMap<TrackNodeLocation, TrackEdge>>,
 }
 
+// Pending: rail removal and graph splits are later M1 work
+#[cfg_attr(not(test), allow(dead_code))]
 impl TrackGraph {
     pub fn create_node_if_absent(&mut self, location: TrackNodeLocation, normal: Vec3) -> bool {
         if self.nodes.contains_key(&location) {
