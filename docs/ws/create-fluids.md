@@ -61,3 +61,15 @@ M0 is a source and dependency audit; there are no player-visible changes in this
 M1 acceptance: place water-source and discharge locations with a powered pump and pipes, observe correct pressure direction, conservation and source placement/drain, reverse the pump and repeat, then save/restart. Compare the same topology and tick counts against Create 6.0.10 on NeoForge 1.21.1; record the cross-version differences. Keep pure connection/flow logic unit-tested before connecting it to a host. When WS-0 publishes shared binaries, run `scripts/scenario.ps1` on port 26020 with a dedicated WS-2 run directory. Measure a 64-pipe network on both servers under identical load before making performance claims.
 
 M0 reviewer verdict: pending WS-R.
+
+## M1: pipe transport implementation, first slice
+
+Files: `mods/create/src/fluids/pipe_connection.rs`, `transport.rs`, and module wiring in `mods/create/src/lib.rs`. This code ports the deterministic part of Create's `PipeConnection` and `FluidTransportBehaviour`: signed inbound/outbound pressures, flow direction and progress, component-bearing fluid identity, one-sided pressure reversal, source selection, collision detection and the three-phase tick ordering. The source and endpoint adapters are deliberately absent until the generic fluid-handler and fluid-world ABI requests are answered. This module is not yet registered as content and changes no player-visible behavior.
+
+Verified on the owner's Windows machine in this isolated worktree:
+- `cargo fmt -p create`
+- `cargo test -p create --lib`: 23 passed, 0 failed (nine new tests for pipe and transport flow rules; existing kinetic, belt, depot and funnel tests also pass)
+- `cargo clippy -p create --all-targets -- -D warnings`: passed
+- `git diff --check`: passed
+
+These are Rust unit tests derived from Create 6.0.10 source rules, not an original Java runtime oracle. M1 remains open. Next source slices: FluidNetwork's simulation/execution and endpoint discovery, pump pressure BFS, block registrations, world persistence and the water-to-pool scenario. Complete original-server comparisons only after the shared host endpoints and WS-0 binaries exist. Do not mark M1 done on compilation alone.

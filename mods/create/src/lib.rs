@@ -29,6 +29,8 @@ mod belt_movement;
 mod chute;
 mod depot;
 mod funnel;
+// WS-2 Create fluids
+pub mod fluids;
 mod kinetics;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
