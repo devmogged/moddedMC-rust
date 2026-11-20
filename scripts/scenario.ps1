@@ -1,5 +1,6 @@
 # Runs a console scenario against the built server and checks the log.
-#   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh] [-Keep]
+#   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh] [-Keep] [-Port 25565]
+# Parallel runs need their own -Port and -RunDir.
 # A passing run deletes its run dir, because worlds add up fast. -Keep leaves it; a failing run is always kept.
 # Scenario lines (blank lines and # comments ignored):
 #   mods <path> [...]        copy mods (.mmc, .jar, .dll) into the run dir's mods/ (before the first start)
@@ -17,6 +18,7 @@ param(
     [string]$RunDir = 'run\scenario',
     [switch]$Fresh,
     [switch]$Keep,
+    [int]$Port = 25565,
     [string]$Exe = 'engine\target\pack\pack-dev.exe',
     [string]$BotExe = 'engine\target\pack\moddedmc-bot.exe',
     [string]$ExeArgs = ''   # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
@@ -77,6 +79,7 @@ if (-not (Test-Path $config)) {
 enabled = false
 
 [networking.java]
+address = "127.0.0.1:$Port"
 online_mode = false
 encryption = false
 view_distance = 4
@@ -104,7 +107,7 @@ foreach ($raw in Get-Content $Scenario) {
         'start' { Start-Server }
         'cmd' { $script:p.StandardInput.WriteLine($arg) }
         'botstart' {
-            $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $BotExe), "127.0.0.1:25565 $arg")
+            $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $BotExe), "127.0.0.1:${Port} $arg")
             $psi.UseShellExecute = $false
             $psi.RedirectStandardInput = $true
             $psi.RedirectStandardOutput = $true
