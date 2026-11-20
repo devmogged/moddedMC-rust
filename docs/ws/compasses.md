@@ -38,4 +38,12 @@
 
 The append-only `api/src/abi.rs` and `docs/MOD-ABI.md` do not expose world biome resolver or structure placement inspection. Request WS-0 capability `compass world lookup` once for both mods; do not approximate with chunk/block scans. The request file is `docs/ws/compasses-request.md` and must be filed through `coord.mjs request` rather than a normal GitHub issue.
 
-M0 remains **partial** until both source trees are exhaustively categorized, the actual jar metadata and bundled licenses are checked, and the license/distribution boundary is accepted. M1 should first port unambiguous recipe/item metadata in the isolated `mods/compasses` crate, then write a obtain/craft/use/restart scenario. Search mechanics and stock-client GUI are not yet implemented, run or claimed to be parity-complete.
+M0 remains **partial** until both source trees are exhaustively categorized, the actual jar metadata and bundled licenses are checked, and the license/distribution boundary is accepted. The host request was filed as `devmogged/mmc-coord#72`.
+
+### Initial native code slice (M1 partial)
+
+`mods/compasses` now registers the two compass identifiers as native drop-in items, with an explicit CC BY-NC-SA 4.0 crate license and vanilla compass carriers (no upstream artwork). `biome_spiral.rs` implements Nature's `BiomeSearchWorker` cardinal spiral scheduling, inclusive radius/sample budget and floor-to-quart conversion. The `// TODO(abi): #72` marker isolates the missing worldgen lookup. **Not yet functional:** compass search, target NBT/data components, UI, recipe datapack, performance, and persistence. The stock-client visual fallback is not a full rendering parity claim.
+
+Verified locally with `cargo fmt --package compasses`, `cargo test -p compasses` (3 passed), and `cargo clippy -p compasses --all-targets -- -D warnings` (passed). No server/bot scenario or original NeoForge oracle was run. An untracked `tests/scenarios/compasses-items.txt` existed concurrently and was not authored, modified or staged in this session; leave it for its owner to finish.
+
+Next work: verify crate-item registration and pack load against the shared engine; add verified exact recipe data and an obtain/craft/use/restart scenario; then port remaining search and item state after ABI #72 is answered. Search mechanics and stock-client GUI are not yet implemented or claimed parity-complete.
