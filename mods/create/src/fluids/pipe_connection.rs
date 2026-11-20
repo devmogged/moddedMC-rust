@@ -12,11 +12,19 @@ pub struct FluidStack {
 
 impl FluidStack {
     pub fn same_fluid_same_components(&self, other: &Self) -> bool {
-        self.id == other.id && self.components == other.components
+        self.id == other.id && self.normalized_components() == other.normalized_components()
+    }
+
+    fn normalized_components(&self) -> Option<&Value> {
+        match self.components.as_ref() {
+            None => None,
+            Some(Value::Compound(fields)) if fields.is_empty() => None,
+            other => other,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.amount == 0 || self.id.is_empty()
+        self.amount == 0 || self.id.is_empty() || self.id == "minecraft:empty"
     }
 }
 
@@ -284,5 +292,45 @@ mod tests {
         assert!(pipe.flow.is_some());
         assert!(pipe.manage_flows(Some(&water()), None));
         assert!(pipe.flow.is_none());
+    }
+}
+
+#[cfg(test)]
+mod fluid_identity_regressions {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn absent_and_explicit_empty_component_patch_have_same_identity() {
+        let absent = FluidStack {
+            id: "minecraft:water".into(),
+            amount: 1000,
+            components: None,
+        };
+        let empty = FluidStack {
+            id: "minecraft:water".into(),
+            amount: 250,
+            components: Some(Value::Compound(HashMap::new())),
+        };
+        assert!(absent.same_fluid_same_components(&empty));
+        assert!(empty.same_fluid_same_components(&absent));
+        let mut connection = PipeConnection::new(0);
+        connection.add_pressure(true, 32.0);
+        assert!(connection.manage_flows(Some(&absent), None));
+        assert!(connection.flow.is_some());
+        assert!(!connection.manage_flows(Some(&empty), None));
+        assert!(connection.flow.is_some());
+    }
+
+    #[test]
+    fn positive_amount_empty_fluid_is_still_empty() {
+        assert!(
+            FluidStack {
+                id: "minecraft:empty".into(),
+                amount: 1000,
+                components: None
+            }
+            .is_empty()
+        );
     }
 }

@@ -154,11 +154,15 @@ impl TankInventory {
                     Some(Value::Int(amount)) if *amount > 0 => *amount as u32,
                     _ => return Err(TankShapeError::InvalidDimensions),
                 };
-                Some(FluidStack {
+                let stack = FluidStack {
                     id,
                     amount: amount.min(capacity),
                     components: tag.get("components").cloned(),
-                })
+                };
+                if stack.is_empty() {
+                    return Err(TankShapeError::InvalidDimensions);
+                }
+                Some(stack)
             }
             _ => return Err(TankShapeError::InvalidDimensions),
         };
@@ -431,5 +435,43 @@ mod tests {
         let mut tank = TankInventory::new(i32::MAX as u32 / 2, 8).unwrap();
         assert_eq!(tank.resize(3, 8), Err(TankShapeError::CapacityOverflow));
         assert_eq!((tank.width(), tank.height()), (1, 1));
+    }
+}
+
+#[cfg(test)]
+mod fluid_parity_regressions {
+    use super::*;
+    use fastnbt::Value;
+    use std::collections::HashMap;
+
+    fn water(components: Option<Value>) -> FluidStack {
+        FluidStack {
+            id: "minecraft:water".into(),
+            amount: 1000,
+            components,
+        }
+    }
+
+    #[test]
+    fn empty_patch_fills_and_drains_same_tank() {
+        let mut tank = TankInventory::new(8000, 4).unwrap();
+        let absent = water(None);
+        let explicit = water(Some(Value::Compound(HashMap::new())));
+        assert_eq!(tank.fill(&absent, false), 1000);
+        assert_eq!(tank.fill(&explicit, false), 1000);
+        assert_eq!(tank.drain(&explicit, false).unwrap().amount, 1000);
+        assert_eq!(tank.amount(), 1000);
+    }
+
+    #[test]
+    fn minecraft_empty_cannot_fill_tank() {
+        let mut tank = TankInventory::new(8000, 4).unwrap();
+        let empty = FluidStack {
+            id: "minecraft:empty".into(),
+            amount: 1000,
+            components: None,
+        };
+        assert_eq!(tank.fill(&empty, false), 0);
+        assert!(tank.fluid().is_none());
     }
 }
