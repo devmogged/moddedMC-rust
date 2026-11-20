@@ -12,7 +12,7 @@ Unit regression `spawn_empty_blocks_match_vanilla_signal_and_fluid_rules`: air a
 
 ## Existing differential harness baseline
 
-On the current built engine, `horse-attributes-on-track.txt` and `bot-riding.txt` each pass Java 26.3 with zero differences. The 19-fixture `run-all tests/harness --jobs 2` sweep reports 13 passing and six failing: basic (2 diffs), bot-actions (7), bot-place-break (2), client-effects (15), piston-push (6), repeater-chain (1). The json report is `run/parity-riding-sweep.json`. These are preexisting gaps outside this small spawn-rule fix and no allowances were added.
+On the current built engine, `horse-attributes-on-track.txt` and `bot-riding.txt` each pass Java 26.3 with zero differences. The 19-fixture `run-all tests/harness --jobs 2` sweep reports 13 passing and six failing: basic (2 diffs), bot-actions (7), bot-place-break (2), client-effects (15), piston-push (6), repeater-chain (1). The pre-change JSON report is `run/parity-riding-sweep.json`. The **post-change full 19-fixture sweep** with rebuilt binaries yielded the same 13 passing scenarios and the same six failing scenarios with identical difference counts (2, 7, 2, 15, 6, 1), with zero newly failing scenarios and no harness runtime errors. The complete post-change JSON is `run/harness-parity-spawn-full-after.json`. No allowances were added.
 
 ## Remaining validation
 
