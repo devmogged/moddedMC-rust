@@ -1,0 +1,59 @@
+# A sticky piston moves a 3 by 3 platform through three blocks and stops at an obstacle.
+mods target\mods\create.mmc
+start
+expect registered content block create:sticky_mechanical_piston
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2342.5 100 2342.5
+wait 2
+cmd fill 2335 98 2336 2347 98 2345 minecraft:stone
+cmd fill 2335 99 2336 2347 106 2345 minecraft:air
+cmd setblock 2340 100 2340 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2340 100 2340 0
+cmd item replace entity tester hotbar.0 with create:sticky_mechanical_piston
+bot look 90 0
+wait 0.3
+bot place 2340 100 2340 up
+wait 0.5
+cmd kinetics 2340 101 2340
+wait 0.3
+expect create:sticky_mechanical_piston\[axis_along_first=true,facing=east,state=retracted\] at 2340 101 2340
+cmd fill 2337 101 2340 2339 101 2340 create:piston_extension_pole[facing=east,waterlogged=false]
+cmd fill 2341 102 2339 2341 104 2341 minecraft:cobblestone
+cmd fill 2341 101 2340 2341 104 2340 minecraft:slime_block
+cmd fill 2341 103 2339 2341 103 2341 minecraft:slime_block
+cmd kinetics 2340 100 2340 -128
+wait 0.25
+bot expect entity minecraft:block_display near 2340.5 101.5 2340.5 within 0.05 count 14
+wait 0.95
+expect ^\[bot\] expect entity ok
+bot expect block 2344 104 2341 minecraft:cobblestone
+bot expect block 2341 104 2341 minecraft:air
+bot expect block 2343 101 2340 minecraft:note_block
+wait 0.5
+expect ^\[bot\] expect block ok 2344 104 2341
+expect ^\[bot\] expect block ok 2341 104 2341
+expect ^\[bot\] expect block ok 2343 101 2340
+cmd kinetics 2340 100 2340 128
+wait 1.2
+bot expect block 2341 104 2341 minecraft:cobblestone
+bot expect block 2344 104 2341 minecraft:air
+bot expect block 2337 101 2340 minecraft:note_block
+wait 0.5
+expect ^\[bot\] expect block ok 2341 104 2341
+expect ^\[bot\] expect block ok 2344 104 2341
+expect ^\[bot\] expect block ok 2337 101 2340
+cmd setblock 2343 104 2341 minecraft:obsidian
+cmd kinetics 2340 100 2340 -128
+wait 1.2
+bot expect block 2342 104 2341 minecraft:cobblestone
+bot expect block 2343 104 2341 minecraft:obsidian
+bot expect block 2344 104 2341 minecraft:air
+wait 0.5
+expect ^\[bot\] expect block ok 2342 104 2341
+expect ^\[bot\] expect block ok 2343 104 2341
+expect ^\[bot\] expect block ok 2344 104 2341
+reject (?i)panicked|trapped|\[bot\] error
+stop

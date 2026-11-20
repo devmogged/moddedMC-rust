@@ -18,7 +18,10 @@ use crate::{
         TransportedItemStack, count, item_display, next_int, remove_display, render_stack,
         with_count,
     },
-    kinetics::{FACES, face_axis},
+    fan::{self, FanProcessingType},
+    kinetics::{FACES, Kinetics, face_axis},
+    press::{self, ProcessingResult},
+    processing_recipes::RecipeBook,
 };
 
 pub const ID: &str = "create:depot";
@@ -91,6 +94,39 @@ impl Default for OutputBufferData {
 }
 
 impl DepotBehaviour {
+    pub fn fan_process(
+        &mut self,
+        world: World<'_>,
+        pos: Pos,
+        kind: FanProcessingType,
+        recipes: &RecipeBook,
+    ) {
+        let Some(item) = &mut self.held_item else {
+            return;
+        };
+        if 0.5 - item.pos > 0.51 {
+            return;
+        }
+        let old = item.fan_processing;
+        let products = fan::process_transported(kind, recipes, item);
+        self.dirty |= old != item.fan_processing;
+        let Some(products) = products else { return };
+        if matches!(products.as_slice(), [product] if *product == item.item) {
+            return;
+        }
+        remove_display(world, item);
+        let mut products = products.into_iter();
+        self.held_item = products.next().map(|product| {
+            let mut output = item.similar(product);
+            output.pos = 0.5;
+            output.prev_pos = 0.5;
+            output
+        });
+        for product in products {
+            self.insert_output(world, pos, product);
+        }
+    }
+
     fn load(world: World<'_>, pos: Pos) -> Self {
         world
             .entity(pos)
@@ -533,13 +569,17 @@ fn slide(item: &mut TransportedItemStack) -> bool {
     true
 }
 
-pub fn tick(world: World<'_>, depots: &mut HashMap<Pos, DepotBehaviour>) {
+pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
     let (Some(&stacks), Some(&displays)) = (STACKS.get(), DISPLAYS.get()) else {
         return;
     };
-    for (&pos, depot) in depots {
+    let mut depots = std::mem::take(&mut kinetics.depots);
+    for (&pos, depot) in &mut depots {
         if let Some(item) = &mut depot.held_item {
             depot.dirty |= slide(item);
+        }
+        depot.process(world, kinetics, pos);
+        if let Some(item) = &mut depot.held_item {
             let face = (item.in_direction as u8).min(5);
             let mut position = center(pos, 15.0 / 16.0);
             if face_axis(face) != 1 {
@@ -570,6 +610,103 @@ pub fn tick(world: World<'_>, depots: &mut HashMap<Pos, DepotBehaviour>) {
             && world.set_entity(pos, &bytes)
         {
             depot.dirty = false;
+        }
+    }
+    kinetics.depots = depots;
+}
+
+impl DepotBehaviour {
+    /// `DepotBehaviour.tick` receives a centered stack, then advances any held processing.
+    fn process(&mut self, world: World<'_>, kinetics: &mut Kinetics, pos: Pos) {
+        let Some(item) = &mut self.held_item else {
+            return;
+        };
+        if 0.5 - item.pos >= 1.0 / 16.0 {
+            return;
+        }
+        if !item.locked
+            && (kinetics
+                .get(Pos {
+                    y: pos.y + 2,
+                    ..pos
+                })
+                .is_none_or(|be| be.press.is_none())
+                || press::is_blocked(world, pos))
+        {
+            return;
+        }
+        match press::process_item(kinetics, pos, item) {
+            ProcessingResult::Pass => {
+                self.dirty |= item.locked;
+                item.locked = false;
+            }
+            ProcessingResult::Hold => {
+                self.dirty |= !item.locked;
+                item.locked = true;
+            }
+            ProcessingResult::Convert(outputs) => {
+                item.locked = true;
+                let rest = count(&item.item) - 1;
+                if rest == 0 {
+                    remove_display(world, item);
+                    self.held_item = None;
+                } else {
+                    item.resize(world, rest);
+                    item.pos = 0.5;
+                    item.prev_pos = 0.5;
+                }
+                for output in outputs {
+                    if self.held_item.is_none() {
+                        let mut product = TransportedItemStack::new(output);
+                        product.pos = 0.5;
+                        product.prev_pos = 0.5;
+                        product.locked = true;
+                        self.held_item = Some(product);
+                    } else {
+                        self.insert_output(world, pos, output);
+                    }
+                }
+                self.dirty = true;
+            }
+        }
+    }
+
+    fn insert_output(&mut self, world: World<'_>, pos: Pos, output: Value) {
+        let mut remain = count(&output);
+        let template = TransportedItemStack::new(output);
+        let capacity = template.max_count();
+        for slot in self.processing_output_buffer.values_mut() {
+            if with_count(&slot.item, 1) == with_count(&template.item, 1) {
+                let occupied = count(&slot.item);
+                let inserted = (capacity - occupied).max(0).min(remain);
+                if inserted > 0 {
+                    slot.resize(world, occupied + inserted);
+                    remain -= inserted;
+                }
+            }
+        }
+        for i in 0..OUTPUT_SLOTS {
+            if remain <= 0 || capacity <= 0 {
+                break;
+            }
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.processing_output_buffer.entry(i)
+            {
+                let inserted = capacity.min(remain);
+                slot.insert(TransportedItemStack::new(with_count(
+                    &template.item,
+                    inserted,
+                )));
+                remain -= inserted;
+            }
+        }
+        if remain > 0
+            && let (Some(&stacks), Ok(bytes)) = (
+                STACKS.get(),
+                fastnbt::to_bytes(&with_count(&template.item, remain)),
+            )
+        {
+            stacks.spawn(world, center(pos, 1.0), [0.0; 3], &bytes);
         }
     }
 }

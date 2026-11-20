@@ -12,8 +12,10 @@ use pumpkin_core::{
     entity::{Entity, EntityBase, decoration::display::ItemDisplayEntity, item::ItemEntity},
     plugin::api::events::entity::item_spawn::ItemSpawnEvent,
 };
-use pumpkin_data::{Block, entity::EntityType, item_stack::ItemStack};
-use pumpkin_nbt::{Nbt, deserializer::NbtReadHelperJava};
+use pumpkin_data::{
+    Block, data_component::DataComponent, entity::EntityType, item_stack::ItemStack,
+};
+use pumpkin_nbt::{Nbt, compound::NbtCompound, deserializer::NbtReadHelperJava, tag::NbtTag};
 use pumpkin_util::math::vector3::Vector3;
 
 use crate::content::{entity, shared, world};
@@ -136,12 +138,34 @@ pub unsafe extern "C" fn info(stack: Str, out: *mut abi::StackInfo) -> bool {
     true
 }
 
+/// `ItemStack.get(component)`: the stack's patch first, then the item's defaults.
+pub unsafe extern "C" fn component(stack: Str, component: Str, out: Sink) -> bool {
+    // SAFETY: the component id is borrowed for this call.
+    let id = unsafe { component.str() };
+    let (Some(stack), Some(kind)) = (read_stack(stack), DataComponent::try_from_name(id)) else {
+        return false;
+    };
+    let Some(value) = stack.get_data_component_by_id(kind) else {
+        return false;
+    };
+    let mut root = NbtCompound::new();
+    let tag = value.write_data();
+    if !matches!(tag, NbtTag::End) {
+        root.put("value", tag);
+    }
+    let bytes = Nbt::from(root).write();
+    // SAFETY: bytes are valid until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
 pub static ITEM_STACKS: abi::ItemStacksV1 = abi::ItemStacksV1 {
     size: size_of::<abi::ItemStacksV1>(),
     entity_stack,
     set_entity_stack,
     spawn,
     info,
+    component,
 };
 
 /// Validated display fields, or `None` when any is out of range.
@@ -241,3 +265,50 @@ pub static DISPLAYS_TABLE: abi::DisplaysV1 = abi::DisplaysV1 {
     set_item,
     remove,
 };
+
+#[cfg(test)]
+mod tests {
+    use moddedmc_api::abi::{Sink, Str};
+    use pumpkin_nbt::{Nbt, compound::NbtCompound};
+
+    use super::component;
+
+    unsafe extern "C" fn collect(ctx: *mut std::ffi::c_void, _key: u64, value: Str) {
+        // SAFETY: ctx is the Vec the test passed, and value is live until we return.
+        unsafe { (*ctx.cast::<Vec<u8>>()).extend_from_slice(value.bytes()) };
+    }
+
+    fn lookup(item: &str, id: &str) -> Option<NbtCompound> {
+        let mut stack = NbtCompound::new();
+        stack.put_string("id", item.to_owned());
+        stack.put_int("count", 1);
+        let stack = Nbt::from(stack).write();
+        let mut out = Vec::new();
+        let sink = Sink {
+            ctx: (&raw mut out).cast(),
+            put: collect,
+        };
+        // SAFETY: inputs are borrowed and the sink fills `out` for the call.
+        let found = unsafe { component(Str::new(&stack), Str::new(id.as_bytes()), sink) };
+        let mut reader = std::io::Cursor::new(out);
+        found.then(|| {
+            Nbt::read(&mut pumpkin_nbt::deserializer::NbtReadHelperJava::new(
+                &mut reader,
+            ))
+            .map(|nbt| nbt.root_tag)
+            .ok()
+        })?
+    }
+
+    /// Fan blasting needs the item default, which saved stack NBT leaves out.
+    #[test]
+    fn component_falls_back_to_item_defaults() {
+        let netherite = lookup("minecraft:netherite_sword", "minecraft:damage_resistant")
+            .and_then(|root| root.get_compound("value").cloned());
+        let types = netherite
+            .as_ref()
+            .and_then(|value| value.get_string("types"));
+        assert_eq!(types, Some("#minecraft:is_fire"));
+        assert!(lookup("minecraft:diamond_sword", "minecraft:damage_resistant").is_none());
+    }
+}

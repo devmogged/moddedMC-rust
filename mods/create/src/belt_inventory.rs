@@ -1,8 +1,7 @@
 //! Create 6.0.10's `BeltInventory`, `TransportedItemStack` and `ItemHandlerBeltSegment`: items
 //! riding a belt chain, picked up from item entities and handed on, ejected or held at the end.
 //!
-//! Belt processing, funnels, tunnels and crushers aren't ported, so no item is ever held by
-//! them. Items are drawn with item displays, since a stock client has no belt renderer.
+//! Items are drawn with item displays, since a stock client has no belt renderer.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -20,7 +19,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     DISPLAYS, EFFECTS, STACKS,
     belt_movement::{SPEED_DIVISOR, can_transport_objects, normalize},
+    fan::{self, FanProcessingType, TransportedFanProcessing},
     kinetics::{Belt, FACES, Kind, Kinetics, Slope, face_axis, positive},
+    processing_recipes::RecipeBook,
 };
 
 /// `BeltInventory.tick`'s `spacing`.
@@ -58,6 +59,8 @@ pub struct TransportedItemStack {
     pub locked: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub locked_externally: bool,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub fan_processing: Option<TransportedFanProcessing>,
     /// The item display drawing this stack, and what it was last told.
     #[serde(skip)]
     display: Option<(i32, ItemDisplay)>,
@@ -125,6 +128,7 @@ impl TransportedItemStack {
             in_direction: i32::from(UP),
             locked: false,
             locked_externally: false,
+            fan_processing: None,
             display: None,
             block: None,
         }
@@ -157,6 +161,21 @@ impl TransportedItemStack {
 
     pub fn clear_display(&mut self) {
         self.display = None;
+    }
+
+    pub fn processed(&self, item: Value) -> Self {
+        let mut output = self.similar(item);
+        output.locked = true;
+        output
+    }
+
+    pub fn similar(&self, item: Value) -> Self {
+        let mut output = self.clone();
+        output.angle = next_int(360);
+        output.item = item;
+        output.block = None;
+        output.clear_display();
+        output
     }
 }
 
@@ -444,11 +463,31 @@ impl BeltInventory {
                 movement.max(diff_to_end)
             };
 
-            // handleBeltProcessingAndCheckIfRemoved: with no processing block above, a held item
-            // is let go.
-            if horizontal && item.locked {
-                item.locked = false;
-                changed = true;
+            if horizontal {
+                let (position, locked) = (item.pos, item.locked);
+                match belt_processing(
+                    world,
+                    kinetics,
+                    chain,
+                    item,
+                    item.pos + limited,
+                    no_movement,
+                ) {
+                    BeltProcessing::Replace(replacements) => {
+                        self.to_insert.extend(replacements);
+                        remove_display(world, item);
+                        self.items.remove(index - 1);
+                        index -= 1;
+                        changed = true;
+                        continue;
+                    }
+                    BeltProcessing::Held => {
+                        changed |= position != item.pos || locked != item.locked;
+                        current = Some(item.pos);
+                        continue;
+                    }
+                    BeltProcessing::Pass => changed |= locked != item.locked,
+                }
             }
             let (blocked, transferred) = crate::funnel::check_for_funnels(
                 world,
@@ -510,6 +549,16 @@ impl BeltInventory {
                             crate::funnel::insert_from_belt_end(world, kinetics, next, item),
                             false,
                         )
+                    } else if kinetics.kind(next) == Some(Kind::Millstone) {
+                        (
+                            crate::millstone::insert(kinetics, next, &item.item, false),
+                            false,
+                        )
+                    } else if crate::crusher::is_controller(kinetics, next, movement_facing) {
+                        (
+                            crate::crusher::insert(kinetics, next, &item.item, false),
+                            false,
+                        )
                     } else if try_inserting_from_side(
                         kinetics,
                         Some(chain.pos),
@@ -557,6 +606,90 @@ impl BeltInventory {
     }
 }
 
+enum BeltProcessing {
+    Pass,
+    Held,
+    Replace(Vec<TransportedItemStack>),
+}
+
+/// `BeltInventory.handleBeltProcessingAndCheckIfRemoved`.
+fn belt_processing(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    chain: Chain,
+    item: &mut TransportedItemStack,
+    next: f32,
+    no_movement: bool,
+) -> BeltProcessing {
+    use crate::press::{self, ProcessingResult};
+    const CENTER_MARGIN: f32 = 1.0 / 512.0;
+    let positive = chain.direction_aware_speed() > 0.0;
+    let side = if positive {
+        CENTER_MARGIN
+    } else {
+        -CENTER_MARGIN
+    };
+    if item.locked {
+        let segment = item.pos as i32;
+        return match press::process_item(kinetics, chain.position_for_offset(segment), item) {
+            ProcessingResult::Pass => {
+                item.locked = false;
+                BeltProcessing::Pass
+            }
+            ProcessingResult::Hold => BeltProcessing::Held,
+            ProcessingResult::Convert(outputs) => {
+                let mut converted: Vec<_> = outputs
+                    .into_iter()
+                    .map(|value| item.processed(value))
+                    .collect();
+                let rest = count(&item.item) - 1;
+                if rest > 0 {
+                    let mut remaining = item.clone();
+                    remaining.clear_display();
+                    remaining.locked = false;
+                    remaining.item = with_count(&item.item, rest);
+                    remaining.pos = segment as f32 + 0.5 - side;
+                    converted.insert(0, remaining);
+                }
+                BeltProcessing::Replace(converted)
+            }
+        };
+    }
+    if no_movement || !positive && item.pos <= 0.5 || kinetics.recipes.is_none() {
+        return BeltProcessing::Pass;
+    }
+    let mut segment = (item.pos + if positive { 0.5 } else { -0.5 }) as i32;
+    while (0..chain.length).contains(&segment) {
+        let center = segment as f32 + 0.5;
+        if if positive {
+            center > next
+        } else {
+            center < next
+        } {
+            break;
+        }
+        let pos = chain.position_for_offset(segment);
+        if kinetics
+            .get(Pos {
+                y: pos.y + 2,
+                ..pos
+            })
+            .is_some_and(|be| be.press.is_some())
+            && !press::is_blocked(world, pos)
+            && matches!(
+                press::process_item(kinetics, pos, item),
+                ProcessingResult::Hold
+            )
+        {
+            item.pos = center + side;
+            item.locked = true;
+            return BeltProcessing::Held;
+        }
+        segment += if positive { 1 } else { -1 };
+    }
+    BeltProcessing::Pass
+}
+
 /// `resolveEnding`. A depot exposes direct input even while it is occupied.
 fn resolve_ending(
     world: World<'_>,
@@ -565,10 +698,11 @@ fn resolve_ending(
     positive_order: bool,
 ) -> Ending {
     let next = chain.position_for_offset(if positive_order { chain.length } else { -1 });
-    if matches!(kinetics.kind(next), Some(Kind::Belt(_)))
+    if matches!(kinetics.kind(next), Some(Kind::Belt(_) | Kind::Millstone))
         || kinetics.depots.contains_key(&next)
         || kinetics.chutes.entries.contains_key(&next)
         || crate::funnel::direct_input_present(&kinetics.funnels, next)
+        || crate::crusher::is_controller(kinetics, next, chain.movement_facing())
     {
         return Ending::Insert;
     }
@@ -972,6 +1106,48 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
             be.inventory = Some(inventory);
         }
     }
+}
+
+/// BeltBlockEntity.applyToEachWithin, called by each fan handler along its air current.
+pub fn fan_process(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    kind: FanProcessingType,
+    recipes: &RecipeBook,
+) {
+    let Some(segment) = kinetics.get(pos) else {
+        return;
+    };
+    let Some(controller) = segment.controller else {
+        return;
+    };
+    let center = segment.belt_index as f32 + 0.5;
+    let Some(be) = kinetics.get_mut(controller) else {
+        return;
+    };
+    let Some(inventory) = &mut be.inventory else {
+        return;
+    };
+    let mut added = Vec::new();
+    inventory.items.retain_mut(|item| {
+        if (item.pos - center).abs() >= 0.51 {
+            return true;
+        }
+        let old = item.fan_processing;
+        let products = fan::process_transported(kind, recipes, item);
+        be.dirty |= old != item.fan_processing;
+        let Some(products) = products else {
+            return true;
+        };
+        if matches!(products.as_slice(), [product] if *product == item.item) {
+            return true;
+        }
+        remove_display(world, item);
+        added.extend(products.into_iter().map(|product| item.similar(product)));
+        false
+    });
+    inventory.to_insert.extend(added);
 }
 
 /// `BeltBlock.useItemOn`: an empty main hand takes every stack within reach of the clicked

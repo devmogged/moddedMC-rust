@@ -1,0 +1,35 @@
+# A translating platform carries a mob and an item standing on its surface.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2453.5 100 2453.5
+wait 2
+cmd fill 2445 98 2446 2457 98 2455 minecraft:stone
+cmd fill 2445 99 2446 2457 105 2455 minecraft:air
+cmd setblock 2450 100 2450 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2450 100 2450 0
+cmd item replace entity tester hotbar.0 with create:sticky_mechanical_piston
+bot look 90 0
+wait 0.3
+bot place 2450 100 2450 up
+wait 0.5
+cmd fill 2447 101 2450 2449 101 2450 create:piston_extension_pole[facing=east]
+cmd fill 2451 101 2450 2451 101 2451 minecraft:slime_block
+cmd fill 2451 102 2450 2451 102 2451 minecraft:cobblestone
+cmd summon minecraft:armor_stand 2451.5 103 2450.5
+cmd summon minecraft:item 2451.5 103 2451.5 {Item:{id:"minecraft:diamond",count:1},PickupDelay:32767s,Motion:[0.0d,0.0d,0.0d]}
+wait 0.5
+cmd kinetics 2450 100 2450 -128
+wait 1.2
+bot expect entity minecraft:armor_stand near 2454.5 103 2450.5 within 0.3 count 1
+bot expect entity minecraft:item near 2454.5 103 2451.5 within 0.3 count 1
+bot expect block 2454 102 2451 minecraft:cobblestone
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:armor_stand
+expect ^\[bot\] expect entity ok minecraft:item
+expect ^\[bot\] expect block ok 2454 102 2451
+reject (?i)panicked|trapped|\[bot\] error
+stop

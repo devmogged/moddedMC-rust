@@ -1,0 +1,18 @@
+[package]
+name = "create-more-recipes"
+version = "0.1.0"
+edition.workspace = true
+license = "MIT"
+description = "Create More Recipes 1.2.1-fix1, source-grounded Rust port (in progress)"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true
+serde = { version = "1", features = ["derive"] }
+fastnbt = "2.6.3"
+
+[dev-dependencies]
+serde_json = "1"

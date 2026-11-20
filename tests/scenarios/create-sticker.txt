@@ -1,0 +1,48 @@
+# A rising redstone edge toggles the sticker. Only its extended face attaches.
+mods target\mods\create.mmc
+start
+expect registered content block create:sticker
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2443.5 101 2442.5
+wait 2
+cmd fill 2436 98 2436 2445 98 2445 minecraft:stone
+cmd fill 2436 99 2436 2445 104 2445 minecraft:air
+cmd setblock 2440 99 2440 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2440 99 2440 0
+cmd setblock 2440 100 2440 create:mechanical_bearing[facing=up]
+cmd setblock 2440 101 2440 create:sticker[facing=east]
+cmd setblock 2441 101 2440 minecraft:cobblestone
+cmd setblock 2440 101 2441 minecraft:stone
+cmd setblock 2440 102 2440 minecraft:redstone_block
+wait 0.5
+cmd setblock 2440 102 2440 minecraft:air
+wait 0.5
+cmd kinetics 2440 99 2440 15
+wait 0.95
+cmd kinetics 2440 99 2440 0
+wait 0.5
+bot expect block 2440 101 2439 minecraft:cobblestone
+bot expect block 2441 101 2440 minecraft:air
+bot expect block 2440 101 2441 minecraft:stone
+wait 0.5
+expect ^\[bot\] expect block ok 2440 101 2439
+expect ^\[bot\] expect block ok 2441 101 2440
+expect ^\[bot\] expect block ok 2440 101 2441
+cmd setblock 2440 102 2440 minecraft:redstone_block
+wait 0.5
+cmd setblock 2440 102 2440 minecraft:air
+wait 0.5
+cmd kinetics 2440 99 2440 15
+wait 0.95
+cmd kinetics 2440 99 2440 0
+wait 0.5
+bot expect block 2440 101 2439 minecraft:cobblestone
+bot expect block 2439 101 2440 minecraft:air
+wait 0.5
+expect ^\[bot\] expect block ok 2440 101 2439
+expect ^\[bot\] expect block ok 2439 101 2440
+reject (?i)panicked|trapped|\[bot\] error
+stop

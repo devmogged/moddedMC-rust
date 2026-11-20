@@ -4,7 +4,7 @@
 mods target\mods\create.mmc
 start
 expect registered content item create:andesite_alloy
-expect Loaded built-in datapack 'mod/create': 13 recipe\(s\), 15 loot table\(s\), 3 tag\(s\)
+expect Loaded built-in datapack 'mod/create': 29 recipe\(s\), 34 loot table\(s\), 16 tag\(s\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester
@@ -17,6 +17,12 @@ cmd recipe give tester create:crafting/kinetics/shaft
 wait 1
 expect Unlocked 1 recipe
 cmd recipe give tester create:crafting/kinetics/depot
+wait 1
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/mechanical_press
+wait 1
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/wrench
 wait 1
 expect Unlocked 1 recipe
 cmd give tester create:andesite_alloy 2

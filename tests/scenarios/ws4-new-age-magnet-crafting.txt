@@ -1,0 +1,66 @@
+# New Age 1.2.0 layered magnet crafting from the original released recipe.
+mods target\mods\create-new-age.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2360.5 101 2358.5 0 0
+wait 2
+cmd fill 2357 100 2357 2364 104 2364 minecraft:air
+cmd setblock 2360 100 2360 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create_new_age:overcharged_iron 6
+cmd item replace entity tester hotbar.1 with create_new_age:overcharged_gold 3
+wait 1
+bot use 2360 100 2360 north
+wait 1
+bot expect slot 37 minecraft:iron_ingot 6
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 37
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 right
+wait 0.2
+bot inventory-click 2 right
+wait 0.2
+bot inventory-click 3 right
+wait 0.2
+bot inventory-click 7 right
+wait 0.2
+bot inventory-click 8 right
+wait 0.2
+bot inventory-click 9 right
+wait 0.2
+bot inventory-click 38 left
+wait 0.5
+bot inventory-click 4 right
+wait 0.2
+bot inventory-click 5 right
+wait 0.2
+bot inventory-click 6 right
+wait 0.2
+# Custom block-item carrier displayed as paper to the headless stock client.
+bot expect slot 0 minecraft:paper 4
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 0
+bot inventory-click 0 shift-left
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 0
+bot inventory-close
+wait 0.5
+cmd clear tester create_new_age:layered_magnet 0
+wait 0.5
+expect Found 4 matching
+reject (?i)panicked|trapped|Unknown recipe|\[bot\] error
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd clear tester create_new_age:layered_magnet 0
+wait 0.5
+expect Found 4 matching
+reject (?i)panicked|trapped|Unknown recipe|\[bot\] error
+stop
