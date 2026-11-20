@@ -427,8 +427,13 @@ mod layout {
         assert_eq!(offset_of!(BlockWorldV1, read_entity), 32);
         assert_eq!(offset_of!(BlockWorldV1, write_entity), 40);
         assert_eq!(offset_of!(BlockWorldV1, rotate), 48);
-        assert_eq!(offset_of!(BlockWorldV1, set_analog_output), 88);
-        assert_eq!(size_of::<BlockWorldV1>(), 96);
+        assert_eq!(offset_of!(BlockWorldV1, describe_state), 88);
+        assert_eq!(offset_of!(BlockWorldV1, fluid_id), 96);
+        assert_eq!(offset_of!(BlockWorldV1, read_block_entity), 104);
+        assert_eq!(offset_of!(BlockWorldV1, restore_block_entity), 112);
+        assert_eq!(offset_of!(BlockWorldV1, block_drops), 120);
+        assert_eq!(offset_of!(BlockWorldV1, set_analog_output), 128);
+        assert_eq!(size_of::<BlockWorldV1>(), 136);
         assert_eq!(size_of::<ShapeBox>(), 12);
 
         assert_eq!(offset_of!(CommandNode, name), 0);
@@ -459,6 +464,10 @@ pub const MAX_WORLD_BATCH: usize = 4096;
 pub const UPDATE_NEIGHBORS: u8 = 1;
 pub const UPDATE_CLIENTS: u8 = 2;
 pub const UPDATE_ALL: u8 = UPDATE_NEIGHBORS | UPDATE_CLIENTS;
+/// Vanilla `UPDATE_MOVE_BY_PISTON | UPDATE_SUPPRESS_DROPS`, and the replaced block entity is
+/// removed without its side effects, so a captured container doesn't scatter. Hosts before it
+/// reject the whole batch.
+pub const UPDATE_MOVED: u8 = 4;
 
 #[repr(C)]
 pub struct StateDefinition {
@@ -534,6 +543,8 @@ pub const STATE_CHANGED: u8 = 0;
 pub const NEIGHBOR_CHANGED: u8 = 1;
 pub const LOADED: u8 = 2;
 pub const UNLOADED: u8 = 3;
+/// Replaced by an `UPDATE_MOVED` write, so a mod can detach the block without breaking it.
+pub const MOVED_STATE_CHANGED: u8 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -606,6 +617,25 @@ pub struct BlockWorldV1 {
         out: *mut CollisionBox,
         capacity: usize,
     ) -> i32,
+    /// The state's full `namespace:block[key=value,...]` selector, the form `Content::state`
+    /// reads, with every property. False for an unknown state.
+    pub describe_state: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
+    /// Vanilla `FluidState.getType()` registry id at the position, including the water in
+    /// waterlogged and aquatic blocks, `minecraft:empty` for none. False for unloaded positions.
+    pub fluid_id: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: Sink) -> bool,
+    /// The block entity's full saved NBT as Java named-root binary NBT, vanilla's
+    /// `saveWithFullMetadata`: type id, position and fields, for any block entity. False when
+    /// there is none or the position is unloaded.
+    pub read_block_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: Sink) -> bool,
+    /// Replaces the block entity at the position with saved NBT from `read_block_entity`, after
+    /// the destination block is placed. The saved id must match the destination's block entity;
+    /// the saved position is ignored. Marks the chunk dirty and sends clients the new data.
+    /// False for unloaded positions, a mismatched id or invalid NBT.
+    pub restore_block_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, nbt: Str) -> bool,
+    /// Vanilla `Block.getDrops(state, level, pos, blockEntity, null, tool)` for the loaded block:
+    /// one saved stack per sink call, without changing the block or spawning anything. An empty
+    /// `tool` is an empty hand. False when unloaded or the tool can't be read.
+    pub block_drops: unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
     /// Appended ABI 1: persist a custom block's comparator output and notify comparators.
     /// The strength must be 0..15; false for invalid/unloaded/unregistered blocks.
     pub set_analog_output: unsafe extern "C" fn(world: WorldRef, pos: Pos, strength: u8) -> bool,
@@ -736,12 +766,17 @@ pub struct EntitiesV1 {
     /// Replace the compound under `key` with Java named-root NBT of at most
     /// `MAX_ENTITY_DATA_BYTES`; empty removes it.
     pub set_data: unsafe extern "C" fn(entity: EntityRef, key: Str, nbt: Str) -> bool,
+    /// Vanilla `Player.mayBuild()`: false for other entities and for Adventure and Spectator
+    /// players.
+    pub may_build: unsafe extern "C" fn(entity: EntityRef) -> bool,
 }
 
 /// Largest compound `EntitiesV1::set_data` accepts.
 pub const MAX_ENTITY_DATA_BYTES: usize = 64 << 10;
 /// Longest `EntitiesV1::data` key.
 pub const MAX_ENTITY_DATA_KEY: usize = 64;
+/// Largest `restore_block_entity` input, vanilla's 2 MiB network NBT budget.
+pub const MAX_BLOCK_ENTITY_BYTES: usize = 2 << 20;
 
 /// Size of the entities table before `id` was appended.
 pub const ENTITIES_V1_BASE_SIZE: usize = std::mem::offset_of!(EntitiesV1, id);
@@ -811,7 +846,21 @@ pub struct InteractionV1 {
     /// Vanilla `Inventory.placeItemBackInInventory`: add a saved stack to the player's inventory
     /// and drop what doesn't fit.
     pub give: unsafe extern "C" fn(player: EntityRef, stack: Str) -> bool,
+    // Appended later: require `InteractionExtension::PlayerWillDestroy`.
+    /// One callback per mod for its content blocks, staged during registration.
+    pub on_player_will_destroy:
+        unsafe extern "C" fn(reg: Reg, callback: PlayerWillDestroyFn) -> i32,
 }
+
+/// Vanilla `Block.playerWillDestroy`: a player is about to break one of the mod's blocks, after
+/// the break was accepted and before drops and removal. `creative` is the player's game mode.
+pub type PlayerWillDestroyFn = unsafe extern "C" fn(
+    world: WorldRef,
+    player: EntityRef,
+    position: Pos,
+    state: u32,
+    creative: bool,
+);
 
 /// Size of the interaction table before `on_use_block` was appended.
 pub const INTERACTION_V1_BASE_SIZE: usize = std::mem::offset_of!(InteractionV1, on_use_block);
@@ -901,6 +950,12 @@ pub struct ItemStacksV1 {
         unsafe extern "C" fn(world: WorldRef, position: Vec3, motion: Vec3, stack: Str) -> i32,
     /// False for a stack the host can't read.
     pub info: unsafe extern "C" fn(stack: Str, out: *mut StackInfo) -> bool,
+    // Fields below were appended after the first ABI 1 release; check `size` before reading them.
+    /// The stack's effective component, its patch over the item's defaults, as named-root NBT
+    /// `{value: <component>}`. An empty root means the component is present but has no value
+    /// (unit components, or ones Pumpkin doesn't encode yet). False when absent, for an unknown
+    /// component id or an unreadable stack.
+    pub component: unsafe extern "C" fn(stack: Str, component: Str, out: Sink) -> bool,
 }
 
 #[repr(C)]

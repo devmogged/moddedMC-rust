@@ -271,6 +271,20 @@ fn data_key<'a>(key: Str) -> Option<&'a str> {
         .then_some(key)
 }
 
+/// Reads the abilities flag vanilla `Player.mayBuild()` returns.
+pub unsafe extern "C" fn may_build(raw: abi::EntityRef) -> bool {
+    // SAFETY: the entity is live for the callback.
+    unsafe { entity(raw) }
+        .and_then(EntityBase::get_player)
+        .is_some_and(|player| {
+            player
+                .abilities
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .allow_modify_world
+        })
+}
+
 pub unsafe extern "C" fn data(raw: abi::EntityRef, key: Str, out: abi::Sink) -> bool {
     // SAFETY: the entity is live for the callback.
     let (Some(entity), Some(key)) = (unsafe { entity(raw) }, data_key(key)) else {

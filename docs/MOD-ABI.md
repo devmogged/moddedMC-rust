@@ -146,9 +146,10 @@ A `.mmc` is a zip with
 | `moddedmc:content` v1 | `add_block(reg, definition)` | Stage the block, its item, its block entity name and an ordered list of states. The first state is the default. States provide exact property strings, a vanilla physics template, optional collision and outline boxes in sixteenths, model resource locations, and a display orientation. |
 | | `state(selector)` | Resolve a block name or exact `namespace:path[key=value,...]` after registration. Missing definitions return `UNLOADED_STATE`. |
 | | `on_tick(reg, callback)` | Call the mod once per loaded dimension in the server tick with queued state, neighbor and chunk lifecycle changes. The callback and its world handle are synchronous. |
+| | `MOVED_STATE_CHANGED` | Event reason for a replacement made with `UPDATE_MOVED`, so a mod can detach a moved block (vanilla `isMoving`) instead of treating it as broken. |
 | `moddedmc:items` v1 | `add_item(reg, definition)` | Stage an item with no block: its id, display name, the vanilla item it copies components from (stack size, food, tools), and its model. Stock clients see that vanilla item drawn with the model. Ids share one namespace with blocks. |
 | `moddedmc:block_world` v1 | `read(world, positions, out, count)` | Read at most 4,096 positions without loading chunks. Unloaded positions return `UNLOADED_STATE`. |
-| | `write(world, updates, count)` | Validate the batch before applying edits in input order. Each edit explicitly chooses neighbor and client notifications. |
+| | `write(world, updates, count)` | Validate the batch before applying edits in input order. Each edit explicitly chooses neighbor and client notifications. `UPDATE_MOVED` is vanilla's move-by-piston and suppress-drops write: the replaced block entity is removed without side effects, so a container captured with `read_block_entity` doesn't scatter. Older hosts reject a batch using it. |
 | | `command_world(source)` | Borrow the command source's world for the callback. |
 | | `read_entity`, `write_entity` | Copy Java named-root NBT for a loaded custom block entity. The write keeps its registered id and position and updates the chunk's saved copy. Writes have a 64 KiB limit. |
 | | `rotate(world, position, axis, rpm)` | Set a rotating model's signed RPM around its positive X, Y or Z axis. |
@@ -156,6 +157,11 @@ A `.mmc` is a zip with
 | | `destroy(world, position, drop)` | Vanilla `Level.destroyBlock`: break particles, loot when `drop`, then air or the block's water. Appended: require `WorldExtension::Destroy`. |
 | | `face_sturdy(world, position, face)` | Vanilla `BlockState.isFaceSturdy`. False when unloaded. Appended: require `WorldExtension::FaceSturdy`. |
 | | `collision_shape(world, position, out, capacity)` | Vanilla `BlockState.getCollisionShape(level, pos)` with an empty context, as f64 boxes relative to the block (random offset included); returns the box count, -1 when unloaded. Appended: require `WorldExtension::CollisionShape`. |
+| | `describe_state(state, out)` | The full `namespace:block[key=value,...]` selector `Content::state` reads back, every property included. False for an unknown state. Appended: require `WorldExtension::DescribeState`. |
+| | `fluid_id(world, position, out)` | Vanilla `FluidState.getType()` registry id, the source id for waterlogged and aquatic blocks, `minecraft:empty` for none. False when unloaded. Appended: require `WorldExtension::FluidId`. |
+| | `read_block_entity(world, position, out)` | Vanilla `saveWithFullMetadata` for any block entity: id, position and fields as Java NBT. False when there is none or the position is unloaded. Appended: require `WorldExtension::BlockEntities`. |
+| | `restore_block_entity(world, position, nbt)` | Replaces the entity of an already placed destination block with saved NBT, at the destination position. The saved id must match the entity the destination block made; at most `MAX_BLOCK_ENTITY_BYTES`. Marks the chunk dirty and sends clients the data. False when unloaded or mismatched. |
+| | `block_drops(world, position, tool, out)` | Vanilla `Block.getDrops(state, level, pos, blockEntity, null, tool)`: one saved stack per sink call, without breaking the block or spawning anything. Empty `tool` is an empty hand. False when unloaded or the tool is unreadable. Appended: require `WorldExtension::BlockDrops`. |
 | `moddedmc:entities` v1 | `on_entity_inside(reg, callback)` | Stage one callback per mod, called like vanilla `Block.entityInside` for entities touching one of the mod's blocks. It gets the world, position, state and a borrowed entity, all valid only during the call. |
 | | `view(entity, out)` | Fill kind bits (player, living, item), on-ground flag, position, motion, yaw, pitch, head yaw and body yaw. |
 | | `type_id(entity)` | The entity type's resource name. |
@@ -167,16 +173,18 @@ A `.mmc` is a zip with
 | | `entities_in(world, min, max, except, out, capacity)` | Ids of the entities and players whose boxes intersect the box. |
 | | `has_indirect_passenger(entity, other)` | Vanilla `hasIndirectPassenger`. |
 | | `data(entity, key, out)`, `set_data(entity, key, nbt)` | A mod compound saved with the entity under `key` (Pumpkin's entity `data`; NeoForge `getPersistentData()`), Java named-root NBT up to 64 KiB, empty removes. Keys use the `ResourceLocation` charset, at most 64 bytes. Appended: require `EntitiesExtension::Data`. |
+| | `may_build(entity)` | Vanilla `Player.mayBuild()`: false for other entities and for Adventure and Spectator players. Appended: require `EntitiesExtension::MayBuild`. |
 | `moddedmc:interaction` v1 | `on_use_on_block(reg, callback)` | Stage one callback per mod, called like vanilla `Item.useOn` for any of the mod's content items, block items included. It gets the world, the player (an entity reference), the held stack and the context: item id, clicked position and face, hit point, sneaking and creative. `PASS` lets the server place the item's block as usual. |
 | | `stack_count`, `stack_shrink` | Read or shrink the held stack. |
 | | `stack_data`, `set_stack_data` | Read or replace up to 1 KiB of mod bytes stored on the stack (`custom_data` key `moddedmc:data`). Empty removes them. |
 | | `cooldown(player, item, ticks)` | Vanilla `ItemCooldowns.addCooldown`. |
 | | `on_use_block(reg, callback)` | The block use extension, appended to the table (`InteractionExtension::BlockUse`). One callback per mod for its content blocks: vanilla `useItemOn` with the held stack (empty for an empty hand), then, when it returns `USE_TRY_EMPTY_HAND` for the main hand, `useWithoutItem` with an empty stack. It gets the position, state, face, hit point, sneaking, creative, the hand and which of the two it is. |
+| | `on_player_will_destroy(reg, callback)` | Vanilla `Block.playerWillDestroy` for the mod's content blocks: called with the player, position, state and creative after the break is accepted, before drops and removal. Appended: require `InteractionExtension::PlayerWillDestroy`. |
 | | `stack_read`, `stack_write` | The held stack as saved NBT, or replace it from saved NBT; empty clears it. |
 | | `give(player, stack)` | Vanilla `Inventory.placeItemBackInInventory` for a saved stack: what doesn't fit drops at the player. Inside a use callback it merges into the used stack as vanilla's live held slot would, so read it again with `stack_read` afterwards. |
 | `moddedmc:effects` v1 | `play_sound(world, position, sound, source, volume, pitch)` | Vanilla `Level.playSound(null, ...)` for players in range. Ids outside `minecraft:` play from the resource pack. `source` follows vanilla `SoundSource` order. |
 | | `particles(world, particle, position, spread, speed, count)` | Vanilla `ServerLevel.sendParticles` for a particle type without options. |
-| `moddedmc:resources` v1 | `list(directory, out)` | Vanilla `ResourceManager.listResources`: every file under `data/<namespace>/<directory>/` across mod data, the world's datapacks and Pumpkin's bundled packs, as sorted `namespace:directory/...` ids. Directory packs only. |
+| `moddedmc:resources` v1 | `list(directory, out)` | Vanilla `ResourceManager.listResources`: every file under `data/<namespace>/<directory>/` across mod data, the world's datapacks and Pumpkin's bundled packs, as sorted `namespace:directory/...` ids. Directory packs only. Vanilla cooking recipes, which Pumpkin compiles in, are listed and read under `recipe` as their vanilla JSON when no pack overrides them. |
 | | `read(id, out)` | The highest-priority pack's bytes for an id, at most 4 MiB. |
 | | `generation()` | 0 before datapacks first load, then a new value after each load, `/reload` included. Calls read the disk, so cache parsed data and reparse when it changes. |
 | `moddedmc:tags` v1 | `values(registry, tag, out)` | A tag's entry ids by string, so content blocks and items count: Pumpkin's generated vanilla entries plus every loaded pack's, nested tags flattened, sorted. A pack's `replace` drops lower packs' and the generated vanilla entries, as in vanilla. |
@@ -189,6 +197,7 @@ A `.mmc` is a zip with
 | `moddedmc:item_stacks` v1 | `entity_stack`, `set_entity_stack` | Read an item entity's stack, or replace it; an empty stack discards the entity. Stacks are vanilla saved `ItemStack` NBT (`id`, `count`, `components`) as Java named-root binary, at most 64 KiB, so mods can keep them in their own block entity data. |
 | | `spawn(world, position, motion, stack)` | Vanilla `new ItemEntity`, `setDeltaMovement`, `setDefaultPickUpDelay` and `addFreshEntity`, firing the plugin item spawn event like block drops. Returns the entity id. |
 | | `info(stack, out)` | Count, vanilla `getMaxStackSize`, and whether the item places a block. |
+| | `component(stack, component, out)` | Vanilla `ItemStack.get(component)`: the patch over the item defaults, as `{value: <component>}` named-root NBT, an empty root for unit components or ones Pumpkin doesn't encode yet. False when absent. Appended: require `StacksExtension::Component`. |
 | `moddedmc:displays` v1 | `spawn_item(world, stack, display)` | An item display that is never saved, for things that aren't entities (items on a belt). The display gives the position, a left rotation quaternion, a uniform scale, the `ItemDisplayContext` and the client's position interpolation in ticks. Returns its id. |
 | | `update`, `set_item`, `remove` | Move or restyle it, change its stack, or take it down. `update` returns false once the display is gone (its chunk unloaded); spawn a new one then. |
 | `moddedmc:mobs` v1 | `add_mob(reg, definition)` | Stage a mob type: its id, the vanilla living type that carries it (`minecraft:ravager`), and base attribute values set when it spawns (then saved like any attribute). Stock clients see the carrier. |
@@ -282,7 +291,7 @@ analog output for that block's own ID during `Mod::register`. Repeated registrat
 IDs not owned by the current mod fail; the capability is off by default.
 
 `moddedmc:block_world` v1 appends `set_analog_output(WorldRef, Pos, u8 strength)
--> bool` at byte offset 88 (64-bit table size 96). An enabled, loaded custom content
+-> bool` at byte offset 128 (64-bit table size 136). An enabled, loaded custom content
 block accepts strengths 0–15. Invalid strengths, missing positions, unloaded chunks,
 vanilla blocks, and content blocks without this capability return false without writing.
 `0` is a valid signal and is also the default for a new block. The host stores each

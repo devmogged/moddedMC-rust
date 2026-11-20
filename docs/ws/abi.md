@@ -49,7 +49,7 @@
 
 - Append-only ABI 1: `moddedmc:content` adds `add_analog_output(Reg, block_id)`
   at 64-bit byte offset 32 (table size 40); `moddedmc:block_world` adds
-  `set_analog_output(WorldRef, Pos, strength)` at byte offset 88 (size 96).
+  `set_analog_output(WorldRef, Pos, strength)` at byte offset 128 (size 136).
   `WorldExtension::AnalogOutput` checks both table sizes at `Mod::start`.
 - The content registration flag is scoped to the current mod's registered block.
   Signals are 0..15 and stored in the custom block entity's namespaced NBT,

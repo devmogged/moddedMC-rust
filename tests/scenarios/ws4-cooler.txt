@@ -1,0 +1,82 @@
+# Create More Recipes 1.2.1-fix1 snowman cooler server acceptance.
+# Requires pack-mod.ps1 -Crate create-more-recipes, WS-0 shared engine binaries.
+mods target\mods\create-more-recipes.mmc
+start
+expect registered content item cmr:frozen_cake$
+expect registered content block cmr:empty_snowman_cooler
+expect registered content block cmr:snowman_cooler
+expect Loaded built-in datapack 'mod/create-more-recipes': 1 recipe\(s\), 2 loot table\(s\), 3 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2249.5 101 2247.5 0 0
+wait 2
+cmd fill 2245 99 2245 2255 99 2255 minecraft:stone
+cmd fill 2245 100 2245 2255 104 2255 minecraft:air
+cmd gamemode survival tester
+cmd setblock 2253 100 2250 cmr:empty_snowman_cooler
+wait 0.5
+cmd execute if block 2253 100 2250 #minecraft:mineable/pickaxe
+expect Test passed
+cmd loot spawn 2254 101 2250 mine 2253 100 2250
+expect Dropped 1 .*Snowman Cooler
+cmd setblock 2250 100 2250 cmr:snowman_cooler
+wait 1
+cmd execute if block 2250 100 2250 cmr:snowman_cooler
+expect Test passed
+
+# Regular fuel: snowball consumed and heat changed inside the cooler.
+cmd item replace entity tester hotbar.0 with minecraft:snowball 3
+wait 0.5
+bot use 2250 100 2250 north
+wait 1
+bot expect slot 36 minecraft:snowball 2
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd data get block 2250 100 2250
+expect fuelLevel: 1
+
+# Special fuel: original source uses the tag cmr:snowman_cooler_fuel/special.
+cmd item replace entity tester hotbar.0 with cmr:frozen_cake 2
+wait 0.5
+bot use 2250 100 2250 north
+wait 0.5
+bot expect slot 36 minecraft:paper 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+
+# Powder snow has a crafting remainder; taking one must give a bucket.
+cmd setblock 2252 100 2250 cmr:snowman_cooler
+wait 1
+cmd item replace entity tester hotbar.0 with minecraft:powder_snow_bucket 1
+wait 0.5
+bot use 2252 100 2250 north
+wait 0.5
+bot expect slot 36 minecraft:bucket 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd data get block 2250 100 2250
+expect fuelLevel: 2
+reject (?i)panicked|trapped|\[bot\] error
+cmd save-all flush
+stop
+
+# Restart must retain its special fuel timer; a second special fuel item
+# cannot be inserted while >500 ticks remain. With lost NBT it would consume it.
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 2250 100 2250 cmr:snowman_cooler
+expect Test passed
+cmd item replace entity tester hotbar.0 with cmr:frozen_cake 1
+wait 0.5
+bot use 2250 100 2250 north
+wait 0.5
+bot expect slot 36 minecraft:paper 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd data get block 2250 100 2250
+expect fuelLevel: 2
+reject (?i)panicked|trapped|\[bot\] error
+stop

@@ -1,0 +1,1297 @@
+{
+  "upstream_repo": "https://github.com/vectorwing/FarmersDelight",
+  "upstream_commit": "dd8b9b0",
+  "upstream_game_version": "1.21.1",
+  "upstream_mod_version": "1.3.4",
+  "reference_only": true,
+  "warning": "Java 1.21.1 FoodProperties, not Minecraft 26.3 data components or registered food items.",
+  "profiles": [
+    {
+      "name": "APPLE_CIDER",
+      "source": "FoodProperties.Builder",
+      "nutrition": null,
+      "saturation_modifier": null,
+      "saturation_literal": null,
+      "fast": false,
+      "always_edible": true,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.ABSORPTION, 1200, 0)",
+          "id": "minecraft:absorption",
+          "duration_ticks": 1200,
+          "amplifier": 0,
+          "ambient": null,
+          "show_particles": null
+        }
+      ]
+    },
+    {
+      "name": "BACON",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "BACON_AND_EGGS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 10,
+      "saturation_modifier": 0.6,
+      "saturation_literal": "0.6f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(SHORT_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 1200,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "BACON_SANDWICH",
+      "source": "FoodProperties.Builder",
+      "nutrition": 10,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "BAKED_COD_STEW",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "BARBECUE_STICK",
+      "source": "FoodProperties.Builder",
+      "nutrition": 8,
+      "saturation_modifier": 0.9,
+      "saturation_literal": "0.9f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "BEEF_PATTY",
+      "source": "FoodProperties.Builder",
+      "nutrition": 4,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "BEEF_STEW",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "BONE_BROTH",
+      "source": "FoodProperties.Builder",
+      "nutrition": 8,
+      "saturation_modifier": 0.7,
+      "saturation_literal": "0.7f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(SHORT_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 1200,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "CABBAGE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.4,
+      "saturation_literal": "0.4f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "CABBAGE_LEAF",
+      "source": "FoodProperties.Builder",
+      "nutrition": 1,
+      "saturation_modifier": 0.4,
+      "saturation_literal": "0.4f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "CABBAGE_ROLLS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 5,
+      "saturation_modifier": 0.5,
+      "saturation_literal": "0.5f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "CAKE_SLICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.1,
+      "saturation_literal": "0.1f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 400, 0, false, false)",
+          "id": "minecraft:movement_speed",
+          "duration_ticks": 400,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "CHICKEN_CUTS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 1,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 0.3,
+          "chance_literal": "0.3F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.HUNGER, 600, 0)",
+          "id": "minecraft:hunger",
+          "duration_ticks": 600,
+          "amplifier": 0,
+          "ambient": null,
+          "show_particles": null
+        }
+      ]
+    },
+    {
+      "name": "CHICKEN_SANDWICH",
+      "source": "FoodProperties.Builder",
+      "nutrition": 10,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "CHICKEN_SOUP",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "COD_ROLL",
+      "source": "FoodProperties.Builder",
+      "nutrition": 7,
+      "saturation_modifier": 0.6,
+      "saturation_literal": "0.6f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "COD_SLICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 1,
+      "saturation_modifier": 0.1,
+      "saturation_literal": "0.1f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "COOKED_BACON",
+      "source": "FoodProperties.Builder",
+      "nutrition": 4,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "COOKED_CHICKEN_CUTS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 3,
+      "saturation_modifier": 0.6,
+      "saturation_literal": "0.6f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "COOKED_COD_SLICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 3,
+      "saturation_modifier": 0.5,
+      "saturation_literal": "0.5f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "COOKED_MUTTON_CHOPS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 3,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "COOKED_RICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 6,
+      "saturation_modifier": 0.4,
+      "saturation_literal": "0.4f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(BRIEF_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "COOKED_SALMON_SLICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 3,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "COOKIES",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.1,
+      "saturation_literal": "0.1f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "DOG_FOOD",
+      "source": "FoodProperties.Builder",
+      "nutrition": 4,
+      "saturation_modifier": 0.2,
+      "saturation_literal": "0.2f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "DUMPLINGS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 8,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "EGG_SANDWICH",
+      "source": "FoodProperties.Builder",
+      "nutrition": 8,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "FISH_STEW",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "FRIED_EGG",
+      "source": "FoodProperties.Builder",
+      "nutrition": 4,
+      "saturation_modifier": 0.4,
+      "saturation_literal": "0.4f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "FRIED_RICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "FRUIT_SALAD",
+      "source": "FoodProperties.Builder",
+      "nutrition": 6,
+      "saturation_modifier": 0.6,
+      "saturation_literal": "0.6f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.REGENERATION, 100, 0)",
+          "id": "minecraft:regeneration",
+          "duration_ticks": 100,
+          "amplifier": 0,
+          "ambient": null,
+          "show_particles": null
+        }
+      ]
+    },
+    {
+      "name": "GLEAMING_SALAD",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "GLOW_BERRY_CUSTARD",
+      "source": "FoodProperties.Builder",
+      "nutrition": 7,
+      "saturation_modifier": 0.6,
+      "saturation_literal": "0.6f",
+      "fast": false,
+      "always_edible": true,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.GLOWING, 100, 0)",
+          "id": "minecraft:glowing",
+          "duration_ticks": 100,
+          "amplifier": 0,
+          "ambient": null,
+          "show_particles": null
+        }
+      ]
+    },
+    {
+      "name": "GRILLED_SALMON",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "HAM",
+      "source": "FoodProperties.Builder",
+      "nutrition": 5,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "HAMBURGER",
+      "source": "FoodProperties.Builder",
+      "nutrition": 11,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "HONEY_GLAZED_HAM",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "KELP_ROLL",
+      "source": "explicit_constructor",
+      "constructor_java": "new FoodProperties(12, 12, false, 2.4f, Optional.empty(), List.of())",
+      "requires_manual_java_1_21_1_record_semantic_review": true
+    },
+    {
+      "name": "KELP_ROLL_SLICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 6,
+      "saturation_modifier": 0.5,
+      "saturation_literal": "0.5f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "MINCED_BEEF",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "MIXED_SALAD",
+      "source": "FoodProperties.Builder",
+      "nutrition": 6,
+      "saturation_modifier": 0.6,
+      "saturation_literal": "0.6f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.REGENERATION, 100, 0)",
+          "id": "minecraft:regeneration",
+          "duration_ticks": 100,
+          "amplifier": 0,
+          "ambient": null,
+          "show_particles": null
+        }
+      ]
+    },
+    {
+      "name": "MUSHROOM_RICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "MUTTON_CHOPS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 1,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "MUTTON_WRAP",
+      "source": "FoodProperties.Builder",
+      "nutrition": 10,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "NETHER_SALAD",
+      "source": "FoodProperties.Builder",
+      "nutrition": 5,
+      "saturation_modifier": 0.4,
+      "saturation_literal": "0.4f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 0.3,
+          "chance_literal": "0.3F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.CONFUSION, 240, 0)",
+          "id": "minecraft:confusion",
+          "duration_ticks": 240,
+          "amplifier": 0,
+          "ambient": null,
+          "show_particles": null
+        }
+      ]
+    },
+    {
+      "name": "NOODLE_SOUP",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "ONION",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.4,
+      "saturation_literal": "0.4f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "ONION_SOUP",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "PASTA_WITH_MEATBALLS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "PASTA_WITH_MUTTON_CHOP",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "PIE_CRUST",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.2,
+      "saturation_literal": "0.2f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "PIE_SLICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 3,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 600, 0, false, false)",
+          "id": "minecraft:movement_speed",
+          "duration_ticks": 600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "POPSICLE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 3,
+      "saturation_modifier": 0.2,
+      "saturation_literal": "0.2f",
+      "fast": true,
+      "always_edible": true,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "PUMPKIN_SLICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 3,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "PUMPKIN_SOUP",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "RABBIT_STEW_BUFF",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": "minecraft:bowl",
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "RATATOUILLE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 10,
+      "saturation_modifier": 0.6,
+      "saturation_literal": "0.6f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(SHORT_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 1200,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "RAW_PASTA",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3F",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 0.3,
+          "chance_literal": "0.3F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.HUNGER, 600, 0)",
+          "id": "minecraft:hunger",
+          "duration_ticks": 600,
+          "amplifier": 0,
+          "ambient": null,
+          "show_particles": null
+        }
+      ]
+    },
+    {
+      "name": "ROASTED_MUTTON_CHOPS",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "ROAST_CHICKEN",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "SALMON_ROLL",
+      "source": "FoodProperties.Builder",
+      "nutrition": 7,
+      "saturation_modifier": 0.6,
+      "saturation_literal": "0.6f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "SALMON_SLICE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 1,
+      "saturation_modifier": 0.1,
+      "saturation_literal": "0.1f",
+      "fast": true,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "SHEPHERDS_PIE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "SMOKED_HAM",
+      "source": "FoodProperties.Builder",
+      "nutrition": 10,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "SQUID_INK_PASTA",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "STEAK_AND_POTATOES",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "STUFFED_POTATO",
+      "source": "FoodProperties.Builder",
+      "nutrition": 10,
+      "saturation_modifier": 0.7,
+      "saturation_literal": "0.7f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "STUFFED_PUMPKIN",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "TOMATO",
+      "source": "FoodProperties.Builder",
+      "nutrition": 1,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "TOMATO_SAUCE",
+      "source": "FoodProperties.Builder",
+      "nutrition": 4,
+      "saturation_modifier": 0.4,
+      "saturation_literal": "0.4f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": []
+    },
+    {
+      "name": "VEGETABLE_NOODLES",
+      "source": "FoodProperties.Builder",
+      "nutrition": 14,
+      "saturation_modifier": 0.75,
+      "saturation_literal": "0.75f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "VEGETABLE_SOUP",
+      "source": "FoodProperties.Builder",
+      "nutrition": 12,
+      "saturation_modifier": 0.8,
+      "saturation_literal": "0.8f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ]
+    },
+    {
+      "name": "WHEAT_DOUGH",
+      "source": "FoodProperties.Builder",
+      "nutrition": 2,
+      "saturation_modifier": 0.3,
+      "saturation_literal": "0.3f",
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 0.3,
+          "chance_literal": "0.3F",
+          "lambda": "() -> new MobEffectInstance(MobEffects.HUNGER, 600, 0)",
+          "id": "minecraft:hunger",
+          "duration_ticks": 600,
+          "amplifier": 0,
+          "ambient": null,
+          "show_particles": null
+        }
+      ]
+    }
+  ],
+  "vanilla_soup_overrides": [
+    {
+      "name": "BEETROOT_SOUP",
+      "source": "FoodProperties.Builder",
+      "nutrition": null,
+      "saturation_modifier": null,
+      "saturation_literal": null,
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ],
+      "item_id": "minecraft:beetroot_soup"
+    },
+    {
+      "name": "MUSHROOM_STEW",
+      "source": "FoodProperties.Builder",
+      "nutrition": null,
+      "saturation_modifier": null,
+      "saturation_literal": null,
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(MEDIUM_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 3600,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ],
+      "item_id": "minecraft:mushroom_stew"
+    },
+    {
+      "name": "RABBIT_STEW",
+      "source": "FoodProperties.Builder",
+      "nutrition": null,
+      "saturation_modifier": null,
+      "saturation_literal": null,
+      "fast": false,
+      "always_edible": false,
+      "using_converts_to": null,
+      "effects": [
+        {
+          "chance": 1.0,
+          "chance_literal": "1.0F",
+          "lambda": "() -> nourishment(LONG_DURATION)",
+          "id": "farmersdelight:nourishment",
+          "duration_ticks": 6000,
+          "amplifier": 0,
+          "ambient": false,
+          "show_particles": false
+        }
+      ],
+      "item_id": "minecraft:rabbit_stew"
+    }
+  ]
+}

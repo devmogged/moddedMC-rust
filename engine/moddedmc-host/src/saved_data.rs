@@ -334,7 +334,7 @@ mod tests {
         ]);
         let encoded = encode(&values);
         assert_eq!(encoded_size(&values), encoded.len());
-        assert_eq!(decode(&encoded).unwrap(), values);
+        assert_eq!(decode(&encoded).ok(), Some(values));
         let mut trailing = encoded;
         trailing.push(1);
         assert!(decode(&trailing).is_err());

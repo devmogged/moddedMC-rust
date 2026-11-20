@@ -1,0 +1,100 @@
+# New Age 1.2.0 magnet placement, source recipes, loot, mining and restart.
+# Magnetic generator effect is not present without Create kinetic service.
+mods target\mods\create-new-age.mmc
+start
+expect Loaded built-in datapack 'mod/create-new-age': 3 recipe\(s\), 5 loot table\(s\), 6 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2350.5 101 2347.5
+wait 2
+cmd fill 2346 99 2346 2358 99 2354 minecraft:stone
+cmd fill 2346 100 2346 2358 104 2354 minecraft:air
+cmd setblock 2350 100 2350 create_new_age:magnetite_block
+wait 0.5
+cmd execute if block 2350 100 2350 create_new_age:magnetite_block
+wait 0.5
+expect Test passed
+cmd execute if block 2350 100 2350 #minecraft:mineable/pickaxe
+wait 0.5
+expect Test passed
+cmd loot spawn 2350 101 2352 mine 2350 100 2350
+wait 0.5
+expect Dropped 1 .*Magnetite Block
+cmd setblock 2351 100 2350 create_new_age:redstone_magnet
+wait 0.5
+cmd execute if block 2351 100 2350 create_new_age:redstone_magnet
+wait 0.5
+expect Test passed
+cmd execute if block 2351 100 2350 #minecraft:mineable/pickaxe
+wait 0.5
+expect Test passed
+cmd loot spawn 2351 101 2352 mine 2351 100 2350
+wait 0.5
+expect Dropped 1 .*Redstone Magnet
+cmd setblock 2352 100 2350 create_new_age:layered_magnet
+wait 0.5
+cmd execute if block 2352 100 2350 create_new_age:layered_magnet
+wait 0.5
+expect Test passed
+cmd execute if block 2352 100 2350 #minecraft:mineable/pickaxe
+wait 0.5
+expect Test passed
+cmd loot spawn 2352 101 2352 mine 2352 100 2350
+wait 0.5
+expect Dropped 1 .*Layered Magnet
+cmd setblock 2353 100 2350 create_new_age:fluxuated_magnetite
+wait 0.5
+cmd execute if block 2353 100 2350 create_new_age:fluxuated_magnetite
+wait 0.5
+expect Test passed
+cmd execute if block 2353 100 2350 #minecraft:mineable/pickaxe
+wait 0.5
+expect Test passed
+cmd loot spawn 2353 101 2352 mine 2353 100 2350
+wait 0.5
+expect Dropped 1 .*Fluxuated Magnetite
+cmd setblock 2354 100 2350 create_new_age:netherite_magnet
+wait 0.5
+cmd execute if block 2354 100 2350 create_new_age:netherite_magnet
+wait 0.5
+expect Test passed
+cmd execute if block 2354 100 2350 #minecraft:mineable/pickaxe
+wait 0.5
+expect Test passed
+cmd loot spawn 2354 101 2352 mine 2354 100 2350
+wait 0.5
+expect Dropped 1 .*Netherite Magnet
+cmd recipe give tester create_new_age:shaped/layered_magnet
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create_new_age:shaped/fluxuated_magnetite
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create_new_age:shaped/netherite_magnet
+wait 0.5
+expect Unlocked 1 recipe
+reject (?i)panicked|trapped|Unknown recipe|not found|ERROR
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 2350 100 2350 create_new_age:magnetite_block
+wait 0.5
+expect Test passed
+cmd execute if block 2351 100 2350 create_new_age:redstone_magnet
+wait 0.5
+expect Test passed
+cmd execute if block 2352 100 2350 create_new_age:layered_magnet
+wait 0.5
+expect Test passed
+cmd execute if block 2353 100 2350 create_new_age:fluxuated_magnetite
+wait 0.5
+expect Test passed
+cmd execute if block 2354 100 2350 create_new_age:netherite_magnet
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|Unknown recipe|ERROR
+stop

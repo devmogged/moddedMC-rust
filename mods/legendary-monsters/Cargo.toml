@@ -1,0 +1,13 @@
+[package]
+name = "legendary-monsters"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+license-file = "LICENSE.md"
+description = "Server-side port of Legendary Monsters 2.2.4 (NeoForge, Minecraft 1.21.1, released 2026-10-23); initial passive materials. Original code reuse permitted by its custom license; art and names reserved."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true

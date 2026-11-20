@@ -1,0 +1,57 @@
+# Glued linear faces pick up a row. A radial face gathers in the plane of rotation.
+mods target\mods\create.mmc
+start
+expect registered content block create:linear_chassis
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2413.5 101 2412.5
+wait 2
+cmd fill 2406 98 2406 2425 98 2425 minecraft:stone
+cmd fill 2406 99 2406 2425 105 2425 minecraft:air
+cmd setblock 2410 99 2410 create:creative_motor[facing=up]
+cmd setblock 2420 99 2420 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2410 99 2410 0
+cmd kinetics 2420 99 2420 0
+cmd setblock 2410 100 2410 create:mechanical_bearing[facing=up]
+cmd setblock 2420 100 2420 create:mechanical_bearing[facing=up]
+cmd setblock 2410 101 2410 create:linear_chassis[axis=x]
+cmd setblock 2420 101 2420 create:radial_chassis[axis=y]
+cmd item replace entity tester hotbar.0 with minecraft:slime_ball
+wait 0.5
+bot use 2410 101 2410 east
+wait 0.5
+cmd fill 2411 101 2410 2412 101 2410 minecraft:cobblestone
+cmd setblock 2410 101 2411 minecraft:stone
+cmd kinetics 2410 99 2410 15
+wait 0.95
+cmd kinetics 2410 99 2410 0
+wait 0.5
+bot expect block 2410 101 2408 minecraft:cobblestone
+bot expect block 2412 101 2410 minecraft:air
+bot expect block 2410 101 2411 minecraft:stone
+wait 0.4
+expect ^\[bot\] expect block ok 2410 101 2408
+expect ^\[bot\] expect block ok 2412 101 2410
+expect ^\[bot\] expect block ok 2410 101 2411
+cmd tp tester 2423.5 101 2422.5
+wait 0.5
+bot use 2420 101 2420 east
+wait 0.5
+cmd setblock 2421 101 2420 minecraft:oak_planks
+cmd setblock 2421 101 2421 minecraft:cobblestone
+cmd setblock 2418 101 2420 minecraft:stone
+cmd kinetics 2420 99 2420 15
+wait 0.95
+cmd kinetics 2420 99 2420 0
+wait 0.5
+bot expect block 2420 101 2419 minecraft:oak_planks
+bot expect block 2421 101 2419 minecraft:cobblestone
+bot expect block 2418 101 2420 minecraft:stone
+wait 0.4
+expect ^\[bot\] expect block ok 2420 101 2419
+expect ^\[bot\] expect block ok 2421 101 2419
+expect ^\[bot\] expect block ok 2418 101 2420
+reject (?i)panicked|trapped|\[bot\] error
+stop
