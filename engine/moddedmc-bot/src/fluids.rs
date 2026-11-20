@@ -75,6 +75,15 @@ pub fn water_at(world: &World, pos: Vector3<i32>) -> bool {
     at(world, pos).is_some_and(|state| state.kind == Kind::Water)
 }
 
+pub fn water_surface(world: &World, pos: Vector3<i32>) -> Option<(f64, bool)> {
+    let water = at(world, pos).filter(|fluid| fluid.kind == Kind::Water)?;
+    // Boat status checks add height to the block Y as a float.
+    Some((
+        f64::from(pos.y as f32 + water.height(world, pos) as f32),
+        water.source,
+    ))
+}
+
 impl Fluid {
     fn height(self, world: &World, pos: Vector3<i32>) -> f64 {
         if at(world, pos + UP).is_some_and(|above| above.kind == self.kind) {

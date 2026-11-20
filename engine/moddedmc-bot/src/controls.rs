@@ -93,7 +93,7 @@ impl Controls {
         self.has(SPlayerInput::JUMP)
     }
 
-    const fn has(&self, key: i8) -> bool {
+    pub const fn has(&self, key: i8) -> bool {
         self.input & key != 0
     }
 

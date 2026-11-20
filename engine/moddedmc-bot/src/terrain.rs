@@ -140,7 +140,7 @@ impl World {
         support.map(|(pos, _)| pos)
     }
 
-    fn visit_shapes(&self, bounds: BoundingBox, mut visit: impl FnMut(BlockPos, BoundingBox)) {
+    pub fn visit_shapes(&self, bounds: BoundingBox, mut visit: impl FnMut(BlockPos, BoundingBox)) {
         let min = bounds.min.floor_to_i32();
         let max = bounds.max.floor_to_i32();
         // Fences and walls extend beyond their own block.

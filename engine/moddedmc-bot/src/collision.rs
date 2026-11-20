@@ -57,23 +57,36 @@ pub fn collide(
     delta: Vector3<f64>,
     grounded: bool,
 ) -> Vector3<f64> {
+    collide_body(world, entities, bounds, delta, grounded, STEP_HEIGHT, None)
+}
+
+pub fn collide_body(
+    world: &World,
+    entities: &Entities,
+    bounds: BoundingBox,
+    delta: Vector3<f64>,
+    grounded: bool,
+    step_height: f32,
+    excluded: Option<i32>,
+) -> Vector3<f64> {
     if delta == Vector3::default() {
         return delta;
     }
     let mut area = bounds.stretch(delta);
-    area.max.y += f64::from(STEP_HEIGHT);
-    let colliders = entities.solid_shapes(area.expand_all(SHAPE_EPSILON));
+    area.max.y += f64::from(step_height);
+    let colliders = entities.solid_shapes_except(area.expand_all(SHAPE_EPSILON), excluded);
     let mut shapes = world.shapes(bounds.stretch(delta));
     shapes.extend_from_slice(&colliders);
     let clipped = clip(bounds, delta, &shapes);
     let landed = delta.y < 0.0 && clipped.y != delta.y;
-    if !(landed || grounded) || (clipped.x == delta.x && clipped.z == delta.z) {
+    if step_height <= 0.0 || !(landed || grounded) || (clipped.x == delta.x && clipped.z == delta.z)
+    {
         return clipped;
     }
 
     let floor = if landed { clipped.y } else { 0.0 };
     let base = bounds.shift(Vector3::new(0.0, floor, 0.0));
-    let mut scan = base.expand_towards(delta.x, f64::from(STEP_HEIGHT), delta.z);
+    let mut scan = base.expand_towards(delta.x, f64::from(step_height), delta.z);
     if !landed {
         scan.min.y -= f64::from(1.0e-5f32);
     }
@@ -83,7 +96,7 @@ pub fn collide(
         .iter()
         .flat_map(|shape| [shape.min.y, shape.max.y])
         .map(|y| (y - base.min.y) as f32)
-        .filter(|&height| (0.0..=STEP_HEIGHT).contains(&height) && height != clipped.y as f32)
+        .filter(|&height| (0.0..=step_height).contains(&height) && height != clipped.y as f32)
         .collect::<Vec<_>>();
     heights.sort_unstable_by(f32::total_cmp);
     heights.dedup();

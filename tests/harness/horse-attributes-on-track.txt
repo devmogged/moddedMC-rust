@@ -1,0 +1,18 @@
+# A stock client needs the horse's saved movement speed as soon as it tracks the horse.
+seed 12345
+area 0 150 0 7 155 6
+start
+cmd fill 0 150 0 7 150 6 minecraft:stone
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+cmd summon minecraft:horse 1.5 151 2.5 {Tame:1b,NoAI:1b,equipment:{saddle:{id:"minecraft:saddle",count:1}},attributes:[{id:"minecraft:movement_speed",base:0.2}]}
+bot alice interact minecraft:horse 1.5 151 2.5 main
+bot alice expect riding minecraft:horse
+bot alice physics manual
+bot alice physics-tick 2
+bot alice input forward
+bot alice physics-tick 3
+probe execute if entity @e[type=minecraft:horse,x=1.5,y=151,z=3.36046,distance=..0.00002]
+expect Test passed
+stop

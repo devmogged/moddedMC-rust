@@ -21,6 +21,7 @@ pub struct Inventory {
     menu: HashMap<i16, Stack>,
     menu_slots: i16,
     cursor: Option<Stack>,
+    selected: i16,
 }
 
 impl Inventory {
@@ -75,10 +76,28 @@ impl Inventory {
                 self.player.insert(slot as i16, stack(&mut bytes)?);
             }
             p::SET_CURSOR_ITEM => self.cursor = Some(stack(&mut bytes)?),
+            p::SET_HELD_SLOT => {
+                let selected = bytes.get_var_int()?.0;
+                if (0..=8).contains(&selected) {
+                    self.selected = selected as i16;
+                }
+            }
             p::RESPAWN => *self = Self::default(),
             _ => {}
         }
         Ok(())
+    }
+
+    pub const fn select(&mut self, slot: i16) {
+        self.selected = slot;
+    }
+
+    pub fn holds(&self, item: &'static Item) -> bool {
+        [36 + self.selected, 45].into_iter().any(|slot| {
+            self.player
+                .get(&slot)
+                .is_some_and(|stack| stack.item == item.registry_key && stack.count > 0)
+        })
     }
 
     pub fn close_menu(&mut self) {

@@ -1,0 +1,45 @@
+# Verify that vehicle movement packets move the server's mount across the test floor.
+seed 12345
+area 0 150 0 15 155 10
+start
+cmd fill 0 150 0 15 150 10 minecraft:stone
+bot join alice
+cmd tp alice 1.5 151 1.5 0 0
+bot alice await-teleport
+cmd summon minecraft:oak_boat 1.5 151 2.8
+bot alice interact minecraft:oak_boat 1.5 151 2.8 main
+bot alice expect riding minecraft:oak_boat
+bot alice physics manual
+bot alice input forward
+bot alice physics-tick 3
+probe execute if entity @e[type=minecraft:oak_boat,x=1.5,y=151,z=2.9824,distance=..0.00001]
+expect Test passed
+bot alice input sneak
+bot alice expect riding none
+bot alice input none
+cmd tp alice 6.5 151 1.5 0 0
+bot alice await-teleport
+cmd summon minecraft:horse 6.5 151 2.5 {Tame:1b,NoAI:1b,equipment:{saddle:{id:"minecraft:saddle",count:1}}}
+bot alice interact minecraft:horse 6.5 151 2.5 main
+bot alice expect riding minecraft:horse
+# Exercise a speed update on a tracked mount. Initial attribute sync has its own fixture.
+cmd attribute @e[type=minecraft:horse,limit=1] minecraft:movement_speed base set 0.2
+bot alice physics-tick 2
+bot alice input forward
+bot alice physics-tick 3
+probe execute if entity @e[type=minecraft:horse,x=6.5,y=151,z=3.36046,distance=..0.00002]
+expect Test passed
+bot alice input sneak
+bot alice expect riding none
+bot alice input none
+cmd tp alice 11.5 151 1.5 0 0
+bot alice await-teleport
+cmd summon minecraft:pig 11.5 151 2.5 {NoAI:1b,equipment:{saddle:{id:"minecraft:saddle",count:1}}}
+bot alice interact minecraft:pig 11.5 151 2.5 main
+bot alice expect riding minecraft:pig
+bot alice physics-tick 2
+cmd item replace entity alice weapon.mainhand with minecraft:carrot_on_a_stick
+bot alice physics-tick 4
+probe execute if entity @e[type=minecraft:pig,x=11.5,y=151,z=2.75,distance=..0.15]
+expect Test passed
+stop

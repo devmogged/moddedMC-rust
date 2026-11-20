@@ -1,15 +1,16 @@
 use std::collections::BTreeMap;
 
 use pumpkin_data::{
+    attributes::Attributes,
     entity::{EntityPose, EntityType},
     meta_data_type::MetaDataType as Meta,
     packet::{CURRENT_MC_VERSION, PacketId, clientbound::play as p},
     tracked_data::{entity, living_entity, shulker},
 };
 use pumpkin_protocol::{
-    VarInt,
+    ServerPacket as _, VarInt,
     codec::lp_vector_3d::LpVector3d,
-    java::client::play::CSpawnEntity,
+    java::client::play::{CSetEquipment, CSpawnEntity},
     ser::{NetworkReadExt as _, NetworkReadSliceExt as _, ReadingError},
 };
 use pumpkin_util::math::{
@@ -17,19 +18,23 @@ use pumpkin_util::math::{
     vector3::Vector3,
 };
 
-use crate::controls::yaw_sin_cos;
+use crate::{attributes::Values, controls::yaw_sin_cos};
 
 #[derive(Default)]
 pub struct Entities {
     tracked: BTreeMap<i32, Tracked>,
 }
 
-struct Tracked {
-    kind: &'static EntityType,
+pub struct Tracked {
+    pub kind: &'static EntityType,
     anchor: Vector3<f64>,
-    position: Vector3<f64>,
-    yaw: f32,
-    velocity: Vector3<f64>,
+    pub position: Vector3<f64>,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub velocity: Vector3<f64>,
+    pub on_ground: bool,
+    pub saddled: bool,
+    attributes: Values,
     pose: EntityPose,
     health: f32,
     attach_face: i32,
@@ -38,8 +43,17 @@ struct Tracked {
 }
 
 impl Tracked {
-    fn bounds(&self) -> BoundingBox {
-        let dimensions = self.kind.pose_dimensions(self.pose, false).map_or_else(
+    pub fn attribute(&self, attribute: &Attributes, fallback: f64) -> f64 {
+        let base = self
+            .kind
+            .attributes
+            .iter()
+            .find_map(|(key, value)| (key.id == attribute.id).then_some(*value));
+        self.attributes.get(attribute, base.unwrap_or(fallback))
+    }
+
+    pub fn dimensions(&self) -> EntityDimensions {
+        self.kind.pose_dimensions(self.pose, false).map_or_else(
             || {
                 EntityDimensions::new(
                     self.kind.dimension[0],
@@ -48,12 +62,15 @@ impl Tracked {
                 )
             },
             |pose| pose.dimensions,
-        );
+        )
+    }
+
+    fn bounds(&self) -> BoundingBox {
         let body = BoundingBox::new_from_pos(
             self.position.x,
             self.position.y,
             self.position.z,
-            &dimensions,
+            &self.dimensions(),
         );
         if self.kind.id != EntityType::SHULKER.id {
             return body;
@@ -160,7 +177,11 @@ impl Entities {
                             anchor: spawn.position,
                             position: spawn.position,
                             yaw: unpack_degrees(spawn.yaw),
+                            pitch: unpack_degrees(spawn.pitch),
                             velocity: spawn.velocity.0,
+                            on_ground: false,
+                            saddled: false,
+                            attributes: Values::default(),
                             pose: EntityPose::Standing,
                             health: 1.0,
                             attach_face: 0,
@@ -176,12 +197,27 @@ impl Entities {
                 }
             }
             p::RESPAWN => self.tracked.clear(),
+            p::SET_EQUIPMENT => {
+                let mut header = bytes;
+                let id = header.get_var_int()?.0;
+                if let Some(entity) = self.tracked.get_mut(&id)
+                    && [EntityType::HORSE.id, EntityType::PIG.id].contains(&entity.kind.id)
+                {
+                    let equipment = CSetEquipment::read(&mut bytes, &CURRENT_MC_VERSION)?;
+                    if let Some((_, saddle)) =
+                        equipment.equipment.iter().find(|(slot, _)| *slot == 7)
+                    {
+                        entity.saddled = !saddle.0.is_empty();
+                    }
+                }
+            }
             p::MOVE_ENTITY_POS
             | p::MOVE_ENTITY_POS_ROT
             | p::MOVE_ENTITY_ROT
             | p::ENTITY_POSITION_SYNC
             | p::TELEPORT_ENTITY
             | p::SET_ENTITY_MOTION
+            | p::UPDATE_ATTRIBUTES
             | p::SET_ENTITY_DATA => {
                 let id = bytes.get_var_int()?.0;
                 if let Some(entity) = self.tracked.get_mut(&id) {
@@ -195,6 +231,10 @@ impl Entities {
 
     pub fn kind(&self, id: i32) -> Option<&'static EntityType> {
         self.tracked.get(&id).map(|entity| entity.kind)
+    }
+
+    pub fn get(&self, id: i32) -> Option<&Tracked> {
+        self.tracked.get(&id)
     }
 
     pub fn target(&self, name: &str, anchor: Vector3<f64>) -> Result<VarInt, String> {
@@ -222,13 +262,22 @@ impl Entities {
     }
 
     pub fn solid_shapes(&self, area: BoundingBox) -> Vec<BoundingBox> {
+        self.solid_shapes_except(area, None)
+    }
+
+    pub fn solid_shapes_except(
+        &self,
+        area: BoundingBox,
+        excluded: Option<i32>,
+    ) -> Vec<BoundingBox> {
         self.tracked
-            .values()
-            .filter(|entity| {
-                entity.health > 0.0
+            .iter()
+            .filter(|(id, entity)| {
+                Some(**id) != excluded
+                    && entity.health > 0.0
                     && (entity.kind.boat.is_some() || entity.kind.id == EntityType::SHULKER.id)
             })
-            .map(Tracked::bounds)
+            .map(|(_, entity)| entity.bounds())
             .filter(|bounds| bounds.intersects(&area))
             .collect()
     }
@@ -274,6 +323,7 @@ fn update_entity(
     match kind {
         p::MOVE_ENTITY_POS | p::MOVE_ENTITY_POS_ROT => {
             let packed = bytes.get_var_int()?.0 as u32;
+            entity.on_ground = packed & 1 != 0;
             let steps = (packed >> 1) as usize;
             if steps == 0 {
                 entity.position = decode_delta(entity.position, &mut bytes)?;
@@ -288,11 +338,13 @@ fn update_entity(
             }
             if kind == p::MOVE_ENTITY_POS_ROT {
                 entity.yaw = unpack_degrees(bytes.get_u8()?);
+                entity.pitch = unpack_degrees(bytes.get_u8()?);
             }
         }
         p::MOVE_ENTITY_ROT => {
-            bytes.get_bool()?;
+            entity.on_ground = bytes.get_bool()?;
             entity.yaw = unpack_degrees(bytes.get_u8()?);
+            entity.pitch = unpack_degrees(bytes.get_u8()?);
         }
         p::ENTITY_POSITION_SYNC => {
             match bytes.get_var_int()?.0 {
@@ -310,13 +362,16 @@ fn update_entity(
                 _ => return invalid_path(),
             }
             entity.yaw = bytes.get_f32_be()?;
+            entity.pitch = bytes.get_f32_be()?;
+            entity.on_ground = bytes.get_bool()?;
         }
         p::TELEPORT_ENTITY => {
             let pos = vector(&mut bytes)?;
             let velocity = vector(&mut bytes)?;
             let yaw = bytes.get_f32_be()?;
-            bytes.get_f32_be()?;
+            let pitch = bytes.get_f32_be()?;
             let flags = bytes.get_i32_be()?;
+            entity.on_ground = bytes.get_bool()?;
             let absolute = |old, target, flag| {
                 if flags & flag == 0 {
                     target
@@ -330,6 +385,7 @@ fn update_entity(
                 absolute(entity.position.z, pos.z, 4),
             );
             entity.yaw = yaw + if flags & 8 != 0 { entity.yaw } else { 0.0 };
+            entity.pitch = pitch + if flags & 16 != 0 { entity.pitch } else { 0.0 };
             entity.velocity = Vector3::new(
                 absolute(entity.velocity.x, velocity.x, 32),
                 absolute(entity.velocity.y, velocity.y, 64),
@@ -337,6 +393,7 @@ fn update_entity(
             );
         }
         p::SET_ENTITY_MOTION => entity.velocity = LpVector3d::read(&mut bytes)?.0,
+        p::UPDATE_ATTRIBUTES => entity.attributes.update(bytes)?,
         p::SET_ENTITY_DATA
             if entity.kind.boat.is_some()
                 || entity.kind.mob

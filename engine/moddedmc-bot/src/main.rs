@@ -8,6 +8,7 @@
 //! Usage: moddedmc-bot <host:port> <name>
 
 mod actions;
+mod attributes;
 mod bot;
 mod capture;
 mod collision;
@@ -17,6 +18,7 @@ mod fluids;
 mod inventory;
 mod movement;
 mod terrain;
+mod vehicles;
 
 use std::sync::Arc;
 
@@ -66,7 +68,11 @@ async fn main() -> Result<(), String> {
 
     let harness = std::env::var_os("MODDEDMC_BOT_HARNESS").is_some();
     if !harness {
-        tokio::spawn(movement::realtime(player.clone(), writer.clone()));
+        tokio::spawn(movement::realtime(
+            player.clone(),
+            writer.clone(),
+            actions.clone(),
+        ));
     }
 
     tokio::spawn(pump(
@@ -107,7 +113,7 @@ async fn main() -> Result<(), String> {
             }
             "physics" => player.lock().await.set_mode(rest),
             "input" | "fly" => movement::control(&player, &writer, verb, rest).await,
-            "physics-tick" => manual_ticks(&player, &writer, rest).await,
+            "physics-tick" => manual_ticks(&player, &writer, &actions, rest).await,
             "expect" if rest.starts_with("slot ") || rest.starts_with("cursor ") => actions
                 .lock()
                 .await
@@ -233,6 +239,7 @@ async fn pump(
 async fn manual_ticks(
     player: &Mutex<movement::Player>,
     writer: &Writer,
+    actions: &Mutex<actions::State>,
     count: &str,
 ) -> Result<(), String> {
     let count = count
@@ -244,7 +251,8 @@ async fn manual_ticks(
         return Err("physics-tick requires physics manual".into());
     }
     for _ in 0..count {
-        movement::tick(player, writer, movement::Mode::Manual, false).await?;
+        let has_carrot = actions.lock().await.steering_item();
+        movement::tick(player, writer, movement::Mode::Manual, false, has_carrot).await?;
     }
     Ok(())
 }

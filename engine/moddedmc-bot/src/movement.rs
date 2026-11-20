@@ -7,13 +7,13 @@ use pumpkin_data::{
     tag::Block as BlockTag,
 };
 use pumpkin_protocol::{
-    PositionFlag, RawPacket, VarInt,
+    PositionFlag, RawPacket, ServerPacket as _, VarInt,
     codec::lp_vector_3d::LpVector3d,
     java::{
-        client::play::{CPlayerPosition, PlayerSpawnData},
+        client::play::{CMoveVehicle, CPlayerPosition, PlayerSpawnData},
         server::play::{
             Action, FLAG_HORIZONTAL_COLLISION, FLAG_ON_GROUND, SClientTickEnd, SConfirmTeleport,
-            SPlayerCommand, SPlayerPosition,
+            SMoveVehicle, SPaddleBoat, SPlayerCommand, SPlayerPosition, SPlayerRotation,
         },
     },
     ser::{NetworkReadExt as _, NetworkReadSliceExt as _, ReadingError},
@@ -26,13 +26,14 @@ use pumpkin_util::math::{
 use tokio::sync::Mutex;
 
 use crate::{
-    Writer,
+    Writer, actions,
     bot::send_framed_packet,
     collision::{back_off_from_edge, collide},
     controls::{Controls, yaw_sin_cos},
     entities::Entities,
     fluids::{self, Contact, Kind},
     terrain::World,
+    vehicles::Ride,
 };
 
 const GRAVITY: f64 = 0.08;
@@ -60,6 +61,8 @@ pub struct Player {
     pub controls: Controls,
     pub entities: Entities,
     pub vehicle: Option<i32>,
+    driving: bool,
+    ride: Option<Ride>,
     vehicle_position_unknown: bool,
     velocity: Vector3<f64>,
     id: i32,
@@ -130,20 +133,33 @@ impl Player {
             self.on_ground_no_support = false;
             self.swimming = false;
             self.vehicle = None;
+            self.ride = None;
             self.vehicle_position_unknown = false;
         } else if id == p::SET_PASSENGERS.0 {
             let vehicle = bytes.get_var_int()?.0;
             let count = entity_count(&mut bytes)?;
-            let mut riding = false;
-            for _ in 0..count {
-                riding |= bytes.get_var_int()?.0 == self.id;
+            let mut seat = None;
+            for index in 0..count {
+                if bytes.get_var_int()?.0 == self.id {
+                    seat = Some(index);
+                }
             }
-            if riding {
+            if let Some(seat) = seat {
+                let driving = seat == 0;
+                if self.vehicle != Some(vehicle) || driving != self.driving {
+                    self.ride = None;
+                }
                 self.vehicle = Some(vehicle);
+                self.driving = driving;
                 self.vehicle_position_unknown = true;
             } else if self.vehicle == Some(vehicle) {
                 self.vehicle = None;
+                self.ride = None;
             }
+        } else if id == p::MOVE_VEHICLE.0
+            && let Some(ride) = &mut self.ride
+        {
+            ride.correct(&CMoveVehicle::read(&mut bytes, &CURRENT_MC_VERSION)?);
         } else if id == p::REMOVE_ENTITIES.0
             && let Some(vehicle) = self.vehicle
         {
@@ -151,6 +167,7 @@ impl Player {
             for _ in 0..count {
                 if bytes.get_var_int()?.0 == vehicle {
                     self.vehicle = None;
+                    self.ride = None;
                 }
             }
         }
@@ -274,6 +291,27 @@ impl Player {
                 self.vehicle
             ))
         }
+    }
+
+    fn steer(&mut self, has_carrot: bool) -> Option<(SMoveVehicle, Option<SPaddleBoat>)> {
+        use pumpkin_data::entity::EntityType;
+        let id = self.vehicle.filter(|_| self.driving)?;
+        let mount = self.entities.get(id)?;
+        let controlled = mount.kind.boat.is_some()
+            || mount.saddled
+                && (mount.kind.id == EntityType::HORSE.id
+                    || mount.kind.id == EntityType::PIG.id && has_carrot);
+        if !controlled {
+            self.ride = None;
+            return None;
+        }
+        let rotation = self.rotation();
+        self.ride.get_or_insert_with(|| Ride::new(id, mount)).tick(
+            &self.world,
+            &self.entities,
+            &self.controls,
+            rotation,
+        )
     }
 
     fn below(&self) -> BlockStateId {
@@ -659,7 +697,11 @@ pub async fn control(
     clippy::print_stdout,
     reason = "reports tick failure to the scenario runner"
 )]
-pub async fn realtime(player: Arc<Mutex<Player>>, writer: Writer) {
+pub async fn realtime(
+    player: Arc<Mutex<Player>>,
+    writer: Writer,
+    actions: Arc<Mutex<actions::State>>,
+) {
     let mut clock = tokio::time::interval(Duration::from_millis(50));
     clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     clock.tick().await;
@@ -667,12 +709,13 @@ pub async fn realtime(player: Arc<Mutex<Player>>, writer: Writer) {
     loop {
         clock.tick().await;
         heartbeat = (heartbeat + 1) % 20;
-        if let Err(error) = tick(&player, &writer, Mode::Realtime, false).await {
+        let has_carrot = actions.lock().await.steering_item();
+        if let Err(error) = tick(&player, &writer, Mode::Realtime, false, has_carrot).await {
             println!("[bot] error: {error}");
             std::process::exit(2);
         }
         if heartbeat == 0 {
-            let _ = tick(&player, &writer, Mode::Off, true).await;
+            let _ = tick(&player, &writer, Mode::Off, true, false).await;
         }
     }
 }
@@ -682,15 +725,23 @@ pub async fn tick(
     writer: &Writer,
     mode: Mode,
     heartbeat: bool,
+    has_carrot: bool,
 ) -> Result<(), String> {
     let mut writer = writer.lock().await;
-    let (report, sprint, landed, mounted) = {
+    let (report, sprint, landed, look, ride) = {
         let mut player = player.lock().await;
         if player.mode != mode {
             return Ok(());
         }
         if player.vehicle.is_some() {
-            (None, None, None, true)
+            let look = (mode != Mode::Off).then(|| SPlayerRotation {
+                yaw: player.yaw,
+                pitch: player.pitch,
+                ground: player.on_ground,
+                horizontal_collision: player.horizontal_collision,
+            });
+            let ride = look.as_ref().and_then(|_| player.steer(has_carrot));
+            (None, None, None, look, ride)
         } else if player.vehicle_position_unknown {
             if mode == Mode::Manual {
                 return Err("local physics needs a position update after dismounting".into());
@@ -707,7 +758,8 @@ pub async fn tick(
                 }),
                 None,
                 None,
-                false,
+                None,
+                None,
             )
         } else {
             let was_sprinting = player.controls.sprinting;
@@ -726,7 +778,7 @@ pub async fn tick(
             } else {
                 None
             };
-            (report, sprint, landed, false)
+            (report, sprint, landed, None, None)
         }
     };
     if let Some(sprint) = sprint {
@@ -735,9 +787,17 @@ pub async fn tick(
     if let Some(landed) = landed {
         send_framed_packet(&mut *writer, &landed).await?;
     }
-    if let Some(report) = report {
+    if let Some(look) = look {
+        if let Some((_, Some(paddles))) = &ride {
+            send_framed_packet(&mut *writer, paddles).await?;
+        }
+        send_framed_packet(&mut *writer, &look).await?;
+        if let Some((movement, _)) = ride {
+            send_framed_packet(&mut *writer, &movement).await?;
+        }
+    } else if let Some(report) = report {
         send_framed_packet(&mut *writer, &report).await?;
-    } else if mode == Mode::Manual && !mounted {
+    } else if mode == Mode::Manual {
         return Err("cannot tick physics before the bot receives its current chunk".into());
     }
     send_framed_packet(&mut *writer, &SClientTickEnd).await
@@ -792,6 +852,9 @@ mod tests {
         };
         player.observe_motion(p::SET_PASSENGERS.0, &[9, 2, 2, 5])?;
         assert_eq!(player.vehicle, Some(9));
+        assert!(!player.driving);
+        player.observe_motion(p::SET_PASSENGERS.0, &[9, 2, 5, 2])?;
+        assert!(player.driving);
         player.observe_motion(p::SET_PASSENGERS.0, &[10, 1, 2])?;
         assert_eq!(player.vehicle, Some(9));
         player.observe_motion(p::SET_PASSENGERS.0, &[9, 1, 2])?;

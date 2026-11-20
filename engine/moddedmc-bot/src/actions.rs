@@ -24,6 +24,11 @@ pub struct State {
 }
 
 impl State {
+    pub fn steering_item(&self) -> bool {
+        self.inventory
+            .holds(&pumpkin_data::item::Item::CARROT_ON_A_STICK)
+    }
+
     pub fn observe(&mut self, kind: i32, mut payload: &[u8]) -> Result<(), String> {
         let inventory_payload = payload;
         match PacketId(kind) {
@@ -196,13 +201,9 @@ pub async fn perform(
             send_framed_packet(&mut *writer, &packet).await
         }
         ("hotbar", [slot]) => {
-            send(
-                writer,
-                &SSetHeldItem {
-                    slot: hotbar_slot(slot)?,
-                },
-            )
-            .await
+            let slot = hotbar_slot(slot)?;
+            state.lock().await.inventory.select(slot);
+            send(writer, &SSetHeldItem { slot }).await
         }
         ("inventory-close", []) => {
             let packet = state.lock().await.close()?;

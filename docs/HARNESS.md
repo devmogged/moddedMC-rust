@@ -132,7 +132,7 @@ Capture excludes block acknowledgement tokens, keepalive and ping traffic, bundl
 
 **Player actions.** Use `bot alice move x y z` for absolute feet coordinates and `bot alice look yaw pitch` for rotation in degrees. `bot alice attack minecraft:pig x y z` selects one visible entity by its type and spawn anchor within `1e-6` on each axis. Missing or ambiguous targets fail the step.
 
-`bot alice interact minecraft:oak_boat x y z main` right-clicks a visible entity using the same spawn anchor. Use `expect riding minecraft:oak_boat` to check the client's passenger list and `input sneak` to dismount. `expect riding none` verifies the dismount. Vehicle steering and mounted position prediction are pending. Wait for a position update, or teleport explicitly, before resuming local movement assertions after dismounting.
+`bot alice interact minecraft:oak_boat x y z main` right-clicks a visible entity using the same spawn anchor. Use `expect riding minecraft:oak_boat` to check the client's passenger list and `input sneak` to dismount. `expect riding none` verifies the dismount. With local physics enabled, the controlling passenger steers boats and saddled horses with the directional keys. A saddled pig moves in the rider's look direction while the rider holds a carrot on a stick. Check accepted vehicle movement with a server probe. Wait for a position update, or teleport explicitly, before resuming the bot's own position assertions after dismounting.
 
 Use `bot alice use 2 151 1 west main` to click the middle of the west face. The defaults are `up main`. Either hand, `main` or `off`, also works with `use-item` for items used in air. Hit targets are explicit so a test can exercise exact placement without camera ray picking.
 
