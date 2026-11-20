@@ -1,0 +1,81 @@
+# WS-2: player placement of pipe, glass pipe and pump (FluidPipeBlock).
+# Does not prove fluid transfer; only placement callback, block id and persistence.
+mods target\mods\create.mmc
+start
+expect registered content block create:fluid_pipe \(128 states\)
+expect registered content block create:mechanical_pump \(12 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 5
+cmd fill 1020 99 1018 1031 105 1030 minecraft:air
+cmd fill 1023 99 1023 1029 99 1028 minecraft:stone
+wait 1
+cmd item replace entity tester weapon.mainhand with create:fluid_pipe
+wait 0.5
+bot place 1025 99 1025
+wait 0.5
+cmd data get block 1025 100 1025
+expect 1025, 100, 1025 has the following block data: .*create:fluid_pipe
+cmd item replace entity tester weapon.mainhand with create:fluid_pipe
+wait 0.5
+bot place 1026 99 1025
+wait 0.5
+cmd data get block 1026 100 1025
+expect 1026, 100, 1025 has the following block data: .*create:fluid_pipe
+cmd item replace entity tester weapon.mainhand with create:glass_fluid_pipe
+wait 0.5
+bot place 1027 99 1025
+wait 0.5
+cmd data get block 1027 100 1025
+expect 1027, 100, 1025 has the following block data: .*create:glass_fluid_pipe
+cmd item replace entity tester weapon.mainhand with create:mechanical_pump
+wait 0.5
+bot place 1028 99 1025
+wait 0.5
+cmd data get block 1028 100 1025
+expect 1028, 100, 1025 has the following block data: .*create:mechanical_pump
+# Exact custom block states, beyond the stock client's note-block carrier.
+cmd fluidpipe 1025 100 1025
+wait 0.5
+expect create:fluid_pipe\[.*west=true,east=true,waterlogged=false\] at 1025 100 1025
+cmd fluidpipe 1026 100 1025
+wait 0.5
+expect create:fluid_pipe\[.*west=true,east=true,waterlogged=false\] at 1026 100 1025
+cmd fluidpipe 1027 100 1025
+wait 0.5
+expect create:glass_fluid_pipe\[axis=y,alt=false,waterlogged=false\] at 1027 100 1025
+cmd fluidpipe 1028 100 1025
+wait 0.5
+expect create:mechanical_pump\[facing=up,waterlogged=false\] at 1028 100 1025
+bot quit
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 4
+cmd data get block 1025 100 1025
+expect 1025, 100, 1025 has the following block data: .*create:fluid_pipe
+cmd data get block 1026 100 1025
+expect 1026, 100, 1025 has the following block data: .*create:fluid_pipe
+cmd data get block 1027 100 1025
+expect 1027, 100, 1025 has the following block data: .*create:glass_fluid_pipe
+cmd data get block 1028 100 1025
+expect 1028, 100, 1025 has the following block data: .*create:mechanical_pump
+cmd fluidpipe 1025 100 1025
+wait 0.5
+expect create:fluid_pipe\[.*west=true,east=true,waterlogged=false\] at 1025 100 1025
+cmd fluidpipe 1027 100 1025
+wait 0.5
+expect create:glass_fluid_pipe\[axis=y,alt=false,waterlogged=false\] at 1027 100 1025
+cmd fluidpipe 1028 100 1025
+wait 0.5
+expect create:mechanical_pump\[facing=up,waterlogged=false\] at 1028 100 1025
+reject (?i)panicked|trapped|failed to register
+bot quit
+stop

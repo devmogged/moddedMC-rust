@@ -176,6 +176,21 @@ impl Mod for Create {
                     number(Some(1), "z", -30_000_000, 30_000_000, Some(0)),
                     number(Some(2), "rpm", -MAX_SPEED, MAX_SPEED, Some(1)),
                 ],
+            )?;
+        // WS-2: read Create's exact pipe state for behavioral scenarios.
+        COMMANDS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add(
+                registry,
+                "fluidpipe",
+                "Inspect the registered state of a Create fluid pipe or pump",
+                2,
+                &[
+                    number(None, "x", -30_000_000, 30_000_000, None),
+                    number(Some(0), "y", -2_048, 2_047, None),
+                    number(Some(1), "z", -30_000_000, 30_000_000, Some(200)),
+                ],
             )
     }
 
@@ -190,10 +205,18 @@ impl Mod for Create {
         ) else {
             return 0;
         };
-        let (Some(world), Some(states)) = (content.command_world(&command), states()) else {
+        let Some(world) = content.command_world(&command) else {
             return 0;
         };
         let pos = Pos { x, y, z };
+        if tag == 200 {
+            match fluids::runtime::inspect(world, pos) {
+                Some(selector) => command.reply(&format!("{selector} at {x} {y} {z}")),
+                None => command.reply("There is no loaded Create fluid block at that position"),
+            }
+            return 1;
+        }
+        let Some(states) = states() else { return 0 };
         let mut state = [0];
         if !world.read(&[pos], &mut state) {
             return 0;
@@ -710,6 +733,10 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     if usize::from(args.face) >= FACES.len() {
         return None;
     }
+    // WS-2 fluid blocks choose connected faces, axis, and waterlogged state.
+    if let Some(state) = fluids::runtime::placed_state(&args) {
+        return Some(state);
+    }
     let states = states()?;
     if states.chutes.contains_key(&args.state) {
         return chute::placed_state(args, states);
@@ -1012,6 +1039,8 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
     with_world(world, |kinetics| {
         let mut level = WorldLevel { world, states };
         for event in events {
+            // WS-2: recalculate fluid pipe faces when adjacent blocks change.
+            fluids::runtime::event(world, event);
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
             funnel::event(world, &mut kinetics.funnels, states, event);

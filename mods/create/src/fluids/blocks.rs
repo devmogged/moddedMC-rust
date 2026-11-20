@@ -3,7 +3,7 @@
 
 use moddedmc_api::{
     RegistrationError, Registry,
-    content::{Block, Content, ShapeBox, State},
+    content::{Block, Content, Place, ShapeBox, State},
 };
 
 const PIPE: &str = "create:fluid_pipe";
@@ -50,12 +50,12 @@ pub struct PipeState {
 }
 
 impl PipeState {
-    fn from_mask(mask: u8, wet: bool) -> Self {
+    pub(super) fn from_mask(mask: u8, wet: bool) -> Self {
         let openings = std::array::from_fn(|i| (mask & (1 << i)) != 0);
         Self { openings, wet }
     }
 
-    fn properties(self, waterlogged: bool) -> String {
+    pub(super) fn properties(self, waterlogged: bool) -> String {
         let [down, up, north, south, west, east] = self.openings;
         let connections =
             format!("down={down},up={up},north={north},south={south},west={west},east={east}");
@@ -116,7 +116,7 @@ fn register_block(
             item_model: model,
             states: &states,
         },
-        None,
+        (id != ENCASED_PIPE).then_some(crate::placed_state as Place),
     )
 }
 
