@@ -97,6 +97,7 @@ async fn main() {
                 .layer(DefaultBodyLimit::max(mods::MAX_MOD)),
         )
         .route("/v1/builds", get(builds::list))
+        .route("/v1/shutdown", post(shutdown))
         .route(
             "/v1/builds/{id}",
             post(builds::upload).layer(DefaultBodyLimit::max(builds::MAX_UPLOAD)),
@@ -145,6 +146,24 @@ async fn main() {
         info!("stopping managed servers");
         app.servers.stop_all().await;
     }
+}
+
+/// `POST /v1/shutdown`, from the app on this machine when it quits: stop every server and the
+/// playit this agent started, then exit.
+async fn shutdown(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<SocketAddr>,
+) -> axum::http::StatusCode {
+    if !peer.ip().is_loopback() {
+        return axum::http::StatusCode::FORBIDDEN;
+    }
+    tokio::spawn(async move {
+        info!("shutting down: stopping managed servers");
+        app.servers.stop_all().await;
+        playit::stop_started();
+        std::process::exit(0);
+    });
+    axum::http::StatusCode::ACCEPTED
 }
 
 /// A child program that gets no console window: the app starts the agent detached on Windows,

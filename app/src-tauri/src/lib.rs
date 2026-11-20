@@ -13,7 +13,57 @@ mod ping;
 mod runtime;
 mod store;
 
-use tauri::Manager;
+use tauri::{
+    Manager, WindowEvent,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
+
+fn show_main(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Closing the window keeps the app in the tray so servers stay up; Quit in the tray menu stops
+/// the servers and everything else, then exits.
+fn tray(app: &tauri::App) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "Open moddedMC", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit and stop servers", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let mut builder = TrayIconBuilder::new()
+        .tooltip("moddedMC")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main(app),
+            "quit" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    runtime::agent_shutdown().await;
+                    app.exit(0);
+                });
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
 
 pub fn run() {
     let result = tauri::Builder::default()
@@ -30,7 +80,14 @@ pub fn run() {
             app.manage(devices::Tunnels::default());
             app.manage(console::Consoles::default());
             app.manage(join::JoinLock::default());
+            tray(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             devices::devices_list,

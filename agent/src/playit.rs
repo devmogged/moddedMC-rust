@@ -134,6 +134,16 @@ fn playit_running() -> bool {
     })
 }
 
+/// The playit this agent started, stopped again when the app quits. A playit the user runs
+/// themselves is left alone.
+static STARTED: std::sync::Mutex<Option<tokio::process::Child>> = std::sync::Mutex::new(None);
+
+pub fn stop_started() {
+    if let Some(mut child) = STARTED.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        let _ = child.start_kill();
+    }
+}
+
 /// Starts playit if a tunnel points at `port` and it isn't running yet. It keeps running after
 /// the server stops, like playit's own app; its log is `playit.log` in the agent's folder.
 pub async fn ensure_for(port: u16) {
@@ -157,7 +167,10 @@ pub async fn ensure_for(port: u16) {
         .stderr(err)
         .spawn()
     {
-        Ok(child) => info!("started playit (pid {:?})", child.id()),
+        Ok(child) => {
+            info!("started playit (pid {:?})", child.id());
+            *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+        }
         Err(e) => warn!("cannot start playit: {e}"),
     }
 }

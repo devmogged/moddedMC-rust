@@ -292,3 +292,13 @@ pub async fn agent_ensure(app: AppHandle) -> Result<(), String> {
     }
     Err("The agent started but isn't answering. See runtime/agent.log.".into())
 }
+
+/// Ask this PC's agent to stop every server (and the playit it started) and exit. Used when the
+/// app quits, so nothing keeps running behind it.
+pub async fn agent_shutdown() {
+    let _ = crate::agent::http()
+        .post(format!("http://{AGENT_ADDR}/v1/shutdown"))
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await;
+}
