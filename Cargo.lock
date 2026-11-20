@@ -209,6 +209,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-central-kitchen"
+version = "0.1.0"
+
+[[package]]
 name = "create-enchantment-industry"
 version = "0.1.0"
 dependencies = [

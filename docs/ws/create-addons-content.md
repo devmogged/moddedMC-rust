@@ -67,3 +67,11 @@ The 43.6 KB original LGPL license is shipped in `LICENSE.md`; original asset fil
 ## Five-mod coexistence
 
 Using the published release jars as local asset inputs, a scratch `p1a-create.txt` loaded five independently packaged native mods simultaneously: `create.mmc`, `create-more-recipes.mmc`, `createaddition.mmc`, `create-new-age.mmc` and `create-enchantment-industry.mmc`. On WS-4 port 26048 with the pinned shared engine, all original Create P1a assertions passed: motor placement, 1:1 and 1:2 signed gear transmission, changing 16 to 24 RPM, save/restart returning correct 24 and 48 RPM, shaft break stopping the output line, and resource-pack handshake. All mods loaded without reported registration panic. This does not prove full addon mechanic coexistence; most processing and electricity are not yet wired. Evidence: `N:/mmc-coord/notes/WS-4-five-mods-p1a.log`. Scratch run removed.
+
+## Central Kitchen 2.6.2b RecipeUnpacking kernel
+
+Confirmed published 2.6.2b NeoForge Minecraft 1.21.1 binary contains `plus.dragons.createcentralkitchen.common.packager.RecipeUnpacking` with the `plan`, `finish`, `aggregate`, `orderPattern`, `multiplier`, `units`, recursive `assign` and nested `Plan.apply` methods, verified by `javap -p`. The current public source checkout declares 2.6.2b and was followed method by method. The complete original LGPL-3.0-or-later license is stored in the addon crate.
+
+New logic-only `mods/create-central-kitchen/src/recipe_unpacking.rs` models complete package planning and atomic inventory insertion for up to 9 slots: source-preferred order context; equal-count occupied slots; one-unit layout before uniform bulk batches; overlapping ingredient matching with bitmask memo; component-aware merging; fail-closed overflow; and `Plan.apply` preflight before mutation. A test inventory implements the relevant `IItemHandler` operations.
+
+`cargo test -p create-central-kitchen` passed 9/9, formatting and strict Clippy passed. This is only an `rlib`, no runtime content, recipes or native package. The actual Create packager and Farmer's Delight cooking bridges require inter-mod services and recipe/inventory callbacks; this module must not be described as a playable addon or parity-complete. Original NeoForge oracle, persisted world/bot scenarios and hot-path performance still pending.
