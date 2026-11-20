@@ -28,6 +28,16 @@ Host commit `457266d` supplies `World::block_entity` and `restore_block_entity`.
 
 Normal writes over a captured chest and furnace scattered two stacks on pickup and restored the same stacks on disassembly. Host commit `2fa8192` adds `UPDATE_MOVED`, which replaces the block without running the inventory scatter callback. The bearing storage scenario checks zero loose items and verifies the two stacks after a full restart and disassembly.
 
+## Moving content block events
+
+Add a `MOVED_STATE_CHANGED` content event reason for replacements made with `UPDATE_MOVED`. Preserve the position and previous and new state ids. Mods need to distinguish a moved removal from a break to detach kinetics without ejecting inventory or tearing down adjacent belt segments. `BeltBlock.onRemove` checks `isMoving` before chain destruction. The current `STATE_CHANGED` reason loses that information.
+
+## Piston use and break hooks
+
+`UseBlock::may_build() -> bool` should expose vanilla `Player.mayBuild()`. `MechanicalPistonBlock.useItemOn` checks it before assembling or turning a piston sticky. The current callback can still run for Adventure players, and `creative=false` also describes Survival players.
+
+`Interaction::on_player_will_destroy(reg, callback)` should call the owning content block synchronously before a player destroys it, with `(world: WorldRef, player: EntityRef, position: Pos, state: u32, creative: bool)`. Call after the engine accepts the break and before replacing the block. Creative and survival have different drop rules, and `MechanicalPistonBlock`, `MechanicalPistonHeadBlock` and `PistonExtensionPoleBlock` inspect the intact pole chain at that point.
+
 ## Clockwork time
 
 `World::day_time() -> Option<(i64, bool)>` returns the world's current Minecraft day time and the dimension's `natural` flag. Clockwork bearings use day time for both hands and multiply it by 24 in non-natural dimensions. The content tick's server-wide count does not reflect `/time set` or a paused daylight cycle.
@@ -45,6 +55,8 @@ Seat support also needs `Entity::start_riding(vehicle, force) -> bool` and `Enti
 ## Contraption actor hardness
 
 `World::destroy_speed(pos) -> Option<f32>` returns the loaded block state's hardness with vanilla's negative value for unbreakable blocks. Moving drills read it both to reject unbreakable blocks and to calculate breaking progress while the contraption stalls.
+
+Contraption actors also need to collect loot before it becomes item entities. `World::block_drops(pos, tool_stack_nbt: Option<&[u8]>) -> Option<Vec<Vec<u8>>>` rolls the vanilla block loot table for the loaded state and block entity with the supplied tool, without replacing the block or spawning drops. `None` for the tool uses an empty stack. The harvester needs to subtract one planting item before sending the drops to mounted storage or spawning them. The existing `World::destroy(pos, true)` spawns drops immediately and cannot do either.
 
 ## Contraption entity queries
 
