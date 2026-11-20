@@ -36,6 +36,14 @@ M0 is documentation only, so it has no in-game behavior to exercise. Verified JA
 
 Port the easiest passive materials and structural blocks from the 2.2.4 methods first, with their actual templates and state properties. Then add active items only after tracing their complete `use`, `useOn`, `hurtEnemy`, projectile/effect and stack/NBT methods. Use a test scenario per player-visible slice, with restart for stateful mechanics; compare outcomes against NeoForge 1.21.1 v2.2.4 before claiming parity. Never fake abilities as basic vanilla items. No inherited private assets in the public tree.
 
+## M1 progress: 24 passive materials (checkpoint, not full M1)
+
+Created `mods/legendary-monsters/` as an independent native Rust cdylib crate, with `.mmc` id `legendary-monsters` and original content namespace `legendary_monsters:`. It registers 24 `ModItems.java` entries whose source constructors contain only default vanilla properties or `fireResistant()` (five items). Vanilla item carrier types handle max stack 64 and fire resistance without reimplementing item handling. Exactly 24 corresponding model JSON paths were confirmed in the original 2.2.4 JAR; no texture, model, recipe, loot, language or NBT files are checked in. The packaged crate contains a license/provenance notice.
+
+Verification completed: source registration/property audit for all 24 selected IDs; `cargo fmt --package legendary-monsters --check`, `cargo clippy -p legendary-monsters --all-targets -- -D warnings`, `cargo test -p legendary-monsters` (0 unit tests, since no algorithmic stateful logic was added), and `scripts/pack-mod.ps1 -Crate legendary-monsters`. The Windows .mmc archive contains `mod.json`, the native DLL and license notice. Scenario `tests/scenarios/legendary-monsters-materials.txt` covers registration, two /give actions and stack persistence across a restart but remains **unrun** until the shared server and bot are published. No Java differential fixture has been run. **Do not call this milestone accepted.**
+
+Remaining M1: the other explicit item IDs, item models in a legally supplied local asset source, original datapack recipes and loot usage, block registration, tools, equipment, food, action callbacks and their oracle-based scenarios. Property parity is limited by the vanilla carrier's other metadata and must be tested; custom rarity and foods are deliberately omitted.
+
 ## Later order
 
 M2: **ordinary mobs** with spawn criteria, AI, attacks, drops and persistent state, one per verified step. M3: bosses, phases, linked projectiles and boss bars, one at a time. M4: structures, template pool selection, placement and cross-version worldgen checks once E2 is available. Use WS-6 ports **26060–26069**, shared binaries only, no engine build.

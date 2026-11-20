@@ -1,0 +1,37 @@
+# WS-6 M1: passive material registration and vanilla stack carriers from 2.2.4.
+# Requires the shared server/bot binaries and the locally installed original assets for visuals.
+# Run scripts/scenario.ps1 -Scenario tests/scenarios/legendary-monsters-materials.txt -RunDir run/legendary-monsters-m1 -Port 26060 -Fresh
+mods target\mods\legendary-monsters.mmc
+start
+expect registered content item legendary_monsters:dinosaur_bone
+expect registered content item legendary_monsters:withered_bone
+expect registered content item legendary_monsters:chorus_crystal
+expect registered content item legendary_monsters:frozen_rune
+expect registered content item legendary_monsters:large_shulker_shell
+expect registered content item legendary_monsters:nature_crystal
+expect registered content item legendary_monsters:void_gem
+expect registered content item legendary_monsters:metal_debris
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd give tester legendary_monsters:dinosaur_bone 2
+wait 1
+expect Gave 2 .*Dinosaur Bone
+cmd give tester legendary_monsters:chorus_crystal 4
+wait 1
+expect Gave 4 .*Chorus Crystal
+bot quit
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd clear tester legendary_monsters:dinosaur_bone 0
+wait 1
+expect Found 2 matching item
+cmd clear tester legendary_monsters:chorus_crystal 0
+wait 1
+expect Found 4 matching item
+reject ERROR|panicked|Unknown item
+bot quit
+stop
