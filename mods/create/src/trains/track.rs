@@ -1,6 +1,6 @@
 //! TrackShape and TrackBlock placement/overlay rules from Create 6.0.10.
 
-use super::graph::Vec3;
+use super::math::Vec3;
 
 const NORTH: Vec3 = vec3(0.0, 0.0, -1.0);
 const SOUTH: Vec3 = vec3(0.0, 0.0, 1.0);
@@ -35,7 +35,7 @@ static TRACK_AXES: [&[Vec3]; 19] = [
 ];
 
 /// The enum mirrors TrackShape.java's serialized blockstate values.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(usize)]
 pub(super) enum TrackShape {
     None,
@@ -88,10 +88,12 @@ impl TrackShape {
         TRACK_AXES[self as usize]
     }
 
+    #[cfg(test)]
     pub fn is_junction(self) -> bool {
         self.axes().len() > 1
     }
 
+    #[cfg(test)]
     pub fn is_portal(self) -> bool {
         matches!(
             self,
@@ -99,6 +101,7 @@ impl TrackShape {
         )
     }
 
+    #[cfg(test)]
     pub fn normal(self) -> Vec3 {
         match self {
             Self::AscendingNorth => vec3(0.0, 1.0, 1.0).normalized(),
@@ -110,6 +113,7 @@ impl TrackShape {
     }
 
     /// Create TrackShape.zMirror table, including cross-shaped overlays.
+    #[cfg(test)]
     pub fn mirror_z(self) -> Self {
         use TrackShape as T;
         match self {
@@ -126,6 +130,7 @@ impl TrackShape {
     }
 
     /// Create TrackShape.xMirror table.
+    #[cfg(test)]
     pub fn mirror_x(self) -> Self {
         use TrackShape as T;
         match self {
@@ -142,6 +147,7 @@ impl TrackShape {
     }
 
     /// One 90-degree clockwise rotation, using Create TrackShape.clockwise.
+    #[cfg(test)]
     pub fn rotate_clockwise(self) -> Self {
         use TrackShape as T;
         match self {
@@ -225,6 +231,7 @@ pub(super) fn select_placement_shape(
 }
 
 /// TrackBlock.overlay combines independently oriented rails at a junction.
+#[cfg(test)]
 pub(super) fn overlay(existing: TrackShape, placed: TrackShape) -> TrackShape {
     use TrackShape as T;
     match (existing, placed) {

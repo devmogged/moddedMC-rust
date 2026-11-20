@@ -146,7 +146,7 @@ pub(super) fn discover_graph(
 
 #[cfg(test)]
 mod tests {
-    use super::super::graph::Vec3;
+    use super::super::math::Vec3;
     use super::*;
     use std::collections::{HashMap, HashSet};
 

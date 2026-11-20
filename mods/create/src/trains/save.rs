@@ -4,7 +4,8 @@
 
 use super::{
     curve::CurveRecord,
-    graph::{TrackGraph, TrackNodeLocation, Vec3},
+    graph::{TrackGraph, TrackNodeLocation},
+    math::Vec3,
 };
 use fastnbt::{IntArray, Value};
 use serde::{Deserialize, Serialize};

@@ -1,7 +1,7 @@
 //! NBT for Create 6.0.10 BezierConnection.write/read(BlockPos.ZERO).
 //! Catnip VecHelper encodes each vector as a compound with a V list of doubles.
 
-use super::{bezier::BezierGeometry, graph::Vec3};
+use super::{bezier::BezierGeometry, math::Vec3};
 use fastnbt::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

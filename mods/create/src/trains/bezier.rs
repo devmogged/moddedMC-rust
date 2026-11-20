@@ -1,7 +1,7 @@
 //! Create 6.0.10's BezierConnection.Runtime geometry. The input axes point
 //! inward from each endpoint (the final curve tangent is opposite the second).
 
-use super::graph::Vec3;
+use super::math::Vec3;
 use std::f64::consts::PI;
 
 #[derive(Clone, Debug)]
