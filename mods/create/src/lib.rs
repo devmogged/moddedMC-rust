@@ -122,6 +122,8 @@ impl Mod for Create {
         depot::register(*content, registry)?;
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
+        // WS-2 Create fluids
+        fluids::blocks::register(*content, registry)?;
         ITEMS
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?

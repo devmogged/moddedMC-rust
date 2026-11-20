@@ -1,5 +1,6 @@
 //! Create 6.0.10 fluid transport, pressure, pipes and machines.
 
+pub mod blocks;
 pub mod connection_nbt;
 pub mod flow_source;
 pub mod network;
