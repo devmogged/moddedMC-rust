@@ -63,7 +63,7 @@ impl CookingIngredient {
 use serde::Deserialize;
 
 pub const INPUT_SLOTS: usize = 6;
-pub const DEFAULT_COOK_TIME: u32 = 200;
+pub const DEFAULT_COOK_TIME: i32 = 200;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -91,10 +91,10 @@ pub struct CookingPotRecipe {
     #[serde(default)]
     pub experience: f32,
     #[serde(default = "default_cook_time")]
-    pub cookingtime: u32,
+    pub cookingtime: i32,
 }
 
-const fn default_cook_time() -> u32 {
+const fn default_cook_time() -> i32 {
     DEFAULT_COOK_TIME
 }
 
