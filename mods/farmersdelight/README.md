@@ -40,6 +40,24 @@ wired up yet: tool wear, item-ability queries, and block inventory capability
 need the generic host interfaces requested in `WS-1-03`. Compiling this recipe
 layer does **not** mean the cutting board works in Survival yet.
 
+## Cooking-pot recipe matcher (source verified, not active gameplay)
+
+`src/cooking.rs` decodes the original 28 `farmersdelight:cooking` recipes from
+`tests/fixtures/cooking/`, copied byte-for-byte from the MIT 1.3.4 upstream
+release. It ports `CookingPotRecipe.matches`: exactly the same number of
+nonempty slots as ingredients and one-to-one, order-independent assignment
+across six slots. The bounded backtracking matcher correctly handles duplicate
+items, overlapping item tags and the original NeoForge 1.21.1 compound (OR)
+and difference (base-minus-subtracted) ingredient types. It preserves the
+source's recipe-book tab, cooking time, experience and explicit container
+remainder, without inventing the implicit output crafting remainder.
+
+Eight unit tests validate all 28 original JSON fixtures, duplicates, tags,
+compound/difference rules, invalid definitions and source defaults. A live
+cooking pot, burn/cooking ticks, containers, menus, experience and item use
+are **not implemented**. This module is source-verified infrastructure for
+that work, not a registered cooking gameplay feature.
+
 ## Cutting-board inventory and persistence (tested logic, not active gameplay)
 
 `src/cutting_board.rs` implements the original one-slot inventory's stack
