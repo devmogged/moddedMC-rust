@@ -98,11 +98,51 @@ async fn manifest() -> Result<Manifest, String> {
     serde_json::from_slice(&bytes).map_err(|_| "The release list is damaged.".into())
 }
 
+/// Development builds with no release to download from install the server and agent built in
+/// this checkout instead (`MODDEDMC_DEV_SERVER` / `MODDEDMC_DEV_AGENT` override the paths).
+#[cfg(debug_assertions)]
+async fn install_local(dir: &Path) -> Option<String> {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let target = option_env!("CARGO_TARGET_DIR").map_or_else(|| repo.join("target"), PathBuf::from);
+    let pick = |var: &str, candidates: Vec<PathBuf>| {
+        std::env::var_os(var)
+            .map(PathBuf::from)
+            .into_iter()
+            .chain(candidates)
+            .find(|p| p.is_file())
+    };
+    let server = pick(
+        "MODDEDMC_DEV_SERVER",
+        vec![
+            repo.join("engine/target/pack/pack-dev.exe"),
+            repo.join("engine/target/release/pack-dev.exe"),
+            target.join("../engine/target/pack/pack-dev.exe"),
+        ],
+    )?;
+    let agent = pick(
+        "MODDEDMC_DEV_AGENT",
+        vec![target.join("debug/moddedmc-agent.exe")],
+    )?;
+    tokio::fs::create_dir_all(dir).await.ok()?;
+    tokio::fs::copy(server, exe(dir, "server")).await.ok()?;
+    tokio::fs::copy(agent, exe(dir, "agent")).await.ok()?;
+    tokio::fs::write(dir.join("version.txt"), "dev")
+        .await
+        .ok()?;
+    Some("dev".into())
+}
+
 #[tauri::command]
 pub async fn runtime_status(app: AppHandle) -> Result<Status, String> {
     let dir = dir(&app)?;
-    let installed = installed(&dir).await;
-    Ok(match manifest().await {
+    #[allow(unused_mut)]
+    let mut installed = installed(&dir).await;
+    let latest = manifest().await;
+    #[cfg(debug_assertions)]
+    if installed.is_none() && latest.is_err() {
+        installed = install_local(&dir).await;
+    }
+    Ok(match latest {
         Ok(m) => Status {
             installed,
             latest: Some(m.version),
