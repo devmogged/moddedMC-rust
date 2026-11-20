@@ -17,6 +17,8 @@ Release each table with the first port that needs it and pin its version. Preser
 
 ## 2. Saint's Dragons
 
+The slice and its interfaces are in [P2-DRAGONS.md](P2-DRAGONS.md).
+
 - **Entities and basic AI operations.** Register a real entity type with persistent state, attributes, dimensions, collision and spawn rules. Expose bounded queries, navigation, movement, targeting, riders and interaction hooks. Run mod AI in ordered entity ticks with declared world and entity reach. The engine owns movement, replication and saves.
 - **Companion models and rider input.** Negotiate capabilities, deliver model and animation assets, and send entity animation and state updates. Use a versioned client-to-server message for rider input, checked against the sender and mount. Start with one dragon that spawns, flies, can be ridden and survives restart. Add items and biome or structure spawns through the shared registries and worldgen path as needed. [Saint's Dragons project](https://modrinth.com/mod/saints-dragons)
 
