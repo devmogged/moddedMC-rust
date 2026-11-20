@@ -48,7 +48,11 @@ impl InventoryStore {
         use std::collections::hash_map::Entry;
 
         match self.inventories.entry(identity) {
-            Entry::Occupied(occupied) => occupied.into_mut(),
+            Entry::Occupied(occupied) => {
+                // The returned reference permits slot changes; a saved inventory must become dirty.
+                self.dirty = true;
+                occupied.into_mut()
+            }
             Entry::Vacant(vacant) => {
                 let contents = initial_contents();
                 self.has_inventories = true;
@@ -200,6 +204,18 @@ mod tests {
         data.get_or_create(ALICE, || vec![Some(vec![8])]);
         let stored = data.get_or_create(ALICE, || panic!("must not roll loot again"));
         assert_eq!(stored[0], Some(vec![8]));
+    }
+
+    #[test]
+    fn editing_a_saved_inventory_on_reopen_marks_the_store_dirty() {
+        let mut data = InventoryStore::default();
+        data.get_or_create(ALICE, || vec![Some(vec![1])]);
+        data.mark_saved();
+        assert!(!data.dirty());
+
+        data.get_or_create(ALICE, || panic!("must not regenerate loot"))[0] = None;
+        assert!(data.dirty());
+        assert_eq!(data.get(ALICE).unwrap()[0], None);
     }
 
     #[test]
