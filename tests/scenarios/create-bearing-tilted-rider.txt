@@ -1,0 +1,49 @@
+# Bearings rotating about X and Z lift armor stands off their initial support height.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2523.5 100 2523.5
+wait 2
+cmd fill 2516 98 2515 2526 98 2525 minecraft:stone
+cmd fill 2516 99 2515 2526 106 2525 minecraft:air
+cmd setblock 2519 101 2520 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2519 101 2520 0
+cmd setblock 2520 101 2520 create:mechanical_bearing[facing=east]
+cmd fill 2521 101 2519 2521 101 2520 minecraft:slime_block
+cmd setblock 2521 101 2518 minecraft:cobblestone
+cmd summon minecraft:armor_stand 2521.5 102 2518.5
+wait 0.5
+cmd kinetics 2519 101 2520 6
+# About 32 degrees around the X axis. The stand rises over a block as the support tilts.
+wait 0.9
+bot expect entity minecraft:armor_stand near 2521.5 103.03 2519.07 within 0.45 count 1
+bot expect entity minecraft:block_display near 2521.5 101.5 2520.5 within 0.05 count 3
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:armor_stand
+expect ^\[bot\] expect entity ok minecraft:block_display
+cmd kinetics 2519 101 2520 0
+
+cmd tp tester 2543.5 100 2543.5
+wait 1
+cmd fill 2536 98 2535 2546 98 2547 minecraft:stone
+cmd fill 2536 99 2535 2546 106 2547 minecraft:air
+cmd setblock 2540 101 2539 create:creative_motor[facing=south]
+wait 0.5
+cmd kinetics 2540 101 2539 0
+cmd setblock 2540 101 2540 create:mechanical_bearing[facing=south]
+cmd fill 2540 101 2541 2541 101 2541 minecraft:slime_block
+cmd setblock 2542 101 2541 minecraft:cobblestone
+cmd summon minecraft:armor_stand 2542.5 102 2541.5
+wait 0.5
+cmd kinetics 2540 101 2539 6
+wait 0.9
+bot expect entity minecraft:armor_stand near 2541.93 103.03 2541.5 within 0.45 count 1
+bot expect entity minecraft:block_display near 2540.5 101.5 2541.5 within 0.05 count 3
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:armor_stand
+expect ^\[bot\] expect entity ok minecraft:block_display
+reject (?i)panicked|trapped|\[bot\] error
+stop
