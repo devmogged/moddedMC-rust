@@ -12,7 +12,7 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CONTENT, DIRECTIONS, STONE, StateIds,
+    CONTENT, DIRECTIONS, STONE, StateIds, collider,
     contraption::{
         BlockMovementChecks, Blocks, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES, PaletteEntry,
         StructureTransform,
@@ -511,6 +511,7 @@ impl GantryContraption {
         {
             return self.disassemble(world, checks);
         }
+        let before = self.offset;
         if self.age >= 2 {
             self.offset += speed
                 * if self.gantry_axis == shaft.facing {
@@ -519,6 +520,16 @@ impl GantryContraption {
                     -1.0
                 };
         }
+        let translation = |distance: f32| {
+            FACES[usize::from(self.gantry_axis)].map(|axis| f64::from(axis) * f64::from(distance))
+        };
+        collider::collide_entities(
+            world,
+            &self.blocks,
+            self.anchor(),
+            translation(before),
+            translation(self.offset),
+        );
         self.age = self.age.saturating_add(1);
         self.show(world);
         false

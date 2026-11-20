@@ -32,6 +32,7 @@ mod belt_inventory;
 mod belt_movement;
 mod chassis;
 mod chute;
+mod collider;
 mod contraption;
 mod crusher;
 mod depot;

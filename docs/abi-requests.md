@@ -45,3 +45,9 @@ Seat support also needs `Entity::start_riding(vehicle, force) -> bool` and `Enti
 ## Contraption actor hardness
 
 `World::destroy_speed(pos) -> Option<f32>` returns the loaded block state's hardness with vanilla's negative value for unbreakable blocks. Moving drills read it both to reject unbreakable blocks and to calculate breaking progress while the contraption stalls.
+
+## Contraption entity queries
+
+`Entities::entities_in` limits results to 256 before Create can exclude visual and non-collidable entities. A large contraption can fill that result with its block displays. Add a box query that filters by entity kinds and flags before applying the limit and exposes a continuation for larger results. The collision path also needs the entity's piston reaction, vehicle id, and no-physics status to apply Create's eligibility rules to all types.
+
+Stock-player platform experiments need a player position update that sends the vanilla teleport and handles its acknowledgement. `Entity::set_position` only updates the server entity. The shulker experiment needs a no-AI setter for the spawned shulkers so their vanilla behavior does not change the result.

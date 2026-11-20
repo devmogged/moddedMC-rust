@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CONTENT, DIRECTIONS, STONE, StateIds,
+    collider::{self, Collider},
     contraption::{
         BlockMovement, BlockMovementChecks, Blocks, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES,
         PaletteEntry, StructureTransform,
@@ -152,6 +153,17 @@ fn axial_box(facing: u8, from: i16, to: i16, min: i16, max: i16) -> ShapeBox {
     shape
 }
 
+fn part_shape(facing: u8, head: bool) -> Vec<ShapeBox> {
+    if head {
+        vec![
+            axial_box(facing, 0, 12, 6, 10),
+            axial_box(facing, 12, 16, 0, 16),
+        ]
+    } else {
+        vec![axial_box(facing, 0, 16, 6, 10)]
+    }
+}
+
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
     for (id, name, item_model, sticky) in [
         (
@@ -236,21 +248,17 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         let mut definitions = Vec::new();
         for (face, name) in DIRECTIONS.iter().enumerate() {
             for wet in [false, true] {
-                let pole = vec![axial_box(face as u8, 0, 16, 6, 10)];
                 if id == POLE {
                     definitions.push((
                         face,
                         format!("facing={name},waterlogged={wet}"),
                         "create:block/piston_extension_pole",
-                        pole,
+                        part_shape(face as u8, false),
                         wet,
                     ));
                     continue;
                 }
-                let head = vec![
-                    axial_box(face as u8, 0, 12, 6, 10),
-                    axial_box(face as u8, 12, 16, 0, 16),
-                ];
+                let head = part_shape(face as u8, true);
                 for (kind, model) in [
                     ("normal", "create:block/mechanical_piston/normal/head"),
                     ("sticky", "create:block/mechanical_piston/sticky/head"),
@@ -468,7 +476,18 @@ impl PistonContraption {
                         .is_some_and(|id| id == "minecraft:water");
                 part(POLE, piston.facing, false, wet)
             };
-            blocks.push(piston.at(origin, index - front), entry, &mut palette);
+            let part = blocks.push(piston.at(origin, index - front), entry, &mut palette);
+            part.shapes = Some(
+                part_shape(piston.facing, index == front)
+                    .into_iter()
+                    .map(|shape| {
+                        Collider::from_shape(content::CollisionBox {
+                            min: shape.min.map(|coord| f64::from(coord) / 16.0),
+                            max: shape.max.map(|coord| f64::from(coord) / 16.0),
+                        })
+                    })
+                    .collect(),
+            );
         }
         Some(Self {
             blocks,
@@ -620,7 +639,8 @@ impl MechanicalPiston {
             return false;
         };
         let end = contraption.extension_length as f32;
-        let next = (self.data.offset + speed).clamp(0.0, end);
+        let before = self.data.offset;
+        let next = (before + speed).clamp(0.0, end);
         let shift = piston.collision_offset(next, extending);
         let collision = speed != 0.0
             && contraption.blocks.is_colliding_with_world(
@@ -641,6 +661,16 @@ impl MechanicalPiston {
         } else {
             self.data.offset = next;
         }
+        let translation = |distance: f32| {
+            FACES[usize::from(piston.facing)].map(|axis| f64::from(axis) * f64::from(distance))
+        };
+        collider::collide_entities(
+            world,
+            &contraption.blocks,
+            base,
+            translation(before),
+            translation(self.data.offset),
+        );
         if (collision || next == 0.0 || next == end)
             && self.disassemble(world, checks, base, piston, false)
         {

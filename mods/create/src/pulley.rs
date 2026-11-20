@@ -11,7 +11,7 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AXES, BLOCK_DISPLAYS, CONTENT, STONE, StateIds,
+    AXES, BLOCK_DISPLAYS, CONTENT, STONE, StateIds, collider,
     contraption::{
         BlockMovement, BlockMovementChecks, Blocks, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES,
         StructureTransform,
@@ -398,6 +398,7 @@ impl RopePulley {
                 return true;
             }
         }
+        let before = self.data.offset;
         let extent = self.data.extension_range as f32;
         let next = next.clamp(0.0, extent);
         let shift = -(-next).floor() as i32 - i32::from(direction == UP);
@@ -414,6 +415,13 @@ impl RopePulley {
         } else {
             self.data.offset = next;
         }
+        collider::collide_entities(
+            world,
+            &self.data.blocks,
+            below(pos, 1),
+            [0.0, -f64::from(before), 0.0],
+            [0.0, -f64::from(self.data.offset), 0.0],
+        );
         if (collision || next == 0.0 || next == extent)
             && self.disassemble(world, checks, pos, false)
         {

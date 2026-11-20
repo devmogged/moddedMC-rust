@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, STACKS, TAGS, chassis,
+    collider::Collider,
     kinetics::{FACES, face_axis, offset, packed, positive},
     sticker,
 };
@@ -171,6 +172,18 @@ pub struct Blocks {
 }
 
 impl Blocks {
+    pub fn colliders(&self) -> impl Iterator<Item = Collider> + '_ {
+        self.block_list.iter().flat_map(|block| {
+            let local = block.local_pos().map(f64::from);
+            block
+                .shapes
+                .as_deref()
+                .unwrap_or(&[Collider::BLOCK])
+                .iter()
+                .map(move |shape| shape.translate(local))
+        })
+    }
+
     pub fn positions(&self, anchor: Pos) -> impl Iterator<Item = Pos> {
         self.block_list
             .iter()
@@ -199,8 +212,16 @@ impl Blocks {
     pub fn capture_entities(&mut self, world: World<'_>, anchor: Pos) -> Option<()> {
         for block in &mut self.block_list {
             let entry = &self.palette[block.palette_index()];
+            let position = offset(anchor, block.local_pos());
+            let shapes: Vec<_> = world
+                .collision_shape(position)?
+                .into_iter()
+                .map(Collider::from_shape)
+                .collect();
+            if shapes.as_slice() != [Collider::BLOCK] {
+                block.shapes = Some(shapes);
+            }
             if entry.has_storage() || chassis::is_chassis(&entry.name) {
-                let position = offset(anchor, block.local_pos());
                 let bytes = world.block_entity(position)?;
                 let mut data: HashMap<String, Value> = fastnbt::from_bytes(&bytes).ok()?;
                 for coordinate in ["x", "y", "z"] {
@@ -217,17 +238,20 @@ impl Blocks {
         pos: Pos,
         entry: PaletteEntry,
         palette: &mut HashMap<PaletteEntry, i32>,
-    ) {
+    ) -> &mut StructureBlockInfo {
         let state = *palette.entry(entry.clone()).or_insert_with(|| {
             let state = self.palette.len() as i32;
             self.palette.push(entry);
             state
         });
+        let index = self.block_list.len();
         self.block_list.push(StructureBlockInfo {
             pos: packed(pos),
             state,
             nbt: None,
+            shapes: None,
         });
+        &mut self.block_list[index]
     }
 
     fn collect_attached(
@@ -466,6 +490,8 @@ pub struct StructureBlockInfo {
     state: i32,
     #[serde(rename = "Data", default, skip_serializing_if = "Option::is_none")]
     pub nbt: Option<HashMap<String, Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shapes: Option<Vec<Collider>>,
 }
 
 impl StructureBlockInfo {
