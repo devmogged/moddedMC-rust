@@ -49,4 +49,15 @@ Players are carried differently from Create, which moves them on its own client:
 
 Items on belts (`src/belt_inventory.rs`, from `BeltInventory`, `TransportedItemStack` and `ItemHandlerBeltSegment`) are saved in the controller's `Inventory` like Create. They are drawn with item displays: the port can't tell which items Create draws upright (fluid containers and the `create:upright_on_belt` tag), so all of them lie flat or, for block items, stand; stacks aren't drawn as piles, and items don't tilt on slopes.
 
+### Depot
+
+Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
+
+1. Place a Depot and right-click its top with a stack of iron ingots. The stack slides onto the top. Click a side with an empty hand and check that the stack stays there. Click the top with an empty hand and check that the stack returns to your inventory.
+2. Drop an item onto the top. It should settle into the Depot. Break the Depot and check that the item drops.
+3. Put a Depot immediately after a running belt. Send two stacks down the belt. The first moves onto the Depot and the second waits at the end. Take the first stack and watch the second slide onto the Depot.
+4. Restart and check the second stack is still visible and can be taken. Capture the handoff and restart in one recording.
+
+The [Depot bot scenario](../../tests/scenarios/create-depot.txt) checks placement, top and side use, falling items, breaking, belt handoff, and restart from the client's received block, entity and inventory packets. Analog output is deferred until content blocks can declare comparator support. [ABI requests](../../docs/abi-requests.md)
+
 Not ported yet: the rest of `BeltBlock.useItemOn` (dyes and water, the wrench and the connector on an existing belt, packages, a shaft turning a middle segment into a pulley, casings), and its `mayBuild` check; belt processing, funnels, tunnels and crushers; the belt surface doesn't scroll, only its top half is drawn, and sideways belts (between vertical shafts) are drawn turned the wrong way, because block models can't take the Z rotation `BeltRenderer` uses; breaking a pulley segment doesn't drop its shaft, belts can't be dyed or cased, and their placement makes no sound; the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.

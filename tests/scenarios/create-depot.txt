@@ -1,0 +1,119 @@
+# Create 6.0.10 DepotBlock and DepotBehaviour, using the stock client's view.
+mods target\mods\create.mmc
+start
+expect registered content block create:depot
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2060.5 100 2010.5 0 0
+wait 2
+cmd fill 2056 99 2008 2065 99 2019 minecraft:stone
+cmd fill 2056 100 2008 2065 104 2019 minecraft:air
+cmd gamemode survival tester
+cmd tp tester 2060.5 100 2010.5 0 0
+cmd item replace entity tester hotbar.0 with create:depot
+wait 0.5
+bot place 2060 99 2012
+wait 1
+bot expect block 2060 100 2012 minecraft:note_block[powered=true]
+wait 0.5
+expect ^\[bot\] expect block ok 2060 100 2012
+
+# Top use consumes the held stack. The side does not take it back.
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot 3
+wait 0.5
+bot use 2060 100 2012
+wait 1
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+bot expect entity minecraft:item_display near 2060.5 100.85 2012.5 within 0.22 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot use 2060 100 2012 north
+wait 0.5
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+bot use 2060 100 2012
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 3
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+bot expect entity minecraft:item_display near 2060.5 100.85 2012.5 within 0.22 count 0
+wait 0.5
+expect ^\[bot\] expect entity ok
+
+# An item dropped onto the top becomes the held stack. Breaking drops it back.
+cmd summon minecraft:item 2060.5 101.5 2012.5 {Item:{id:"minecraft:nether_brick",count:1},PickupDelay:32767s}
+wait 1.5
+bot expect entity minecraft:item_display near 2060.5 100.85 2012.5 within 0.22 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd gamemode creative tester
+bot break 2060 100 2012
+wait 0.5
+bot expect block 2060 100 2012 minecraft:air
+wait 0.5
+expect ^\[bot\] expect block ok 2060 100 2012
+bot expect entity minecraft:item_display near 2060.5 100.85 2012.5 within 0.22 count 0
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot expect entity minecraft:item near 2060.5 100 2012.5 within 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd gamemode survival tester
+
+# A running belt inserts into an empty depot. An occupied depot holds the next stack back.
+cmd setblock 2059 100 2010 create:creative_motor[facing=east]
+cmd setblock 2060 100 2010 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2060 100 2014 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2060 100 2015 create:depot
+cmd tp tester 2061.5 100 2012.5
+cmd item replace entity tester hotbar.0 with create:belt_connector 1
+wait 0.5
+bot use 2060 100 2010
+wait 0.5
+bot use 2060 100 2014
+wait 1
+cmd kinetics 2059 100 2010 16
+cmd summon minecraft:item 2060.5 101.1 2013.5 {Item:{id:"minecraft:copper_ingot",count:2},PickupDelay:32767s}
+wait 3
+bot expect entity minecraft:item_display near 2060.5 100.85 2015.5 within 0.22 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd summon minecraft:item 2060.5 101.1 2013.5 {Item:{id:"minecraft:gold_ingot",count:4},PickupDelay:32767s}
+wait 3
+bot expect entity minecraft:item_display near 2060.5 100.85 2014.75 within 0.25 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot use 2060 100 2015
+wait 1.5
+bot expect slot 36 minecraft:copper_ingot 2
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+bot expect entity minecraft:item_display near 2060.5 100.85 2015.5 within 0.22 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+reject (?i)panicked|trapped|\[bot\] error
+cmd save-all flush
+stop
+
+# The transient display is rebuilt from HeldItem after the server restarts.
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+bot expect entity minecraft:item_display near 2060.5 100.85 2015.5 within 0.22 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot hotbar 0
+wait 0.5
+bot use 2060 100 2015
+wait 0.5
+bot expect slot 36 minecraft:gold_ingot 4
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+reject (?i)panicked|trapped|\[bot\] error
+stop

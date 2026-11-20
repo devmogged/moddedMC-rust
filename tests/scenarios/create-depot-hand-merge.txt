@@ -1,0 +1,27 @@
+# BlockUse transaction regression. The old stack merges into the held stack before insertion.
+mods target\mods\create.mmc
+start
+expect registered content block create:depot
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2060.5 100 2010.5 0 0
+wait 2
+cmd fill 2058 99 2009 2063 99 2014 minecraft:stone
+cmd fill 2058 100 2009 2063 104 2014 minecraft:air
+cmd tp tester 2060.5 100 2010.5 0 0
+cmd setblock 2060 100 2012 create:depot
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot 3
+wait 0.5
+bot use 2060 100 2012
+wait 0.5
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot 2
+wait 0.5
+bot use 2060 100 2012
+wait 0.5
+bot use 2060 100 2012
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 5
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+stop

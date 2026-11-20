@@ -77,7 +77,7 @@ const fn is_false(value: &bool) -> bool {
 static RANDOM: AtomicU64 = AtomicU64::new(0x2545_f491_4f6c_dd1d);
 
 /// `R.nextInt(bound)`; the rolls aren't seed-reproducible, as in Create.
-fn next_int(bound: u32) -> i32 {
+pub fn next_int(bound: u32) -> i32 {
     let mut x = RANDOM.load(Ordering::Relaxed);
     x ^= x << 13;
     x ^= x >> 7;
@@ -86,7 +86,7 @@ fn next_int(bound: u32) -> i32 {
     (x % u64::from(bound)) as i32
 }
 
-fn count(item: &Value) -> i32 {
+pub fn count(item: &Value) -> i32 {
     match item {
         Value::Compound(map) => match map.get("count") {
             Some(Value::Int(count)) => *count,
@@ -100,7 +100,7 @@ fn count(item: &Value) -> i32 {
     }
 }
 
-fn with_count(item: &Value, count: i32) -> Value {
+pub fn with_count(item: &Value, count: i32) -> Value {
     let mut item = item.clone();
     if let Value::Compound(map) = &mut item {
         map.insert("count".to_owned(), Value::Int(count));
@@ -111,7 +111,7 @@ fn with_count(item: &Value, count: i32) -> Value {
 impl TransportedItemStack {
     /// `new TransportedItemStack(stack)`. Upright items (fluid containers and the
     /// `create:upright_on_belt` tag) aren't known to the port, so every item gets a random angle.
-    fn new(item: Value) -> Self {
+    pub fn new(item: Value) -> Self {
         let angle = next_int(360);
         let offset = target_side_offset(angle);
         Self {
@@ -130,12 +130,26 @@ impl TransportedItemStack {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         count(&self.item) <= 0
     }
 
-    fn bytes(&self) -> Option<Vec<u8>> {
+    pub fn bytes(&self) -> Option<Vec<u8>> {
         fastnbt::to_bytes(&self.item).ok()
+    }
+
+    pub fn resize(&mut self, world: World<'_>, count: i32) {
+        self.item = with_count(&self.item, count);
+        if let (Some((id, _)), Some(&displays), Some(bytes)) =
+            (self.display, DISPLAYS.get(), self.bytes())
+            && !displays.set_item(world, id, &bytes)
+        {
+            self.display = None;
+        }
+    }
+
+    pub fn clear_display(&mut self) {
+        self.display = None;
     }
 }
 
@@ -447,7 +461,31 @@ impl BeltInventory {
                 Some(Ending::Insert) => {
                     let next =
                         chain.position_for_offset(if positive_order { chain.length } else { -1 });
-                    if try_inserting_from_side(kinetics, chain.pos, next, item, movement_facing) {
+                    if let Some(depot) = kinetics.depots.get_mut(&next) {
+                        let accepted = crate::depot::try_inserting_from_side(
+                            world,
+                            next,
+                            depot,
+                            item,
+                            movement_facing,
+                        );
+                        let remaining = count(&item.item) - accepted;
+                        if accepted > 0 {
+                            if remaining == 0 {
+                                self.items.remove(index - 1);
+                                index -= 1;
+                            } else {
+                                item.resize(world, remaining);
+                            }
+                            changed = true;
+                        }
+                    } else if try_inserting_from_side(
+                        kinetics,
+                        chain.pos,
+                        next,
+                        item,
+                        movement_facing,
+                    ) {
                         // The display moves on with the stack.
                         self.items.remove(index - 1);
                         index -= 1;
@@ -475,7 +513,7 @@ impl BeltInventory {
     }
 }
 
-/// `resolveEnding`. Belts are the only `DirectBeltInputBehaviour` ported.
+/// `resolveEnding`. A depot exposes direct input even while it is occupied.
 fn resolve_ending(
     world: World<'_>,
     kinetics: &Kinetics,
@@ -483,7 +521,7 @@ fn resolve_ending(
     positive_order: bool,
 ) -> Ending {
     let next = chain.position_for_offset(if positive_order { chain.length } else { -1 });
-    if matches!(kinetics.kind(next), Some(Kind::Belt(_))) {
+    if matches!(kinetics.kind(next), Some(Kind::Belt(_))) || kinetics.depots.contains_key(&next) {
         return Ending::Insert;
     }
     if world.face_sturdy(next, opposite(chain.movement_facing())) {
@@ -613,7 +651,7 @@ pub fn remove_displays(world: World<'_>, inventory: &BeltInventory) {
     }
 }
 
-fn remove_display(world: World<'_>, item: &TransportedItemStack) {
+pub fn remove_display(world: World<'_>, item: &TransportedItemStack) {
     if let (Some(&displays), Some((id, _))) = (DISPLAYS.get(), item.display) {
         displays.remove(world, id);
     }
@@ -699,7 +737,11 @@ fn display_for(chain: Chain, item: &TransportedItemStack, block: bool) -> ItemDi
     } else {
         position[2] -= f64::from(item.offset);
     }
-    let (sin_y, cos_y) = ((item.angle as f32).to_radians() * 0.5).sin_cos();
+    item_display(position, item.angle, block)
+}
+
+pub fn item_display(mut position: [f64; 3], angle: i32, block: bool) -> ItemDisplay {
+    let (sin_y, cos_y) = ((angle as f32).to_radians() * 0.5).sin_cos();
     let rotation = if block {
         [0.0, sin_y, 0.0, cos_y]
     } else {
@@ -717,6 +759,40 @@ fn display_for(chain: Chain, item: &TransportedItemStack, block: bool) -> ItemDi
     }
 }
 
+pub fn render_stack(
+    world: World<'_>,
+    displays: Displays,
+    item: &mut TransportedItemStack,
+    shown: ItemDisplay,
+) {
+    match item.display {
+        Some((_, last)) if last == shown => {}
+        Some((id, _)) if displays.update(world, id, &shown) => {
+            item.display = Some((id, shown));
+        }
+        _ => {
+            item.display = item
+                .bytes()
+                .and_then(|bytes| displays.spawn_item(world, &bytes, &shown))
+                .map(|id| (id, shown));
+        }
+    }
+}
+
+impl TransportedItemStack {
+    pub fn places_block(&mut self, stacks: ItemStacks) -> bool {
+        if let Some(block) = self.block {
+            return block;
+        }
+        let block = self
+            .bytes()
+            .and_then(|bytes| stacks.info(&bytes))
+            .is_some_and(|info| info.block);
+        self.block = Some(block);
+        block
+    }
+}
+
 /// Show each stack where Create's client would draw it.
 fn render(
     world: World<'_>,
@@ -726,25 +802,9 @@ fn render(
     inventory: &mut BeltInventory,
 ) {
     for item in &mut inventory.items {
-        let block = item.block.unwrap_or_else(|| {
-            item.bytes()
-                .and_then(|bytes| stacks.info(&bytes))
-                .is_some_and(|info| info.block)
-        });
-        item.block = Some(block);
+        let block = item.places_block(stacks);
         let shown = display_for(chain, item, block);
-        match item.display {
-            Some((_, last)) if last == shown => {}
-            Some((id, _)) if displays.update(world, id, &shown) => {
-                item.display = Some((id, shown));
-            }
-            _ => {
-                item.display = item
-                    .bytes()
-                    .and_then(|bytes| displays.spawn_item(world, &bytes, &shown))
-                    .map(|id| (id, shown));
-            }
-        }
+        render_stack(world, displays, item, shown);
     }
 }
 

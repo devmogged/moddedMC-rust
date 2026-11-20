@@ -501,6 +501,7 @@ pub trait Level {
 /// The kinetic block entities and networks of one world.
 #[derive(Default)]
 pub struct Kinetics {
+    pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     bes: HashMap<Pos, Be>,
     /// Tick order, `(position, serial)`, in insertion order like the level's ticker list.
     order: Vec<(Pos, u64)>,

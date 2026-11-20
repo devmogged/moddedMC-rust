@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 mod belt;
 mod belt_inventory;
 mod belt_movement;
+mod depot;
 mod kinetics;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
@@ -108,6 +109,7 @@ impl Mod for Create {
         register_motor(content, registry)?;
         register_casings(content, registry)?;
         belt::register(content, registry)?;
+        depot::register(*content, registry)?;
         ITEMS
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -634,6 +636,9 @@ fn states() -> Option<&'static StateIds> {
         }
         ids.add(content, TURNTABLE, "", Some(Kind::Turntable));
         ids.add(content, CASING, "", None);
+        for properties in ["waterlogged=false", "waterlogged=true"] {
+            ids.add(content, depot::ID, properties, None);
+        }
         belt::add_states(&mut ids, content);
         for name in [
             "air",
@@ -754,6 +759,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             AXES[usize::from(encased_axis(preferred, pillar_axis, look, args.sneak))],
             args.world.has_neighbor_signal(args.position)
         ),
+        None if placed.block == depot::ID => {
+            format!("{}[waterlogged={}]", depot::ID, states.wet(ids[6]))
+        }
         Some(Kind::Turntable | Kind::Belt(_)) | None => return Some(args.state),
     };
     states.by_selector.get(&selector).copied()
@@ -968,6 +976,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
     with_world(world, |kinetics| {
         let mut level = WorldLevel { world, states };
         for event in events {
+            depot::event(world, &mut kinetics.depots, states, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             match event.reason {
@@ -1001,16 +1010,25 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         kinetics.tick(&mut level);
         belt_movement::tick(world, kinetics, states);
         belt_inventory::tick(world, kinetics);
+        depot::tick(world, &mut kinetics.depots);
         flush(world, kinetics);
     });
 }
 
-/// `useItemOn` for the mod's blocks. Only the belt reacts so far.
+/// `useItemOn` for the mod's blocks.
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if !context.with_item {
         return BlockUseResult::Pass;
     }
-    match states().and_then(|states| states.kind(context.state)) {
+    let Some(states) = states() else {
+        return BlockUseResult::Pass;
+    };
+    if depot::is_depot(states, context.state) {
+        return with_world(context.world, |kinetics| {
+            depot::use_item_on(&mut kinetics.depots, context)
+        });
+    }
+    match states.kind(context.state) {
         Some(Kind::Belt(_)) => with_world(context.world, |kinetics| {
             belt_inventory::use_item_on(kinetics, context)
         }),
@@ -1019,7 +1037,16 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
 }
 
 fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
-    match states().and_then(|states| states.kind(state)) {
+    let Some(states) = states() else { return };
+    if depot::is_depot(states, state) {
+        with_world(world, |kinetics| {
+            if let Some(depot) = kinetics.depots.get_mut(&pos) {
+                depot::on_landed(world, pos, depot, entity);
+            }
+        });
+        return;
+    }
+    match states.kind(state) {
         Some(Kind::Turntable) => turntable_entity_inside(world, pos, entity),
         Some(Kind::Belt(belt)) => with_world(world, |kinetics| {
             belt_movement::entity_inside(kinetics, pos, state, belt, entity);
