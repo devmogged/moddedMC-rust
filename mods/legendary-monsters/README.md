@@ -25,8 +25,10 @@ vanilla `WritableBookItem`; the bot verified two separate one-book slots,
 an item-use packet and stack persistence after restart. Editing/signing pages
 still requires a real modded-client play test.
 
-Two source-matched recipes and two additive vanilla item tags for Enderitium
-are packaged as data. The shapeless ingot-to-gems recipe was executed through a
+Four source-matched recipes and two additive vanilla item tags are packaged as
+data. Two Enderitium conversions (ingot ↔ nine gems) are accompanied by the
+original recycling recipes: Knight's Sword Blade Half → one iron ingot, and
+Long Stick Half → two sticks. The shapeless ingot-to-gems recipe was executed through a
 player inventory (1 ingot produced 9 gems). The shaped nine-gems-to-ingot
 recipe was executed through a crafting table (9 gems produced 1 ingot), with
 ingredient consumption and restart inventory persistence verified.
@@ -51,12 +53,18 @@ library. For runtime verification, use the shared server/bot binaries and run:
 
     powershell -NoProfile -File scripts/scenario.ps1 -Scenario tests/scenarios/legendary-monsters-materials.txt -RunDir run/legendary-monsters-m1 -Port 26060 -Fresh
 
-Five Rust scenarios **passed** on shared engine d6e5e8d560 (ABI 1):
-`legendary-monsters-materials.txt` (registration, recipe availability, grants,
-restart); `legendary-monsters-all-items.txt` (24 material IDs in player inventory
-before/after restart, twice); `legendary-monsters-guide-book.txt` (book stacking,
-use packet and restart); `legendary-monsters-crafting.txt` (2x2 shapeless), and
-`legendary-monsters-crafting-table.txt` (3x3 shaped and ingredients consumed).
+Eight Rust scenarios **passed** on the shared engine (ABI 1):
+`legendary-monsters-materials.txt` (registration, recipes, grants and restart);
+`legendary-monsters-all-items.txt` (24 material IDs before/after restart, twice);
+`legendary-monsters-guide-book.txt` (book stacks, use packet and restart);
+`legendary-monsters-crafting.txt` (2x2 shapeless);
+`legendary-monsters-crafting-table.txt` (3x3 shaped, consumption and restart);
+`legendary-monsters-recycling.txt` (both vanilla output conversions and restart);
+`legendary-monsters-lava-materials.txt` (dinosaur bone, crystal and dry control);
+and `legendary-monsters-fireproof-all.txt` (five separate fire-resistant drops
+in lava, a vulnerable crystal destroyed in lava and a dry-world survival control).
+The expanded seven-arena test passed on the 2026-11-20 shared build; entity
+counts do not verify rendering or unrelated item components.
 The original NeoForge 1.21.1 oracle independently confirmed all 24 material IDs
 and persisted chest inventory, the guide-book ID, and original lava survival of
 five fire-resistant materials versus an ordinary crystal. The original mod's

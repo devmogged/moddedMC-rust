@@ -1,0 +1,73 @@
+# WS-6 M1 drop-oracle lava parity: original 2.2.4 bone is fire-resistant, crystal is not.
+# Isolated air-cleared arenas, source lava pools, dry control and tracked item entities.
+mods target\mods\legendary-monsters.mmc
+start
+botstart lava_tester
+wait 3
+expect \[bot\] joined as lava_tester
+cmd tp lava_tester 10.5 101 10.5
+wait 2
+cmd fill 3 96 3 18 110 20 minecraft:air
+cmd fill 3 95 3 18 95 20 minecraft:stone
+cmd fill 3 96 3 18 96 20 minecraft:lava
+cmd setblock 10 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give lava_tester legendary_monsters:dinosaur_bone 1
+wait 1
+expect Gave 1 .*Dinosaur Bone
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+bot expect entity minecraft:item near 10.5 101 10.5 within 10 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+wait 12
+bot expect entity minecraft:item near 10.5 97 15.5 within 10 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+cmd tp lava_tester 40.5 101 10.5
+wait 2
+cmd fill 33 96 3 48 110 20 minecraft:air
+cmd fill 33 95 3 48 95 20 minecraft:stone
+cmd fill 33 96 3 48 96 20 minecraft:lava
+cmd setblock 40 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give lava_tester legendary_monsters:chorus_crystal 1
+wait 1
+expect Gave 1 .*Chorus Crystal
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 40.5 97 13 within 11 count 0
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+# Dry control: identical default item survives without lava.
+cmd tp lava_tester 70.5 101 10.5
+wait 2
+cmd fill 63 96 3 78 110 20 minecraft:air
+cmd fill 63 95 3 78 95 20 minecraft:stone
+cmd setblock 70 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give lava_tester legendary_monsters:chorus_crystal 1
+wait 1
+expect Gave 1 .*Chorus Crystal
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 70.5 97 13 within 11 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+reject (?i)panic
+bot quit
+stop

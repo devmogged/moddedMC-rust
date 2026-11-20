@@ -1,0 +1,157 @@
+# WS-6 M1: all five source-2.2.4 fireResistant materials survive lava.
+# Negative control: ordinary Chorus Crystal burns in lava, yet survives over dry stone.
+# Each drop uses an isolated air-cleared arena and verifies empty inventory afterward.
+mods target\mods\legendary-monsters.mmc
+start
+botstart fire_tester
+wait 3
+expect \[bot\] joined as fire_tester
+# dinosaur_bone: fire-resistant lava
+cmd tp fire_tester 10.5 101 10.5
+wait 2
+cmd fill 3 96 3 18 110 20 minecraft:air
+cmd fill 3 95 3 18 95 20 minecraft:stone
+cmd fill 3 96 3 18 96 20 minecraft:lava
+cmd setblock 10 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give fire_tester legendary_monsters:dinosaur_bone 1
+wait 1
+expect Gave 1
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 10.5 97 13 within 11 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+# withered_bone: fire-resistant lava
+cmd tp fire_tester 40.5 101 10.5
+wait 2
+cmd fill 33 96 3 48 110 20 minecraft:air
+cmd fill 33 95 3 48 95 20 minecraft:stone
+cmd fill 33 96 3 48 96 20 minecraft:lava
+cmd setblock 40 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give fire_tester legendary_monsters:withered_bone 1
+wait 1
+expect Gave 1
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 40.5 97 13 within 11 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+# warped_mushroom_cap_part: fire-resistant lava
+cmd tp fire_tester 70.5 101 10.5
+wait 2
+cmd fill 63 96 3 78 110 20 minecraft:air
+cmd fill 63 95 3 78 95 20 minecraft:stone
+cmd fill 63 96 3 78 96 20 minecraft:lava
+cmd setblock 70 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give fire_tester legendary_monsters:warped_mushroom_cap_part 1
+wait 1
+expect Gave 1
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 70.5 97 13 within 11 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+# air_rune: fire-resistant lava
+cmd tp fire_tester 100.5 101 10.5
+wait 2
+cmd fill 93 96 3 108 110 20 minecraft:air
+cmd fill 93 95 3 108 95 20 minecraft:stone
+cmd fill 93 96 3 108 96 20 minecraft:lava
+cmd setblock 100 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give fire_tester legendary_monsters:air_rune 1
+wait 1
+expect Gave 1
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 100.5 97 13 within 11 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+# withered_horn: fire-resistant lava
+cmd tp fire_tester 130.5 101 10.5
+wait 2
+cmd fill 123 96 3 138 110 20 minecraft:air
+cmd fill 123 95 3 138 95 20 minecraft:stone
+cmd fill 123 96 3 138 96 20 minecraft:lava
+cmd setblock 130 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give fire_tester legendary_monsters:withered_horn 1
+wait 1
+expect Gave 1
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 130.5 97 13 within 11 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+# chorus_crystal: non-resistant lava
+cmd tp fire_tester 160.5 101 10.5
+wait 2
+cmd fill 153 96 3 168 110 20 minecraft:air
+cmd fill 153 95 3 168 95 20 minecraft:stone
+cmd fill 153 96 3 168 96 20 minecraft:lava
+cmd setblock 160 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give fire_tester legendary_monsters:chorus_crystal 1
+wait 1
+expect Gave 1
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 160.5 97 13 within 11 count 0
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+# chorus_crystal: dry control
+cmd tp fire_tester 190.5 101 10.5
+wait 2
+cmd fill 183 96 3 198 110 20 minecraft:air
+cmd fill 183 95 3 198 95 20 minecraft:stone
+cmd setblock 190 100 10 minecraft:stone
+bot look 0 0
+wait 1
+cmd give fire_tester legendary_monsters:chorus_crystal 1
+wait 1
+expect Gave 1
+bot inventory-click 36 drop
+wait 0.4
+bot expect slot 36 minecraft:air 0
+wait 0.2
+expect \[bot\] expect inventory ok slot 36
+wait 12
+bot expect entity minecraft:item near 190.5 97 13 within 11 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+reject (?i)panic
+bot quit
+stop
