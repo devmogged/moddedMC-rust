@@ -35,6 +35,24 @@ pub const fn face_axis(face: u8) -> u8 {
     [1, 1, 2, 2, 0, 0][face as usize]
 }
 
+/// DirectionalAxisKineticBlock.getRotationAxis.
+pub const fn directional_shaft_axis(facing: u8, along_first: bool) -> u8 {
+    match face_axis(facing) {
+        0 if along_first => 1,
+        0 => 2,
+        _ if along_first => 0,
+        1 => 2,
+        _ => 1,
+    }
+}
+
+/// LinearActuatorBlockEntity.getMovementSpeed before direction and range.
+pub fn actuator_speed(rpm: f32) -> f32 {
+    const RPM_PER_BLOCK_PER_TICK: f32 = 512.0;
+    const MAX_MOVEMENT_SPEED: f32 = 0.49;
+    (rpm / RPM_PER_BLOCK_PER_TICK).clamp(-MAX_MOVEMENT_SPEED, MAX_MOVEMENT_SPEED)
+}
+
 pub const fn positive(face: u8) -> bool {
     face % 2 == 1
 }
@@ -83,6 +101,15 @@ pub enum Kind {
     Press(u8),
     /// Mechanical pump axis derived from FACING, powered by small-cog meshing.
     Pump(u8),
+    Fan(u8),
+    Bearing(u8),
+    Windmill(u8),
+    Piston(crate::piston::PistonBlock),
+    GantryShaft(crate::gantry::Shaft),
+    GantryCarriage(crate::gantry::Carriage),
+    Pulley(u8),
+    Millstone,
+    Wheel(u8),
     Belt(Belt),
 }
 
@@ -207,10 +234,18 @@ impl Kind {
             | Self::Clutch(axis, _)
             | Self::Gearshift(axis, _)
             | Self::EncasedShaft(axis)
+            | Self::Wheel(axis)
+            | Self::Pulley(axis)
             | Self::Press(axis) => axis,
             Self::Pump(facing) => face_axis(facing),
-            Self::Motor(facing) => face_axis(facing),
-            Self::Turntable => 1,
+            Self::Motor(facing)
+            | Self::Fan(facing)
+            | Self::Bearing(facing)
+            | Self::Windmill(facing) => face_axis(facing),
+            Self::Turntable | Self::Millstone => 1,
+            Self::Piston(block) => block.shaft_axis(),
+            Self::GantryShaft(shaft) => face_axis(shaft.facing),
+            Self::GantryCarriage(carriage) => carriage.axis(),
             // BeltBlock.getRotationAxis: sideways belts turn on Y, others on the facing's
             // clockwise axis.
             Self::Belt(belt) => match belt.slope {
@@ -226,15 +261,18 @@ impl Kind {
         match self {
             Self::Motor(facing) => facing == face,
             Self::Pump(_) => false, // PumpBlock does not expose shaft connections
+            Self::Fan(facing) | Self::Bearing(facing) | Self::Windmill(facing) => {
+                facing ^ 1 == face
+            }
             Self::Gearbox(axis) => face_axis(face) != axis,
-            Self::Turntable => face == DOWN,
+            Self::Turntable | Self::Millstone => face == DOWN,
             Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
             _ => face_axis(face) == self.axis(),
         }
     }
 
     const fn small_cog(self) -> bool {
-        matches!(self, Self::Small(_) | Self::Pump(_))
+        matches!(self, Self::Small(_) | Self::Pump(_) | Self::Millstone)
     }
 
     const fn large_cog(self) -> bool {
@@ -252,9 +290,14 @@ impl Kind {
     /// `CStress` impact at 1 RPM, from the `setImpact` calls in `AllBlocks`.
     pub const fn impact(self) -> f32 {
         match self {
-            Self::Turntable => 4.0,
-            Self::Press(_) => 8.0,
-            Self::Pump(_) => 4.0,
+            Self::Pump(_)
+            | Self::Turntable
+            | Self::Millstone
+            | Self::Bearing(_)
+            | Self::Piston(_)
+            | Self::Pulley(_) => 4.0,
+            Self::Press(_) | Self::Wheel(_) => 8.0,
+            Self::Fan(_) => 2.0,
             _ => 0.0,
         }
     }
@@ -263,12 +306,17 @@ impl Kind {
     pub const fn capacity(self) -> f32 {
         match self {
             Self::Motor(_) => 16384.0,
+            Self::Windmill(_) => 512.0,
             _ => 0.0,
         }
     }
 
     const fn generator(self) -> bool {
-        matches!(self, Self::Motor(_))
+        matches!(self, Self::Motor(_) | Self::Windmill(_))
+    }
+
+    pub const fn is_bearing(self) -> bool {
+        matches!(self, Self::Bearing(_) | Self::Windmill(_))
     }
 
     fn same_block(self, other: Self) -> bool {
@@ -279,6 +327,14 @@ impl Kind {
     pub fn equivalent(self, other: Self) -> bool {
         let same_part = match (self, other) {
             (Self::Belt(a), Self::Belt(b)) => a.part == b.part,
+            (Self::Fan(a), Self::Fan(b))
+            | (Self::Bearing(a), Self::Bearing(b))
+            | (Self::Windmill(a), Self::Windmill(b)) => a == b,
+            (Self::Piston(a), Self::Piston(b)) => a == b,
+            (Self::GantryShaft(a), Self::GantryShaft(b)) => {
+                a.facing == b.facing && a.powered == b.powered
+            }
+            (Self::GantryCarriage(a), Self::GantryCarriage(b)) => a == b,
             _ => true,
         };
         self.same_block(other) && self.axis() == other.axis() && same_part
@@ -287,7 +343,7 @@ impl Kind {
     /// `canPropagateDiagonally`: small cogs and sloped belts.
     const fn propagates_diagonally(self) -> bool {
         match self {
-            Self::Small(_) => true,
+            Self::Small(_) | Self::Millstone => true,
             Self::Belt(belt) => belt.slope.diagonal(),
             _ => false,
         }
@@ -369,6 +425,13 @@ pub struct Be {
     /// A belt controller's items, created when the first one arrives.
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
+    pub fan: Option<Box<crate::fan::AirCurrent>>,
+    pub bearing: Option<Box<crate::bearing::MechanicalBearing>>,
+    pub piston: Option<Box<crate::piston::MechanicalPiston>>,
+    pub gantries: Vec<crate::gantry::GantryContraption>,
+    pub last_gantry_shaft: Option<(crate::gantry::Shaft, f32)>,
+    pub pulley: Option<Box<crate::pulley::RopePulley>>,
+    pub millstone: Option<Box<crate::millstone::Millstone>>,
 }
 
 impl Be {
@@ -386,7 +449,11 @@ impl Be {
             overstressed: false,
             last_stress_applied: 0.0,
             last_capacity_provided: 0.0,
-            generated: DEFAULT_SPEED,
+            generated: if matches!(kind, Kind::Windmill(_)) {
+                0
+            } else {
+                DEFAULT_SPEED
+            },
             flicker_tally: 0,
             update_speed: true,
             validation_countdown: 0,
@@ -399,6 +466,13 @@ impl Be {
             belt_index: 0,
             inventory: None,
             passengers: None,
+            fan: None,
+            bearing: None,
+            piston: None,
+            gantries: Vec::new(),
+            last_gantry_shaft: None,
+            pulley: None,
+            millstone: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
                     crate::press::PressingData::EMPTY,
@@ -419,6 +493,7 @@ impl Be {
         match self.kind {
             Kind::Motor(facing) if positive(facing) => self.generated as f32,
             Kind::Motor(_) => -(self.generated as f32),
+            Kind::Windmill(_) => self.generated as f32,
             _ => 0.0,
         }
     }
@@ -520,6 +595,7 @@ pub struct Kinetics {
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub chutes: crate::chute::Chutes,
     pub funnels: crate::funnel::Funnels,
+    pub crushers: HashMap<Pos, crate::crusher::Controller>,
     pub recipes: Option<std::sync::Arc<crate::processing_recipes::RecipeBook>>,
     bes: HashMap<Pos, Be>,
     /// Tick order, `(position, serial)`, in insertion order like the level's ticker list.
@@ -530,6 +606,15 @@ pub struct Kinetics {
     scheduled: Vec<Pos>,
     /// Belt inventories whose controller left since the last tick.
     dropped: Vec<Dropped>,
+    pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
+    pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
+    pub dropped_gantries: Vec<crate::gantry::GantryContraption>,
+    pub dropped_pulleys: Vec<(Pos, Box<crate::pulley::RopePulley>)>,
+    pub dropped_pistons: Vec<(
+        Pos,
+        crate::piston::PistonBlock,
+        Box<crate::piston::MechanicalPiston>,
+    )>,
 }
 
 /// A belt inventory whose controller was removed (`eject`, as `BeltBlockEntity.destroy`) or
@@ -615,6 +700,18 @@ impl Kinetics {
 
     /// A block entity created by placement or loaded with its saved fields.
     pub fn insert(&mut self, pos: Pos, mut be: Be) {
+        if be.kind.is_bearing() && be.bearing.is_none() {
+            be.bearing = Some(Box::default());
+        }
+        if matches!(be.kind, Kind::Piston(_)) && be.piston.is_none() {
+            be.piston = Some(Box::default());
+        }
+        if matches!(be.kind, Kind::Pulley(_)) && be.pulley.is_none() {
+            be.pulley = Some(Box::default());
+        }
+        if be.kind == Kind::Millstone && be.millstone.is_none() {
+            be.millstone = Some(Box::default());
+        }
         self.next_serial += 1;
         be.serial = self.next_serial;
         self.order.push((pos, be.serial));
@@ -629,6 +726,21 @@ impl Kinetics {
     }
 
     fn drop_inventory(&mut self, pos: Pos, mut be: Be, eject: bool) {
+        if eject && let Some(millstone) = be.millstone.take() {
+            self.dropped_millstones.push((pos, millstone));
+        }
+        if eject && let Some(bearing) = be.bearing.take() {
+            self.dropped_bearings.push((pos, be.kind.axis(), bearing));
+        }
+        if eject && let (Kind::Piston(block), Some(piston)) = (be.kind, be.piston.take()) {
+            self.dropped_pistons.push((pos, block, piston));
+        }
+        if eject {
+            self.dropped_gantries.append(&mut be.gantries);
+            if let Some(pulley) = be.pulley.take() {
+                self.dropped_pulleys.push((pos, pulley));
+            }
+        }
         let (Kind::Belt(belt), Some(inventory)) = (be.kind, be.inventory.take()) else {
             return;
         };
@@ -652,18 +764,30 @@ impl Kinetics {
     /// `KineticBlockEntity.remove()` after its block is gone: leave the network, then
     /// `detachKinetics`.
     pub fn remove(&mut self, level: &mut dyn Level, pos: Pos) {
-        let Some(be) = self.bes.remove(&pos) else {
+        let Some(be) = self.detach_removed(level, pos) else {
             return;
         };
-        if let Some(id) = be.network {
-            self.network_remove(id, pos, be.serial, be.is_source());
-        }
-        self.handle_removed(level, pos, &be);
         let kind = be.kind;
         self.drop_inventory(pos, be, true);
         if let Kind::Belt(belt) = kind {
             self.remove_belt_neighbours(level, pos, belt);
         }
+    }
+
+    /// `BeltBlock.onRemove` skips the chain breakup when `isMoving` is true.
+    pub fn remove_moved(&mut self, level: &mut dyn Level, pos: Pos) {
+        if let Some(be) = self.detach_removed(level, pos) {
+            self.drop_inventory(pos, be, false);
+        }
+    }
+
+    fn detach_removed(&mut self, level: &mut dyn Level, pos: Pos) -> Option<Be> {
+        let be = self.bes.remove(&pos)?;
+        if let Some(id) = be.network {
+            self.network_remove(id, pos, be.serial, be.is_source());
+        }
+        self.handle_removed(level, pos, &be);
+        Some(be)
     }
 
     /// A state change that keeps the block entity (same block, same axis).
@@ -711,7 +835,7 @@ impl Kinetics {
     }
 
     /// `GearshiftBlock.detachKinetics`.
-    fn detach(&mut self, level: &mut dyn Level, pos: Pos, re_attach_next_tick: bool) {
+    pub(crate) fn detach(&mut self, level: &mut dyn Level, pos: Pos, re_attach_next_tick: bool) {
         let Some(be) = self.bes.get(&pos).cloned() else {
             return;
         };
@@ -898,6 +1022,20 @@ impl Kinetics {
                 axis_modifier = 1.0 / axis_modifier;
             }
             return Self::axis_modifier(from, from_be, direction) * axis_modifier;
+        }
+
+        match (state_from, state_to) {
+            (Kind::GantryShaft(shaft), Kind::GantryCarriage(carriage))
+                if shaft.powered && carriage.facing == direction =>
+            {
+                return crate::gantry::pinion_modifier(shaft, carriage);
+            }
+            (Kind::GantryCarriage(carriage), Kind::GantryShaft(shaft))
+                if shaft.powered && carriage.facing == (direction ^ 1) =>
+            {
+                return crate::gantry::pinion_modifier(shaft, carriage);
+            }
+            _ => {}
         }
 
         if large_to_large(state_from, state_to, diff) {
@@ -1963,5 +2101,20 @@ mod tests {
         assert!(rig.kinetics.get(pos(1, 0, 0)).is_none());
         assert!(rig.kinetics.get(pos(1, 0, 2)).is_none());
         assert_eq!(rig.speed(pos(2, 0, 2)), 0.0);
+    }
+
+    #[test]
+    fn moving_a_belt_controller_detaches_without_tearing_down_its_chain() {
+        let mut rig = belt_rig();
+        let controller = pos(1, 0, 0);
+        rig.kinetics.get_mut(controller).unwrap().inventory = Some(Default::default());
+        rig.kinetics.remove_moved(&mut rig.level, controller);
+        assert!(rig.kinetics.get(controller).is_none());
+        assert!(rig.kinetics.get(pos(1, 0, 1)).is_some());
+        assert!(rig.kinetics.get(pos(1, 0, 2)).is_some());
+        assert!(rig.level.replaced.is_empty());
+        let removed = rig.kinetics.take_dropped();
+        assert_eq!(removed.len(), 1);
+        assert!(!removed[0].eject);
     }
 }

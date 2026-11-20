@@ -1,0 +1,72 @@
+# Player breaks clean up a piston from the pole, head or base, with Creative drop rules.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2502.5 100 2502.5
+wait 2
+cmd fill 2495 99 2498 2505 99 2504 minecraft:stone
+cmd fill 2496 100 2498 2505 103 2504 minecraft:air
+cmd gamemode creative tester
+cmd setblock 2500 99 2500 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2500 99 2500 0
+cmd item replace entity tester hotbar.0 with create:mechanical_piston
+bot look 90 0
+wait 0.3
+bot place 2500 99 2500 up
+wait 0.5
+cmd fill 2497 100 2500 2499 100 2500 create:piston_extension_pole[facing=west,waterlogged=false]
+cmd kinetics 2500 99 2500 -128
+wait 1.2
+cmd kinetics 2500 99 2500 0
+cmd setblock 2499 100 2500 create:piston_extension_pole[facing=west,waterlogged=false]
+cmd kinetics 2500 100 2500
+wait 0.5
+expect ^create:mechanical_piston\[axis_along_first=true,facing=east,state=extended\] at 2500 100 2500
+bot expect block 2503 100 2500 minecraft:note_block
+wait 0.5
+expect ^\[bot\] expect block ok 2503 100 2500
+bot break 2501 100 2500
+wait 0.5
+bot expect block 2501 100 2500 minecraft:air
+bot expect block 2502 100 2500 minecraft:air
+bot expect block 2503 100 2500 minecraft:air
+bot expect block 2499 100 2500 minecraft:note_block
+bot expect entity minecraft:item near 2501.5 100.5 2500.5 within 4 count 0
+cmd kinetics 2500 100 2500
+wait 0.5
+expect ^\[bot\] expect block ok 2501 100 2500
+expect ^\[bot\] expect block ok 2502 100 2500
+expect ^\[bot\] expect block ok 2503 100 2500
+expect ^\[bot\] expect block ok 2499 100 2500
+expect ^\[bot\] expect entity ok minecraft:item
+expect ^create:mechanical_piston\[axis_along_first=true,facing=east,state=retracted\] at 2500 100 2500
+
+# Extend the remaining rear pole, then break the head directly.
+cmd kinetics 2500 99 2500 -128
+wait 0.8
+cmd kinetics 2500 99 2500 0
+bot expect block 2501 100 2500 minecraft:note_block
+wait 0.5
+expect ^\[bot\] expect block ok 2501 100 2500
+bot break 2501 100 2500
+wait 0.5
+cmd kinetics 2500 100 2500
+wait 0.5
+expect ^create:mechanical_piston\[axis_along_first=true,facing=east,state=retracted\] at 2500 100 2500
+
+cmd setblock 2499 100 2500 create:piston_extension_pole[facing=east,waterlogged=false]
+wait 0.5
+bot break 2500 100 2500
+wait 0.5
+bot expect block 2500 100 2500 minecraft:air
+bot expect block 2499 100 2500 minecraft:air
+bot expect entity minecraft:item near 2500.5 100.5 2500.5 within 4 count 0
+wait 0.5
+expect ^\[bot\] expect block ok 2500 100 2500
+expect ^\[bot\] expect block ok 2499 100 2500
+expect ^\[bot\] expect entity ok minecraft:item
+reject (?i)panicked|trapped|\[bot\] error
+stop

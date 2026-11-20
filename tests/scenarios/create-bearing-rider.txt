@@ -1,0 +1,29 @@
+# A bearing carries an armor stand around its pivot on a stone arm.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2473.5 100 2473.5
+wait 2
+cmd fill 2466 98 2466 2475 98 2475 minecraft:stone
+cmd fill 2466 99 2466 2475 104 2475 minecraft:air
+cmd setblock 2470 99 2470 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2470 99 2470 0
+cmd setblock 2470 100 2470 create:mechanical_bearing[facing=up]
+cmd setblock 2470 101 2470 minecraft:slime_block
+cmd setblock 2471 101 2470 minecraft:cobblestone
+cmd summon minecraft:armor_stand 2471.5 102 2470.5
+wait 0.5
+cmd kinetics 2470 99 2470 15
+wait 0.95
+cmd kinetics 2470 99 2470 0
+wait 0.5
+bot expect entity minecraft:armor_stand near 2470.5 102 2469.5 within 0.3 count 1
+bot expect block 2470 101 2469 minecraft:cobblestone
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:armor_stand
+expect ^\[bot\] expect block ok 2470 101 2469
+reject (?i)panicked|trapped|\[bot\] error
+stop

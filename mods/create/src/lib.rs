@@ -5,6 +5,7 @@ use std::{
 
 use moddedmc_api::{
     Command, InterfaceUnavailable, Mod, Pos, RegistrationError, Registry,
+    block_displays::{self, BlockDisplays},
     commands::{self, Argument, Commands, Node},
     containers::{self, Containers},
     content::{
@@ -25,17 +26,29 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
+mod bearing;
 mod belt;
 mod belt_inventory;
 mod belt_movement;
+mod chassis;
 mod chute;
+mod collider;
+mod contraption;
+mod crusher;
 mod depot;
+mod fan;
 mod funnel;
 // WS-2 Create fluids
 pub mod fluids;
+mod gantry;
 mod kinetics;
+mod millstone;
+mod piston;
 mod press;
 mod processing_recipes;
+mod pulley;
+mod sticker;
+mod trains;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
 const AXES: [&str; 3] = ["x", "y", "z"];
@@ -65,6 +78,7 @@ static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static INTERACTION: OnceLock<Interaction> = OnceLock::new();
 static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static DISPLAYS: OnceLock<Displays> = OnceLock::new();
+static BLOCK_DISPLAYS: OnceLock<BlockDisplays> = OnceLock::new();
 static EFFECTS: OnceLock<Effects> = OnceLock::new();
 static CONTAINERS: OnceLock<Containers> = OnceLock::new();
 static RESOURCES: OnceLock<Resources> = OnceLock::new();
@@ -91,18 +105,30 @@ impl Mod for Create {
         content.require_extension(WorldExtension::NeighborSignal)?;
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
+        content.require_extension(WorldExtension::CollisionShape)?;
+        content.require_extension(WorldExtension::DescribeState)?;
+        content.require_extension(WorldExtension::FluidId)?;
+        content.require_extension(WorldExtension::BlockEntities)?;
         let _ = CONTENT.set(content);
+        // WS-3: save-global Create railway data through the generic ABI.
+        trains::require_saved()?;
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);
         let entities = entities::require()?;
         entities.require_extension(EntitiesExtension::Movement)?;
+        entities.require_extension(EntitiesExtension::Data)?;
+        entities.require_extension(EntitiesExtension::MayBuild)?;
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
+        interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
         let _ = INTERACTION.set(interaction);
         let _ = EFFECTS.set(effects::require()?);
-        let _ = STACKS.set(stacks::require()?);
+        let item_stacks = stacks::require()?;
+        item_stacks.require_extension(stacks::StacksExtension::Component)?;
+        let _ = STACKS.set(item_stacks);
         let _ = DISPLAYS.set(stacks::require_displays()?);
+        let _ = BLOCK_DISPLAYS.set(block_displays::require()?);
         let _ = CONTAINERS.set(containers::require()?);
         let _ = RESOURCES.set(resources::require()?);
         let _ = TAGS.set(tags::require()?);
@@ -126,6 +152,9 @@ impl Mod for Create {
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         register_casings(content, registry)?;
+        // WS-3: official Create 6.0.10 track blockstates and placement.
+        trains::register(content, registry)?;
+        trains::register_saved(registry)?;
         belt::register(content, registry)?;
         depot::register(*content, registry)?;
         chute::register(*content, registry)?;
@@ -133,6 +162,15 @@ impl Mod for Create {
         press::register(*content, registry)?;
         // WS-2 Create fluids
         fluids::blocks::register(*content, registry)?;
+        fan::register(*content, registry)?;
+        bearing::register(*content, registry)?;
+        piston::register(*content, registry)?;
+        gantry::register(*content, registry)?;
+        pulley::register(*content, registry)?;
+        chassis::register(*content, registry)?;
+        sticker::register(*content, registry)?;
+        millstone::register(*content, registry)?;
+        crusher::register(*content, registry)?;
         ITEMS
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -157,14 +195,12 @@ impl Mod for Create {
                     model: "create:item/belt_connector",
                 },
             )?;
-        INTERACTION
+        let interaction = INTERACTION
             .get()
-            .ok_or(RegistrationError::InvalidDefinition)?
-            .on_use_on_block(registry, use_on_block)?;
-        INTERACTION
-            .get()
-            .ok_or(RegistrationError::InvalidDefinition)?
-            .on_use_block(registry, use_block)?;
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        interaction.on_use_on_block(registry, use_on_block)?;
+        interaction.on_use_block(registry, use_block)?;
+        interaction.on_player_will_destroy(registry, piston::player_will_destroy)?;
         content.on_tick(registry, tick)?;
         ENTITIES
             .get()
@@ -187,6 +223,7 @@ impl Mod for Create {
                 ],
             )?;
         // WS-2: read Create's exact pipe state for behavioral scenarios.
+        // WS-3: read-only track state inspection for placement/restart scenarios.
         COMMANDS
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -200,7 +237,47 @@ impl Mod for Create {
                     number(Some(0), "y", -2_048, 2_047, None),
                     number(Some(1), "z", -30_000_000, 30_000_000, Some(200)),
                 ],
-            )
+            )?;
+        COMMANDS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add(
+                registry,
+                "track",
+                "Inspect a loaded Create railway track blockstate",
+                2,
+                &[
+                    number(None, "x", -30_000_000, 30_000_000, None),
+                    number(Some(0), "y", -2_048, 2_047, None),
+                    number(Some(1), "z", -30_000_000, 30_000_000, Some(2)),
+                ],
+            )?;
+        // WS-3: read the saved railway root, or rebuild at a known-dimension
+        // admin command position while world callback dimension is unavailable.
+        for (name, help, tag) in [
+            ("railway", "Inspect stored Create railway networks", 3),
+            (
+                "railwaybuild",
+                "Build and save a Create railway at a rail position",
+                4,
+            ),
+        ] {
+            COMMANDS
+                .get()
+                .ok_or(RegistrationError::InvalidDefinition)?
+                .add(
+                    registry,
+                    name,
+                    help,
+                    2,
+                    &[
+                        number(None, "x", -30_000_000, 30_000_000, None),
+                        number(Some(0), "y", -2_048, 2_047, None),
+                        number(Some(1), "z", -30_000_000, 30_000_000, Some(tag)),
+                    ],
+                )?;
+        }
+        Ok(())
     }
 
     fn command(&self, tag: u64, command: Command<'_>) -> i32 {
@@ -228,11 +305,39 @@ impl Mod for Create {
             }
             return 1;
         }
-        let Some(states) = states() else { return 0 };
+        if tag == 3 || tag == 4 {
+            let result = if tag == 3 {
+                trains::summary(&world)
+            } else {
+                trains::rebuild_at(&world, &command, *content, pos)
+            };
+            match result {
+                Ok(message) => {
+                    command.reply(&message);
+                    return 1;
+                }
+                Err(message) => {
+                    command.reply(&message);
+                    return 0;
+                }
+            }
+        }
         let mut state = [0];
         if !world.read(&[pos], &mut state) {
             return 0;
         }
+        // WS-3: exact internal Create track selector, without vanilla command parsing.
+        if tag == 2 {
+            if let Some(selector) = trains::describe_state(*content, state[0]) {
+                command.reply(&format!("{selector} at {x} {y} {z}"));
+                return 1;
+            }
+            command.reply("There is no loaded Create track at that position");
+            return 0;
+        }
+        let Some(states) = states() else {
+            return 0;
+        };
         let Some(known) = states.by_id.get(&state[0]).filter(|s| s.kind.is_some()) else {
             command.reply("There is no loaded kinetic block at that position");
             return 0;
@@ -576,8 +681,10 @@ struct KnownState {
 
 #[derive(Default)]
 struct StateIds {
+    contraption_blocks: contraption::BlockMovementChecks,
     chutes: HashMap<u32, chute::ChuteState>,
     funnels: HashMap<u32, funnel::FunnelState>,
+    crusher_controllers: HashMap<u32, (u8, bool)>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
     /// Vanilla blocks a belt may run through (`canBeReplaced`).
@@ -714,6 +821,16 @@ fn states() -> Option<&'static StateIds> {
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
+        fan::add_states(content, &mut ids);
+        bearing::add_states(content, &mut ids);
+        piston::add_states(content, &mut ids);
+        gantry::add_states(content, &mut ids);
+        pulley::add_states(content, &mut ids);
+        chassis::add_states(content, &mut ids);
+        sticker::add_states(content, &mut ids);
+        ids.contraption_blocks.register_states(content);
+        millstone::add_states(content, &mut ids);
+        crusher::add_states(content, &mut ids);
         for name in [
             "air",
             "cave_air",
@@ -757,6 +874,13 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     // WS-2 fluid blocks choose connected faces, axis, and waterlogged state.
     if let Some(state) = fluids::runtime::placed_state(&args) {
         return Some(state);
+    }
+    // WS-3: train tracks use their own orientation and support checks.
+    if let Some(track) = CONTENT
+        .get()
+        .and_then(|content| trains::placed_state(&args, *content))
+    {
+        return Some(track);
     }
     let states = states()?;
     if states.chutes.contains_key(&args.state) {
@@ -802,6 +926,42 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        None if placed.block == sticker::ID => {
+            return sticker::placed_state(
+                args.world,
+                args.position,
+                if args.sneak { look } else { look ^ 1 },
+            );
+        }
+        None if chassis::is_chassis(placed.block) => {
+            return chassis::placed_state(
+                args.world,
+                placed.block,
+                args.position,
+                args.face,
+                face_axis(look),
+                args.sneak,
+            );
+        }
+        Some(Kind::Pulley(_)) => {
+            let horizontal = connected
+                .filter(|&direction| face_axis(direction) != 1)
+                .map(face_axis);
+            let preferred = horizontal
+                .clone()
+                .next()
+                .filter(|first| horizontal.clone().all(|axis| *first == axis));
+            let look_axis = face_axis(nearest_looking_direction(args.yaw, 0.0));
+            return pulley::placed_state(preferred.unwrap_or(look_axis ^ 2));
+        }
+        Some(Kind::GantryShaft(_)) => return gantry::place_shaft(args, states, &ids, look),
+        Some(Kind::GantryCarriage(_)) => {
+            return gantry::place_carriage(args.face ^ 1, states.kind(ids[usize::from(args.face)]));
+        }
+        Some(Kind::Piston(block)) => {
+            let facing = if args.sneak { look } else { look ^ 1 };
+            return piston::placed_state(args, facing, connected, block.sticky);
+        }
         Some(Kind::Motor(_)) => {
             let face = if args.sneak {
                 look
@@ -814,6 +974,42 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             };
             format!("{MOTOR}[facing={}]", DIRECTIONS[usize::from(face)])
         }
+        Some(Kind::Fan(_)) => {
+            let toward_support = args.face;
+            let face = if states
+                .chutes
+                .contains_key(&ids[usize::from(toward_support)])
+            {
+                toward_support
+            } else if states
+                .chutes
+                .contains_key(&ids[usize::from(toward_support ^ 1)])
+            {
+                toward_support ^ 1
+            } else {
+                let direction = connected
+                    .clone()
+                    .next_back()
+                    .filter(|_| preferred.is_some())
+                    .unwrap_or(look);
+                direction ^ u8::from(!args.sneak)
+            };
+            format!("{}[facing={}]", fan::ID, DIRECTIONS[usize::from(face)])
+        }
+        Some(Kind::Bearing(_) | Kind::Windmill(_)) => {
+            let face = if args.sneak {
+                look
+            } else {
+                connected
+                    .clone()
+                    .next_back()
+                    .filter(|_| preferred.is_some())
+                    .unwrap_or(look)
+                    ^ 1
+            };
+            format!("{}[facing={}]", placed.block, DIRECTIONS[usize::from(face)])
+        }
+        None if placed.block == piston::POLE => return piston::pole_placement(args, wet),
         Some(Kind::Shaft(_)) => format!(
             "{SHAFT}[axis={},waterlogged={wet}]",
             AXES[usize::from(pillar_axis)]
@@ -834,6 +1030,21 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                 AXES[usize::from(axis)]
             )
         }
+        Some(Kind::Wheel(_)) => {
+            for face in 0..6u8 {
+                let block = ids[usize::from(face)];
+                if let Some(Kind::Wheel(other_axis)) = states.kind(block) {
+                    if other_axis != pillar_axis || face_axis(face) != pillar_axis {
+                        return None;
+                    }
+                } else if face_axis(face) != pillar_axis
+                    && states.crusher_controllers.contains_key(&block)
+                {
+                    return None;
+                }
+            }
+            format!("{}[axis={}]", crusher::ID, AXES[usize::from(pillar_axis)])
+        }
         Some(Kind::Gearbox(_)) => format!("{GEARBOX}[axis=y]"),
         // AbstractEncasedShaftBlock.getStateForPlacement
         Some(Kind::EncasedShaft(_)) => format!(
@@ -849,7 +1060,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         None if placed.block == depot::ID => {
             format!("{}[waterlogged={}]", depot::ID, states.wet(ids[6]))
         }
-        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Pump(_)) | None => {
+        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Pump(_))
+        | Some(Kind::Millstone)
+        | None => {
             return Some(args.state);
         }
     };
@@ -891,6 +1104,16 @@ struct KineticData {
     speed: f32,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     press: Option<press::PressingData>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    millstone: Option<millstone::MillstoneData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bearing: Option<bearing::BearingData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    piston: Option<piston::PistonData>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    gantries: Vec<gantry::GantryContraption>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pulley: Option<pulley::PulleyData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<fastnbt::IntArray>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -950,6 +1173,36 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if let Some(press) = &mut be.press {
         press.data = data.press.unwrap_or_default();
     }
+    if kind == Kind::Millstone {
+        be.millstone = data.millstone.map(millstone::Millstone::load).map(Box::new);
+    }
+    if kind.is_bearing()
+        && let Some(data) = data.bearing
+    {
+        let mut bearing = bearing::MechanicalBearing::default();
+        bearing.data = data;
+        if matches!(kind, Kind::Windmill(_)) {
+            be.generated = bearing.get_generated_speed();
+        }
+        be.bearing = Some(Box::new(bearing));
+    }
+    if matches!(kind, Kind::Piston(_))
+        && let Some(data) = data.piston
+    {
+        let mut piston = piston::MechanicalPiston::default();
+        piston.data = data;
+        be.piston = Some(Box::new(piston));
+    }
+    if matches!(kind, Kind::GantryShaft(_)) {
+        be.gantries = data.gantries;
+    }
+    if matches!(kind, Kind::Pulley(_))
+        && let Some(data) = data.pulley
+    {
+        let mut pulley = pulley::RopePulley::default();
+        pulley.data = data;
+        be.pulley = Some(Box::new(pulley));
+    }
     be.source = data.source.and_then(|pos| match *pos {
         [x, y, z] => Some(Pos { x, y, z }),
         _ => None,
@@ -988,6 +1241,11 @@ fn save(pos: Pos, be: &Be) -> KineticData {
     KineticData {
         speed: be.speed,
         press: be.press.as_ref().map(|press| press.data),
+        millstone: be.millstone.as_ref().map(|millstone| millstone.save()),
+        bearing: be.bearing.as_ref().map(|bearing| bearing.data.clone()),
+        piston: be.piston.as_ref().map(|piston| piston.data.clone()),
+        gantries: be.gantries.clone(),
+        pulley: be.pulley.as_ref().map(|pulley| pulley.data.clone()),
         source: be
             .source
             .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
@@ -1070,22 +1328,52 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
     let Some(states) = states() else { return };
     with_world(world, |kinetics| {
         let mut level = WorldLevel { world, states };
+        let mut gantry_changed = false;
         for event in events {
             // WS-2: recalculate fluid pipe faces when adjacent blocks change.
             fluids::runtime::event(world, event);
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
             funnel::event(world, &mut kinetics.funnels, states, event);
+            crusher::event(world, states, kinetics, event);
+            pulley::event(world, states, event);
+            chassis::event(world, states, event);
+            sticker::event(world, states, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            gantry_changed |= matches!(before, Some(Kind::GantryShaft(_)))
+                || matches!(after, Some(Kind::GantryShaft(_)));
             match event.reason {
                 content::LOADED => {
                     if let Some(kind) = after {
                         kinetics.insert(pos, load(world, pos, kind));
                     }
                 }
-                content::UNLOADED => kinetics.unload(pos),
-                content::NEIGHBOR_CHANGED => kinetics.neighbor_changed(&mut level, pos),
+                content::UNLOADED => {
+                    if let Some(be) = kinetics.get_mut(pos) {
+                        if let Some(bearing) = &mut be.bearing {
+                            bearing.clear_displays(world);
+                        }
+                        if let Some(piston) = &mut be.piston {
+                            piston.displays.clear(world);
+                        }
+                        for gantry in &mut be.gantries {
+                            gantry.clear_displays(world);
+                        }
+                        if let Some(pulley) = &mut be.pulley {
+                            pulley.clear_displays(world);
+                        }
+                    }
+                    kinetics.unload(pos);
+                }
+                content::NEIGHBOR_CHANGED => {
+                    if let Some(be) = kinetics.get_mut(pos)
+                        && matches!(be.kind, Kind::Fan(_))
+                    {
+                        be.fan = None;
+                    }
+                    kinetics.neighbor_changed(&mut level, pos);
+                }
                 _ => match (before, after) {
                     (Some(before), Some(after)) if before.equivalent(after) => {
                         kinetics.set_kind(pos, after);
@@ -1097,7 +1385,11 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
                     }
                     _ => {
                         if before.is_some() {
-                            kinetics.remove(&mut level, pos);
+                            if event.reason == content::MOVED_STATE_CHANGED {
+                                kinetics.remove_moved(&mut level, pos);
+                            } else {
+                                kinetics.remove(&mut level, pos);
+                            }
                         }
                         if let Some(kind) = after {
                             kinetics.insert(pos, Be::new(kind));
@@ -1106,22 +1398,39 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
                 },
             }
         }
+        if gantry_changed {
+            gantry::refresh_lines(world, &mut level, kinetics);
+        }
         kinetics.tick(&mut level);
         // WS-2: distribute pump RPM as directional pipe pressures.
         fluids::runtime::pressure_tick(world, kinetics, events);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
+        bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
+        piston::tick(world, &states.contraption_blocks, kinetics);
+        gantry::tick(world, &states.contraption_blocks, kinetics);
+        pulley::tick(world, states, kinetics);
+        for (pos, millstone) in kinetics.dropped_millstones.drain(..) {
+            millstone.drop_contents(world, pos);
+        }
+        millstone::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);
         belt_inventory::tick(world, kinetics);
         chute::tick(world, states, kinetics);
         funnel::tick(world, kinetics);
         funnel::pull_from_depots(world, kinetics);
         depot::tick(world, kinetics);
+        fan::tick(world, kinetics);
+        crusher::tick(world, states, kinetics);
         flush(world, kinetics);
     });
 }
 
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    // WS-3: TrackBlockItem's item-on-rail selection and straight connections.
+    if context.item == "create:track" {
+        return trains::use_on_block(context);
+    }
     if context.item == chute::ID {
         chute::use_on_block(context)
     } else {
@@ -1137,6 +1446,13 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     let Some(states) = states() else {
         return BlockUseResult::Pass;
     };
+    if states
+        .by_id
+        .get(&context.state)
+        .is_some_and(|state| chassis::is_chassis(state.block))
+    {
+        return chassis::use_item_on(context);
+    }
     if states.chutes.contains_key(&context.state) {
         return with_world(context.world, |kinetics| {
             chute::use_item_on(context.world, &mut kinetics.chutes, context)
@@ -1156,12 +1472,37 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         Some(Kind::Belt(_)) => with_world(context.world, |kinetics| {
             belt_inventory::use_item_on(kinetics, context)
         }),
+        Some(Kind::Millstone) => with_world(context.world, |kinetics| {
+            millstone::use_item_on(kinetics, context)
+        }),
+        Some(Kind::Bearing(_) | Kind::Windmill(_)) => with_world(context.world, |kinetics| {
+            bearing::use_item_on(kinetics, &states.contraption_blocks, context)
+        }),
+        Some(Kind::Piston(block)) => with_world(context.world, |kinetics| {
+            piston::use_item_on(kinetics, block, context)
+        }),
+        Some(Kind::GantryCarriage(_)) => with_world(context.world, |kinetics| {
+            gantry::use_item_on(kinetics, context)
+        }),
+        Some(Kind::Pulley(_)) => with_world(context.world, |kinetics| {
+            pulley::use_item_on(kinetics, context)
+        }),
         _ => BlockUseResult::TryEmptyHand,
     }
 }
 
 fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
     let Some(states) = states() else { return };
+    if states
+        .crusher_controllers
+        .get(&state)
+        .is_some_and(|(_, valid)| *valid)
+    {
+        with_world(world, |kinetics| {
+            crusher::entity_inside(kinetics, pos, entity)
+        });
+        return;
+    }
     if depot::is_depot(states, state) {
         with_world(world, |kinetics| {
             if let Some(depot) = kinetics.depots.get_mut(&pos) {

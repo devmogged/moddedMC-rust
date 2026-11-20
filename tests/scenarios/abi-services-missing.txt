@@ -1,0 +1,6 @@
+# Only consumer is installed: the server must not execute its startup code.
+mods target\mods\a-abi-consumer.mmc
+start
+expect skipped mods.*a-abi-consumer.mmc: dependencies missing, failed or cyclic: abi_provider
+reject (?i)abi_consumer resolved|abi_consumer service result=|panicked|trapped
+stop

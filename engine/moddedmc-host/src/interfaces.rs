@@ -68,6 +68,8 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         (abi::MOBS, 1) => ptr::from_ref(&crate::mobs::MOBS).cast(),
         (abi::MOB_AI, 1) => ptr::from_ref(&crate::mob_ai::MOB_AI).cast(),
         (abi::RESOURCES, 1) => ptr::from_ref(&crate::resources::RESOURCES).cast(),
+        (abi::SAVED_DATA, 1) => ptr::from_ref(&crate::saved_data::SAVED_DATA).cast(),
+        (abi::SERVICES, 1) => ptr::from_ref(&crate::services::SERVICES).cast(),
         (abi::CONTAINERS, 1) => ptr::from_ref(&crate::containers::CONTAINERS).cast(),
         (abi::TAGS, 1) => ptr::from_ref(&crate::tags::TAGS).cast(),
         (abi::BLOCK_DISPLAYS, 1) => ptr::from_ref(&crate::block_displays::BLOCK_DISPLAYS).cast(),
@@ -76,7 +78,7 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         (abi::CHUNKS, 1) => ptr::from_ref(&CHUNKS).cast(),
         (abi::COMMANDS, 1) => ptr::from_ref(&COMMANDS).cast(),
         (abi::LIFECYCLE, 1) => ptr::from_ref(&LIFECYCLE).cast(),
-        _ => ptr::null(),
+        (name, version) => crate::services::lookup(name, version),
     }
 }
 
@@ -208,6 +210,7 @@ pub fn watch_shutdown(server: &Arc<Server>) {
         {
             tracing::error!("moddedmc: stopping callbacks failed: {error}");
         }
+        crate::saved_data::flush_all();
     });
 }
 

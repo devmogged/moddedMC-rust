@@ -7,17 +7,34 @@ use fastnbt::Value;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-use crate::{RESOURCES, STACKS, TAGS};
+use crate::{
+    RESOURCES, STACKS, TAGS,
+    belt_inventory::{count, next_int, with_count},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Process {
     Pressing,
+    Splashing,
+    Haunting,
+    Smoking,
+    Smelting,
+    Blasting,
+    Milling,
+    Crushing,
 }
 
 impl Process {
     const fn from_type(id: &str) -> Option<Self> {
         match id.as_bytes() {
             b"create:pressing" => Some(Self::Pressing),
+            b"create:splashing" => Some(Self::Splashing),
+            b"create:haunting" => Some(Self::Haunting),
+            b"minecraft:smoking" => Some(Self::Smoking),
+            b"minecraft:smelting" => Some(Self::Smelting),
+            b"minecraft:blasting" => Some(Self::Blasting),
+            b"create:milling" => Some(Self::Milling),
+            b"create:crushing" => Some(Self::Crushing),
             _ => None,
         }
     }
@@ -32,8 +49,14 @@ pub struct RecipeBook {
 struct RawRecipe {
     #[serde(rename = "type")]
     recipe_type: String,
+    #[serde(default)]
     ingredients: Vec<Json>,
+    ingredient: Option<Json>,
+    #[serde(default)]
     results: Vec<ResultStack>,
+    result: Option<ResultStack>,
+    #[serde(default, rename = "processing_time")]
+    duration: i32,
 }
 
 #[derive(Clone, Deserialize)]
@@ -43,6 +66,12 @@ struct ResultStack {
     count: i32,
     #[serde(default)]
     components: Option<Json>,
+    #[serde(default = "certain")]
+    chance: f32,
+}
+
+const fn certain() -> f32 {
+    1.0
 }
 
 const fn one() -> i32 {
@@ -52,6 +81,8 @@ const fn one() -> i32 {
 #[derive(Clone)]
 pub struct Recipe {
     outputs: Vec<Value>,
+    chances: Vec<f32>,
+    pub duration: i32,
 }
 
 static BOOK: Mutex<Option<(u64, Arc<RecipeBook>)>> = Mutex::new(None);
@@ -80,6 +111,9 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
     let mut tags = HashMap::<String, Vec<String>>::new();
     let tag_api = *TAGS.get()?;
     for path in resources.list("recipe")? {
+        if path.ends_with("_manual_only.json") {
+            continue;
+        }
         let Some(bytes) = resources.read(&path) else {
             continue;
         };
@@ -100,22 +134,36 @@ impl RecipeBook {
         let Some(kind) = Process::from_type(&raw.recipe_type) else {
             return;
         };
-        let [ingredient] = raw.ingredients.as_slice() else {
-            return;
+        let ingredient = match raw.ingredients.as_slice() {
+            [one] => one,
+            [] if let Some(one) = &raw.ingredient => one,
+            _ => return,
         };
         let mut items = HashSet::new();
         read_ingredient(ingredient, &mut tag_values, &mut items);
-        if items.is_empty() || raw.results.is_empty() {
+        let results = if let Some(result) = raw.result {
+            vec![result]
+        } else {
+            raw.results
+        };
+        if items.is_empty() || results.is_empty() {
             return;
         }
-        let outputs: Option<Vec<_>> = raw.results.into_iter().map(ResultStack::into_nbt).collect();
+        let chances = results.iter().map(|result| result.chance).collect();
+        let outputs: Option<Vec<_>> = results.into_iter().map(ResultStack::into_nbt).collect();
         let Some(outputs) = outputs else {
             return;
         };
+        let recipe = Recipe {
+            outputs,
+            chances,
+            duration: raw.duration,
+        };
         for item in items {
-            self.by_item.entry((kind, item)).or_default().push(Recipe {
-                outputs: outputs.clone(),
-            });
+            self.by_item
+                .entry((kind, item))
+                .or_default()
+                .push(recipe.clone());
         }
     }
 
@@ -134,7 +182,7 @@ impl RecipeBook {
 
 impl ResultStack {
     fn into_nbt(self) -> Option<Value> {
-        if self.count <= 0 || self.components.is_some() {
+        if !(1..=99).contains(&self.count) || self.components.is_some() {
             return None;
         }
         Some(Value::Compound(HashMap::from([
@@ -147,6 +195,41 @@ impl ResultStack {
 impl Recipe {
     pub fn outputs(&self) -> Vec<Value> {
         self.outputs.clone()
+    }
+
+    pub fn first_output(&self) -> Option<&str> {
+        item_id(self.outputs.first()?)
+    }
+
+    /// RecipeApplier rolls each input independently and stacks the products.
+    pub fn roll_results(&self, inputs: i32) -> Vec<Value> {
+        let mut products: Vec<Value> = Vec::new();
+        for _ in 0..inputs {
+            for (output, &chance) in self.outputs.iter().zip(&self.chances) {
+                if chance < 1.0 && (next_int(1 << 24) as f32) / (1 << 24) as f32 >= chance {
+                    continue;
+                }
+                let max = fastnbt::to_bytes(output)
+                    .ok()
+                    .and_then(|bytes| STACKS.get()?.info(&bytes))
+                    .map_or(64, |info| info.max_count.max(1) as i32);
+                let mut remaining = count(output);
+                for existing in &mut products {
+                    if with_count(existing, 1) == with_count(output, 1) {
+                        let old = count(existing);
+                        let taken = (max - old).max(0).min(remaining);
+                        *existing = with_count(existing, old + taken);
+                        remaining -= taken;
+                    }
+                }
+                while remaining > 0 {
+                    let taken = max.min(remaining);
+                    products.push(with_count(output, taken));
+                    remaining -= taken;
+                }
+            }
+        }
+        products
     }
 }
 

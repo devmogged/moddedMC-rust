@@ -1,0 +1,107 @@
+# Original Farmer's Delight 1.3.4 additional passive-material crafting recipes.
+# Source uses shaped lead and shapeless packed mud/paper; assert inputs consumed.
+mods target\mods\farmersdelight.mmc
+start
+expect Loaded built-in datapack 'mod/farmersdelight': 13 recipe\(s\), 7 loot table\(s\), 1 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 3
+cmd fill 1020 99 1018 1030 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:crafting_table
+wait 1
+# Shape: ss_, ss_, __s: five straw produce one lead.
+cmd item replace entity tester hotbar.0 with farmersdelight:straw 5
+wait 0.5
+bot use 1025 100 1025
+wait 0.5
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 4 right
+wait 0.25
+bot inventory-click 5 right
+wait 0.25
+bot inventory-click 9 right
+wait 0.25
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:lead 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester farmersdelight:straw 0
+wait 0.5
+expect No items were found
+cmd clear tester minecraft:lead 1
+wait 0.5
+expect Removed 1
+# One straw plus two mud blocks produce two packed mud.
+cmd item replace entity tester hotbar.0 with farmersdelight:straw 1
+wait 0.5
+cmd item replace entity tester hotbar.1 with minecraft:mud 2
+wait 0.5
+bot use 1025 100 1025
+wait 0.5
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 38 left
+wait 0.5
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:packed_mud 0
+wait 0.5
+expect Found 2 matching item
+cmd clear tester farmersdelight:straw 0
+wait 0.5
+expect No items were found
+cmd clear tester minecraft:mud 0
+wait 0.5
+expect No items were found
+cmd clear tester minecraft:packed_mud 2
+wait 0.5
+expect Removed 2
+# Three tree bark items yield one vanilla paper.
+cmd item replace entity tester hotbar.0 with farmersdelight:tree_bark 3
+wait 0.5
+bot use 1025 100 1025
+wait 0.5
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:paper 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester farmersdelight:tree_bark 0
+wait 0.5
+expect No items were found
+cmd clear tester minecraft:paper 1
+wait 0.5
+expect Removed 1
+reject (?i)panicked|trapped|invalid definition|failed to load|\[bot\] error
+bot quit
+stop

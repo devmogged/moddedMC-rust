@@ -21,6 +21,8 @@ pub enum EntitiesExtension {
     Movement,
     /// Mod data saved with the entity.
     Data,
+    /// `Entity::may_build`.
+    MayBuild,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -85,6 +87,10 @@ impl Entities {
             EntitiesExtension::Data => (
                 std::mem::offset_of!(abi::EntitiesV1, set_data),
                 "moddedmc:entities.data",
+            ),
+            EntitiesExtension::MayBuild => (
+                std::mem::offset_of!(abi::EntitiesV1, may_build),
+                "moddedmc:entities.may_build",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -288,6 +294,13 @@ impl Entity<'_> {
     pub fn set_data(self, key: &str, nbt: &[u8]) -> bool {
         // SAFETY: the entity is live for the callback and both slices are borrowed for the call.
         unsafe { (self.api.set_data)(self.raw, abi::Str::new(key.as_bytes()), abi::Str::new(nbt)) }
+    }
+
+    /// Vanilla `Player.mayBuild()`: false for other entities and for Adventure and Spectator
+    /// players. `EntitiesExtension::MayBuild`.
+    pub fn may_build(self) -> bool {
+        // SAFETY: the entity is live for the callback.
+        unsafe { (self.api.may_build)(self.raw) }
     }
 
     pub fn set_step_height(self, value: f64) {

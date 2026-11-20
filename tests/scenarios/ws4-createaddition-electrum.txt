@@ -1,0 +1,59 @@
+# Create Crafts & Additions 1.7.2 NeoForge 1.21.1: electrum subset.
+# Tests native registration, released vanilla recipes, tags, loot and restart.
+mods target\mods\create.mmc target\mods\createaddition.mmc
+start
+expect registered content block createaddition:electrum_block
+expect Loaded built-in datapack 'mod/createaddition': 4 recipe\(s\), 1 loot table\(s\), 12 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2319.5 101 2317.5
+wait 2
+cmd fill 2316 99 2316 2324 99 2324 minecraft:stone
+cmd fill 2316 100 2316 2324 104 2324 minecraft:air
+cmd recipe give tester createaddition:crafting/electrum_nugget
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester createaddition:crafting/electrum_ingot_from_nugget
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester createaddition:crafting/electrum_block
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester createaddition:crafting/electrum_ingot_from_electrum_block
+wait 0.5
+expect Unlocked 1 recipe
+cmd give tester createaddition:electrum_ingot 2
+wait 0.5
+expect Gave 2 .*Electrum Ingot
+cmd give tester createaddition:electrum_nugget 9
+wait 0.5
+expect Gave 9 .*Electrum Nugget
+cmd give tester createaddition:electrum_sheet 1
+wait 0.5
+expect Gave 1 .*Electrum Sheet
+cmd give tester createaddition:zinc_sheet 1
+wait 0.5
+expect Gave 1 .*Zinc Sheet
+cmd setblock 2320 100 2320 createaddition:electrum_block
+wait 1
+cmd execute if block 2320 100 2320 createaddition:electrum_block
+expect Test passed
+cmd execute if block 2320 100 2320 #minecraft:mineable/pickaxe
+expect Test passed
+cmd execute if block 2320 100 2320 #minecraft:needs_iron_tool
+expect Test passed
+cmd loot spawn 2322 101 2320 mine 2320 100 2320
+wait 0.5
+expect Dropped 1 .*Electrum Block
+reject (?i)panicked|trapped|Unknown recipe|not found|ERROR
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 2320 100 2320 createaddition:electrum_block
+expect Test passed
+reject (?i)panicked|trapped|Unknown recipe|ERROR
+stop

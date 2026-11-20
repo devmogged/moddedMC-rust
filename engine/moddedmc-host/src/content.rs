@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, hash_map::Entry},
     ffi::c_void,
     io,
     path::Path,
@@ -13,7 +13,7 @@ use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
         BlockBehaviour, BlockHitResult, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
-        OnPlaceArgs, UseWithItemArgs,
+        OnPlaceArgs, PlayerWillDestroyArgs, UseWithItemArgs,
         blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
@@ -24,13 +24,14 @@ use pumpkin_core::{
     command::context::CommandContext,
     entity::{Entity, EntityBase, decoration::display::ItemDisplayEntity, player::Player},
     server::Server,
-    world::World,
+    world::{World, loot::LootContextParameters},
 };
 use pumpkin_data::{
     Block, BlockDirection, BlockState, BlockStateId, Property,
     content::{self, BlockDefinition, ItemDefinition, StateDefinition},
     data_component_impl::{EquipmentSlot, ItemModelImpl},
     entity::EntityType,
+    fluid::Fluid,
     item::Item,
     item_stack::ItemStack,
 };
@@ -66,6 +67,11 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     destroy,
     face_sturdy,
     collision_shape,
+    describe_state,
+    fluid_id,
+    read_block_entity,
+    restore_block_entity,
+    block_drops,
 };
 
 const MAX_BATCH: usize = 4096;
@@ -105,6 +111,7 @@ struct Runtime {
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
+    player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     /// Owning mod of each content item, block items included.
     item_owners: HashMap<u16, usize>,
 }
@@ -116,6 +123,7 @@ pub struct Hooks {
     pub entity_inside: Option<abi::EntityInside>,
     pub use_on_block: Option<abi::UseOnBlockFn>,
     pub use_block: Option<abi::UseBlockFn>,
+    pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
 }
 
 #[derive(Default)]
@@ -126,6 +134,7 @@ struct Pending {
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
+    player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
 }
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
@@ -134,6 +143,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     entity_inside: BTreeMap::new(),
     use_on_block: BTreeMap::new(),
     use_block: BTreeMap::new(),
+    player_will_destroy: BTreeMap::new(),
 });
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static WORLDS: LazyLock<Mutex<HashMap<Uuid, WorldState>>> = LazyLock::new(Mutex::default);
@@ -427,6 +437,9 @@ pub fn register(
     if let Some(callback) = hooks.use_block {
         pending.use_block.insert(owner, callback);
     }
+    if let Some(callback) = hooks.player_will_destroy {
+        pending.player_will_destroy.insert(owner, callback);
+    }
 }
 
 fn split_items(
@@ -450,7 +463,8 @@ fn split_items(
         .unzip()
 }
 
-/// Engine definitions for the staged blocks, each state on its own note block carrier.
+/// Engine definitions for the staged blocks. States that look the same to a stock client (model
+/// and rotation) share a note block carrier, since the carrier only decides what the client draws.
 fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
     // Preserve instrument and note for ordinary note blocks by borrowing only powered variants.
     let mut carriers = Block::NOTE_BLOCK.states.iter().filter_map(|state| {
@@ -465,13 +479,27 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
             .to_state_id(&Block::NOTE_BLOCK);
         Some((state.id, replacement))
     });
+    let mut assigned = HashMap::new();
     let mut definitions = Vec::with_capacity(blocks.len());
     for (_, block) in blocks {
         let mut states = Vec::with_capacity(block.states.len());
         for state in &block.states {
-            let (carrier, replacement) = carriers
-                .next()
-                .ok_or_else(|| io::Error::other("custom block carrier slots exhausted"))?;
+            let visual = &state.visual;
+            // A display-only state draws the empty model, a state with neither draws a note block.
+            let look = (
+                visual.model.clone(),
+                visual.rotating_model.is_empty(),
+                visual.x.rem_euclid(360),
+                visual.y.rem_euclid(360),
+            );
+            let (carrier, replacement) = match assigned.entry(look) {
+                Entry::Occupied(entry) => *entry.get(),
+                Entry::Vacant(entry) => *entry.insert(
+                    carriers
+                        .next()
+                        .ok_or_else(|| io::Error::other("custom block carrier slots exhausted"))?,
+                ),
+            };
             states.push(StateDefinition {
                 properties: state.properties.clone(),
                 physical: state.physical,
@@ -500,6 +528,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         entity_inside,
         use_on_block,
         use_block,
+        player_will_destroy,
     } = std::mem::take(&mut *lock(&PENDING));
     blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
     items.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
@@ -534,6 +563,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         entity_inside,
         use_on_block,
         use_block,
+        player_will_destroy,
         item_owners: HashMap::new(),
     };
     let mut assets = Vec::with_capacity(blocks.len());
@@ -633,6 +663,27 @@ impl BlockBehaviour for Behaviour {
         }
     }
 
+    fn player_will_destroy(&self, args: PlayerWillDestroyArgs<'_>) {
+        let Some(callback) = RUNTIME.get().and_then(|runtime| {
+            let owner = runtime.blocks.get(&args.block.id.as_u16())?.owner;
+            runtime.player_will_destroy.get(&owner).copied()
+        }) else {
+            return;
+        };
+        let world: &World = args.world;
+        let entity: &dyn EntityBase = args.player.as_ref();
+        // SAFETY: the world and player outlive this synchronous callback.
+        unsafe {
+            callback(
+                ptr::from_ref(world).cast(),
+                ptr::from_ref(&entity).cast(),
+                abi_pos(*args.position),
+                u32::from(args.state.id.as_u16()),
+                args.player.is_creative(),
+            );
+        }
+    }
+
     fn use_with_item(&self, args: UseWithItemArgs<'_>) -> BlockActionResult {
         let Some(callback) = use_block_callback(args.block) else {
             return BlockActionResult::PassToDefaultBlockAction;
@@ -697,6 +748,7 @@ impl BlockBehaviour for Behaviour {
 fn observe(world: &World, pos: BlockPos, change: Change) {
     match change {
         Change::State(old, state) => queue(world, pos, old, state, abi::STATE_CHANGED),
+        Change::Moved(old, state) => queue(world, pos, old, state, abi::MOVED_STATE_CHANGED),
         Change::Loaded(state) => queue(world, pos, BlockStateId::AIR, state, abi::LOADED),
         Change::Unloaded => {
             let mut worlds = lock(&WORLDS);
@@ -751,7 +803,9 @@ fn queue(world: &World, pos: BlockPos, old: BlockStateId, state: BlockStateId, r
 
 pub fn tick(server: &Arc<Server>, time: u64) {
     let Some(runtime) = RUNTIME.get() else { return };
-    if runtime.blocks.is_empty() {
+    // A mod may only subscribe to world ticks (e.g. save-global data) without
+    // registering any custom blocks. It still needs its callback every tick.
+    if runtime.blocks.is_empty() && runtime.ticks.is_empty() {
         return;
     }
     for world in server.worlds.load().iter() {
@@ -910,9 +964,14 @@ unsafe extern "C" fn write(raw: WorldRef, updates: *const BlockUpdate, count: us
         .map(|update| {
             let pos = block_pos(update.position);
             let state = BlockStateId::from_runtime_id(u16::try_from(update.state).ok()?)?;
-            let flags = BlockFlags::from_bits(u32::from(update.flags & abi::UPDATE_ALL))?;
-            if update.flags & !abi::UPDATE_ALL != 0 {
+            if update.flags & !(abi::UPDATE_ALL | abi::UPDATE_MOVED) != 0 {
                 return None;
+            }
+            let mut flags = BlockFlags::from_bits(u32::from(update.flags & abi::UPDATE_ALL))?;
+            if update.flags & abi::UPDATE_MOVED != 0 {
+                flags |= BlockFlags::MOVED
+                    | BlockFlags::SKIP_DROPS
+                    | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK;
             }
             world.get_block_state_id_if_loaded(&pos)?;
             Some((pos, state, flags))
@@ -963,28 +1022,113 @@ unsafe extern "C" fn write_entity(raw: WorldRef, pos: Pos, nbt: Str) -> bool {
     let (Some(world), bytes) = (unsafe { world(raw) }, unsafe { nbt.bytes() }) else {
         return false;
     };
-    let mut reader = std::io::Cursor::new(bytes);
-    let (Ok(data), pos) = (
-        Nbt::read(&mut pumpkin_nbt::deserializer::NbtReadHelperJava::new(
-            &mut reader,
-        )),
-        block_pos(pos),
-    ) else {
+    let (Some(data), pos) = (read_nbt(bytes), block_pos(pos)) else {
         return false;
     };
-    if reader.position() != bytes.len() as u64 {
-        return false;
-    }
     let Some(entity) = world.get_block_entity(&pos) else {
         return false;
     };
     let Some(entity) = entity.as_any().downcast_ref::<ContentBlockEntity>() else {
         return false;
     };
-    entity.set_data(data.root_tag);
+    entity.set_data(data);
     let mut saved = pumpkin_nbt::compound::NbtCompound::new();
     entity.write_internal(&mut saved);
     world.add_block_entity_nbt(pos, &saved);
+    true
+}
+
+/// Named-root Java NBT that fills the whole input.
+fn read_nbt(bytes: &[u8]) -> Option<pumpkin_nbt::compound::NbtCompound> {
+    let mut reader = std::io::Cursor::new(bytes);
+    let nbt = Nbt::read(&mut pumpkin_nbt::deserializer::NbtReadHelperJava::new(
+        &mut reader,
+    ))
+    .ok()?;
+    (reader.position() == bytes.len() as u64).then_some(nbt.root_tag)
+}
+
+unsafe extern "C" fn read_block_entity(raw: WorldRef, pos: Pos, out: Sink) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return false;
+    }
+    let Some(nbt) = world.get_block_entity_nbt(&pos) else {
+        return false;
+    };
+    let bytes = Nbt::from(nbt).write();
+    // SAFETY: bytes are valid until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
+unsafe extern "C" fn block_drops(raw: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    let Some(id) = world.get_block_state_id_if_loaded(&pos) else {
+        return false;
+    };
+    let tool = if tool.len == 0 {
+        None
+    } else {
+        let Some(tool) = crate::stacks::read_stack(tool) else {
+            return false;
+        };
+        Some(tool)
+    };
+    let params = LootContextParameters {
+        world: Some(world.as_ref()),
+        tool,
+        block_state: Some(BlockState::from_id(id)),
+        position: Some(pos.to_f64()),
+        ..Default::default()
+    };
+    let drops = pumpkin_core::block::collect_loot(&world, Block::from_state_id(id), &pos, &params);
+    for (index, stack) in (0u64..).zip(drops) {
+        if let Some(saved) = stack.to_nbt() {
+            let bytes = Nbt::from(saved).write();
+            // SAFETY: bytes are valid until the synchronous sink returns.
+            unsafe { (out.put)(out.ctx, index, Str::new(&bytes)) };
+        }
+    }
+    true
+}
+
+unsafe extern "C" fn restore_block_entity(raw: WorldRef, pos: Pos, nbt: Str) -> bool {
+    if nbt.len > abi::MAX_BLOCK_ENTITY_BYTES {
+        return false;
+    }
+    // SAFETY: the world and NBT are live for this call.
+    let (Some(world), bytes) = (unsafe { world(raw) }, unsafe { nbt.bytes() }) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    let (Some(_), Some(mut saved)) = (world.get_block_state_id_if_loaded(&pos), read_nbt(bytes))
+    else {
+        return false;
+    };
+    // The placed destination block already made its own entity, so a matching id is vanilla's
+    // `BlockEntityType.isValid(state)`.
+    let Some(current) = world.get_block_entity(&pos) else {
+        return false;
+    };
+    if saved.get_string("id") != Some(current.resource_location()) {
+        return false;
+    }
+    saved.put_int("x", pos.0.x);
+    saved.put_int("y", pos.0.y);
+    saved.put_int("z", pos.0.z);
+    let Some(entity) = pumpkin_core::block::entities::block_entity_from_nbt(&saved) else {
+        return false;
+    };
+    world.add_block_entity(entity);
     true
 }
 
@@ -1081,6 +1225,81 @@ unsafe extern "C" fn collision_shape(
     i32::try_from(count).unwrap_or(i32::MAX)
 }
 
+/// Writes the selector `state` parses back: content properties in their stored order, vanilla
+/// ones in the block's definition order.
+unsafe extern "C" fn describe_state(state: u32, out: Sink) -> bool {
+    let Some(id) = u16::try_from(state)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id)
+    else {
+        return false;
+    };
+    let (name, properties): (&str, Vec<(&str, &str)>) = content::state(id.as_u16()).map_or_else(
+        || {
+            let block = Block::from_state_id(id);
+            let properties = block.properties(id).map_or_else(Vec::new, |props| {
+                props
+                    .to_props()
+                    .into_iter()
+                    .map(|p| (p.key().to_str(), p.value_str()))
+                    .collect()
+            });
+            (block.name, properties)
+        },
+        |entry| {
+            let properties = entry.properties.iter();
+            (
+                entry.block.name,
+                properties.map(|(k, v)| (k.as_str(), v.as_str())).collect(),
+            )
+        },
+    );
+    let mut selector = if name.contains(':') {
+        name.to_owned()
+    } else {
+        format!("minecraft:{name}")
+    };
+    if !properties.is_empty() {
+        let pairs: Vec<String> = properties.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        selector = format!("{selector}[{}]", pairs.join(","));
+    }
+    // SAFETY: the selector is live until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(selector.as_bytes())) };
+    true
+}
+
+unsafe extern "C" fn fluid_id(raw: WorldRef, pos: Pos, out: Sink) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return false;
+    }
+    // Pumpkin reports fluid families by their flowing member; vanilla's type is the source one
+    // for source states, waterlogged blocks included.
+    let (fluid, state) = world.get_fluid_and_fluid_state(&pos);
+    let id = if fluid.matches_type(&Fluid::WATER) {
+        if state.is_source {
+            "minecraft:water"
+        } else {
+            "minecraft:flowing_water"
+        }
+    } else if fluid.matches_type(&Fluid::LAVA) {
+        if state.is_source {
+            "minecraft:lava"
+        } else {
+            "minecraft:flowing_lava"
+        }
+    } else {
+        "minecraft:empty"
+    };
+    // SAFETY: the id is live until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(id.as_bytes())) };
+    true
+}
+
 pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     size: size_of::<abi::EntitiesV1>(),
     on_entity_inside,
@@ -1101,6 +1320,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     has_indirect_passenger: crate::entities::has_indirect_passenger,
     data: crate::entities::data,
     set_data: crate::entities::set_data,
+    may_build: crate::entities::may_build,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
@@ -1222,6 +1442,24 @@ fn use_context(
     }
 }
 
+pub unsafe extern "C" fn on_player_will_destroy(
+    reg: Reg,
+    callback: abi::PlayerWillDestroyFn,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }
+        .content_hooks
+        .player_will_destroy;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
 pub unsafe extern "C" fn on_use_block_content(reg: Reg, callback: abi::UseBlockFn) -> i32 {
     if RUNTIME.get().is_some() {
         return code::INVALID_DEFINITION;
@@ -1255,4 +1493,39 @@ pub unsafe extern "C" fn on_use_on_block(reg: Reg, callback: abi::UseOnBlockFn) 
     }
     *slot = Some(callback);
     code::OK
+}
+
+#[cfg(test)]
+mod tests {
+    use moddedmc_api::abi::{Sink, Str};
+    use pumpkin_data::Block;
+
+    use super::{describe_state, state};
+
+    unsafe extern "C" fn collect(ctx: *mut std::ffi::c_void, _key: u64, value: Str) {
+        // SAFETY: ctx is the String the test passed, and value is live until we return.
+        unsafe { (*ctx.cast::<String>()).push_str(value.str()) };
+    }
+
+    /// Every vanilla state's selector reads back as the same state.
+    #[test]
+    fn describe_state_round_trips() {
+        let mut checked = 0;
+        for block in [&Block::OAK_STAIRS, &Block::REDSTONE_WIRE, &Block::STONE] {
+            for block_state in block.states {
+                let mut text = String::new();
+                let out = Sink {
+                    ctx: (&raw mut text).cast(),
+                    put: collect,
+                };
+                let id = u32::from(block_state.id.as_u16());
+                // SAFETY: the sink writes into `text` for the call.
+                assert!(unsafe { describe_state(id, out) });
+                // SAFETY: the selector is borrowed for the call.
+                assert_eq!(unsafe { state(Str::new(text.as_bytes())) }, id, "{text}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 1000);
+    }
 }
