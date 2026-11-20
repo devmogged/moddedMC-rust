@@ -156,6 +156,8 @@ A `.mmc` is a zip with
 | | `destroy(world, position, drop)` | Vanilla `Level.destroyBlock`: break particles, loot when `drop`, then air or the block's water. Appended: require `WorldExtension::Destroy`. |
 | | `face_sturdy(world, position, face)` | Vanilla `BlockState.isFaceSturdy`. False when unloaded. Appended: require `WorldExtension::FaceSturdy`. |
 | | `collision_shape(world, position, out, capacity)` | Vanilla `BlockState.getCollisionShape(level, pos)` with an empty context, as f64 boxes relative to the block (random offset included); returns the box count, -1 when unloaded. Appended: require `WorldExtension::CollisionShape`. |
+| | `describe_state(state, out)` | The full `namespace:block[key=value,...]` selector `Content::state` reads back, every property included. False for an unknown state. Appended: require `WorldExtension::DescribeState`. |
+| | `fluid_id(world, position, out)` | Vanilla `FluidState.getType()` registry id, the source id for waterlogged and aquatic blocks, `minecraft:empty` for none. False when unloaded. Appended: require `WorldExtension::FluidId`. |
 | `moddedmc:entities` v1 | `on_entity_inside(reg, callback)` | Stage one callback per mod, called like vanilla `Block.entityInside` for entities touching one of the mod's blocks. It gets the world, position, state and a borrowed entity, all valid only during the call. |
 | | `view(entity, out)` | Fill kind bits (player, living, item), on-ground flag, position, motion, yaw, pitch, head yaw and body yaw. |
 | | `type_id(entity)` | The entity type's resource name. |

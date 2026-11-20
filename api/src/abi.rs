@@ -600,6 +600,12 @@ pub struct BlockWorldV1 {
         out: *mut CollisionBox,
         capacity: usize,
     ) -> i32,
+    /// The state's full `namespace:block[key=value,...]` selector, the form `Content::state`
+    /// reads, with every property. False for an unknown state.
+    pub describe_state: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
+    /// Vanilla `FluidState.getType()` registry id at the position, including the water in
+    /// waterlogged and aquatic blocks, `minecraft:empty` for none. False for unloaded positions.
+    pub fluid_id: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: Sink) -> bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.

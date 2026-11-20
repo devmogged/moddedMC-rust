@@ -53,6 +53,8 @@ pub enum WorldExtension {
     Destroy,
     FaceSturdy,
     CollisionShape,
+    DescribeState,
+    FluidId,
 }
 
 impl WorldExtension {
@@ -73,6 +75,14 @@ impl WorldExtension {
             Self::CollisionShape => (
                 std::mem::offset_of!(abi::BlockWorldV1, collision_shape),
                 "moddedmc:block_world.collision_shape",
+            ),
+            Self::DescribeState => (
+                std::mem::offset_of!(abi::BlockWorldV1, describe_state),
+                "moddedmc:block_world.describe_state",
+            ),
+            Self::FluidId => (
+                std::mem::offset_of!(abi::BlockWorldV1, fluid_id),
+                "moddedmc:block_world.fluid_id",
             ),
         }
     }
@@ -219,6 +229,18 @@ impl Content {
         (state != UNLOADED_STATE).then_some(state)
     }
 
+    /// The state's full selector with every property, the reverse of [`Content::state`].
+    /// `None` for an unknown state or on a server without it.
+    pub fn describe_state(self, state: u32) -> Option<String> {
+        if !WorldExtension::DescribeState.available(self.1) {
+            return None;
+        }
+        let mut out = Vec::new();
+        // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
+        let found = unsafe { (self.1.describe_state)(state, sink(&mut out)) };
+        found.then(|| String::from_utf8(out).ok()).flatten()
+    }
+
     pub fn command_world<'a>(self, command: &'a Command<'_>) -> Option<World<'a>> {
         // SAFETY: the command source remains live for the returned borrow.
         let raw = unsafe { (self.1.command_world)(command.source) };
@@ -227,6 +249,14 @@ impl Content {
             api: self.1,
             scope: PhantomData,
         })
+    }
+}
+
+/// A sink that appends what the host writes to `out`.
+fn sink(out: &mut Vec<u8>) -> abi::Sink {
+    abi::Sink {
+        ctx: (&raw mut *out).cast(),
+        put: bytes,
     }
 }
 
@@ -330,6 +360,18 @@ impl World<'_> {
             }
             boxes.reserve_exact(count);
         }
+    }
+
+    /// Vanilla `FluidState.getType()` id, such as `minecraft:water` for a waterlogged block or
+    /// `minecraft:empty`. `None` when unloaded or on a server without it.
+    pub fn fluid_id(self, pos: Pos) -> Option<String> {
+        if !WorldExtension::FluidId.available(self.api) {
+            return None;
+        }
+        let mut out = Vec::new();
+        // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
+        let found = unsafe { (self.api.fluid_id)(self.raw, pos, sink(&mut out)) };
+        found.then(|| String::from_utf8(out).ok()).flatten()
     }
 
     /// Tells loaded worlds apart. Stable while the world stays loaded.
