@@ -65,6 +65,7 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         (abi::ITEM_STACKS, 1) => ptr::from_ref(&crate::stacks::ITEM_STACKS).cast(),
         (abi::DISPLAYS, 1) => ptr::from_ref(&crate::stacks::DISPLAYS_TABLE).cast(),
         (abi::EFFECTS, 1) => ptr::from_ref(&crate::effects::EFFECTS).cast(),
+        (abi::MOBS, 1) => ptr::from_ref(&crate::mobs::MOBS).cast(),
         (abi::RESOURCES, 1) => ptr::from_ref(&crate::resources::RESOURCES).cast(),
         (abi::CONTAINERS, 1) => ptr::from_ref(&crate::containers::CONTAINERS).cast(),
         (abi::TAGS, 1) => ptr::from_ref(&crate::tags::TAGS).cast(),

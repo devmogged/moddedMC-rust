@@ -189,7 +189,11 @@ A `.mmc` is a zip with
 | | `info(stack, out)` | Count, vanilla `getMaxStackSize`, and whether the item places a block. |
 | `moddedmc:displays` v1 | `spawn_item(world, stack, display)` | An item display that is never saved, for things that aren't entities (items on a belt). The display gives the position, a left rotation quaternion, a uniform scale, the `ItemDisplayContext` and the client's position interpolation in ticks. Returns its id. |
 | | `update`, `set_item`, `remove` | Move or restyle it, change its stack, or take it down. `update` returns false once the display is gone (its chunk unloaded); spawn a new one then. |
+| `moddedmc:mobs` v1 | `add_mob(reg, definition)` | Stage a mob type: its id, the vanilla living type that carries it (`minecraft:ravager`), and base attribute values set when it spawns (then saved like any attribute). Stock clients see the carrier. |
+| | `spawn(world, kind, position)` | Spawn a registered mob type, or a vanilla mob by id. Returns its entity id, or -1. A registered mob starts at full health for its `max_health`. |
+| | `kind(entity)` | The registered type of a mod mob, or empty. It is kept in the entity's custom data (`data.moddedmc.mob`), so it survives restarts; a mob whose type is no longer registered reads as empty. |
+| | `state(entity, out)`, `set_state(entity, bytes)` | The mod's own bytes on a mod mob, at most 64 KiB, saved with it (`data.moddedmc.state`). False for anything that isn't a mod mob. |
 
 Require the tables from `Mod::start` and register definitions in `Mod::register`. Requesting `moddedmc:content` or `moddedmc:items` during startup moves that mod's registration before world load. Legacy mods continue to register on the first tick. State numbers are runtime handles. Store names and properties in mod-owned data. Mods with a placement hook can choose one of the placing block's states from the clicked face, look direction, sneak state and loaded neighbors.
 
-The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction` and `moddedmc_api::effects`. See `mods/create` for registration, placement, loading saved NBT and processing batches.
+The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects` and `moddedmc_api::mobs`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.

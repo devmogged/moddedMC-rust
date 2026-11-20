@@ -1042,3 +1042,63 @@ pub struct BlockDisplaysV1 {
     pub set_state: unsafe extern "C" fn(world: WorldRef, id: i32, state: u32) -> bool,
     pub remove: unsafe extern "C" fn(world: WorldRef, id: i32),
 }
+
+pub const MOBS: &str = "moddedmc:mobs";
+
+/// A base attribute value for a mod mob, such as `minecraft:max_health` 40.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct MobAttribute {
+    pub id: Str,
+    pub value: f64,
+}
+
+/// A mob type a mod adds. In the world it is a vanilla mob (the carrier) that remembers its mod
+/// type and the mod's state; stock clients see the carrier.
+#[repr(C)]
+pub struct MobDefinition {
+    /// `namespace:path`, unique among every mod's content.
+    pub id: Str,
+    /// The vanilla mob it is carried by, such as `minecraft:ravager`. Its physics, goals and
+    /// look apply until the mod changes them.
+    pub carrier: Str,
+    /// Base values set when the mob spawns, then saved with it like any attribute.
+    pub attributes: *const MobAttribute,
+    pub attribute_count: usize,
+}
+
+/// Mob types for mods: register, spawn, and keep state on each mob.
+#[repr(C)]
+pub struct MobsV1 {
+    pub size: usize,
+    /// Stage a mob type during registration.
+    pub add_mob: unsafe extern "C" fn(reg: Reg, def: *const MobDefinition) -> i32,
+    /// Spawn a mob of a registered type, or of a vanilla mob id, at `position`. Returns its
+    /// entity id, or -1.
+    pub spawn: unsafe extern "C" fn(world: WorldRef, kind: Str, position: Vec3) -> i32,
+    /// The registered mob type of `entity`, or empty when it isn't a mod mob. Static.
+    pub kind: unsafe extern "C" fn(entity: EntityRef) -> Str,
+    /// The mod's bytes saved on a mod mob, empty until set. False when it isn't a mod mob.
+    pub state: unsafe extern "C" fn(entity: EntityRef, out: Sink) -> bool,
+    /// Replace them, at most 64 KiB. They are saved with the mob.
+    pub set_state: unsafe extern "C" fn(entity: EntityRef, state: Str) -> bool,
+}
+
+#[cfg(test)]
+mod mobs_layout {
+    use super::*;
+    use std::mem::offset_of;
+
+    #[test]
+    fn mobs_v1() {
+        assert_eq!(offset_of!(MobsV1, add_mob), 8);
+        assert_eq!(offset_of!(MobsV1, spawn), 16);
+        assert_eq!(offset_of!(MobsV1, kind), 24);
+        assert_eq!(offset_of!(MobsV1, state), 32);
+        assert_eq!(offset_of!(MobsV1, set_state), 40);
+        assert_eq!(size_of::<MobsV1>(), 48);
+        assert_eq!(size_of::<MobAttribute>(), 24);
+        assert_eq!(offset_of!(MobDefinition, attributes), 32);
+        assert_eq!(size_of::<MobDefinition>(), 48);
+    }
+}
