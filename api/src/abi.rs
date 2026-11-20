@@ -777,7 +777,46 @@ pub struct EntitiesV1 {
     /// Vanilla `Player.mayBuild()`: false for other entities and for Adventure and Spectator
     /// players.
     pub may_build: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// Appended after `may_build`: carriers, discarding and riding. Require
+    /// `EntitiesExtension::Carriers`.
+    /// Spawn a saved, non-living `CARRIER_*` entity at `position`, with Java named-root NBT
+    /// `nbt` stored under mod data `key` before it is added (an empty key stores nothing).
+    /// Returns its id, or -1 for an unknown kind, invalid input or an unloaded position.
+    pub spawn_carrier:
+        unsafe extern "C" fn(world: WorldRef, kind: u8, position: Vec3, key: Str, nbt: Str) -> i32,
+    /// Vanilla `Entity.discard()`: removed without drops or a save, its riders dismounted. False
+    /// for players and for entities already removed.
+    pub discard: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// Vanilla `Entity.startRiding(vehicle, force)`: dismounts from any current vehicle first and
+    /// sends the passenger list. Without `force` the rider must not be sneaking and the vehicle
+    /// must have no passengers. False for an unloaded vehicle, its current vehicle, a cycle or a
+    /// cancelled mount event.
+    pub start_riding: unsafe extern "C" fn(entity: EntityRef, vehicle: i32, force: bool) -> bool,
+    /// Vanilla `Entity.stopRiding()`, placing a living rider at its dismount position. False when
+    /// it wasn't riding.
+    pub stop_riding: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// The id of the entity this one rides, 0 when it rides none.
+    pub vehicle: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    /// `entities_in`, skipping entities that have any of the `exclude` flag bits before counting,
+    /// and leaving out the first `skip` matches. Returns how many match after `skip`, which can
+    /// exceed `capacity`; call again with a larger `skip` for the rest.
+    pub entities_matching: unsafe extern "C" fn(
+        world: WorldRef,
+        min: Vec3,
+        max: Vec3,
+        except: i32,
+        exclude: u32,
+        skip: usize,
+        out: *mut i32,
+        capacity: usize,
+    ) -> usize,
 }
+
+/// A vanilla `minecraft:marker`: saved, never sent to clients.
+pub const CARRIER_MARKER: u8 = 0;
+/// An empty `minecraft:item_display`: saved and invisible, with its passenger seat at its own
+/// position, so clients draw a rider sitting there.
+pub const CARRIER_SEAT: u8 = 1;
 
 /// Largest compound `EntitiesV1::set_data` accepts.
 pub const MAX_ENTITY_DATA_BYTES: usize = 64 << 10;
@@ -797,6 +836,10 @@ pub const ENTITY_HANGING: u32 = 8;
 /// Vanilla `getPistonPushReaction()` is `IGNORE_ENTITY`: markers, displays, interactions, area
 /// effect clouds, ominous item spawners and marker armor stands.
 pub const ENTITY_PUSH_IGNORED: u32 = 16;
+/// Vanilla `Entity.noPhysics`. Hosts set it only with `EntitiesExtension::Carriers`.
+pub const ENTITY_NO_PHYSICS: u32 = 32;
+/// The entity rides another one. Hosts set it only with `EntitiesExtension::Carriers`.
+pub const ENTITY_PASSENGER: u32 = 64;
 
 pub const INTERACTION: &str = "moddedmc:interaction";
 

@@ -23,6 +23,9 @@ pub enum EntitiesExtension {
     Data,
     /// `Entity::may_build`.
     MayBuild,
+    /// Carrier entities, `discard`, riding, `vehicle`, filtered box queries, and the
+    /// `ENTITY_NO_PHYSICS` and `ENTITY_PASSENGER` flags.
+    Carriers,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -91,6 +94,10 @@ impl Entities {
             EntitiesExtension::MayBuild => (
                 std::mem::offset_of!(abi::EntitiesV1, may_build),
                 "moddedmc:entities.may_build",
+            ),
+            EntitiesExtension::Carriers => (
+                std::mem::offset_of!(abi::EntitiesV1, entities_matching),
+                "moddedmc:entities.carriers",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -163,6 +170,63 @@ impl Entities {
         };
         ids.truncate(count.min(MAX_QUERY));
         ids
+    }
+
+    /// Every entity whose box intersects `min..max`, except `except` and those with any
+    /// `exclude` flag bit, however many there are. Needs `EntitiesExtension::Carriers`.
+    pub fn entities_matching(
+        self,
+        world: World<'_>,
+        min: [f64; 3],
+        max: [f64; 3],
+        except: i32,
+        exclude: u32,
+    ) -> Vec<i32> {
+        let mut ids = Vec::new();
+        let mut page = vec![0; MAX_QUERY];
+        loop {
+            // SAFETY: the extension was required and `page` has the capacity passed.
+            let left = unsafe {
+                (self.0.entities_matching)(
+                    world.raw(),
+                    abi::Vec3(min),
+                    abi::Vec3(max),
+                    except,
+                    exclude,
+                    ids.len(),
+                    page.as_mut_ptr(),
+                    page.len(),
+                )
+            };
+            let taken = left.min(page.len());
+            ids.extend_from_slice(&page[..taken]);
+            if left <= page.len() {
+                return ids;
+            }
+        }
+    }
+
+    /// Spawn a saved `abi::CARRIER_*` entity with mod data `nbt` under `key`. `None` when it
+    /// couldn't be spawned. Needs `EntitiesExtension::Carriers`.
+    pub fn spawn_carrier(
+        self,
+        world: World<'_>,
+        kind: u8,
+        position: [f64; 3],
+        key: &str,
+        nbt: &[u8],
+    ) -> Option<i32> {
+        // SAFETY: the extension was required and the slices are borrowed for the call.
+        let id = unsafe {
+            (self.0.spawn_carrier)(
+                world.raw(),
+                kind,
+                abi::Vec3(position),
+                abi::Str::new(key.as_bytes()),
+                abi::Str::new(nbt),
+            )
+        };
+        (id >= 0).then_some(id)
     }
 
     /// Vanilla `Block.entityInside` for every content block this mod registers.
@@ -306,6 +370,33 @@ impl Entity<'_> {
     pub fn set_step_height(self, value: f64) {
         // SAFETY: the entity is live for this callback.
         unsafe { (self.api.set_step_height)(self.raw, value) }
+    }
+
+    // The rest need `EntitiesExtension::Carriers`.
+
+    /// Vanilla `Entity.discard()`.
+    pub fn discard(self) -> bool {
+        // SAFETY: the entity is live for this callback.
+        unsafe { (self.api.discard)(self.raw) }
+    }
+
+    /// Vanilla `Entity.startRiding(vehicle, force)`.
+    pub fn start_riding(self, vehicle: i32, force: bool) -> bool {
+        // SAFETY: the entity is live for this callback.
+        unsafe { (self.api.start_riding)(self.raw, vehicle, force) }
+    }
+
+    /// Vanilla `Entity.stopRiding()`; false when it wasn't riding.
+    pub fn stop_riding(self) -> bool {
+        // SAFETY: the entity is live for this callback.
+        unsafe { (self.api.stop_riding)(self.raw) }
+    }
+
+    /// The id of the entity this one rides.
+    pub fn vehicle(self) -> Option<i32> {
+        // SAFETY: the entity is live for this callback.
+        let id = unsafe { (self.api.vehicle)(self.raw) };
+        (id != 0).then_some(id)
     }
 }
 

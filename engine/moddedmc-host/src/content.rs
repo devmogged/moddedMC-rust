@@ -1401,6 +1401,12 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     data: crate::entities::data,
     set_data: crate::entities::set_data,
     may_build: crate::entities::may_build,
+    spawn_carrier: crate::entities::spawn_carrier,
+    discard: crate::entities::discard,
+    start_riding: crate::entities::start_riding,
+    stop_riding: crate::entities::stop_riding,
+    vehicle: crate::entities::vehicle,
+    entities_matching: crate::entities::entities_matching,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
