@@ -58,3 +58,9 @@ Tests:
 - tests/scenarios/farmersdelight-crates.txt on port 26010, with the expanded 10-recipe pack: PASS. All three crate placements, loot and saved-world reload checks passed again.
 
 Unverified: obtaining straw through cutting with a knife, harvesting rice panicles, tree bark extraction and original-Java recipe output and rendering comparison; none is claimed implemented. Source fixtures give implementation evidence for the passive items only. Continue to expand in stages after checking the original class behavior, implementing only exposed mechanics.
+
+## M2c: real crafting regression (verified)
+
+Added `tests/scenarios/farmersdelight-crafting.txt`: an actual Survival-mode bot opens a vanilla crafting table, takes nine vanilla carrots/potatoes/beetroots from its hotbar, places them one at a time into the 3x3 grid using inventory clicks, quick-moves the crafted `farmersdelight:<crop>_crate`, then confirms exactly one crate and zero remaining source crops. For each crop, it removes that crafted crate, tests the reverse shapeless recipe with a known crate stack, confirms exactly nine restored crops and no leftover crate, then clears the crops before the next case. The bot checks cursor empty after distribution. All three round trips passed on shared pack `d6e5e8d560`, port 26012; run folder automatically removed. No crashes or bot protocol errors.
+
+This is the first gameplay test for actual recipe execution rather than only recipe registration. It exercises the old exact 1.21.1 Java recipe JSONs in the Java 26.3 server. Java 1.21.1 NeoForge oracle and owner graphics checks remain unverified.
