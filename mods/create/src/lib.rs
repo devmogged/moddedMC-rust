@@ -5,6 +5,7 @@ use std::{
 
 use moddedmc_api::{
     Command, InterfaceUnavailable, Mod, Pos, RegistrationError, Registry,
+    block_displays::{self, BlockDisplays},
     commands::{self, Argument, Commands, Node},
     containers::{self, Containers},
     content::{
@@ -25,10 +26,12 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
+mod bearing;
 mod belt;
 mod belt_inventory;
 mod belt_movement;
 mod chute;
+mod contraption;
 mod crusher;
 mod depot;
 mod fan;
@@ -66,6 +69,7 @@ static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static INTERACTION: OnceLock<Interaction> = OnceLock::new();
 static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static DISPLAYS: OnceLock<Displays> = OnceLock::new();
+static BLOCK_DISPLAYS: OnceLock<BlockDisplays> = OnceLock::new();
 static EFFECTS: OnceLock<Effects> = OnceLock::new();
 static CONTAINERS: OnceLock<Containers> = OnceLock::new();
 static RESOURCES: OnceLock<Resources> = OnceLock::new();
@@ -110,6 +114,7 @@ impl Mod for Create {
         item_stacks.require_extension(stacks::StacksExtension::Component)?;
         let _ = STACKS.set(item_stacks);
         let _ = DISPLAYS.set(stacks::require_displays()?);
+        let _ = BLOCK_DISPLAYS.set(block_displays::require()?);
         let _ = CONTAINERS.set(containers::require()?);
         let _ = RESOURCES.set(resources::require()?);
         let _ = TAGS.set(tags::require()?);
@@ -139,6 +144,7 @@ impl Mod for Create {
         funnel::register(*content, registry)?;
         press::register(*content, registry)?;
         fan::register(*content, registry)?;
+        bearing::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -558,6 +564,7 @@ struct KnownState {
 
 #[derive(Default)]
 struct StateIds {
+    contraption_blocks: contraption::BlockMovementChecks,
     chutes: HashMap<u32, chute::ChuteState>,
     funnels: HashMap<u32, funnel::FunnelState>,
     crusher_controllers: HashMap<u32, (u8, bool)>,
@@ -690,6 +697,8 @@ fn states() -> Option<&'static StateIds> {
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
         fan::add_states(content, &mut ids);
+        bearing::add_states(content, &mut ids);
+        ids.contraption_blocks.register_states(content);
         millstone::add_states(content, &mut ids);
         crusher::add_states(content, &mut ids);
         for name in [
@@ -810,6 +819,19 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             };
             format!("{}[facing={}]", fan::ID, DIRECTIONS[usize::from(face)])
         }
+        Some(Kind::Bearing(_)) => {
+            let face = if args.sneak {
+                look
+            } else {
+                connected
+                    .clone()
+                    .next_back()
+                    .filter(|_| preferred.is_some())
+                    .unwrap_or(look)
+                    ^ 1
+            };
+            format!("{}[facing={}]", bearing::ID, DIRECTIONS[usize::from(face)])
+        }
         Some(Kind::Shaft(_)) => format!(
             "{SHAFT}[axis={},waterlogged={wet}]",
             AXES[usize::from(pillar_axis)]
@@ -905,6 +927,8 @@ struct KineticData {
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     millstone: Option<millstone::MillstoneData>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    bearing: Option<bearing::BearingData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<fastnbt::IntArray>,
     #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<NetworkData>,
@@ -966,6 +990,13 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if kind == Kind::Millstone {
         be.millstone = data.millstone.map(millstone::Millstone::load).map(Box::new);
     }
+    if matches!(kind, Kind::Bearing(_))
+        && let Some(data) = data.bearing
+    {
+        let mut bearing = bearing::MechanicalBearing::default();
+        bearing.data = data;
+        be.bearing = Some(Box::new(bearing));
+    }
     be.source = data.source.and_then(|pos| match *pos {
         [x, y, z] => Some(Pos { x, y, z }),
         _ => None,
@@ -1005,6 +1036,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         speed: be.speed,
         press: be.press.as_ref().map(|press| press.data),
         millstone: be.millstone.as_ref().map(|millstone| millstone.save()),
+        bearing: be.bearing.as_ref().map(|bearing| bearing.data.clone()),
         source: be
             .source
             .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
@@ -1100,7 +1132,13 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
                         kinetics.insert(pos, load(world, pos, kind));
                     }
                 }
-                content::UNLOADED => kinetics.unload(pos),
+                content::UNLOADED => {
+                    if let Some(bearing) = kinetics.get_mut(pos).and_then(|be| be.bearing.as_mut())
+                    {
+                        bearing.clear_displays(world);
+                    }
+                    kinetics.unload(pos);
+                }
                 content::NEIGHBOR_CHANGED => {
                     if let Some(be) = kinetics.get_mut(pos)
                         && matches!(be.kind, Kind::Fan(_))
@@ -1132,6 +1170,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         kinetics.tick(&mut level);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
+        bearing::tick(world, &states.contraption_blocks, kinetics);
         for (pos, millstone) in kinetics.dropped_millstones.drain(..) {
             millstone.drop_contents(world, pos);
         }
@@ -1185,6 +1224,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         }),
         Some(Kind::Millstone) => with_world(context.world, |kinetics| {
             millstone::use_item_on(kinetics, context)
+        }),
+        Some(Kind::Bearing(_)) => with_world(context.world, |kinetics| {
+            bearing::use_item_on(kinetics, &states.contraption_blocks, context)
         }),
         _ => BlockUseResult::TryEmptyHand,
     }
