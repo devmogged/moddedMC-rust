@@ -210,6 +210,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-central-kitchen"
+version = "0.1.0"
+
+[[package]]
+name = "create-enchantment-industry"
+version = "0.1.0"
+dependencies = [
+ "moddedmc-api",
+]
+
+[[package]]
+name = "create-more-recipes"
+version = "0.1.0"
+dependencies = [
+ "fastnbt",
+ "moddedmc-api",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "create-new-age"
+version = "0.1.0"
+dependencies = [
+ "moddedmc-api",
+]
+
+[[package]]
+name = "createaddition"
+version = "0.1.0"
+dependencies = [
+ "fastnbt",
+ "moddedmc-api",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
