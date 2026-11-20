@@ -85,3 +85,33 @@ Source: `ServerConfig.java`. Check world-specific min-Y and Corelib storage befo
 - Commit hashes and request issue numbers are recorded in the coordination-board handoff.
 - **Not verified:** NeoForge original-server oracle, actual death capture, item transfers, menus, packets, entity spawning, save/reload on a real world, visuals, multiplayer permissions, world startup scenarios.
 - Next session: confirm the pending ABI request and its implementation, audit Corelib `Death` storage format and original jar against the Rust data model; then implement one death-to-corpse mechanic and a bot death/restart scenario. Do not claim M2/M3 parity from these policy tests.
+
+
+## M2a — Corelib death history and slot protocol audit (2026-11-20)
+
+The server port remains blocked on a generic death/drop transaction; this section is a source-backed interface map, not a claim of live Corpse gameplay. Source inspected: henkelmax/corelib commit a97e109bd134964868aa1b3561df0d071fd19c1f (2026-09-16, Minecraft 26.3), files Death.java, DeathManager.java, DeathEvents.java, PlayerDeathEvent.java, ItemUtils.java and EquipmentItem.java; henkelmax/corpse commit 12881669fb0ef95e0a863a524bc92674cc2f5608, files CorpseEntity.java, DeathEvents.java and CorpseInventoryContainer.java. These are source comparisons, not captures from a running original NeoForge server. Verify the actual published Corpse binary's Corelib dependency before treating this as a byte-accurate schema.
+
+### Death record storage and required fidelity
+
+Corelib writes one binary NBT record per death in world-relative deaths/<player UUID>/<death UUID>.dat. The record contains Id and PlayerUuid encoded with the UUID codec; PlayerName; Timestamp in epoch milliseconds; Experience; PosX, PosY and PosZ as doubles; Dimension; Model; sparse MainInventory (36 slots), ArmorInventory (4 slots, feet first) and OffHandInventory (1 slot); an unslotted Items list for additional drops; and an Equipment list of named equipment-slot/item records. ItemUtils.saveInventory uses Mojang ItemStackWithSlot.CODEC and preserves item components, count, and slot position. On read, equipment also accepts a legacy named compound. Corelib Death.write(withItems=false) omits the four inventory groups but still writes Equipment; history views must enforce their own permissions.
+
+The original manager enumerates death UUID filenames within an owner UUID folder, reads each record, and sorts by the embedded Timestamp descending. Deletion of a historical death first requires file last-modified age to exceed the retention duration, then also requires the embedded death Timestamp age to exceed it; comparison is strictly greater than, not greater-or-equal. The config -1 disables pruning and 0 disables creation of new records. Any Rust persistence adapter must not mistake a missing historical item list for an empty live corpse without considering history mode. The inspected Corelib master contains a self-calling getDeaths(ServerPlayer) overload; do not copy that recursion into the port.
+
+### Drop reconciliation and item conservation
+
+Corelib first snapshots player inventory at the lowest-priority living-death event and at the later living-drops event reconciles that snapshot against the authoritative actual drops. An original main, armor or offhand slot that has no matching actual drop is cleared in the Death record; each matching actual drop is consumed once, and remaining actual drops become Items overflow. Corpse then requests history storage if configured, suppresses the standard drops, creates a corpse from the reconciled record and spawns it. The host's accepted WS-0 death proposal (#73) requires an atomic persisted custody record and exactly-once drop suppression; it remains unimplemented as of this audit. A naive copied inventory without authoritative drop reconciliation would duplicate keepInventory or other-mod-retained items.
+
+### Visible corpse menu order
+
+CorpseInventoryContainer exposes exactly 41 corpse slots before the separate player inventory: armor indices 3, 2, 1, 0 (head-to-feet display), offhand 0, main inventory indices 9 through 35, then hotbar 0 through 8. Transfer returns original items to matching player slots; existing player items displaced by this restore become overflow, and remaining overflow is inserted into the player inventory before being kept in the corpse. This requires transactional player inventory slot operations and a real slot menu, not a button-only menu or world item workaround.
+
+### Empty-timer edge case requiring a test
+
+CorpseEntity.tick records EmptyAge on the first tick when the corpse is newly empty, using an if/else-if. Even if the configured empty-despawn time is zero, removal happens no earlier than a subsequent empty tick. The current Rust rules.rs checks timeout on the same tick the empty marker is first assigned, so it can remove immediately at zero delay. A follow-up code commit should first add a zero-delay regression, then ensure the newly empty branch does not evaluate removal in the same tick. This issue was identified but deliberately not changed in this documentation-only commit because local Rust verification became unavailable.
+
+### Host requests prepared, not yet filed
+
+- docs/ws/corpse-custom-entity-request.md specifies nonliving entity registration, persistent entity NBT, server-side use, lifecycle and durable item custody.
+- docs/ws/corpse-slot-menu-request.md specifies player slot transactions, real menus, overflow and history permissions.
+
+These documents are ready for WS-0 requests through coord.mjs; this session could not invoke the coordinator request/release after its remote-command quota was reached. No restricted upstream code or assets were added to public Git.
