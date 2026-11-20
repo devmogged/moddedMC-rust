@@ -1,0 +1,52 @@
+# An ascending belt keeps its grade, and yaw reverses vertical endpoint parts when facing flips.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2581.5 101 2582.5
+wait 2
+cmd fill 2574 97 2575 2586 97 2586 minecraft:stone
+cmd fill 2574 98 2575 2586 106 2586 minecraft:air
+cmd setblock 2580 98 2580 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2580 98 2580 0
+cmd setblock 2580 99 2580 create:mechanical_bearing[facing=up]
+cmd fill 2580 100 2580 2582 100 2580 minecraft:slime_block
+cmd setblock 2580 101 2580 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2580 103 2582 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2582 101 2580 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2582 103 2580 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.0 with create:belt_connector 2
+wait 0.5
+bot use 2580 101 2580
+wait 0.4
+bot use 2580 103 2582
+wait 0.4
+bot use 2582 101 2580
+wait 0.4
+bot use 2582 103 2580
+wait 0.5
+cmd kinetics 2580 103 2582
+cmd kinetics 2582 101 2580
+wait 0.5
+expect create:belt\[facing=south,part=end,slope=upward,waterlogged=false\] at 2580 103 2582
+expect create:belt\[facing=south,part=start,slope=vertical,waterlogged=false\] at 2582 101 2580
+
+cmd kinetics 2580 98 2580 -15
+wait 0.95
+cmd kinetics 2580 98 2580 0
+wait 0.5
+bot expect block 2578 103 2580 minecraft:note_block
+bot expect block 2582 103 2580 minecraft:air
+cmd kinetics 2578 103 2580
+cmd kinetics 2580 101 2582
+cmd kinetics 2580 103 2582
+wait 0.5
+expect ^\[bot\] expect block ok 2578 103 2580
+expect ^\[bot\] expect block ok 2582 103 2580
+expect create:belt\[facing=west,part=end,slope=upward,waterlogged=false\] at 2578 103 2580
+expect create:belt\[facing=west,part=end,slope=vertical,waterlogged=false\] at 2580 101 2582
+expect create:belt\[facing=west,part=start,slope=vertical,waterlogged=false\] at 2580 103 2582
+reject (?i)panicked|trapped|\[bot\] error
+stop

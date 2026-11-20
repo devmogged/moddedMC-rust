@@ -8,15 +8,18 @@ use std::{
 };
 
 use moddedmc_api::abi::{self, Str, WorldRef};
-use pumpkin_core::entity::{Entity, EntityBase, living::LivingEntity, player::Player};
+use pumpkin_core::entity::{
+    Entity, EntityBase, living::LivingEntity, player::Player, r#type::from_type,
+};
 use pumpkin_data::{
     attributes::Attributes, effect::StatusEffect, entity::EntityType, potion::Effect,
 };
 use pumpkin_nbt::{Nbt, deserializer::NbtReadHelperJava};
 use pumpkin_protocol::java::server::play::SPlayerInput;
-use pumpkin_util::math::{boundingbox::BoundingBox, vector3::Vector3};
+use pumpkin_util::math::{boundingbox::BoundingBox, position::BlockPos, vector3::Vector3};
+use uuid::Uuid;
 
-use crate::content::{entity, world};
+use crate::content::{entity, shared, world};
 
 /// Vanilla `HangingEntity` subclasses.
 const HANGING: [&EntityType; 3] = [
@@ -88,6 +91,12 @@ pub unsafe extern "C" fn flags(raw: abi::EntityRef) -> u32 {
     let marker = entity.entity_type == &EntityType::ARMOR_STAND && alive && !base.can_hit();
     if marker || PUSH_IGNORED.contains(&entity.entity_type) {
         flags |= abi::ENTITY_PUSH_IGNORED;
+    }
+    if entity.no_physics.load(Ordering::Relaxed) {
+        flags |= abi::ENTITY_NO_PHYSICS;
+    }
+    if entity.get_vehicle().is_some() {
+        flags |= abi::ENTITY_PASSENGER;
     }
     flags
 }
@@ -231,6 +240,153 @@ pub unsafe extern "C" fn entities_in(
     count
 }
 
+pub unsafe extern "C" fn entities_matching(
+    raw: WorldRef,
+    min: abi::Vec3,
+    max: abi::Vec3,
+    except: i32,
+    exclude: u32,
+    skip: usize,
+    out: *mut i32,
+    capacity: usize,
+) -> usize {
+    // SAFETY: the world is borrowed for this call.
+    let (Some(world), Some(min), Some(max)) = (unsafe { world(raw) }, finite(min), finite(max))
+    else {
+        return 0;
+    };
+    let mut seen = 0;
+    let mut count = 0;
+    for found in world.get_all_at_box(&BoundingBox::new(min, max)) {
+        let id = found.get_entity().entity_id;
+        let base: &dyn EntityBase = found.as_ref();
+        // SAFETY: `base` is live for this call.
+        let excluded = unsafe { flags((&raw const base).cast_mut().cast()) } & exclude != 0;
+        if id == except || excluded {
+            continue;
+        }
+        seen += 1;
+        if seen <= skip {
+            continue;
+        }
+        if count < capacity && !out.is_null() {
+            // SAFETY: count is below the capacity of the caller's array.
+            unsafe { out.add(count).write(id) };
+        }
+        count += 1;
+    }
+    count
+}
+
+pub unsafe extern "C" fn spawn_carrier(
+    raw: WorldRef,
+    kind: u8,
+    position: abi::Vec3,
+    key: Str,
+    nbt: Str,
+) -> i32 {
+    // SAFETY: the world is borrowed for this call.
+    let (Some(world), Some(position)) = (unsafe { world(raw) }.and_then(shared), finite(position))
+    else {
+        return -1;
+    };
+    let kind = match kind {
+        abi::CARRIER_MARKER => &EntityType::MARKER,
+        abi::CARRIER_SEAT => &EntityType::ITEM_DISPLAY,
+        _ => return -1,
+    };
+    if world
+        .get_block_state_id_if_loaded(&BlockPos::floored_v(position))
+        .is_none()
+    {
+        return -1;
+    }
+    let carrier = from_type(kind, position, &world, Uuid::new_v4());
+    // SAFETY: the caller borrows the key and NBT for this call.
+    if key.len != 0 && !unsafe { store_data(carrier.get_entity(), key, nbt) } {
+        return -1;
+    }
+    let id = carrier.get_entity().entity_id;
+    if world.spawn_entity(carrier) { id } else { -1 }
+}
+
+pub unsafe extern "C" fn discard(raw: abi::EntityRef) -> bool {
+    // SAFETY: the entity is live for the callback.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    let entity = base.get_entity();
+    if base.get_player().is_some() || entity.removed.load(Ordering::Acquire) {
+        return false;
+    }
+    entity.remove();
+    true
+}
+
+/// Vanilla `Entity.startRiding(vehicle, force)`. Pumpkin's `add_passenger` leaves its checks and
+/// the dismount from an earlier vehicle to the caller.
+pub unsafe extern "C" fn start_riding(raw: abi::EntityRef, vehicle: i32, force: bool) -> bool {
+    // SAFETY: the entity is live for the callback.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    let rider = base.get_entity();
+    let world = rider.world.load();
+    let (Some(rider_arc), Some(vehicle)) = (
+        world.get_entity_by_id(rider.entity_id),
+        world.get_entity_by_id(vehicle),
+    ) else {
+        return false;
+    };
+    let target = vehicle.get_entity();
+    let rides_target = |entity: &Entity| {
+        entity
+            .get_vehicle()
+            .is_some_and(|current| current.get_entity().entity_id == target.entity_id)
+    };
+    if target.entity_id == rider.entity_id || rides_target(rider) {
+        return false;
+    }
+    // Vanilla refuses a vehicle that already rides this entity, directly or further down.
+    let mut below = target.get_vehicle();
+    for _ in 0..MAX_RIDE_DEPTH {
+        let Some(next) = below else { break };
+        if next.get_entity().entity_id == rider.entity_id {
+            return false;
+        }
+        below = next.get_entity().get_vehicle();
+    }
+    // Entity.canRide is !isShiftKeyDown(); Entity.canAddPassenger is an empty passenger list.
+    if !force && (rider.sneaking.load(Ordering::Relaxed) || !riders(target).is_empty()) {
+        return false;
+    }
+    if let Some(current) = rider.get_vehicle() {
+        current.get_entity().remove_passenger(rider.entity_id);
+    }
+    target.add_passenger(vehicle.clone(), rider_arc);
+    rides_target(rider)
+}
+
+pub unsafe extern "C" fn stop_riding(raw: abi::EntityRef) -> bool {
+    // SAFETY: the entity is live for the callback.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    let rider = base.get_entity();
+    let Some(vehicle) = rider.get_vehicle() else {
+        return false;
+    };
+    vehicle.get_entity().remove_passenger(rider.entity_id);
+    true
+}
+
+pub unsafe extern "C" fn vehicle(raw: abi::EntityRef) -> i32 {
+    // SAFETY: the entity is live for the callback.
+    unsafe { entity(raw) }
+        .and_then(|base| base.get_entity().get_vehicle())
+        .map_or(0, |vehicle| vehicle.get_entity().entity_id)
+}
+
 pub unsafe extern "C" fn has_indirect_passenger(raw: abi::EntityRef, other: i32) -> bool {
     // SAFETY: the entity is live for the callback.
     let Some(base) = (unsafe { entity(raw) }) else {
@@ -307,8 +463,16 @@ pub unsafe extern "C" fn data(raw: abi::EntityRef, key: Str, out: abi::Sink) -> 
 }
 
 pub unsafe extern "C" fn set_data(raw: abi::EntityRef, key: Str, nbt: Str) -> bool {
-    // SAFETY: the entity is live for the callback.
-    let (Some(entity), Some(key)) = (unsafe { entity(raw) }, data_key(key)) else {
+    // SAFETY: the entity is live for the callback; the caller borrows key and NBT for it.
+    unsafe { entity(raw) }.is_some_and(|base| unsafe { store_data(base.get_entity(), key, nbt) })
+}
+
+/// Stores Java named-root NBT under a mod data key, or removes the key for empty NBT.
+///
+/// # Safety
+/// `key` and `nbt` must be live for the call.
+unsafe fn store_data(entity: &Entity, key: Str, nbt: Str) -> bool {
+    let Some(key) = data_key(key) else {
         return false;
     };
     let saved = if nbt.len == 0 {
@@ -329,7 +493,6 @@ pub unsafe extern "C" fn set_data(raw: abi::EntityRef, key: Str, nbt: Str) -> bo
         Some(nbt.root_tag)
     };
     let mut data = entity
-        .get_entity()
         .custom_data
         .lock()
         .unwrap_or_else(PoisonError::into_inner);

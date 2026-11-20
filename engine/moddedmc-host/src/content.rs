@@ -12,8 +12,9 @@ use moddedmc_api::abi::{self, BlockUpdate, ContentEvent, Pos, Reg, Sink, Str, Wo
 use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
-        BlockBehaviour, BlockHitResult, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
-        OnPlaceArgs, PlayerWillDestroyArgs, UseWithItemArgs,
+        BlockBehaviour, BlockHitResult, EmitsRedstonePowerArgs, GetRedstonePowerArgs,
+        NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
+        PlayerWillDestroyArgs, UseWithItemArgs,
         blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
@@ -72,6 +73,10 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     read_block_entity,
     restore_block_entity,
     block_drops,
+    day_time,
+    destroy_speed,
+    can_survive,
+    block_item,
 };
 
 const MAX_BATCH: usize = 4096;
@@ -112,6 +117,7 @@ struct Runtime {
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
+    redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
     /// Owning mod of each content item, block items included.
     item_owners: HashMap<u16, usize>,
 }
@@ -124,6 +130,7 @@ pub struct Hooks {
     pub use_on_block: Option<abi::UseOnBlockFn>,
     pub use_block: Option<abi::UseBlockFn>,
     pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
+    pub redstone: Option<(abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
 }
 
 #[derive(Default)]
@@ -135,6 +142,7 @@ struct Pending {
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
+    redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
 }
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
@@ -144,6 +152,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     use_on_block: BTreeMap::new(),
     use_block: BTreeMap::new(),
     player_will_destroy: BTreeMap::new(),
+    redstone: BTreeMap::new(),
 });
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static WORLDS: LazyLock<Mutex<HashMap<Uuid, WorldState>>> = LazyLock::new(Mutex::default);
@@ -440,6 +449,9 @@ pub fn register(
     if let Some(callback) = hooks.player_will_destroy {
         pending.player_will_destroy.insert(owner, callback);
     }
+    if let Some(callbacks) = hooks.redstone {
+        pending.redstone.insert(owner, callbacks);
+    }
 }
 
 fn split_items(
@@ -529,6 +541,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         use_on_block,
         use_block,
         player_will_destroy,
+        redstone,
     } = std::mem::take(&mut *lock(&PENDING));
     blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
     items.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
@@ -564,6 +577,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         use_on_block,
         use_block,
         player_will_destroy,
+        redstone,
         item_owners: HashMap::new(),
     };
     let mut assets = Vec::with_capacity(blocks.len());
@@ -661,6 +675,21 @@ impl BlockBehaviour for Behaviour {
                 ptr::from_ref(&entity).cast(),
             );
         }
+    }
+
+    fn emits_redstone_power(&self, args: EmitsRedstonePowerArgs<'_>) -> bool {
+        redstone_callbacks(args.block).is_some_and(|(_, connects)| {
+            // SAFETY: a pure callback with plain arguments.
+            unsafe { connects(u32::from(args.state.id.as_u16()), args.direction.to_index()) }
+        })
+    }
+
+    fn get_weak_redstone_power(&self, args: GetRedstonePowerArgs<'_>) -> u8 {
+        redstone_signal(&args, false)
+    }
+
+    fn get_strong_redstone_power(&self, args: GetRedstonePowerArgs<'_>) -> u8 {
+        redstone_signal(&args, true)
     }
 
     fn player_will_destroy(&self, args: PlayerWillDestroyArgs<'_>) {
@@ -1268,6 +1297,82 @@ unsafe extern "C" fn describe_state(state: u32, out: Sink) -> bool {
     true
 }
 
+unsafe extern "C" fn day_time(raw: WorldRef, out: *mut abi::DayTime) -> bool {
+    // SAFETY: the world and `out` are live for this call.
+    let (Some(world), Some(out)) = (unsafe { world(raw) }, unsafe { out.as_mut() }) else {
+        return false;
+    };
+    // Pumpkin keeps one level clock for every dimension, the overworld's.
+    *out = abi::DayTime {
+        ticks: world.level_info.load().day_time,
+        fixed_time: world.dimension.has_fixed_time,
+    };
+    true
+}
+
+unsafe extern "C" fn destroy_speed(raw: WorldRef, pos: Pos, out: *mut f32) -> bool {
+    // SAFETY: the world and `out` are live for this call.
+    let (Some(world), Some(out)) = (unsafe { world(raw) }, unsafe { out.as_mut() }) else {
+        return false;
+    };
+    let Some(id) = world.get_block_state_id_if_loaded(&block_pos(pos)) else {
+        return false;
+    };
+    *out = BlockState::from_id(id).hardness;
+    true
+}
+
+unsafe extern "C" fn can_survive(raw: WorldRef, pos: Pos, state: u32) -> i32 {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    let Some(id) = u16::try_from(state)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id)
+    else {
+        return -1;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return -1;
+    }
+    // Pumpkin's `can_place_at` with a world is vanilla `canSurvive`; neighbour updates call it.
+    let survives = world.block_registry.can_place_at(
+        None,
+        Some(world),
+        world,
+        None,
+        Block::from_state_id(id),
+        BlockState::from_id(id),
+        &pos,
+        None,
+        None,
+    );
+    i32::from(survives)
+}
+
+unsafe extern "C" fn block_item(state: u32, out: Sink) -> bool {
+    let Some(id) = u16::try_from(state)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id)
+    else {
+        return false;
+    };
+    let block = Block::from_state_id(id);
+    let name = Item::from_id(block.item_id)
+        .filter(|_| block.item_id != 0)
+        .map_or("air", |item| item.registry_key);
+    let id = if name.contains(':') {
+        name.to_owned()
+    } else {
+        format!("minecraft:{name}")
+    };
+    // SAFETY: the id is live until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(id.as_bytes())) };
+    true
+}
+
 unsafe extern "C" fn fluid_id(raw: WorldRef, pos: Pos, out: Sink) -> bool {
     // SAFETY: the world is borrowed for this call.
     let Some(world) = (unsafe { world(raw) }) else {
@@ -1321,6 +1426,12 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     data: crate::entities::data,
     set_data: crate::entities::set_data,
     may_build: crate::entities::may_build,
+    spawn_carrier: crate::entities::spawn_carrier,
+    discard: crate::entities::discard,
+    start_riding: crate::entities::start_riding,
+    stop_riding: crate::entities::stop_riding,
+    vehicle: crate::entities::vehicle,
+    entities_matching: crate::entities::entities_matching,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
@@ -1442,6 +1553,49 @@ fn use_context(
     }
 }
 
+fn redstone_callbacks(block: &Block) -> Option<(abi::RedstoneSignalFn, abi::RedstoneConnectsFn)> {
+    RUNTIME.get().and_then(|runtime| {
+        let owner = runtime.blocks.get(&block.id.as_u16())?.owner;
+        runtime.redstone.get(&owner).copied()
+    })
+}
+
+/// Vanilla `getSignal` runs whatever `canConnectRedstone` says; that only decides wire shapes.
+fn redstone_signal(args: &GetRedstonePowerArgs<'_>, direct: bool) -> u8 {
+    let Some((signal, _)) = redstone_callbacks(args.block) else {
+        return 0;
+    };
+    let world: &World = args.world;
+    // SAFETY: the world outlives this synchronous callback.
+    unsafe {
+        signal(
+            ptr::from_ref(world).cast(),
+            abi_pos(*args.position),
+            u32::from(args.state.id.as_u16()),
+            args.direction.to_index(),
+            direct,
+        )
+    }
+    .min(15)
+}
+
+pub unsafe extern "C" fn on_redstone(
+    reg: Reg,
+    signal: abi::RedstoneSignalFn,
+    connects: abi::RedstoneConnectsFn,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.redstone;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some((signal, connects));
+    code::OK
+}
+
 pub unsafe extern "C" fn on_player_will_destroy(
     reg: Reg,
     callback: abi::PlayerWillDestroyFn,
@@ -1500,7 +1654,7 @@ mod tests {
     use moddedmc_api::abi::{Sink, Str};
     use pumpkin_data::Block;
 
-    use super::{describe_state, state};
+    use super::{block_item, describe_state, state};
 
     unsafe extern "C" fn collect(ctx: *mut std::ffi::c_void, _key: u64, value: Str) {
         // SAFETY: ctx is the String the test passed, and value is live until we return.
@@ -1527,5 +1681,26 @@ mod tests {
             }
         }
         assert!(checked > 1000);
+    }
+
+    /// Crops name their seed or produce item, and blocks without an item give vanilla's air.
+    #[test]
+    fn block_item_matches_vanilla_as_item() {
+        for (block, item) in [
+            (&Block::CARROTS, "minecraft:carrot"),
+            (&Block::WHEAT, "minecraft:wheat_seeds"),
+            (&Block::OAK_STAIRS, "minecraft:oak_stairs"),
+            (&Block::WATER, "minecraft:air"),
+        ] {
+            let mut text = String::new();
+            let out = Sink {
+                ctx: (&raw mut text).cast(),
+                put: collect,
+            };
+            let id = u32::from(block.default_state.id.as_u16());
+            // SAFETY: the sink writes into `text` for the call.
+            assert!(unsafe { block_item(id, out) });
+            assert_eq!(text, item, "{}", block.name);
+        }
     }
 }

@@ -625,6 +625,28 @@ pub struct BlockWorldV1 {
     /// one saved stack per sink call, without changing the block or spawning anything. An empty
     /// `tool` is an empty hand. False when unloaded or the tool can't be read.
     pub block_drops: unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
+    /// The overworld clock's total ticks, vanilla 26.3 `Level.getOverworldClockTime()`, which is
+    /// the day time every dimension shared in 1.21.1, and whether this dimension has a fixed time.
+    /// False when the world is gone.
+    pub day_time: unsafe extern "C" fn(world: WorldRef, out: *mut DayTime) -> bool,
+    /// Vanilla `BlockState.getDestroySpeed(level, pos)` for the loaded state: its hardness,
+    /// negative for unbreakable blocks. False for unloaded positions.
+    pub destroy_speed: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: *mut f32) -> bool,
+    /// Vanilla `BlockState.canSurvive(level, pos)` for `state` as if it stood at `pos`, without
+    /// changing the world. 1 or 0, or -1 for an unknown state or an unloaded position.
+    pub can_survive: unsafe extern "C" fn(world: WorldRef, pos: Pos, state: u32) -> i32,
+    /// Vanilla `Block.asItem()` for the state's block as a namespaced item id, `minecraft:air`
+    /// when the block has no item. False for an unknown state.
+    pub block_item: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DayTime {
+    pub ticks: i64,
+    /// Vanilla `DimensionType.hasFixedTime()`. In vanilla it holds exactly for the dimensions
+    /// 1.21.1 called not `natural` (the Nether and the End).
+    pub fixed_time: bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
@@ -755,7 +777,46 @@ pub struct EntitiesV1 {
     /// Vanilla `Player.mayBuild()`: false for other entities and for Adventure and Spectator
     /// players.
     pub may_build: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// Appended after `may_build`: carriers, discarding and riding. Require
+    /// `EntitiesExtension::Carriers`.
+    /// Spawn a saved, non-living `CARRIER_*` entity at `position`, with Java named-root NBT
+    /// `nbt` stored under mod data `key` before it is added (an empty key stores nothing).
+    /// Returns its id, or -1 for an unknown kind, invalid input or an unloaded position.
+    pub spawn_carrier:
+        unsafe extern "C" fn(world: WorldRef, kind: u8, position: Vec3, key: Str, nbt: Str) -> i32,
+    /// Vanilla `Entity.discard()`: removed without drops or a save, its riders dismounted. False
+    /// for players and for entities already removed.
+    pub discard: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// Vanilla `Entity.startRiding(vehicle, force)`: dismounts from any current vehicle first and
+    /// sends the passenger list. Without `force` the rider must not be sneaking and the vehicle
+    /// must have no passengers. False for an unloaded vehicle, its current vehicle, a cycle or a
+    /// cancelled mount event.
+    pub start_riding: unsafe extern "C" fn(entity: EntityRef, vehicle: i32, force: bool) -> bool,
+    /// Vanilla `Entity.stopRiding()`, placing a living rider at its dismount position. False when
+    /// it wasn't riding.
+    pub stop_riding: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// The id of the entity this one rides, 0 when it rides none.
+    pub vehicle: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    /// `entities_in`, skipping entities that have any of the `exclude` flag bits before counting,
+    /// and leaving out the first `skip` matches. Returns how many match after `skip`, which can
+    /// exceed `capacity`; call again with a larger `skip` for the rest.
+    pub entities_matching: unsafe extern "C" fn(
+        world: WorldRef,
+        min: Vec3,
+        max: Vec3,
+        except: i32,
+        exclude: u32,
+        skip: usize,
+        out: *mut i32,
+        capacity: usize,
+    ) -> usize,
 }
+
+/// A vanilla `minecraft:marker`: saved, never sent to clients.
+pub const CARRIER_MARKER: u8 = 0;
+/// An empty `minecraft:item_display`: saved and invisible, with its passenger seat at its own
+/// position, so clients draw a rider sitting there.
+pub const CARRIER_SEAT: u8 = 1;
 
 /// Largest compound `EntitiesV1::set_data` accepts.
 pub const MAX_ENTITY_DATA_BYTES: usize = 64 << 10;
@@ -775,6 +836,10 @@ pub const ENTITY_HANGING: u32 = 8;
 /// Vanilla `getPistonPushReaction()` is `IGNORE_ENTITY`: markers, displays, interactions, area
 /// effect clouds, ominous item spawners and marker armor stands.
 pub const ENTITY_PUSH_IGNORED: u32 = 16;
+/// Vanilla `Entity.noPhysics`. Hosts set it only with `EntitiesExtension::Carriers`.
+pub const ENTITY_NO_PHYSICS: u32 = 32;
+/// The entity rides another one. Hosts set it only with `EntitiesExtension::Carriers`.
+pub const ENTITY_PASSENGER: u32 = 64;
 
 pub const INTERACTION: &str = "moddedmc:interaction";
 
@@ -836,7 +901,23 @@ pub struct InteractionV1 {
     /// One callback per mod for its content blocks, staged during registration.
     pub on_player_will_destroy:
         unsafe extern "C" fn(reg: Reg, callback: PlayerWillDestroyFn) -> i32,
+    // Appended later: require `InteractionExtension::Redstone`.
+    /// One pair per mod for its content blocks, staged during registration.
+    pub on_redstone: unsafe extern "C" fn(
+        reg: Reg,
+        signal: RedstoneSignalFn,
+        connects: RedstoneConnectsFn,
+    ) -> i32,
 }
+
+/// Vanilla `BlockState.getSignal(level, pos, direction)`, or `getDirectSignal` when `direct`, for
+/// one of the mod's content blocks: 0 to 15. `direction` is vanilla's argument, in order down, up,
+/// north, south, west, east.
+pub type RedstoneSignalFn =
+    unsafe extern "C" fn(world: WorldRef, pos: Pos, state: u32, direction: u8, direct: bool) -> u8;
+/// Vanilla `isSignalSource()` together with NeoForge `canConnectRedstone(direction)` for the
+/// state: whether redstone treats it as a source on that side. Pure: it gets no world.
+pub type RedstoneConnectsFn = unsafe extern "C" fn(state: u32, direction: u8) -> bool;
 
 /// Vanilla `Block.playerWillDestroy`: a player is about to break one of the mod's blocks, after
 /// the break was accepted and before drops and removal. `creative` is the player's game mode.

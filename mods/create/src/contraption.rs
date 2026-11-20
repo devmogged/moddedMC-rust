@@ -6,14 +6,20 @@ use fastnbt::{IntArray, Value};
 use moddedmc_api::{
     Pos,
     content::{self, BlockUpdate, Content, UNLOADED_STATE, World},
+    stacks::ItemDisplay,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, ENCASED_SHAFT, SHAFT, STACKS, TAGS, chassis,
+    AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, DISPLAYS, ENCASED_SHAFT, SHAFT, STACKS, TAGS,
+    WorldLevel,
+    belt::BELT,
+    belt_inventory::{self, BeltInventory, Chain},
+    belt_movement::can_transport_objects,
+    chassis,
     collider::Collider,
-    kinetics::{FACES, face_axis, offset, packed, positive},
-    sticker,
+    kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
+    states, sticker,
 };
 
 /// CKinetics.maxBlocksMoved default.
@@ -70,9 +76,18 @@ impl BlockMovementChecks {
                 self.names.insert(name, state);
             }
         }
+        if let Some(water) = content.state("minecraft:water") {
+            self.names.insert("minecraft:water", water);
+        }
     }
 
-    pub fn scan(&self, world: World<'_>, bearing: Pos, facing: u8) -> Option<Contraption> {
+    pub fn scan(
+        &self,
+        world: World<'_>,
+        bearing: Pos,
+        facing: u8,
+        kinetics: &Kinetics,
+    ) -> Option<Contraption> {
         let mut contraption = Contraption::search_moved_structure(
             bearing,
             facing,
@@ -80,7 +95,19 @@ impl BlockMovementChecks {
             |pos, entry| self.attachments(world, pos, entry, None),
         )?;
         let anchor = contraption.anchor()?;
-        contraption.blocks.capture_entities(world, anchor)?;
+        // shortcut: rotating a diagonal around its run axis can leave disconnected parts.
+        // Keep them intact until disassembly can reproduce Create's invalid-chain drops.
+        if contraption.blocks.palette.iter().any(|entry| {
+            entry.name == BELT
+                && entry.state().and_then(|state| states()?.kind(state)).is_some_and(|kind| {
+                    matches!(kind, Kind::Belt(belt) if belt.slope.diagonal() && face_axis(belt.facing) == face_axis(facing))
+                })
+        }) {
+            return None;
+        }
+        contraption
+            .blocks
+            .capture_entities(world, anchor, kinetics)?;
         if let Some(sails) = TAGS.get()?.values("block", "create:windmill_sails") {
             contraption.sails = contraption
                 .blocks
@@ -101,7 +128,10 @@ impl BlockMovementChecks {
             return Some(known.clone());
         }
         let entry = PaletteEntry::parse(&CONTENT.get()?.describe_state(state[0])?);
-        if chassis::is_chassis(&entry.name) || entry.name == sticker::ID {
+        if entry.name == "minecraft:water" {
+            return Some(BlockMovement::Air);
+        }
+        if chassis::is_chassis(&entry.name) || matches!(entry.name.as_str(), BELT | sticker::ID) {
             return Some(BlockMovement::Movable(entry));
         }
         let movable = matches!(entry.name.as_str(), SHAFT | ENCASED_SHAFT)
@@ -153,6 +183,29 @@ impl BlockMovementChecks {
     ) -> Option<Vec<Pos>> {
         let mut attached = chassis::attachments(world, self, pos, entry, forced)?;
         attached.extend(sticker::attachment(entry, pos));
+        if entry.name == BELT {
+            // `Contraption.moveBelt` follows both ends even when only one pulley is attached.
+            let Some(Kind::Belt(belt)) = states()?.kind(entry.state()?) else {
+                return None;
+            };
+            for forward in [true, false] {
+                let Some(next) = belt.next_segment(pos, forward) else {
+                    continue;
+                };
+                let BlockMovement::Movable(next_entry) = self.classify(world, next)? else {
+                    return None;
+                };
+                let Some(Kind::Belt(neighbor)) = states()?.kind(next_entry.state()?) else {
+                    return None;
+                };
+                if neighbor.facing != belt.facing
+                    || neighbor.next_segment(next, !forward) != Some(pos)
+                {
+                    return None;
+                }
+                attached.push(next);
+            }
+        }
         Some(attached)
     }
 }
@@ -193,6 +246,28 @@ impl Blocks {
             .map(move |block| offset(anchor, block.local_pos()))
     }
 
+    pub fn removals(
+        &self,
+        anchor: Pos,
+        checks: &BlockMovementChecks,
+    ) -> Option<impl Iterator<Item = BlockUpdate>> {
+        let air = checks.state("minecraft:air")?;
+        let water = checks.state("minecraft:water")?;
+        Some(self.block_list.iter().map(move |block| {
+            let entry = &self.palette[block.palette_index()];
+            let wet = entry.name == BELT
+                && entry
+                    .properties
+                    .get("waterlogged")
+                    .is_some_and(|wet| wet == "true");
+            BlockUpdate {
+                position: offset(anchor, block.local_pos()),
+                state: if wet { water } else { air },
+                flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
+            }
+        }))
+    }
+
     pub fn is_colliding_with_world(
         &self,
         world: World<'_>,
@@ -212,7 +287,12 @@ impl Blocks {
         })
     }
 
-    pub fn capture_entities(&mut self, world: World<'_>, anchor: Pos) -> Option<()> {
+    pub fn capture_entities(
+        &mut self,
+        world: World<'_>,
+        anchor: Pos,
+        kinetics: &Kinetics,
+    ) -> Option<()> {
         for block in &mut self.block_list {
             let entry = &self.palette[block.palette_index()];
             let position = offset(anchor, block.local_pos());
@@ -224,7 +304,27 @@ impl Blocks {
             if shapes.as_slice() != [Collider::BLOCK] {
                 block.shapes = Some(shapes);
             }
-            if entry.has_storage() || chassis::is_chassis(&entry.name) {
+            if entry.name == BELT {
+                let be = kinetics.get(position)?;
+                let Kind::Belt(belt) = be.kind else {
+                    return None;
+                };
+                if be.belt_length < 2
+                    || (belt.part == Part::Start) != (be.controller == Some(position))
+                {
+                    return None;
+                }
+                let data = crate::belt_data(position, be);
+                if !can_transport_objects(belt)
+                    && data
+                        .inventory
+                        .as_ref()
+                        .is_some_and(|inventory| !inventory.items.is_empty())
+                {
+                    return None;
+                }
+                block.nbt = Some(fastnbt::from_bytes(&fastnbt::to_bytes(&data).ok()?).ok()?);
+            } else if entry.has_storage() || chassis::is_chassis(&entry.name) {
                 let bytes = world.block_entity(position)?;
                 let mut data: HashMap<String, Value> = fastnbt::from_bytes(&bytes).ok()?;
                 for coordinate in ["x", "y", "z"] {
@@ -316,40 +416,68 @@ impl Blocks {
         transform: StructureTransform,
         controller: Option<Pos>,
     ) -> bool {
-        let Some((place, saved_entities)) = self
+        let targets: Vec<_> = self
             .block_list
             .iter()
-            .filter(|block| Some(transform.apply(block.local_pos())) != controller)
-            .map(|block| {
+            .filter_map(|block| {
+                let pos = transform.apply(block.local_pos());
+                (Some(pos) != controller).then_some((pos, block))
+            })
+            .collect();
+        if targets.is_empty() {
+            return true;
+        }
+        let positions: Vec<_> = targets.iter().map(|&(position, _)| position).collect();
+        let mut destination = vec![UNLOADED_STATE; positions.len()];
+        world.read(&positions, &mut destination);
+        let Some((place, saved_entities)) = targets
+            .into_iter()
+            .zip(&destination)
+            .map(|((position, block), &previous)| {
                 let entry = self.palette.get(block.palette_index())?;
+                let belt = entry.name == BELT;
+                let air = checks.is_air(previous);
+                // shortcut: plain water is replaceable by belts, extend with the other placement rules.
+                if !air
+                    && (!belt
+                        || CONTENT.get()?.describe_state(previous)?.split('[').next()
+                            != Some("minecraft:water"))
+                {
+                    return None;
+                }
+                let mut state = transform.block_state(entry);
+                if belt {
+                    let wet = !air && world.fluid_id(position)? == "minecraft:water";
+                    state
+                        .properties
+                        .insert("waterlogged".into(), wet.to_string());
+                }
                 Some((
                     BlockUpdate {
-                        position: transform.apply(block.local_pos()),
-                        state: transform.block_state(entry).state()?,
+                        position,
+                        state: state.state()?,
                         flags: content::UPDATE_ALL,
                     },
-                    block.nbt.as_ref().map(fastnbt::to_bytes).transpose().ok()?,
+                    (
+                        belt,
+                        block.nbt.as_ref().map(fastnbt::to_bytes).transpose().ok()?,
+                    ),
                 ))
             })
             .collect::<Option<(Vec<_>, Vec<_>)>>()
         else {
             return false;
         };
-        if place.is_empty() {
-            return true;
-        }
-        let positions: Vec<_> = place.iter().map(|update| update.position).collect();
-        let mut destination = vec![UNLOADED_STATE; place.len()];
-        world.read(&positions, &mut destination);
-        // shortcut: retain the assembly if any destination needs unported replacement rules.
-        if !destination.iter().all(|&state| checks.is_air(state))
-            || world.write(&place) != place.len()
-        {
+        if world.write(&place) != place.len() {
             return false;
         }
-        for (update, saved) in place.iter().zip(saved_entities) {
+        for (update, (belt, saved)) in place.iter().zip(saved_entities) {
             if let Some(saved) = saved
-                && !world.restore_block_entity(update.position, &saved)
+                && !(if belt {
+                    crate::restore_moved_belt(world, update.position, &saved)
+                } else {
+                    world.restore_block_entity(update.position, &saved)
+                })
             {
                 let rollback: Vec<_> = positions
                     .iter()
@@ -379,6 +507,15 @@ impl Blocks {
                 if let Ok(bytes) = fastnbt::to_bytes(&item) {
                     stacks.spawn(world, position, [0.0, 0.1, 0.0], &bytes);
                 }
+                if entry.name == BELT
+                    && let Some(inventory) = block.belt_inventory()
+                {
+                    for item in inventory.items {
+                        if let Some(bytes) = item.bytes() {
+                            stacks.spawn(world, position, [0.0, 0.1, 0.0], &bytes);
+                        }
+                    }
+                }
             }
             if let Some(Value::List(items)) = block.nbt.and_then(|mut nbt| nbt.remove("Items")) {
                 for mut item in items {
@@ -394,14 +531,33 @@ impl Blocks {
     }
 }
 
+pub fn detach_moved_belts(world: World<'_>, remove: &[BlockUpdate], kinetics: &mut Kinetics) {
+    let Some(states) = states() else { return };
+    let mut level = WorldLevel { world, states };
+    // Content events arrive next tick. Stop the captured belt before the current transport tick.
+    for update in remove {
+        if matches!(kinetics.kind(update.position), Some(Kind::Belt(_))) {
+            kinetics.remove_moved(&mut level, update.position);
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
-pub struct ContraptionDisplays(Vec<i32>);
+pub struct ContraptionDisplays {
+    blocks: Vec<i32>,
+    belts: Option<Vec<(Chain, BeltInventory)>>,
+}
 
 impl ContraptionDisplays {
     pub fn clear(&mut self, world: World<'_>) {
         if let Some(displays) = BLOCK_DISPLAYS.get() {
-            for id in self.0.drain(..).filter(|&id| id != 0) {
+            for id in self.blocks.drain(..).filter(|&id| id != 0) {
                 displays.remove(world, id);
+            }
+        }
+        if let Some(belts) = self.belts.take() {
+            for (_, inventory) in belts {
+                belt_inventory::remove_displays(world, &inventory);
             }
         }
     }
@@ -416,8 +572,8 @@ impl ContraptionDisplays {
         let Some(displays) = BLOCK_DISPLAYS.get() else {
             return;
         };
-        self.0.resize(blocks.block_list.len(), 0);
-        for (block, id) in blocks.block_list.iter().zip(&mut self.0) {
+        self.blocks.resize(blocks.block_list.len(), 0);
+        for (block, id) in blocks.block_list.iter().zip(&mut self.blocks) {
             let mut shown = transform.block_display(block.local_pos());
             for (shown, shift) in shown.translation.iter_mut().zip(translation) {
                 *shown += shift;
@@ -430,6 +586,43 @@ impl ContraptionDisplays {
             {
                 *id = displays.spawn(world, state, &shown).unwrap_or(0);
             }
+        }
+        let (Some(&stacks), Some(&displays)) = (STACKS.get(), DISPLAYS.get()) else {
+            return;
+        };
+        let belts = self.belts.get_or_insert_with(|| {
+            blocks
+                .block_list
+                .iter()
+                .filter_map(|block| {
+                    let entry = blocks.palette.get(block.palette_index())?;
+                    if entry.name != BELT {
+                        return None;
+                    }
+                    let Some(Kind::Belt(belt)) = states()?.kind(entry.state()?) else {
+                        return None;
+                    };
+                    let inventory = block.belt_inventory()?;
+                    let [x, y, z] = block.local_pos();
+                    let Value::Int(length) = *block.nbt.as_ref()?.get("Length")? else {
+                        return None;
+                    };
+                    Some((
+                        Chain {
+                            pos: Pos { x, y, z },
+                            belt,
+                            length,
+                            speed: 0.0,
+                        },
+                        inventory,
+                    ))
+                })
+                .collect()
+        });
+        for (chain, inventory) in belts {
+            belt_inventory::render(world, stacks, displays, *chain, inventory, |shown| {
+                transform.item_display(shown, translation)
+            });
         }
     }
 }
@@ -498,6 +691,10 @@ pub struct StructureBlockInfo {
 }
 
 impl StructureBlockInfo {
+    fn belt_inventory(&self) -> Option<BeltInventory> {
+        fastnbt::from_value(self.nbt.as_ref()?.get("Inventory")?).ok()
+    }
+
     pub const fn palette_index(&self) -> usize {
         self.state as usize
     }
@@ -580,6 +777,29 @@ pub struct StructureTransform {
 }
 
 impl StructureTransform {
+    fn item_display(self, mut shown: ItemDisplay, translation: [f32; 3]) -> ItemDisplay {
+        let axis = usize::from(self.axis);
+        let u = (axis + 1) % 3;
+        let v = (axis + 2) % 3;
+        let angle = self.angle.to_radians();
+        let (sin, cos) = f64::from(angle).sin_cos();
+        let mut position = shown.position.map(|n| n - 0.5);
+        let (a, b) = (position[u], position[v]);
+        position[u] = a * cos - b * sin;
+        position[v] = a * sin + b * cos;
+        let anchor = [self.anchor.x, self.anchor.y, self.anchor.z];
+        shown.position = std::array::from_fn(|i| {
+            f64::from(anchor[i]) + 0.5 + position[i] + f64::from(translation[i])
+        });
+        let (s, c) = (angle * 0.5).sin_cos();
+        let rotation = shown.rotation;
+        shown.rotation[axis] = c * rotation[axis] + s * rotation[3];
+        shown.rotation[u] = c * rotation[u] - s * rotation[v];
+        shown.rotation[v] = c * rotation[v] + s * rotation[u];
+        shown.rotation[3] = c * rotation[3] - s * rotation[axis];
+        shown
+    }
+
     fn quarter_turns(self) -> i32 {
         ((self.angle / 90.0 + 0.5).floor() as i32).rem_euclid(4)
     }
@@ -617,6 +837,9 @@ impl StructureTransform {
         }
         if entry.name == sticker::ID {
             return sticker::apply_rotation(entry, self).unwrap_or(rotated);
+        }
+        if entry.name == BELT {
+            return crate::belt::transform(rotated, self, turns).unwrap_or_else(|| entry.clone());
         }
         if let Some(axis) = rotated.properties.get_mut("axis")
             && let Some(index) = AXES.iter().position(|name| *name == axis)

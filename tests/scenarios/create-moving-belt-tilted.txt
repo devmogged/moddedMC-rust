@@ -1,0 +1,78 @@
+# A horizontal belt tilted about X becomes vertical and hands off its stack as an item.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2603.5 104 2602.5
+wait 2
+cmd fill 2594 99 2595 2608 99 2608 minecraft:stone
+cmd fill 2594 100 2595 2608 110 2608 minecraft:air
+cmd setblock 2599 104 2600 create:creative_motor[facing=east]
+cmd setblock 2602 105 2600 create:creative_motor[facing=west]
+wait 0.5
+cmd kinetics 2599 104 2600 0
+cmd kinetics 2602 105 2600 -16
+cmd setblock 2600 104 2600 create:mechanical_bearing[facing=east]
+cmd setblock 2601 104 2600 minecraft:slime_block
+cmd setblock 2601 105 2600 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2601 105 2602 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.0 with create:belt_connector
+wait 0.5
+bot use 2601 105 2600
+wait 0.5
+bot use 2601 105 2602
+wait 0.5
+cmd summon minecraft:item 2601.5 106 2601.5 {Item:{id:"minecraft:iron_ingot",count:3},PickupDelay:32767s}
+wait 0.5
+cmd kinetics 2602 105 2600 0
+bot expect entity minecraft:item_display near 2601.5 105.9 2601.6 within 0.5 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display
+cmd setblock 2602 105 2600 minecraft:air
+wait 0.5
+
+cmd kinetics 2599 104 2600 15
+wait 0.95
+cmd kinetics 2599 104 2600 0
+wait 0.5
+bot expect block 2601 102 2601 minecraft:note_block
+bot expect entity minecraft:item near 2601.5 103 2601.5 within 3.5 count 1
+wait 0.5
+expect ^\[bot\] expect block ok 2601 102 2601
+expect ^\[bot\] expect entity ok minecraft:item near
+cmd data get entity @e[type=minecraft:item,x=2601.5,y=103,z=2601.5,distance=..3.5,limit=1] Item.count
+cmd kinetics 2601 104 2601
+cmd kinetics 2601 102 2601
+wait 0.5
+expect following entity data: 3$
+expect create:belt\[facing=north,part=start,slope=vertical,waterlogged=false\] at 2601 104 2601
+expect create:belt\[facing=north,part=end,slope=vertical,waterlogged=false\] at 2601 102 2601
+
+# A diagonal rotating about its own run axis has no valid belt layout at a quarter turn.
+cmd tp tester 2633.5 104 2632.5
+wait 1
+cmd fill 2627 101 2627 2637 110 2637 minecraft:air
+cmd setblock 2629 103 2630 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2629 103 2630 0
+cmd setblock 2630 103 2630 create:mechanical_bearing[facing=east]
+cmd setblock 2631 103 2630 minecraft:slime_block
+cmd setblock 2631 104 2630 create:shaft[axis=z,waterlogged=false]
+cmd setblock 2633 106 2630 create:shaft[axis=z,waterlogged=false]
+cmd item replace entity tester hotbar.0 with create:belt_connector
+wait 0.5
+bot use 2631 104 2630
+wait 0.5
+bot use 2633 106 2630
+wait 0.5
+cmd kinetics 2629 103 2630 15
+wait 0.6
+bot expect block 2631 103 2630 minecraft:slime_block
+wait 0.3
+expect ^\[bot\] expect block ok 2631 103 2630
+cmd kinetics 2633 106 2630
+wait 0.5
+expect create:belt\[facing=east,part=end,slope=upward,waterlogged=false\] at 2633 106 2630
+reject (?i)panicked|trapped|\[bot\] error
+stop

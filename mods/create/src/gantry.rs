@@ -549,7 +549,7 @@ fn try_assemble(
     let frontier = VecDeque::from([(pos, start)]);
     let (mut blocks, _) =
         checks.collect_attached(world, pos, frontier, HashSet::from([shaft_pos]), None)?;
-    blocks.capture_entities(world, pos)?;
+    blocks.capture_entities(world, pos, kinetics)?;
     let sources = blocks.positions(pos).collect();
     let direction = if speed > 0.0 {
         shaft.facing
@@ -559,15 +559,7 @@ fn try_assemble(
     if blocks.is_colliding_with_world(world, at(pos, direction, 1), direction, &sources, None) {
         return None;
     }
-    let air = checks.state("minecraft:air")?;
-    let remove: Vec<_> = blocks
-        .positions(pos)
-        .map(|position| BlockUpdate {
-            position,
-            state: air,
-            flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
-        })
-        .collect();
+    let remove: Vec<_> = blocks.removals(pos, checks)?.collect();
     let be = kinetics.get_mut(shaft_pos)?;
     be.gantries.push(GantryContraption {
         anchor: [pos.x, pos.y, pos.z],
@@ -588,6 +580,7 @@ fn try_assemble(
         return None;
     }
     be.dirty = true;
+    crate::contraption::detach_moved_belts(world, &remove, kinetics);
     Some(())
 }
 

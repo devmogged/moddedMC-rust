@@ -183,7 +183,14 @@ pub struct RopePulley {
 }
 
 impl RopePulley {
-    fn assemble(&mut self, world: World<'_>, states: &StateIds, pos: Pos, speed: f32) -> bool {
+    fn assemble(
+        &mut self,
+        world: World<'_>,
+        states: &StateIds,
+        pos: Pos,
+        speed: f32,
+        kinetics: &mut Kinetics,
+    ) -> bool {
         let range = extension_range(world, pos);
         let initial = (1..=range)
             .take_while(|&distance| is_rope(states, state_at(world, below(pos, distance))))
@@ -208,7 +215,7 @@ impl RopePulley {
             Some(BlockMovement::Immovable) if speed < 0.0 => Blocks::default(),
             _ => return false,
         };
-        if blocks.capture_entities(world, anchor).is_none() {
+        if blocks.capture_entities(world, anchor, kinetics).is_none() {
             return false;
         }
         let sources: HashSet<_> = blocks
@@ -232,6 +239,9 @@ impl RopePulley {
         ) else {
             return false;
         };
+        let Some(removals) = blocks.removals(anchor, checks) else {
+            return false;
+        };
         let remove: Vec<_> = (1..=initial)
             .rev()
             .map(|distance| {
@@ -245,11 +255,7 @@ impl RopePulley {
                     flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
                 }
             })
-            .chain(blocks.positions(anchor).map(|position| BlockUpdate {
-                position,
-                state: air,
-                flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
-            }))
+            .chain(removals)
             .collect();
         let data = PulleyData {
             running: true,
@@ -263,6 +269,7 @@ impl RopePulley {
         {
             return false;
         }
+        crate::contraption::detach_moved_belts(world, &remove, kinetics);
         self.data = data;
         true
     }
@@ -370,12 +377,19 @@ impl RopePulley {
         }
     }
 
-    fn tick(&mut self, world: World<'_>, states: &StateIds, pos: Pos, rpm: f32) -> bool {
+    fn tick(
+        &mut self,
+        world: World<'_>,
+        states: &StateIds,
+        pos: Pos,
+        rpm: f32,
+        kinetics: &mut Kinetics,
+    ) -> bool {
         let previous = std::mem::replace(&mut self.previous_speed, rpm);
         let speed = actuator_speed(rpm);
         let queued = std::mem::take(&mut self.assemble_next_tick) || previous != rpm;
         if !self.data.running {
-            return queued && rpm != 0.0 && self.assemble(world, states, pos, speed);
+            return queued && rpm != 0.0 && self.assemble(world, states, pos, speed, kinetics);
         }
         let checks = &states.contraption_blocks;
         if speed == 0.0 {
@@ -476,8 +490,13 @@ pub fn tick(world: World<'_>, states: &StateIds, kinetics: &mut Kinetics) {
             continue;
         };
         let rpm = be.get_speed();
-        if let Some(pulley) = &mut be.pulley {
-            be.dirty |= pulley.tick(world, states, pos, rpm);
+        let Some(mut pulley) = be.pulley.take() else {
+            continue;
+        };
+        let dirty = pulley.tick(world, states, pos, rpm, kinetics);
+        if let Some(be) = kinetics.get_mut(pos) {
+            be.pulley = Some(pulley);
+            be.dirty |= dirty;
         }
     }
 }

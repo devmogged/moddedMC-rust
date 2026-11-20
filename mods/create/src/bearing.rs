@@ -2,7 +2,7 @@
 
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
-    content::{self, Block, BlockUpdate, Content, State, World},
+    content::{Block, Content, State, World},
     interaction::{BlockUseResult, UseBlock},
 };
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use crate::{
         BlockMovementChecks, Contraption, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES,
         StructureTransform,
     },
-    kinetics::{Kind, Kinetics, Level, face_axis, offset},
+    kinetics::{Kind, Kinetics, Level, face_axis},
 };
 
 const ID: &str = "create:mechanical_bearing";
@@ -110,11 +110,9 @@ impl MechanicalBearing {
         pos: Pos,
         facing: u8,
         windmill: bool,
+        kinetics: &mut Kinetics,
     ) -> bool {
-        let (Some(contraption), Some(air)) = (
-            blocks.scan(world, pos, facing),
-            blocks.state("minecraft:air"),
-        ) else {
+        let Some(contraption) = blocks.scan(world, pos, facing, kinetics) else {
             return false;
         };
         if windmill && contraption.sails < MINIMUM_SAIL_COUNT {
@@ -123,16 +121,10 @@ impl MechanicalBearing {
         let Some(origin) = contraption.anchor() else {
             return false;
         };
-        let remove: Vec<_> = contraption
-            .blocks
-            .block_list
-            .iter()
-            .map(|block| BlockUpdate {
-                position: offset(origin, block.local_pos()),
-                state: air,
-                flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
-            })
-            .collect();
+        let Some(removals) = contraption.blocks.removals(origin, blocks) else {
+            return false;
+        };
+        let remove: Vec<_> = removals.collect();
         let saved = BearingData {
             running: true,
             angle: 0.0,
@@ -143,6 +135,7 @@ impl MechanicalBearing {
         {
             return false;
         }
+        crate::contraption::detach_moved_belts(world, &remove, kinetics);
         self.data = saved;
         true
     }
@@ -197,6 +190,7 @@ impl MechanicalBearing {
         pos: Pos,
         kind: Kind,
         speed: f32,
+        kinetics: &mut Kinetics,
     ) -> bool {
         let (facing, windmill) = match kind {
             Kind::Bearing(facing) => (facing, false),
@@ -219,7 +213,7 @@ impl MechanicalBearing {
             && !self.data.running
             && (windmill || speed != 0.0)
         {
-            dirty |= self.assemble(world, blocks, pos, facing, windmill);
+            dirty |= self.assemble(world, blocks, pos, facing, windmill, kinetics);
         }
         if self.data.running {
             let axis = face_axis(facing);
@@ -295,14 +289,17 @@ pub fn tick(
         let Some(be) = kinetics.get_mut(pos) else {
             continue;
         };
-        let speed = be.get_speed();
-        if let Some(bearing) = &mut be.bearing {
-            be.dirty |= bearing.tick(world, checks, pos, be.kind, speed);
-            if matches!(be.kind, Kind::Windmill(_)) {
-                let generated = bearing.get_generated_speed();
-                if be.generated != generated {
-                    kinetics.set_generated(level, pos, generated);
-                }
+        let (speed, kind) = (be.get_speed(), be.kind);
+        let Some(mut bearing) = be.bearing.take() else {
+            continue;
+        };
+        let dirty = bearing.tick(world, checks, pos, kind, speed, kinetics);
+        let generated = bearing.get_generated_speed();
+        if let Some(be) = kinetics.get_mut(pos) {
+            be.bearing = Some(bearing);
+            be.dirty |= dirty;
+            if matches!(kind, Kind::Windmill(_)) && be.generated != generated {
+                kinetics.set_generated(level, pos, generated);
             }
         }
     }

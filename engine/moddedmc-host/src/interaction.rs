@@ -35,6 +35,7 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     stack_write,
     give,
     on_player_will_destroy: crate::content::on_player_will_destroy,
+    on_redstone: crate::content::on_redstone,
 };
 
 /// The `custom_data` key that holds a mod's bytes on its item stacks.
