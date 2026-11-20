@@ -1,0 +1,23 @@
+# WS-6 M1 crafting transaction oracle: 1 Enderitium Ingot in player 2x2 -> 9 gems.
+# Requires packed legendary-monsters.mmc and shared server/bot binaries, dedicated 26062 port.
+mods target\mods\legendary-monsters.mmc
+start
+expect Loaded built-in datapack 'mod/legendary-monsters': 2 recipe\(s\)
+botstart crafter
+wait 3
+expect \[bot\] joined as crafter
+cmd give crafter legendary_monsters:enderitium_ingot 1
+wait 1
+expect Gave 1 .*Enderitium Ingot
+bot inventory-click 36 left
+wait 1
+bot inventory-click 1 left
+wait 1
+bot inventory-click 0 shift-left
+wait 1
+cmd clear crafter legendary_monsters:enderitium_gem 0
+wait 1
+expect Found 9 matching item
+reject (?i)error|panic|incorrect argument
+bot quit
+stop

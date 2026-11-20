@@ -7,8 +7,9 @@ use crate::{
 };
 
 pub use abi::{
-    BlockUpdate, CollisionBox, ContentEvent, LOADED, NEIGHBOR_CHANGED, STATE_CHANGED, ShapeBox,
-    UNLOADED, UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS, UPDATE_MOVED, UPDATE_NEIGHBORS,
+    BlockUpdate, CollisionBox, ContentEvent, LOADED, MOVED_STATE_CHANGED, NEIGHBOR_CHANGED,
+    STATE_CHANGED, ShapeBox, UNLOADED, UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS, UPDATE_MOVED,
+    UPDATE_NEIGHBORS,
 };
 
 #[derive(Clone, Copy)]
@@ -56,6 +57,7 @@ pub enum WorldExtension {
     DescribeState,
     FluidId,
     BlockEntities,
+    BlockDrops,
 }
 
 impl WorldExtension {
@@ -84,6 +86,10 @@ impl WorldExtension {
             Self::FluidId => (
                 std::mem::offset_of!(abi::BlockWorldV1, fluid_id),
                 "moddedmc:block_world.fluid_id",
+            ),
+            Self::BlockDrops => (
+                std::mem::offset_of!(abi::BlockWorldV1, block_drops),
+                "moddedmc:block_world.block_drops",
             ),
             Self::BlockEntities => (
                 std::mem::offset_of!(abi::BlockWorldV1, restore_block_entity),
@@ -265,13 +271,19 @@ fn sink(out: &mut Vec<u8>) -> abi::Sink {
     }
 }
 
+/// Collects each value the host writes as its own byte string.
+unsafe extern "C" fn each(ctx: *mut c_void, _key: u64, value: abi::Str) {
+    // SAFETY: ctx is the Vec the caller passed with this sink, and value is live until we return.
+    unsafe { (&mut *ctx.cast::<Vec<Vec<u8>>>()).push(value.bytes().to_vec()) };
+}
+
 pub(crate) unsafe extern "C" fn bytes(ctx: *mut c_void, _key: u64, value: abi::Str) {
     // SAFETY: ctx is the Vec the caller passed with this sink, and value is live until we return.
     unsafe { (&mut *ctx.cast::<Vec<u8>>()).extend_from_slice(value.bytes()) };
 }
 
 impl World<'_> {
-    pub(crate) const fn raw(self) -> abi::WorldRef {
+    pub(crate) const fn raw(&self) -> abi::WorldRef {
         self.raw
     }
 
@@ -396,6 +408,22 @@ impl World<'_> {
         // SAFETY: the size check covers the appended field; the NBT is borrowed for this call.
         WorldExtension::BlockEntities.available(self.api)
             && unsafe { (self.api.restore_block_entity)(self.raw, pos, abi::Str::new(nbt)) }
+    }
+
+    /// Vanilla `Block.getDrops` with `tool` (`None` for an empty hand), as saved stacks, without
+    /// breaking the block or spawning them. `None` when unloaded or on a server without it.
+    pub fn block_drops(self, pos: Pos, tool: Option<&[u8]>) -> Option<Vec<Vec<u8>>> {
+        if !WorldExtension::BlockDrops.available(self.api) {
+            return None;
+        }
+        let mut stacks: Vec<Vec<u8>> = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut stacks).cast(),
+            put: each,
+        };
+        let tool = abi::Str::new(tool.unwrap_or_default());
+        // SAFETY: the size check covers the appended field; the sink fills `stacks` for the call.
+        unsafe { (self.api.block_drops)(self.raw, pos, tool, sink) }.then_some(stacks)
     }
 
     /// Tells loaded worlds apart. Stable while the world stays loaded.

@@ -146,6 +146,7 @@ A `.mmc` is a zip with
 | `moddedmc:content` v1 | `add_block(reg, definition)` | Stage the block, its item, its block entity name and an ordered list of states. The first state is the default. States provide exact property strings, a vanilla physics template, optional collision and outline boxes in sixteenths, model resource locations, and a display orientation. |
 | | `state(selector)` | Resolve a block name or exact `namespace:path[key=value,...]` after registration. Missing definitions return `UNLOADED_STATE`. |
 | | `on_tick(reg, callback)` | Call the mod once per loaded dimension in the server tick with queued state, neighbor and chunk lifecycle changes. The callback and its world handle are synchronous. |
+| | `MOVED_STATE_CHANGED` | Event reason for a replacement made with `UPDATE_MOVED`, so a mod can detach a moved block (vanilla `isMoving`) instead of treating it as broken. |
 | `moddedmc:items` v1 | `add_item(reg, definition)` | Stage an item with no block: its id, display name, the vanilla item it copies components from (stack size, food, tools), and its model. Stock clients see that vanilla item drawn with the model. Ids share one namespace with blocks. |
 | `moddedmc:block_world` v1 | `read(world, positions, out, count)` | Read at most 4,096 positions without loading chunks. Unloaded positions return `UNLOADED_STATE`. |
 | | `write(world, updates, count)` | Validate the batch before applying edits in input order. Each edit explicitly chooses neighbor and client notifications. `UPDATE_MOVED` is vanilla's move-by-piston and suppress-drops write: the replaced block entity is removed without side effects, so a container captured with `read_block_entity` doesn't scatter. Older hosts reject a batch using it. |
@@ -160,6 +161,7 @@ A `.mmc` is a zip with
 | | `fluid_id(world, position, out)` | Vanilla `FluidState.getType()` registry id, the source id for waterlogged and aquatic blocks, `minecraft:empty` for none. False when unloaded. Appended: require `WorldExtension::FluidId`. |
 | | `read_block_entity(world, position, out)` | Vanilla `saveWithFullMetadata` for any block entity: id, position and fields as Java NBT. False when there is none or the position is unloaded. Appended: require `WorldExtension::BlockEntities`. |
 | | `restore_block_entity(world, position, nbt)` | Replaces the entity of an already placed destination block with saved NBT, at the destination position. The saved id must match the entity the destination block made; at most `MAX_BLOCK_ENTITY_BYTES`. Marks the chunk dirty and sends clients the data. False when unloaded or mismatched. |
+| | `block_drops(world, position, tool, out)` | Vanilla `Block.getDrops(state, level, pos, blockEntity, null, tool)`: one saved stack per sink call, without breaking the block or spawning anything. Empty `tool` is an empty hand. False when unloaded or the tool is unreadable. Appended: require `WorldExtension::BlockDrops`. |
 | `moddedmc:entities` v1 | `on_entity_inside(reg, callback)` | Stage one callback per mod, called like vanilla `Block.entityInside` for entities touching one of the mod's blocks. It gets the world, position, state and a borrowed entity, all valid only during the call. |
 | | `view(entity, out)` | Fill kind bits (player, living, item), on-ground flag, position, motion, yaw, pitch, head yaw and body yaw. |
 | | `type_id(entity)` | The entity type's resource name. |
@@ -171,11 +173,13 @@ A `.mmc` is a zip with
 | | `entities_in(world, min, max, except, out, capacity)` | Ids of the entities and players whose boxes intersect the box. |
 | | `has_indirect_passenger(entity, other)` | Vanilla `hasIndirectPassenger`. |
 | | `data(entity, key, out)`, `set_data(entity, key, nbt)` | A mod compound saved with the entity under `key` (Pumpkin's entity `data`; NeoForge `getPersistentData()`), Java named-root NBT up to 64 KiB, empty removes. Keys use the `ResourceLocation` charset, at most 64 bytes. Appended: require `EntitiesExtension::Data`. |
+| | `may_build(entity)` | Vanilla `Player.mayBuild()`: false for other entities and for Adventure and Spectator players. Appended: require `EntitiesExtension::MayBuild`. |
 | `moddedmc:interaction` v1 | `on_use_on_block(reg, callback)` | Stage one callback per mod, called like vanilla `Item.useOn` for any of the mod's content items, block items included. It gets the world, the player (an entity reference), the held stack and the context: item id, clicked position and face, hit point, sneaking and creative. `PASS` lets the server place the item's block as usual. |
 | | `stack_count`, `stack_shrink` | Read or shrink the held stack. |
 | | `stack_data`, `set_stack_data` | Read or replace up to 1 KiB of mod bytes stored on the stack (`custom_data` key `moddedmc:data`). Empty removes them. |
 | | `cooldown(player, item, ticks)` | Vanilla `ItemCooldowns.addCooldown`. |
 | | `on_use_block(reg, callback)` | The block use extension, appended to the table (`InteractionExtension::BlockUse`). One callback per mod for its content blocks: vanilla `useItemOn` with the held stack (empty for an empty hand), then, when it returns `USE_TRY_EMPTY_HAND` for the main hand, `useWithoutItem` with an empty stack. It gets the position, state, face, hit point, sneaking, creative, the hand and which of the two it is. |
+| | `on_player_will_destroy(reg, callback)` | Vanilla `Block.playerWillDestroy` for the mod's content blocks: called with the player, position, state and creative after the break is accepted, before drops and removal. Appended: require `InteractionExtension::PlayerWillDestroy`. |
 | | `stack_read`, `stack_write` | The held stack as saved NBT, or replace it from saved NBT; empty clears it. |
 | | `give(player, stack)` | Vanilla `Inventory.placeItemBackInInventory` for a saved stack: what doesn't fit drops at the player. Inside a use callback it merges into the used stack as vanilla's live held slot would, so read it again with `stack_read` afterwards. |
 | `moddedmc:effects` v1 | `play_sound(world, position, sound, source, volume, pitch)` | Vanilla `Level.playSound(null, ...)` for players in range. Ids outside `minecraft:` play from the resource pack. `source` follows vanilla `SoundSource` order. |
@@ -209,3 +213,72 @@ A `.mmc` is a zip with
 Require the tables from `Mod::start` and register definitions in `Mod::register`. Requesting `moddedmc:content` or `moddedmc:items` during startup moves that mod's registration before world load. Legacy mods continue to register on the first tick. State numbers are runtime handles. Store names and properties in mod-owned data. Mods with a placement hook can choose one of the placing block's states from the clicked face, look direction, sneak state and loaded neighbors.
 
 The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects`, `moddedmc_api::mobs` and `moddedmc_api::mob_ai`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.
+
+## Save-global data (`moddedmc:saved_data` v1)
+
+This table exposes a save-global NBT snapshot to drop-in mods without tying data to a
+loaded chunk, block entity or process-local world pointer. It is available by exact
+`HostApi::get_interface("moddedmc:saved_data", 1)`; the table begins with its byte `size`
+and contains:
+
+- `register_key(Reg, Str name, *mut u64 out) -> i32`: stage a mod-local name (1–128
+  lowercase ASCII bytes: `a-z0-9_.-/`, no empty, `.` or `..` path segments). A successful
+  registration returns a nonzero process-local handle; the handle is activated only when
+  the entire mod registration succeeds. Duplicate names within a registration fail.
+- `read(WorldRef, u64 handle, Sink) -> bool`: return the complete value under sink key 0,
+  or false if it has never been written or the handle/world is invalid. An empty stored
+  payload is distinct from a missing key.
+- `write(WorldRef, u64 handle, Str bytes) -> bool`: atomically replace the in-memory value;
+  return false for invalid input or a payload larger than `MAX_SAVED_DATA_BYTES` (8 MiB).
+  No borrowed pointer is retained. Data is scoped by the mod id associated with its
+  registration handle; another mod cannot accidentally register the same persistent key.
+
+The payload is opaque bytes. Mods can use named-root binary NBT, JSON or their own stable
+encoding. The host stores owner-qualified keys in a save-global snapshot at
+`<save>/moddedmc/saved_data.nbt`, separate from per-dimension world data. It loads once per save and flushes dirty data on world save and shutdown via an atomic temporary file rename. Corrupt or unreadable files fail closed without silent replacement. A crash before world save can lose recent writes; `write` does not flush immediately. Each save is bounded to 64 MiB and 4096 keys and shared by all its dimensions. The host never loads chunks; `WorldRef` is borrowed for the current callback only.
+
+Mods require this interface in `Mod::start`, reserve their handles in `Mod::register`,
+and read from the first appropriate world callback after worlds load (e.g. the registered
+Create content-tick callback). Do not read a world in `Mod::start`; do not persist
+handles across restarts. Use SDK `saved_data::{require, SavedData, Key}`. A server lacking
+the named table fails the mod's `start` requirement without changing ABI major 1.
+
+## Inter-mod services (`moddedmc:services` v1)
+
+Mods can publish immutable, process-lifetime `#[repr(C)]` function tables to other native
+`.mmc` mods. The service registry is a host interface discovered from `Mod::start` with
+`moddedmc_api::services::require_host()`. Its C table begins with `size: usize` followed by
+`publish(Reg, Str name, u32 version, *const c_void table) -> i32`. The service name uses
+`<provider_mod_id>:<path>`; only a mod can register a service under its own namespace.
+Versions are independent for each service. Duplicate (name, version) or invalid pointers
+and names are rejected. No Rust-owned objects, string allocations or vtables cross the ABI.
+
+The publisher uses `unsafe { services.publish(registry, "create:kinetics", 1, TABLE_PTR)? }`
+from its `Mod::register`. The pointer must identify an immutable static table beginning
+with its byte `size` and stay valid until the server exits. The host stages service
+publication along with other mod definitions and makes it visible only after successful
+registration. The SDK consumer uses `unsafe { moddedmc_api::services::require::<T>("create:kinetics", 1)? }`
+inside `Mod::start`. `T` must match the provider's exact published C layout. The SDK
+checks the table's byte size and fails initialization if it is unavailable; mods must
+check the published table's `size` before reading any appended extension.
+
+For a consumer to require a service during startup, its `.mmc` `mod.json` must declare
+a `dependencies` array of provider mod IDs, e.g.
+
+```json
+{"id":"my_addon","version":"1.0.0","abi":1,"dependencies":["create"]}
+```
+
+The loader processes dependencies deterministically, registering providers before running
+their consumers' `Mod::start`. Missing or failed providers and cycles skip the affected
+mods with an explicit log message. A missing service version also fails `Mod::start`
+without starting the consumer. Mods without dependencies retain existing startup order
+and first-tick registration timing unless they request a pre-world content interface.
+Providers needed by an addon register eagerly before worlds load.
+
+Only explicit dependencies on native `.mmc`/other discovered mod IDs are supported;
+this is not a Java classloader, Java `ServiceLoader` or a binary interface for Rust
+trait objects. The table is synchronous and its callbacks must not unwind across C.
+Tests: `tests/fixtures/abi-services` packs two independent native DLLs;
+`tests/scenarios/abi-services.txt` verifies startup ordering and round trips, and
+`tests/scenarios/abi-services-missing.txt` verifies a missing provider is skipped.

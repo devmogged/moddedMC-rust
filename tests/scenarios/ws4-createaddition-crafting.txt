@@ -1,0 +1,90 @@
+# Create Crafts & Additions 1.7.2: real crafting-table interactions.
+# Ingredients, output counts and custom item identity; player inventory after restart.
+mods target\mods\createaddition.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2319.5 101 2317.5 0 0
+wait 2
+cmd fill 2316 100 2316 2324 104 2324 minecraft:air
+cmd setblock 2319 100 2319 minecraft:crafting_table
+cmd gamemode survival tester
+# The released shapeless recipe: 1 ingot -> 9 nuggets.
+cmd item replace entity tester hotbar.0 with createaddition:electrum_ingot 1
+wait 1
+bot use 2319 100 2319 north
+wait 1
+bot expect slot 37 minecraft:gold_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 37
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 left
+wait 1
+bot expect slot 0 minecraft:gold_nugget 9
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 0
+bot inventory-click 0 shift-left
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 0
+bot inventory-close
+wait 0.5
+cmd clear tester createaddition:electrum_nugget 0
+wait 0.5
+expect Found 9 matching
+# The released shaped recipe: nine nuggets -> one ingot.
+cmd item replace entity tester hotbar.0 with createaddition:electrum_nugget 9
+wait 1
+bot use 2319 100 2319 north
+wait 1
+bot expect slot 37 minecraft:gold_nugget 9
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 37
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 right
+wait 0.2
+bot inventory-click 2 right
+wait 0.2
+bot inventory-click 3 right
+wait 0.2
+bot inventory-click 4 right
+wait 0.2
+bot inventory-click 5 right
+wait 0.2
+bot inventory-click 6 right
+wait 0.2
+bot inventory-click 7 right
+wait 0.2
+bot inventory-click 8 right
+wait 0.2
+bot inventory-click 9 right
+wait 0.2
+bot expect slot 0 minecraft:gold_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 0
+bot inventory-click 0 shift-left
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 0
+bot inventory-close
+wait 0.5
+cmd clear tester createaddition:electrum_ingot 0
+wait 0.5
+expect Found 1 matching
+reject (?i)panicked|trapped|Unknown recipe|\[bot\] error
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd clear tester createaddition:electrum_ingot 0
+wait 0.5
+expect Found 1 matching
+reject (?i)panicked|trapped|Unknown recipe|\[bot\] error
+stop

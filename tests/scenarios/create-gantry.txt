@@ -1,0 +1,52 @@
+# The carriage transfers rotation while the shaft is powered, then travels and returns.
+mods target\mods\create.mmc
+start
+expect registered content block create:gantry_shaft
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2352.5 101 2353.5
+wait 2
+cmd fill 2348 98 2347 2357 98 2356 minecraft:stone
+cmd fill 2348 99 2347 2357 104 2356 minecraft:air
+cmd setblock 2350 100 2350 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2350 100 2350 0
+cmd fill 2351 100 2350 2354 100 2350 create:gantry_shaft[facing=east]
+cmd item replace entity tester hotbar.0 with create:gantry_carriage
+wait 0.5
+bot place 2351 100 2350 up
+wait 0.5
+cmd setblock 2351 102 2350 minecraft:slime_block
+cmd setblock 2351 102 2351 minecraft:cobblestone
+cmd setblock 2353 99 2350 minecraft:redstone_block
+wait 0.5
+cmd kinetics 2350 100 2350 -128
+wait 0.5
+cmd kinetics 2351 100 2350
+cmd kinetics 2351 101 2350
+wait 0.5
+expect create:gantry_shaft\[facing=east,part=start,powered=true\] at 2351 100 2350 Speed=-128
+expect create:gantry_carriage\[axis_along_first=false,facing=up\] at 2351 101 2350 Speed=-128
+cmd setblock 2353 99 2350 minecraft:air
+wait 1.5
+bot expect block 2354 102 2351 minecraft:cobblestone
+bot expect block 2351 102 2351 minecraft:air
+wait 0.4
+expect ^\[bot\] expect block ok 2354 102 2351
+expect ^\[bot\] expect block ok 2351 102 2351
+cmd kinetics 2350 100 2350 128
+wait 1.5
+bot expect block 2351 102 2351 minecraft:cobblestone
+bot expect block 2354 102 2351 minecraft:air
+wait 0.4
+expect ^\[bot\] expect block ok 2351 102 2351
+expect ^\[bot\] expect block ok 2354 102 2351
+cmd kinetics 2350 100 2350 0
+cmd setblock 2351 100 2350 minecraft:air
+wait 0.5
+bot expect block 2351 101 2350 minecraft:air
+wait 0.4
+expect ^\[bot\] expect block ok 2351 101 2350
+reject (?i)panicked|trapped|\[bot\] error
+stop

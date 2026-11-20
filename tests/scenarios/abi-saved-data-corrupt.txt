@@ -1,0 +1,10 @@
+# Runner must prepare an invalid world/moddedmc/saved_data.nbt before start.
+# A failed parse must not overwrite an unreadable file.
+mods target\mods\abi-saved-data.mmc
+start
+cmd abi_data
+wait 2
+expect cannot parse saved data
+expect abi_saved_data write failed
+reject (?i)abi_saved_data wrote binary payload|panicked|trapped
+stop

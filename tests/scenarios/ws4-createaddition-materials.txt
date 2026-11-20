@@ -1,0 +1,98 @@
+# Create Crafts & Additions 1.7.2 passive wires, rods, grit and cake bases.
+# Live registration, exact custom IDs, tag loading and saved player inventory.
+mods target\mods\createaddition.mmc
+start
+expect registered content block createaddition:electrum_block
+expect Loaded built-in datapack 'mod/createaddition': 4 recipe\(s\), 1 loot table\(s\), 25 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2330.5 101 2330.5
+wait 1
+cmd give tester createaddition:diamond_grit 2
+wait 0.5
+expect Gave 2 .*Diamond Grit
+cmd clear tester createaddition:diamond_grit 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:copper_wire 2
+wait 0.5
+expect Gave 2 .*Copper Wire
+cmd clear tester createaddition:copper_wire 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:iron_wire 2
+wait 0.5
+expect Gave 2 .*Iron Wire
+cmd clear tester createaddition:iron_wire 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:gold_wire 2
+wait 0.5
+expect Gave 2 .*Gold Wire
+cmd clear tester createaddition:gold_wire 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:electrum_wire 2
+wait 0.5
+expect Gave 2 .*Electrum Wire
+cmd clear tester createaddition:electrum_wire 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:copper_rod 2
+wait 0.5
+expect Gave 2 .*Copper Rod
+cmd clear tester createaddition:copper_rod 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:iron_rod 2
+wait 0.5
+expect Gave 2 .*Iron Rod
+cmd clear tester createaddition:iron_rod 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:gold_rod 2
+wait 0.5
+expect Gave 2 .*Gold Rod
+cmd clear tester createaddition:gold_rod 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:electrum_rod 2
+wait 0.5
+expect Gave 2 .*Electrum Rod
+cmd clear tester createaddition:electrum_rod 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:brass_rod 2
+wait 0.5
+expect Gave 2 .*Brass Rod
+cmd clear tester createaddition:brass_rod 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:cake_base 2
+wait 0.5
+expect Gave 2 .*Cake Base
+cmd clear tester createaddition:cake_base 0
+wait 0.5
+expect Found 2 matching
+cmd give tester createaddition:cake_base_baked 2
+wait 0.5
+expect Gave 2 .*Baked Cake Base
+cmd clear tester createaddition:cake_base_baked 0
+wait 0.5
+expect Found 2 matching
+reject (?i)panicked|trapped|Unknown item|ERROR
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd clear tester createaddition:copper_wire 0
+wait 0.5
+expect Found 2 matching
+cmd clear tester createaddition:cake_base_baked 0
+wait 0.5
+expect Found 2 matching
+reject (?i)panicked|trapped|Unknown item|ERROR
+stop

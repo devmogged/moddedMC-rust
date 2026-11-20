@@ -72,6 +72,8 @@ pub fn require() -> Result<Interaction, InterfaceUnavailable> {
 pub enum InteractionExtension {
     /// Using content blocks, reading and writing the held stack, and giving players items.
     BlockUse,
+    /// `Interaction::on_player_will_destroy`.
+    PlayerWillDestroy,
 }
 
 /// The result of using a content block. `TryEmptyHand` from `useItemOn` runs `useWithoutItem`
@@ -106,6 +108,40 @@ pub struct UseBlock<'a> {
 }
 
 pub type UseBlockCallback = fn(&mut UseBlock<'_>) -> BlockUseResult;
+
+/// A player about to break one of the mod's blocks, valid only during the callback.
+pub struct PlayerWillDestroy<'a> {
+    pub world: World<'a>,
+    pub player: Option<Entity<'a>>,
+    pub position: Pos,
+    pub state: u32,
+    pub creative: bool,
+}
+
+pub type PlayerWillDestroyCallback = fn(&PlayerWillDestroy<'_>);
+static PLAYER_WILL_DESTROY: OnceLock<PlayerWillDestroyCallback> = OnceLock::new();
+
+unsafe extern "C" fn player_will_destroy(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    position: Pos,
+    state: u32,
+    creative: bool,
+) {
+    guard("player_will_destroy", (), || {
+        let (Some(callback), Some(world)) = (PLAYER_WILL_DESTROY.get(), World::borrowed(world))
+        else {
+            return;
+        };
+        callback(&PlayerWillDestroy {
+            world,
+            player: Entity::borrowed(player),
+            position,
+            state,
+            creative,
+        });
+    });
+}
 static USE_BLOCK: OnceLock<UseBlockCallback> = OnceLock::new();
 
 unsafe extern "C" fn use_block(
@@ -166,14 +202,20 @@ impl Interaction {
         self,
         extension: InteractionExtension,
     ) -> Result<(), InterfaceUnavailable> {
-        let InteractionExtension::BlockUse = extension;
-        if self.0.size >= size_of::<abi::InteractionV1>() {
+        let (end, name) = match extension {
+            InteractionExtension::BlockUse => (
+                std::mem::offset_of!(abi::InteractionV1, give),
+                "moddedmc:interaction.block_use",
+            ),
+            InteractionExtension::PlayerWillDestroy => (
+                std::mem::offset_of!(abi::InteractionV1, on_player_will_destroy),
+                "moddedmc:interaction.player_will_destroy",
+            ),
+        };
+        if self.0.size >= end + size_of::<usize>() {
             Ok(())
         } else {
-            Err(InterfaceUnavailable {
-                name: "moddedmc:interaction.block_use",
-                version: 1,
-            })
+            Err(InterfaceUnavailable { name, version: 1 })
         }
     }
 
@@ -189,6 +231,23 @@ impl Interaction {
         }
         // SAFETY: the extension was required; registration is live and the trampoline static.
         RegistrationError::from_code(unsafe { (self.0.on_use_block)(reg.reg, use_block) })
+    }
+
+    /// Vanilla `Block.playerWillDestroy` for every content block this mod registers: after the
+    /// break is accepted, before drops and removal. Needs
+    /// `InteractionExtension::PlayerWillDestroy`.
+    pub fn on_player_will_destroy(
+        self,
+        reg: &mut Registry<'_>,
+        callback: PlayerWillDestroyCallback,
+    ) -> Result<(), RegistrationError> {
+        if PLAYER_WILL_DESTROY.set(callback).is_err() {
+            return Err(RegistrationError::DuplicateId);
+        }
+        // SAFETY: the extension was required; registration is live and the trampoline static.
+        RegistrationError::from_code(unsafe {
+            (self.0.on_player_will_destroy)(reg.reg, player_will_destroy)
+        })
     }
 
     /// Vanilla `Item.useOn` for every content item this mod registers.

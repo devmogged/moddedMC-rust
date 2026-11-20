@@ -106,10 +106,40 @@ The [Millstone scenario](../../tests/scenarios/create-millstone.txt) and [Crushi
 
 Place a bearing with a slime block on its rotating face and attach cobblestone to the slime. Power the bearing at 15 RPM. Stop it after about one second and check that the cobblestone appears a quarter turn from its starting point. An empty-hand click disassembles a running bearing.
 
-The [bearing scenario](../../tests/scenarios/create-bearing.txt) checks attachment, rotation and disassembly, including log axes and stair facings. The scanner covers a fixed set of simple blocks, logs and dry stairs. It leaves an assembly in place when a neighbour needs unsupported handling and keeps a moving assembly intact when its destination is obstructed. Stock clients see the moving block displays. Collision with moving structures is pending.
+The [bearing scenario](../../tests/scenarios/create-bearing.txt) checks attachment, rotation and disassembly, including log and shaft axes and stair facings. Connect a motor to each rotated shaft to check that it still transmits power on its new axis. The scanner leaves an assembly in place when a neighbour needs unsupported handling and keeps a moving assembly intact when its destination is obstructed. Stock clients see the moving block displays.
 
 Attach a single chest and a furnace to the same frame. Put distinct stacks in them, start the bearing and restart the server while it moves. After disassembly, open the two containers at their rotated positions and check the same stacks are inside. The [storage scenario](../../tests/scenarios/create-bearing-storage.txt) also checks for loose items at pickup and after disassembly. Double chests and waterlogged storage are pending.
 
 Place a Windmill Bearing with a shaft on the back and eight wool blocks attached to a slime frame on the front. Empty-hand click the bearing to start it. The shaft should turn at 1 RPM with 512 SU available. Click again to stop it and put the blocks back. The [windmill scenario](../../tests/scenarios/create-windmill.txt) checks both clicks and the eight-sail minimum. Sail blocks and the rotation-direction control are pending.
+
+### Mechanical Piston
+
+Place a Sticky Mechanical Piston facing east above a Creative Motor facing up. Add three extension poles behind the piston, and attach a slime frame and platform at the front. Drive the motor at -128 RPM to extend three blocks. Reverse it to pull the platform back. Put obsidian in the platform's path and extend again. The platform should stop at the last clear block. Capture the extension, return and collision in one recording.
+
+The [piston scenario](../../tests/scenarios/create-mechanical-piston.txt) checks placement, moving displays, all three steps of travel, and pole and head placement. The port uses the default movement mode and stops at loaded terrain collisions. Collisions between moving contraptions and actor block exceptions are pending.
+
+Click the front of a retracted Mechanical Piston with a slimeball in Survival. It becomes sticky and consumes one slimeball. Try Adventure mode or click a side face and check that the stack stays intact. Extend a piston and break a front pole or the head. The front assembly comes off and the base retracts. Breaking the base also removes the rear poles. The [conversion](../../tests/scenarios/create-piston-sticky.txt) and [break](../../tests/scenarios/create-piston-break.txt) scenarios cover those paths.
+
+### Gantry
+
+Connect four matching Gantry Shafts to a motor and place a Gantry Carriage on the first shaft. Attach slime and a block above it. Apply redstone anywhere on the shaft line and turn on the motor. The carriage should remain in place and transfer rotation. Remove the redstone to travel to the far end, then reverse the motor to return. The [gantry scenario](../../tests/scenarios/create-gantry.txt) checks both modes, endpoint placement and the carriage breaking when its supporting shaft is removed.
+
+The starting shaft holds the moving structure's save while its chunk is loaded. Sequenced gearshift limits, the shaft extension placement helper and collision with other moving contraptions are pending.
+
+### Rope Pulley
+
+Connect a Rope Pulley to a motor, lower its magnet to a slime platform, then reverse the motor to lift the platform. Drive it down again with a solid obstacle in the platform's path. The platform stops and the rope becomes blocks up to the pulley. The [rope pulley scenario](../../tests/scenarios/create-rope-pulley.txt) checks the cable displays, the stop above obsidian and the lift to the top.
+
+The stock view draws the moving cable with two block displays. Synchronized pulleys, movement mode controls, and carrying players are pending.
+
+### Chassis
+
+Put a Linear Chassis on a bearing and right-click one axial face with a slimeball. Put a row of blocks against that face and turn the bearing. The chassis takes the row and leaves the blocks beside its unglued faces. A Radial Chassis takes the connected blocks in the plane perpendicular to its axis. The [chassis scenario](../../tests/scenarios/create-chassis.txt) checks both paths. A moving chassis carries its range and rotates its glued faces with the structure. The stock view uses the radial base model. Range scrolling and radial glue overlays are pending.
+
+Put a Sticker on a bearing with a block touching its front. Pulse redstone to extend it, then turn the bearing. The front block moves and side blocks stay. Pulse it again to release the front block. The [sticker scenario](../../tests/scenarios/create-sticker.txt) checks both pulses and the rotated attachment. The moving head animation and upright bounce are pending.
+
+### Riding contraptions
+
+Put an armor stand and a loose item on a cobblestone platform attached to a piston. Extend the piston and check both stay on the platform. The [piston rider scenario](../../tests/scenarios/create-contraption-riders.txt) checks their positions after a three-block move. The [bearing rider scenario](../../tests/scenarios/create-bearing-rider.txt) checks that an armor stand follows a quarter turn around the vertical axis. The [tilted bearing scenario](../../tests/scenarios/create-bearing-tilted-rider.txt) checks that bearings lift stands when rotating about X and Z. Contraptions use their captured block shapes to push living entities and items. Player carrying, special block reactions and other entity types are pending.
 
 Not ported yet: the rest of `BeltBlock.useItemOn` (dyes and water, the wrench and the connector on an existing belt, packages, a shaft turning a middle segment into a pulley, casings), and its `mayBuild` check; belt processing, tunnels and crushers; the belt surface doesn't scroll, only its top half is drawn, and sideways belts (between vertical shafts) are drawn turned the wrong way, because block models can't take the Z rotation `BeltRenderer` uses; breaking a pulley segment doesn't drop its shaft, belts can't be dyed or cased, and their placement makes no sound; the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.

@@ -1,0 +1,69 @@
+# WS-3: selected TrackBlockItem connects to a new endpoint placed on terrain.
+mods target\mods\create.mmc
+start
+expect registered content block create:track \(76 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2353.0 102 2352.5 90 35
+wait 6
+cmd fill 2348 100 2348 2362 108 2362 minecraft:air
+cmd fill 2348 99 2348 2362 99 2362 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:track
+wait 1
+bot use 2350 99 2354
+wait 0.5
+cmd track 2350 100 2354
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2350 100 2354
+
+# Start on an existing rail, finish by right-clicking stone terrain.
+bot use 2350 100 2354
+wait 0.5
+bot use 2355 99 2354
+wait 1
+cmd track 2352 100 2354
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2352 100 2354
+cmd track 2355 100 2354
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2355 100 2354
+
+# Repeat with survival: four intermediate rails plus the new endpoint cost five.
+cmd tp tester 2352.5 102 2358.0 90 35
+wait 1
+bot use 2350 99 2360
+wait 0.5
+cmd gamemode survival tester
+cmd item replace entity tester weapon.mainhand with create:track 9
+wait 0.5
+bot use 2350 100 2360
+wait 0.5
+bot use 2355 99 2360
+wait 1
+cmd track 2353 100 2360
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2353 100 2360
+cmd track 2355 100 2360
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2355 100 2360
+cmd clear tester create:track 0
+wait 0.5
+expect Found 4 matching item
+reject (?i)panicked|trapped
+bot quit
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd track 2355 100 2354
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2355 100 2354
+cmd track 2355 100 2360
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2355 100 2360
+bot quit
+stop

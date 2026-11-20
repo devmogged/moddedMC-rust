@@ -534,6 +534,8 @@ pub const STATE_CHANGED: u8 = 0;
 pub const NEIGHBOR_CHANGED: u8 = 1;
 pub const LOADED: u8 = 2;
 pub const UNLOADED: u8 = 3;
+/// Replaced by an `UPDATE_MOVED` write, so a mod can detach the block without breaking it.
+pub const MOVED_STATE_CHANGED: u8 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -619,6 +621,10 @@ pub struct BlockWorldV1 {
     /// the saved position is ignored. Marks the chunk dirty and sends clients the new data.
     /// False for unloaded positions, a mismatched id or invalid NBT.
     pub restore_block_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, nbt: Str) -> bool,
+    /// Vanilla `Block.getDrops(state, level, pos, blockEntity, null, tool)` for the loaded block:
+    /// one saved stack per sink call, without changing the block or spawning anything. An empty
+    /// `tool` is an empty hand. False when unloaded or the tool can't be read.
+    pub block_drops: unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
@@ -746,6 +752,9 @@ pub struct EntitiesV1 {
     /// Replace the compound under `key` with Java named-root NBT of at most
     /// `MAX_ENTITY_DATA_BYTES`; empty removes it.
     pub set_data: unsafe extern "C" fn(entity: EntityRef, key: Str, nbt: Str) -> bool,
+    /// Vanilla `Player.mayBuild()`: false for other entities and for Adventure and Spectator
+    /// players.
+    pub may_build: unsafe extern "C" fn(entity: EntityRef) -> bool,
 }
 
 /// Largest compound `EntitiesV1::set_data` accepts.
@@ -823,7 +832,21 @@ pub struct InteractionV1 {
     /// Vanilla `Inventory.placeItemBackInInventory`: add a saved stack to the player's inventory
     /// and drop what doesn't fit.
     pub give: unsafe extern "C" fn(player: EntityRef, stack: Str) -> bool,
+    // Appended later: require `InteractionExtension::PlayerWillDestroy`.
+    /// One callback per mod for its content blocks, staged during registration.
+    pub on_player_will_destroy:
+        unsafe extern "C" fn(reg: Reg, callback: PlayerWillDestroyFn) -> i32,
 }
+
+/// Vanilla `Block.playerWillDestroy`: a player is about to break one of the mod's blocks, after
+/// the break was accepted and before drops and removal. `creative` is the player's game mode.
+pub type PlayerWillDestroyFn = unsafe extern "C" fn(
+    world: WorldRef,
+    player: EntityRef,
+    position: Pos,
+    state: u32,
+    creative: bool,
+);
 
 /// Size of the interaction table before `on_use_block` was appended.
 pub const INTERACTION_V1_BASE_SIZE: usize = std::mem::offset_of!(InteractionV1, on_use_block);
@@ -1240,5 +1263,65 @@ mod mob_ai_layout {
         assert_eq!(offset_of!(GoalDefinition, controls), 28);
         assert_eq!(offset_of!(GoalDefinition, callback), 32);
         assert_eq!(size_of::<GoalDefinition>(), 40);
+    }
+}
+
+/// A mod-registered, save-global byte payload. Keys belong to the registering mod
+/// and are saved by Pumpkin with the world, not with a chunk or entity.
+pub const SAVED_DATA: &str = "moddedmc:saved_data";
+/// Maximum payload size for a save-global key (8 MiB).
+pub const MAX_SAVED_DATA_BYTES: usize = 8 << 20;
+
+#[repr(C)]
+pub struct SavedDataV1 {
+    pub size: usize,
+    /// Reserve a mod-local key in a staged registration; returns a process-local handle.
+    /// The handle becomes usable only if the full registration succeeds. Returns a code.
+    pub register_key: unsafe extern "C" fn(reg: Reg, name: Str, out: *mut u64) -> i32,
+    /// Read bytes from the current world's save. False if the key is absent or the
+    /// handle/world is invalid. Sink key 0 contains the complete borrowed value.
+    pub read: unsafe extern "C" fn(world: WorldRef, key: u64, out: Sink) -> bool,
+    /// Atomically replace a key in the world's in-memory save data (including empty
+    /// bytes); persisted by the standard world-save lifecycle. False on invalid input.
+    pub write: unsafe extern "C" fn(world: WorldRef, key: u64, value: Str) -> bool,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod saved_data_layout {
+    use super::*;
+    use std::mem::offset_of;
+
+    #[test]
+    fn saved_data_v1() {
+        assert_eq!(offset_of!(SavedDataV1, size), 0);
+        assert_eq!(offset_of!(SavedDataV1, register_key), 8);
+        assert_eq!(offset_of!(SavedDataV1, read), 16);
+        assert_eq!(offset_of!(SavedDataV1, write), 24);
+        assert_eq!(size_of::<SavedDataV1>(), 32);
+    }
+}
+
+/// Register process-lifetime, independently versioned C interface tables supplied by mods.
+pub const SERVICES: &str = "moddedmc:services";
+
+#[repr(C)]
+pub struct ServicesV1 {
+    pub size: usize,
+    /// Stage a service owned by this mod; published only if its registration succeeds.
+    /// The table pointer and bytes must remain immutable until the server exits.
+    pub publish:
+        unsafe extern "C" fn(reg: Reg, name: Str, version: u32, table: *const c_void) -> i32,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod services_layout {
+    use super::*;
+    use std::mem::offset_of;
+
+    #[test]
+    fn services_v1() {
+        assert_eq!(offset_of!(ServicesV1, size), 0);
+        assert_eq!(offset_of!(ServicesV1, publish), 8);
+        assert_eq!(size_of::<ServicesV1>(), 16);
     }
 }

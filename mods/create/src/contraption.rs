@@ -5,20 +5,24 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use fastnbt::{IntArray, Value};
 use moddedmc_api::{
     Pos,
-    content::{Content, UNLOADED_STATE, World},
+    content::{self, BlockUpdate, Content, UNLOADED_STATE, World},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AXES, CONTENT, DIRECTIONS, TAGS,
+    AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, ENCASED_SHAFT, SHAFT, STACKS, TAGS, chassis,
+    collider::Collider,
     kinetics::{FACES, face_axis, offset, packed, positive},
+    sticker,
 };
 
 /// CKinetics.maxBlocksMoved default.
 const MAX_BLOCKS_MOVED: usize = 2048;
+// The host caps the whole kinetic save at 64 KiB, including the controller fields.
+pub const MAX_ASSEMBLY_DATA_BYTES: usize = (64 << 10) - 256;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum BlockMovement {
+pub(crate) enum BlockMovement {
     Air,
     Immovable,
     Movable(PaletteEntry),
@@ -55,6 +59,7 @@ impl BlockMovementChecks {
         let immovable = [
             "minecraft:bedrock",
             "minecraft:barrier",
+            "minecraft:obsidian",
             "minecraft:reinforced_deepslate",
         ]
         .into_iter()
@@ -68,37 +73,14 @@ impl BlockMovementChecks {
     }
 
     pub fn scan(&self, world: World<'_>, bearing: Pos, facing: u8) -> Option<Contraption> {
-        let content = CONTENT.get()?;
-        let mut contraption = Contraption::search_moved_structure(bearing, facing, |pos| {
-            let mut state = [UNLOADED_STATE];
-            world.read(&[pos], &mut state);
-            if let Some(known) = self.states.get(&state[0]) {
-                return Some(known.clone());
-            }
-            let entry = PaletteEntry::parse(&content.describe_state(state[0])?);
-            let id = entry.name.strip_prefix("minecraft:")?;
-            ((id.ends_with("_log")
-                || id.ends_with("_stairs")
-                || id.ends_with("_wool")
-                || entry.has_storage())
-                && entry
-                    .properties
-                    .get("waterlogged")
-                    .is_none_or(|v| v == "false"))
-            .then_some(BlockMovement::Movable(entry))
-        })?;
+        let mut contraption = Contraption::search_moved_structure(
+            bearing,
+            facing,
+            |pos| self.classify(world, pos),
+            |pos, entry| self.attachments(world, pos, entry, None),
+        )?;
         let anchor = contraption.anchor()?;
-        for block in &mut contraption.blocks.block_list {
-            if contraption.blocks.palette[block.palette_index()].has_storage() {
-                let position = offset(anchor, block.local_pos());
-                let bytes = world.block_entity(position)?;
-                let mut data: HashMap<String, Value> = fastnbt::from_bytes(&bytes).ok()?;
-                for coordinate in ["x", "y", "z"] {
-                    data.remove(coordinate);
-                }
-                block.nbt = Some(data);
-            }
-        }
+        contraption.blocks.capture_entities(world, anchor)?;
         if let Some(sails) = TAGS.get()?.values("block", "create:windmill_sails") {
             contraption.sails = contraption
                 .blocks
@@ -112,12 +94,66 @@ impl BlockMovementChecks {
         Some(contraption)
     }
 
+    pub fn classify(&self, world: World<'_>, pos: Pos) -> Option<BlockMovement> {
+        let mut state = [UNLOADED_STATE];
+        world.read(&[pos], &mut state);
+        if let Some(known) = self.states.get(&state[0]) {
+            return Some(known.clone());
+        }
+        let entry = PaletteEntry::parse(&CONTENT.get()?.describe_state(state[0])?);
+        if chassis::is_chassis(&entry.name) || entry.name == sticker::ID {
+            return Some(BlockMovement::Movable(entry));
+        }
+        let movable = matches!(entry.name.as_str(), SHAFT | ENCASED_SHAFT)
+            || entry.name.strip_prefix("minecraft:").is_some_and(|id| {
+                id.ends_with("_log")
+                    || id.ends_with("_stairs")
+                    || id.ends_with("_wool")
+                    || entry.has_storage()
+            });
+        (movable
+            && entry
+                .properties
+                .get("waterlogged")
+                .is_none_or(|value| value == "false"))
+        .then_some(BlockMovement::Movable(entry))
+    }
+
     pub fn state(&self, name: &str) -> Option<u32> {
         self.names.get(name).copied()
     }
 
     pub fn is_air(&self, state: u32) -> bool {
         self.states.get(&state) == Some(&BlockMovement::Air)
+    }
+
+    pub fn collect_attached(
+        &self,
+        world: World<'_>,
+        anchor: Pos,
+        frontier: VecDeque<(Pos, PaletteEntry)>,
+        visited: HashSet<Pos>,
+        forced: Option<u8>,
+    ) -> Option<(Blocks, HashMap<PaletteEntry, i32>)> {
+        Blocks::collect_attached(
+            anchor,
+            frontier,
+            visited,
+            |pos| self.classify(world, pos),
+            |pos, entry| self.attachments(world, pos, entry, forced),
+        )
+    }
+
+    fn attachments(
+        &self,
+        world: World<'_>,
+        pos: Pos,
+        entry: &PaletteEntry,
+        forced: Option<u8>,
+    ) -> Option<Vec<Pos>> {
+        let mut attached = chassis::attachments(world, self, pos, entry, forced)?;
+        attached.extend(sticker::attachment(entry, pos));
+        Some(attached)
     }
 }
 
@@ -138,16 +174,276 @@ pub struct Blocks {
     pub block_list: Vec<StructureBlockInfo>,
 }
 
+impl Blocks {
+    pub fn colliders(&self) -> impl Iterator<Item = Collider> + '_ {
+        self.block_list.iter().flat_map(|block| {
+            let local = block.local_pos().map(f64::from);
+            block
+                .shapes
+                .as_deref()
+                .unwrap_or(&[Collider::BLOCK])
+                .iter()
+                .map(move |shape| shape.translate(local))
+        })
+    }
+
+    pub fn positions(&self, anchor: Pos) -> impl Iterator<Item = Pos> {
+        self.block_list
+            .iter()
+            .map(move |block| offset(anchor, block.local_pos()))
+    }
+
+    pub fn is_colliding_with_world(
+        &self,
+        world: World<'_>,
+        anchor: Pos,
+        direction: u8,
+        sources: &HashSet<Pos>,
+        controller: Option<Pos>,
+    ) -> bool {
+        let destinations: HashSet<_> = self.positions(anchor).collect();
+        destinations.iter().any(|&pos| {
+            Some(pos) != controller
+                && !sources.contains(&pos)
+                && !destinations.contains(&offset(pos, FACES[usize::from(direction)]))
+                && world
+                    .collision_shape(pos)
+                    .is_none_or(|shape| !shape.is_empty())
+        })
+    }
+
+    pub fn capture_entities(&mut self, world: World<'_>, anchor: Pos) -> Option<()> {
+        for block in &mut self.block_list {
+            let entry = &self.palette[block.palette_index()];
+            let position = offset(anchor, block.local_pos());
+            let shapes: Vec<_> = world
+                .collision_shape(position)?
+                .into_iter()
+                .map(Collider::from_shape)
+                .collect();
+            if shapes.as_slice() != [Collider::BLOCK] {
+                block.shapes = Some(shapes);
+            }
+            if entry.has_storage() || chassis::is_chassis(&entry.name) {
+                let bytes = world.block_entity(position)?;
+                let mut data: HashMap<String, Value> = fastnbt::from_bytes(&bytes).ok()?;
+                for coordinate in ["x", "y", "z"] {
+                    data.remove(coordinate);
+                }
+                block.nbt = Some(data);
+            }
+        }
+        Some(())
+    }
+
+    pub fn push(
+        &mut self,
+        pos: Pos,
+        entry: PaletteEntry,
+        palette: &mut HashMap<PaletteEntry, i32>,
+    ) -> &mut StructureBlockInfo {
+        let state = *palette.entry(entry.clone()).or_insert_with(|| {
+            let state = self.palette.len() as i32;
+            self.palette.push(entry);
+            state
+        });
+        let index = self.block_list.len();
+        self.block_list.push(StructureBlockInfo {
+            pos: packed(pos),
+            state,
+            nbt: None,
+            shapes: None,
+        });
+        &mut self.block_list[index]
+    }
+
+    fn collect_attached(
+        anchor: Pos,
+        mut frontier: VecDeque<(Pos, PaletteEntry)>,
+        mut visited: HashSet<Pos>,
+        mut get: impl FnMut(Pos) -> Option<BlockMovement>,
+        mut attachments: impl FnMut(Pos, &PaletteEntry) -> Option<Vec<Pos>>,
+    ) -> Option<(Self, HashMap<PaletteEntry, i32>)> {
+        visited.extend(frontier.iter().map(|(pos, _)| *pos));
+        let mut blocks = Self::default();
+        let mut palette = HashMap::new();
+        while let Some((pos, entry)) = frontier.pop_front() {
+            for attached in attachments(pos, &entry)? {
+                if visited.insert(attached) {
+                    match get(attached)? {
+                        BlockMovement::Movable(next) => frontier.push_back((attached, next)),
+                        BlockMovement::Air => {}
+                        BlockMovement::Immovable => return None,
+                    }
+                }
+            }
+            for (face, step) in FACES.into_iter().enumerate() {
+                let adjacent = offset(pos, step);
+                if visited.contains(&adjacent) {
+                    continue;
+                }
+                // Leave the world intact if an unknown neighbour might attach to this face.
+                if let BlockMovement::Movable(next) = get(adjacent)?
+                    && (sticker::attachment(&next, adjacent) == Some(pos)
+                        || can_stick(&entry.name, &next.name)
+                            && !sticker::blocks_attachment(&entry, face as u8)
+                            && !sticker::blocks_attachment(&next, face as u8 ^ 1))
+                {
+                    visited.insert(adjacent);
+                    frontier.push_back((adjacent, next));
+                }
+            }
+            blocks.push(
+                Pos {
+                    x: pos.x - anchor.x,
+                    y: pos.y - anchor.y,
+                    z: pos.z - anchor.z,
+                },
+                entry,
+                &mut palette,
+            );
+            if blocks.block_list.len() > MAX_BLOCKS_MOVED {
+                return None;
+            }
+        }
+        Some((blocks, palette))
+    }
+
+    pub fn place(
+        &self,
+        world: World<'_>,
+        checks: &BlockMovementChecks,
+        transform: StructureTransform,
+        controller: Option<Pos>,
+    ) -> bool {
+        let Some((place, saved_entities)) = self
+            .block_list
+            .iter()
+            .filter(|block| Some(transform.apply(block.local_pos())) != controller)
+            .map(|block| {
+                let entry = self.palette.get(block.palette_index())?;
+                Some((
+                    BlockUpdate {
+                        position: transform.apply(block.local_pos()),
+                        state: transform.block_state(entry).state()?,
+                        flags: content::UPDATE_ALL,
+                    },
+                    block.nbt.as_ref().map(fastnbt::to_bytes).transpose().ok()?,
+                ))
+            })
+            .collect::<Option<(Vec<_>, Vec<_>)>>()
+        else {
+            return false;
+        };
+        if place.is_empty() {
+            return true;
+        }
+        let positions: Vec<_> = place.iter().map(|update| update.position).collect();
+        let mut destination = vec![UNLOADED_STATE; place.len()];
+        world.read(&positions, &mut destination);
+        // shortcut: retain the assembly if any destination needs unported replacement rules.
+        if !destination.iter().all(|&state| checks.is_air(state))
+            || world.write(&place) != place.len()
+        {
+            return false;
+        }
+        for (update, saved) in place.iter().zip(saved_entities) {
+            if let Some(saved) = saved
+                && !world.restore_block_entity(update.position, &saved)
+            {
+                let rollback: Vec<_> = positions
+                    .iter()
+                    .zip(destination)
+                    .map(|(&position, state)| BlockUpdate {
+                        position,
+                        state,
+                        flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
+                    })
+                    .collect();
+                world.write(&rollback);
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn drop_contents(self, world: World<'_>, pos: Pos, item_for: impl Fn(&str) -> &str) {
+        let Some(stacks) = STACKS.get() else { return };
+        let position = [pos.x, pos.y, pos.z].map(|n| f64::from(n) + 0.5);
+        for block in self.block_list {
+            if let Some(entry) = self.palette.get(block.palette_index()) {
+                let item = Value::Compound(HashMap::from([
+                    ("id".into(), Value::String(item_for(&entry.name).into())),
+                    ("count".into(), Value::Int(1)),
+                ]));
+                if let Ok(bytes) = fastnbt::to_bytes(&item) {
+                    stacks.spawn(world, position, [0.0, 0.1, 0.0], &bytes);
+                }
+            }
+            if let Some(Value::List(items)) = block.nbt.and_then(|mut nbt| nbt.remove("Items")) {
+                for mut item in items {
+                    if let Value::Compound(fields) = &mut item {
+                        fields.remove("Slot");
+                        if let Ok(bytes) = fastnbt::to_bytes(&item) {
+                            stacks.spawn(world, position, [0.0, 0.1, 0.0], &bytes);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ContraptionDisplays(Vec<i32>);
+
+impl ContraptionDisplays {
+    pub fn clear(&mut self, world: World<'_>) {
+        if let Some(displays) = BLOCK_DISPLAYS.get() {
+            for id in self.0.drain(..).filter(|&id| id != 0) {
+                displays.remove(world, id);
+            }
+        }
+    }
+
+    pub fn show(
+        &mut self,
+        world: World<'_>,
+        blocks: &Blocks,
+        transform: StructureTransform,
+        translation: [f32; 3],
+    ) {
+        let Some(displays) = BLOCK_DISPLAYS.get() else {
+            return;
+        };
+        self.0.resize(blocks.block_list.len(), 0);
+        for (block, id) in blocks.block_list.iter().zip(&mut self.0) {
+            let mut shown = transform.block_display(block.local_pos());
+            for (shown, shift) in shown.translation.iter_mut().zip(translation) {
+                *shown += shift;
+            }
+            if (*id == 0 || !displays.update(world, *id, &shown))
+                && let Some(state) = blocks
+                    .palette
+                    .get(block.palette_index())
+                    .and_then(PaletteEntry::state)
+            {
+                *id = displays.spawn(world, state, &shown).unwrap_or(0);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "PascalCase")]
 pub struct PaletteEntry {
     pub name: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    properties: BTreeMap<String, String>,
+    pub(crate) properties: BTreeMap<String, String>,
 }
 
 impl PaletteEntry {
-    fn parse(selector: &str) -> Self {
+    pub(crate) fn parse(selector: &str) -> Self {
         let (name, properties) = selector
             .strip_suffix(']')
             .and_then(|selector| selector.split_once('['))
@@ -197,6 +493,8 @@ pub struct StructureBlockInfo {
     state: i32,
     #[serde(rename = "Data", default, skip_serializing_if = "Option::is_none")]
     pub nbt: Option<HashMap<String, Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shapes: Option<Vec<Collider>>,
 }
 
 impl StructureBlockInfo {
@@ -218,48 +516,19 @@ impl Contraption {
         bearing: Pos,
         facing: u8,
         mut get: impl FnMut(Pos) -> Option<BlockMovement>,
+        attachments: impl FnMut(Pos, &PaletteEntry) -> Option<Vec<Pos>>,
     ) -> Option<Self> {
         let anchor = offset(bearing, FACES[usize::from(facing)]);
         let BlockMovement::Movable(entry) = get(anchor)? else {
             return None;
         };
-        let mut frontier = VecDeque::from([(anchor, entry)]);
-        let mut visited = HashSet::from([anchor, bearing]);
-        let mut blocks = Blocks::default();
-        let mut palette = HashMap::new();
-        while let Some((pos, entry)) = frontier.pop_front() {
-            for step in FACES {
-                let adjacent = offset(pos, step);
-                if visited.contains(&adjacent) {
-                    continue;
-                }
-                // An unknown neighbour may be attached to this face. Leave the world intact.
-                if let BlockMovement::Movable(next) = get(adjacent)?
-                    && can_stick(&entry.name, &next.name)
-                {
-                    visited.insert(adjacent);
-                    frontier.push_back((adjacent, next));
-                }
-            }
-            let state = *palette.entry(entry.clone()).or_insert_with(|| {
-                let state = blocks.palette.len() as i32;
-                blocks.palette.push(entry);
-                state
-            });
-            let relative = Pos {
-                x: pos.x - anchor.x,
-                y: pos.y - anchor.y,
-                z: pos.z - anchor.z,
-            };
-            blocks.block_list.push(StructureBlockInfo {
-                pos: packed(relative),
-                state,
-                nbt: None,
-            });
-            if blocks.block_list.len() > MAX_BLOCKS_MOVED {
-                return None;
-            }
-        }
+        let (blocks, _) = Blocks::collect_attached(
+            anchor,
+            VecDeque::from([(anchor, entry)]),
+            HashSet::from([bearing]),
+            get,
+            attachments,
+        )?;
         let axis = usize::from(face_axis(facing));
         let mut along = [0, 0];
         let mut radius_squared = 0;
@@ -329,11 +598,25 @@ impl StructureTransform {
         local
     }
 
+    pub fn rotate_face(self, face: u8) -> u8 {
+        let direction = self.rotate(FACES[usize::from(face)]);
+        FACES
+            .iter()
+            .position(|&step| step == direction)
+            .map_or(face, |index| index as u8)
+    }
+
     pub fn block_state(self, entry: &PaletteEntry) -> PaletteEntry {
         let mut rotated = entry.clone();
         let turns = self.quarter_turns();
         if turns == 0 {
             return rotated;
+        }
+        if chassis::is_chassis(&entry.name) {
+            return chassis::apply_rotation(entry, self).unwrap_or(rotated);
+        }
+        if entry.name == sticker::ID {
+            return sticker::apply_rotation(entry, self).unwrap_or(rotated);
         }
         if let Some(axis) = rotated.properties.get_mut("axis")
             && let Some(index) = AXES.iter().position(|name| *name == axis)
@@ -426,10 +709,15 @@ mod tests {
             (p(-2, 1, 0), simple("minecraft:stone")),
             (p(1, 1, 0), simple("minecraft:honey_block")),
         ]);
-        let contraption = Contraption::search_moved_structure(p(0, 0, 0), 1, |pos| {
-            assert_ne!(pos, p(0, 0, 0));
-            Some(tiles.get(&pos).cloned().unwrap_or(Air))
-        })
+        let contraption = Contraption::search_moved_structure(
+            p(0, 0, 0),
+            1,
+            |pos| {
+                assert_ne!(pos, p(0, 0, 0));
+                Some(tiles.get(&pos).cloned().unwrap_or(Air))
+            },
+            |_, _| Some(Vec::new()),
+        )
         .expect("assembled");
         let bytes = fastnbt::to_bytes(&contraption).expect("saved");
         let loaded: Contraption = fastnbt::from_bytes(&bytes).expect("loaded");

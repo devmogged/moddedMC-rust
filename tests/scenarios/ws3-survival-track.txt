@@ -1,0 +1,82 @@
+# WS-3 survival inventory and blocked-connection regression.
+mods target\mods\create.mmc
+start
+expect registered content block create:track \(76 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2296.5 102 2292.5 90 35
+wait 6
+cmd fill 2288 100 2288 2304 108 2304 minecraft:air
+cmd fill 2288 99 2288 2304 99 2304 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:track
+wait 1
+
+# Build two disconnected endpoint pairs in creative mode.
+bot use 2292 99 2294
+wait 0.5
+bot use 2298 99 2294
+wait 0.5
+cmd tp tester 2295.0 102 2298.5 90 35
+wait 1
+bot use 2292 99 2300
+wait 0.5
+bot use 2298 99 2300
+wait 1
+cmd track 2292 100 2294
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2292 100 2294
+cmd track 2298 100 2300
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2298 100 2300
+
+# Survival track placement consumes exactly five held rails for the five gaps.
+cmd gamemode survival tester
+cmd tp tester 2296.5 102 2292.5 90 35
+wait 1
+cmd item replace entity tester weapon.mainhand with create:track 12
+wait 1
+bot use 2292 100 2294
+wait 0.5
+bot use 2298 100 2294
+wait 1
+cmd track 2295 100 2294
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2295 100 2294
+cmd clear tester create:track 0
+wait 0.5
+expect Found 7 matching item
+
+# An obstruction rejects the whole batch without consuming rails or writing.
+cmd setblock 2295 100 2300 minecraft:stone
+cmd tp tester 2295.0 102 2298.5 90 35
+wait 1
+cmd item replace entity tester weapon.mainhand with create:track 8
+wait 0.5
+bot use 2292 100 2300
+wait 0.5
+bot use 2298 100 2300
+wait 1
+cmd track 2294 100 2300
+wait 0.5
+expect There is no loaded Create track at that position
+cmd clear tester create:track 0
+wait 0.5
+expect Found 8 matching item
+
+# After removing the obstruction, the saved selection can finish on second click.
+cmd setblock 2295 100 2300 minecraft:air
+wait 0.5
+bot use 2298 100 2300
+wait 1
+cmd track 2295 100 2300
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2295 100 2300
+cmd clear tester create:track 0
+wait 0.5
+expect Found 3 matching item
+reject (?i)panicked|trapped
+bot quit
+stop

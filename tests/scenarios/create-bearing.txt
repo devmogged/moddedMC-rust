@@ -17,6 +17,8 @@ cmd setblock 2260 101 2260 minecraft:slime_block
 cmd setblock 2261 101 2260 minecraft:cobblestone
 cmd setblock 2262 101 2260 minecraft:stone
 cmd setblock 2260 101 2261 minecraft:oak_log[axis=x]
+cmd setblock 2260 101 2259 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2260 102 2260 create:andesite_encased_shaft[axis=z]
 
 # A barrel touching slime would have to move. The port refuses unsupported storage.
 cmd setblock 2259 101 2260 minecraft:barrel
@@ -36,7 +38,7 @@ wait 0.5
 # At 15 RPM the bearing turns 4.5 degrees per tick and snaps to a quarter turn.
 cmd kinetics 2260 99 2260 15
 wait 0.6
-bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 count 4
+bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 count 6
 bot expect block 2261 101 2260 minecraft:air
 wait 0.4
 cmd kinetics 2260 99 2260 0
@@ -52,6 +54,19 @@ expect ^\[bot\] expect block ok 2261 101 2260
 bot expect block 2260 101 2261 minecraft:oak_stairs[facing=north]
 wait 0.5
 expect ^\[bot\] expect block ok 2260 101 2261
+bot expect block 2259 101 2260 minecraft:note_block
+bot expect block 2260 102 2260 minecraft:note_block
+wait 0.5
+expect ^\[bot\] expect block ok 2259 101 2260
+expect ^\[bot\] expect block ok 2260 102 2260
+cmd setblock 2259 101 2259 create:creative_motor[facing=south]
+cmd setblock 2261 102 2260 create:creative_motor[facing=west]
+wait 0.5
+cmd kinetics 2259 101 2260
+cmd kinetics 2260 102 2260
+wait 0.5
+expect create:shaft\[axis=z,waterlogged=false\] at 2259 101 2260 Speed=16
+expect create:andesite_encased_shaft\[axis=x\] at 2260 102 2260 Speed=-16
 bot expect block 2262 101 2260 minecraft:stone
 wait 0.5
 expect ^\[bot\] expect block ok 2262 101 2260

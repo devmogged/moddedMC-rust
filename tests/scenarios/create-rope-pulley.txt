@@ -1,0 +1,43 @@
+# Lower a platform on three rope sections, stop at an obstacle, then lift to the top.
+mods target\mods\create.mmc
+start
+expect registered content block create:rope_pulley
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2392.5 100 2392.5
+wait 2
+cmd fill 2386 96 2386 2395 96 2395 minecraft:stone
+cmd fill 2386 97 2386 2395 108 2395 minecraft:air
+cmd setblock 2389 105 2390 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2389 105 2390 0
+cmd setblock 2390 105 2390 create:rope_pulley[axis=x]
+cmd fill 2390 103 2390 2390 104 2390 create:rope[waterlogged=false]
+cmd setblock 2390 102 2390 create:pulley_magnet[waterlogged=false]
+cmd setblock 2390 101 2390 minecraft:slime_block
+cmd setblock 2391 101 2390 minecraft:cobblestone
+cmd setblock 2391 97 2390 minecraft:obsidian
+cmd kinetics 2389 105 2390 128
+wait 0.25
+bot expect entity minecraft:block_display near 2390.5 105.5 2390.5 within 0.05 count 2
+wait 0.85
+expect ^\[bot\] expect entity ok
+bot expect block 2391 98 2390 minecraft:cobblestone
+bot expect block 2391 97 2390 minecraft:obsidian
+bot expect block 2390 99 2390 minecraft:note_block
+wait 0.5
+expect ^\[bot\] expect block ok 2391 98 2390
+expect ^\[bot\] expect block ok 2391 97 2390
+expect ^\[bot\] expect block ok 2390 99 2390
+cmd kinetics 2389 105 2390 -128
+wait 1.7
+bot expect block 2391 104 2390 minecraft:cobblestone
+bot expect block 2391 98 2390 minecraft:air
+bot expect block 2390 103 2390 minecraft:air
+wait 0.5
+expect ^\[bot\] expect block ok 2391 104 2390
+expect ^\[bot\] expect block ok 2391 98 2390
+expect ^\[bot\] expect block ok 2390 103 2390
+reject (?i)panicked|trapped|\[bot\] error
+stop
