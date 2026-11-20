@@ -537,9 +537,7 @@ fn try_assemble(
     let start = PaletteEntry::parse(&format!("{CARRIAGE}[{}]", carriage.properties()));
     let frontier = VecDeque::from([(pos, start)]);
     let (mut blocks, _) =
-        Blocks::collect_attached(pos, frontier, HashSet::from([shaft_pos]), |pos| {
-            checks.classify(world, pos)
-        })?;
+        checks.collect_attached(world, pos, frontier, HashSet::from([shaft_pos]), None)?;
     blocks.capture_entities(world, pos)?;
     let sources = blocks.positions(pos).collect();
     let direction = if speed > 0.0 {

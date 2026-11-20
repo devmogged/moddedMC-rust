@@ -10,7 +10,7 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, STACKS, TAGS,
+    AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, STACKS, TAGS, chassis,
     kinetics::{FACES, face_axis, offset, packed, positive},
 };
 
@@ -71,8 +71,12 @@ impl BlockMovementChecks {
     }
 
     pub fn scan(&self, world: World<'_>, bearing: Pos, facing: u8) -> Option<Contraption> {
-        let mut contraption =
-            Contraption::search_moved_structure(bearing, facing, |pos| self.classify(world, pos))?;
+        let mut contraption = Contraption::search_moved_structure(
+            bearing,
+            facing,
+            |pos| self.classify(world, pos),
+            |pos, entry| chassis::attachments(world, self, pos, entry, None),
+        )?;
         let anchor = contraption.anchor()?;
         contraption.blocks.capture_entities(world, anchor)?;
         if let Some(sails) = TAGS.get()?.values("block", "create:windmill_sails") {
@@ -95,6 +99,9 @@ impl BlockMovementChecks {
             return Some(known.clone());
         }
         let entry = PaletteEntry::parse(&CONTENT.get()?.describe_state(state[0])?);
+        if chassis::is_chassis(&entry.name) {
+            return Some(BlockMovement::Movable(entry));
+        }
         let id = entry.name.strip_prefix("minecraft:")?;
         ((id.ends_with("_log")
             || id.ends_with("_stairs")
@@ -113,6 +120,23 @@ impl BlockMovementChecks {
 
     pub fn is_air(&self, state: u32) -> bool {
         self.states.get(&state) == Some(&BlockMovement::Air)
+    }
+
+    pub fn collect_attached(
+        &self,
+        world: World<'_>,
+        anchor: Pos,
+        frontier: VecDeque<(Pos, PaletteEntry)>,
+        visited: HashSet<Pos>,
+        forced: Option<u8>,
+    ) -> Option<(Blocks, HashMap<PaletteEntry, i32>)> {
+        Blocks::collect_attached(
+            anchor,
+            frontier,
+            visited,
+            |pos| self.classify(world, pos),
+            |pos, entry| chassis::attachments(world, self, pos, entry, forced),
+        )
     }
 }
 
@@ -161,7 +185,8 @@ impl Blocks {
 
     pub fn capture_entities(&mut self, world: World<'_>, anchor: Pos) -> Option<()> {
         for block in &mut self.block_list {
-            if self.palette[block.palette_index()].has_storage() {
+            let entry = &self.palette[block.palette_index()];
+            if entry.has_storage() || chassis::is_chassis(&entry.name) {
                 let position = offset(anchor, block.local_pos());
                 let bytes = world.block_entity(position)?;
                 let mut data: HashMap<String, Value> = fastnbt::from_bytes(&bytes).ok()?;
@@ -192,16 +217,26 @@ impl Blocks {
         });
     }
 
-    pub fn collect_attached(
+    fn collect_attached(
         anchor: Pos,
         mut frontier: VecDeque<(Pos, PaletteEntry)>,
         mut visited: HashSet<Pos>,
         mut get: impl FnMut(Pos) -> Option<BlockMovement>,
+        mut attachments: impl FnMut(Pos, &PaletteEntry) -> Option<Vec<Pos>>,
     ) -> Option<(Self, HashMap<PaletteEntry, i32>)> {
         visited.extend(frontier.iter().map(|(pos, _)| *pos));
         let mut blocks = Self::default();
         let mut palette = HashMap::new();
         while let Some((pos, entry)) = frontier.pop_front() {
+            for attached in attachments(pos, &entry)? {
+                if visited.insert(attached) {
+                    match get(attached)? {
+                        BlockMovement::Movable(next) => frontier.push_back((attached, next)),
+                        BlockMovement::Air => {}
+                        BlockMovement::Immovable => return None,
+                    }
+                }
+            }
             for step in FACES {
                 let adjacent = offset(pos, step);
                 if visited.contains(&adjacent) {
@@ -436,6 +471,7 @@ impl Contraption {
         bearing: Pos,
         facing: u8,
         mut get: impl FnMut(Pos) -> Option<BlockMovement>,
+        attachments: impl FnMut(Pos, &PaletteEntry) -> Option<Vec<Pos>>,
     ) -> Option<Self> {
         let anchor = offset(bearing, FACES[usize::from(facing)]);
         let BlockMovement::Movable(entry) = get(anchor)? else {
@@ -446,6 +482,7 @@ impl Contraption {
             VecDeque::from([(anchor, entry)]),
             HashSet::from([bearing]),
             get,
+            attachments,
         )?;
         let axis = usize::from(face_axis(facing));
         let mut along = [0, 0];
@@ -516,11 +553,22 @@ impl StructureTransform {
         local
     }
 
+    pub fn rotate_face(self, face: u8) -> u8 {
+        let direction = self.rotate(FACES[usize::from(face)]);
+        FACES
+            .iter()
+            .position(|&step| step == direction)
+            .map_or(face, |index| index as u8)
+    }
+
     pub fn block_state(self, entry: &PaletteEntry) -> PaletteEntry {
         let mut rotated = entry.clone();
         let turns = self.quarter_turns();
         if turns == 0 {
             return rotated;
+        }
+        if chassis::is_chassis(&entry.name) {
+            return chassis::apply_rotation(entry, self).unwrap_or(rotated);
         }
         if let Some(axis) = rotated.properties.get_mut("axis")
             && let Some(index) = AXES.iter().position(|name| *name == axis)
@@ -613,10 +661,15 @@ mod tests {
             (p(-2, 1, 0), simple("minecraft:stone")),
             (p(1, 1, 0), simple("minecraft:honey_block")),
         ]);
-        let contraption = Contraption::search_moved_structure(p(0, 0, 0), 1, |pos| {
-            assert_ne!(pos, p(0, 0, 0));
-            Some(tiles.get(&pos).cloned().unwrap_or(Air))
-        })
+        let contraption = Contraption::search_moved_structure(
+            p(0, 0, 0),
+            1,
+            |pos| {
+                assert_ne!(pos, p(0, 0, 0));
+                Some(tiles.get(&pos).cloned().unwrap_or(Air))
+            },
+            |_, _| Some(Vec::new()),
+        )
         .expect("assembled");
         let bytes = fastnbt::to_bytes(&contraption).expect("saved");
         let loaded: Contraption = fastnbt::from_bytes(&bytes).expect("loaded");

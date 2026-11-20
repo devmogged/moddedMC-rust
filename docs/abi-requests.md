@@ -27,3 +27,11 @@ Host commit `457266d` supplies `World::block_entity` and `restore_block_entity`.
 ## Moving-block writes (resolved)
 
 Normal writes over a captured chest and furnace scattered two stacks on pickup and restored the same stacks on disassembly. Host commit `2fa8192` adds `UPDATE_MOVED`, which replaces the block without running the inventory scatter callback. The bearing storage scenario checks zero loose items and verifies the two stacks after a full restart and disassembly.
+
+## Clockwork time
+
+`World::day_time() -> Option<(i64, bool)>` returns the world's current Minecraft day time and the dimension's `natural` flag. Clockwork bearings use day time for both hands and multiply it by 24 in non-natural dimensions. The content tick's server-wide count does not reflect `/time set` or a paused daylight cycle.
+
+## Elevator contact output
+
+A content block needs to declare that it emits redstone and register a synchronous `signal(world, source, state, target, direct) -> u8` query. The host calls it for adjacent redstone queries and applies the existing neighbour updates when a content state changes. Create's elevator contact returns weak strength 15 while `powering=true`, except toward another elevator contact. Modded blocks also need to report which faces redstone wire can connect to. A contact excludes its front face.

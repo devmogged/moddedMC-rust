@@ -30,6 +30,7 @@ mod bearing;
 mod belt;
 mod belt_inventory;
 mod belt_movement;
+mod chassis;
 mod chute;
 mod contraption;
 mod crusher;
@@ -152,6 +153,7 @@ impl Mod for Create {
         piston::register(*content, registry)?;
         gantry::register(*content, registry)?;
         pulley::register(*content, registry)?;
+        chassis::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -708,6 +710,7 @@ fn states() -> Option<&'static StateIds> {
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
+        chassis::add_states(content, &mut ids);
         ids.contraption_blocks.register_states(content);
         millstone::add_states(content, &mut ids);
         crusher::add_states(content, &mut ids);
@@ -795,6 +798,16 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        None if chassis::is_chassis(placed.block) => {
+            return chassis::placed_state(
+                args.world,
+                placed.block,
+                args.position,
+                args.face,
+                face_axis(look),
+                args.sneak,
+            );
+        }
         Some(Kind::Pulley(_)) => {
             let horizontal = connected
                 .filter(|&direction| face_axis(direction) != 1)
@@ -1185,6 +1198,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             funnel::event(world, &mut kinetics.funnels, states, event);
             crusher::event(world, states, kinetics, event);
             pulley::event(world, states, event);
+            chassis::event(world, states, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             gantry_changed |= matches!(before, Some(Kind::GantryShaft(_)))
@@ -1282,6 +1296,13 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     let Some(states) = states() else {
         return BlockUseResult::Pass;
     };
+    if states
+        .by_id
+        .get(&context.state)
+        .is_some_and(|state| chassis::is_chassis(state.block))
+    {
+        return chassis::use_item_on(context);
+    }
     if states.chutes.contains_key(&context.state) {
         return with_world(context.world, |kinetics| {
             chute::use_item_on(context.world, &mut kinetics.chutes, context)

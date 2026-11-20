@@ -198,9 +198,7 @@ impl RopePulley {
                 let anchors = (0..=initial).map(|distance| below(pos, distance)).collect();
                 let frontier = VecDeque::from([(anchor, entry)]);
                 let Some((blocks, _)) =
-                    Blocks::collect_attached(anchor, frontier, anchors, |pos| {
-                        checks.classify(world, pos)
-                    })
+                    checks.collect_attached(world, anchor, frontier, anchors, None)
                 else {
                     return false;
                 };

@@ -449,8 +449,13 @@ impl PistonContraption {
         let ignored = (-back..=front)
             .map(|distance| piston.at(base, distance))
             .collect();
+        let forced = if extending {
+            piston.facing
+        } else {
+            piston.facing ^ 1
+        };
         let (mut blocks, mut palette) =
-            Blocks::collect_attached(start, frontier, ignored, |pos| checks.classify(world, pos))?;
+            checks.collect_attached(world, start, frontier, ignored, Some(forced))?;
         blocks.capture_entities(world, start)?;
         let origin = Pos { x: 0, y: 0, z: 0 };
         for index in -back..=front {
