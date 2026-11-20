@@ -7,4 +7,7 @@ description = "Create: New Age 1.2.0+mc1.21.1: generator coil logic (incomplete 
 publish = false
 
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+moddedmc-api.workspace = true

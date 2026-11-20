@@ -221,6 +221,9 @@ dependencies = [
 [[package]]
 name = "create-new-age"
 version = "0.1.0"
+dependencies = [
+ "moddedmc-api",
+]
 
 [[package]]
 name = "createaddition"

@@ -35,3 +35,15 @@ Added 12 source-extracted common tag files for those item groups (five individua
 The native `.mmc` built successfully; `cargo test -p createaddition` still passes 16/16 (rolling-mill tests included), and strict Clippy and formatting pass. `tests/scenarios/ws4-createaddition-materials.txt` passed on port 26046: all twelve IDs were created and matched by the server's registry using `/give` and `/clear`; copper wire and baked cake base were confirmed again after restart. Log: `N:/mmc-coord/notes/WS-4-createaddition-materials-scenario.log`.
 
 These are source-defined items and tags, not machine parity. Rods, wires and grit need the appropriate Create rolling, filling and processing recipes and the inter-mod services before they can all be produced in survival gameplay.
+
+## New Age passive-items milestone
+
+Published reference: `create-new-age__1.2.0+mc1.21.1.jar` (ignored local release) and `D:/mc-ref/new-age-latest/common/src/main/java/org/antarcticgardens/cna/CNAItems.java`. The source is BSD-3-Clause (2023 Antarctic Gardens); the original license was copied as `mods/create-new-age/LICENSE.md`. Neither original art nor downloaded mod binaries are committed.
+
+New `create-new-age.mmc` registers exactly ten `Item::new` entries from `CNAItems.java`: overcharged gold/iron/diamond, nuclear fuel, thorium, radioactive thorium, overcharged iron/golden sheets and blank/copper circuits. The release's two `create_new_age:nuclear/*` tags accompany nuclear fuel; special wire items, magnet blocks, reactors, motors, generator coils and other machines are not falsely registered. Their mechanics need WS-4-01 and additional host/electricity APIs.
+
+Verified `cargo test -p create-new-age` 14/14, fmt and strict Clippy, and packaged `.mmc` with the original license and both tag files. `tests/scenarios/ws4-new-age-items.txt` passed on port 26047 with WS-0's pinned `d6e5e8d560` binaries: ten real registry IDs checked through server commands, both tags loaded, nuclear fuel and copper circuit saved/reloaded with the player's inventory. Log: `N:/mmc-coord/notes/WS-4-new-age-items-scenario.log`. Original NeoForge oracle and real-client rendering remain unverified.
+
+## Three-mod compatibility
+
+A scratch copy of the pinned `p1a-create.txt` ran with `create.mmc`, `createaddition.mmc` and `create-new-age.mmc` on WS-4 port 26048. PASS: the original Create shaft/cog/motor gameplay and signed 1:2 gearing, RPM change/restart, shaft-break stop, resource-pack handshake, and absence of registration failures. The scratch world was removed. Log: `N:/mmc-coord/notes/WS-4-three-mods-p1a.log`. This only proves those sampled vanilla/Create behaviors coexist; New Age electrical machines remain unavailable.

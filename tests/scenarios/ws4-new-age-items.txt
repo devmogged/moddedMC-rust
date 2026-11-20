@@ -1,0 +1,85 @@
+# Create: New Age 1.2.0+mc1.21.1 passive items and nuclear tags.
+# Verify custom item identities and restart persistence; live machines are not claimed.
+mods target\mods\create-new-age.mmc
+start
+expect Loaded built-in datapack 'mod/create-new-age': 0 recipe\(s\), 0 loot table\(s\), 2 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2340.5 101 2340.5
+wait 1
+cmd give tester create_new_age:overcharged_gold 2
+wait 0.5
+expect Gave 2 .*Overcharged Gold
+cmd clear tester create_new_age:overcharged_gold 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:overcharged_iron 2
+wait 0.5
+expect Gave 2 .*Overcharged Iron
+cmd clear tester create_new_age:overcharged_iron 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:overcharged_diamond 2
+wait 0.5
+expect Gave 2 .*Overcharged Diamond
+cmd clear tester create_new_age:overcharged_diamond 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:nuclear_fuel 2
+wait 0.5
+expect Gave 2 .*Nuclear Fuel
+cmd clear tester create_new_age:nuclear_fuel 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:thorium 2
+wait 0.5
+expect Gave 2 .*Thorium
+cmd clear tester create_new_age:thorium 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:radioactive_thorium 2
+wait 0.5
+expect Gave 2 .*Radioactive Thorium
+cmd clear tester create_new_age:radioactive_thorium 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:overcharged_iron_sheet 2
+wait 0.5
+expect Gave 2 .*Overcharged Iron Sheet
+cmd clear tester create_new_age:overcharged_iron_sheet 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:overcharged_golden_sheet 2
+wait 0.5
+expect Gave 2 .*Overcharged Golden Sheet
+cmd clear tester create_new_age:overcharged_golden_sheet 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:blank_circuit 2
+wait 0.5
+expect Gave 2 .*Blank Circuit
+cmd clear tester create_new_age:blank_circuit 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_new_age:copper_circuit 2
+wait 0.5
+expect Gave 2 .*Copper Circuit
+cmd clear tester create_new_age:copper_circuit 0
+wait 0.5
+expect Found 2 matching
+reject (?i)panicked|trapped|Unknown item|ERROR
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd clear tester create_new_age:nuclear_fuel 0
+wait 0.5
+expect Found 2 matching
+cmd clear tester create_new_age:copper_circuit 0
+wait 0.5
+expect Found 2 matching
+reject (?i)panicked|trapped|Unknown item|ERROR
+stop
