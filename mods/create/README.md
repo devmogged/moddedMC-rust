@@ -106,7 +106,7 @@ The [Millstone scenario](../../tests/scenarios/create-millstone.txt) and [Crushi
 
 Place a bearing with a slime block on its rotating face and attach cobblestone to the slime. Power the bearing at 15 RPM. Stop it after about one second and check that the cobblestone appears a quarter turn from its starting point. An empty-hand click disassembles a running bearing.
 
-The [bearing scenario](../../tests/scenarios/create-bearing.txt) checks attachment, rotation and disassembly, including log axes and stair facings. The scanner covers a fixed set of simple blocks, logs and dry stairs. It leaves an assembly in place when a neighbour needs unsupported handling and keeps a moving assembly intact when its destination is obstructed. Stock clients see the moving block displays. Collision with moving structures is pending.
+The [bearing scenario](../../tests/scenarios/create-bearing.txt) checks attachment, rotation and disassembly, including log and shaft axes and stair facings. Connect a motor to each rotated shaft to check that it still transmits power on its new axis. The scanner leaves an assembly in place when a neighbour needs unsupported handling and keeps a moving assembly intact when its destination is obstructed. Stock clients see the moving block displays.
 
 Attach a single chest and a furnace to the same frame. Put distinct stacks in them, start the bearing and restart the server while it moves. After disassembly, open the two containers at their rotated positions and check the same stacks are inside. The [storage scenario](../../tests/scenarios/create-bearing-storage.txt) also checks for loose items at pickup and after disassembly. Double chests and waterlogged storage are pending.
 
@@ -136,7 +136,7 @@ Put a Linear Chassis on a bearing and right-click one axial face with a slimebal
 
 Put a Sticker on a bearing with a block touching its front. Pulse redstone to extend it, then turn the bearing. The front block moves and side blocks stay. Pulse it again to release the front block. The [sticker scenario](../../tests/scenarios/create-sticker.txt) checks both pulses and the rotated attachment. The moving head animation and upright bounce are pending.
 
-### Riding translating contraptions
+### Riding contraptions
 
 Put an armor stand and a loose item on a cobblestone platform attached to a piston. Extend the piston and check both stay on the platform. The [piston rider scenario](../../tests/scenarios/create-contraption-riders.txt) checks their positions after a three-block move. The [bearing rider scenario](../../tests/scenarios/create-bearing-rider.txt) checks that an armor stand travels with its support through a quarter turn around the vertical axis. Contraptions use their captured block shapes to push living entities and items. Player carrying, special block reactions and other entity types are pending.
 

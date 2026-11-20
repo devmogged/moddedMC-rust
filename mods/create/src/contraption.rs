@@ -10,7 +10,7 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, STACKS, TAGS, chassis,
+    AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, ENCASED_SHAFT, SHAFT, STACKS, TAGS, chassis,
     collider::Collider,
     kinetics::{FACES, face_axis, offset, packed, positive},
     sticker,
@@ -104,15 +104,18 @@ impl BlockMovementChecks {
         if chassis::is_chassis(&entry.name) || entry.name == sticker::ID {
             return Some(BlockMovement::Movable(entry));
         }
-        let id = entry.name.strip_prefix("minecraft:")?;
-        ((id.ends_with("_log")
-            || id.ends_with("_stairs")
-            || id.ends_with("_wool")
-            || entry.has_storage())
+        let movable = matches!(entry.name.as_str(), SHAFT | ENCASED_SHAFT)
+            || entry.name.strip_prefix("minecraft:").is_some_and(|id| {
+                id.ends_with("_log")
+                    || id.ends_with("_stairs")
+                    || id.ends_with("_wool")
+                    || entry.has_storage()
+            });
+        (movable
             && entry
                 .properties
                 .get("waterlogged")
-                .is_none_or(|v| v == "false"))
+                .is_none_or(|value| value == "false"))
         .then_some(BlockMovement::Movable(entry))
     }
 
