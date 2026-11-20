@@ -8,4 +8,10 @@ Ported the regular pipe's exact six-face auto-connection behavior into `mods/cre
 
 Verification on Windows: `cargo fmt -p create`, `cargo test -p create --lib` (36 passed, including six new pipe-state cases), `cargo clippy -p create --all-targets -- -D warnings` (pass), `git diff --check` (pass). No native-server scenario or original NeoForge comparison was run for this pure logic slice. Java methods and branch outcomes were inspected directly, not exercised in a Java runtime.
 
+## M1b: Open-ended pipe source-block decisions
+
+Ported the state checks from `OpenEndedPipe.removeFluidFromSpace` and `provideFluidToSpace` into `fluids/open_end.rs`: loaded-only and replaceability gates, existing-source rejection, different-fluid collision, non-block fluid effects, waterlogging, config-controlled source placement, ultra-warm water evaporation, and infinite-source regeneration. Ported `VanillaFluidTargets.drainBlock` to `fluids/vanilla_targets.rs`: water cauldrons drain only at level 3 (1000 mB), lava cauldrons drain 1000 mB, honey drains 250 mB at level 5, and simulation preserves the block. Tests include boundary levels and simulation/execution side-effect separation. These pure plans still require host-side block writes, fluid ticks, side-effects and handlers before in-game verification.
+
+Verification: `cargo fmt -p create`, `cargo test -p create --lib` (46 passed, 10 new cases since M1a), `cargo clippy -p create --all-targets -- -D warnings` (pass), `git diff --check` (pass). Java code was inspected against Create 6.0.10; a Java runtime oracle remains pending.
+
 The newly added logic does not register a pipe block or change in-game behavior. M1 as defined in `docs/PARALLEL-PLAN.md` remains unfinished: it still needs content states, neighbor events, NBT persistence, water world manipulation, fluid handlers, pump connections, a bot scenario with restart, a Java 6.0.10 oracle, and the 64-pipe benchmark. The host gaps are queued in `N:\mmc-coord\requests\WS-2-01.md` and `WS-2-02.md`. This branch should be integrated into `ws/create-fluids` by the owner/integrator after the active WS-2 worker has checked for overlap.
