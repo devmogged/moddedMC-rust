@@ -1,4 +1,4 @@
-//! The translating case of Create 6.0.10's ContraptionCollider and ContinuousOBBCollider.
+//! Create 6.0.10's ContraptionCollider and ContinuousOBBCollider.
 
 use moddedmc_api::{
     Pos,
@@ -15,6 +15,100 @@ use crate::{ENTITIES, contraption::Blocks};
 const ENTITY_BOUNDS_EPSILON: f64 = 1.0e-7;
 const SEPARATION_EPSILON: f64 = 1.0e-4;
 const HORIZONTAL_EPSILON: f64 = 1.0 / 128.0;
+const UNIT_AXES: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+fn dot(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left.into_iter().zip(right).map(|(a, b)| a * b).sum()
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Rotation {
+    axis: usize,
+    sin: f64,
+    cos: f64,
+}
+
+impl Rotation {
+    const IDENTITY: Self = Self {
+        axis: 1,
+        sin: 0.0,
+        cos: 1.0,
+    };
+
+    fn new(axis: u8, degrees: f32) -> Self {
+        let (sin, cos) = f64::from(degrees).to_radians().sin_cos();
+        Self {
+            axis: usize::from(axis),
+            sin,
+            cos,
+        }
+    }
+
+    fn inverse(self) -> Self {
+        Self {
+            sin: -self.sin,
+            ..self
+        }
+    }
+
+    fn transform(self, mut position: [f64; 3]) -> [f64; 3] {
+        let u = (self.axis + 1) % 3;
+        let v = (self.axis + 2) % 3;
+        let (first, second) = (position[u], position[v]);
+        position[u] = first * self.cos - second * self.sin;
+        position[v] = first * self.sin + second * self.cos;
+        position
+    }
+
+    fn project_extents(self, extents: [f64; 3]) -> [f64; 3] {
+        std::array::from_fn(|i| {
+            dot(
+                self.inverse().transform(UNIT_AXES[i]).map(f64::abs),
+                extents,
+            )
+        })
+    }
+
+    fn vertical(self) -> bool {
+        self.axis != 1 && (self.sin != 0.0 || self.cos != 1.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Frame {
+    origin: [f64; 3],
+    rotation: Rotation,
+}
+
+impl Frame {
+    fn new(anchor: Pos, offset: [f64; 3], rotation: Rotation) -> Self {
+        let origin = [anchor.x, anchor.y, anchor.z];
+        Self {
+            origin: std::array::from_fn(|i| f64::from(origin[i]) + offset[i]),
+            rotation,
+        }
+    }
+
+    fn to_local(self, point: [f64; 3]) -> [f64; 3] {
+        let from_pivot = std::array::from_fn(|i| point[i] - self.origin[i] - 0.5);
+        self.rotation
+            .inverse()
+            .transform(from_pivot)
+            .map(|n| n + 0.5)
+    }
+
+    fn to_world(self, point: [f64; 3]) -> [f64; 3] {
+        let from_pivot = self.rotation.transform(point.map(|n| n - 0.5));
+        std::array::from_fn(|i| from_pivot[i] + self.origin[i] + 0.5)
+    }
+
+    fn bounds(self, collider: Collider) -> Collider {
+        Collider::from_center(
+            self.to_world(collider.center()),
+            self.rotation.project_extents(collider.extents()),
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Collider {
@@ -32,6 +126,13 @@ impl Collider {
         Self {
             min: shape.min,
             max: shape.max,
+        }
+    }
+
+    fn from_center(center: [f64; 3], extent: [f64; 3]) -> Self {
+        Self {
+            min: std::array::from_fn(|i| center[i] - extent[i]),
+            max: std::array::from_fn(|i| center[i] + extent[i]),
         }
     }
 
@@ -64,25 +165,30 @@ struct ContinuousSeparationManifold {
     exit: f64,
     discrete: bool,
     separation: f64,
-    axis: usize,
+    axis: [f64; 3],
+    step_axis: [f64; 3],
     step: f64,
 }
 
-impl Default for ContinuousSeparationManifold {
-    fn default() -> Self {
+impl ContinuousSeparationManifold {
+    fn new(step_axis: [f64; 3]) -> Self {
         Self {
             entry: -1.0,
             exit: f64::MAX,
             discrete: true,
             separation: f64::MAX,
-            axis: 1,
+            axis: step_axis,
+            step_axis,
             step: f64::MAX,
         }
     }
-}
-
-impl ContinuousSeparationManifold {
-    fn separate(&mut self, axis: usize, relative_center: f64, extents: f64, motion: f64) -> bool {
+    fn separate(
+        &mut self,
+        axis: [f64; 3],
+        relative_center: f64,
+        extents: f64,
+        motion: f64,
+    ) -> bool {
         let diff = relative_center.abs() - extents;
         if diff > 0.0 {
             if motion.signum() == relative_center.signum() || diff > motion.abs() {
@@ -91,8 +197,14 @@ impl ContinuousSeparationManifold {
             self.discrete = false;
             self.entry = self.entry.max(diff / motion.abs());
             self.exit = self.exit.min((diff + extents) / motion.abs());
-        } else if axis == 1 {
-            self.step = (extents - relative_center).min(self.step);
+        } else {
+            let alignment = dot(self.step_axis, axis);
+            if alignment != 0.0 {
+                let step = (extents - relative_center * alignment.signum()) / alignment.abs();
+                if step != 0.0 || alignment.abs() == 1.0 {
+                    self.step = step.min(self.step);
+                }
+            }
         }
         if relative_center != 0.0 && -diff <= self.separation.abs() {
             self.axis = axis;
@@ -127,33 +239,65 @@ struct CollisionResponse {
 
 fn collide_many(
     entity: Collider,
+    rotation: Rotation,
     colliders: &[Collider],
     motion: [f64; 3],
     max_step: f64,
 ) -> CollisionResponse {
     let center = entity.center();
     let extent = entity.extents();
+    let entity_axes = UNIT_AXES.map(|axis| rotation.transform(axis));
+    let entity_extent_in_local = rotation.project_extents(extent);
+    let local_query_extent: [f64; 3] = std::array::from_fn(|i| {
+        extent[i]
+            * rotation
+                .inverse()
+                .transform(UNIT_AXES[i])
+                .map(f64::abs)
+                .iter()
+                .sum::<f64>()
+            + 0.5
+    });
+    let entity_motion = rotation.inverse().transform(motion);
     let mut response = CollisionResponse {
         displacement: [0.0; 3],
         time: 1.0,
         surface: false,
     };
     for vertical in [false, true] {
+        if !vertical && rotation.vertical() {
+            continue;
+        }
         for collider in colliders {
             let block_center = collider.center();
             let block_extent = collider.extents();
             if (0..3).any(|i| {
-                (center[i] + motion[i] - block_center[i]).abs() > block_extent[i] + extent[i] + 0.5
+                (center[i] + motion[i] - block_center[i]).abs()
+                    > block_extent[i] + local_query_extent[i]
             }) {
                 continue;
             }
-            let mut manifold = ContinuousSeparationManifold::default();
+            let mut manifold = ContinuousSeparationManifold::new(entity_axes[1]);
+            let relative_center =
+                std::array::from_fn(|i| center[i] + response.displacement[i] - block_center[i]);
             if (0..3).any(|i| {
                 manifold.separate(
-                    i,
-                    center[i] + response.displacement[i] - block_center[i],
-                    extent[i] + block_extent[i],
+                    UNIT_AXES[i],
+                    relative_center[i],
+                    entity_extent_in_local[i] + block_extent[i],
                     motion[i],
+                )
+            }) {
+                continue;
+            }
+            let relative_entity = rotation.inverse().transform(relative_center);
+            let block_extent_in_entity = rotation.inverse().project_extents(block_extent);
+            if (0..3).any(|i| {
+                manifold.separate(
+                    entity_axes[i],
+                    relative_entity[i],
+                    extent[i] + block_extent_in_entity[i],
+                    entity_motion[i],
                 )
             }) {
                 continue;
@@ -163,21 +307,23 @@ fn collide_many(
             if time > 0.0 && time < 1.0 {
                 response.time = response.time.min(time);
             } else if manifold.discrete {
-                if manifold.step <= max_step {
-                    response.displacement[1] += with_signed_epsilon(manifold.step);
-                } else if manifold.separation < f64::MAX {
-                    response.displacement[manifold.axis] +=
-                        with_signed_epsilon(manifold.separation);
+                let (axis, separation) = if manifold.step <= max_step {
+                    (manifold.step_axis, manifold.step)
+                } else {
+                    (manifold.axis, manifold.separation)
+                };
+                if separation < f64::MAX {
+                    for (displacement, axis) in response.displacement.iter_mut().zip(axis) {
+                        *displacement += axis * with_signed_epsilon(separation);
+                    }
                 }
             }
         }
-        if response.displacement[1] == 0.0 && response.time == 1.0 {
+        if vertical || (response.displacement[1] == 0.0 && response.time == 1.0) {
             break;
         }
-        if !vertical {
-            response.displacement[0] *= 1.0 + HORIZONTAL_EPSILON;
-            response.displacement[2] *= 1.0 + HORIZONTAL_EPSILON;
-        }
+        response.displacement[0] *= 1.0 + HORIZONTAL_EPSILON;
+        response.displacement[2] *= 1.0 + HORIZONTAL_EPSILON;
     }
     response
 }
@@ -189,12 +335,36 @@ pub fn collide_entities(
     before: [f64; 3],
     after: [f64; 3],
 ) {
+    collide(
+        world,
+        blocks,
+        Frame::new(anchor, before, Rotation::IDENTITY),
+        Frame::new(anchor, after, Rotation::IDENTITY),
+    );
+}
+
+pub fn collide_rotating(
+    world: World<'_>,
+    blocks: &Blocks,
+    anchor: Pos,
+    axis: u8,
+    before: f32,
+    after: f32,
+) {
+    collide(
+        world,
+        blocks,
+        Frame::new(anchor, [0.0; 3], Rotation::new(axis, before)),
+        Frame::new(anchor, [0.0; 3], Rotation::new(axis, after)),
+    );
+}
+
+fn collide(world: World<'_>, blocks: &Blocks, before: Frame, after: Frame) {
     let Some(entities) = ENTITIES.get() else {
         return;
     };
-    let origin = [anchor.x, anchor.y, anchor.z].map(f64::from);
-    let translation = std::array::from_fn(|i| origin[i] + after[i]);
-    let movement = std::array::from_fn::<_, 3, _>(|i| after[i] - before[i]);
+    let movement = std::array::from_fn::<_, 3, _>(|i| after.origin[i] - before.origin[i]);
+    let rotation = after.rotation.inverse();
     let colliders: Vec<_> = blocks.colliders().collect();
     if colliders.is_empty() {
         return;
@@ -209,7 +379,7 @@ pub fn collide_entities(
             bounds.max[i] = bounds.max[i].max(collider.max[i]);
         }
     }
-    let mut query = bounds.translate(translation).inflate(2.0);
+    let mut query = after.bounds(bounds).inflate(2.0);
     query.max[1] += 32.0;
     let ids = entities.entities_in(world, query.min, query.max, 0);
     for id in ids {
@@ -228,12 +398,15 @@ pub fn collide_entities(
             let body = Collider {
                 min: body.min,
                 max: body.max,
-            }
-            .translate(translation.map(|n| -n))
-            .inflate(ENTITY_BOUNDS_EPSILON);
-            let relative_motion = std::array::from_fn(|i| view.motion[i] - movement[i]);
+            };
+            let oriented_body =
+                Collider::from_center(after.to_local(body.center()), body.extents())
+                    .inflate(ENTITY_BOUNDS_EPSILON);
+            let relative_motion =
+                rotation.transform(std::array::from_fn(|i| view.motion[i] - movement[i]));
             let response = collide_many(
-                body,
+                oriented_body,
+                rotation,
                 &colliders,
                 relative_motion,
                 entity.step_height().unwrap_or(0.0),
@@ -244,18 +417,20 @@ pub fn collide_entities(
                 ..EntityChange::default()
             };
             if response.time != 1.0 {
-                motion[1] = relative_motion[1] * response.time + movement[1];
+                let motion_response = after
+                    .rotation
+                    .transform(relative_motion.map(|n| n * response.time));
+                motion[1] = motion_response[1] + movement[1];
             }
-            if response.displacement != [0.0; 3] {
+            let displacement = after.rotation.transform(response.displacement);
+            if displacement != [0.0; 3] {
                 for i in 0..3 {
                     let threshold = if i == 1 { 0.0 } else { HORIZONTAL_EPSILON };
-                    if response.displacement[i].abs() > threshold
-                        && motion[i] * response.displacement[i] < 0.0
-                    {
+                    if displacement[i].abs() > threshold && motion[i] * displacement[i] < 0.0 {
                         motion[i] = if i == 1 { movement[i] } else { 0.0 };
                     }
                 }
-                entity.move_by(response.displacement);
+                entity.move_by(displacement);
             }
             if response.surface {
                 entity.reset_fall_distance();
@@ -265,7 +440,9 @@ pub fn collide_entities(
                     motion[0] *= 0.5;
                     motion[2] *= 0.5;
                 }
-                entity.move_by([movement[0], 0.0, movement[2]]);
+                let current = entity.view().map_or(view.position, |view| view.position);
+                let contact = after.to_world(before.to_local(current));
+                entity.move_by([contact[0] - current[0], 0.0, contact[2] - current[2]]);
             }
             if response.surface || response.displacement != [0.0; 3] || response.time != 1.0 {
                 change.motion = motion;
@@ -285,7 +462,13 @@ mod tests {
             min: [0.25, 1.5, 0.25],
             max: [0.75, 2.5, 0.75],
         };
-        let result = collide_many(entity, &[Collider::BLOCK], [0.0, -1.0, 0.0], 0.0);
+        let result = collide_many(
+            entity,
+            Rotation::IDENTITY,
+            &[Collider::BLOCK],
+            [0.0, -1.0, 0.0],
+            0.0,
+        );
         assert_eq!(result.time, 0.5);
         assert_eq!(result.displacement, [0.0; 3]);
         assert!(result.surface);
@@ -297,7 +480,13 @@ mod tests {
             min: [0.9, 0.2, 0.2],
             max: [1.4, 0.8, 0.8],
         };
-        let result = collide_many(entity, &[Collider::BLOCK], [0.0; 3], 0.6);
+        let result = collide_many(
+            entity,
+            Rotation::IDENTITY,
+            &[Collider::BLOCK],
+            [0.0; 3],
+            0.6,
+        );
         assert!((result.displacement[0] - 0.1001).abs() < 1.0e-12);
         assert_eq!(result.displacement[1], 0.0);
         assert!(!result.surface);

@@ -8,7 +8,7 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DIRECTIONS, STONE, StateIds,
+    DIRECTIONS, STONE, StateIds, collider,
     contraption::{
         BlockMovementChecks, Contraption, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES,
         StructureTransform,
@@ -231,7 +231,20 @@ impl MechanicalBearing {
             } else {
                 speed
             };
-            self.data.angle = (self.data.angle + speed * 360.0 / 60.0 / 20.0) % 360.0;
+            let before = self.data.angle;
+            self.data.angle = (before + speed * 360.0 / 60.0 / 20.0) % 360.0;
+            if let Some(contraption) = &self.data.contraption
+                && let Some(anchor) = contraption.anchor()
+            {
+                collider::collide_rotating(
+                    world,
+                    &contraption.blocks,
+                    anchor,
+                    axis,
+                    before,
+                    self.data.angle,
+                );
+            }
             self.show(world, axis);
             dirty |= speed != 0.0;
         }
