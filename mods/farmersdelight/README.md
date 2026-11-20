@@ -40,6 +40,26 @@ wired up yet: tool wear, item-ability queries, and block inventory capability
 need the generic host interfaces requested in `WS-1-03`. Compiling this recipe
 layer does **not** mean the cutting board works in Survival yet.
 
+## Source-verified food values (reference only)
+
+`food_values.json` records **74** FoodProperties constants and three vanilla
+soup overrides from the exact official `FoodValues.java` source. The original
+MIT Java fixture is preserved under `tests/fixtures/FoodValues.java` and can
+be independently checked with:
+
+```powershell
+py -3 mods/farmersdelight/tools/extract_food_values.py --check
+```
+
+`src/food_values.rs` exposes a typed, once-parsed lookup with tests covering
+cabbage/tomato/onion, nourishment and Hunger effects, chance/duration, fast
+food, always-edible food and bowl remainders. The manifest retains literal
+Java saturation/chance values. The unusual `KELP_ROLL` direct constructor
+remains explicitly unresolved; missing builder fields are `null`, not guessed
+defaults. These are **Java 1.21.1 reference values**, not ready-made 26.3
+components. No food is registered until the generic WS-0 item-components
+request is implemented and validated against Java gameplay.
+
 ## Remaining behavior
 
 Cabbage, tomato and onion crate recipes, and the rice bag recipe, depend on
