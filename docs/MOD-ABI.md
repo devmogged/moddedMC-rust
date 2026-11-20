@@ -233,3 +233,43 @@ and read from the first appropriate world callback after worlds load (e.g. the r
 Create content-tick callback). Do not read a world in `Mod::start`; do not persist
 handles across restarts. Use SDK `saved_data::{require, SavedData, Key}`. A server lacking
 the named table fails the mod's `start` requirement without changing ABI major 1.
+
+## Inter-mod services (`moddedmc:services` v1)
+
+Mods can publish immutable, process-lifetime `#[repr(C)]` function tables to other native
+`.mmc` mods. The service registry is a host interface discovered from `Mod::start` with
+`moddedmc_api::services::require_host()`. Its C table begins with `size: usize` followed by
+`publish(Reg, Str name, u32 version, *const c_void table) -> i32`. The service name uses
+`<provider_mod_id>:<path>`; only a mod can register a service under its own namespace.
+Versions are independent for each service. Duplicate (name, version) or invalid pointers
+and names are rejected. No Rust-owned objects, string allocations or vtables cross the ABI.
+
+The publisher uses `unsafe { services.publish(registry, "create:kinetics", 1, TABLE_PTR)? }`
+from its `Mod::register`. The pointer must identify an immutable static table beginning
+with its byte `size` and stay valid until the server exits. The host stages service
+publication along with other mod definitions and makes it visible only after successful
+registration. The SDK consumer uses `unsafe { moddedmc_api::services::require::<T>("create:kinetics", 1)? }`
+inside `Mod::start`. `T` must match the provider's exact published C layout. The SDK
+checks the table's byte size and fails initialization if it is unavailable; mods must
+check the published table's `size` before reading any appended extension.
+
+For a consumer to require a service during startup, its `.mmc` `mod.json` must declare
+a `dependencies` array of provider mod IDs, e.g.
+
+```json
+{"id":"my_addon","version":"1.0.0","abi":1,"dependencies":["create"]}
+```
+
+The loader processes dependencies deterministically, registering providers before running
+their consumers' `Mod::start`. Missing or failed providers and cycles skip the affected
+mods with an explicit log message. A missing service version also fails `Mod::start`
+without starting the consumer. Mods without dependencies retain existing startup order
+and first-tick registration timing unless they request a pre-world content interface.
+Providers needed by an addon register eagerly before worlds load.
+
+Only explicit dependencies on native `.mmc`/other discovered mod IDs are supported;
+this is not a Java classloader, Java `ServiceLoader` or a binary interface for Rust
+trait objects. The table is synchronous and its callbacks must not unwind across C.
+Tests: `tests/fixtures/abi-services` packs two independent native DLLs;
+`tests/scenarios/abi-services.txt` verifies startup ordering and round trips, and
+`tests/scenarios/abi-services-missing.txt` verifies a missing provider is skipped.

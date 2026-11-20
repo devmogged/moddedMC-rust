@@ -1,0 +1,7 @@
+# Cyclic manifest dependencies must prevent both DLLs from entering startup.
+mods target\mods\a-abi-consumer.mmc target\mods\z-abi-provider-cycle.mmc
+start
+expect skipped mods.*a-abi-consumer.mmc: dependencies missing, failed or cyclic: abi_provider
+expect skipped mods.*z-abi-provider-cycle.mmc: dependencies missing, failed or cyclic: abi_consumer
+reject (?i)abi_provider published|abi_consumer resolved|panicked|trapped
+stop

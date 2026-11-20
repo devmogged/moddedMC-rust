@@ -30,3 +30,17 @@
 ## M2: Inter-mod services
 
 - Pending. The host currently calls `Mod::start` while loading a library, before `Mod::register` stages content. Services registered during `register` cannot be required from `start` without an explicit two-phase lifecycle and dependency ordering design. Keep the ABI append-only.
+
+## M2: Versioned inter-mod service registry (verified 2026-11-20)
+
+- Added `moddedmc:services` v1 table (64-bit layout: size at offset 0, publish at 8; total 16 bytes). `HostApi` and existing named interfaces are unchanged. SDK `moddedmc_api::services` provides `require_host`, unsafe publication, and size-checked typed `require`/`require_prefix`.
+- A publisher stages a process-lifetime static C table during `Mod::register`; a failed registration leaves no advertised interface. Service names are restricted to their own mod's namespace; versions are exact and duplicates are rejected. `get_interface` resolves the published tables.
+- The `.mmc` `mod.json` optional `dependencies` array determines a deterministic startup order. The host registers needed providers before starting dependents, including mods that would ordinarily wait until the first tick. Independent mods retain their previous startup timing. Missing, failed or cyclic dependencies skip only affected mods, with a logged reason.
+- Unit/layout checks: API 8/8 passed, host 12/12 passed, SDK and host strict `cargo clippy -D warnings` passed, provider and consumer fixtures compiled and passed Clippy, all relevant rustfmt checks passed.
+- Two independent native fixture mods in `tests/fixtures/abi-services/`, one providing `abi_provider:echo` v1 and one requiring it from `Mod::start`. Consumer's filename sorts before provider. `tests/fixtures/abi-services/verify.ps1` covers successfully resolving and invoking it (35 + 7 = 42), a fresh server restart, rejecting a missing provider, and rejecting a two-mod dependency cycle. The provider fixture also checks rejection of duplicate and foreign-namespace services, while consumer checks version 2 is unavailable. All checks passed on WS-0 port 26000. Scratch worlds were removed.
+- Existing Create 26.3 `tests/scenarios/p1a-create.txt` and the new `tests/scenarios/create-press.txt` passed with the latest Create release package built on this branch. No original Java mod differential fixture was run for the shared ABI.
+- The service table enables Create's future `create:kinetics` service. WS-2 and WS-4 should agree on the exact table fields and version before publishing; mod-specific logic stays in `mods/create`.
+
+## M3: Comparator output from custom blocks
+
+- Next milestone. Requires engine hook review, redstone signal propagation and a deterministic block/comparator scenario, not a cached mod-only approximation.

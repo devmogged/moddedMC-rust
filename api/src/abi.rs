@@ -1250,3 +1250,28 @@ mod saved_data_layout {
         assert_eq!(size_of::<SavedDataV1>(), 32);
     }
 }
+
+/// Register process-lifetime, independently versioned C interface tables supplied by mods.
+pub const SERVICES: &str = "moddedmc:services";
+
+#[repr(C)]
+pub struct ServicesV1 {
+    pub size: usize,
+    /// Stage a service owned by this mod; published only if its registration succeeds.
+    /// The table pointer and bytes must remain immutable until the server exits.
+    pub publish:
+        unsafe extern "C" fn(reg: Reg, name: Str, version: u32, table: *const c_void) -> i32,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod services_layout {
+    use super::*;
+    use std::mem::offset_of;
+
+    #[test]
+    fn services_v1() {
+        assert_eq!(offset_of!(ServicesV1, size), 0);
+        assert_eq!(offset_of!(ServicesV1, publish), 8);
+        assert_eq!(size_of::<ServicesV1>(), 16);
+    }
+}
