@@ -30,7 +30,7 @@ Each ships with P2a and is pinned at v1 (INTERFACES-PLAN.md). Mechanics stay in 
 ## Order
 
 1. Entity type registration with a carrier and saved state; a scenario spawns one, restarts, finds it again.
-2. Goals, navigation and targeting from `abi/interfaces`; Cindervane's ground goals (wander, follow owner, sit).
+2. Goals, navigation and targeting from `abi/interfaces`; Cindervane's ground goals. Done: idle look and ground wander. Its targeting acts on damage, owners and packs, and following and sitting need an owner, so they come with steps 3 and 4.
 3. Damage and death events; Cindervane's attacks and loot.
 4. Taming, saddle and riders; ground riding.
 5. Flight: takeoff, rider flight control, landing (`server/flight`).

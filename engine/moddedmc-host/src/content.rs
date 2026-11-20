@@ -569,6 +569,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
     if RUNTIME.set(runtime).is_err()
         || !install_content_behaviour(Arc::new(Behaviour))
         || !crate::interaction::install()
+        || !crate::mob_ai::install()
         || !engine::observe(observe)
     {
         return Err(io::Error::other("content hooks already installed"));

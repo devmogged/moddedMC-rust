@@ -1,6 +1,9 @@
 //! Saint's Dragons, ported from Saint's Dragons 0.9.88 (commit 13aeb2eb2c). See docs/P2-DRAGONS.md.
 //!
-//! P2a step 1: Cindervane is a registered mob carried by a vanilla mob, with its own saved state.
+//! P2a: Cindervane is a registered mob carried by a vanilla mob, with its own saved state and
+//! ground AI (`ai`).
+
+mod ai;
 
 use std::sync::OnceLock;
 
@@ -9,6 +12,7 @@ use moddedmc_api::{
     commands::{self, Argument, Commands, Node},
     content::{self, Content},
     entities::{self, Entities, EntitiesExtension},
+    mob_ai::{self, Goal, MobAi, goal_control},
     mobs::{self, Mob, Mobs},
 };
 
@@ -21,6 +25,7 @@ const CINDERVANE_ATTRIBUTES: &[(&str, f64)] = &[
     ("minecraft:armor", 4.0),
     ("minecraft:flying_speed", 0.60),
     ("minecraft:movement_speed", 0.30),
+    ("minecraft:follow_range", 64.0),
 ];
 
 const SPAWN: u64 = 1;
@@ -32,6 +37,7 @@ static CONTENT: OnceLock<Content> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static MOBS: OnceLock<Mobs> = OnceLock::new();
+static MOB_AI: OnceLock<MobAi> = OnceLock::new();
 
 struct SaintsDragons;
 
@@ -43,6 +49,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Movement)?;
         let _ = ENTITIES.set(entities);
         let _ = MOBS.set(mobs::require()?);
+        let _ = MOB_AI.set(mob_ai::require()?);
         Ok(())
     }
 
@@ -56,6 +63,23 @@ impl Mod for SaintsDragons {
                 attributes: CINDERVANE_ATTRIBUTES,
             },
         )?;
+        let ai = MOB_AI.get().ok_or(missing)?;
+        ai.on_goal(ai::HANDLER)?;
+        ai.replace_goals(registry, CINDERVANE)?;
+        for (key, priority, controls) in [
+            (ai::IDLE_LOOK, 1, goal_control::LOOK),
+            (ai::GROUND_WANDER, 2, goal_control::MOVE),
+        ] {
+            ai.add_goal(
+                registry,
+                &Goal {
+                    kind: CINDERVANE,
+                    key,
+                    priority,
+                    controls,
+                },
+            )?;
+        }
         let at = |parent, tag| {
             [
                 number(Some(parent), "x", None),
@@ -114,9 +138,10 @@ impl Mod for SaintsDragons {
                             let kind = mobs.kind(mob)?;
                             let state = mobs.state(mob)?;
                             Some(format!(
-                                "{kind} {} state={}",
+                                "{kind} {} state={} ai={}",
                                 mob.type_id(),
-                                String::from_utf8_lossy(&state)
+                                String::from_utf8_lossy(&state),
+                                if ai::seen(id) { "on" } else { "off" }
                             ))
                         })?
                     })

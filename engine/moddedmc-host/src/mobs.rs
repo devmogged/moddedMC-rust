@@ -155,11 +155,16 @@ unsafe extern "C" fn spawn(raw: WorldRef, kind: Str, position: Vec3) -> i32 {
 }
 
 /// The registered type a mob's custom data names, if that type is still registered.
-fn registered_kind(base: &dyn EntityBase) -> Option<&'static str> {
+pub fn registered_kind(base: &dyn EntityBase) -> Option<&'static str> {
     let NbtTag::String(name) = base.get_entity().get_custom_data(NAMESPACE, TYPE_KEY)? else {
         return None;
     };
     types().get_key_value(&*name).map(|(id, _)| *id)
+}
+
+/// True when `kind` is a registered mod mob type or one of `staged`.
+pub fn known(staged: &[Registration], kind: &str) -> bool {
+    types().contains_key(kind) || staged.iter().any(|m| m.id == kind)
 }
 
 unsafe extern "C" fn kind(raw: EntityRef) -> Str {

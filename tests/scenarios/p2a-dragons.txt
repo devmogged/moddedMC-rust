@@ -1,4 +1,5 @@
-# P2a step 1: Cindervane as a mod mob carried by a vanilla ravager, its state saved with it.
+# P2a: Cindervane as a mod mob carried by a vanilla ravager, its state saved with it, running its
+# own goals instead of the ravager's.
 # Run scripts/scenario.ps1 -Scenario tests/scenarios/p2a-dragons.txt -RunDir run/p2a-dragons -Fresh
 mods target\mods\saints-dragons.mmc
 start
@@ -19,7 +20,7 @@ wait 1
 expect cindervane: spawned \d+, state set true
 cmd cindervane find 1025 100 1025
 wait 1
-expect cindervane: found 1: saintsdragons:cindervane ravager state=wild
+expect cindervane: found 1: saintsdragons:cindervane ravager state=wild ai=on
 cmd cindervane find 1025 100 1100
 wait 1
 expect cindervane: found 0
@@ -35,7 +36,7 @@ cmd tp tester 1025.5 101 1025.5
 wait 4
 cmd cindervane find 1025 100 1025
 wait 1
-expect cindervane: found 1: saintsdragons:cindervane ravager state=wild
+expect cindervane: found 1: saintsdragons:cindervane ravager state=wild ai=on
 reject (?i)panic|panicked
 bot quit
 stop

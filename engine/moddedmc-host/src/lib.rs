@@ -17,6 +17,7 @@ mod entities;
 mod interaction;
 mod interfaces;
 mod live_stats;
+mod mob_ai;
 mod mobs;
 mod native;
 mod resources;
@@ -120,6 +121,7 @@ pub struct Staging<'a> {
     content_items: Vec<content::ItemRegistration>,
     content_hooks: content::Hooks,
     mobs: Vec<mobs::Registration>,
+    mob_ai: std::collections::BTreeMap<String, mob_ai::TypeAi>,
 }
 
 /// Loaded custom blocks of one world.
@@ -392,6 +394,7 @@ fn register_mod(mod_idx: usize, module: Native) {
         content_items,
         content_hooks,
         mobs,
+        ai,
     ) = {
         let registry = read(&HOST.registry);
         let mut staging = Staging {
@@ -406,6 +409,7 @@ fn register_mod(mod_idx: usize, module: Native) {
             content_items: Vec::new(),
             content_hooks: content::Hooks::default(),
             mobs: Vec::new(),
+            mob_ai: std::collections::BTreeMap::new(),
         };
         let result = module.register(&mut staging);
         (
@@ -419,6 +423,7 @@ fn register_mod(mod_idx: usize, module: Native) {
             staging.content_items,
             staging.content_hooks,
             staging.mobs,
+            staging.mob_ai,
         )
     };
     if result != code::OK {
@@ -447,6 +452,7 @@ fn register_mod(mod_idx: usize, module: Native) {
     }
     content::register(mod_idx, definitions, content_items, content_hooks);
     mobs::register(mobs);
+    mob_ai::register(ai);
     lock(&HOST.commands).push(PendingCommands {
         module,
         legacy: commands,

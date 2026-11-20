@@ -1102,3 +1102,87 @@ mod mobs_layout {
         assert_eq!(size_of::<MobDefinition>(), 48);
     }
 }
+
+pub const MOB_AI: &str = "moddedmc:mob_ai";
+
+/// What a goal callback is asked: vanilla `Goal.canUse`, `canContinueToUse`, `start`, `stop`
+/// and `tick`. Only the answer to `CAN_START` and `CONTINUE` is read.
+pub mod goal_phase {
+    pub const CAN_START: u32 = 0;
+    pub const CONTINUE: u32 = 1;
+    pub const START: u32 = 2;
+    pub const STOP: u32 = 3;
+    pub const TICK: u32 = 4;
+}
+
+/// What a running goal takes over (vanilla `Goal.Flag`); goals sharing one don't run together.
+pub mod goal_control {
+    pub const MOVE: u32 = 1;
+    pub const LOOK: u32 = 2;
+    pub const JUMP: u32 = 4;
+    /// The goal picks targets and runs in the target selector.
+    pub const TARGET: u32 = 8;
+}
+
+/// A goal phase for one mob; `key` is the mod's from its `GoalDefinition`. Runs every tick the
+/// goal is asked, like a vanilla goal that `requiresUpdateEveryTick`.
+pub type GoalCallback =
+    unsafe extern "C" fn(phase: u32, key: u64, world: WorldRef, mob: EntityRef) -> bool;
+
+/// A goal every mob of a mod mob type gets, whether spawned or loaded.
+#[repr(C)]
+pub struct GoalDefinition {
+    /// A mod mob type, registered earlier by any mod.
+    pub kind: Str,
+    pub key: u64,
+    /// Lower runs first, as in vanilla.
+    pub priority: u32,
+    /// `goal_control` bits.
+    pub controls: u32,
+    pub callback: GoalCallback,
+}
+
+/// AI for mod mobs: their goals, walking, looking and targets.
+#[repr(C)]
+pub struct MobAiV1 {
+    pub size: usize,
+    /// Stage a goal during registration.
+    pub add_goal: unsafe extern "C" fn(reg: Reg, def: *const GoalDefinition) -> i32,
+    /// During registration: mobs of `kind` drop their carrier's own goals and targets.
+    pub replace_goals: unsafe extern "C" fn(reg: Reg, kind: Str) -> i32,
+    /// Path to `target` at `speed` times the movement speed. False when the mob can't navigate.
+    pub walk_to: unsafe extern "C" fn(mob: EntityRef, target: Vec3, speed: f64) -> bool,
+    /// Drop the current path.
+    pub stop: unsafe extern "C" fn(mob: EntityRef),
+    /// True while the mob follows a path.
+    pub navigating: unsafe extern "C" fn(mob: EntityRef) -> bool,
+    /// Turn the head toward `position` this tick.
+    pub look_at: unsafe extern "C" fn(mob: EntityRef, position: Vec3) -> bool,
+    /// Set the attack target to the loaded entity `target`, or clear it with -1.
+    pub set_target: unsafe extern "C" fn(world: WorldRef, mob: EntityRef, target: i32) -> bool,
+    /// The attack target's entity id, or -1.
+    pub target: unsafe extern "C" fn(mob: EntityRef) -> i32,
+}
+
+#[cfg(test)]
+mod mob_ai_layout {
+    use super::*;
+    use std::mem::offset_of;
+
+    #[test]
+    fn mob_ai_v1() {
+        assert_eq!(offset_of!(MobAiV1, add_goal), 8);
+        assert_eq!(offset_of!(MobAiV1, replace_goals), 16);
+        assert_eq!(offset_of!(MobAiV1, walk_to), 24);
+        assert_eq!(offset_of!(MobAiV1, stop), 32);
+        assert_eq!(offset_of!(MobAiV1, navigating), 40);
+        assert_eq!(offset_of!(MobAiV1, look_at), 48);
+        assert_eq!(offset_of!(MobAiV1, set_target), 56);
+        assert_eq!(offset_of!(MobAiV1, target), 64);
+        assert_eq!(size_of::<MobAiV1>(), 72);
+        assert_eq!(offset_of!(GoalDefinition, key), 16);
+        assert_eq!(offset_of!(GoalDefinition, controls), 28);
+        assert_eq!(offset_of!(GoalDefinition, callback), 32);
+        assert_eq!(size_of::<GoalDefinition>(), 40);
+    }
+}

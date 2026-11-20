@@ -30,6 +30,7 @@ pub mod entities;
 pub mod interaction;
 pub mod items;
 pub mod lifecycle;
+pub mod mob_ai;
 pub mod mobs;
 pub mod resources;
 pub mod stacks;

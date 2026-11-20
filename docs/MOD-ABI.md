@@ -193,7 +193,12 @@ A `.mmc` is a zip with
 | | `spawn(world, kind, position)` | Spawn a registered mob type, or a vanilla mob by id. Returns its entity id, or -1. A registered mob starts at full health for its `max_health`. |
 | | `kind(entity)` | The registered type of a mod mob, or empty. It is kept in the entity's custom data (`data.moddedmc.mob`), so it survives restarts; a mob whose type is no longer registered reads as empty. |
 | | `state(entity, out)`, `set_state(entity, bytes)` | The mod's own bytes on a mod mob, at most 64 KiB, saved with it (`data.moddedmc.state`). False for anything that isn't a mod mob. |
+| `moddedmc:mob_ai` v1 | `add_goal(reg, definition)` | Stage a goal for a registered mod mob type: a key, a vanilla priority, `goal_control` bits (`MOVE`, `LOOK`, `JUMP`, `TARGET`) and a callback. Every mob of the type gets it as it joins a world, spawned or loaded. The callback is asked each tick with a `goal_phase` (`CAN_START`, `CONTINUE`, `START`, `STOP`, `TICK`), the world and the mob; only the answer to `CAN_START` and `CONTINUE` counts. Goals with `TARGET` run in the target selector. |
+| | `replace_goals(reg, kind)` | Mobs of the type drop their carrier's own goals and targets before getting the mod's. |
+| | `walk_to(mob, target, speed)`, `stop(mob)`, `navigating(mob)` | Path to a position at a multiple of the movement speed, drop the path, or ask whether one is being followed. |
+| | `look_at(mob, position)` | Turn the head toward a position this tick. |
+| | `set_target(world, mob, id)`, `target(mob)` | Set or clear (-1) the attack target by entity id, or read it (-1 when none). |
 
 Require the tables from `Mod::start` and register definitions in `Mod::register`. Requesting `moddedmc:content` or `moddedmc:items` during startup moves that mod's registration before world load. Legacy mods continue to register on the first tick. State numbers are runtime handles. Store names and properties in mod-owned data. Mods with a placement hook can choose one of the placing block's states from the clicked face, look direction, sneak state and loaded neighbors.
 
-The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects` and `moddedmc_api::mobs`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.
+The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects`, `moddedmc_api::mobs` and `moddedmc_api::mob_ai`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.
