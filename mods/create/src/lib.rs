@@ -31,6 +31,7 @@ mod belt_movement;
 mod chute;
 mod crusher;
 mod depot;
+mod fan;
 mod funnel;
 mod kinetics;
 mod millstone;
@@ -93,6 +94,7 @@ impl Mod for Create {
         content.require_extension(WorldExtension::NeighborSignal)?;
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
+        content.require_extension(WorldExtension::CollisionShape)?;
         let _ = CONTENT.set(content);
         // WS-3: save-global Create railway data through the generic ABI.
         trains::require_saved()?;
@@ -139,6 +141,7 @@ impl Mod for Create {
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
         press::register(*content, registry)?;
+        fan::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -759,6 +762,7 @@ fn states() -> Option<&'static StateIds> {
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
+        fan::add_states(content, &mut ids);
         millstone::add_states(content, &mut ids);
         crusher::add_states(content, &mut ids);
         for name in [
@@ -863,6 +867,28 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                     .unwrap_or(look ^ 1)
             };
             format!("{MOTOR}[facing={}]", DIRECTIONS[usize::from(face)])
+        }
+        Some(Kind::Fan(_)) => {
+            let toward_support = args.face;
+            let face = if states
+                .chutes
+                .contains_key(&ids[usize::from(toward_support)])
+            {
+                toward_support
+            } else if states
+                .chutes
+                .contains_key(&ids[usize::from(toward_support ^ 1)])
+            {
+                toward_support ^ 1
+            } else {
+                let direction = connected
+                    .clone()
+                    .next_back()
+                    .filter(|_| preferred.is_some())
+                    .unwrap_or(look);
+                direction ^ u8::from(!args.sneak)
+            };
+            format!("{}[facing={}]", fan::ID, DIRECTIONS[usize::from(face)])
         }
         Some(Kind::Shaft(_)) => format!(
             "{SHAFT}[axis={},waterlogged={wet}]",
@@ -1155,7 +1181,14 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
                     }
                 }
                 content::UNLOADED => kinetics.unload(pos),
-                content::NEIGHBOR_CHANGED => kinetics.neighbor_changed(&mut level, pos),
+                content::NEIGHBOR_CHANGED => {
+                    if let Some(be) = kinetics.get_mut(pos)
+                        && matches!(be.kind, Kind::Fan(_))
+                    {
+                        be.fan = None;
+                    }
+                    kinetics.neighbor_changed(&mut level, pos);
+                }
                 _ => match (before, after) {
                     (Some(before), Some(after)) if before.equivalent(after) => {
                         kinetics.set_kind(pos, after);
@@ -1189,6 +1222,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         funnel::tick(world, kinetics);
         funnel::pull_from_depots(world, kinetics);
         depot::tick(world, kinetics);
+        fan::tick(world, kinetics);
         crusher::tick(world, states, kinetics);
         flush(world, kinetics);
     });

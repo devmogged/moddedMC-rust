@@ -19,7 +19,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     DISPLAYS, EFFECTS, STACKS,
     belt_movement::{SPEED_DIVISOR, can_transport_objects, normalize},
+    fan::{self, FanProcessingType, TransportedFanProcessing},
     kinetics::{Belt, FACES, Kind, Kinetics, Slope, face_axis, positive},
+    processing_recipes::RecipeBook,
 };
 
 /// `BeltInventory.tick`'s `spacing`.
@@ -57,6 +59,8 @@ pub struct TransportedItemStack {
     pub locked: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub locked_externally: bool,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub fan_processing: Option<TransportedFanProcessing>,
     /// The item display drawing this stack, and what it was last told.
     #[serde(skip)]
     display: Option<(i32, ItemDisplay)>,
@@ -124,6 +128,7 @@ impl TransportedItemStack {
             in_direction: i32::from(UP),
             locked: false,
             locked_externally: false,
+            fan_processing: None,
             display: None,
             block: None,
         }
@@ -159,12 +164,17 @@ impl TransportedItemStack {
     }
 
     pub fn processed(&self, item: Value) -> Self {
+        let mut output = self.similar(item);
+        output.locked = true;
+        output
+    }
+
+    pub fn similar(&self, item: Value) -> Self {
         let mut output = self.clone();
         output.angle = next_int(360);
         output.item = item;
         output.block = None;
         output.clear_display();
-        output.locked = true;
         output
     }
 }
@@ -1096,6 +1106,48 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
             be.inventory = Some(inventory);
         }
     }
+}
+
+/// BeltBlockEntity.applyToEachWithin, called by each fan handler along its air current.
+pub fn fan_process(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    kind: FanProcessingType,
+    recipes: &RecipeBook,
+) {
+    let Some(segment) = kinetics.get(pos) else {
+        return;
+    };
+    let Some(controller) = segment.controller else {
+        return;
+    };
+    let center = segment.belt_index as f32 + 0.5;
+    let Some(be) = kinetics.get_mut(controller) else {
+        return;
+    };
+    let Some(inventory) = &mut be.inventory else {
+        return;
+    };
+    let mut added = Vec::new();
+    inventory.items.retain_mut(|item| {
+        if (item.pos - center).abs() >= 0.51 {
+            return true;
+        }
+        let old = item.fan_processing;
+        let products = fan::process_transported(kind, recipes, item);
+        be.dirty |= old != item.fan_processing;
+        let Some(products) = products else {
+            return true;
+        };
+        if matches!(products.as_slice(), [product] if *product == item.item) {
+            return true;
+        }
+        remove_display(world, item);
+        added.extend(products.into_iter().map(|product| item.similar(product)));
+        false
+    });
+    inventory.to_insert.extend(added);
 }
 
 /// `BeltBlock.useItemOn`: an empty main hand takes every stack within reach of the clicked

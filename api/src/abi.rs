@@ -600,6 +600,21 @@ pub struct BlockWorldV1 {
         out: *mut CollisionBox,
         capacity: usize,
     ) -> i32,
+    /// The state's full `namespace:block[key=value,...]` selector, the form `Content::state`
+    /// reads, with every property. False for an unknown state.
+    pub describe_state: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
+    /// Vanilla `FluidState.getType()` registry id at the position, including the water in
+    /// waterlogged and aquatic blocks, `minecraft:empty` for none. False for unloaded positions.
+    pub fluid_id: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: Sink) -> bool,
+    /// The block entity's full saved NBT as Java named-root binary NBT, vanilla's
+    /// `saveWithFullMetadata`: type id, position and fields, for any block entity. False when
+    /// there is none or the position is unloaded.
+    pub read_block_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: Sink) -> bool,
+    /// Replaces the block entity at the position with saved NBT from `read_block_entity`, after
+    /// the destination block is placed. The saved id must match the destination's block entity;
+    /// the saved position is ignored. Marks the chunk dirty and sends clients the new data.
+    /// False for unloaded positions, a mismatched id or invalid NBT.
+    pub restore_block_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, nbt: Str) -> bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
@@ -733,6 +748,8 @@ pub struct EntitiesV1 {
 pub const MAX_ENTITY_DATA_BYTES: usize = 64 << 10;
 /// Longest `EntitiesV1::data` key.
 pub const MAX_ENTITY_DATA_KEY: usize = 64;
+/// Largest `restore_block_entity` input, vanilla's 2 MiB network NBT budget.
+pub const MAX_BLOCK_ENTITY_BYTES: usize = 2 << 20;
 
 /// Size of the entities table before `id` was appended.
 pub const ENTITIES_V1_BASE_SIZE: usize = std::mem::offset_of!(EntitiesV1, id);
@@ -892,6 +909,12 @@ pub struct ItemStacksV1 {
         unsafe extern "C" fn(world: WorldRef, position: Vec3, motion: Vec3, stack: Str) -> i32,
     /// False for a stack the host can't read.
     pub info: unsafe extern "C" fn(stack: Str, out: *mut StackInfo) -> bool,
+    // Fields below were appended after the first ABI 1 release; check `size` before reading them.
+    /// The stack's effective component, its patch over the item's defaults, as named-root NBT
+    /// `{value: <component>}`. An empty root means the component is present but has no value
+    /// (unit components, or ones Pumpkin doesn't encode yet). False when absent, for an unknown
+    /// component id or an unreadable stack.
+    pub component: unsafe extern "C" fn(stack: Str, component: Str, out: Sink) -> bool,
 }
 
 #[repr(C)]

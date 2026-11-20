@@ -9,6 +9,9 @@ use std::{
 
 use moddedmc_api::abi::{self, MAX_RESOURCE_BYTES, Sink, Str};
 use pumpkin_core::data::datapack::LoadedDatapack;
+use pumpkin_data::recipes::{
+    CookingRecipe, CookingRecipeType, RECIPES_COOKING, RecipeCategoryTypes, RecipeIngredientTypes,
+};
 
 use crate::native::SERVER;
 
@@ -39,6 +42,56 @@ fn valid_namespace(namespace: &str) -> bool {
 fn packs() -> Option<Vec<LoadedDatapack>> {
     let manager = &SERVER.get()?.datapack_manager;
     (manager.generation() != 0).then(|| manager.get_loaded_packs())
+}
+
+/// Pumpkin compiles vanilla's cooking recipes in instead of shipping them as datapack files, so
+/// they are the lowest-priority source here, under ids like
+/// `minecraft:recipe/baked_potato_from_smoking.json`.
+fn vanilla_cooking() -> impl Iterator<Item = (String, &'static CookingRecipeType)> {
+    RECIPES_COOKING.iter().filter_map(|recipe| {
+        let (namespace, path) = cooking(recipe).1.recipe_id.split_once(':')?;
+        Some((format!("{namespace}:recipe/{path}.json"), recipe))
+    })
+}
+
+const fn cooking(recipe: &CookingRecipeType) -> (&'static str, &CookingRecipe) {
+    match recipe {
+        CookingRecipeType::Smelting(inner) => ("minecraft:smelting", inner),
+        CookingRecipeType::Blasting(inner) => ("minecraft:blasting", inner),
+        CookingRecipeType::Smoking(inner) => ("minecraft:smoking", inner),
+        CookingRecipeType::CampfireCooking(inner) => ("minecraft:campfire_cooking", inner),
+    }
+}
+
+/// The recipe as the JSON file vanilla ships in `data/minecraft/recipe`.
+fn cooking_json(recipe: &CookingRecipeType) -> String {
+    let (kind, recipe) = cooking(recipe);
+    // Vanilla leaves out `misc`, the CookingBookCategory default.
+    let category = match recipe.category {
+        RecipeCategoryTypes::Food => ",\"category\":\"food\"",
+        RecipeCategoryTypes::Blocks => ",\"category\":\"blocks\"",
+        _ => "",
+    };
+    let ingredient = match &recipe.ingredient {
+        RecipeIngredientTypes::Simple(id) | RecipeIngredientTypes::Tagged(id) => {
+            format!("\"{id}\"")
+        }
+        RecipeIngredientTypes::OneOf(ids) => {
+            let ids: Vec<String> = ids.iter().map(|id| format!("\"{id}\"")).collect();
+            format!("[{}]", ids.join(","))
+        }
+    };
+    let group = recipe
+        .group
+        .map_or_else(String::new, |group| format!(",\"group\":\"{group}\""));
+    let count = match recipe.result.count {
+        1 => String::new(),
+        count => format!(",\"count\":{count}"),
+    };
+    format!(
+        "{{\"type\":\"{kind}\"{category},\"cookingtime\":{},\"experience\":{}{group},\"ingredient\":{ingredient},\"result\":{{\"id\":\"{}\"{count}}}}}",
+        recipe.cookingtime, recipe.experience, recipe.result.id
+    )
 }
 
 fn walk(dir: &Path, prefix: &str, depth: usize, out: &mut BTreeSet<String>) {
@@ -73,6 +126,9 @@ unsafe extern "C" fn list(directory: Str, out: Sink) -> bool {
         return false;
     };
     let mut ids = BTreeSet::new();
+    if directory == "recipe" {
+        ids.extend(vanilla_cooking().map(|(id, _)| id));
+    }
     for pack in &packs {
         let Ok(namespaces) = fs::read_dir(pack.root_path.join("data")) else {
             continue;
@@ -108,8 +164,17 @@ fn resolve(packs: &[LoadedDatapack], id: &str) -> Option<PathBuf> {
 unsafe extern "C" fn read(id: Str, out: Sink) -> bool {
     // SAFETY: the id is borrowed for this call.
     let id = unsafe { id.str() };
-    let Some(file) = packs().and_then(|packs| resolve(&packs, id)) else {
+    let Some(packs) = packs() else {
         return false;
+    };
+    let Some(file) = resolve(&packs, id) else {
+        let Some((_, recipe)) = vanilla_cooking().find(|(vanilla, _)| vanilla == id) else {
+            return false;
+        };
+        let json = cooking_json(recipe);
+        // SAFETY: the bytes are live until the synchronous sink returns.
+        unsafe { (out.put)(out.ctx, 0, Str::new(json.as_bytes())) };
+        return true;
     };
     let Ok(handle) = fs::File::open(file) else {
         return false;
@@ -136,3 +201,34 @@ pub static RESOURCES: abi::ResourcesV1 = abi::ResourcesV1 {
     read,
     generation,
 };
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, from_str};
+
+    use super::{cooking_json, vanilla_cooking};
+
+    fn generated(id: &str) -> Option<Value> {
+        let (_, recipe) = vanilla_cooking().find(|(vanilla, _)| vanilla == id)?;
+        from_str(&cooking_json(recipe)).ok()
+    }
+
+    /// Both expected files are copied from the 26.3 server jar.
+    #[test]
+    fn cooking_matches_vanilla_files() -> serde_json::Result<()> {
+        let smoking: Value = from_str(
+            r#"{"type":"minecraft:smoking","category":"food","cookingtime":200,"experience":0.35,
+            "ingredient":"minecraft:potato","result":{"id":"minecraft:baked_potato"}}"#,
+        )?;
+        let charcoal: Value = from_str(
+            r##"{"type":"minecraft:smelting","cookingtime":200,"experience":0.15,
+            "ingredient":"#minecraft:logs_that_burn","result":{"id":"minecraft:charcoal"}}"##,
+        )?;
+        assert_eq!(
+            generated("minecraft:recipe/baked_potato_from_smoking.json"),
+            Some(smoking)
+        );
+        assert_eq!(generated("minecraft:recipe/charcoal.json"), Some(charcoal));
+        Ok(())
+    }
+}
