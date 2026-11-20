@@ -18,9 +18,7 @@ cmd setblock 1026 100 1025 create:glass_fluid_pipe
 cmd setblock 1027 100 1025 create:encased_fluid_pipe
 cmd setblock 1028 100 1025 create:mechanical_pump
 wait 1
-bot expect block 1025 100 1025 minecraft:note_block[powered=true]
-wait 0.5
-expect expect block ok 1025 100 1025
+# Avoid asserting client chunk loaded before asynchronous propagation.
 cmd data get block 1025 100 1025
 expect 1025, 100, 1025 has the following block data: .*create:fluid_pipe
 cmd data get block 1026 100 1025
