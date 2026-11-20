@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, hash_map::Entry},
     ffi::c_void,
     io,
     path::Path,
@@ -463,7 +463,8 @@ fn split_items(
         .unzip()
 }
 
-/// Engine definitions for the staged blocks, each state on its own note block carrier.
+/// Engine definitions for the staged blocks. States that look the same to a stock client (model
+/// and rotation) share a note block carrier, since the carrier only decides what the client draws.
 fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
     // Preserve instrument and note for ordinary note blocks by borrowing only powered variants.
     let mut carriers = Block::NOTE_BLOCK.states.iter().filter_map(|state| {
@@ -478,13 +479,27 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
             .to_state_id(&Block::NOTE_BLOCK);
         Some((state.id, replacement))
     });
+    let mut assigned = HashMap::new();
     let mut definitions = Vec::with_capacity(blocks.len());
     for (_, block) in blocks {
         let mut states = Vec::with_capacity(block.states.len());
         for state in &block.states {
-            let (carrier, replacement) = carriers
-                .next()
-                .ok_or_else(|| io::Error::other("custom block carrier slots exhausted"))?;
+            let visual = &state.visual;
+            // A display-only state draws the empty model, a state with neither draws a note block.
+            let look = (
+                visual.model.clone(),
+                visual.rotating_model.is_empty(),
+                visual.x.rem_euclid(360),
+                visual.y.rem_euclid(360),
+            );
+            let (carrier, replacement) = match assigned.entry(look) {
+                Entry::Occupied(entry) => *entry.get(),
+                Entry::Vacant(entry) => *entry.insert(
+                    carriers
+                        .next()
+                        .ok_or_else(|| io::Error::other("custom block carrier slots exhausted"))?,
+                ),
+            };
             states.push(StateDefinition {
                 properties: state.properties.clone(),
                 physical: state.physical,
