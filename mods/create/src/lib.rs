@@ -663,6 +663,14 @@ fn states() -> Option<&'static StateIds> {
                 &format!("facing={name}"),
                 Some(Kind::Motor(face as u8)),
             );
+            for wet in [false, true] {
+                ids.add(
+                    content,
+                    "create:mechanical_pump",
+                    &format!("facing={name},waterlogged={wet}"),
+                    Some(Kind::Pump(face as u8)),
+                );
+            }
         }
         for (index, axis) in AXES.into_iter().enumerate() {
             let axis_index = index as u8;
@@ -838,7 +846,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         None if placed.block == depot::ID => {
             format!("{}[waterlogged={}]", depot::ID, states.wet(ids[6]))
         }
-        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_)) | None => return Some(args.state),
+        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Pump(_)) | None => {
+            return Some(args.state);
+        }
     };
     states.by_selector.get(&selector).copied()
 }

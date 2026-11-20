@@ -1,0 +1,53 @@
+# WS-2 mechanical pump: Create 6.0.10 PumpBlock / CStress 4.0.
+# A motor drives a shaft, a large cog, a small cog, and a pump as a small cog.
+# Verifies rotation, stress, restart, and cog disconnection. Not water transfer.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_pump \(12 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 5
+cmd fill 1020 99 1018 1032 108 1031 minecraft:air
+cmd setblock 1025 100 1025 create:creative_motor[facing=up]
+cmd setblock 1025 101 1025 create:shaft[axis=y,waterlogged=false]
+cmd setblock 1025 102 1025 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 1027 102 1026 create:mechanical_pump[facing=up,waterlogged=false]
+wait 2
+cmd kinetics 1025 100 1025
+wait 0.5
+expect create:creative_motor\[facing=up\] at 1025 100 1025 Speed=16
+cmd kinetics 1026 102 1026
+wait 0.5
+expect create:cogwheel\[axis=y,waterlogged=false\] at 1026 102 1026 Speed=-32
+cmd kinetics 1027 102 1026
+wait 0.5
+expect create:mechanical_pump\[facing=up,waterlogged=false\] at 1027 102 1026 Speed=32 Stress=128
+cmd kinetics 1025 100 1025 24
+wait 1
+cmd kinetics 1027 102 1026
+wait 0.5
+expect create:mechanical_pump\[facing=up,waterlogged=false\] at 1027 102 1026 Speed=48 Stress=192
+cmd save-all flush
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 4
+cmd kinetics 1027 102 1026
+wait 0.5
+expect create:mechanical_pump\[facing=up,waterlogged=false\] at 1027 102 1026 Speed=48 Stress=192
+bot break 1026 102 1026
+wait 2
+cmd kinetics 1027 102 1026
+wait 0.5
+expect create:mechanical_pump\[facing=up,waterlogged=false\] at 1027 102 1026 Speed=0
+reject (?i)panicked|trapped|failed to register
+bot quit
+stop
