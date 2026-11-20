@@ -1,0 +1,74 @@
+# Native analog source with vanilla comparator propagation, through-solid read,
+# invalid writes, vanilla control, restart, and removal/replacement cleanup.
+mods target\mods\abi-analog.mmc
+start
+expect registered content block abi_analog:source
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 99 1024 1039 103 1039 minecraft:air
+cmd fill 1024 99 1024 1039 99 1039 minecraft:stone
+cmd setblock 1025 100 1025 abi_analog:source
+cmd setblock 1024 100 1025 minecraft:comparator[facing=east,mode=compare,powered=false]
+wait 1
+cmd data get block 1024 100 1025 OutputSignal
+expect ^1024, 100, 1025 has the following block data: 0$
+cmd abi_analog_7
+expect abi_analog set 1025 100 1025 strength=7 ok=true
+wait 1
+cmd data get block 1024 100 1025 OutputSignal
+expect ^1024, 100, 1025 has the following block data: 7$
+cmd abi_analog_16
+expect abi_analog set 1025 100 1025 strength=16 ok=false
+cmd abi_analog_air
+expect abi_analog set 1038 100 1025 strength=3 ok=false
+# Output can fall, then rise, without changing the underlying block state.
+cmd abi_analog_0
+expect abi_analog set 1025 100 1025 strength=0 ok=true
+wait 1
+cmd data get block 1024 100 1025 OutputSignal
+expect ^1024, 100, 1025 has the following block data: 0$
+cmd abi_analog_7
+expect abi_analog set 1025 100 1025 strength=7 ok=true
+wait 1
+cmd data get block 1024 100 1025 OutputSignal
+expect ^1024, 100, 1025 has the following block data: 7$
+# A comparator behind a solid block still reads a modded analog source.
+cmd setblock 1035 100 1025 abi_analog:source
+cmd setblock 1034 100 1025 minecraft:stone
+cmd setblock 1033 100 1025 minecraft:comparator[facing=east,mode=compare,powered=false]
+cmd abi_analog_13
+expect abi_analog set 1035 100 1025 strength=13 ok=true
+wait 1
+cmd data get block 1033 100 1025 OutputSignal
+expect ^1033, 100, 1025 has the following block data: 13$
+# Vanilla analog output must remain unaffected.
+cmd setblock 1036 100 1032 minecraft:comparator[facing=east,mode=compare,powered=false]
+cmd setblock 1037 100 1032 minecraft:composter[level=6]
+wait 1
+cmd data get block 1036 100 1032 OutputSignal
+expect ^1036, 100, 1032 has the following block data: 6$
+cmd setblock 1037 100 1032 minecraft:composter[level=7]
+wait 1
+cmd data get block 1036 100 1032 OutputSignal
+expect ^1036, 100, 1032 has the following block data: 7$
+stop
+start
+cmd forceload add 1025 1025
+wait 2
+cmd data get block 1024 100 1025 OutputSignal
+expect ^1024, 100, 1025 has the following block data: 7$
+cmd data get block 1033 100 1025 OutputSignal
+expect ^1033, 100, 1025 has the following block data: 13$
+cmd data get block 1036 100 1032 OutputSignal
+expect ^1036, 100, 1032 has the following block data: 7$
+# Removing the source must clear its strength and cannot leak it to a replacement.
+cmd setblock 1025 100 1025 minecraft:air
+wait 1
+cmd data get block 1024 100 1025 OutputSignal
+expect ^1024, 100, 1025 has the following block data: 0$
+cmd setblock 1025 100 1025 abi_analog:source
+wait 1
+cmd data get block 1024 100 1025 OutputSignal
+expect ^1024, 100, 1025 has the following block data: 0$
+reject (?i)panicked|trapped|failed to register
+stop

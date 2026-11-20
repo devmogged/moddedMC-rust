@@ -273,3 +273,30 @@ trait objects. The table is synchronous and its callbacks must not unwind across
 Tests: `tests/fixtures/abi-services` packs two independent native DLLs;
 `tests/scenarios/abi-services.txt` verifies startup ordering and round trips, and
 `tests/scenarios/abi-services-missing.txt` verifies a missing provider is skipped.
+
+## Custom block comparator output (ABI 1 append-only)
+
+`moddedmc:content` v1 appends `add_analog_output(Reg, Str block_id) -> i32` at byte
+offset 32 (64-bit table size 40). Register the custom content block first, then enable
+analog output for that block's own ID during `Mod::register`. Repeated registrations and
+IDs not owned by the current mod fail; the capability is off by default.
+
+`moddedmc:block_world` v1 appends `set_analog_output(WorldRef, Pos, u8 strength)
+-> bool` at byte offset 88 (64-bit table size 96). An enabled, loaded custom content
+block accepts strengths 0–15. Invalid strengths, missing positions, unloaded chunks,
+vanilla blocks, and content blocks without this capability return false without writing.
+`0` is a valid signal and is also the default for a new block. The host stores each
+value in the block entity's namespaced custom NBT and notifies nearby vanilla
+comparators with Pumpkin's `update_neighbour_for_output_signal` when it changes.
+Ordinary block-entity save/restart persists the value; removing the block entity
+removes that value. The comparator reads the block's registered behavior even when
+its physical carrier does not advertise vanilla analog output. Vanilla blocks without
+an analog property retain their previous no-query fast path.
+
+The SDK exposes `Content::add_analog_output` and `World::set_analog_output`.
+Call `Content::require_extension(WorldExtension::AnalogOutput)` during `Mod::start`
+before using either. This checks the new field at the end of **both** interface
+tables; older servers reject the requirement without changing ABI major version 1.
+World handles are synchronous and borrowed: no saving their pointers for later.
+The fixture `tests/fixtures/abi-analog` uses vanilla comparators to test a native
+source, through-solid-block reads, invalid writes, save/restart and removal.

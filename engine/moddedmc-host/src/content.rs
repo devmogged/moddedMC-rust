@@ -34,7 +34,7 @@ use pumpkin_data::{
     item::Item,
     item_stack::ItemStack,
 };
-use pumpkin_nbt::Nbt;
+use pumpkin_nbt::{Nbt, tag::NbtTag};
 use pumpkin_util::{
     Hand,
     math::{position::BlockPos, vector3::Vector3},
@@ -49,6 +49,7 @@ pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     add_block,
     state,
     on_tick,
+    add_analog_output,
 };
 pub static ITEMS: abi::ItemsV1 = abi::ItemsV1 {
     size: size_of::<abi::ItemsV1>(),
@@ -66,9 +67,11 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     destroy,
     face_sturdy,
     collision_shape,
+    set_analog_output,
 };
 
 const MAX_BATCH: usize = 4096;
+const ANALOG_OUTPUT_KEY: &str = "analog_output";
 
 pub struct Registration {
     id: String,
@@ -77,6 +80,7 @@ pub struct Registration {
     item_model: String,
     states: Vec<RegisteredState>,
     placement: Option<abi::ContentPlacement>,
+    analog_output: bool,
 }
 
 pub struct ItemRegistration {
@@ -96,6 +100,7 @@ struct RegisteredState {
 struct RuntimeBlock {
     owner: usize,
     placement: Option<abi::ContentPlacement>,
+    analog_output: bool,
 }
 
 struct Runtime {
@@ -320,7 +325,27 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         item_model: item_model.into(),
         states: registered,
         placement: def.on_place,
+        analog_output: false,
     });
+    code::OK
+}
+
+unsafe extern "C" fn add_analog_output(reg: Reg, id: Str) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the owner supplies a valid registration handle and borrowed id.
+    let staging = unsafe { native::staging(reg) };
+    // SAFETY: the id bytes are valid for the duration of registration.
+    let id = unsafe { id.str() };
+    let Some(block) = staging.content.iter_mut().find(|block| block.id == id) else {
+        // The mod may not modify another mod's or vanilla blocks.
+        return code::INVALID_DEFINITION;
+    };
+    if block.analog_output {
+        return code::DUPLICATE_ID;
+    }
+    block.analog_output = true;
     code::OK
 }
 
@@ -546,6 +571,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
             RuntimeBlock {
                 owner,
                 placement: block.placement,
+                analog_output: block.analog_output,
             },
         );
         tracing::info!(
@@ -584,6 +610,22 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
 struct Behaviour;
 
 impl BlockBehaviour for Behaviour {
+    fn get_comparator_output(
+        &self,
+        args: pumpkin_core::block::GetComparatorOutputArgs<'_>,
+    ) -> Option<u8> {
+        let runtime = RUNTIME.get()?;
+        let content_block = content::state(args.state.id.as_u16())?.block;
+        if !runtime
+            .blocks
+            .get(&content_block.id.as_u16())
+            .is_some_and(|block| block.analog_output)
+        {
+            return None;
+        }
+        Some(analog_strength(args.world, args.position))
+    }
+
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
         let default = args.block.default_state.id;
         let Some(callback) = RUNTIME
@@ -987,6 +1029,56 @@ unsafe extern "C" fn write_entity(raw: WorldRef, pos: Pos, nbt: Str) -> bool {
     let mut saved = pumpkin_nbt::compound::NbtCompound::new();
     entity.write_internal(&mut saved);
     world.add_block_entity_nbt(pos, &saved);
+    true
+}
+
+fn analog_strength(world: &World, position: &BlockPos) -> u8 {
+    match world.get_block_entity_custom_data(position, crate::NAMESPACE, ANALOG_OUTPUT_KEY) {
+        Some(NbtTag::Byte(value)) => u8::try_from(value).unwrap_or(0).min(15),
+        _ => 0,
+    }
+}
+
+/// Save a comparator output for a registered custom block entity and immediately notify
+/// vanilla comparators, including comparators reading through an intervening solid block.
+unsafe extern "C" fn set_analog_output(raw: WorldRef, pos: Pos, strength: u8) -> bool {
+    if strength > 15 {
+        return false;
+    }
+    // SAFETY: the world pointer is borrowed for this synchronous call.
+    let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    let Some(state) = world.get_block_state_id_if_loaded(&pos) else {
+        return false;
+    };
+    let Some(content_block) = content::state(state.as_u16()).map(|state| state.block) else {
+        return false;
+    };
+    if !RUNTIME
+        .get()
+        .and_then(|runtime| runtime.blocks.get(&content_block.id.as_u16()))
+        .is_some_and(|block| block.analog_output)
+    {
+        return false;
+    }
+    let Some(entity) = world.get_block_entity(&pos) else {
+        return false;
+    };
+    if !entity.as_any().is::<ContentBlockEntity>() {
+        return false;
+    }
+    if analog_strength(&world, &pos) == strength {
+        return true;
+    }
+    world.set_block_entity_custom_data(
+        &pos,
+        crate::NAMESPACE,
+        ANALOG_OUTPUT_KEY,
+        NbtTag::Byte(strength as i8),
+    );
+    world.update_neighbour_for_output_signal(&pos, content_block);
     true
 }
 

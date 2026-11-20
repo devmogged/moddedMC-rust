@@ -1,0 +1,14 @@
+[package]
+name = "abi-analog"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "Comparator output ABI test fixture"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api = { path = "../../../api" }
+
+[workspace]

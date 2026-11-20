@@ -1,0 +1,19 @@
+# Vanilla composter comparator regression. Preserve output when the source changes.
+mods target\mods\abi-saved-data.mmc
+start
+cmd forceload add 1035 1032
+wait 2
+cmd fill 1032 99 1032 1039 103 1039 minecraft:air
+cmd fill 1032 99 1032 1039 99 1039 minecraft:stone
+cmd setblock 1036 100 1032 minecraft:comparator[facing=east,mode=compare,powered=false]
+wait 0.5
+cmd setblock 1037 100 1032 minecraft:composter[level=6]
+wait 1
+cmd data get block 1036 100 1032 OutputSignal
+expect ^1036, 100, 1032 has the following block data: 6$
+cmd setblock 1037 100 1032 minecraft:composter[level=7]
+wait 1
+cmd data get block 1036 100 1032 OutputSignal
+expect ^1036, 100, 1032 has the following block data: 7$
+reject (?i)panicked|trapped
+stop

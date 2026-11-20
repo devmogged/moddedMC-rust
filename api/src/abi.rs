@@ -415,6 +415,8 @@ mod layout {
         assert_eq!(offset_of!(ContentV1, add_block), 8);
         assert_eq!(offset_of!(ContentV1, state), 16);
         assert_eq!(offset_of!(ContentV1, on_tick), 24);
+        assert_eq!(offset_of!(ContentV1, add_analog_output), 32);
+        assert_eq!(size_of::<ContentV1>(), 40);
         assert_eq!(offset_of!(ItemsV1, size), 0);
         assert_eq!(offset_of!(ItemsV1, add_item), 8);
         assert_eq!(offset_of!(ContentItemDefinition, carrier), 32);
@@ -425,6 +427,8 @@ mod layout {
         assert_eq!(offset_of!(BlockWorldV1, read_entity), 32);
         assert_eq!(offset_of!(BlockWorldV1, write_entity), 40);
         assert_eq!(offset_of!(BlockWorldV1, rotate), 48);
+        assert_eq!(offset_of!(BlockWorldV1, set_analog_output), 88);
+        assert_eq!(size_of::<BlockWorldV1>(), 96);
         assert_eq!(size_of::<ShapeBox>(), 12);
 
         assert_eq!(offset_of!(CommandNode, name), 0);
@@ -550,6 +554,8 @@ pub struct ContentV1 {
     /// Exact name[single=value,...] selector. Missing definitions return UNLOADED_STATE.
     pub state: unsafe extern "C" fn(selector: Str) -> u32,
     pub on_tick: unsafe extern "C" fn(reg: Reg, callback: ContentTick) -> i32,
+    /// Appended ABI 1: mark one of this mod's registered blocks as an analog source.
+    pub add_analog_output: unsafe extern "C" fn(reg: Reg, block_id: Str) -> i32,
 }
 
 #[repr(C)]
@@ -600,6 +606,9 @@ pub struct BlockWorldV1 {
         out: *mut CollisionBox,
         capacity: usize,
     ) -> i32,
+    /// Appended ABI 1: persist a custom block's comparator output and notify comparators.
+    /// The strength must be 0..15; false for invalid/unloaded/unregistered blocks.
+    pub set_analog_output: unsafe extern "C" fn(world: WorldRef, pos: Pos, strength: u8) -> bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.

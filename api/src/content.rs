@@ -53,6 +53,8 @@ pub enum WorldExtension {
     Destroy,
     FaceSturdy,
     CollisionShape,
+    /// Custom block comparator output registration and updates.
+    AnalogOutput,
 }
 
 impl WorldExtension {
@@ -73,6 +75,10 @@ impl WorldExtension {
             Self::CollisionShape => (
                 std::mem::offset_of!(abi::BlockWorldV1, collision_shape),
                 "moddedmc:block_world.collision_shape",
+            ),
+            Self::AnalogOutput => (
+                std::mem::offset_of!(abi::BlockWorldV1, set_analog_output),
+                "moddedmc:block_world.set_analog_output",
             ),
         }
     }
@@ -156,7 +162,10 @@ unsafe extern "C" fn tick(
 
 impl Content {
     pub fn require_extension(self, extension: WorldExtension) -> Result<(), InterfaceUnavailable> {
-        if extension.available(self.1) {
+        let content_available = extension != WorldExtension::AnalogOutput
+            || self.0.size
+                >= std::mem::offset_of!(abi::ContentV1, add_analog_output) + size_of::<usize>();
+        if extension.available(self.1) && content_available {
             Ok(())
         } else {
             Err(InterfaceUnavailable {
@@ -204,6 +213,23 @@ impl Content {
         };
         // SAFETY: registration and borrowed definitions are live for the call.
         RegistrationError::from_code(unsafe { (self.0.add_block)(reg.reg, &def) })
+    }
+
+    /// Enable vanilla comparator sampling for this mod's block (register it first).
+    /// Require `WorldExtension::AnalogOutput` in `Mod::start` before using.
+    pub fn add_analog_output(
+        self,
+        reg: &mut Registry<'_>,
+        block_id: &str,
+    ) -> Result<(), RegistrationError> {
+        if self
+            .require_extension(WorldExtension::AnalogOutput)
+            .is_err()
+        {
+            return Err(RegistrationError::InvalidDefinition);
+        }
+        // SAFETY: the registration handle and id are borrowed for this call.
+        RegistrationError::from_code(unsafe { (self.0.add_analog_output)(reg.reg, s(block_id)) })
     }
 
     pub fn on_tick(self, reg: &mut Registry<'_>, callback: Tick) -> Result<(), RegistrationError> {
@@ -330,6 +356,15 @@ impl World<'_> {
             }
             boxes.reserve_exact(count);
         }
+    }
+
+    /// Update the saved 0..15 comparator output of a registered content block.
+    /// Returns false for unloaded, missing, non-analog or invalid positions/strengths.
+    /// Existing comparators are notified only if the output changes.
+    pub fn set_analog_output(self, pos: Pos, strength: u8) -> bool {
+        // SAFETY: size guard validates the appended field; world is borrowed for the call.
+        WorldExtension::AnalogOutput.available(self.api)
+            && unsafe { (self.api.set_analog_output)(self.raw, pos, strength) }
     }
 
     /// Tells loaded worlds apart. Stable while the world stays loaded.

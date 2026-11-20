@@ -44,3 +44,34 @@
 ## M3: Comparator output from custom blocks
 
 - Next milestone. Requires engine hook review, redstone signal propagation and a deterministic block/comparator scenario, not a cached mod-only approximation.
+
+## M3: Custom content comparator output (verified behavior)
+
+- Append-only ABI 1: `moddedmc:content` adds `add_analog_output(Reg, block_id)`
+  at 64-bit byte offset 32 (table size 40); `moddedmc:block_world` adds
+  `set_analog_output(WorldRef, Pos, strength)` at byte offset 88 (size 96).
+  `WorldExtension::AnalogOutput` checks both table sizes at `Mod::start`.
+- The content registration flag is scoped to the current mod's registered block.
+  Signals are 0..15 and stored in the custom block entity's namespaced NBT,
+  not process-global temporary state. Existing Pumpkin custom-data write-through
+  and block-entity removal handle persistence and cleanup. The host uses the
+  registered content *block id*, not its block-state id, for capability lookup.
+- Pumpkin's native comparator calculates signals using the registered block's
+  `get_comparator_output` even if its physical state lacks a vanilla analog flag.
+  Vanilla analog blocks still use their existing behavior; the no-output
+  vanilla fast path remains. Direct and through-solid reads are covered.
+- `tests/fixtures/abi-analog` compiles a separate native .mmc. Its command
+  fixture rejects duplicate and foreign registrations. The acceptance scenario
+  `tests/scenarios/abi-analog.txt` passed on WS-0 port 26000:
+  direct 0→7→0→7, through-solid 13, both 7 and 13 after a clean server
+  restart, strength 16 rejected, absent block rejected, breaking/removing
+  and replacing the source resets output to 0. All reads were actual vanilla
+  comparator `OutputSignal` NBT values, not only host return values.
+- `tests/scenarios/abi-comparator-vanilla.txt` passed the composter
+  6→7 control. An A/B run on previous published host `ad86424`
+  and the M3 build obtained identical vanilla outputs 6, then 7
+  (coordination note `notes/WS-0-comparator-vanilla.md`).
+- These tests establish the specified host interface behavior and sampled
+  vanilla comparator continuity. They are not a full Minecraft 26.3 Java
+  differential suite or a whole-mod parity claim. No controlled performance
+  benchmark was run for comparator-heavy redstone builds.
