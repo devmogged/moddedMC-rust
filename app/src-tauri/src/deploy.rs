@@ -151,7 +151,22 @@ pub async fn mod_upload(
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|e| format!("Can't read {}: {e}", path.display()))?;
-    let (endpoint, name) = agent::endpoint(&store, &tunnels, &device).await?;
+    put_mod(&store, &tunnels, &device, &server, &file, bytes).await
+}
+
+/// Puts `bytes` as `mods/<file>` on a stopped server.
+pub async fn put_mod(
+    store: &Store,
+    tunnels: &Tunnels,
+    device: &str,
+    server: &str,
+    file: &str,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    if server.contains(['/', '\\', '?', '#']) || file.contains(['/', '\\', '?', '#']) {
+        return Err("bad server or file name".into());
+    }
+    let (endpoint, name) = agent::endpoint(store, tunnels, device).await?;
     let response = agent::http()
         .put(format!("http://{endpoint}/v1/servers/{server}/mods/{file}"))
         .timeout(Duration::from_secs(120))

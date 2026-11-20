@@ -103,8 +103,14 @@ export interface ModEntry {
   name: string;
   version: string;
   kind: string;
+  description: string | null;
   minecraft: string | null;
   upstream: string | null;
+  license: string | null;
+  /** The built .mmc; absent for mods that only come compiled into packs. */
+  download: string | null;
+  sha256: string | null;
+  size: number | null;
 }
 
 // Outside Tauri (a plain browser on `npm run dev`) a sample backend stands in.
@@ -201,6 +207,8 @@ export const api = {
   ping: (address: string) => call<Status>("ping", { address }),
 
   mods: () => call<ModEntry[]>("mods_index"),
+  installMod: (device: string, server: string, id: string) =>
+    call<void>("mod_install", { device, server, id }),
 
   runtimeStatus: () => call<RuntimeStatus>("runtime_status"),
   /** Downloads the server and agent; progress arrives through `onRuntimeProgress`. */

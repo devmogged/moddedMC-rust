@@ -50,6 +50,7 @@ pub fn run() {
             runtime::runtime_server_exe,
             runtime::agent_ensure,
             mods::mods_index,
+            mods::mod_install,
             deploy::build_inspect,
             deploy::deploy,
             deploy::mod_upload,
