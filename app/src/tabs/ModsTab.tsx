@@ -151,7 +151,7 @@ function InstallBox() {
         <Upload className="size-5" />
       </div>
       <div className="flex flex-1 flex-col">
-        <span className="font-medium text-sm">Drop .mmc or Fabric .jar mods here</span>
+        <span className="font-medium text-sm">Drop .mmc mods here</span>
         <span className="text-muted-foreground text-xs">
           They go into the server you pick, ready for its next start.
         </span>

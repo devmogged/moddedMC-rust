@@ -10,12 +10,18 @@ import { cn } from "~/lib/utils";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
-/** Add the `.mmc` and `.jar` files at `paths` to a stopped server; returns how many went in. */
+/** Add the `.mmc` files at `paths` to a stopped server; returns how many went in. A Fabric `.jar`
+ * needs converting first (Jar → Rust), so it's turned away with that explanation. */
 export async function addModFiles(device: string, server: string, paths: string[]): Promise<number> {
   let added = 0;
   for (const path of paths) {
-    if (!/\.(mmc|jar)$/i.test(path)) {
-      toast(`${path.split(/[\\/]/).pop()} isn't a .mmc or .jar mod.`, "error");
+    const file = path.split(/[\\/]/).pop();
+    if (/\.jar$/i.test(path)) {
+      toast(`${file} is a Java mod. It needs converting to .mmc first, which Jar → Rust will do.`, "error");
+      continue;
+    }
+    if (!/\.mmc$/i.test(path)) {
+      toast(`${file} isn't a .mmc mod.`, "error");
       continue;
     }
     try {
@@ -77,9 +83,7 @@ export function ModsPanel({ device, server }: { device: Device; server: ServerIn
     >
       <div className="flex items-center justify-between">
         <p className="text-muted-foreground text-sm">
-          {stopped
-            ? "Drop .mmc or Fabric .jar files here, or add one."
-            : "Stop the server to add or remove mods."}
+          {stopped ? "Drop .mmc mods here, or add one." : "Stop the server to add or remove mods."}
         </p>
         <Button size="sm" variant="outline" disabled={!stopped} onClick={add}>
           <Plus /> Add mod
