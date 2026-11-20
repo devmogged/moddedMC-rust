@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use moddedmc_api::{
     InterfaceUnavailable, Mod, RegistrationError, Registry,
+    content::{self, Block, Content, State},
     items::{self, Item, Items},
 };
 
@@ -71,6 +72,46 @@ const ITEMS: [(&str, &str, &str, &str); 10] = [
     ),
 ];
 
+const MAGNETS: [(&str, &str, f32, &str, &str); 5] = [
+    (
+        "create_new_age:magnetite_block",
+        "Magnetite Block",
+        1.0,
+        "create_new_age:block/magnetite_block",
+        "create_new_age:item/magnetite_block",
+    ),
+    (
+        "create_new_age:redstone_magnet",
+        "Redstone Magnet",
+        2.0,
+        "create_new_age:block/redstone_magnet",
+        "create_new_age:item/redstone_magnet",
+    ),
+    (
+        "create_new_age:layered_magnet",
+        "Layered Magnet",
+        4.0,
+        "create_new_age:block/layered_magnet",
+        "create_new_age:item/layered_magnet",
+    ),
+    (
+        "create_new_age:fluxuated_magnetite",
+        "Fluxuated Magnetite",
+        8.0,
+        "create_new_age:block/fluxuated_magnetite",
+        "create_new_age:item/fluxuated_magnetite",
+    ),
+    (
+        "create_new_age:netherite_magnet",
+        "Netherite Magnet",
+        24.0,
+        "create_new_age:block/netherite_magnet",
+        "create_new_age:item/netherite_magnet",
+    ),
+];
+
+static CONTENT: OnceLock<Content> = OnceLock::new();
+
 static ITEMS_API: OnceLock<Items> = OnceLock::new();
 
 pub struct CreateNewAge;
@@ -78,6 +119,7 @@ pub struct CreateNewAge;
 impl Mod for CreateNewAge {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let _ = ITEMS_API.set(items::require()?);
+        let _ = CONTENT.set(content::require()?);
         Ok(())
     }
 
@@ -95,6 +137,31 @@ impl Mod for CreateNewAge {
                     carrier,
                     model,
                 },
+            )?;
+        }
+        let content = CONTENT.get().ok_or(RegistrationError::InvalidDefinition)?;
+        for &(id, display_name, _, model, item_model) in &MAGNETS {
+            content.add_block(
+                registry,
+                &Block {
+                    id,
+                    display_name,
+                    entity: "",
+                    item_model,
+                    states: &[State {
+                        properties: "",
+                        // Original ImplementedMagnetBlock uses 5.0/7.0 hardness/resistance.
+                        // Iron-block template is the closest exposed host physical state.
+                        physical: "minecraft:iron_block",
+                        model,
+                        rotating_model: "",
+                        x: 0,
+                        y: 0,
+                        orientation: [0.0, 0.0, 0.0, 1.0],
+                        shape: &[],
+                    }],
+                },
+                None,
             )?;
         }
         Ok(())
@@ -121,5 +188,29 @@ mod tests {
             ));
         }
         assert_eq!(names.len(), 10);
+    }
+
+    #[test]
+    fn original_implemented_magnet_strengths_and_ids() {
+        let observed: Vec<_> = MAGNETS
+            .iter()
+            .map(|(id, _, strength, _, _)| (*id, *strength))
+            .collect();
+        assert_eq!(
+            observed,
+            [
+                ("create_new_age:magnetite_block", 1.0),
+                ("create_new_age:redstone_magnet", 2.0),
+                ("create_new_age:layered_magnet", 4.0),
+                ("create_new_age:fluxuated_magnetite", 8.0),
+                ("create_new_age:netherite_magnet", 24.0),
+            ]
+        );
+        let mut around_coil = [0.0; 12];
+        around_coil[..5].copy_from_slice(&[1.0, 2.0, 4.0, 8.0, 24.0]);
+        assert_eq!(
+            crate::generator_coil::stress_with_magnets(6.0, around_coil),
+            45.0
+        );
     }
 }
