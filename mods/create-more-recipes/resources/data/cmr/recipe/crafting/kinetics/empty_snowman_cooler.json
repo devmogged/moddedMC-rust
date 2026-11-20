@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": {
+      "item": "minecraft:snow_block"
+    },
+    "I": {
+      "tag": "c:plates/iron"
+    }
+  },
+  "pattern": [
+    " I ",
+    "IAI",
+    " I "
+  ],
+  "result": {
+    "id": "cmr:empty_snowman_cooler"
+  },
+  "show_notification": true
+}

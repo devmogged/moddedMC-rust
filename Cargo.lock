@@ -211,6 +211,11 @@ dependencies = [
 [[package]]
 name = "create-more-recipes"
 version = "0.1.0"
+dependencies = [
+ "fastnbt",
+ "moddedmc-api",
+ "serde",
+]
 
 [[package]]
 name = "crypto-common"

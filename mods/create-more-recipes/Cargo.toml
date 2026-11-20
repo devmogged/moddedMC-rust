@@ -6,7 +6,10 @@ license = "MIT"
 description = "Create More Recipes 1.2.1-fix1, source-grounded Rust port (in progress)"
 publish = false
 
-# This crate holds the independent cooler model until the Create processing service
-# is available. Promote to cdylib and add the mod entry point with the live block port.
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true
+serde = { version = "1", features = ["derive"] }
+fastnbt = "2.6.3"

@@ -1,6 +1,6 @@
 //! Fuel timing from SnowmanCoolerBlockEntity and HeatLevel from SnowmanCoolerBlock.
 //! Source: iglee42/create-more-recipes, branch 1.21.1, commit 79cc098.
-//! No game integration here; fuel items, server NBT and basin hooks belong in the port.
+//! Registered block behavior and saved NBT live in lib.rs; Create basin hooks remain pending.
 
 pub const MAX_HEAT_CAPACITY: u32 = 10_000;
 pub const INSERTION_THRESHOLD: u32 = 500;
@@ -52,6 +52,22 @@ impl Default for Cooler {
 }
 
 impl Cooler {
+    /// Restore Java NBT (`fuelLevel`, `burnTimeRemaining`, `isCreative`).
+    /// The creative heat state belongs to the block state, not the block entity NBT.
+    pub fn restore(fuel_level: i32, remaining: i32, creative: bool, heat: Heat) -> Self {
+        let fuel = match fuel_level {
+            1 => Fuel::Normal,
+            2 => Fuel::Special,
+            _ => Fuel::None,
+        };
+        Self {
+            fuel: if creative { Fuel::None } else { fuel },
+            remaining: if creative { 0 } else { remaining.max(0) as u32 },
+            creative,
+            creative_heat: if creative { heat } else { Heat::Idle },
+        }
+    }
+
     pub fn heat(self) -> Heat {
         if self.creative {
             return self.creative_heat;
