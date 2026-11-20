@@ -18,14 +18,14 @@ cmd setblock 2261 101 2260 minecraft:cobblestone
 cmd setblock 2262 101 2260 minecraft:stone
 cmd setblock 2260 101 2261 minecraft:oak_log[axis=x]
 
-# A chest touching slime would have to move. The initial port refuses that assembly.
-cmd setblock 2259 101 2260 minecraft:chest
+# A barrel touching slime would have to move. The port refuses unsupported storage.
+cmd setblock 2259 101 2260 minecraft:barrel
 cmd kinetics 2260 99 2260 15
 wait 0.6
 bot expect block 2260 101 2260 minecraft:slime_block
 wait 0.5
 expect ^\[bot\] expect block ok 2260 101 2260
-bot expect block 2259 101 2260 minecraft:chest
+bot expect block 2259 101 2260 minecraft:barrel
 wait 0.5
 expect ^\[bot\] expect block ok 2259 101 2260
 cmd kinetics 2260 99 2260 0

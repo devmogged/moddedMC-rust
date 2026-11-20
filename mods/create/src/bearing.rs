@@ -1,5 +1,7 @@
 //! Create 6.0.10's MechanicalBearingBlockEntity and BearingContraption.
 
+use std::collections::HashMap;
+
 use fastnbt::Value;
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
@@ -19,6 +21,8 @@ const ID: &str = "create:mechanical_bearing";
 const WINDMILL: &str = "create:windmill_bearing";
 const MINIMUM_SAIL_COUNT: i32 = 8;
 const WINDMILL_SAILS_PER_RPM: i32 = 8;
+// World::set_entity limits the entire kinetic save to 64 KiB.
+const MAX_BEARING_DATA_BYTES: usize = (64 << 10) - 256;
 const ROTATIONS: [(i16, i16); 6] = [(180, 0), (0, 0), (90, 0), (90, 180), (90, 270), (90, 90)];
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
@@ -129,15 +133,20 @@ impl MechanicalBearing {
             .map(|block| BlockUpdate {
                 position: offset(origin, block.local_pos()),
                 state: air,
-                flags: content::UPDATE_ALL,
+                flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
             })
             .collect();
-        if world.write(&remove) != remove.len() {
+        let saved = BearingData {
+            running: true,
+            angle: 0.0,
+            contraption: Some(contraption),
+        };
+        if !fastnbt::to_bytes(&saved).is_ok_and(|bytes| bytes.len() <= MAX_BEARING_DATA_BYTES)
+            || world.write(&remove) != remove.len()
+        {
             return false;
         }
-        self.data.contraption = Some(contraption);
-        self.data.angle = 0.0;
-        self.data.running = true;
+        self.data = saved;
         true
     }
 
@@ -153,19 +162,22 @@ impl MechanicalBearing {
             axis,
             angle: self.data.angle,
         };
-        let Some(place) = contraption
+        let Some((place, saved_entities)) = contraption
             .blocks
             .block_list
             .iter()
             .map(|block| {
                 let entry = contraption.blocks.palette.get(block.palette_index())?;
-                Some(BlockUpdate {
-                    position: transform.apply(block.local_pos()),
-                    state: transform.block_state(entry).state()?,
-                    flags: content::UPDATE_ALL,
-                })
+                Some((
+                    BlockUpdate {
+                        position: transform.apply(block.local_pos()),
+                        state: transform.block_state(entry).state()?,
+                        flags: content::UPDATE_ALL,
+                    },
+                    block.nbt.as_ref().map(fastnbt::to_bytes).transpose().ok()?,
+                ))
             })
-            .collect::<Option<Vec<_>>>()
+            .collect::<Option<(Vec<_>, Vec<_>)>>()
         else {
             return false;
         };
@@ -173,10 +185,27 @@ impl MechanicalBearing {
         let mut destination = vec![UNLOADED_STATE; place.len()];
         world.read(&positions, &mut destination);
         // shortcut: preserve the assembly when obstructed until replacement and drop rules are ported.
-        if !destination.into_iter().all(|state| blocks.is_air(state))
+        if !destination.iter().all(|&state| blocks.is_air(state))
             || world.write(&place) != place.len()
         {
             return false;
+        }
+        for (update, saved) in place.iter().zip(saved_entities) {
+            if let Some(saved) = saved
+                && !world.restore_block_entity(update.position, &saved)
+            {
+                let rollback: Vec<_> = positions
+                    .iter()
+                    .zip(destination)
+                    .map(|(&position, state)| BlockUpdate {
+                        position,
+                        state,
+                        flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
+                    })
+                    .collect();
+                world.write(&rollback);
+                return false;
+            }
         }
         self.clear_displays(world);
         self.data = BearingData::default();
@@ -305,19 +334,27 @@ pub fn tick(
         if !bearing.disassemble(world, checks, axis) {
             bearing.clear_displays(world);
             if let (Some(contraption), Some(stacks)) = (bearing.data.contraption, STACKS.get()) {
+                let position = [pos.x, pos.y, pos.z].map(|n| f64::from(n) + 0.5);
                 for block in contraption.blocks.block_list {
                     if let Some(entry) = contraption.blocks.palette.get(block.palette_index()) {
-                        let item = Value::Compound(std::collections::HashMap::from([
+                        let item = Value::Compound(HashMap::from([
                             ("id".into(), Value::String(entry.name.clone())),
                             ("count".into(), Value::Int(1)),
                         ]));
                         if let Ok(bytes) = fastnbt::to_bytes(&item) {
-                            stacks.spawn(
-                                world,
-                                [pos.x, pos.y, pos.z].map(|n| f64::from(n) + 0.5),
-                                [0.0, 0.1, 0.0],
-                                &bytes,
-                            );
+                            stacks.spawn(world, position, [0.0, 0.1, 0.0], &bytes);
+                        }
+                    }
+                    if let Some(Value::List(items)) =
+                        block.nbt.and_then(|mut nbt| nbt.remove("Items"))
+                    {
+                        for mut item in items {
+                            if let Value::Compound(fields) = &mut item {
+                                fields.remove("Slot");
+                                if let Ok(bytes) = fastnbt::to_bytes(&item) {
+                                    stacks.spawn(world, position, [0.0, 0.1, 0.0], &bytes);
+                                }
+                            }
                         }
                     }
                 }

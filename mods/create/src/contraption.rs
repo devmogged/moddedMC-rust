@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
-use fastnbt::IntArray;
+use fastnbt::{IntArray, Value};
 use moddedmc_api::{
     Pos,
     content::{Content, UNLOADED_STATE, World},
@@ -77,13 +77,28 @@ impl BlockMovementChecks {
             }
             let entry = PaletteEntry::parse(&content.describe_state(state[0])?);
             let id = entry.name.strip_prefix("minecraft:")?;
-            ((id.ends_with("_log") || id.ends_with("_stairs") || id.ends_with("_wool"))
+            ((id.ends_with("_log")
+                || id.ends_with("_stairs")
+                || id.ends_with("_wool")
+                || entry.has_storage())
                 && entry
                     .properties
                     .get("waterlogged")
                     .is_none_or(|v| v == "false"))
             .then_some(BlockMovement::Movable(entry))
         })?;
+        let anchor = contraption.anchor()?;
+        for block in &mut contraption.blocks.block_list {
+            if contraption.blocks.palette[block.palette_index()].has_storage() {
+                let position = offset(anchor, block.local_pos());
+                let bytes = world.block_entity(position)?;
+                let mut data: HashMap<String, Value> = fastnbt::from_bytes(&bytes).ok()?;
+                for coordinate in ["x", "y", "z"] {
+                    data.remove(coordinate);
+                }
+                block.nbt = Some(data);
+            }
+        }
         if let Some(sails) = TAGS.get()?.values("block", "create:windmill_sails") {
             contraption.sails = contraption
                 .blocks
@@ -165,6 +180,14 @@ impl PaletteEntry {
         selector.push(']');
         content.state(&selector)
     }
+    fn has_storage(&self) -> bool {
+        self.name == "minecraft:furnace"
+            || self.name == "minecraft:chest"
+                && self
+                    .properties
+                    .get("type")
+                    .is_some_and(|kind| kind == "single")
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -172,6 +195,8 @@ impl PaletteEntry {
 pub struct StructureBlockInfo {
     pos: i64,
     state: i32,
+    #[serde(rename = "Data", default, skip_serializing_if = "Option::is_none")]
+    pub nbt: Option<HashMap<String, Value>>,
 }
 
 impl StructureBlockInfo {
@@ -229,6 +254,7 @@ impl Contraption {
             blocks.block_list.push(StructureBlockInfo {
                 pos: packed(relative),
                 state,
+                nbt: None,
             });
             if blocks.block_list.len() > MAX_BLOCKS_MOVED {
                 return None;
