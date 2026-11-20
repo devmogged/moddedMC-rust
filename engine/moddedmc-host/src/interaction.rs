@@ -1,6 +1,6 @@
 //! `moddedmc:interaction`: content items used on blocks.
 
-use std::{ptr, sync::Arc};
+use std::{cell::Cell, ptr, sync::Arc};
 
 use moddedmc_api::abi::{self, Str};
 use pumpkin_core::{
@@ -15,7 +15,10 @@ use pumpkin_data::{
     item_stack::ItemStack,
 };
 use pumpkin_nbt::{compound::NbtCompound, tag::NbtTag};
-use pumpkin_util::math::{position::BlockPos, vector3::Vector3};
+use pumpkin_util::{
+    Hand,
+    math::{position::BlockPos, vector3::Vector3},
+};
 
 use crate::content::use_on_block_callback;
 
@@ -200,6 +203,19 @@ unsafe extern "C" fn stack_write(raw: abi::StackRef, nbt: Str) -> bool {
     true
 }
 
+/// The held stack a content block's use callback is changing. Pumpkin hands the callback a copy
+/// and writes it back to `hand` afterwards, where vanilla passes the live slot.
+#[derive(Clone, Copy)]
+struct HandUse {
+    player: *const Player,
+    hand: Hand,
+    stack: *mut ItemStack,
+}
+
+thread_local! {
+    static HAND_USE: Cell<Option<HandUse>> = const { Cell::new(None) };
+}
+
 unsafe extern "C" fn give(player: abi::EntityRef, nbt: Str) -> bool {
     // SAFETY: the player is live for the callback.
     let (Some(entity), Some(stack)) = (
@@ -211,26 +227,48 @@ unsafe extern "C" fn give(player: abi::EntityRef, nbt: Str) -> bool {
     let Some(player) = entity.get_player() else {
         return false;
     };
-    pumpkin_inventory::screen_handler::offer_or_drop_stack(player, stack);
+    let inventory = player.inventory();
+    match HAND_USE.get().filter(|used| ptr::eq(used.player, player)) {
+        // Vanilla `Inventory.add` merges into the live held slot, so the copy has to be in the
+        // slot while it runs and come back out with the result.
+        Some(used) => {
+            // SAFETY: the use callback that set HAND_USE is still running and only reaches its
+            // stack through the pointer it was given.
+            let held = unsafe { &mut *used.stack };
+            inventory.set_stack_in_hand(used.hand, held.clone());
+            pumpkin_inventory::screen_handler::offer_or_drop_stack(player, stack);
+            *held = inventory.get_stack_in_hand(used.hand);
+        }
+        None => pumpkin_inventory::screen_handler::offer_or_drop_stack(player, stack),
+    }
     true
 }
 
-/// Vanilla `BlockBehaviour.useItemOn` and `useWithoutItem` for content blocks.
+/// Vanilla `BlockBehaviour.useItemOn` and `useWithoutItem` for content blocks. `hand` is the
+/// hand `stack` is a copy of, if the caller writes it back there.
 pub fn use_block(
     callback: abi::UseBlockFn,
     world: &World,
     player: &Player,
-    stack: &mut ItemStack,
+    (stack, hand): (&mut ItemStack, Option<Hand>),
     context: &abi::UseBlock,
 ) -> i32 {
     let entity: &dyn EntityBase = player;
+    let stack = ptr::from_mut(stack);
+    let previous = HAND_USE.replace(hand.map(|hand| HandUse {
+        player: ptr::from_ref(player),
+        hand,
+        stack,
+    }));
     // SAFETY: the world, player, stack and context outlive this synchronous callback.
-    unsafe {
+    let result = unsafe {
         callback(
             ptr::from_ref(world).cast(),
             ptr::from_ref(&entity).cast(),
-            ptr::from_mut(stack).cast(),
+            stack.cast(),
             context,
         )
-    }
+    };
+    HAND_USE.set(previous);
+    result
 }

@@ -35,7 +35,10 @@ use pumpkin_data::{
     item_stack::ItemStack,
 };
 use pumpkin_nbt::Nbt;
-use pumpkin_util::math::{position::BlockPos, vector3::Vector3};
+use pumpkin_util::{
+    Hand,
+    math::{position::BlockPos, vector3::Vector3},
+};
 use pumpkin_world::world::BlockFlags;
 use uuid::Uuid;
 
@@ -641,7 +644,13 @@ impl BlockBehaviour for Behaviour {
             args.equipment_slot == &EquipmentSlot::MAIN_HAND,
             true,
         );
-        match interaction::use_block(callback, args.world, args.player, args.item_stack, &context) {
+        let hand = if args.equipment_slot == &EquipmentSlot::MAIN_HAND {
+            Hand::Right
+        } else {
+            Hand::Left
+        };
+        let stack = (args.item_stack, Some(hand));
+        match interaction::use_block(callback, args.world, args.player, stack, &context) {
             abi::USE_SUCCESS => BlockActionResult::Success,
             abi::USE_CONSUME => BlockActionResult::Consume,
             abi::USE_FAIL => BlockActionResult::Fail,
@@ -663,7 +672,8 @@ impl BlockBehaviour for Behaviour {
             false,
         );
         let mut empty = ItemStack::EMPTY.clone();
-        match interaction::use_block(callback, args.world, args.player, &mut empty, &context) {
+        let stack = (&mut empty, None);
+        match interaction::use_block(callback, args.world, args.player, stack, &context) {
             abi::USE_SUCCESS => BlockActionResult::Success,
             abi::USE_CONSUME => BlockActionResult::Consume,
             abi::USE_FAIL => BlockActionResult::Fail,
