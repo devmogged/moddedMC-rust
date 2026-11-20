@@ -181,7 +181,12 @@ pub(super) fn encode_track_graph(
                         material: edge.material.clone(),
                         signals: HashMap::new(),
                         extra: match &edge.turn {
-                            Some(turn) => turn.record.to_nbt_fields()?,
+                            Some(turn) => {
+                                let mut fields = turn.record.to_nbt_fields()?;
+                                // TrackEdge.write overwrites the turn's Material tag.
+                                fields.remove("Material");
+                                fields
+                            }
                             None => HashMap::new(),
                         },
                     },
@@ -264,7 +269,10 @@ pub(super) fn decode_track_graph(
             let curve = if link.edge.extra.is_empty() {
                 None
             } else {
-                Some(CurveRecord::from_nbt_fields(&link.edge.extra)?)
+                // TrackEdge.read passes the same compound to BezierConnection.read.
+                let mut fields = link.edge.extra.clone();
+                fields.insert("Material".into(), Value::String(link.edge.material.clone()));
+                Some(CurveRecord::from_nbt_fields(&fields)?)
             };
             if directed
                 .insert((from, to), (link.edge.material.as_str(), curve))
@@ -672,11 +680,12 @@ mod tests {
                 },
             ],
             normals: [up, up],
+            material: "create:brass".to_owned(),
             primary: true,
             girder: false,
             smoothing: Some([3, 0]),
         };
-        assert!(graph.connect_nodes_with_curve(&a, &b, "create:andesite", Some(turn)));
+        assert!(graph.connect_nodes_with_curve(&a, &b, "create:brass", Some(turn)));
         (graph, a, b)
     }
 
@@ -689,7 +698,10 @@ mod tests {
         assert_eq!(saved.nodes.len(), 2);
         for node in &saved.nodes {
             assert_eq!(node.connections.len(), 1);
-            let curve = &node.connections[0].edge.extra;
+            let edge = &node.connections[0].edge;
+            assert_eq!(edge.material, "create:brass");
+            let curve = &edge.extra;
+            assert!(!curve.contains_key("Material"));
             for key in [
                 "Positions",
                 "Starts",
@@ -710,6 +722,11 @@ mod tests {
         assert!(first.turn.is_some());
         assert!(reverse.turn.is_some());
         assert!(first.turn.as_ref().unwrap().record.primary);
+        assert_eq!(first.turn.as_ref().unwrap().record.material, "create:brass");
+        assert_eq!(
+            reverse.turn.as_ref().unwrap().record.material,
+            "create:brass"
+        );
         assert!(!reverse.turn.as_ref().unwrap().record.primary);
         assert_eq!(first.turn.as_ref().unwrap().record.smoothing, Some([3, 0]));
         assert_eq!(

@@ -13,6 +13,7 @@ pub(super) struct CurveRecord {
     pub starts: [Vec3; 2],
     pub axes: [Vec3; 2],
     pub normals: [Vec3; 2],
+    pub material: String,
     pub primary: bool,
     pub girder: bool,
     pub smoothing: Option<[i32; 2]>,
@@ -38,6 +39,7 @@ impl CurveRecord {
             starts: [self.starts[1], self.starts[0]],
             axes: [self.axes[1], self.axes[0]],
             normals: [self.normals[1], self.normals[0]],
+            material: self.material.clone(),
             primary: !self.primary,
             girder: self.girder,
             smoothing: self.smoothing.map(|s| [s[1], s[0]]),
@@ -50,6 +52,7 @@ impl CurveRecord {
         }
         let wire = SavedCurve {
             girder: self.girder,
+            material: self.material.clone(),
             primary: self.primary,
             positions: self
                 .block_positions
@@ -89,6 +92,12 @@ impl CurveRecord {
             starts,
             axes,
             normals,
+            // TrackMaterial.deserialize accepts missing/blank ids from old saves.
+            material: if wire.material.trim().is_empty() {
+                "create:andesite".to_owned()
+            } else {
+                wire.material
+            },
             primary: wire.primary,
             girder: wire.girder,
             smoothing,
@@ -111,6 +120,8 @@ fn pair<T, U>(values: Vec<T>, convert: impl Fn(T) -> U) -> Result<[U; 2], String
 struct SavedCurve {
     #[serde(rename = "Girder")]
     girder: bool,
+    #[serde(rename = "Material", default)]
+    material: String,
     #[serde(rename = "Primary")]
     primary: bool,
     #[serde(rename = "Positions")]
@@ -183,6 +194,7 @@ mod tests {
             starts: [vec3(0.5, 64.0, 0.5), vec3(8.5, 64.0, 8.5)],
             axes: [vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, -1.0)],
             normals: [vec3(0.0, 1.0, 0.0); 2],
+            material: "create:brass".to_owned(),
             primary: true,
             girder: true,
             smoothing: Some([2, -3]),
@@ -207,6 +219,7 @@ mod tests {
             "Positions",
             "Axes",
             "Normals",
+            "Material",
             "Smoothing",
             "Primary",
             "Girder",
@@ -217,6 +230,8 @@ mod tests {
         assert_eq!(loaded.starts, curve.starts);
         assert_eq!(loaded.axes, curve.axes);
         assert_eq!(loaded.normals, curve.normals);
+        assert_eq!(loaded.material, "create:brass");
+        assert_eq!(fields["Material"], Value::String("create:brass".into()));
         assert_eq!(loaded.block_positions, curve.block_positions);
         assert_eq!(loaded.smoothing, curve.smoothing);
         assert_eq!(loaded.primary, curve.primary);
@@ -236,6 +251,7 @@ mod tests {
         assert_eq!(secondary.axes, [curve.axes[1], curve.axes[0]]);
         assert_eq!(secondary.smoothing, Some([-3, 2]));
         assert!(!secondary.primary);
+        assert_eq!(secondary.material, curve.material);
         assert!(secondary.girder);
         let roundtrip = CurveRecord::from_nbt_fields(&secondary.to_nbt_fields().unwrap()).unwrap();
         assert_eq!(roundtrip.starts, secondary.starts);
@@ -253,6 +269,24 @@ mod tests {
                 .unwrap()
                 .smoothing
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn legacy_curve_material_defaults_to_java_andesite() {
+        // TrackMaterial.deserialize("") in Create migrates old track connections.
+        let mut fields = fixture().to_nbt_fields().unwrap();
+        fields.remove("Material");
+        let loaded = CurveRecord::from_nbt_fields(&fields).unwrap();
+        assert_eq!(loaded.material, "create:andesite");
+        assert_eq!(
+            loaded.to_nbt_fields().unwrap()["Material"],
+            Value::String("create:andesite".into())
+        );
+        fields.insert("Material".into(), Value::String(String::new()));
+        assert_eq!(
+            CurveRecord::from_nbt_fields(&fields).unwrap().material,
+            "create:andesite"
         );
     }
 
