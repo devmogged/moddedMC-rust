@@ -13,10 +13,14 @@ use moddedmc_api::{
 static CONTENT: OnceLock<Content> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
 
-const CRATES: [(&str, &str); 3] = [
-    ("carrot_crate", "Carrot Crate"),
-    ("potato_crate", "Potato Crate"),
-    ("beetroot_crate", "Beetroot Crate"),
+const STORAGE_BLOCKS: [(&str, &str, &str); 7] = [
+    ("carrot_crate", "Carrot Crate", "minecraft:oak_planks"),
+    ("potato_crate", "Potato Crate", "minecraft:oak_planks"),
+    ("beetroot_crate", "Beetroot Crate", "minecraft:oak_planks"),
+    ("cabbage_crate", "Cabbage Crate", "minecraft:oak_planks"),
+    ("tomato_crate", "Tomato Crate", "minecraft:oak_planks"),
+    ("onion_crate", "Onion Crate", "minecraft:oak_planks"),
+    ("rice_bag", "Rice Bag", "minecraft:white_wool"),
 ];
 
 const INGREDIENTS: [(&str, &str); 4] = [
@@ -51,7 +55,7 @@ impl Mod for FarmersDelight {
                 },
             )?;
         }
-        for (name, display_name) in CRATES {
+        for (name, display_name, physical) in STORAGE_BLOCKS {
             let id = format!("farmersdelight:{name}");
             let model = format!("farmersdelight:block/{name}");
             let item_model = format!("farmersdelight:item/{name}");
@@ -64,7 +68,7 @@ impl Mod for FarmersDelight {
                     item_model: &item_model,
                     states: &[State {
                         properties: "",
-                        physical: "minecraft:oak_planks",
+                        physical,
                         model: &model,
                         rotating_model: "",
                         x: 0,
