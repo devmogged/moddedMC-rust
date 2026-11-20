@@ -99,6 +99,7 @@ impl Mod for Create {
         content.require_extension(WorldExtension::CollisionShape)?;
         content.require_extension(WorldExtension::DescribeState)?;
         content.require_extension(WorldExtension::FluidId)?;
+        content.require_extension(WorldExtension::BlockEntities)?;
         let _ = CONTENT.set(content);
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);

@@ -20,6 +20,10 @@ Host commit `44e07b8` exposes full selectors and fluid ids. The fan scenario was
 
 Create's controller keeps its normal 13/16 collision for other entities and returns an empty collision shape for its captured entity and its ejected items. The existing shape query reads the standard shape. A content collision callback taking `(world: WorldRef, pos: Pos, state: u32, entity: EntityRef) -> bool` could let a mod opt a particular entity out of the state's collision. A null entity keeps the standard shape. The callback must answer synchronously from current state and avoid changing the world.
 
-## Contraption block entity capture
+## Contraption block entity capture (resolved)
 
-P1d needs the complete saved NBT of vanilla chests, furnaces and other movable block entities. Append `read_block_entity(world: WorldRef, pos: Pos, out: Sink) -> bool` and `restore_block_entity(world: WorldRef, pos: Pos, nbt: Str) -> bool` to block-world. Capture includes the vanilla type id and components. Restore runs after the destination block is placed, checks that the saved id is valid for the destination state, and uses the destination coordinates instead of the old `x`, `y` and `z` fields. It replaces the live entity, marks the chunk dirty and performs the same client update as a vanilla structure placement. Both calls must refuse unloaded positions. The current `World::entity` and `set_entity` only accept content block entities.
+Host commit `457266d` supplies `World::block_entity` and `restore_block_entity`. The bearing stores the full saved data without its original coordinates and restores it after placing the rotated state.
+
+## Moving-block writes (resolved)
+
+Normal writes over a captured chest and furnace scattered two stacks on pickup and restored the same stacks on disassembly. Host commit `2fa8192` adds `UPDATE_MOVED`, which replaces the block without running the inventory scatter callback. The bearing storage scenario checks zero loose items and verifies the two stacks after a full restart and disassembly.
