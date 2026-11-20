@@ -4,7 +4,7 @@
 
 Branch: `ws/buja`. Worktree: `N:\mmc-wt\buja`. Scope is inventory and small independent mods; Create, addons, engine and the ABI belong to other workstreams.
 
-Candidate source: `D:\minecraft\buja_server\mods`, an existing Forge 1.20.1 server directory also referenced by `mods/create/README.md`. The owner has **not yet confirmed** it is the complete current buja pack. Its 65 JARs (the extra `temp.py` is not a JAR) are inventoried in [`docs/BUJA.md`](../BUJA.md). Original JARs and assets remain outside Git.
+The owner confirmed that **the entire buja pack** is in scope and every port must use the latest official mod release. The user-supplied path `D:\buja_server` is absent on this laptop. The only installed Forge buja server located is `D:\minecraft\buja_server\mods`, also referenced in `mods/create/README.md`. Its 65 JAR basenames match exactly the 65 JAR basenames in the neighboring `mods.zip` archive (67 ZIP entries total); there are no archive-only or loose-only JARs. The extra `temp.py` is not a mod. This 65-JAR working snapshot is inventoried in [`docs/BUJA.md`](../BUJA.md), pending authoritative path mapping and per-mod rights review. No original jars/assets are committed.
 
 Evidence: read embedded `META-INF/mods.toml` / `fabric.mod.json`, extracted declared mod IDs, versions, dependencies and license fields, and matched installed SHA-1 against Modrinth. There are 48 exact file-hash matches, 11 additional project-title/mod-ID matches requiring publisher checks, and 6 official CurseForge release-page checks. Each row records its source and the latest published stable release found on that service, with its game version and loader. This is not a claim that all projects have been checked against every distribution site.
 
@@ -12,9 +12,9 @@ Provisional categories: 33 server ports (including Create), 6 engine/vanilla rep
 
 Verification performed: every JAR was readable as ZIP; exactly 65 unique candidate filenames appear in the source metadata export and inventory. Inventory has 65 mod rows and 65 corresponding manifest entries. No native gameplay scenarios were run: this milestone changes documentation only, and WS-0 has not published shared engine binaries. Real mod parity and asset licenses remain unverified. No Git changes were made in the integrator's checkout.
 
-**Blocker before M0 completion:** owner confirmation that `D:\minecraft\buja_server\mods` is the intended complete buja pack, or identification of the correct instance/export. If corrected, redo inventory and release checks on the authoritative list. Do not mark M0 complete until then.
+**M0 review remains open:** the owner confirmed scope, but the literal supplied path `D:\buja_server` is missing and the nested source is the only identified installation. Verify whether an alternate newer launcher snapshot exists before declaring the 65 JARs authoritative. Rights status is explicitly `Unknown (withhold assets)` for unresolved items; code-license metadata claims also need release-level verification before porting. The Farmer's Delight 1.3.4 source was separately verified MIT. See the reviewer findings in `N:\mmc-coord\reviews\WS-1\b8dfef6.md`.
 
-## M1: port order (draft; not started)
+## M1: ranked port briefs (prepared; owner launches separate chats)
 
 Prioritize by visible player impact, ability to implement actual gameplay through the current ABI, and size. Candidate first substreams for owner-launched separate chats: `WS-1a` Waystones (high visibility, needs teleport/ownership and menu parity), `WS-1b` Corpse (death persistence, item recovery; may need entity and inventory hooks), `WS-1c` Nature's Compass (biome search/world queries), `WS-1d` Explorer's Compass (structure search), `WS-1e` Polymorph (recipe selection UI), `WS-1f` Easy Villagers (villager interactions and workstations), `WS-1g` Lootr (per-player container loot), `WS-1h` Simple Storage Network (inventory network and menus), and `WS-1i` Musket Mod (projectiles and weapon events). These are provisional; versions, licensing, source methods and ABI requirements must be rechecked when each starts. Do not spawn any of these parallel workstreams from WS-1; the owner starts them.
 
@@ -22,7 +22,7 @@ L/XL follow later: Farmer's Delight, Epic Knights, Small Ships, Sophisticated st
 
 ## Next
 
-Confirm authoritative buja source; correct and complete M0 license/source checks; review M1 prioritization with real ABI gaps; then start one independent S-sized mod (if one is found), adding genuine tests, scenario, original-mod comparison and benchmark where applicable. Use ports 26010-26019. Ask WS-0 for host gaps, never implement them in this branch.
+Continue small source-verified Farmer's Delight slices in this worktree, using ports 26010-26019 and direct original-code comparisons. Keep the two generic WS-0 ABI requests tracked without implementing host code in WS-1. Close the M0 pack-path and per-mod rights questions against the owner-confirmed pack scope, and leave the nine independently owned medium ports for the owner's separate chat/worktree launches. Require WS-R review before any integrator merge.
 
 ## M2: Farmer's Delight crop crates (first playable slice)
 
