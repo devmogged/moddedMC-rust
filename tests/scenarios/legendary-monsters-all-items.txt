@@ -1,0 +1,236 @@
+# WS-6 M1: all 24 source-backed simple items in a real inventory, across server restart.
+# Rust 26.3 counterpart to the 24-slot chest Java oracle; this is not item-component parity.
+mods target\mods\legendary-monsters.mmc
+start
+expect registered content item legendary_monsters:air_rune
+botstart registry_tester
+wait 3
+expect \[bot\] joined as registry_tester
+cmd tp registry_tester 0.5 101 0.5
+wait 1
+cmd give registry_tester legendary_monsters:dinosaur_bone 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:withered_bone 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:chorus_crystal 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:frozen_rune 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:large_shulker_shell 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:nature_crystal 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:void_gem 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:warped_mushroom_cap_part 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:ancient_spike 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:falling_cloud_projectile 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:falling_cloud_small_projectile 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:air_rune 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:knights_sword_blade_half 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:long_stick_half 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:deactivated_knight_summoner 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:deactivated_guard_summoner 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:primal_ice_shard 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:withered_horn 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:chiseled_ancient_dripstone_shard 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:crystal_of_sandstorm 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:cloud_rod 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:enderitium_ingot 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:enderitium_gem 1
+wait 0.2
+expect Gave 1
+cmd give registry_tester legendary_monsters:metal_debris 1
+wait 0.2
+expect Gave 1
+# Before save/restart: check that every /give inserted into a real inventory.
+cmd clear registry_tester legendary_monsters:dinosaur_bone 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:withered_bone 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:chorus_crystal 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:frozen_rune 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:large_shulker_shell 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:nature_crystal 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:void_gem 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:warped_mushroom_cap_part 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:ancient_spike 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:falling_cloud_projectile 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:falling_cloud_small_projectile 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:air_rune 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:knights_sword_blade_half 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:long_stick_half 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:deactivated_knight_summoner 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:deactivated_guard_summoner 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:primal_ice_shard 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:withered_horn 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:chiseled_ancient_dripstone_shard 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:crystal_of_sandstorm 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:cloud_rod 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:enderitium_ingot 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:enderitium_gem 0
+wait 0.1
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:metal_debris 0
+wait 0.1
+expect Found 1 matching item
+bot quit
+stop
+start
+botstart registry_tester
+wait 3
+expect \[bot\] joined as registry_tester
+cmd clear registry_tester legendary_monsters:dinosaur_bone 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:withered_bone 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:chorus_crystal 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:frozen_rune 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:large_shulker_shell 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:nature_crystal 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:void_gem 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:warped_mushroom_cap_part 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:ancient_spike 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:falling_cloud_projectile 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:falling_cloud_small_projectile 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:air_rune 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:knights_sword_blade_half 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:long_stick_half 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:deactivated_knight_summoner 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:deactivated_guard_summoner 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:primal_ice_shard 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:withered_horn 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:chiseled_ancient_dripstone_shard 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:crystal_of_sandstorm 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:cloud_rod 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:enderitium_ingot 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:enderitium_gem 0
+wait 0.2
+expect Found 1 matching item
+cmd clear registry_tester legendary_monsters:metal_debris 0
+wait 0.2
+expect Found 1 matching item
+reject (?i)panic|unknown item|incorrect argument
+bot quit
+stop
