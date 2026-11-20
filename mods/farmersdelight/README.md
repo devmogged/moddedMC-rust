@@ -16,9 +16,9 @@ included as `LICENSE.md`.
 - Four plain items, as `new Item(basicItem())`: straw, canvas, tree bark
   and rice panicle.
 - Original block models, textures, loot tables and axe mineability tags.
-- Ten original vanilla-format recipes: three vanilla-crop crates, their
-  unpacking recipes, canvas, book from canvas, painting from canvas and
-  scaffolding from canvas.
+- Thirteen original vanilla-format recipes: three vanilla-crop crates and
+  their unpacking recipes; canvas, book, painting and scaffolding from canvas;
+  lead from straw, packed mud from straw and mud, and paper from tree bark.
 
 The carrot/potato/beetroot crate recipes consume nine corresponding vanilla
 crops and unpack to nine. `enableVanillaCropCrates` defaults to true in
