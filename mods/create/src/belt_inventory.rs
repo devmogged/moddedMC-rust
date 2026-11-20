@@ -1109,6 +1109,14 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
         else {
             continue;
         };
+        // BeltBlock.initBelt ejects saved items if disassembly changed the slope.
+        if !can_transport_objects(chain.belt) {
+            eject_all(world, chain, &inventory);
+            if let Some(be) = kinetics.get_mut(controller) {
+                be.dirty = true;
+            }
+            continue;
+        }
         let changed = inventory.tick(world, kinetics, chain);
         render(
             world,

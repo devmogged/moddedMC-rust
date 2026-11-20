@@ -92,14 +92,14 @@ impl BlockMovementChecks {
             |pos, entry| self.attachments(world, pos, entry, None),
         )?;
         let anchor = contraption.anchor()?;
-        // shortcut: belts can yaw, allow other axes with BeltBlock.transformInner.
-        if face_axis(facing) != 1
-            && contraption
-                .blocks
-                .palette
-                .iter()
-                .any(|entry| entry.name == BELT)
-        {
+        // shortcut: rotating a diagonal around its run axis can leave disconnected parts.
+        // Keep them intact until disassembly can reproduce Create's invalid-chain drops.
+        if contraption.blocks.palette.iter().any(|entry| {
+            entry.name == BELT
+                && entry.state().and_then(|state| states()?.kind(state)).is_some_and(|kind| {
+                    matches!(kind, Kind::Belt(belt) if belt.slope.diagonal() && face_axis(belt.facing) == face_axis(facing))
+                })
+        }) {
             return None;
         }
         contraption
@@ -730,18 +730,25 @@ pub struct StructureTransform {
 
 impl StructureTransform {
     fn item_display(self, mut shown: ItemDisplay, translation: [f32; 3]) -> ItemDisplay {
+        let axis = usize::from(self.axis);
+        let u = (axis + 1) % 3;
+        let v = (axis + 2) % 3;
         let angle = self.angle.to_radians();
         let (sin, cos) = f64::from(angle).sin_cos();
-        let [x, y, z] = shown.position.map(|n| n - 0.5);
-        let [dx, dy, dz] = translation.map(f64::from);
-        shown.position = [
-            f64::from(self.anchor.x) + 0.5 + x * cos + z * sin + dx,
-            f64::from(self.anchor.y) + 0.5 + y + dy,
-            f64::from(self.anchor.z) + 0.5 + z * cos - x * sin + dz,
-        ];
+        let mut position = shown.position.map(|n| n - 0.5);
+        let (a, b) = (position[u], position[v]);
+        position[u] = a * cos - b * sin;
+        position[v] = a * sin + b * cos;
+        let anchor = [self.anchor.x, self.anchor.y, self.anchor.z];
+        shown.position = std::array::from_fn(|i| {
+            f64::from(anchor[i]) + 0.5 + position[i] + f64::from(translation[i])
+        });
         let (s, c) = (angle * 0.5).sin_cos();
-        let [x, y, z, w] = shown.rotation;
-        shown.rotation = [c * x + s * z, c * y + s * w, c * z - s * x, c * w - s * y];
+        let rotation = shown.rotation;
+        shown.rotation[axis] = c * rotation[axis] + s * rotation[3];
+        shown.rotation[u] = c * rotation[u] - s * rotation[v];
+        shown.rotation[v] = c * rotation[v] + s * rotation[u];
+        shown.rotation[3] = c * rotation[3] - s * rotation[axis];
         shown
     }
 
@@ -783,6 +790,9 @@ impl StructureTransform {
         if entry.name == sticker::ID {
             return sticker::apply_rotation(entry, self).unwrap_or(rotated);
         }
+        if entry.name == BELT {
+            return crate::belt::transform(rotated, self, turns).unwrap_or_else(|| entry.clone());
+        }
         if let Some(axis) = rotated.properties.get_mut("axis")
             && let Some(index) = AXES.iter().position(|name| *name == axis)
         {
@@ -800,7 +810,6 @@ impl StructureTransform {
         else {
             return rotated;
         };
-        let original_facing = face;
         let stair = entry.name.ends_with("_stairs");
         if self.axis == 1 || (turns == 2 && !stair) {
             if self.axis == 1 || face_axis(face) != self.axis {
@@ -829,22 +838,6 @@ impl StructureTransform {
         rotated
             .properties
             .insert("facing".into(), DIRECTIONS[usize::from(face)].into());
-        // BeltBlock.rotate reverses ends when yaw changes a vertical belt's facing sign.
-        if entry.name == BELT
-            && self.axis == 1
-            && positive(face) != positive(original_facing)
-            && entry
-                .properties
-                .get("slope")
-                .is_some_and(|slope| slope == "vertical")
-            && let Some(part) = rotated.properties.get_mut("part")
-        {
-            if part == "start" {
-                *part = "end".into();
-            } else if part == "end" {
-                *part = "start".into();
-            }
-        }
         rotated
     }
 

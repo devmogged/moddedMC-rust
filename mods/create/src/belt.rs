@@ -9,7 +9,8 @@ use moddedmc_api::{
 
 use crate::{
     AXES, DIRECTIONS, SHAFT, StateIds,
-    kinetics::{Belt, Kind, Part, Slope, face_axis, offset},
+    contraption::{PaletteEntry, StructureTransform},
+    kinetics::{Belt, Kind, Part, Slope, face_axis, offset, positive},
     states, with_world,
 };
 
@@ -50,6 +51,95 @@ pub fn properties(belt: Belt, wet: bool) -> String {
         belt.part.name(),
         belt.slope.name()
     )
+}
+
+/// `BeltBlock.transform`. The endpoint swap belongs to yaw rotation only.
+pub fn transform(
+    mut entry: PaletteEntry,
+    transform: StructureTransform,
+    turns: i32,
+) -> Option<PaletteEntry> {
+    let direction = entry.properties.get("facing")?;
+    let facing = HORIZONTAL
+        .into_iter()
+        .find(|&face| DIRECTIONS[usize::from(face)] == direction)?;
+    let slope = entry.properties.get("slope")?;
+    let slope = Slope::ALL.into_iter().find(|kind| kind.name() == slope)?;
+    let part = entry.properties.get("part")?;
+    let part = Part::ALL.into_iter().find(|kind| kind.name() == part)?;
+    let mut belt = Belt {
+        facing,
+        slope,
+        part,
+    };
+    if transform.axis == 1 {
+        belt.facing = transform.rotate_face(facing);
+        if slope == Slope::Vertical && positive(facing) != positive(belt.facing) {
+            belt.part = match part {
+                Part::Start => Part::End,
+                Part::End => Part::Start,
+                _ => part,
+            };
+        }
+    } else {
+        belt = transform_inner(belt, transform.axis, turns);
+    }
+    entry
+        .properties
+        .insert("facing".into(), DIRECTIONS[usize::from(belt.facing)].into());
+    entry
+        .properties
+        .insert("slope".into(), belt.slope.name().into());
+    entry
+        .properties
+        .insert("part".into(), belt.part.name().into());
+    Some(entry)
+}
+
+/// `BeltBlock.transformInner` iterates the Java rotation's clockwise ordinal.
+fn transform_inner(mut belt: Belt, rotation_axis: u8, turns: i32) -> Belt {
+    let opposite_slope = |slope| {
+        if slope == Slope::Upward {
+            Slope::Downward
+        } else {
+            Slope::Upward
+        }
+    };
+    if belt.slope.diagonal() && face_axis(belt.facing) == rotation_axis {
+        if turns == 2 {
+            belt.facing ^= 1;
+            belt.slope = opposite_slope(belt.slope);
+        }
+        return belt;
+    }
+
+    for _ in 0..4 - turns {
+        let face = belt.facing;
+        let axis = face_axis(face);
+        let parallel = axis == rotation_axis;
+        let counter_clockwise = || match face {
+            2 => 4,
+            4 => 3,
+            3 => 5,
+            _ => 2,
+        };
+        (belt.facing, belt.slope) = match belt.slope {
+            Slope::Vertical if parallel => (counter_clockwise(), Slope::Sideways),
+            Slope::Vertical => (if axis == 2 { face ^ 1 } else { face }, Slope::Horizontal),
+            Slope::Sideways if parallel => (face, Slope::Horizontal),
+            Slope::Sideways => (counter_clockwise(), Slope::Vertical),
+            Slope::Horizontal if parallel => (face, Slope::Sideways),
+            Slope::Horizontal => (if axis == 2 { face } else { face ^ 1 }, Slope::Vertical),
+            Slope::Upward | Slope::Downward => {
+                if positive(face) ^ (belt.slope == Slope::Downward) ^ (axis == 2) {
+                    (face, opposite_slope(belt.slope))
+                } else {
+                    (face ^ 1, belt.slope)
+                }
+            }
+        };
+    }
+    belt
 }
 
 /// `AngleHelper.horizontalAngle`.
