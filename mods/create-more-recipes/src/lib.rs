@@ -4,6 +4,7 @@
 
 pub mod block_spout;
 pub mod cooler;
+pub mod smithing_press;
 
 use std::{
     collections::HashMap,

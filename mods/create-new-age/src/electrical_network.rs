@@ -5,7 +5,7 @@
 //! Callers supply connector identities and accepted energy amounts. No mod ABI
 //! has been frozen; source ordering for equal-length paths needs a Java oracle.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 type Connector = u32;
 type Edge = (Connector, Connector);
@@ -79,21 +79,31 @@ impl ElectricalNetwork {
     }
 
     fn find_path(&self, start: Connector, target: Connector) -> Option<Vec<Connector>> {
-        let mut visited = HashSet::from([start]);
-        let mut queue = VecDeque::from([(start, vec![start])]);
-        while let Some((node, path)) = queue.pop_front() {
-            if node == target && path.len() >= 2 {
-                return Some(path);
+        // Keep one parent per visited node (as Java's QueueElement does)
+        // rather than cloning an entire Vec path on every BFS expansion.
+        // Reconstruct only the route we actually return, O(V + E).
+        let mut parents = HashMap::from([(start, None::<Connector>)]);
+        let mut queue = VecDeque::from([(start, 0_u32)]);
+        while let Some((node, depth)) = queue.pop_front() {
+            if node == target && depth > 0 {
+                let mut reversed = Vec::with_capacity(depth as usize + 1);
+                let mut current = node;
+                reversed.push(current);
+                while let Some(Some(previous)) = parents.get(&current) {
+                    current = *previous;
+                    reversed.push(current);
+                }
+                reversed.reverse();
+                return Some(reversed);
             }
-            if path.len() > self.max_path_depth as usize {
+            if depth >= self.max_path_depth {
                 continue;
             }
             if let Some(neighbours) = self.neighbours.get(&node) {
                 for &next in neighbours {
-                    if visited.insert(next) {
-                        let mut next_path = path.clone();
-                        next_path.push(next);
-                        queue.push_back((next, next_path));
+                    if let std::collections::hash_map::Entry::Vacant(entry) = parents.entry(next) {
+                        entry.insert(Some(node));
+                        queue.push_back((next, depth + 1));
                     }
                 }
             }
@@ -245,6 +255,25 @@ mod tests {
         network.add_connection(1, 3, 12); // cached miss invalidated
         network.tick();
         assert_eq!(network.insert(1, 3, 12, 12), 12);
+    }
+
+    #[test]
+    fn cold_large_path_reference_benchmark_and_correctness() {
+        let mut network = ElectricalNetwork::new(2_000);
+        for node in 0..2_000 {
+            network.add_connection(node, node + 1, 1);
+        }
+        network.tick();
+        let start = std::time::Instant::now();
+        assert_eq!(network.insert(0, 2_000, 1, 1), 1);
+        eprintln!(
+            "ws4_path_2000_nodes_cold_us={}",
+            start.elapsed().as_micros()
+        );
+        // Cached path remains saturated until the following tick.
+        assert_eq!(network.insert(0, 2_000, 1, 1), 0);
+        network.tick();
+        assert_eq!(network.insert(2_000, 0, 1, 1), 1);
     }
 
     #[test]

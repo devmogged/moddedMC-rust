@@ -13,7 +13,7 @@ The electric motor, alternator, cables, spools, rolling mill and other machines 
 ## Verification
 
 - `cargo fmt --package createaddition -- --check`: pass.
-- `cargo test -p createaddition`: 8/8 pass on this content increment.
+- `cargo test -p createaddition`: 16/16 pass after integrating the contemporaneous WS-4 rolling-mill work (8/8 before that merge). The combined three addon crates pass 53/53 tests.
 - `cargo clippy -p createaddition --all-targets -- -D warnings`: pass.
 - `scripts/pack-mod.ps1 -Crate createaddition`: pass, standalone `.mmc` includes license and 18 data resources.
 - `tests/scenarios/ws4-createaddition-electrum.txt` on port 26044, using shared engine binary `d6e5e8d560`: pass. Both Create and CreateAddition installed. Server logs registered block and items and loaded 4 recipes, 1 loot table, 12 tags. The bot unlocks all 4 recipes, gives custom items, checks iron-tool mining, original block loot, and electrum block persistence after restart.

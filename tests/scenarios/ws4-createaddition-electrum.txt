@@ -44,6 +44,7 @@ expect Test passed
 cmd execute if block 2320 100 2320 #minecraft:needs_iron_tool
 expect Test passed
 cmd loot spawn 2322 101 2320 mine 2320 100 2320
+wait 0.5
 expect Dropped 1 .*Electrum Block
 reject (?i)panicked|trapped|Unknown recipe|not found|ERROR
 cmd save-all flush

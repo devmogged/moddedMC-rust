@@ -1,23 +1,21 @@
 # Create Crafts & Additions (partial)
 
-Rust port in progress for Create Crafts & Additions 1.7.2, NeoForge Minecraft 1.21.1, by MRH0 (MIT).
+Rust port in progress for **Create Crafts & Additions 1.7.2** (NeoForge Minecraft 1.21.1), by MRH (MIT).
 
-## Native content available
+## Runnable passive content
 
-The createaddition.mmc now registers four passive items (electrum ingot, electrum nugget, electrum sheet and zinc sheet), the electrum storage block, four released vanilla crafting recipes, its original block loot table, and the relevant common-namespace item/block tags and mining requirements. Their original data were taken from the 1.7.2 release jar. Only pickaxe/incorrect-tool tag lists were narrowed to the single block that is actually registered; no missing machines or items have been declared as supported.
+`createaddition.mmc` registers four passive items (electrum ingot, electrum nugget, electrum sheet and zinc sheet), the electrum storage block, four release crafting recipes, its original block loot table, and relevant common item/block and vanilla mining tags. Data were taken from the published 1.7.2 jar. Broad pickaxe and incorrect-tool tag lists are narrowed to the only block currently registered.
 
-The original client models/textures are not included in this repository or .mmc. The server may load them from the separately obtained release jar through MODDEDMC_ASSET_JARS.
+Package with `powershell -NoProfile -File scripts/pack-mod.ps1 -Crate createaddition`. Original textures/models remain in the separately obtained jar and are not committed; provide it through `MODDEDMC_ASSET_JARS` when testing.
 
-To build from the repository root:
+The server scenarios `tests/scenarios/ws4-createaddition-electrum.txt` (Create installed alongside the addon) and `ws4-createaddition-crafting.txt` pass with the pinned shared engine binary. The latter verifies actual crafting table interactions (ingot to nine nuggets and reverse), custom output item identity, and player inventory persistence across restart. See `docs/ws/create-addons-content.md` for evidence. No original NeoForge server oracle or real-client capture has been performed.
 
-    powershell -NoProfile -File scripts/pack-mod.ps1 -Crate createaddition
+## Source-checked logic, not player-usable machines
 
-The integration scenario tests/scenarios/ws4-createaddition-electrum.txt checks the addon with Create loaded, recipe registration, placement/loot, tags, and restart. The additional tests/scenarios/ws4-createaddition-crafting.txt performs both recipes in the crafting table and verifies the custom items stay in player inventory after restart. Original NeoForge 1.21.1 oracle comparison and client rendering remain outstanding.
+- `src/electricity.rs` matches released electric motor FE consumption/activation, redstone transitions, alternator FE generation and stress calculation.
+- `src/energy_storage.rs` matches `InternalEnergyStorage`, capped FE input/output, uncapped internal transfers and its `energy` NBT field.
+- `src/rolling_mill.rs` models the released 1.7.2 Rolling Mill's RPM-scaled timer, nine output slots, one-input consumption, missing-recipe retry, output insertion and `Timer` NBT. The source copper-ingot recipe fixture stays in `tests/fixtures/ws4-createaddition`; an unsupported rolling recipe is not installed as a runnable datapack entry.
 
-## Source-checked mechanics, not yet gameplay-enabled
+The motor, alternator, cables, rolling mill and other machines are **not yet registered**, and full FE networks are not implemented. Their gameplay needs WS-0's inter-mod kinetic service (request `N:/mmc-coord/requests/WS-4-01.md`), a generic FE capability and further real-server parity tests. No original Create machine behaviors are claimed runnable merely because unit tests pass.
 
-src/electricity.rs ports the electric motor's FE consumption/activation, redstone transitions and the alternator's FE/stress calculations. src/energy_storage.rs ports InternalEnergyStorage, including bounded FE input/output, uncapped internal transfers and its saved energy NBT key. The relevant Java methods were checked against the published 1.7.2 binary using javap -c -p and public source.
-
-Electric motor, alternator, cables, rolling mill, electricity, spool use, and other machine behaviors are not registered. They require the named Create kinetic service (request N:/mmc-coord/requests/WS-4-01.md), generic energy handlers and further parity tests. Create's pressing recipes are also intentionally held back until pressing is running in the pinned Create baseline.
-
-Unit tests: cargo test -p createaddition; lint: cargo clippy -p createaddition --all-targets -- -D warnings. Original model rendering and full 1.21.1 NeoForge differential parity remain outstanding.
+Verification: `cargo test -p createaddition`, `cargo fmt --package createaddition -- --check` and `cargo clippy -p createaddition --all-targets -- -D warnings`.
