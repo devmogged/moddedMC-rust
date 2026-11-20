@@ -82,3 +82,10 @@ This remains an unfinished M1 checkpoint; the original 46 blocks require accepte
 ## Later order
 
 M2: **ordinary mobs** with spawn criteria, AI, attacks, drops and persistent state, one per verified step. M3: bosses, phases, linked projectiles and boss bars, one at a time. M4: structures, template pool selection, placement and cross-version worldgen checks once E2 is available. Use WS-6 ports **26060–26069**, shared binaries only, no engine build.
+
+
+## WS-6 M2 source-verified Spike Bug attack timing (2026-11-20)
+
+Added `src/spike_bug_attack.rs`, a **pure, not-yet-wired** deterministic state machine transcribing released 2.2.4 `SpikeBugAttackGoal` bytecode. Verified with JDK 26 `javap -classpath cache/legendary_monsters-2.2.4-MC-1.21.1.jar -p -c net.miauczel.legendary_monsters.entity.ai.SpikeBugAttackGoal`, rather than relying on the older public-source revision. Exact conditions: 8-tick initial windup, inclusive *squared distance* 8.75, out-of-range countdown reset via vanilla `adjustedTickDelay(16)`, attacking animation flag, cooldown decrement **after** superclass tick, and stop/reset semantics. The reset duration is supplied by the future host to avoid hardcoding tick-rate assumptions. See [legendary-monsters-spike-bug-attack.md](legendary-monsters-spike-bug-attack.md) for bytecode mapping and pending dependencies (#54 melee/damage, #65 mob dimensions, #67 targeting).
+
+Verification: `cargo fmt --package legendary-monsters` PASS, `cargo clippy -p legendary-monsters --all-targets -- -D warnings` PASS, `cargo test -p legendary-monsters` **7/7 PASS**, `git diff --check` PASS, `scripts/pack-mod.ps1 -Crate legendary-monsters` PASS (60,165-byte .mmc). Full shared-binary M1 bot scenario `tests/scenarios/legendary-monsters-materials.txt` PASS on port 26060 with `-Exe '..\..\mmc-shared\bin\9d9e63f924-e1b1f49\pack-dev.exe'`, matching `-BotExe`, `-RunDir run/ws6-spike-policy-check -Fresh`: 25 items registered, four recipes/two tags loaded, gives/unlocks succeed, saved inventory exact after restart, no errors. **No mob was spawned or attacked in the Rust server**; there is still no M2 parity claim or original runtime attack-tick differential.

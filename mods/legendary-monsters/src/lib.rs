@@ -4,6 +4,8 @@
 
 use std::sync::OnceLock;
 
+pub mod spike_bug_attack;
+
 use moddedmc_api::{
     InterfaceUnavailable, Mod, RegistrationError, Registry,
     items::{self, Item, Items},
