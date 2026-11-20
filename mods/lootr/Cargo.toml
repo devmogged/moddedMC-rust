@@ -1,0 +1,12 @@
+[package]
+name = "lootr"
+version = "1.25.42+124"
+edition.workspace = true
+license = "MIT"
+description = "Partial port of Lootr 1.25.42.124 for Minecraft Java 26.3"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true

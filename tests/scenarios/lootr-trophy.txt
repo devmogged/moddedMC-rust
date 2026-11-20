@@ -1,0 +1,37 @@
+# Lootr 1.25.42.124: isolated decorative trophy slice.
+# Assets are read from the original jar, not bundled into the .mmc.
+mods target/mods/lootr.mmc
+start
+expect registered content block lootr:trophy
+expect Loaded built-in datapack 'mod/lootr': 0 recipe\(s\), 1 loot table\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 0.5 101 0.5
+wait 3
+cmd setblock 0 100 0 lootr:trophy[facing=east]
+wait 1
+cmd execute if block 0 100 0 lootr:trophy[facing=east]
+wait 1
+expect Test passed
+cmd loot spawn 0 101 0 mine 0 100 0
+wait 1
+expect Dropped 1 .*Lootr Trophy
+cmd give tester lootr:trophy 1
+wait 1
+expect Gave 1 .*Lootr Trophy
+reject ERROR|panicked
+stop
+# Saved facing survives a clean stop and restart of the same world.
+start
+expect registered content block lootr:trophy
+botstart tester
+wait 2
+expect \[bot\] joined as tester
+cmd tp tester 0.5 101 0.5
+wait 3
+cmd execute if block 0 100 0 lootr:trophy[facing=east]
+wait 1
+expect Test passed
+reject ERROR|panicked
+stop
