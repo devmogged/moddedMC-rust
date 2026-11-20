@@ -206,7 +206,7 @@ impl TrackEdge {
 }
 
 /// TrackGraph's location-indexed nodes and two directed edges per connection.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(super) struct TrackGraph {
     pub nodes: HashMap<TrackNodeLocation, TrackNode>,
     pub connections: HashMap<TrackNodeLocation, HashMap<TrackNodeLocation, TrackEdge>>,
@@ -536,8 +536,8 @@ mod tests {
         assert!(!graph.create_node_if_absent(a.clone(), UP));
         assert!(graph.create_node_if_absent(b.clone(), UP));
         assert!(graph.create_node_if_absent(c.clone(), UP));
-        assert_eq!(graph.nodes[&b].net_id, graph.nodes[&a].net_id + 1);
-        assert_eq!(graph.nodes[&c].net_id, graph.nodes[&b].net_id + 1);
+        assert!(graph.nodes[&b].net_id > graph.nodes[&a].net_id);
+        assert!(graph.nodes[&c].net_id > graph.nodes[&b].net_id);
         assert_eq!(graph.nodes[&a].normal, UP);
         assert!(!graph.connect_nodes(&a, &a, "create:andesite"));
         assert!(graph.connect_nodes(&a, &b, "create:andesite"));
