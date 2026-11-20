@@ -59,6 +59,58 @@ impl ItemStacks {
         // SAFETY: the bytes are borrowed for the call and the output is a local.
         unsafe { (self.0.info)(abi::Str::new(stack), &raw mut info) }.then_some(info)
     }
+
+    /// Requires the functions appended after the first release, in `Mod::start`.
+    pub fn require_extension(self, extension: StacksExtension) -> Result<(), InterfaceUnavailable> {
+        if extension.available(self.0) {
+            Ok(())
+        } else {
+            Err(InterfaceUnavailable {
+                name: "moddedmc:item_stacks.component",
+                version: 1,
+            })
+        }
+    }
+
+    /// The stack's effective component (patch over item defaults) as `{value: <component>}`
+    /// named-root NBT, empty for a unit component. `None` when absent or on a server without
+    /// `StacksExtension::Component`.
+    pub fn component(self, stack: &[u8], component: &str) -> Option<Vec<u8>> {
+        if !StacksExtension::Component.available(self.0) {
+            return None;
+        }
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: the size check covers the appended field; the inputs are borrowed and the
+        // sink collects into the local Vec for the call.
+        unsafe {
+            (self.0.component)(
+                abi::Str::new(stack),
+                abi::Str::new(component.as_bytes()),
+                sink,
+            )
+        }
+        .then_some(data)
+    }
+}
+
+/// Item stack functions added after the first ABI 1 release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StacksExtension {
+    Component,
+}
+
+impl StacksExtension {
+    const fn available(self, api: &abi::ItemStacksV1) -> bool {
+        match self {
+            Self::Component => {
+                api.size >= std::mem::offset_of!(abi::ItemStacksV1, component) + size_of::<usize>()
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

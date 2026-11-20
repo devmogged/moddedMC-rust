@@ -909,6 +909,12 @@ pub struct ItemStacksV1 {
         unsafe extern "C" fn(world: WorldRef, position: Vec3, motion: Vec3, stack: Str) -> i32,
     /// False for a stack the host can't read.
     pub info: unsafe extern "C" fn(stack: Str, out: *mut StackInfo) -> bool,
+    // Fields below were appended after the first ABI 1 release; check `size` before reading them.
+    /// The stack's effective component, its patch over the item's defaults, as named-root NBT
+    /// `{value: <component>}`. An empty root means the component is present but has no value
+    /// (unit components, or ones Pumpkin doesn't encode yet). False when absent, for an unknown
+    /// component id or an unreadable stack.
+    pub component: unsafe extern "C" fn(stack: Str, component: Str, out: Sink) -> bool,
 }
 
 #[repr(C)]
