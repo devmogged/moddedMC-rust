@@ -2,6 +2,7 @@
 //! The snowman cooler state machine is ported from its block and block entity.
 //! Basin processing remains gated on the Create processing service (WS-4-02).
 
+pub mod block_spout;
 pub mod cooler;
 
 use std::{

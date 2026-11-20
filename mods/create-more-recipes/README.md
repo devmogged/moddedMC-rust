@@ -29,7 +29,7 @@ Run `tests/scenarios/ws4-cooler.txt` on a WS-4 port using WS-0's shared `pack-de
 
 ## Still missing
 
-- Basin recipes with `cooled`/`frozen` heat, snowman-cooler-driven mixing, the Smithing Press and Block Spout, custom fan processing, and remaining recipe JSON. WS-4-02 asks the Create processing owner for the necessary service hook.
+- Basin recipes with `cooled`/`frozen` heat, snowman-cooler-driven mixing, the Smithing Press and Block Spout runtime, custom fan processing, and remaining recipe JSON. WS-4-02 asks the Create processing owner for the necessary service hook. **Block Spout's state machine** is independently modeled in `src/block_spout.rs` (100-tick processing cycle, 1,000 mB tank, dirt + 500 mB water → grass block, source-matched NBT and restart semantics). Its original 1.2.1-fix1 recipe is preserved under `tests/fixtures/ws4-create-more-recipes/grass_block.json` for a data-driven test, not installed as an unsupported recipe.
 - `Cooler::snowball_impact()` already ports and unit-tests the original +80 normal fuel ticks (capped at 10,000) and ignoring creative/special fuel. The actual thrown snowball event, cancellation and sound await WS-4-03, so it is **not** yet player-accessible.
 - Capturing snow golems or spawner entities using the empty cooler. The source-grounded thrown-snowball state transition is tested but still needs the projectile-impact callback. Both behaviors require generic host hooks requested in WS-4-03.
 - Full renderer, goggles interaction, animations, contextual collision shape, sound/particles, modded crafting dependencies, and an original 1.21.1 NeoForge differential oracle run.

@@ -215,6 +215,7 @@ dependencies = [
  "fastnbt",
  "moddedmc-api",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
