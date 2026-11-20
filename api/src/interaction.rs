@@ -74,6 +74,53 @@ pub enum InteractionExtension {
     BlockUse,
     /// `Interaction::on_player_will_destroy`.
     PlayerWillDestroy,
+    /// `Interaction::on_redstone`.
+    Redstone,
+}
+
+/// Vanilla `getSignal` (or `getDirectSignal` when `direct`) for one of the mod's blocks.
+pub struct RedstoneQuery<'a> {
+    pub world: World<'a>,
+    pub position: Pos,
+    pub state: u32,
+    /// Vanilla's direction argument, in order down, up, north, south, west, east.
+    pub direction: u8,
+    pub direct: bool,
+}
+
+pub type RedstoneSignalCallback = fn(&RedstoneQuery<'_>) -> u8;
+/// `isSignalSource() && canConnectRedstone(direction)` for a state of the mod's blocks.
+pub type RedstoneConnectsCallback = fn(state: u32, direction: u8) -> bool;
+static REDSTONE: OnceLock<(RedstoneSignalCallback, RedstoneConnectsCallback)> = OnceLock::new();
+
+unsafe extern "C" fn redstone_signal(
+    world: abi::WorldRef,
+    position: Pos,
+    state: u32,
+    direction: u8,
+    direct: bool,
+) -> u8 {
+    guard("redstone signal", 0, || {
+        let (Some((signal, _)), Some(world)) = (REDSTONE.get(), World::borrowed(world)) else {
+            return 0;
+        };
+        signal(&RedstoneQuery {
+            world,
+            position,
+            state,
+            direction,
+            direct,
+        })
+        .min(15)
+    })
+}
+
+unsafe extern "C" fn redstone_connects(state: u32, direction: u8) -> bool {
+    guard("redstone connects", false, || {
+        REDSTONE
+            .get()
+            .is_some_and(|(_, connects)| connects(state, direction))
+    })
 }
 
 /// The result of using a content block. `TryEmptyHand` from `useItemOn` runs `useWithoutItem`
@@ -211,6 +258,10 @@ impl Interaction {
                 std::mem::offset_of!(abi::InteractionV1, on_player_will_destroy),
                 "moddedmc:interaction.player_will_destroy",
             ),
+            InteractionExtension::Redstone => (
+                std::mem::offset_of!(abi::InteractionV1, on_redstone),
+                "moddedmc:interaction.redstone",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -247,6 +298,25 @@ impl Interaction {
         // SAFETY: the extension was required; registration is live and the trampoline static.
         RegistrationError::from_code(unsafe {
             (self.0.on_player_will_destroy)(reg.reg, player_will_destroy)
+        })
+    }
+
+    /// Redstone output for every content block this mod registers: `connects` says on which
+    /// sides a state is a signal source, `signal` gives its strength there. The host already
+    /// notifies neighbours when a block write changes a state. Needs
+    /// `InteractionExtension::Redstone`.
+    pub fn on_redstone(
+        self,
+        reg: &mut Registry<'_>,
+        signal: RedstoneSignalCallback,
+        connects: RedstoneConnectsCallback,
+    ) -> Result<(), RegistrationError> {
+        if REDSTONE.set((signal, connects)).is_err() {
+            return Err(RegistrationError::DuplicateId);
+        }
+        // SAFETY: the extension was required; registration is live and the trampolines static.
+        RegistrationError::from_code(unsafe {
+            (self.0.on_redstone)(reg.reg, redstone_signal, redstone_connects)
         })
     }
 

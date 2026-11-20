@@ -12,8 +12,9 @@ use moddedmc_api::abi::{self, BlockUpdate, ContentEvent, Pos, Reg, Sink, Str, Wo
 use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
-        BlockBehaviour, BlockHitResult, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
-        OnPlaceArgs, PlayerWillDestroyArgs, UseWithItemArgs,
+        BlockBehaviour, BlockHitResult, EmitsRedstonePowerArgs, GetRedstonePowerArgs,
+        NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
+        PlayerWillDestroyArgs, UseWithItemArgs,
         blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
@@ -116,6 +117,7 @@ struct Runtime {
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
+    redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
     /// Owning mod of each content item, block items included.
     item_owners: HashMap<u16, usize>,
 }
@@ -128,6 +130,7 @@ pub struct Hooks {
     pub use_on_block: Option<abi::UseOnBlockFn>,
     pub use_block: Option<abi::UseBlockFn>,
     pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
+    pub redstone: Option<(abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
 }
 
 #[derive(Default)]
@@ -139,6 +142,7 @@ struct Pending {
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
+    redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
 }
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
@@ -148,6 +152,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     use_on_block: BTreeMap::new(),
     use_block: BTreeMap::new(),
     player_will_destroy: BTreeMap::new(),
+    redstone: BTreeMap::new(),
 });
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static WORLDS: LazyLock<Mutex<HashMap<Uuid, WorldState>>> = LazyLock::new(Mutex::default);
@@ -444,6 +449,9 @@ pub fn register(
     if let Some(callback) = hooks.player_will_destroy {
         pending.player_will_destroy.insert(owner, callback);
     }
+    if let Some(callbacks) = hooks.redstone {
+        pending.redstone.insert(owner, callbacks);
+    }
 }
 
 fn split_items(
@@ -533,6 +541,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         use_on_block,
         use_block,
         player_will_destroy,
+        redstone,
     } = std::mem::take(&mut *lock(&PENDING));
     blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
     items.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
@@ -568,6 +577,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         use_on_block,
         use_block,
         player_will_destroy,
+        redstone,
         item_owners: HashMap::new(),
     };
     let mut assets = Vec::with_capacity(blocks.len());
@@ -665,6 +675,21 @@ impl BlockBehaviour for Behaviour {
                 ptr::from_ref(&entity).cast(),
             );
         }
+    }
+
+    fn emits_redstone_power(&self, args: EmitsRedstonePowerArgs<'_>) -> bool {
+        redstone_callbacks(args.block).is_some_and(|(_, connects)| {
+            // SAFETY: a pure callback with plain arguments.
+            unsafe { connects(u32::from(args.state.id.as_u16()), args.direction.to_index()) }
+        })
+    }
+
+    fn get_weak_redstone_power(&self, args: GetRedstonePowerArgs<'_>) -> u8 {
+        redstone_signal(&args, false)
+    }
+
+    fn get_strong_redstone_power(&self, args: GetRedstonePowerArgs<'_>) -> u8 {
+        redstone_signal(&args, true)
     }
 
     fn player_will_destroy(&self, args: PlayerWillDestroyArgs<'_>) {
@@ -1526,6 +1551,49 @@ fn use_context(
         main_hand,
         with_item,
     }
+}
+
+fn redstone_callbacks(block: &Block) -> Option<(abi::RedstoneSignalFn, abi::RedstoneConnectsFn)> {
+    RUNTIME.get().and_then(|runtime| {
+        let owner = runtime.blocks.get(&block.id.as_u16())?.owner;
+        runtime.redstone.get(&owner).copied()
+    })
+}
+
+/// Vanilla `getSignal` runs whatever `canConnectRedstone` says; that only decides wire shapes.
+fn redstone_signal(args: &GetRedstonePowerArgs<'_>, direct: bool) -> u8 {
+    let Some((signal, _)) = redstone_callbacks(args.block) else {
+        return 0;
+    };
+    let world: &World = args.world;
+    // SAFETY: the world outlives this synchronous callback.
+    unsafe {
+        signal(
+            ptr::from_ref(world).cast(),
+            abi_pos(*args.position),
+            u32::from(args.state.id.as_u16()),
+            args.direction.to_index(),
+            direct,
+        )
+    }
+    .min(15)
+}
+
+pub unsafe extern "C" fn on_redstone(
+    reg: Reg,
+    signal: abi::RedstoneSignalFn,
+    connects: abi::RedstoneConnectsFn,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.redstone;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some((signal, connects));
+    code::OK
 }
 
 pub unsafe extern "C" fn on_player_will_destroy(

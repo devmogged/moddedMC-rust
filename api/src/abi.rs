@@ -901,7 +901,23 @@ pub struct InteractionV1 {
     /// One callback per mod for its content blocks, staged during registration.
     pub on_player_will_destroy:
         unsafe extern "C" fn(reg: Reg, callback: PlayerWillDestroyFn) -> i32,
+    // Appended later: require `InteractionExtension::Redstone`.
+    /// One pair per mod for its content blocks, staged during registration.
+    pub on_redstone: unsafe extern "C" fn(
+        reg: Reg,
+        signal: RedstoneSignalFn,
+        connects: RedstoneConnectsFn,
+    ) -> i32,
 }
+
+/// Vanilla `BlockState.getSignal(level, pos, direction)`, or `getDirectSignal` when `direct`, for
+/// one of the mod's content blocks: 0 to 15. `direction` is vanilla's argument, in order down, up,
+/// north, south, west, east.
+pub type RedstoneSignalFn =
+    unsafe extern "C" fn(world: WorldRef, pos: Pos, state: u32, direction: u8, direct: bool) -> u8;
+/// Vanilla `isSignalSource()` together with NeoForge `canConnectRedstone(direction)` for the
+/// state: whether redstone treats it as a source on that side. Pure: it gets no world.
+pub type RedstoneConnectsFn = unsafe extern "C" fn(state: u32, direction: u8) -> bool;
 
 /// Vanilla `Block.playerWillDestroy`: a player is about to break one of the mod's blocks, after
 /// the break was accepted and before drops and removal. `creative` is the player's game mode.
