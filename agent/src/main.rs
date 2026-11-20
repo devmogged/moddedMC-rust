@@ -143,3 +143,13 @@ async fn main() {
         app.servers.stop_all().await;
     }
 }
+
+/// A child program that gets no console window: the app starts the agent detached on Windows,
+/// so every console program it runs would otherwise flash a window of its own.
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    #[allow(unused_mut)]
+    let mut command = tokio::process::Command::new(program);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    command
+}

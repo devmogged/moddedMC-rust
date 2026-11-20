@@ -14,7 +14,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use tokio::{process::Command, sync::Mutex};
+use tokio::sync::Mutex;
 use tracing::warn;
 
 use crate::App;
@@ -73,7 +73,7 @@ pub async fn require_owner(
 }
 
 async fn tailscale(args: &[&str]) -> Option<String> {
-    let output = Command::new("tailscale").args(args).output().await.ok()?;
+    let output = crate::command("tailscale").args(args).output().await.ok()?;
     output
         .status
         .success()

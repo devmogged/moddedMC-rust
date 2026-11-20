@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, Command},
+    process::{Child, ChildStdin},
     sync::{Mutex, broadcast},
 };
 use tracing::{info, warn};
@@ -426,7 +426,7 @@ impl Servers {
         } else {
             dir.join(&file.exe)
         };
-        let mut child: Child = Command::new(&exe)
+        let mut child: Child = crate::command(&exe)
             .args(&file.args)
             .current_dir(&dir)
             .env("MODDEDMC_STATS", "1")

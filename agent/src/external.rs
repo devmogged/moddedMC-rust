@@ -15,7 +15,6 @@ use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    process::Command,
     sync::Mutex,
     time::timeout,
 };
@@ -346,7 +345,7 @@ fn port_of(address: &str) -> Option<u16> {
 }
 
 async fn run(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().await.ok()?;
+    let output = crate::command(program).args(args).output().await.ok()?;
     output
         .status
         .success()
