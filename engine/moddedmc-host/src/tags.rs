@@ -21,7 +21,7 @@ fn full_id(id: &str) -> String {
 }
 
 /// Vanilla `TagLoader.build` flattening: generated vanilla entries, then every pack's, nested
-/// tags expanded.
+/// tags expanded. A pack's `replace` drops the generated entries.
 fn collect(
     manager: &DatapackManager,
     (key, registry): (RegistryKey, &str),
@@ -32,12 +32,14 @@ fn collect(
     if depth > MAX_TAG_DEPTH {
         return false;
     }
+    let loaded = manager.get_tag(registry, tag);
     let generated = get_tag_values(key, tag);
-    if let Some(values) = generated {
+    if let Some(values) = generated
+        && !loaded.as_ref().is_some_and(|entry| entry.replace)
+    {
         out.extend(values.iter().map(|value| full_id(value)));
     }
-    let loaded = manager.get_tag_values(registry, tag);
-    for value in loaded.iter().flatten() {
+    for value in loaded.iter().flat_map(|entry| &entry.values) {
         match value.strip_prefix('#') {
             Some(nested) => {
                 collect(manager, (key, registry), &full_id(nested), depth + 1, out);
@@ -83,3 +85,46 @@ pub static TAGS: abi::TagsV1 = abi::TagsV1 {
     values,
     contains,
 };
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use pumpkin_core::server::recipe::RecipeManager;
+
+    use super::*;
+
+    #[test]
+    fn replace_drops_generated_entries() -> std::io::Result<()> {
+        let world = std::env::temp_dir().join(format!("moddedmc-tags-{}", std::process::id()));
+        let pack = world.join("datapacks/replace");
+        let tags = pack.join("data/minecraft/tags/block");
+        fs::create_dir_all(&tags)?;
+        fs::write(
+            pack.join("pack.mcmeta"),
+            r#"{"pack": {"pack_format": 80, "description": ""}}"#,
+        )?;
+        fs::write(
+            tags.join("wool.json"),
+            r#"{"replace": true, "values": ["dirt"]}"#,
+        )?;
+        fs::write(tags.join("planks.json"), r#"{"values": ["dirt"]}"#)?;
+
+        let manager = DatapackManager::new();
+        manager.load_all(&world, &["file/replace".to_owned()], &RecipeManager::new());
+        fs::remove_dir_all(&world)?;
+
+        let flatten = |tag| {
+            let mut out = BTreeSet::new();
+            collect(&manager, (RegistryKey::Block, "block"), tag, 0, &mut out);
+            out
+        };
+        assert_eq!(
+            flatten("minecraft:wool"),
+            BTreeSet::from(["minecraft:dirt".to_owned()])
+        );
+        let planks = flatten("minecraft:planks");
+        assert!(planks.contains("minecraft:dirt") && planks.contains("minecraft:oak_planks"));
+        Ok(())
+    }
+}
