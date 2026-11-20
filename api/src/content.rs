@@ -55,6 +55,7 @@ pub enum WorldExtension {
     CollisionShape,
     DescribeState,
     FluidId,
+    BlockEntities,
 }
 
 impl WorldExtension {
@@ -83,6 +84,10 @@ impl WorldExtension {
             Self::FluidId => (
                 std::mem::offset_of!(abi::BlockWorldV1, fluid_id),
                 "moddedmc:block_world.fluid_id",
+            ),
+            Self::BlockEntities => (
+                std::mem::offset_of!(abi::BlockWorldV1, restore_block_entity),
+                "moddedmc:block_world.restore_block_entity",
             ),
         }
     }
@@ -372,6 +377,25 @@ impl World<'_> {
         // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
         let found = unsafe { (self.api.fluid_id)(self.raw, pos, sink(&mut out)) };
         found.then(|| String::from_utf8(out).ok()).flatten()
+    }
+
+    /// Any block entity's full saved NBT, as `restore_block_entity` takes it. `None` when there is
+    /// none, the position is unloaded or the server lacks `WorldExtension::BlockEntities`.
+    pub fn block_entity(self, pos: Pos) -> Option<Vec<u8>> {
+        if !WorldExtension::BlockEntities.available(self.api) {
+            return None;
+        }
+        let mut out = Vec::new();
+        // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
+        unsafe { (self.api.read_block_entity)(self.raw, pos, sink(&mut out)) }.then_some(out)
+    }
+
+    /// Replaces the block entity at `pos` with NBT from [`World::block_entity`], after the
+    /// destination block is placed. False when the saved type doesn't match the destination.
+    pub fn restore_block_entity(self, pos: Pos, nbt: &[u8]) -> bool {
+        // SAFETY: the size check covers the appended field; the NBT is borrowed for this call.
+        WorldExtension::BlockEntities.available(self.api)
+            && unsafe { (self.api.restore_block_entity)(self.raw, pos, abi::Str::new(nbt)) }
     }
 
     /// Tells loaded worlds apart. Stable while the world stays loaded.

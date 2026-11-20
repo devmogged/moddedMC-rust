@@ -606,6 +606,15 @@ pub struct BlockWorldV1 {
     /// Vanilla `FluidState.getType()` registry id at the position, including the water in
     /// waterlogged and aquatic blocks, `minecraft:empty` for none. False for unloaded positions.
     pub fluid_id: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: Sink) -> bool,
+    /// The block entity's full saved NBT as Java named-root binary NBT, vanilla's
+    /// `saveWithFullMetadata`: type id, position and fields, for any block entity. False when
+    /// there is none or the position is unloaded.
+    pub read_block_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: Sink) -> bool,
+    /// Replaces the block entity at the position with saved NBT from `read_block_entity`, after
+    /// the destination block is placed. The saved id must match the destination's block entity;
+    /// the saved position is ignored. Marks the chunk dirty and sends clients the new data.
+    /// False for unloaded positions, a mismatched id or invalid NBT.
+    pub restore_block_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, nbt: Str) -> bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
@@ -739,6 +748,8 @@ pub struct EntitiesV1 {
 pub const MAX_ENTITY_DATA_BYTES: usize = 64 << 10;
 /// Longest `EntitiesV1::data` key.
 pub const MAX_ENTITY_DATA_KEY: usize = 64;
+/// Largest `restore_block_entity` input, vanilla's 2 MiB network NBT budget.
+pub const MAX_BLOCK_ENTITY_BYTES: usize = 2 << 20;
 
 /// Size of the entities table before `id` was appended.
 pub const ENTITIES_V1_BASE_SIZE: usize = std::mem::offset_of!(EntitiesV1, id);

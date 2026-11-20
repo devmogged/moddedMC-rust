@@ -69,6 +69,8 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     collision_shape,
     describe_state,
     fluid_id,
+    read_block_entity,
+    restore_block_entity,
 };
 
 const MAX_BATCH: usize = 4096;
@@ -966,28 +968,78 @@ unsafe extern "C" fn write_entity(raw: WorldRef, pos: Pos, nbt: Str) -> bool {
     let (Some(world), bytes) = (unsafe { world(raw) }, unsafe { nbt.bytes() }) else {
         return false;
     };
-    let mut reader = std::io::Cursor::new(bytes);
-    let (Ok(data), pos) = (
-        Nbt::read(&mut pumpkin_nbt::deserializer::NbtReadHelperJava::new(
-            &mut reader,
-        )),
-        block_pos(pos),
-    ) else {
+    let (Some(data), pos) = (read_nbt(bytes), block_pos(pos)) else {
         return false;
     };
-    if reader.position() != bytes.len() as u64 {
-        return false;
-    }
     let Some(entity) = world.get_block_entity(&pos) else {
         return false;
     };
     let Some(entity) = entity.as_any().downcast_ref::<ContentBlockEntity>() else {
         return false;
     };
-    entity.set_data(data.root_tag);
+    entity.set_data(data);
     let mut saved = pumpkin_nbt::compound::NbtCompound::new();
     entity.write_internal(&mut saved);
     world.add_block_entity_nbt(pos, &saved);
+    true
+}
+
+/// Named-root Java NBT that fills the whole input.
+fn read_nbt(bytes: &[u8]) -> Option<pumpkin_nbt::compound::NbtCompound> {
+    let mut reader = std::io::Cursor::new(bytes);
+    let nbt = Nbt::read(&mut pumpkin_nbt::deserializer::NbtReadHelperJava::new(
+        &mut reader,
+    ))
+    .ok()?;
+    (reader.position() == bytes.len() as u64).then_some(nbt.root_tag)
+}
+
+unsafe extern "C" fn read_block_entity(raw: WorldRef, pos: Pos, out: Sink) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return false;
+    }
+    let Some(nbt) = world.get_block_entity_nbt(&pos) else {
+        return false;
+    };
+    let bytes = Nbt::from(nbt).write();
+    // SAFETY: bytes are valid until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
+unsafe extern "C" fn restore_block_entity(raw: WorldRef, pos: Pos, nbt: Str) -> bool {
+    if nbt.len > abi::MAX_BLOCK_ENTITY_BYTES {
+        return false;
+    }
+    // SAFETY: the world and NBT are live for this call.
+    let (Some(world), bytes) = (unsafe { world(raw) }, unsafe { nbt.bytes() }) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    let (Some(_), Some(mut saved)) = (world.get_block_state_id_if_loaded(&pos), read_nbt(bytes))
+    else {
+        return false;
+    };
+    // The placed destination block already made its own entity, so a matching id is vanilla's
+    // `BlockEntityType.isValid(state)`.
+    let Some(current) = world.get_block_entity(&pos) else {
+        return false;
+    };
+    if saved.get_string("id") != Some(current.resource_location()) {
+        return false;
+    }
+    saved.put_int("x", pos.0.x);
+    saved.put_int("y", pos.0.y);
+    saved.put_int("z", pos.0.z);
+    let Some(entity) = pumpkin_core::block::entities::block_entity_from_nbt(&saved) else {
+        return false;
+    };
+    world.add_block_entity(entity);
     true
 }
 
