@@ -101,11 +101,63 @@ impl TrackShape {
 
     pub fn normal(self) -> Vec3 {
         match self {
-            Self::AscendingNorth => vec3(0.0, 1.0, -1.0).normalized(),
-            Self::AscendingSouth => vec3(0.0, 1.0, 1.0).normalized(),
-            Self::AscendingEast => vec3(1.0, 1.0, 0.0).normalized(),
-            Self::AscendingWest => vec3(-1.0, 1.0, 0.0).normalized(),
+            Self::AscendingNorth => vec3(0.0, 1.0, 1.0).normalized(),
+            Self::AscendingSouth => vec3(0.0, 1.0, -1.0).normalized(),
+            Self::AscendingEast => vec3(-1.0, 1.0, 0.0).normalized(),
+            Self::AscendingWest => vec3(1.0, 1.0, 0.0).normalized(),
             _ => vec3(0.0, 1.0, 0.0),
+        }
+    }
+
+    /// Create TrackShape.zMirror table, including cross-shaped overlays.
+    pub fn mirror_z(self) -> Self {
+        use TrackShape as T;
+        match self {
+            T::PositiveDiagonal => T::NegativeDiagonal,
+            T::NegativeDiagonal => T::PositiveDiagonal,
+            T::AscendingNorth => T::AscendingSouth,
+            T::AscendingSouth => T::AscendingNorth,
+            T::CrossPositiveX => T::CrossNegativeX,
+            T::CrossNegativeX => T::CrossPositiveX,
+            T::CrossPositiveZ => T::CrossNegativeZ,
+            T::CrossNegativeZ => T::CrossPositiveZ,
+            other => other,
+        }
+    }
+
+    /// Create TrackShape.xMirror table.
+    pub fn mirror_x(self) -> Self {
+        use TrackShape as T;
+        match self {
+            T::PositiveDiagonal => T::NegativeDiagonal,
+            T::NegativeDiagonal => T::PositiveDiagonal,
+            T::AscendingEast => T::AscendingWest,
+            T::AscendingWest => T::AscendingEast,
+            T::CrossPositiveX => T::CrossNegativeX,
+            T::CrossNegativeX => T::CrossPositiveX,
+            T::CrossPositiveZ => T::CrossNegativeZ,
+            T::CrossNegativeZ => T::CrossPositiveZ,
+            other => other,
+        }
+    }
+
+    /// One 90-degree clockwise rotation, using Create TrackShape.clockwise.
+    pub fn rotate_clockwise(self) -> Self {
+        use TrackShape as T;
+        match self {
+            T::PositiveDiagonal => T::NegativeDiagonal,
+            T::NegativeDiagonal => T::PositiveDiagonal,
+            T::XOrtho => T::ZOrtho,
+            T::ZOrtho => T::XOrtho,
+            T::AscendingEast => T::AscendingSouth,
+            T::AscendingSouth => T::AscendingWest,
+            T::AscendingWest => T::AscendingNorth,
+            T::AscendingNorth => T::AscendingEast,
+            T::CrossPositiveX => T::CrossNegativeZ,
+            T::CrossNegativeX => T::CrossPositiveZ,
+            T::CrossPositiveZ => T::CrossNegativeX,
+            T::CrossNegativeZ => T::CrossPositiveX,
+            other => other,
         }
     }
 }
@@ -338,7 +390,64 @@ mod tests {
         let north = TrackShape::AscendingNorth.normal();
         assert_eq!(north.x, 0.0);
         assert!((north.y - std::f64::consts::FRAC_1_SQRT_2).abs() < 1.0e-12);
-        assert_eq!(north.z, -north.y);
+        assert_eq!(north.z, north.y);
         assert_eq!(TrackShape::ZOrtho.normal(), vec3(0.0, 1.0, 0.0));
+        // TrackShape.java assigns the slope's *surface* normal, not its axis.
+        for shape in [
+            TrackShape::AscendingNorth,
+            TrackShape::AscendingSouth,
+            TrackShape::AscendingEast,
+            TrackShape::AscendingWest,
+        ] {
+            assert!(shape.axes()[0].dot(shape.normal()).abs() < 1.0e-12);
+            assert!((shape.normal().dot(shape.normal()) - 1.0).abs() < 1.0e-12);
+        }
+    }
+
+    #[test]
+    fn track_shape_rotation_and_mirrors_follow_java_tables() {
+        use TrackShape as T;
+        for shape in [
+            T::None,
+            T::ZOrtho,
+            T::XOrtho,
+            T::PositiveDiagonal,
+            T::NegativeDiagonal,
+            T::AscendingNorth,
+            T::AscendingSouth,
+            T::AscendingEast,
+            T::AscendingWest,
+            T::TeleportNorth,
+            T::TeleportSouth,
+            T::TeleportEast,
+            T::TeleportWest,
+            T::CrossOrtho,
+            T::CrossDiagonal,
+            T::CrossPositiveX,
+            T::CrossPositiveZ,
+            T::CrossNegativeX,
+            T::CrossNegativeZ,
+        ] {
+            assert_eq!(shape.mirror_x().mirror_x(), shape);
+            assert_eq!(shape.mirror_z().mirror_z(), shape);
+            assert_eq!(
+                shape
+                    .rotate_clockwise()
+                    .rotate_clockwise()
+                    .rotate_clockwise()
+                    .rotate_clockwise(),
+                shape
+            );
+        }
+        assert_eq!(T::AscendingNorth.mirror_z(), T::AscendingSouth);
+        assert_eq!(T::AscendingWest.mirror_x(), T::AscendingEast);
+        assert_eq!(T::PositiveDiagonal.mirror_x(), T::NegativeDiagonal);
+        assert_eq!(T::PositiveDiagonal.mirror_z(), T::NegativeDiagonal);
+        assert_eq!(T::AscendingEast.rotate_clockwise(), T::AscendingSouth);
+        assert_eq!(T::AscendingSouth.rotate_clockwise(), T::AscendingWest);
+        assert_eq!(T::CrossPositiveX.rotate_clockwise(), T::CrossNegativeZ);
+        assert_eq!(T::CrossNegativeZ.rotate_clockwise(), T::CrossPositiveX);
+        assert_eq!(T::CrossNegativeX.rotate_clockwise(), T::CrossPositiveZ);
+        assert_eq!(T::CrossPositiveZ.rotate_clockwise(), T::CrossNegativeX);
     }
 }
