@@ -110,9 +110,10 @@ impl MechanicalBearing {
         pos: Pos,
         facing: u8,
         windmill: bool,
+        kinetics: &mut Kinetics,
     ) -> bool {
         let (Some(contraption), Some(air)) = (
-            blocks.scan(world, pos, facing),
+            blocks.scan(world, pos, facing, kinetics),
             blocks.state("minecraft:air"),
         ) else {
             return false;
@@ -143,6 +144,7 @@ impl MechanicalBearing {
         {
             return false;
         }
+        crate::contraption::detach_moved_belts(world, &remove, kinetics);
         self.data = saved;
         true
     }
@@ -197,6 +199,7 @@ impl MechanicalBearing {
         pos: Pos,
         kind: Kind,
         speed: f32,
+        kinetics: &mut Kinetics,
     ) -> bool {
         let (facing, windmill) = match kind {
             Kind::Bearing(facing) => (facing, false),
@@ -219,7 +222,7 @@ impl MechanicalBearing {
             && !self.data.running
             && (windmill || speed != 0.0)
         {
-            dirty |= self.assemble(world, blocks, pos, facing, windmill);
+            dirty |= self.assemble(world, blocks, pos, facing, windmill, kinetics);
         }
         if self.data.running {
             let axis = face_axis(facing);
@@ -295,14 +298,17 @@ pub fn tick(
         let Some(be) = kinetics.get_mut(pos) else {
             continue;
         };
-        let speed = be.get_speed();
-        if let Some(bearing) = &mut be.bearing {
-            be.dirty |= bearing.tick(world, checks, pos, be.kind, speed);
-            if matches!(be.kind, Kind::Windmill(_)) {
-                let generated = bearing.get_generated_speed();
-                if be.generated != generated {
-                    kinetics.set_generated(level, pos, generated);
-                }
+        let (speed, kind) = (be.get_speed(), be.kind);
+        let Some(mut bearing) = be.bearing.take() else {
+            continue;
+        };
+        let dirty = bearing.tick(world, checks, pos, kind, speed, kinetics);
+        let generated = bearing.get_generated_speed();
+        if let Some(be) = kinetics.get_mut(pos) {
+            be.bearing = Some(bearing);
+            be.dirty |= dirty;
+            if matches!(kind, Kind::Windmill(_)) && be.generated != generated {
+                kinetics.set_generated(level, pos, generated);
             }
         }
     }

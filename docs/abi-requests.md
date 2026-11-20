@@ -30,7 +30,7 @@ Normal writes over a captured chest and furnace scattered two stacks on pickup a
 
 ## Moving content block events (resolved)
 
-Host commit `0aaef9b` exposes `MOVED_STATE_CHANGED` for replacements made with `UPDATE_MOVED`. The mod detaches moved blocks from the kinetic network without using the belt break path. The detach is covered by a unit test. The piston scenario verifies that its in-place `moving` transition keeps its own controller alive.
+Host commit `0aaef9b` exposes `MOVED_STATE_CHANGED` for replacements made with `UPDATE_MOVED`. The detach unit test covers moves without chain destruction. The moving belt scenario checks the whole chain and item count across pickup, restart, and disassembly. The piston scenario verifies that its in-place `moving` transition keeps its own controller alive.
 
 ## Piston use and break hooks (resolved)
 

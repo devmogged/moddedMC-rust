@@ -549,7 +549,7 @@ fn try_assemble(
     let frontier = VecDeque::from([(pos, start)]);
     let (mut blocks, _) =
         checks.collect_attached(world, pos, frontier, HashSet::from([shaft_pos]), None)?;
-    blocks.capture_entities(world, pos)?;
+    blocks.capture_entities(world, pos, kinetics)?;
     let sources = blocks.positions(pos).collect();
     let direction = if speed > 0.0 {
         shaft.facing
@@ -588,6 +588,7 @@ fn try_assemble(
         return None;
     }
     be.dirty = true;
+    crate::contraption::detach_moved_belts(world, &remove, kinetics);
     Some(())
 }
 
