@@ -9,7 +9,7 @@ use moddedmc_api::{
     items::{self, Item, Items},
 };
 
-const ITEMS: [(&str, &str, &str, &str); 4] = [
+const ITEMS: [(&str, &str, &str, &str); 16] = [
     (
         "createaddition:electrum_ingot",
         "Electrum Ingot",
@@ -34,6 +34,79 @@ const ITEMS: [(&str, &str, &str, &str); 4] = [
         "minecraft:iron_ingot",
         "createaddition:item/zinc_sheet",
     ),
+    // All of these are plain Item::new in CAItems.
+    (
+        "createaddition:diamond_grit",
+        "Diamond Grit",
+        "minecraft:gunpowder",
+        "createaddition:item/diamond_grit",
+    ),
+    (
+        "createaddition:copper_wire",
+        "Copper Wire",
+        "minecraft:iron_ingot",
+        "createaddition:item/copper_wire",
+    ),
+    (
+        "createaddition:iron_wire",
+        "Iron Wire",
+        "minecraft:iron_ingot",
+        "createaddition:item/iron_wire",
+    ),
+    (
+        "createaddition:gold_wire",
+        "Gold Wire",
+        "minecraft:iron_ingot",
+        "createaddition:item/gold_wire",
+    ),
+    (
+        "createaddition:electrum_wire",
+        "Electrum Wire",
+        "minecraft:iron_ingot",
+        "createaddition:item/electrum_wire",
+    ),
+    (
+        "createaddition:copper_rod",
+        "Copper Rod",
+        "minecraft:stick",
+        "createaddition:item/copper_rod",
+    ),
+    (
+        "createaddition:iron_rod",
+        "Iron Rod",
+        "minecraft:stick",
+        "createaddition:item/iron_rod",
+    ),
+    (
+        "createaddition:gold_rod",
+        "Gold Rod",
+        "minecraft:stick",
+        "createaddition:item/gold_rod",
+    ),
+    (
+        "createaddition:electrum_rod",
+        "Electrum Rod",
+        "minecraft:stick",
+        "createaddition:item/electrum_rod",
+    ),
+    (
+        "createaddition:brass_rod",
+        "Brass Rod",
+        "minecraft:stick",
+        "createaddition:item/brass_rod",
+    ),
+    (
+        "createaddition:cake_base",
+        "Cake Base",
+        "minecraft:paper",
+        "createaddition:item/cake_base",
+    ),
+    (
+        "createaddition:cake_base_baked",
+        "Baked Cake Base",
+        "minecraft:paper",
+        "createaddition:item/cake_base_baked",
+    ),
 ];
 
 static CONTENT: OnceLock<Content> = OnceLock::new();
@@ -51,7 +124,7 @@ impl Mod for CreateAddition {
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let items = ITEM_API.get().ok_or(RegistrationError::InvalidDefinition)?;
         for &(id, display_name, carrier, model) in &ITEMS {
-            // All four source entries are plain Item::new with 64-stack defaults.
+            // All source entries are plain Item::new with 64-stack defaults.
             items.add_item(
                 registry,
                 &Item {
@@ -103,9 +176,14 @@ mod tests {
             assert!(model.starts_with("createaddition:item/"));
             assert!(matches!(
                 carrier,
-                "minecraft:gold_ingot" | "minecraft:gold_nugget" | "minecraft:iron_ingot"
+                "minecraft:gold_ingot"
+                    | "minecraft:gold_nugget"
+                    | "minecraft:iron_ingot"
+                    | "minecraft:gunpowder"
+                    | "minecraft:stick"
+                    | "minecraft:paper"
             ));
         }
-        assert_eq!(names.len(), 4);
+        assert_eq!(names.len(), 16);
     }
 }

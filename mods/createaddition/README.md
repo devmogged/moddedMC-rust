@@ -4,11 +4,11 @@ Rust port in progress for **Create Crafts & Additions 1.7.2** (NeoForge Minecraf
 
 ## Runnable passive content
 
-`createaddition.mmc` registers four passive items (electrum ingot, electrum nugget, electrum sheet and zinc sheet), the electrum storage block, four release crafting recipes, its original block loot table, and relevant common item/block and vanilla mining tags. Data were taken from the published 1.7.2 jar. Broad pickaxe and incorrect-tool tag lists are narrowed to the only block currently registered.
+`createaddition.mmc` registers 16 passive items (electrum ingot/nugget/sheets, zinc sheet, diamond grit, four wires, five metal rods and both cake bases), the electrum storage block, four release crafting recipes, its original block loot table, and 25 relevant common item/block and vanilla mining tags. Data were taken from the published 1.7.2 jar. Broad pickaxe and incorrect-tool tag lists are narrowed to the only block currently registered.
 
 Package with `powershell -NoProfile -File scripts/pack-mod.ps1 -Crate createaddition`. Original textures/models remain in the separately obtained jar and are not committed; provide it through `MODDEDMC_ASSET_JARS` when testing.
 
-The server scenarios `tests/scenarios/ws4-createaddition-electrum.txt` (Create installed alongside the addon) and `ws4-createaddition-crafting.txt` pass with the pinned shared engine binary. The latter verifies actual crafting table interactions (ingot to nine nuggets and reverse), custom output item identity, and player inventory persistence across restart. See `docs/ws/create-addons-content.md` for evidence. No original NeoForge server oracle or real-client capture has been performed.
+The server scenarios `tests/scenarios/ws4-createaddition-electrum.txt` (Create installed alongside the addon), `ws4-createaddition-crafting.txt` and `ws4-createaddition-materials.txt` pass with the pinned shared engine binary. The materials scenario verifies all twelve added passive items and saved player inventory. The crafting scenario verifies actual crafting table interactions (ingot to nine nuggets and reverse), custom output item identity, and persistence through restart. See `docs/ws/create-addons-content.md` for evidence. No original NeoForge server oracle or real-client capture has been performed.
 
 ## Source-checked logic, not player-usable machines
 

@@ -25,3 +25,13 @@ The electric motor, alternator, cables, spools, rolling mill and other machines 
 Original Java NeoForge 1.21.1 oracle and real client rendering have not been run. Custom namespace `c:storage_blocks/electrum` is present in packaged JSON but the pinning engine's vanilla `/execute if block ... #c:...` command reports unknown tag; this needs investigation by the host/vanilla parity owner, not a mod workaround. Generic block tags `minecraft:mineable/pickaxe` and `minecraft:needs_iron_tool` do work in the scenario.
 
 When merging, reconcile `mods/createaddition/src/lib.rs`, `Cargo.toml`, `README.md` and `Cargo.lock` with the concurrent main WS-4 branch, preserving its `rolling_mill` module and helper dependencies.
+
+## Further M2 materials milestone
+
+Source-verified and registered 12 additional plain `Item::new` entries from the same published `CAItems.java` and release jar: diamond grit; copper, iron, gold and electrum wires; copper, iron, gold, electrum and brass rods; unbaked and baked cake bases. The original model JSON exists for all twelve in the release. Neutral vanilla carriers preserve standard item stacks while the separately supplied jar provides the original artwork. No special wire/spool/food behavior is claimed.
+
+Added 12 source-extracted common tag files for those item groups (five individual rod tags and their all-metal tag, four individual wire tags and their all-metal tag, and diamond dust). With the existing data, the server loads 4 crafting recipes, 1 block loot table and 25 tags.
+
+The native `.mmc` built successfully; `cargo test -p createaddition` still passes 16/16 (rolling-mill tests included), and strict Clippy and formatting pass. `tests/scenarios/ws4-createaddition-materials.txt` passed on port 26046: all twelve IDs were created and matched by the server's registry using `/give` and `/clear`; copper wire and baked cake base were confirmed again after restart. Log: `N:/mmc-coord/notes/WS-4-createaddition-materials-scenario.log`.
+
+These are source-defined items and tags, not machine parity. Rods, wires and grit need the appropriate Create rolling, filling and processing recipes and the inter-mod services before they can all be produced in survival gameplay.
