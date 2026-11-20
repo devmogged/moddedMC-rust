@@ -72,4 +72,8 @@ Verified on the owner's Windows machine in this isolated worktree:
 - `cargo clippy -p create --all-targets -- -D warnings`: passed
 - `git diff --check`: passed
 
-These are Rust unit tests derived from Create 6.0.10 source rules, not an original Java runtime oracle. M1 remains open. Next source slices: FluidNetwork's simulation/execution and endpoint discovery, pump pressure BFS, block registrations, world persistence and the water-to-pool scenario. Complete original-server comparisons only after the shared host endpoints and WS-0 binaries exist. Do not mark M1 done on compilation alone.
+These are Rust unit tests derived from Create 6.0.10 source rules, not an original Java runtime oracle.
+
+Second slice: `mods/create/src/fluids/network.rs` ports the fluid handler transfer half of `FluidNetwork.tick`. It keeps the source's simulate-then-execute drain ordering, each target's simulate-then-execute fill, component-aware matching, pressure-to-millibucket rate, and leftover redistribution when an output reaches capacity. Four additional tests cover the 64 mB/tick example, split between full and unfilled tanks, simulation limiting the executed drain to 10 mB, mismatched fluids and pressure conversion. `cargo test -p create --lib`: 27 passed; `cargo clippy -p create --all-targets -- -D warnings`: passed.
+
+M1 remains open. The network graph's BFS and endpoint discovery, pump pressure BFS, block registrations, world persistence and the water-to-pool scenario are not yet implemented. Host fluid endpoints are pending WS-0 requests. Shared host binaries now exist at `N:\mmc-shared\bin\d6e5e8d560`, but do not expose the requested fluid interfaces. Complete original-server comparisons after host endpoints land. Do not mark M1 done on compilation alone.
