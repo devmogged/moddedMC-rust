@@ -3,4 +3,5 @@
 //! The real block needs Create's kinetic service before a .mmc can be shipped.
 
 pub mod electrical_network;
+pub mod energy_storage;
 pub mod generator_coil;
