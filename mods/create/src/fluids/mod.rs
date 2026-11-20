@@ -2,6 +2,7 @@
 
 pub mod connection_nbt;
 pub mod network;
+pub mod network_graph;
 pub mod open_end;
 pub mod pipe_connection;
 pub mod pipe_states;
