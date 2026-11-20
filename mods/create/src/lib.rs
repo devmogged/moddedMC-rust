@@ -819,7 +819,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             };
             format!("{}[facing={}]", fan::ID, DIRECTIONS[usize::from(face)])
         }
-        Some(Kind::Bearing(_)) => {
+        Some(Kind::Bearing(_) | Kind::Windmill(_)) => {
             let face = if args.sneak {
                 look
             } else {
@@ -830,7 +830,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                     .unwrap_or(look)
                     ^ 1
             };
-            format!("{}[facing={}]", bearing::ID, DIRECTIONS[usize::from(face)])
+            format!("{}[facing={}]", placed.block, DIRECTIONS[usize::from(face)])
         }
         Some(Kind::Shaft(_)) => format!(
             "{SHAFT}[axis={},waterlogged={wet}]",
@@ -990,11 +990,14 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if kind == Kind::Millstone {
         be.millstone = data.millstone.map(millstone::Millstone::load).map(Box::new);
     }
-    if matches!(kind, Kind::Bearing(_))
+    if kind.is_bearing()
         && let Some(data) = data.bearing
     {
         let mut bearing = bearing::MechanicalBearing::default();
         bearing.data = data;
+        if matches!(kind, Kind::Windmill(_)) {
+            be.generated = bearing.get_generated_speed();
+        }
         be.bearing = Some(Box::new(bearing));
     }
     be.source = data.source.and_then(|pos| match *pos {
@@ -1170,7 +1173,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         kinetics.tick(&mut level);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
-        bearing::tick(world, &states.contraption_blocks, kinetics);
+        bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
         for (pos, millstone) in kinetics.dropped_millstones.drain(..) {
             millstone.drop_contents(world, pos);
         }
@@ -1225,7 +1228,7 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         Some(Kind::Millstone) => with_world(context.world, |kinetics| {
             millstone::use_item_on(kinetics, context)
         }),
-        Some(Kind::Bearing(_)) => with_world(context.world, |kinetics| {
+        Some(Kind::Bearing(_) | Kind::Windmill(_)) => with_world(context.world, |kinetics| {
             bearing::use_item_on(kinetics, &states.contraption_blocks, context)
         }),
         _ => BlockUseResult::TryEmptyHand,

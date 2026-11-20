@@ -10,7 +10,7 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AXES, CONTENT, DIRECTIONS,
+    AXES, CONTENT, DIRECTIONS, TAGS,
     kinetics::{FACES, face_axis, offset, packed, positive},
 };
 
@@ -69,7 +69,7 @@ impl BlockMovementChecks {
 
     pub fn scan(&self, world: World<'_>, bearing: Pos, facing: u8) -> Option<Contraption> {
         let content = CONTENT.get()?;
-        Contraption::search_moved_structure(bearing, facing, |pos| {
+        let mut contraption = Contraption::search_moved_structure(bearing, facing, |pos| {
             let mut state = [UNLOADED_STATE];
             world.read(&[pos], &mut state);
             if let Some(known) = self.states.get(&state[0]) {
@@ -77,13 +77,24 @@ impl BlockMovementChecks {
             }
             let entry = PaletteEntry::parse(&content.describe_state(state[0])?);
             let id = entry.name.strip_prefix("minecraft:")?;
-            ((id.ends_with("_log") || id.ends_with("_stairs"))
+            ((id.ends_with("_log") || id.ends_with("_stairs") || id.ends_with("_wool"))
                 && entry
                     .properties
                     .get("waterlogged")
                     .is_none_or(|v| v == "false"))
             .then_some(BlockMovement::Movable(entry))
-        })
+        })?;
+        if let Some(sails) = TAGS.get()?.values("block", "create:windmill_sails") {
+            contraption.sails = contraption
+                .blocks
+                .block_list
+                .iter()
+                .filter(|block| {
+                    sails.contains(&contraption.blocks.palette[block.palette_index()].name)
+                })
+                .count() as i32;
+        }
+        Some(contraption)
     }
 
     pub fn state(&self, name: &str) -> Option<u32> {
@@ -102,7 +113,7 @@ pub struct Contraption {
     pub blocks: Blocks,
     bounds_front: Vec<f64>,
     facing: u8,
-    sails: i32,
+    pub sails: i32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

@@ -83,6 +83,7 @@ pub enum Kind {
     Press(u8),
     Fan(u8),
     Bearing(u8),
+    Windmill(u8),
     Millstone,
     Wheel(u8),
     Belt(Belt),
@@ -211,7 +212,10 @@ impl Kind {
             | Self::EncasedShaft(axis)
             | Self::Wheel(axis)
             | Self::Press(axis) => axis,
-            Self::Motor(facing) | Self::Fan(facing) | Self::Bearing(facing) => face_axis(facing),
+            Self::Motor(facing)
+            | Self::Fan(facing)
+            | Self::Bearing(facing)
+            | Self::Windmill(facing) => face_axis(facing),
             Self::Turntable | Self::Millstone => 1,
             // BeltBlock.getRotationAxis: sideways belts turn on Y, others on the facing's
             // clockwise axis.
@@ -227,7 +231,9 @@ impl Kind {
     pub const fn has_shaft_towards(self, face: u8) -> bool {
         match self {
             Self::Motor(facing) => facing == face,
-            Self::Fan(facing) | Self::Bearing(facing) => facing ^ 1 == face,
+            Self::Fan(facing) | Self::Bearing(facing) | Self::Windmill(facing) => {
+                facing ^ 1 == face
+            }
             Self::Gearbox(axis) => face_axis(face) != axis,
             Self::Turntable | Self::Millstone => face == DOWN,
             Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
@@ -265,12 +271,17 @@ impl Kind {
     pub const fn capacity(self) -> f32 {
         match self {
             Self::Motor(_) => 16384.0,
+            Self::Windmill(_) => 512.0,
             _ => 0.0,
         }
     }
 
     const fn generator(self) -> bool {
-        matches!(self, Self::Motor(_))
+        matches!(self, Self::Motor(_) | Self::Windmill(_))
+    }
+
+    pub const fn is_bearing(self) -> bool {
+        matches!(self, Self::Bearing(_) | Self::Windmill(_))
     }
 
     fn same_block(self, other: Self) -> bool {
@@ -281,7 +292,9 @@ impl Kind {
     pub fn equivalent(self, other: Self) -> bool {
         let same_part = match (self, other) {
             (Self::Belt(a), Self::Belt(b)) => a.part == b.part,
-            (Self::Fan(a), Self::Fan(b)) | (Self::Bearing(a), Self::Bearing(b)) => a == b,
+            (Self::Fan(a), Self::Fan(b))
+            | (Self::Bearing(a), Self::Bearing(b))
+            | (Self::Windmill(a), Self::Windmill(b)) => a == b,
             _ => true,
         };
         self.same_block(other) && self.axis() == other.axis() && same_part
@@ -392,7 +405,11 @@ impl Be {
             overstressed: false,
             last_stress_applied: 0.0,
             last_capacity_provided: 0.0,
-            generated: DEFAULT_SPEED,
+            generated: if matches!(kind, Kind::Windmill(_)) {
+                0
+            } else {
+                DEFAULT_SPEED
+            },
             flicker_tally: 0,
             update_speed: true,
             validation_countdown: 0,
@@ -428,6 +445,7 @@ impl Be {
         match self.kind {
             Kind::Motor(facing) if positive(facing) => self.generated as f32,
             Kind::Motor(_) => -(self.generated as f32),
+            Kind::Windmill(_) => self.generated as f32,
             _ => 0.0,
         }
     }
@@ -627,7 +645,7 @@ impl Kinetics {
 
     /// A block entity created by placement or loaded with its saved fields.
     pub fn insert(&mut self, pos: Pos, mut be: Be) {
-        if matches!(be.kind, Kind::Bearing(_)) && be.bearing.is_none() {
+        if be.kind.is_bearing() && be.bearing.is_none() {
             be.bearing = Some(Box::default());
         }
         if be.kind == Kind::Millstone && be.millstone.is_none() {
