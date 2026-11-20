@@ -475,6 +475,14 @@ pub struct StateDefinition {
     pub shape_count: usize,
 }
 
+/// A collision box in blocks, relative to the block's minimum corner.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CollisionBox {
+    pub min: [f64; 3],
+    pub max: [f64; 3],
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ShapeBox {
@@ -583,6 +591,15 @@ pub struct BlockWorldV1 {
     /// Vanilla `BlockState.isFaceSturdy(level, pos, face)`, face in down, up, north, south, west,
     /// east order. False for unloaded positions.
     pub face_sturdy: unsafe extern "C" fn(world: WorldRef, pos: Pos, face: u8) -> bool,
+    /// Vanilla `BlockState.getCollisionShape(level, pos)` with an empty collision context, as
+    /// boxes including the block's random offset. Writes up to `capacity` boxes to `out` and
+    /// returns how many there are; -1 for unloaded positions.
+    pub collision_shape: unsafe extern "C" fn(
+        world: WorldRef,
+        pos: Pos,
+        out: *mut CollisionBox,
+        capacity: usize,
+    ) -> i32,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
@@ -703,7 +720,19 @@ pub struct EntitiesV1 {
     ) -> usize,
     /// Vanilla `Entity.hasIndirectPassenger`: `other` rides `entity`, directly or further up.
     pub has_indirect_passenger: unsafe extern "C" fn(entity: EntityRef, other: i32) -> bool,
+    /// Appended after `has_indirect_passenger`: mod data saved with the entity, the counterpart
+    /// of NeoForge `Entity.getPersistentData()`. Require `EntitiesExtension::Data`.
+    /// The compound saved under `key` as Java named-root NBT; false when there is none.
+    pub data: unsafe extern "C" fn(entity: EntityRef, key: Str, out: Sink) -> bool,
+    /// Replace the compound under `key` with Java named-root NBT of at most
+    /// `MAX_ENTITY_DATA_BYTES`; empty removes it.
+    pub set_data: unsafe extern "C" fn(entity: EntityRef, key: Str, nbt: Str) -> bool,
 }
+
+/// Largest compound `EntitiesV1::set_data` accepts.
+pub const MAX_ENTITY_DATA_BYTES: usize = 64 << 10;
+/// Longest `EntitiesV1::data` key.
+pub const MAX_ENTITY_DATA_KEY: usize = 64;
 
 /// Size of the entities table before `id` was appended.
 pub const ENTITIES_V1_BASE_SIZE: usize = std::mem::offset_of!(EntitiesV1, id);

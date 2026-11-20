@@ -1,8 +1,9 @@
 //! The entity functions appended to `moddedmc:entities` v1: ids, lookup, movement, effects,
-//! step height and box queries.
+//! step height, box queries and mod data saved with the entity.
 
 use std::{
     ffi::c_void,
+    io::Cursor,
     sync::{Arc, PoisonError, atomic::Ordering},
 };
 
@@ -11,6 +12,7 @@ use pumpkin_core::entity::{Entity, EntityBase, living::LivingEntity, player::Pla
 use pumpkin_data::{
     attributes::Attributes, effect::StatusEffect, entity::EntityType, potion::Effect,
 };
+use pumpkin_nbt::{Nbt, deserializer::NbtReadHelperJava};
 use pumpkin_protocol::java::server::play::SPlayerInput;
 use pumpkin_util::math::{boundingbox::BoundingBox, vector3::Vector3};
 
@@ -255,4 +257,75 @@ fn riders(entity: &Entity) -> Vec<Arc<dyn EntityBase>> {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone()
+}
+
+/// A mod data key: a vanilla `ResourceLocation` path, so it can't collide with odd NBT names.
+fn data_key<'a>(key: Str) -> Option<&'a str> {
+    if key.len == 0 || key.len > abi::MAX_ENTITY_DATA_KEY {
+        return None;
+    }
+    // SAFETY: the caller borrows the key for this call.
+    let key = unsafe { key.str() };
+    key.bytes()
+        .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.' | b'/' | b':'))
+        .then_some(key)
+}
+
+pub unsafe extern "C" fn data(raw: abi::EntityRef, key: Str, out: abi::Sink) -> bool {
+    // SAFETY: the entity is live for the callback.
+    let (Some(entity), Some(key)) = (unsafe { entity(raw) }, data_key(key)) else {
+        return false;
+    };
+    let saved = entity
+        .get_entity()
+        .custom_data
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_compound(key)
+        .cloned();
+    let Some(saved) = saved else {
+        return false;
+    };
+    let bytes = Nbt::from(saved).write();
+    // SAFETY: the bytes are live until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
+pub unsafe extern "C" fn set_data(raw: abi::EntityRef, key: Str, nbt: Str) -> bool {
+    // SAFETY: the entity is live for the callback.
+    let (Some(entity), Some(key)) = (unsafe { entity(raw) }, data_key(key)) else {
+        return false;
+    };
+    let saved = if nbt.len == 0 {
+        None
+    } else {
+        if nbt.len > abi::MAX_ENTITY_DATA_BYTES {
+            return false;
+        }
+        // SAFETY: the caller borrows the bytes for this call.
+        let bytes = unsafe { nbt.bytes() };
+        let mut reader = Cursor::new(bytes);
+        let Ok(nbt) = Nbt::read(&mut NbtReadHelperJava::new(&mut reader)) else {
+            return false;
+        };
+        if reader.position() != bytes.len() as u64 {
+            return false;
+        }
+        Some(nbt.root_tag)
+    };
+    let mut data = entity
+        .get_entity()
+        .custom_data
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    match saved {
+        Some(saved) => {
+            data.put_compound(key, saved);
+        }
+        None => {
+            data.child_tags.remove(key);
+        }
+    }
+    true
 }

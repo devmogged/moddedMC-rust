@@ -7,8 +7,8 @@ use crate::{
 };
 
 pub use abi::{
-    BlockUpdate, ContentEvent, LOADED, NEIGHBOR_CHANGED, STATE_CHANGED, ShapeBox, UNLOADED,
-    UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS, UPDATE_NEIGHBORS,
+    BlockUpdate, CollisionBox, ContentEvent, LOADED, NEIGHBOR_CHANGED, STATE_CHANGED, ShapeBox,
+    UNLOADED, UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS, UPDATE_NEIGHBORS,
 };
 
 #[derive(Clone, Copy)]
@@ -52,6 +52,7 @@ pub enum WorldExtension {
     NeighborSignal,
     Destroy,
     FaceSturdy,
+    CollisionShape,
 }
 
 impl WorldExtension {
@@ -68,6 +69,10 @@ impl WorldExtension {
             Self::FaceSturdy => (
                 std::mem::offset_of!(abi::BlockWorldV1, face_sturdy),
                 "moddedmc:block_world.face_sturdy",
+            ),
+            Self::CollisionShape => (
+                std::mem::offset_of!(abi::BlockWorldV1, collision_shape),
+                "moddedmc:block_world.collision_shape",
             ),
         }
     }
@@ -302,6 +307,29 @@ impl World<'_> {
         // SAFETY: the size check covers the appended field; world is borrowed for this call.
         WorldExtension::FaceSturdy.available(self.api)
             && unsafe { (self.api.face_sturdy)(self.raw, pos, face) }
+    }
+
+    /// Vanilla `BlockState.getCollisionShape(level, pos)` as boxes relative to the block's
+    /// minimum corner, empty for no collision. `None` when unloaded or on a server without it.
+    pub fn collision_shape(self, pos: Pos) -> Option<Vec<CollisionBox>> {
+        if !WorldExtension::CollisionShape.available(self.api) {
+            return None;
+        }
+        let mut boxes = Vec::new();
+        loop {
+            // SAFETY: the size check covers the appended field; `boxes` has room for its
+            // capacity and the world is borrowed for this call.
+            let count = unsafe {
+                (self.api.collision_shape)(self.raw, pos, boxes.as_mut_ptr(), boxes.capacity())
+            };
+            let count = usize::try_from(count).ok()?;
+            if count <= boxes.capacity() {
+                // SAFETY: the host wrote `count` boxes, within the capacity.
+                unsafe { boxes.set_len(count) };
+                return Some(boxes);
+            }
+            boxes.reserve_exact(count);
+        }
     }
 
     /// Tells loaded worlds apart. Stable while the world stays loaded.

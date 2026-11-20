@@ -19,6 +19,8 @@ pub use abi::{
 pub enum EntitiesExtension {
     /// Ids, lookup by id, flags, movement, effects, step height and box queries.
     Movement,
+    /// Mod data saved with the entity.
+    Data,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -75,14 +77,20 @@ impl Entities {
         self,
         extension: EntitiesExtension,
     ) -> Result<(), InterfaceUnavailable> {
-        let EntitiesExtension::Movement = extension;
-        if self.0.size >= size_of::<abi::EntitiesV1>() {
+        let (end, name) = match extension {
+            EntitiesExtension::Movement => (
+                std::mem::offset_of!(abi::EntitiesV1, has_indirect_passenger),
+                "moddedmc:entities.movement",
+            ),
+            EntitiesExtension::Data => (
+                std::mem::offset_of!(abi::EntitiesV1, set_data),
+                "moddedmc:entities.data",
+            ),
+        };
+        if self.0.size >= end + size_of::<usize>() {
             Ok(())
         } else {
-            Err(InterfaceUnavailable {
-                name: "moddedmc:entities.movement",
-                version: 1,
-            })
+            Err(InterfaceUnavailable { name, version: 1 })
         }
     }
 
@@ -261,6 +269,25 @@ impl Entity<'_> {
     pub fn has_indirect_passenger(self, other: i32) -> bool {
         // SAFETY: the entity is live for this callback.
         unsafe { (self.api.has_indirect_passenger)(self.raw, other) }
+    }
+
+    /// The compound saved on this entity under `key`, as Java named-root NBT. Needs
+    /// `EntitiesExtension::Data`.
+    pub fn data(self, key: &str) -> Option<Vec<u8>> {
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: the entity is live for the callback and the sink collects synchronously.
+        unsafe { (self.api.data)(self.raw, abi::Str::new(key.as_bytes()), sink) }.then_some(data)
+    }
+
+    /// Save a compound under `key`, as Java named-root NBT; empty removes it. Needs
+    /// `EntitiesExtension::Data`.
+    pub fn set_data(self, key: &str, nbt: &[u8]) -> bool {
+        // SAFETY: the entity is live for the callback and both slices are borrowed for the call.
+        unsafe { (self.api.set_data)(self.raw, abi::Str::new(key.as_bytes()), abi::Str::new(nbt)) }
     }
 
     pub fn set_step_height(self, value: f64) {

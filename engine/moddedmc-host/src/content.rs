@@ -65,6 +65,7 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     has_neighbor_signal,
     destroy,
     face_sturdy,
+    collision_shape,
 };
 
 const MAX_BATCH: usize = 4096;
@@ -1049,6 +1050,37 @@ unsafe extern "C" fn face_sturdy(raw: WorldRef, pos: Pos, face: u8) -> bool {
         .is_some_and(|id| BlockState::from_id(id).is_side_solid(face))
 }
 
+unsafe extern "C" fn collision_shape(
+    raw: WorldRef,
+    pos: Pos,
+    out: *mut abi::CollisionBox,
+    capacity: usize,
+) -> i32 {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    let pos = block_pos(pos);
+    let Some(id) = world.get_block_state_id_if_loaded(&pos) else {
+        return -1;
+    };
+    let mut count = 0;
+    for shape in BlockState::from_id(id).get_block_collision_shapes_at(&pos) {
+        if count < capacity && !out.is_null() {
+            let (min, max) = (shape.min, shape.max);
+            // SAFETY: `out` has room for `capacity` boxes and `count` is below it.
+            unsafe {
+                out.add(count).write(abi::CollisionBox {
+                    min: [min.x, min.y, min.z],
+                    max: [max.x, max.y, max.z],
+                });
+            }
+        }
+        count += 1;
+    }
+    i32::try_from(count).unwrap_or(i32::MAX)
+}
+
 pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     size: size_of::<abi::EntitiesV1>(),
     on_entity_inside,
@@ -1067,6 +1099,8 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     set_step_height: crate::entities::set_step_height,
     entities_in: crate::entities::entities_in,
     has_indirect_passenger: crate::entities::has_indirect_passenger,
+    data: crate::entities::data,
+    set_data: crate::entities::set_data,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
