@@ -185,6 +185,24 @@ pub(super) fn straight(
     })
 }
 
+/// Vanilla Direction offsets, with overflow-safe world coordinates.
+fn relative(pos: Pos, face: u8) -> Option<Pos> {
+    let [dx, dy, dz] = match face {
+        0 => [0, -1, 0],
+        1 => [0, 1, 0],
+        2 => [0, 0, -1],
+        3 => [0, 0, 1],
+        4 => [-1, 0, 0],
+        5 => [1, 0, 0],
+        _ => return None,
+    };
+    Some(Pos {
+        x: pos.x.checked_add(dx)?,
+        y: pos.y.checked_add(dy)?,
+        z: pos.z.checked_add(dz)?,
+    })
+}
+
 /// Partial TrackBlockItem.useOn: selecting the first track, clearing it while
 /// sneaking, and placing an aligned straight run between two existing rails.
 /// Curves, slope transitions, and offhand material gathering still require the
@@ -214,23 +232,73 @@ pub(crate) fn use_on_block(
         };
     }
 
-    // The clicked block must be a track. When nothing is selected, let the
-    // host's normal block-item placement work on non-tracks as Create does.
+    let Some(view) = player.view() else {
+        return UseResult::Fail;
+    };
+    let (sin_yaw, cos_yaw) = view.yaw.to_radians().sin_cos();
+    let (sin_pitch, cos_pitch) = view.pitch.to_radians().sin_cos();
+    let look = Vec3 {
+        x: -f64::from(sin_yaw * cos_pitch),
+        y: -f64::from(sin_pitch),
+        z: f64::from(cos_yaw * cos_pitch),
+    };
+
+    // TrackBlockItem.useOn: click an existing second rail, or click terrain
+    // to place the new end rail immediately before connecting the straight run.
     let mut current = [content::UNLOADED_STATE];
     if !context.world.read(&[context.position], &mut current) {
         return UseResult::Fail;
     }
-    let Some((clicked_shape, clicked_turn)) = super::runtime::track_state(content, current[0])
-    else {
-        return if saved.is_none() {
-            UseResult::Pass
+    let mut new_endpoint = None;
+    let (target, clicked_shape, clicked_turn) =
+        if let Some((shape, turn)) = super::runtime::track_state(content, current[0]) {
+            (context.position, shape, turn)
         } else {
-            UseResult::Fail
+            if saved.is_none() {
+                // No selection: normal BlockItem placement, as in Java.
+                return UseResult::Pass;
+            }
+            let Some(state_ids) = crate::states() else {
+                return UseResult::Fail;
+            };
+            let target = if state_ids.replaceable.contains(&current[0]) {
+                context.position
+            } else {
+                let Some(adjacent) = relative(context.position, context.face) else {
+                    return UseResult::Fail;
+                };
+                adjacent
+            };
+            let mut existing = [content::UNLOADED_STATE];
+            if !context.world.read(&[target], &mut existing)
+                || !state_ids.replaceable.contains(&existing[0])
+            {
+                return UseResult::Fail;
+            }
+            let Some(state) = super::runtime::placed_item_target(
+                content,
+                context.world,
+                target,
+                context.face,
+                view.yaw,
+                view.pitch,
+            ) else {
+                return UseResult::Fail;
+            };
+            let Some((shape, turn)) = super::runtime::track_state(content, state) else {
+                return UseResult::Fail;
+            };
+            new_endpoint = Some(state);
+            (target, shape, turn)
         };
-    };
     if clicked_shape.axes().len() != 1 || clicked_turn {
-        // TrackBlockItem blocks junction and tilted first points.
-        return UseResult::Success;
+        // Java blocks a junction or tilted first point. Curve/junction end
+        // placements need TrackPlacement's later Bezier path.
+        return if saved.is_some() {
+            UseResult::Fail
+        } else {
+            UseResult::Success
+        };
     }
 
     if let Some(start) = saved {
@@ -251,27 +319,23 @@ pub(crate) fn use_on_block(
             return UseResult::Fail;
         }
         let world = context.world;
-        let result = straight(
-            start,
-            context.position,
-            source_shape,
-            clicked_shape,
-            32,
-            |pos| {
-                let mut state = [content::UNLOADED_STATE];
-                world.read(&[pos], &mut state)
-                    && crate::states().is_some_and(|states| states.replaceable.contains(&state[0]))
-            },
-        );
+        let result = straight(start, target, source_shape, clicked_shape, 32, |pos| {
+            let mut state = [content::UNLOADED_STATE];
+            world.read(&[pos], &mut state)
+                && crate::states().is_some_and(|states| states.replaceable.contains(&state[0]))
+        });
         let Ok(plan) = result else {
             return UseResult::Fail;
         };
-        if !context.creative && plan.cost > context.stack.count() {
+        // A click on terrain also creates the second endpoint block.
+        let total_cost = plan.cost + u32::from(new_endpoint.is_some());
+        if !context.creative && total_cost > context.stack.count() {
             // TODO(abi): TrackPlacement inventory-wide material gathering and
             // offhand pavement, not just the clicked stack's count.
             return UseResult::Fail;
         }
-        let mut updates = Vec::with_capacity(plan.positions.len());
+        let mut updates =
+            Vec::with_capacity(plan.positions.len() + usize::from(new_endpoint.is_some()));
         for pos in plan.positions {
             let mut existing = [content::UNLOADED_STATE];
             if !world.read(&[pos], &mut existing) {
@@ -283,6 +347,13 @@ pub(crate) fn use_on_block(
             };
             updates.push(BlockUpdate {
                 position: pos,
+                state,
+                flags: content::UPDATE_ALL,
+            });
+        }
+        if let Some(state) = new_endpoint {
+            updates.push(BlockUpdate {
+                position: target,
                 state,
                 flags: content::UPDATE_ALL,
             });
@@ -300,22 +371,12 @@ pub(crate) fn use_on_block(
             return UseResult::Fail;
         }
         if !context.creative {
-            context.stack.shrink(plan.cost);
+            context.stack.shrink(total_cost);
         }
         return UseResult::Success;
     }
 
-    let Some(view) = player.view() else {
-        return UseResult::Fail;
-    };
-    let (sin_yaw, cos_yaw) = view.yaw.to_radians().sin_cos();
-    let (sin_pitch, cos_pitch) = view.pitch.to_radians().sin_cos();
-    let look = Vec3 {
-        x: -f64::from(sin_yaw * cos_pitch),
-        y: -f64::from(sin_pitch),
-        z: f64::from(cos_yaw * cos_pitch),
-    };
-    let Some(start) = select(context.position, clicked_shape, look) else {
+    let Some(start) = select(target, clicked_shape, look) else {
         return UseResult::Success;
     };
     let Ok(data) = encode(&start) else {
@@ -345,6 +406,19 @@ mod tests {
         y: 0.0,
         z: -1.0,
     };
+
+    #[test]
+    fn clicked_face_offsets_are_vanilla_order_and_bounds_checked() {
+        let origin = point(1, 64, -2);
+        assert_eq!(relative(origin, 0), Some(point(1, 63, -2)));
+        assert_eq!(relative(origin, 1), Some(point(1, 65, -2)));
+        assert_eq!(relative(origin, 2), Some(point(1, 64, -3)));
+        assert_eq!(relative(origin, 3), Some(point(1, 64, -1)));
+        assert_eq!(relative(origin, 4), Some(point(0, 64, -2)));
+        assert_eq!(relative(origin, 5), Some(point(2, 64, -2)));
+        assert_eq!(relative(origin, 6), None);
+        assert_eq!(relative(point(i32::MAX, 64, 0), 5), None);
+    }
 
     #[test]
     fn selection_roundtrips_in_mod_scoped_stack_nbt() {

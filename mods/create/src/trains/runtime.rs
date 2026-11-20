@@ -5,7 +5,7 @@ use super::math::Vec3;
 use super::track::{TrackShape, select_placement_shape};
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
-    content::{Block, Content, Placement, ShapeBox, State},
+    content::{Block, Content, Placement, ShapeBox, State, World},
 };
 use std::{collections::HashMap, sync::OnceLock};
 
@@ -165,6 +165,32 @@ pub(super) fn rail_state(content: Content, shape: TrackShape, wet: bool) -> Opti
             wet,
         })
         .copied()
+}
+
+/// TrackBlockItem.getPlacementState for an item used on non-track terrain.
+/// Reuse the real placement callback so click-to-extend and ordinary placement
+/// choose the same orientation, slope and waterlogged state.
+pub(super) fn placed_item_target(
+    content: Content,
+    world: World<'_>,
+    pos: Pos,
+    face: u8,
+    yaw: f32,
+    pitch: f32,
+) -> Option<u32> {
+    let default = rail_state(content, TrackShape::ZOrtho, false)?;
+    placed_state(
+        &Placement {
+            world,
+            state: default,
+            position: pos,
+            face,
+            sneak: false,
+            yaw,
+            pitch,
+        },
+        content,
+    )
 }
 
 /// Read-only diagnostic for a track state; used by the WS-3 bot scenario.
