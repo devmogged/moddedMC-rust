@@ -10,3 +10,7 @@ publish = false
 # and required content registration are available; do not ship a no-op mod.
 [lib]
 crate-type = ["rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+fastnbt = "2.6.3"

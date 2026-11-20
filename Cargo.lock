@@ -224,6 +224,10 @@ version = "0.1.0"
 [[package]]
 name = "createaddition"
 version = "0.1.0"
+dependencies = [
+ "fastnbt",
+ "serde",
+]
 
 [[package]]
 name = "crypto-common"
