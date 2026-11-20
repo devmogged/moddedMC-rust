@@ -96,6 +96,78 @@ impl TankInventory {
         self.fluid.as_ref()
     }
 
+    /// Store the Create controller tank shape and single-fluid inventory as NBT.
+    /// Boiler and positional state are owned by the enclosing block entity.
+    pub fn write_controller_nbt(&self) -> std::collections::HashMap<String, fastnbt::Value> {
+        use fastnbt::Value;
+        use std::collections::HashMap;
+        let mut content = HashMap::new();
+        if let Some(fluid) = &self.fluid {
+            let mut saved = HashMap::from([
+                ("id".into(), Value::String(fluid.id.clone())),
+                ("amount".into(), Value::Int(fluid.amount as i32)),
+            ]);
+            if let Some(components) = &fluid.components {
+                saved.insert("components".into(), components.clone());
+            }
+            content.insert("Fluid".into(), Value::Compound(saved));
+        }
+        HashMap::from([
+            ("Window".into(), Value::Byte(i8::from(self.window))),
+            ("Size".into(), Value::Int(i32::from(self.width))),
+            ("Height".into(), Value::Int(i32::from(self.height))),
+            ("TankContent".into(), Value::Compound(content)),
+        ])
+    }
+
+    /// Reject malformed controller shapes or fluid payloads transactionally.
+    pub fn read_controller_nbt(
+        &mut self,
+        data: &std::collections::HashMap<String, fastnbt::Value>,
+    ) -> Result<(), TankShapeError> {
+        use fastnbt::Value;
+        let width = match data.get("Size") {
+            Some(Value::Int(value)) => {
+                u8::try_from(*value).map_err(|_| TankShapeError::InvalidDimensions)?
+            }
+            _ => return Err(TankShapeError::InvalidDimensions),
+        };
+        let height = match data.get("Height") {
+            Some(Value::Int(value)) => {
+                u16::try_from(*value).map_err(|_| TankShapeError::InvalidDimensions)?
+            }
+            _ => return Err(TankShapeError::InvalidDimensions),
+        };
+        let capacity = capacity_for(width, height, self.max_height, self.millibuckets_per_block)?;
+        let content = match data.get("TankContent") {
+            Some(Value::Compound(content)) => content,
+            _ => return Err(TankShapeError::InvalidDimensions),
+        };
+        let fluid = match content.get("Fluid") {
+            None => None,
+            Some(Value::Compound(tag)) => {
+                let id = match tag.get("id") {
+                    Some(Value::String(id)) if !id.is_empty() => id.clone(),
+                    _ => return Err(TankShapeError::InvalidDimensions),
+                };
+                let amount = match tag.get("amount") {
+                    Some(Value::Int(amount)) if *amount > 0 => *amount as u32,
+                    _ => return Err(TankShapeError::InvalidDimensions),
+                };
+                Some(FluidStack {
+                    id,
+                    amount: amount.min(capacity),
+                    components: tag.get("components").cloned(),
+                })
+            }
+            _ => return Err(TankShapeError::InvalidDimensions),
+        };
+        self.width = width;
+        self.height = height;
+        self.window = matches!(data.get("Window"), Some(Value::Byte(1)));
+        self.fluid = fluid;
+        Ok(())
+    }
     pub fn fill_ratio(&self) -> f32 {
         self.amount() as f32 / self.capacity() as f32
     }
@@ -272,6 +344,82 @@ mod tests {
         assert_eq!(moved, 1_000);
         assert_eq!(source.amount(), 7_000);
         assert_eq!(target.amount(), 8_000);
+    }
+
+    #[test]
+    fn java_controller_nbt_shape_and_components_roundtrip() {
+        let mut tank = TankInventory::new(8_000, 8).unwrap();
+        tank.resize(3, 4).unwrap();
+        tank.set_window(false);
+        let potion = FluidStack {
+            id: "create:potion".into(),
+            amount: 1_234,
+            components: Some(Value::Compound(HashMap::from([(
+                "potion".into(),
+                Value::String("minecraft:healing".into()),
+            )]))),
+        };
+        assert_eq!(tank.fill(&potion, false), 1_234);
+        let saved = tank.write_controller_nbt();
+        assert_eq!(saved.get("Size"), Some(&Value::Int(3)));
+        assert_eq!(saved.get("Height"), Some(&Value::Int(4)));
+        assert_eq!(saved.get("Window"), Some(&Value::Byte(0)));
+        let mut loaded = TankInventory::new(8_000, 8).unwrap();
+        loaded.read_controller_nbt(&saved).unwrap();
+        assert_eq!(loaded.width(), 3);
+        assert_eq!(loaded.height(), 4);
+        assert!(!loaded.window());
+        assert_eq!(loaded.fluid(), Some(&potion));
+        assert_eq!(loaded.write_controller_nbt(), saved);
+    }
+
+    #[test]
+    fn malformed_java_tank_nbt_rejected_without_partial_state_changes() {
+        let mut tank = TankInventory::new(1_000, 4).unwrap();
+        tank.fill(&water(500), false);
+        let original = tank.write_controller_nbt();
+
+        let mut invalid = original.clone();
+        invalid.insert("Size".into(), Value::Int(100));
+        assert_eq!(
+            tank.read_controller_nbt(&invalid),
+            Err(TankShapeError::InvalidDimensions)
+        );
+        assert_eq!(tank.write_controller_nbt(), original);
+
+        let mut invalid = original.clone();
+        invalid.insert("TankContent".into(), Value::String("not a compound".into()));
+        assert_eq!(
+            tank.read_controller_nbt(&invalid),
+            Err(TankShapeError::InvalidDimensions)
+        );
+        assert_eq!(tank.write_controller_nbt(), original);
+
+        let mut invalid = original.clone();
+        let content = HashMap::from([(
+            "Fluid".into(),
+            Value::Compound(HashMap::from([
+                ("id".into(), Value::String("minecraft:water".into())),
+                ("amount".into(), Value::Int(-1)),
+            ])),
+        )]);
+        invalid.insert("TankContent".into(), Value::Compound(content));
+        assert_eq!(
+            tank.read_controller_nbt(&invalid),
+            Err(TankShapeError::InvalidDimensions)
+        );
+        assert_eq!(tank.write_controller_nbt(), original);
+    }
+
+    #[test]
+    fn loading_oversized_inventory_caps_to_controller_capacity() {
+        let mut tank = TankInventory::new(1_000, 4).unwrap();
+        let mut large = TankInventory::new(10_000, 4).unwrap();
+        large.fill(&water(8_000), false);
+        tank.read_controller_nbt(&large.write_controller_nbt())
+            .unwrap();
+        assert_eq!(tank.capacity(), 1_000);
+        assert_eq!(tank.amount(), 1_000);
     }
 
     #[test]
