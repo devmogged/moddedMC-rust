@@ -10,5 +10,6 @@ pub mod pipe_connection;
 pub mod pipe_states;
 pub mod pump_graph;
 pub mod runtime;
+pub mod tank;
 pub mod transport;
 pub mod vanilla_targets;
