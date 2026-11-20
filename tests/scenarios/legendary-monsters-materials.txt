@@ -6,7 +6,7 @@ start
 # Registration logging is sorted by the host, not by the Rust array.
 # Verify startup and validate other IDs through actual give operations below.
 expect registered content item legendary_monsters:air_rune
-expect Loaded built-in datapack 'mod/legendary-monsters': 2 recipe\(s\), 0 loot table\(s\), 2 tag\(s\)
+expect Loaded built-in datapack 'mod/legendary-monsters': 4 recipe\(s\), 0 loot table\(s\), 2 tag\(s\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester

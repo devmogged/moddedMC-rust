@@ -56,7 +56,7 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
         assert original_english.get("item.legendary_monsters.guide_book") == "Guide Book"
         # The original models and textures are intentionally never copied.
         recipes = sorted((MOD / "resources/data/legendary_monsters/recipe").glob("*.json"))
-        assert len(recipes) == 2, f"unexpected locally shipped recipes: {len(recipes)}"
+        assert len(recipes) == 4, f"unexpected locally shipped recipes: {len(recipes)}"
         for recipe in recipes:
             archive_name = "data/legendary_monsters/recipe/" + recipe.name
             assert archive_name in archive, f"unknown source recipe {archive_name}"

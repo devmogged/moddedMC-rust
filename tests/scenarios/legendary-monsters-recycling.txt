@@ -1,0 +1,56 @@
+# WS-6 M1: source-backed reuse of Knight's Sword Blade Half and Long Stick Half.
+# Original 2.2.4 recipes: blade half -> 1 iron ingot; long stick -> 2 sticks.
+# Each uses the real 2x2 player crafting inventory and consumes its original input.
+mods target\mods\legendary-monsters.mmc
+start
+expect Loaded built-in datapack 'mod/legendary-monsters': 4 recipe\(s\)
+botstart recycler
+wait 3
+expect \[bot\] joined as recycler
+cmd give recycler legendary_monsters:knights_sword_blade_half 1
+wait 1
+expect Gave 1 .*Knight
+bot inventory-click 36 left
+wait 0.5
+bot inventory-click 1 left
+wait 0.5
+bot inventory-click 0 shift-left
+wait 1
+cmd clear recycler minecraft:iron_ingot 0
+wait 1
+expect Found 1 matching item
+cmd clear recycler legendary_monsters:knights_sword_blade_half 0
+wait 1
+expect No items were found
+cmd clear recycler minecraft:iron_ingot 1
+wait 1
+cmd give recycler legendary_monsters:long_stick_half 1
+wait 1
+expect Gave 1 .*Long Stick Half
+bot inventory-click 36 left
+wait 0.5
+bot inventory-click 1 left
+wait 0.5
+bot inventory-click 0 shift-left
+wait 1
+cmd clear recycler minecraft:stick 0
+wait 1
+expect Found 2 matching item
+cmd clear recycler legendary_monsters:long_stick_half 0
+wait 1
+expect No items were found
+bot quit
+stop
+start
+botstart recycler
+wait 3
+expect \[bot\] joined as recycler
+cmd clear recycler minecraft:stick 0
+wait 1
+expect Found 2 matching item
+cmd clear recycler legendary_monsters:long_stick_half 0
+wait 1
+expect No items were found
+reject (?i)error|panic|incorrect argument
+bot quit
+stop
