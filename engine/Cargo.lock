@@ -2978,6 +2978,7 @@ dependencies = [
  "pumpkin-data",
  "pumpkin-nbt",
  "pumpkin-util",
+ "pumpkin-worldgen-model",
  "rand 0.10.3",
  "rayon",
  "rustc-hash",
@@ -2992,6 +2993,15 @@ dependencies = [
  "tracing",
  "uuid",
  "xxhash-rust",
+]
+
+[[package]]
+name = "pumpkin-worldgen-model"
+version = "0.2.2+26.3-26.63"
+dependencies = [
+ "pumpkin-data",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
