@@ -40,6 +40,24 @@ wired up yet: tool wear, item-ability queries, and block inventory capability
 need the generic host interfaces requested in `WS-1-03`. Compiling this recipe
 layer does **not** mean the cutting board works in Survival yet.
 
+## Cutting-board inventory and persistence (tested logic, not active gameplay)
+
+`src/cutting_board.rs` implements the original one-slot inventory's stack
+merging, simulation, component equality, bounded extraction and per-cut
+single-item consumption. It also reproduces the NeoForge 1.21.1
+`ItemStackHandler` NBT structure (`Inventory.Size`, `Inventory.Items`,
+`Slot: Int(0)`) together with `IsItemCarved`. The implementation was traced
+against the official `neoforged/NeoForge` 1.21.1 branch and the mod's
+`CuttingBoardBlockEntity.java`. Missing legacy save keys default to an empty
+one-slot board as NeoForge does; invalid/duplicate slot data fails closed.
+
+Seven native unit tests check these behaviors, component-sensitive merging,
+no mutation on simulated operations, and round-trip persistence. Item stacks
+are still read or written through the future generic host interaction and
+container hooks. This layer does **not** make a cutting-board block available
+in the world; tool damage, custom recipe use, comparator update and a live
+restart scenario remain prerequisites for declaring it playable.
+
 ## Source-verified food values (reference only)
 
 `food_values.json` records **74** FoodProperties constants and three vanilla

@@ -3,6 +3,7 @@
 //! The four ingredients are basic items; the crates are oak-plank physical blocks.
 
 pub mod cutting;
+pub mod cutting_board;
 pub mod food_values;
 
 use std::sync::OnceLock;
