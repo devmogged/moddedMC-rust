@@ -60,4 +60,13 @@ Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its
 
 The [Depot bot scenario](../../tests/scenarios/create-depot.txt) checks placement, top and side use, falling items, breaking, belt handoff, and restart from the client's received block, entity and inventory packets. Analog output is deferred until content blocks can declare comparator support. [ABI requests](../../docs/abi-requests.md)
 
+### Chute
+
+1. Stack two chutes directly over a Depot and drop items into the top. The stack should appear on the Depot in order of arrival. Empty-hand use retrieves it.
+2. Block the outlet with stone. Use a Wrench on the vertical chute to open its window. A stack should stop halfway down the chute and remain there until the outlet clears or you retrieve it with an empty hand.
+3. Put one chute over a running belt and one at the outlet, with a Depot below the outlet chute. Watch a stack travel from the top chute onto the belt and reappear on the Depot.
+4. Place a chute against the side of an existing chute. It should attach diagonally one level up and feed the chute you clicked. Capture the diagonal placement and the belt handoff.
+
+The [Chute bot scenario](../../tests/scenarios/create-chute.txt) exercises these paths. Chute fan airflow, smart chutes, encasing and the original advancement effects are pending.
+
 Not ported yet: the rest of `BeltBlock.useItemOn` (dyes and water, the wrench and the connector on an existing belt, packages, a shaft turning a middle segment into a pulley, casings), and its `mayBuild` check; belt processing, funnels, tunnels and crushers; the belt surface doesn't scroll, only its top half is drawn, and sideways belts (between vertical shafts) are drawn turned the wrong way, because block models can't take the Z rotation `BeltRenderer` uses; breaking a pulley segment doesn't drop its shaft, belts can't be dyed or cased, and their placement makes no sound; the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.

@@ -202,6 +202,43 @@ impl DepotBehaviour {
         inserted
     }
 
+    /// `DepotItemHandler.insertItem` starts with a fresh transported stack.
+    pub fn insert_item(
+        &mut self,
+        world: World<'_>,
+        pos: Pos,
+        stack: &TransportedItemStack,
+        simulate: bool,
+    ) -> i32 {
+        if self.is_occupied() {
+            return 0;
+        }
+        let max = stack.max_count();
+        let accepted = count(&stack.item).min(max);
+        if accepted > 0 && !simulate {
+            let mut item = TransportedItemStack::new(with_count(&stack.item, accepted));
+            item.pos = 0.0;
+            self.held_item = Some(item);
+            self.dirty = true;
+            play_insert(world, pos, UP);
+        }
+        accepted
+    }
+
+    /// `ItemHelper.extract` from the held slot and then compatible output slots.
+    pub fn extract_items(&mut self, world: World<'_>, limit: i32) -> Option<Value> {
+        let mut result = None;
+        if let Some(item) = &mut self.held_item
+            && extract_matching(world, item, &mut result, limit)
+        {
+            self.held_item = None;
+        }
+        self.processing_output_buffer
+            .retain(|_, item| !extract_matching(world, item, &mut result, limit));
+        self.dirty |= result.is_some();
+        result
+    }
+
     fn remove(self, world: World<'_>, pos: Pos, drop: bool) {
         for stack in self
             .held_item
@@ -213,6 +250,33 @@ impl DepotBehaviour {
                 stacks.spawn(world, center(pos, 1.0), [0.0; 3], &bytes);
             }
         }
+    }
+}
+
+fn extract_matching(
+    world: World<'_>,
+    stack: &mut TransportedItemStack,
+    result: &mut Option<Value>,
+    limit: i32,
+) -> bool {
+    let total = result.as_ref().map_or(0, count);
+    let amount = count(&stack.item);
+    let max = stack.max_count();
+    let taken = (limit - total).min(amount).min(max);
+    if taken <= 0
+        || result.as_ref().is_some_and(|result| {
+            with_count(result, 1) != with_count(&stack.item, 1) || total + taken > max
+        })
+    {
+        return false;
+    }
+    *result = Some(with_count(&stack.item, total + taken));
+    if taken == amount {
+        remove_display(world, stack);
+        true
+    } else {
+        stack.resize(world, amount - taken);
+        false
     }
 }
 
@@ -261,10 +325,7 @@ pub fn try_inserting_from_side(
     if depot.is_occupied() {
         return 0;
     }
-    let max = STACKS
-        .get()
-        .and_then(|stacks| stacks.info(&item.bytes()?))
-        .map_or(0, |info| info.max_count as i32);
+    let max = item.max_count();
     let inserted = depot.insert_from_side(item, side, max);
     if inserted > 0 {
         play_insert(world, pos, side);

@@ -502,6 +502,7 @@ pub trait Level {
 #[derive(Default)]
 pub struct Kinetics {
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
+    pub chutes: crate::chute::Chutes,
     bes: HashMap<Pos, Be>,
     /// Tick order, `(position, serial)`, in insertion order like the level's ticker list.
     order: Vec<(Pos, u64)>,

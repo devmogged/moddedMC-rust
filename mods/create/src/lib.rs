@@ -6,6 +6,7 @@ use std::{
 use moddedmc_api::{
     Command, InterfaceUnavailable, Mod, Pos, RegistrationError, Registry,
     commands::{self, Argument, Commands, Node},
+    containers::{self, Containers},
     content::{
         self, Block, BlockUpdate, Content, ContentEvent, Placement, ShapeBox, State, World,
         WorldExtension,
@@ -14,7 +15,9 @@ use moddedmc_api::{
     entities::{
         self, ENTITY_LIVING, ENTITY_PLAYER, Entities, EntitiesExtension, Entity, EntityChange,
     },
-    interaction::{self, BlockUseResult, Interaction, InteractionExtension, UseBlock},
+    interaction::{
+        self, BlockUseResult, Interaction, InteractionExtension, UseBlock, UseOnBlock, UseResult,
+    },
     items::{self, Item, Items},
     stacks::{self, Displays, ItemStacks},
 };
@@ -23,6 +26,7 @@ use serde::{Deserialize, Serialize};
 mod belt;
 mod belt_inventory;
 mod belt_movement;
+mod chute;
 mod depot;
 mod kinetics;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
@@ -40,6 +44,7 @@ const ENCASED_SHAFT: &str = "create:andesite_encased_shaft";
 const CASING: &str = "create:andesite_casing";
 const TURNTABLE: &str = "create:turntable";
 const ANDESITE_ALLOY: &str = "create:andesite_alloy";
+const WRENCH: &str = "create:wrench";
 const BRACKETED: &str = "create:simple_kinetic";
 /// `CreativeMotorBlockEntity.MAX_SPEED`.
 const MAX_SPEED: i32 = 256;
@@ -54,6 +59,7 @@ static INTERACTION: OnceLock<Interaction> = OnceLock::new();
 static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static DISPLAYS: OnceLock<Displays> = OnceLock::new();
 static EFFECTS: OnceLock<Effects> = OnceLock::new();
+static CONTAINERS: OnceLock<Containers> = OnceLock::new();
 static STATES: OnceLock<StateIds> = OnceLock::new();
 /// Each loaded world's kinetic block entities and networks, by `World::id`.
 static WORLDS: Mutex<Option<HashMap<usize, Kinetics>>> = Mutex::new(None);
@@ -88,6 +94,7 @@ impl Mod for Create {
         let _ = EFFECTS.set(effects::require()?);
         let _ = STACKS.set(stacks::require()?);
         let _ = DISPLAYS.set(stacks::require_displays()?);
+        let _ = CONTAINERS.set(containers::require()?);
         Ok(())
     }
 
@@ -110,6 +117,19 @@ impl Mod for Create {
         register_casings(content, registry)?;
         belt::register(content, registry)?;
         depot::register(*content, registry)?;
+        chute::register(*content, registry)?;
+        ITEMS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add_item(
+                registry,
+                &Item {
+                    id: WRENCH,
+                    display_name: "Wrench",
+                    carrier: "minecraft:stick",
+                    model: "create:item/wrench",
+                },
+            )?;
         ITEMS
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -125,7 +145,7 @@ impl Mod for Create {
         INTERACTION
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
-            .on_use_on_block(registry, belt::use_on_block)?;
+            .on_use_on_block(registry, use_on_block)?;
         INTERACTION
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -515,6 +535,7 @@ struct KnownState {
 
 #[derive(Default)]
 struct StateIds {
+    chutes: HashMap<u32, chute::ChuteState>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
     /// Vanilla blocks a belt may run through (`canBeReplaced`).
@@ -640,6 +661,7 @@ fn states() -> Option<&'static StateIds> {
             ids.add(content, depot::ID, properties, None);
         }
         belt::add_states(&mut ids, content);
+        chute::add_states(content, &mut ids);
         for name in [
             "air",
             "cave_air",
@@ -681,6 +703,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return None;
     }
     let states = states()?;
+    if states.chutes.contains_key(&args.state) {
+        return chute::placed_state(args, states);
+    }
     let placed = states.by_id.get(&args.state)?;
     let mut positions = [args.position; 7];
     for (pos, step) in positions.iter_mut().zip(FACES) {
@@ -977,6 +1002,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         let mut level = WorldLevel { world, states };
         for event in events {
             depot::event(world, &mut kinetics.depots, states, event);
+            chute::event(world, &mut kinetics.chutes, states, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             match event.reason {
@@ -1010,9 +1036,18 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         kinetics.tick(&mut level);
         belt_movement::tick(world, kinetics, states);
         belt_inventory::tick(world, kinetics);
+        chute::tick(world, states, kinetics);
         depot::tick(world, &mut kinetics.depots);
         flush(world, kinetics);
     });
+}
+
+fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    if context.item == chute::ID {
+        chute::use_on_block(context)
+    } else {
+        belt::use_on_block(context)
+    }
 }
 
 /// `useItemOn` for the mod's blocks.
@@ -1023,6 +1058,11 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     let Some(states) = states() else {
         return BlockUseResult::Pass;
     };
+    if states.chutes.contains_key(&context.state) {
+        return with_world(context.world, |kinetics| {
+            chute::use_item_on(context.world, &mut kinetics.chutes, context)
+        });
+    }
     if depot::is_depot(states, context.state) {
         return with_world(context.world, |kinetics| {
             depot::use_item_on(&mut kinetics.depots, context)

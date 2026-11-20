@@ -138,6 +138,13 @@ impl TransportedItemStack {
         fastnbt::to_bytes(&self.item).ok()
     }
 
+    pub fn max_count(&self) -> i32 {
+        STACKS
+            .get()
+            .and_then(|stacks| stacks.info(&self.bytes()?))
+            .map_or(0, |info| info.max_count as i32)
+    }
+
     pub fn resize(&mut self, world: World<'_>, count: i32) {
         self.item = with_count(&self.item, count);
         if let (Some((id, _)), Some(&displays), Some(bytes)) =
@@ -461,7 +468,28 @@ impl BeltInventory {
                 Some(Ending::Insert) => {
                     let next =
                         chain.position_for_offset(if positive_order { chain.length } else { -1 });
-                    if let Some(depot) = kinetics.depots.get_mut(&next) {
+                    if kinetics.chutes.entries.contains_key(&next) {
+                        let accepted = crate::states().map_or(0, |states| {
+                            crate::chute::direct_insert(
+                                world,
+                                states,
+                                &mut kinetics.chutes,
+                                next,
+                                item,
+                            )
+                        });
+                        if accepted > 0 {
+                            let remaining = count(&item.item) - accepted;
+                            if remaining == 0 {
+                                remove_display(world, item);
+                                self.items.remove(index - 1);
+                                index -= 1;
+                            } else {
+                                item.resize(world, remaining);
+                            }
+                            changed = true;
+                        }
+                    } else if let Some(depot) = kinetics.depots.get_mut(&next) {
                         let accepted = crate::depot::try_inserting_from_side(
                             world,
                             next,
@@ -521,13 +549,95 @@ fn resolve_ending(
     positive_order: bool,
 ) -> Ending {
     let next = chain.position_for_offset(if positive_order { chain.length } else { -1 });
-    if matches!(kinetics.kind(next), Some(Kind::Belt(_))) || kinetics.depots.contains_key(&next) {
+    if matches!(kinetics.kind(next), Some(Kind::Belt(_)))
+        || kinetics.depots.contains_key(&next)
+        || kinetics.chutes.entries.contains_key(&next)
+    {
         return Ending::Insert;
     }
     if world.face_sturdy(next, opposite(chain.movement_facing())) {
         return Ending::Blocked;
     }
     Ending::Eject
+}
+
+/// `ItemHandlerBeltSegment.insertItem`.
+pub fn insert_into_segment(
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    stack: &TransportedItemStack,
+    simulate: bool,
+) -> i32 {
+    let Some(segment) = kinetics.get(pos) else {
+        return 0;
+    };
+    let Kind::Belt(belt) = segment.kind else {
+        return 0;
+    };
+    let Some(controller) = segment.controller else {
+        return 0;
+    };
+    if !can_transport_objects(belt) || segment.belt_length == 0 {
+        return 0;
+    }
+    let index = segment.belt_index;
+    let Some(chain) = Chain::of(kinetics, controller) else {
+        return 0;
+    };
+    let Some(be) = kinetics.get_mut(controller) else {
+        return 0;
+    };
+    let inventory = be.inventory.get_or_insert_with(BeltInventory::default);
+    if !inventory.can_insert_at_from_side(index, UP, chain.movement_facing()) {
+        return 0;
+    }
+    let accepted = count(&stack.item).min(stack.max_count());
+    if accepted > 0 && !simulate {
+        let mut new_stack = TransportedItemStack::new(with_count(&stack.item, accepted));
+        new_stack.in_segment = index;
+        new_stack.pos =
+            index as f32 + 0.5 + if inventory.positive_order { -1.0 } else { 1.0 } / 16.0;
+        new_stack.prev_pos = new_stack.pos;
+        inventory.to_insert.push(new_stack);
+        be.dirty = true;
+    }
+    accepted
+}
+
+/// `ItemHandlerBeltSegment.extractItem` uses the first stack within (offset, offset + 1].
+pub fn extract_from_segment(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    limit: i32,
+    simulate: bool,
+) -> Option<Value> {
+    let segment = kinetics.get(pos)?;
+    let offset = segment.belt_index as f32;
+    let controller = segment.controller?;
+    let be = kinetics.get_mut(controller)?;
+    let inventory = be.inventory.as_mut()?;
+    let index = inventory
+        .items
+        .iter()
+        .position(|stack| !stack.is_empty() && stack.pos > offset && stack.pos <= offset + 1.0)?;
+    let stack = &mut inventory.items[index];
+    let amount = count(&stack.item);
+    let taken = amount.min(limit);
+    if taken <= 0 {
+        return None;
+    }
+    let extracted = with_count(&stack.item, taken);
+    if !simulate {
+        if taken == amount {
+            remove_display(world, stack);
+            inventory.items.remove(index);
+        } else {
+            stack.resize(world, amount - taken);
+        }
+        be.dirty = true;
+    }
+    Some(extracted)
 }
 
 /// `BeltBlockEntity.tryInsertingFromSide` on the segment at `pos`, for a stack arriving through
