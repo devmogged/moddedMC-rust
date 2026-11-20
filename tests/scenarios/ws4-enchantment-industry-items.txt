@@ -1,0 +1,37 @@
+# Create Enchantment Industry 2.5.4 Fabric: source plain items only.
+# No enchantment, fluids or processing machines are registered.
+mods target\mods\create-enchantment-industry.mmc
+start
+expect Loaded built-in datapack 'mod/create-enchantment-industry': 0 recipe\(s\), 0 loot table\(s\), 1 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2370.5 101 2370.5
+wait 1
+cmd give tester create_enchantment_industry:blazes_enchanting_handbook 2
+wait 0.5
+expect Gave 2 .*Blaze's Enchanting Handbook
+cmd clear tester create_enchantment_industry:blazes_enchanting_handbook 0
+wait 0.5
+expect Found 2 matching
+cmd give tester create_enchantment_industry:experience_cake_base 3
+wait 0.5
+expect Gave 3 .*Cake Base o' Enchanting
+cmd clear tester create_enchantment_industry:experience_cake_base 0
+wait 0.5
+expect Found 3 matching
+reject (?i)panicked|trapped|Unknown item|ERROR
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd clear tester create_enchantment_industry:blazes_enchanting_handbook 0
+wait 0.5
+expect Found 2 matching
+cmd clear tester create_enchantment_industry:experience_cake_base 0
+wait 0.5
+expect Found 3 matching
+reject (?i)panicked|trapped|Unknown item|ERROR
+stop

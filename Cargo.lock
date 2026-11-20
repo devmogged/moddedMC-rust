@@ -209,6 +209,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-enchantment-industry"
+version = "0.1.0"
+dependencies = [
+ "moddedmc-api",
+]
+
+[[package]]
 name = "create-more-recipes"
 version = "0.1.0"
 dependencies = [
