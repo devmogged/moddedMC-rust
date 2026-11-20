@@ -352,4 +352,67 @@ mod shared_handler_regression {
             "source fluid must be conserved"
         );
     }
+
+    #[test]
+    fn aliased_faces_preserve_mass_at_multiple_pressures() {
+        for face_count in 1..=6 {
+            for initial in [0u32, 1, 20, 39, 40] {
+                for pressure in [1.0f32, 16.0, 80.0, 128.0, 256.0] {
+                    let shared = Rc::new(RefCell::new(initial));
+                    let mut adapters = (0..face_count)
+                        .map(|_| AliasTarget {
+                            shared: Rc::clone(&shared),
+                        })
+                        .collect::<Vec<_>>();
+                    let mut targets = adapters
+                        .iter_mut()
+                        .map(|target| target as &mut dyn FluidHandler)
+                        .collect::<Vec<_>>();
+                    let mut source = Source { remaining: 128 };
+                    let moved = transfer_tick(&mut source, &mut targets, &water(128), pressure);
+                    let stored = *shared.borrow();
+
+                    assert_eq!(
+                        source.remaining,
+                        128 - moved,
+                        "source loss with {face_count} faces, {initial} initially, {pressure} pressure"
+                    );
+                    assert_eq!(
+                        stored,
+                        initial + moved,
+                        "sink loss with {face_count} faces, {initial} initially, {pressure} pressure"
+                    );
+                    assert_eq!(moved, (40 - initial).min(super::transfer_speed(pressure)));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn distinct_handlers_do_not_share_one_capacity_budget() {
+        let first = Rc::new(RefCell::new(0u32));
+        let second = Rc::new(RefCell::new(0u32));
+        let mut left_face = AliasTarget {
+            shared: Rc::clone(&first),
+        };
+        let mut right_face = AliasTarget {
+            shared: Rc::clone(&first),
+        };
+        let mut other = AliasTarget {
+            shared: Rc::clone(&second),
+        };
+        let mut source = Source { remaining: 128 };
+
+        let moved = transfer_tick(
+            &mut source,
+            &mut [&mut left_face, &mut right_face, &mut other],
+            &water(128),
+            256.0,
+        );
+
+        assert_eq!(moved, 80);
+        assert_eq!(source.remaining, 48);
+        assert_eq!(*first.borrow(), 40);
+        assert_eq!(*second.borrow(), 40);
+    }
 }
