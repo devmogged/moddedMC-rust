@@ -1,6 +1,6 @@
 //! Create 6.0.10's Contraption.searchMovedStructure and StructureTransform.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use fastnbt::IntArray;
 use moddedmc_api::{
@@ -9,16 +9,19 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::kinetics::{FACES, face_axis, offset, packed};
+use crate::{
+    AXES, CONTENT, DIRECTIONS,
+    kinetics::{FACES, face_axis, offset, packed, positive},
+};
 
 /// CKinetics.maxBlocksMoved default.
 const MAX_BLOCKS_MOVED: usize = 2048;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum BlockMovement {
     Air,
     Immovable,
-    Simple(&'static str),
+    Movable(PaletteEntry),
 }
 
 #[derive(Default)]
@@ -29,8 +32,7 @@ pub struct BlockMovementChecks {
 
 impl BlockMovementChecks {
     pub fn register_states(&mut self, content: Content) {
-        // shortcut: only isotropic blocks proven free of block entities, until state transforms
-        // and block entity capture are available.
+        // shortcut: states with unported movement rules must not be silently skipped.
         let simple = [
             "minecraft:stone",
             "minecraft:cobblestone",
@@ -46,7 +48,7 @@ impl BlockMovementChecks {
             "minecraft:iron_block",
         ]
         .into_iter()
-        .map(|name| (name, BlockMovement::Simple(name)));
+        .map(|name| (name, BlockMovement::Movable(PaletteEntry::parse(name))));
         let air = ["minecraft:air", "minecraft:cave_air", "minecraft:void_air"]
             .into_iter()
             .map(|name| (name, BlockMovement::Air));
@@ -66,10 +68,21 @@ impl BlockMovementChecks {
     }
 
     pub fn scan(&self, world: World<'_>, bearing: Pos, facing: u8) -> Option<Contraption> {
+        let content = CONTENT.get()?;
         Contraption::search_moved_structure(bearing, facing, |pos| {
             let mut state = [UNLOADED_STATE];
             world.read(&[pos], &mut state);
-            self.states.get(&state[0]).copied()
+            if let Some(known) = self.states.get(&state[0]) {
+                return Some(known.clone());
+            }
+            let entry = PaletteEntry::parse(&content.describe_state(state[0])?);
+            let id = entry.name.strip_prefix("minecraft:")?;
+            ((id.ends_with("_log") || id.ends_with("_stairs"))
+                && entry
+                    .properties
+                    .get("waterlogged")
+                    .is_none_or(|v| v == "false"))
+            .then_some(BlockMovement::Movable(entry))
         })
     }
 
@@ -99,10 +112,48 @@ pub struct Blocks {
     pub block_list: Vec<StructureBlockInfo>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "PascalCase")]
 pub struct PaletteEntry {
     pub name: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    properties: BTreeMap<String, String>,
+}
+
+impl PaletteEntry {
+    fn parse(selector: &str) -> Self {
+        let (name, properties) = selector
+            .strip_suffix(']')
+            .and_then(|selector| selector.split_once('['))
+            .unwrap_or((selector, ""));
+        Self {
+            name: name.to_owned(),
+            properties: properties
+                .split(',')
+                .filter_map(|pair| pair.split_once('='))
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
+        }
+    }
+
+    pub fn state(&self) -> Option<u32> {
+        let content = CONTENT.get()?;
+        if self.properties.is_empty() {
+            return content.state(&self.name);
+        }
+        let mut selector = self.name.clone();
+        selector.push('[');
+        for (index, (key, value)) in self.properties.iter().enumerate() {
+            if index > 0 {
+                selector.push(',');
+            }
+            selector.push_str(key);
+            selector.push('=');
+            selector.push_str(value);
+        }
+        selector.push(']');
+        content.state(&selector)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -133,32 +184,30 @@ impl Contraption {
         mut get: impl FnMut(Pos) -> Option<BlockMovement>,
     ) -> Option<Self> {
         let anchor = offset(bearing, FACES[usize::from(facing)]);
-        let BlockMovement::Simple(name) = get(anchor)? else {
+        let BlockMovement::Movable(entry) = get(anchor)? else {
             return None;
         };
-        let mut frontier = VecDeque::from([(anchor, name)]);
+        let mut frontier = VecDeque::from([(anchor, entry)]);
         let mut visited = HashSet::from([anchor, bearing]);
         let mut blocks = Blocks::default();
         let mut palette = HashMap::new();
-        while let Some((pos, name)) = frontier.pop_front() {
+        while let Some((pos, entry)) = frontier.pop_front() {
             for step in FACES {
                 let adjacent = offset(pos, step);
                 if visited.contains(&adjacent) {
                     continue;
                 }
                 // An unknown neighbour may be attached to this face. Leave the world intact.
-                if let BlockMovement::Simple(next) = get(adjacent)?
-                    && can_stick(name, next)
+                if let BlockMovement::Movable(next) = get(adjacent)?
+                    && can_stick(&entry.name, &next.name)
                 {
                     visited.insert(adjacent);
                     frontier.push_back((adjacent, next));
                 }
             }
-            let state = *palette.entry(name).or_insert_with(|| {
+            let state = *palette.entry(entry.clone()).or_insert_with(|| {
                 let state = blocks.palette.len() as i32;
-                blocks.palette.push(PaletteEntry {
-                    name: name.to_owned(),
-                });
+                blocks.palette.push(entry);
                 state
             });
             let relative = Pos {
@@ -225,14 +274,76 @@ pub struct StructureTransform {
 }
 
 impl StructureTransform {
+    fn quarter_turns(self) -> i32 {
+        ((self.angle / 90.0 + 0.5).floor() as i32).rem_euclid(4)
+    }
+
     /// Create snaps the current angle to the nearest quarter-turn on disassembly.
-    pub fn apply(self, mut local: [i32; 3]) -> Pos {
+    pub fn apply(self, local: [i32; 3]) -> Pos {
+        offset(self.anchor, self.rotate(local))
+    }
+
+    fn rotate(self, mut local: [i32; 3]) -> [i32; 3] {
         let u = usize::from((self.axis + 1) % 3);
         let v = usize::from((self.axis + 2) % 3);
-        for _ in 0..((self.angle / 90.0 + 0.5).floor() as i32).rem_euclid(4) {
+        for _ in 0..self.quarter_turns() {
             (local[u], local[v]) = (-local[v], local[u]);
         }
-        offset(self.anchor, local)
+        local
+    }
+
+    pub fn block_state(self, entry: &PaletteEntry) -> PaletteEntry {
+        let mut rotated = entry.clone();
+        let turns = self.quarter_turns();
+        if turns == 0 {
+            return rotated;
+        }
+        if let Some(axis) = rotated.properties.get_mut("axis")
+            && let Some(index) = AXES.iter().position(|name| *name == axis)
+        {
+            let mut step = [0; 3];
+            step[index] = 1;
+            if let Some(index) = self.rotate(step).iter().position(|&step| step != 0) {
+                *axis = AXES[index].to_owned();
+            }
+        }
+        let Some(mut face) = rotated
+            .properties
+            .get("facing")
+            .and_then(|value| DIRECTIONS.iter().position(|name| *name == value))
+            .map(|face| face as u8)
+        else {
+            return rotated;
+        };
+        let stair = entry.name.ends_with("_stairs");
+        if self.axis == 1 || (turns == 2 && !stair) {
+            if self.axis == 1 || face_axis(face) != self.axis {
+                let rotated_face =
+                    StructureTransform { axis: 1, ..self }.rotate(FACES[usize::from(face)]);
+                if let Some(index) = FACES.iter().position(|&step| step == rotated_face) {
+                    face = index as u8;
+                }
+            }
+        } else if stair && let Some(half) = rotated.properties.get_mut("half") {
+            let mut bottom = half == "bottom";
+            if face_axis(face) != self.axis {
+                // StructureTransform.transformStairs iterates Rotation.ordinal() clockwise steps.
+                for _ in 0..(4 - turns) {
+                    if positive(face) ^ bottom ^ (face_axis(face) == 2) {
+                        bottom = !bottom;
+                    } else {
+                        face ^= 1;
+                    }
+                }
+            } else if turns == 2 {
+                bottom = !bottom;
+            }
+            *half = if bottom { "bottom" } else { "top" }.to_owned();
+        }
+        rotated
+            .properties
+            .insert("facing".into(), DIRECTIONS[usize::from(face)].into());
+        rotated
     }
 
     pub fn block_display(self, local: [i32; 3]) -> moddedmc_api::block_displays::BlockDisplay {
@@ -270,16 +381,17 @@ mod tests {
 
     #[test]
     fn scan_traverses_slime_and_skips_incompatible_honey_and_the_anchor() {
-        use BlockMovement::{Air, Simple};
+        use BlockMovement::{Air, Movable};
+        let simple = |name| Movable(PaletteEntry::parse(name));
         let tiles = HashMap::from([
-            (p(0, 1, 0), Simple("minecraft:slime_block")),
-            (p(-1, 1, 0), Simple("minecraft:stone")),
-            (p(-2, 1, 0), Simple("minecraft:stone")),
-            (p(1, 1, 0), Simple("minecraft:honey_block")),
+            (p(0, 1, 0), simple("minecraft:slime_block")),
+            (p(-1, 1, 0), simple("minecraft:stone")),
+            (p(-2, 1, 0), simple("minecraft:stone")),
+            (p(1, 1, 0), simple("minecraft:honey_block")),
         ]);
         let contraption = Contraption::search_moved_structure(p(0, 0, 0), 1, |pos| {
             assert_ne!(pos, p(0, 0, 0));
-            Some(tiles.get(&pos).copied().unwrap_or(Air))
+            Some(tiles.get(&pos).cloned().unwrap_or(Air))
         })
         .expect("assembled");
         let bytes = fastnbt::to_bytes(&contraption).expect("saved");
@@ -311,5 +423,35 @@ mod tests {
         assert_eq!(transform.apply([2, 0, 0]), p(10, 66, 10));
         transform.angle = -45.0;
         assert_eq!(transform.apply([2, 0, 0]), p(12, 64, 10));
+    }
+
+    #[test]
+    fn state_rotation_preserves_properties_and_handles_horizontal_stairs() {
+        let mut transform = StructureTransform {
+            anchor: p(0, 0, 0),
+            axis: 1,
+            angle: 90.0,
+        };
+        let log = PaletteEntry::parse("minecraft:oak_log[axis=x]");
+        assert_eq!(
+            transform.block_state(&log),
+            PaletteEntry::parse("minecraft:oak_log[axis=z]")
+        );
+        let stairs = PaletteEntry::parse(
+            "minecraft:oak_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]",
+        );
+        assert_eq!(
+            transform.block_state(&stairs),
+            PaletteEntry::parse(
+                "minecraft:oak_stairs[facing=west,half=bottom,shape=straight,waterlogged=false]"
+            )
+        );
+        transform.axis = 0;
+        assert_eq!(
+            transform.block_state(&stairs),
+            PaletteEntry::parse(
+                "minecraft:oak_stairs[facing=north,half=top,shape=straight,waterlogged=false]"
+            )
+        );
     }
 }

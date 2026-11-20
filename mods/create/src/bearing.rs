@@ -130,7 +130,7 @@ impl MechanicalBearing {
                 let entry = contraption.blocks.palette.get(block.palette_index())?;
                 Some(BlockUpdate {
                     position: transform.apply(block.local_pos()),
-                    state: blocks.state(&entry.name)?,
+                    state: transform.block_state(entry).state()?,
                     flags: content::UPDATE_ALL,
                 })
             })
@@ -161,13 +161,7 @@ impl MechanicalBearing {
         }
     }
 
-    fn show(
-        &mut self,
-        world: World<'_>,
-        displays: BlockDisplays,
-        blocks: &BlockMovementChecks,
-        axis: u8,
-    ) {
+    fn show(&mut self, world: World<'_>, displays: BlockDisplays, axis: u8) {
         let Some(contraption) = &self.data.contraption else {
             return;
         };
@@ -187,7 +181,7 @@ impl MechanicalBearing {
                     .blocks
                     .palette
                     .get(block.palette_index())
-                    .and_then(|entry| blocks.state(&entry.name))
+                    .and_then(crate::contraption::PaletteEntry::state)
             {
                 *id = displays.spawn(world, state, &shown).unwrap_or(0);
             }
@@ -224,7 +218,7 @@ impl MechanicalBearing {
             }
             self.data.angle = (self.data.angle + speed * 360.0 / 60.0 / 20.0) % 360.0;
             if let Some(&displays) = BLOCK_DISPLAYS.get() {
-                self.show(world, displays, blocks, axis);
+                self.show(world, displays, axis);
             }
             dirty |= speed != 0.0;
         }
