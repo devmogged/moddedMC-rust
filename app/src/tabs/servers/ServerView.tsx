@@ -3,7 +3,7 @@ import { Check, Copy, Play, RotateCw, Square } from "lucide-react";
 import { api, minecraftAddress, type Device, type ServerInfo } from "~/api";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { errorText } from "~/lib/hooks";
+import { errorText, usePoll } from "~/lib/hooks";
 import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { BackupsPanel } from "./BackupsPanel";
@@ -20,8 +20,8 @@ type Panel = (typeof PANELS)[number];
 export function ServerView({ device, server }: { device: Device; server: ServerInfo }) {
   const [panel, setPanel] = useState<Panel>("Overview");
   const [busy, setBusy] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const address = minecraftAddress(device, server);
+  const addresses = usePoll(() => api.addresses(device.id, server.name), 15_000, [device.id, server.name]);
   const running = server.state === "running" || server.state === "starting";
 
   const act = async (action: "start" | "stop" | "restart") => {
@@ -35,12 +35,6 @@ export function ServerView({ device, server }: { device: Device; server: ServerI
     }
   };
 
-  const copy = async () => {
-    await navigator.clipboard.writeText(address);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  };
-
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-4 border-b px-6 pt-5 pb-4">
@@ -52,14 +46,26 @@ export function ServerView({ device, server }: { device: Device; server: ServerI
             </Badge>
             {server.external && <Badge variant="secondary">Not started by moddedMC</Badge>}
           </div>
-          <button
-            onClick={copy}
-            className="flex w-fit items-center gap-1.5 text-muted-foreground text-sm hover:text-foreground"
-            title="Copy the address players join with"
-          >
-            {address}{" "}
-            {copied ? <Check className="size-3.5 text-success-foreground" /> : <Copy className="size-3.5" />}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {(addresses.value?.addresses ?? []).map((a) => (
+              <AddressChip key={a.address} label={KIND_LABEL[a.kind]} address={a.address} />
+            ))}
+            <AddressChip label="This PC" address={address} />
+            {addresses.value?.playit === "stopped" && (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => api.startPlayit(device.id, server.name).then(addresses.refresh)}
+              >
+                Start playit
+              </Button>
+            )}
+            {addresses.value?.playit === "no-tunnel" && server.port && (
+              <span className="text-muted-foreground text-xs">
+                No playit tunnel points at port {server.port}. Add one at playit.gg to get a public address.
+              </span>
+            )}
+          </div>
         </div>
         {!server.external && (
           <div className="flex gap-2">
@@ -105,5 +111,31 @@ export function ServerView({ device, server }: { device: Device; server: ServerI
         {panel === "World" && <WorldPanel device={device} server={server} />}
       </div>
     </div>
+  );
+}
+
+const KIND_LABEL = { playit: "playit.gg", tailscale: "Tailscale", lan: "LAN" } as const;
+
+/** One address friends can join with; click to copy. */
+function AddressChip({ label, address }: { label: string; address: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        await navigator.clipboard.writeText(address);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      }}
+      className="flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-sm hover:bg-accent"
+      title={`Copy the ${label} address`}
+    >
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <span className="font-mono">{address}</span>
+      {copied ? (
+        <Check className="size-3.5 text-success-foreground" />
+      ) : (
+        <Copy className="size-3.5 text-muted-foreground" />
+      )}
+    </button>
   );
 }

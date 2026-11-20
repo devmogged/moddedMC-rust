@@ -8,6 +8,7 @@ mod config;
 mod device;
 mod external;
 mod mods;
+mod playit;
 mod pregen;
 mod pumpkin_config;
 mod servers;
@@ -59,6 +60,8 @@ async fn main() {
         .route("/v1/servers/{name}/stop", post(servers::stop))
         .route("/v1/servers/{name}/restart", post(servers::restart))
         .route("/v1/servers/{name}/stats", get(servers::stats))
+        .route("/v1/servers/{name}/addresses", get(playit::get))
+        .route("/v1/servers/{name}/playit", post(playit::start))
         .route(
             "/v1/servers/{name}/config",
             get(settings::get).put(settings::put),

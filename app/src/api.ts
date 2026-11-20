@@ -150,6 +150,12 @@ export type Backup = {
 };
 export type BackupSchedule = { every_minutes: number; keep: number };
 
+/** Where friends can join a server (agent `/addresses`). */
+export interface Addresses {
+  addresses: { kind: "playit" | "tailscale" | "lan"; address: string }[];
+  playit: "not-installed" | "not-set-up" | "no-tunnel" | "stopped" | "running";
+}
+
 /** The `pumpkin.toml` settings the app edits (agent `/config`); they apply on the next start. */
 export type ServerConfig = {
   java: boolean;
@@ -256,6 +262,10 @@ export const api = {
       "DELETE",
       `/v1/servers/${encodeURIComponent(server)}/mods/${encodeURIComponent(file)}`,
     ),
+  addresses: (device: string, server: string) =>
+    agent<Addresses>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/addresses`),
+  startPlayit: (device: string, server: string) =>
+    agent<void>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/playit`),
   config: (device: string, server: string) =>
     agent<ServerConfig>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/config`),
   setConfig: (device: string, server: string, config: ServerConfig) =>

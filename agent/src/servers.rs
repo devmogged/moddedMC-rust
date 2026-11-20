@@ -121,10 +121,10 @@ pub struct Servers {
 
 #[derive(Serialize)]
 pub struct ServerInfo {
-    name: String,
+    pub name: String,
     state: ServerState,
     pack: Option<String>,
-    port: Option<u16>,
+    pub port: Option<u16>,
     pid: Option<u32>,
     uptime_secs: Option<u64>,
     exit_code: Option<i32>,
@@ -313,7 +313,7 @@ impl Servers {
         Some(self.entry(name).await)
     }
 
-    async fn list(&self) -> Vec<ServerInfo> {
+    pub async fn list(&self) -> Vec<ServerInfo> {
         let mut out = Vec::new();
         let Ok(mut dir) = tokio::fs::read_dir(&self.root).await else {
             return out;
@@ -694,7 +694,13 @@ pub async fn start(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) 
         return response;
     }
     match app.servers.start(&name).await {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Ok(()) => {
+            // Friends joining through playit need it running too.
+            if let Some(port) = crate::playit::port_of(&app, &name).await {
+                tokio::spawn(crate::playit::ensure_for(port));
+            }
+            StatusCode::ACCEPTED.into_response()
+        }
         Err((status, message)) => error(status, message),
     }
 }
