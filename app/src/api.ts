@@ -158,7 +158,7 @@ export type BackupSchedule = { every_minutes: number; keep: number };
 /** Where friends can join a server (agent `/addresses`). */
 export interface Addresses {
   addresses: { kind: "playit" | "tailscale" | "lan"; address: string }[];
-  playit: "not-installed" | "not-set-up" | "no-tunnel" | "stopped" | "running";
+  playit: "signed-out" | "no-tunnel" | "stopped" | "running" | "unknown";
 }
 
 /** The `pumpkin.toml` settings the app edits (agent `/config`); they apply on the next start. */
@@ -269,6 +269,14 @@ export const api = {
     ),
   addresses: (device: string, server: string) =>
     agent<Addresses>(device, "GET", `/v1/servers/${encodeURIComponent(server)}/addresses`),
+  playitStatus: (device: string) =>
+    agent<{ signed_in: boolean; running: boolean; claim: { url: string; error: string | null } | null }>(
+      device,
+      "GET",
+      "/v1/playit",
+    ),
+  playitClaim: (device: string) => agent<{ url: string | null }>(device, "POST", "/v1/playit/claim"),
+  playitSignOut: (device: string) => agent<void>(device, "POST", "/v1/playit/sign-out"),
   startPlayit: (device: string, server: string) =>
     agent<void>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/playit`),
   config: (device: string, server: string) =>

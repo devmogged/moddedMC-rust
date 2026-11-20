@@ -98,6 +98,9 @@ async fn main() {
         )
         .route("/v1/builds", get(builds::list))
         .route("/v1/shutdown", post(shutdown))
+        .route("/v1/playit", get(playit::status))
+        .route("/v1/playit/claim", post(playit::claim))
+        .route("/v1/playit/sign-out", post(playit::sign_out))
         .route(
             "/v1/builds/{id}",
             post(builds::upload).layer(DefaultBodyLimit::max(builds::MAX_UPLOAD)),

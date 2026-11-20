@@ -51,20 +51,16 @@ export function ServerView({ device, server }: { device: Device; server: ServerI
               <AddressChip key={a.address} label={KIND_LABEL[a.kind]} address={a.address} />
             ))}
             <AddressChip label="This PC" address={address} />
-            {addresses.value?.playit === "stopped" && (
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => api.startPlayit(device.id, server.name).then(addresses.refresh)}
-              >
-                Start playit
-              </Button>
-            )}
-            {addresses.value?.playit === "no-tunnel" && server.port && (
-              <span className="text-muted-foreground text-xs">
-                No playit tunnel points at port {server.port}. Add one at playit.gg to get a public address.
-              </span>
-            )}
+            {addresses.value &&
+              addresses.value.playit !== "running" &&
+              addresses.value.playit !== "unknown" && (
+                <PlayitButton
+                  device={device}
+                  server={server}
+                  state={addresses.value.playit}
+                  onDone={addresses.refresh}
+                />
+              )}
           </div>
         </div>
         {!server.external && (
@@ -137,5 +133,66 @@ function AddressChip({ label, address }: { label: string; address: string }) {
         <Copy className="size-3.5 text-muted-foreground" />
       )}
     </button>
+  );
+}
+
+/**
+ * Gets this server a playit.gg address: signs in to playit if needed (the user approves moddedMC
+ * in their browser), makes a tunnel to the server's port, and starts playit.
+ */
+function PlayitButton({
+  device,
+  server,
+  state,
+  onDone,
+}: {
+  device: Device;
+  server: ServerInfo;
+  state: "signed-out" | "no-tunnel" | "stopped";
+  onDone: () => void;
+}) {
+  const [step, setStep] = useState<string | null>(null);
+
+  const signIn = async () => {
+    const { url } = await api.playitClaim(device.id);
+    if (!url) return;
+    setStep("Approve moddedMC on playit.gg");
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
+    for (let i = 0; i < 450; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const status = await api.playitStatus(device.id);
+      if (status.signed_in) return;
+      if (status.claim?.error) throw new Error(status.claim.error);
+    }
+    throw new Error("The playit sign-in timed out. Try again.");
+  };
+
+  const go = async () => {
+    try {
+      if (state === "signed-out") await signIn();
+      setStep("Setting up playit");
+      try {
+        await api.startPlayit(device.id, server.name);
+      } catch (err) {
+        if (!errorText(err).includes("Sign in with moddedMC")) throw err;
+        await api.playitSignOut(device.id);
+        await signIn();
+        setStep("Setting up playit");
+        await api.startPlayit(device.id, server.name);
+      }
+      toast("playit is set up. Share the playit.gg address with your friends.");
+    } catch (err) {
+      toast(errorText(err), "error");
+    } finally {
+      setStep(null);
+      onDone();
+    }
+  };
+
+  return (
+    <Button size="xs" variant="outline" disabled={!!step} onClick={go}>
+      {step ?? (state === "stopped" ? "Start playit" : "Get a playit address")}
+    </Button>
   );
 }

@@ -42,11 +42,11 @@ export const HOSTING: {
     title: "playit.gg",
     blurb: "Free, works anywhere, no router changes. Recommended.",
     icon: Globe,
-    steps: (port) => [
-      "Download the playit program from playit.gg/download and run it.",
-      "Open the link it prints and sign in to claim this PC.",
-      `Add a tunnel: Minecraft Java, local address 127.0.0.1, local port ${port}.`,
-      "Share the address playit gives you (like something.joinmc.link). It works while playit is running.",
+    steps: () => [
+      "Make the server, then click Get a playit address at the top of its page.",
+      "Sign in to playit.gg in the browser window that opens and approve moddedMC. A free account is enough.",
+      "moddedMC sets up the tunnel and runs playit whenever the server runs.",
+      "Copy the playit.gg address next to the server's name and share it with your friends.",
     ],
   },
   {

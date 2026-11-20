@@ -8,6 +8,7 @@ description = "Runs on every machine that hosts servers and lets the owner's app
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }
 fastcdc = "5.0.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
