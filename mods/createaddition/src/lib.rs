@@ -4,3 +4,4 @@
 
 pub mod electricity;
 pub mod energy_storage;
+pub mod rolling_mill;
