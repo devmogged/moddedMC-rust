@@ -12,4 +12,4 @@ Test `creeper_melee_attempt_cannot_damage_a_target` creates a creeper and pig in
 
 ## Remaining
 
-Vanilla `Creeper.explodeCreeper` also spawns an area effect cloud when a creeper has potion effects and calls additional on-death effects; the Rust implementation still has a TODO for the cloud. Explosion, ignition AI, and on-death behavior need separate testable slices. This commit does not claim full creeper parity.
+The later `parity-creeper-cloud.md` slice implements an effect-bearing creeper's lingering cloud and repairs optional effect NBT parsing, with a separate Java 26.3 differential fixture. Ignition AI, other explosion effects, generic cloud timing/application semantics, and broader on-death behavior still need dedicated checks. Neither slice claims full creeper parity.

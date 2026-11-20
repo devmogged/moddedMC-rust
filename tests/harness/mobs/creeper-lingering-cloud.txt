@@ -1,0 +1,11 @@
+# Java 26.3: effect-bearing ignited creeper leaves a lingering cloud.
+seed 12345
+area 0 150 0 7 155 7
+gamerules deterministic
+start
+cmd fill 0 150 0 7 150 7 minecraft:stone
+cmd summon minecraft:creeper 2.5 151 2.5 {NoAI:1b,NoGravity:1b,ignited:1b,Fuse:1s,active_effects:[{id:"minecraft:speed",duration:200,amplifier:0}]}
+snapshot before-explosion
+tick 4
+probe execute if entity @e[type=minecraft:area_effect_cloud,x=2.5,y=151,z=2.5,distance=..2]
+stop
