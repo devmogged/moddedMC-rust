@@ -19,7 +19,9 @@ use moddedmc_api::{
         self, BlockUseResult, Interaction, InteractionExtension, UseBlock, UseOnBlock, UseResult,
     },
     items::{self, Item, Items},
+    resources::{self, Resources},
     stacks::{self, Displays, ItemStacks},
+    tags::{self, Tags},
 };
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +34,8 @@ mod funnel;
 // WS-2 Create fluids
 pub mod fluids;
 mod kinetics;
+mod press;
+mod processing_recipes;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
 const AXES: [&str; 3] = ["x", "y", "z"];
@@ -63,6 +67,8 @@ static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static DISPLAYS: OnceLock<Displays> = OnceLock::new();
 static EFFECTS: OnceLock<Effects> = OnceLock::new();
 static CONTAINERS: OnceLock<Containers> = OnceLock::new();
+static RESOURCES: OnceLock<Resources> = OnceLock::new();
+static TAGS: OnceLock<Tags> = OnceLock::new();
 static STATES: OnceLock<StateIds> = OnceLock::new();
 /// Each loaded world's kinetic block entities and networks, by `World::id`.
 static WORLDS: Mutex<Option<HashMap<usize, Kinetics>>> = Mutex::new(None);
@@ -98,6 +104,8 @@ impl Mod for Create {
         let _ = STACKS.set(stacks::require()?);
         let _ = DISPLAYS.set(stacks::require_displays()?);
         let _ = CONTAINERS.set(containers::require()?);
+        let _ = RESOURCES.set(resources::require()?);
+        let _ = TAGS.set(tags::require()?);
         Ok(())
     }
 
@@ -122,6 +130,7 @@ impl Mod for Create {
         depot::register(*content, registry)?;
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
+        press::register(*content, registry)?;
         // WS-2 Create fluids
         fluids::blocks::register(*content, registry)?;
         ITEMS
@@ -693,6 +702,7 @@ fn states() -> Option<&'static StateIds> {
         belt::add_states(&mut ids, content);
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
+        press::add_states(content, &mut ids);
         for name in [
             "air",
             "cave_air",
@@ -745,6 +755,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return funnel::placed_state(args, default, states);
     }
     let placed = states.by_id.get(&args.state)?;
+    if placed.block == press::ID {
+        return press::placed_state(args, states);
+    }
     let mut positions = [args.position; 7];
     for (pos, step) in positions.iter_mut().zip(FACES) {
         *pos = offset(args.position, step);
@@ -825,7 +838,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         None if placed.block == depot::ID => {
             format!("{}[waterlogged={}]", depot::ID, states.wet(ids[6]))
         }
-        Some(Kind::Turntable | Kind::Belt(_)) | None => return Some(args.state),
+        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_)) | None => return Some(args.state),
     };
     states.by_selector.get(&selector).copied()
 }
@@ -863,6 +876,8 @@ fn nearest_looking_direction(yaw: f32, pitch: f32) -> u8 {
 struct KineticData {
     #[serde(default)]
     speed: f32,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    press: Option<press::PressingData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<fastnbt::IntArray>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -919,6 +934,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         return be;
     };
     be.speed = data.speed;
+    if let Some(press) = &mut be.press {
+        press.data = data.press.unwrap_or_default();
+    }
     be.source = data.source.and_then(|pos| match *pos {
         [x, y, z] => Some(Pos { x, y, z }),
         _ => None,
@@ -956,6 +974,7 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
 fn save(pos: Pos, be: &Be) -> KineticData {
     KineticData {
         speed: be.speed,
+        press: be.press.as_ref().map(|press| press.data),
         source: be
             .source
             .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
@@ -1076,12 +1095,13 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         }
         kinetics.tick(&mut level);
         funnel::update_states(world, states, kinetics);
+        press::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);
         belt_inventory::tick(world, kinetics);
         chute::tick(world, states, kinetics);
         funnel::tick(world, kinetics);
         funnel::pull_from_depots(world, kinetics);
-        depot::tick(world, &mut kinetics.depots);
+        depot::tick(world, kinetics);
         flush(world, kinetics);
     });
 }

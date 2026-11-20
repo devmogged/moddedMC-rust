@@ -12,4 +12,5 @@ crate-type = ["cdylib"]
 [dependencies]
 moddedmc-api.workspace = true
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 fastnbt = "2.6.3"

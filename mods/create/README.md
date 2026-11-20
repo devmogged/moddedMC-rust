@@ -78,4 +78,12 @@ The [Chute bot scenario](../../tests/scenarios/create-chute.txt) exercises these
 
 The [funnel bot scenario](../../tests/scenarios/create-funnel.txt) checks these transfers and the chest, barrel, furnace and hopper inventory paths. Brass filters, package handling and the animated flap are deferred. The transfer sounds play through the stock client.
 
+### Mechanical Press
+
+1. Place a Mechanical Press two blocks above a Depot. Feed power into either end of its shaft. Put two sugar cane on the Depot and watch each turn into paper on a separate stroke. Take both pieces of paper with an empty hand.
+2. Run a belt under the press, with a Depot at its outlet. Drop an iron ingot onto the belt. It should stop under the press, then continue to the outlet as an Iron Sheet.
+3. Put a full block below the press in place of the Depot. Drop sugar cane on it, let the item settle, and pick up the paper after the press runs.
+
+The [press bot scenario](../../tests/scenarios/create-press.txt) checks all three inputs. Pressing recipes come from the merged datapack view, and tag ingredients resolve through the item tag registry on reload. The stock client sees the press housing and item displays and hears each stroke. The moving head and item particles are pending.
+
 Not ported yet: the rest of `BeltBlock.useItemOn` (dyes and water, the wrench and the connector on an existing belt, packages, a shaft turning a middle segment into a pulley, casings), and its `mayBuild` check; belt processing, tunnels and crushers; the belt surface doesn't scroll, only its top half is drawn, and sideways belts (between vertical shafts) are drawn turned the wrong way, because block models can't take the Z rotation `BeltRenderer` uses; breaking a pulley segment doesn't drop its shaft, belts can't be dyed or cased, and their placement makes no sound; the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.
