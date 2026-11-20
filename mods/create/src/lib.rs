@@ -44,6 +44,7 @@ mod piston;
 mod press;
 mod processing_recipes;
 mod pulley;
+mod sticker;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
 const AXES: [&str; 3] = ["x", "y", "z"];
@@ -154,6 +155,7 @@ impl Mod for Create {
         gantry::register(*content, registry)?;
         pulley::register(*content, registry)?;
         chassis::register(*content, registry)?;
+        sticker::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -711,6 +713,7 @@ fn states() -> Option<&'static StateIds> {
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
         chassis::add_states(content, &mut ids);
+        sticker::add_states(content, &mut ids);
         ids.contraption_blocks.register_states(content);
         millstone::add_states(content, &mut ids);
         crusher::add_states(content, &mut ids);
@@ -798,6 +801,13 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        None if placed.block == sticker::ID => {
+            return sticker::placed_state(
+                args.world,
+                args.position,
+                if args.sneak { look } else { look ^ 1 },
+            );
+        }
         None if chassis::is_chassis(placed.block) => {
             return chassis::placed_state(
                 args.world,
@@ -1199,6 +1209,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             crusher::event(world, states, kinetics, event);
             pulley::event(world, states, event);
             chassis::event(world, states, event);
+            sticker::event(world, states, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             gantry_changed |= matches!(before, Some(Kind::GantryShaft(_)))

@@ -35,3 +35,13 @@ Normal writes over a captured chest and furnace scattered two stacks on pickup a
 ## Elevator contact output
 
 A content block needs to declare that it emits redstone and register a synchronous `signal(world, source, state, target, direct) -> u8` query. The host calls it for adjacent redstone queries and applies the existing neighbour updates when a content state changes. Create's elevator contact returns weak strength 15 while `powering=true`, except toward another elevator contact. Modded blocks also need to report which faces redstone wire can connect to. A contact excludes its front face.
+
+## Super Glue and seat entities
+
+`Entities::spawn_marker(world, position, key, nbt) -> Option<i32>` should create a loaded, persistent vanilla marker with the mod data already set. `Entity::discard() -> bool` removes the marker and its save. Super Glue stores a selection as an entity and takes it out of the world for each move. `Mobs::spawn` rejects marker entities at its living-mob check.
+
+Seat support also needs `Entity::start_riding(vehicle, force) -> bool` and `Entity::stop_riding()` with the vanilla side effects, including the passenger-list packet. A seat vehicle needs a persistent, stationary non-living carrier with a riding offset and the ability to accept one passenger.
+
+## Contraption actor hardness
+
+`World::destroy_speed(pos) -> Option<f32>` returns the loaded block state's hardness with vanilla's negative value for unbreakable blocks. Moving drills read it both to reject unbreakable blocks and to calculate breaking progress while the contraption stalls.

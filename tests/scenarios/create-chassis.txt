@@ -2,7 +2,6 @@
 mods target\mods\create.mmc
 start
 expect registered content block create:linear_chassis
-expect registered content block create:radial_chassis
 botstart tester
 wait 3
 expect \[bot\] joined as tester

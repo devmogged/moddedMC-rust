@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, STACKS, TAGS, chassis,
     kinetics::{FACES, face_axis, offset, packed, positive},
+    sticker,
 };
 
 /// CKinetics.maxBlocksMoved default.
@@ -75,7 +76,7 @@ impl BlockMovementChecks {
             bearing,
             facing,
             |pos| self.classify(world, pos),
-            |pos, entry| chassis::attachments(world, self, pos, entry, None),
+            |pos, entry| self.attachments(world, pos, entry, None),
         )?;
         let anchor = contraption.anchor()?;
         contraption.blocks.capture_entities(world, anchor)?;
@@ -99,7 +100,7 @@ impl BlockMovementChecks {
             return Some(known.clone());
         }
         let entry = PaletteEntry::parse(&CONTENT.get()?.describe_state(state[0])?);
-        if chassis::is_chassis(&entry.name) {
+        if chassis::is_chassis(&entry.name) || entry.name == sticker::ID {
             return Some(BlockMovement::Movable(entry));
         }
         let id = entry.name.strip_prefix("minecraft:")?;
@@ -135,8 +136,20 @@ impl BlockMovementChecks {
             frontier,
             visited,
             |pos| self.classify(world, pos),
-            |pos, entry| chassis::attachments(world, self, pos, entry, forced),
+            |pos, entry| self.attachments(world, pos, entry, forced),
         )
+    }
+
+    fn attachments(
+        &self,
+        world: World<'_>,
+        pos: Pos,
+        entry: &PaletteEntry,
+        forced: Option<u8>,
+    ) -> Option<Vec<Pos>> {
+        let mut attached = chassis::attachments(world, self, pos, entry, forced)?;
+        attached.extend(sticker::attachment(entry, pos));
+        Some(attached)
     }
 }
 
@@ -237,14 +250,17 @@ impl Blocks {
                     }
                 }
             }
-            for step in FACES {
+            for (face, step) in FACES.into_iter().enumerate() {
                 let adjacent = offset(pos, step);
                 if visited.contains(&adjacent) {
                     continue;
                 }
                 // Leave the world intact if an unknown neighbour might attach to this face.
                 if let BlockMovement::Movable(next) = get(adjacent)?
-                    && can_stick(&entry.name, &next.name)
+                    && (sticker::attachment(&next, adjacent) == Some(pos)
+                        || can_stick(&entry.name, &next.name)
+                            && !sticker::blocks_attachment(&entry, face as u8)
+                            && !sticker::blocks_attachment(&next, face as u8 ^ 1))
                 {
                     visited.insert(adjacent);
                     frontier.push_back((adjacent, next));
@@ -569,6 +585,9 @@ impl StructureTransform {
         }
         if chassis::is_chassis(&entry.name) {
             return chassis::apply_rotation(entry, self).unwrap_or(rotated);
+        }
+        if entry.name == sticker::ID {
+            return sticker::apply_rotation(entry, self).unwrap_or(rotated);
         }
         if let Some(axis) = rotated.properties.get_mut("axis")
             && let Some(index) = AXES.iter().position(|name| *name == axis)
