@@ -158,6 +158,16 @@ impl TransportedItemStack {
     pub fn clear_display(&mut self) {
         self.display = None;
     }
+
+    pub fn processed(&self, item: Value) -> Self {
+        let mut output = self.clone();
+        output.angle = next_int(360);
+        output.item = item;
+        output.block = None;
+        output.clear_display();
+        output.locked = true;
+        output
+    }
 }
 
 /// `TransportedItemStack.getTargetSideOffset`.
@@ -444,11 +454,31 @@ impl BeltInventory {
                 movement.max(diff_to_end)
             };
 
-            // handleBeltProcessingAndCheckIfRemoved: with no processing block above, a held item
-            // is let go.
-            if horizontal && item.locked {
-                item.locked = false;
-                changed = true;
+            if horizontal {
+                let (position, locked) = (item.pos, item.locked);
+                match belt_processing(
+                    world,
+                    kinetics,
+                    chain,
+                    item,
+                    item.pos + limited,
+                    no_movement,
+                ) {
+                    BeltProcessing::Replace(replacements) => {
+                        self.to_insert.extend(replacements);
+                        remove_display(world, item);
+                        self.items.remove(index - 1);
+                        index -= 1;
+                        changed = true;
+                        continue;
+                    }
+                    BeltProcessing::Held => {
+                        changed |= position != item.pos || locked != item.locked;
+                        current = Some(item.pos);
+                        continue;
+                    }
+                    BeltProcessing::Pass => changed |= locked != item.locked,
+                }
             }
             let (blocked, transferred) = crate::funnel::check_for_funnels(
                 world,
@@ -555,6 +585,90 @@ impl BeltInventory {
         }
         changed
     }
+}
+
+enum BeltProcessing {
+    Pass,
+    Held,
+    Replace(Vec<TransportedItemStack>),
+}
+
+/// `BeltInventory.handleBeltProcessingAndCheckIfRemoved`.
+fn belt_processing(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    chain: Chain,
+    item: &mut TransportedItemStack,
+    next: f32,
+    no_movement: bool,
+) -> BeltProcessing {
+    use crate::press::{self, ProcessingResult};
+    const CENTER_MARGIN: f32 = 1.0 / 512.0;
+    let positive = chain.direction_aware_speed() > 0.0;
+    let side = if positive {
+        CENTER_MARGIN
+    } else {
+        -CENTER_MARGIN
+    };
+    if item.locked {
+        let segment = item.pos as i32;
+        return match press::process_item(kinetics, chain.position_for_offset(segment), item) {
+            ProcessingResult::Pass => {
+                item.locked = false;
+                BeltProcessing::Pass
+            }
+            ProcessingResult::Hold => BeltProcessing::Held,
+            ProcessingResult::Convert(outputs) => {
+                let mut converted: Vec<_> = outputs
+                    .into_iter()
+                    .map(|value| item.processed(value))
+                    .collect();
+                let rest = count(&item.item) - 1;
+                if rest > 0 {
+                    let mut remaining = item.clone();
+                    remaining.clear_display();
+                    remaining.locked = false;
+                    remaining.item = with_count(&item.item, rest);
+                    remaining.pos = segment as f32 + 0.5 - side;
+                    converted.insert(0, remaining);
+                }
+                BeltProcessing::Replace(converted)
+            }
+        };
+    }
+    if no_movement || !positive && item.pos <= 0.5 || kinetics.recipes.is_none() {
+        return BeltProcessing::Pass;
+    }
+    let mut segment = (item.pos + if positive { 0.5 } else { -0.5 }) as i32;
+    while (0..chain.length).contains(&segment) {
+        let center = segment as f32 + 0.5;
+        if if positive {
+            center > next
+        } else {
+            center < next
+        } {
+            break;
+        }
+        let pos = chain.position_for_offset(segment);
+        if kinetics
+            .get(Pos {
+                y: pos.y + 2,
+                ..pos
+            })
+            .is_some_and(|be| be.press.is_some())
+            && !press::is_blocked(world, pos)
+            && matches!(
+                press::process_item(kinetics, pos, item),
+                ProcessingResult::Hold
+            )
+        {
+            item.pos = center + side;
+            item.locked = true;
+            return BeltProcessing::Held;
+        }
+        segment += if positive { 1 } else { -1 };
+    }
+    BeltProcessing::Pass
 }
 
 /// `resolveEnding`. A depot exposes direct input even while it is occupied.
