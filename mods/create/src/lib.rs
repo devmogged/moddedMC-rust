@@ -93,6 +93,8 @@ impl Mod for Create {
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
         content.require_extension(WorldExtension::CollisionShape)?;
+        content.require_extension(WorldExtension::DescribeState)?;
+        content.require_extension(WorldExtension::FluidId)?;
         let _ = CONTENT.set(content);
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);
@@ -104,7 +106,9 @@ impl Mod for Create {
         interaction.require_extension(InteractionExtension::BlockUse)?;
         let _ = INTERACTION.set(interaction);
         let _ = EFFECTS.set(effects::require()?);
-        let _ = STACKS.set(stacks::require()?);
+        let item_stacks = stacks::require()?;
+        item_stacks.require_extension(stacks::StacksExtension::Component)?;
+        let _ = STACKS.set(item_stacks);
         let _ = DISPLAYS.set(stacks::require_displays()?);
         let _ = CONTAINERS.set(containers::require()?);
         let _ = RESOURCES.set(resources::require()?);

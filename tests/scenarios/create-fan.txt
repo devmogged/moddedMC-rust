@@ -112,23 +112,34 @@ cmd kinetics 2173 100 2178 1
 cmd kinetics 2174 100 2180
 wait 0.5
 expect create:belt.*at 2174 100 2180 Speed=1
-cmd setblock 2172 101 2180 minecraft:iron_bars[waterlogged=true]
+cmd setblock 2172 101 2180 minecraft:oak_fence[waterlogged=true]
 cmd summon minecraft:item 2174.5 101.1 2180.4 {Item:{id:"minecraft:ice",count:1},PickupDelay:32767s}
 cmd setblock 2170 101 2187 create:creative_motor[facing=east]
 cmd setblock 2171 101 2187 create:encased_fan[facing=east]
 cmd setblock 2172 100 2187 minecraft:stone
 cmd setblock 2172 101 2187 minecraft:lava
 cmd setblock 2174 100 2187 create:depot
-cmd tp tester 2175.5 100 2187.5
+cmd setblock 2175 100 2187 create:depot
+cmd tp tester 2175.5 100 2186.5
 cmd item replace entity tester hotbar.2 with minecraft:raw_iron
 wait 0.5
 bot use 2174 100 2187
+cmd item replace entity tester hotbar.3 with minecraft:netherite_ingot
+bot hotbar 3
+wait 0.5
+bot use 2175 100 2187
 wait 9
 bot use 2174 100 2187
 wait 0.5
 bot expect slot 38 minecraft:iron_ingot 1
 wait 0.5
 expect ^\[bot\] expect inventory ok
+bot use 2175 100 2187
+wait 0.5
+bot expect slot 39 minecraft:netherite_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok
+cmd item replace entity tester hotbar.3 with minecraft:air
 # Reserve the slot so the washing check is independent of the blasting result.
 cmd item replace entity tester hotbar.2 with minecraft:cobblestone
 cmd kinetics 2173 100 2178 64

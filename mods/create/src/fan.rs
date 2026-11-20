@@ -122,7 +122,7 @@ impl FanProcessingType {
                     if smoke.is_none_or(|other| other.first_output() != recipe.first_output()) {
                         return Some(recipe.roll_results(count(item)));
                     }
-                } else if has_damage_resistance_override(item) {
+                } else if is_fire_resistant(item) {
                     return None;
                 }
                 return Some(Vec::new());
@@ -139,30 +139,62 @@ impl FanProcessingType {
             Blasting => {
                 recipes.find(Process::Smelting, item).is_some()
                     || recipes.find(Process::Blasting, item).is_some()
-                    || !has_damage_resistance_override(item)
+                    || !is_fire_resistant(item)
             }
         }
     }
 }
 
-fn has_damage_resistance_override(item: &Value) -> bool {
-    // TODO(abi): use item_component to check effective fire resistance, including defaults.
-    matches!(item, Value::Compound(item)
-        if matches!(item.get("components"), Some(Value::Compound(components))
-            if components.contains_key("minecraft:damage_resistant")))
+fn is_fire_resistant(item: &Value) -> bool {
+    #[derive(Deserialize)]
+    struct Resistance {
+        value: DamageTypes,
+    }
+    #[derive(Deserialize)]
+    struct DamageTypes {
+        types: Value,
+    }
+    let Some(types) = fastnbt::to_bytes(item)
+        .ok()
+        .and_then(|bytes| {
+            STACKS
+                .get()?
+                .component(&bytes, "minecraft:damage_resistant")
+        })
+        .and_then(|bytes| fastnbt::from_bytes::<Resistance>(&bytes).ok())
+        .map(|resistance| resistance.value.types)
+    else {
+        return false;
+    };
+    let Some(tags) = TAGS.get() else {
+        return false;
+    };
+    let is_fire = |id: &str| tags.contains("damage_type", "minecraft:is_fire", id);
+    match types {
+        Value::String(tag) if tag == "#minecraft:is_fire" => true,
+        Value::String(tag) if tag.starts_with('#') => tags
+            .values("damage_type", &tag)
+            .is_some_and(|ids| ids.iter().any(|id| is_fire(id))),
+        Value::String(id) => is_fire(&id),
+        Value::List(ids) => ids
+            .iter()
+            .any(|id| matches!(id, Value::String(id) if is_fire(id))),
+        _ => false,
+    }
 }
 
 #[derive(Default)]
 struct Catalysts {
     generation: u64,
-    kinds: HashMap<u32, FanProcessingType>,
-    transparent: HashSet<u32>,
+    blocks: HashMap<String, FanProcessingType>,
+    fluids: HashMap<String, FanProcessingType>,
+    transparent: HashSet<String>,
 }
 
 static CATALYSTS: Mutex<Option<Catalysts>> = Mutex::new(None);
 
 impl Catalysts {
-    fn load(content: Content, generation: u64) -> Option<Self> {
+    fn load(generation: u64) -> Option<Self> {
         let tags = *TAGS.get()?;
         let mut catalysts = Self {
             generation,
@@ -173,77 +205,42 @@ impl Catalysts {
                 .values("block", kind.catalyst_tag())
                 .unwrap_or_default()
             {
-                for state in tagged_states(content, &id, true) {
-                    catalysts.kinds.insert(state, kind);
-                }
+                catalysts.blocks.insert(id, kind);
             }
             for id in tags
                 .values("fluid", kind.catalyst_tag())
                 .unwrap_or_default()
             {
-                if id == "minecraft:water" {
-                    catalysts.kinds.extend(
-                        iron_bars(content, true)
-                            .into_iter()
-                            .map(|state| (state, kind)),
-                    );
-                }
-                let block = id.replace("minecraft:flowing_", "minecraft:");
-                for level in 0..16 {
-                    if let Some(state) = content.state(&format!("{block}[level={level}]")) {
-                        catalysts.kinds.insert(state, kind);
-                    }
-                }
-                if let Some(state) = content.state(&block) {
-                    catalysts.kinds.insert(state, kind);
-                }
+                catalysts.fluids.insert(id, kind);
             }
         }
-        for id in tags
-            .values("block", "create:fan_transparent")
-            .unwrap_or_default()
-        {
-            catalysts
-                .transparent
-                .extend(tagged_states(content, &id, false));
-        }
+        catalysts.transparent.extend(
+            tags.values("block", "create:fan_transparent")
+                .unwrap_or_default(),
+        );
         Some(catalysts)
     }
-}
 
-fn tagged_states(content: Content, id: &str, lit_only: bool) -> Vec<u32> {
-    if id == "minecraft:iron_bars" {
-        return [false, true]
-            .into_iter()
-            .flat_map(|wet| iron_bars(content, wet))
-            .collect();
-    }
-    if matches!(id, "minecraft:campfire" | "minecraft:soul_campfire") {
-        let mut states = Vec::new();
-        for facing in ["north", "south", "west", "east"] {
-            for signal_fire in [false, true] {
-                for waterlogged in [false, true] {
-                    for lit in [false, true] {
-                        if (!lit_only || lit) && let Some(state) = content.state(&format!(
-                            "{id}[facing={facing},lit={lit},signal_fire={signal_fire},waterlogged={waterlogged}]"
-                        )) {
-                            states.push(state);
-                        }
-                    }
-                }
-            }
+    fn kind_at(&self, world: World<'_>, pos: Pos, selector: &str) -> Option<FanProcessingType> {
+        let (id, properties) = selector
+            .strip_suffix(']')
+            .and_then(|selector| selector.split_once('['))
+            .unwrap_or((selector, ""));
+        let mut block = self.blocks.get(id).copied();
+        if matches!(id, "minecraft:campfire" | "minecraft:soul_campfire")
+            && properties.split(',').any(|prop| prop == "lit=false")
+        {
+            block = None;
         }
-        return states;
+        let fluid = world
+            .fluid_id(pos)
+            .and_then(|id| self.fluids.get(&id).copied());
+        // The original registry checks higher priorities first.
+        block
+            .into_iter()
+            .chain(fluid)
+            .max_by_key(|kind| *kind as u8)
     }
-    // shortcut: other tagged blocks use their default state until block-world exposes registry state membership.
-    content.state(id).into_iter().collect()
-}
-
-fn iron_bars(content: Content, waterlogged: bool) -> Vec<u32> {
-    (0..16).filter_map(|connections| {
-        let [east, north, south, west] = [1, 2, 4, 8].map(|bit| connections & bit != 0);
-        content.state(&format!("minecraft:iron_bars[east={east},north={north},south={south},waterlogged={waterlogged},west={west}]"))
-    }).collect()
 }
 
 const DEPTH_TEST_COORDINATES: [[f64; 2]; 5] = [
@@ -300,9 +297,19 @@ impl AirCurrent {
             std::array::from_fn(|i| offset(origin, direction.map(|axis| axis * (i as i32 + 1))));
         let mut states = [UNLOADED_STATE; FAN_DISTANCE];
         world.read(&positions[..len], &mut states[..len]);
+        let content = CONTENT.get();
+        let selectors = states[..len]
+            .iter()
+            .map(|&state| {
+                content
+                    .and_then(|content| content.describe_state(state))
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
         let mut distance = range;
         for i in 0..len {
-            if catalysts.transparent.contains(&states[i]) {
+            let id = selectors[i].split('[').next().unwrap_or_default();
+            if catalysts.transparent.contains(id) {
                 continue;
             }
             let Some(shape) = world.collision_shape(positions[i]) else {
@@ -319,9 +326,10 @@ impl AirCurrent {
             }
         }
         let pushing = speed.is_sign_positive() == positive(face);
-        let mut types: Vec<_> = states[..distance.ceil() as usize]
+        let mut types: Vec<_> = selectors[..distance.ceil() as usize]
             .iter()
-            .map(|state| catalysts.kinds.get(state).copied())
+            .zip(positions)
+            .map(|(selector, pos)| catalysts.kind_at(world, pos, selector))
             .collect();
         if !pushing {
             types.reverse();
@@ -583,7 +591,7 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
         .as_ref()
         .is_none_or(|cache| cache.generation != resources.generation())
     {
-        *catalysts = Catalysts::load(*content, resources.generation());
+        *catalysts = Catalysts::load(resources.generation());
     }
     let Some(catalysts) = catalysts.as_ref() else {
         return;
@@ -624,7 +632,11 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
                 }
                 let mut state = [UNLOADED_STATE];
                 world.read(&[pos], &mut state);
-                let Some(kind) = catalysts.kinds.get(&state[0]).copied().or(segment) else {
+                let Some(kind) = content
+                    .describe_state(state[0])
+                    .and_then(|selector| catalysts.kind_at(world, pos, &selector))
+                    .or(segment)
+                else {
                     continue;
                 };
                 if let Some(depot) = kinetics.depots.get_mut(&pos) {

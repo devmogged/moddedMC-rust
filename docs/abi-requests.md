@@ -8,13 +8,13 @@ Create's Depot supplies an analog signal derived from its held stack and eight o
 
 Host commit `0538639` exposes the vanilla cooking recipes with datapack overrides taking precedence. `create-fan.txt` passed on a fresh world with default datapacks. The saved loose-item timer had 71 ticks left before saving and 11 after reconnecting, then the bot picked up the haunted result.
 
-## Effective stack components
+## Effective stack components (resolved)
 
-Fan blasting checks the effective fire resistance of a stack. Saved stack NBT contains only component overrides, so it cannot distinguish a default fire-resistant netherite tool from other items. Append `item_component(stack: Str, component_id: Str, out: Sink) -> bool` to item-stacks. Return the effective component value as encoded NBT after applying stack overrides to the registry defaults, and return false for an absent component or an invalid stack.
+Host commit `36058bc` exposes the effective value through `ItemStacks::component`. The fan scenario verifies that lava airflow blasts raw iron and leaves a netherite ingot intact.
 
-## Block and fluid state identity
+## Block and fluid state identity (resolved)
 
-Fan catalysts and transparent blocks match tags at any property combination. Add `describe_state(state: u32, out: Sink) -> bool` to content to return the canonical block selector including properties, and `fluid_id(world: WorldRef, pos: Pos, out: Sink) -> bool` to block-world to return the fluid registry id, including fluids supplied by waterlogged or aquatic blocks. Both callbacks return false for unknown or unloaded input. The complete selector also lets contraptions rotate vanilla states and look up the result through `Content::state`.
+Host commit `44e07b8` exposes full selectors and fluid ids. The fan scenario washes ice through a waterlogged oak fence using both queries.
 
 ## Crushing collision context (deferred)
 
