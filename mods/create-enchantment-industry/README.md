@@ -12,6 +12,10 @@ The published release's original models and textures are loaded from the locally
 
 Verification: `cargo test -p create-enchantment-industry` (1/1), `cargo fmt --package create-enchantment-industry -- --check`, `cargo clippy -p create-enchantment-industry --all-targets -- -D warnings`, and `tests/scenarios/ws4-enchantment-industry-items.txt`. The live scenario confirms both real registry IDs via `/give` and `/clear`, and both item stacks survive restart.
 
+## Pure experience arithmetic (not yet player-accessible)
+
+`src/experience.rs` ports the **released Fabric 2.5.4 bytecode**, rather than silently using 2.5.4b's later NeoForge implementation. `ExperienceHelper.getExperienceForNextLevel` and `getExperienceForTotalLevel` retain the published i32 XP thresholds and overflow semantics (the newer source uses long arithmetic and clamps). `getExperienceForPlayer` uses Java's positive-infinity-tie rounding. `ExperienceHelper.getExperienceFromFluid`, `getFluidFromExperience` and `CEIFluidUnits` implement the original 81 raw Fabric fluid units per mB, exact multiplications and overflow checking. Six targeted arithmetic tests cover thresholds, high-level overflow, rounding, and unit conversion. They do not grant XP, repair items or transfer live fluid.
+
 ## Missing
 
 This is **not** an enchantment-processing port. Blaze enchanters, printer, mechanical grindstone, XP fluid, enchanting templates, super-experience items and other contents still depend on source-matched processing, item components, Create services, fluid handlers and host callbacks. Their recipes are not shipped as dead data. Full original Fabric 2.5.4 oracle parity, 26.3 adaptation and stock-client visual checks remain outstanding. This addon must not be presented as complete.
