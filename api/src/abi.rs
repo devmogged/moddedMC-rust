@@ -455,6 +455,10 @@ pub const MAX_WORLD_BATCH: usize = 4096;
 pub const UPDATE_NEIGHBORS: u8 = 1;
 pub const UPDATE_CLIENTS: u8 = 2;
 pub const UPDATE_ALL: u8 = UPDATE_NEIGHBORS | UPDATE_CLIENTS;
+/// Vanilla `UPDATE_MOVE_BY_PISTON | UPDATE_SUPPRESS_DROPS`, and the replaced block entity is
+/// removed without its side effects, so a captured container doesn't scatter. Hosts before it
+/// reject the whole batch.
+pub const UPDATE_MOVED: u8 = 4;
 
 #[repr(C)]
 pub struct StateDefinition {
