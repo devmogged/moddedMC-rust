@@ -125,7 +125,10 @@ pub(crate) fn rebuild_at(
     summary(world)
 }
 
-fn new_uuid(nodes: &[&TrackNodeLocation], old: &RailwayData) -> Result<[i32; 4], String> {
+pub(super) fn new_uuid(
+    nodes: &[&TrackNodeLocation],
+    old: &RailwayData,
+) -> Result<[i32; 4], String> {
     for _ in 0..16 {
         let mut first = RandomState::new().build_hasher();
         let mut second = RandomState::new().build_hasher();

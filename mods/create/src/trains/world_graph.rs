@@ -98,6 +98,11 @@ where
         result
     }
 
+    #[cfg(test)]
+    pub fn cell(&self, pos: Pos) -> RailCell {
+        (self.read)(pos)
+    }
+
     pub fn initial_ends(&self, pos: Pos) -> Result<Vec<DiscoveredLocation>, GraphReadError> {
         match (self.read)(pos) {
             RailCell::Rail(shape) => {

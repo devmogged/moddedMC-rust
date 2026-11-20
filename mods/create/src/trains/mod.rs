@@ -6,6 +6,8 @@ mod item;
 mod math;
 mod propagate;
 mod railway;
+#[cfg(test)]
+mod reconcile;
 mod runtime;
 mod save;
 mod track;
