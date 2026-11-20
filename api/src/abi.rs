@@ -625,6 +625,28 @@ pub struct BlockWorldV1 {
     /// one saved stack per sink call, without changing the block or spawning anything. An empty
     /// `tool` is an empty hand. False when unloaded or the tool can't be read.
     pub block_drops: unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
+    /// The overworld clock's total ticks, vanilla 26.3 `Level.getOverworldClockTime()`, which is
+    /// the day time every dimension shared in 1.21.1, and whether this dimension has a fixed time.
+    /// False when the world is gone.
+    pub day_time: unsafe extern "C" fn(world: WorldRef, out: *mut DayTime) -> bool,
+    /// Vanilla `BlockState.getDestroySpeed(level, pos)` for the loaded state: its hardness,
+    /// negative for unbreakable blocks. False for unloaded positions.
+    pub destroy_speed: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: *mut f32) -> bool,
+    /// Vanilla `BlockState.canSurvive(level, pos)` for `state` as if it stood at `pos`, without
+    /// changing the world. 1 or 0, or -1 for an unknown state or an unloaded position.
+    pub can_survive: unsafe extern "C" fn(world: WorldRef, pos: Pos, state: u32) -> i32,
+    /// Vanilla `Block.asItem()` for the state's block as a namespaced item id, `minecraft:air`
+    /// when the block has no item. False for an unknown state.
+    pub block_item: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DayTime {
+    pub ticks: i64,
+    /// Vanilla `DimensionType.hasFixedTime()`. In vanilla it holds exactly for the dimensions
+    /// 1.21.1 called not `natural` (the Nether and the End).
+    pub fixed_time: bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.

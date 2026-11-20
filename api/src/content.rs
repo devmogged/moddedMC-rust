@@ -58,6 +58,8 @@ pub enum WorldExtension {
     FluidId,
     BlockEntities,
     BlockDrops,
+    /// `day_time`, `destroy_speed`, `can_survive` and `block_item`.
+    Survival,
 }
 
 impl WorldExtension {
@@ -94,6 +96,10 @@ impl WorldExtension {
             Self::BlockEntities => (
                 std::mem::offset_of!(abi::BlockWorldV1, restore_block_entity),
                 "moddedmc:block_world.restore_block_entity",
+            ),
+            Self::Survival => (
+                std::mem::offset_of!(abi::BlockWorldV1, block_item),
+                "moddedmc:block_world.block_item",
             ),
         }
     }
@@ -249,6 +255,18 @@ impl Content {
         let mut out = Vec::new();
         // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
         let found = unsafe { (self.1.describe_state)(state, sink(&mut out)) };
+        found.then(|| String::from_utf8(out).ok()).flatten()
+    }
+
+    /// Vanilla `Block.asItem()` for the state's block, `minecraft:air` when it has none. `None`
+    /// for an unknown state or on a server without `WorldExtension::Survival`.
+    pub fn block_item(self, state: u32) -> Option<String> {
+        if !WorldExtension::Survival.available(self.1) {
+            return None;
+        }
+        let mut out = Vec::new();
+        // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
+        let found = unsafe { (self.1.block_item)(state, sink(&mut out)) };
         found.then(|| String::from_utf8(out).ok()).flatten()
     }
 
@@ -424,6 +442,42 @@ impl World<'_> {
         let tool = abi::Str::new(tool.unwrap_or_default());
         // SAFETY: the size check covers the appended field; the sink fills `stacks` for the call.
         unsafe { (self.api.block_drops)(self.raw, pos, tool, sink) }.then_some(stacks)
+    }
+
+    /// The overworld clock's ticks and whether this dimension has a fixed time. See
+    /// [`abi::DayTime`]. `None` on a server without `WorldExtension::Survival`.
+    pub fn day_time(self) -> Option<abi::DayTime> {
+        if !WorldExtension::Survival.available(self.api) {
+            return None;
+        }
+        let mut out = abi::DayTime::default();
+        // SAFETY: the size check covers the appended field; `out` is live for the call.
+        unsafe { (self.api.day_time)(self.raw, &raw mut out) }.then_some(out)
+    }
+
+    /// Vanilla `getDestroySpeed`: the block's hardness, negative when unbreakable. `None` when
+    /// unloaded.
+    pub fn destroy_speed(self, pos: Pos) -> Option<f32> {
+        if !WorldExtension::Survival.available(self.api) {
+            return None;
+        }
+        let mut out = 0.0;
+        // SAFETY: the size check covers the appended field; `out` is live for the call.
+        unsafe { (self.api.destroy_speed)(self.raw, pos, &raw mut out) }.then_some(out)
+    }
+
+    /// Vanilla `canSurvive` for `state` placed at `pos`, without placing it. `None` for an unknown
+    /// state or an unloaded position.
+    pub fn can_survive(self, pos: Pos, state: u32) -> Option<bool> {
+        if !WorldExtension::Survival.available(self.api) {
+            return None;
+        }
+        // SAFETY: the size check covers the appended field.
+        match unsafe { (self.api.can_survive)(self.raw, pos, state) } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
     }
 
     /// Tells loaded worlds apart. Stable while the world stays loaded.
