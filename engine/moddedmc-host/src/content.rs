@@ -13,7 +13,7 @@ use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
         BlockBehaviour, BlockHitResult, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
-        OnPlaceArgs, UseWithItemArgs,
+        OnPlaceArgs, PlayerWillDestroyArgs, UseWithItemArgs,
         blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
@@ -24,7 +24,7 @@ use pumpkin_core::{
     command::context::CommandContext,
     entity::{Entity, EntityBase, decoration::display::ItemDisplayEntity, player::Player},
     server::Server,
-    world::World,
+    world::{World, loot::LootContextParameters},
 };
 use pumpkin_data::{
     Block, BlockDirection, BlockState, BlockStateId, Property,
@@ -71,6 +71,7 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     fluid_id,
     read_block_entity,
     restore_block_entity,
+    block_drops,
 };
 
 const MAX_BATCH: usize = 4096;
@@ -110,6 +111,7 @@ struct Runtime {
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
+    player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     /// Owning mod of each content item, block items included.
     item_owners: HashMap<u16, usize>,
 }
@@ -121,6 +123,7 @@ pub struct Hooks {
     pub entity_inside: Option<abi::EntityInside>,
     pub use_on_block: Option<abi::UseOnBlockFn>,
     pub use_block: Option<abi::UseBlockFn>,
+    pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
 }
 
 #[derive(Default)]
@@ -131,6 +134,7 @@ struct Pending {
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
+    player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
 }
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
@@ -139,6 +143,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     entity_inside: BTreeMap::new(),
     use_on_block: BTreeMap::new(),
     use_block: BTreeMap::new(),
+    player_will_destroy: BTreeMap::new(),
 });
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static WORLDS: LazyLock<Mutex<HashMap<Uuid, WorldState>>> = LazyLock::new(Mutex::default);
@@ -432,6 +437,9 @@ pub fn register(
     if let Some(callback) = hooks.use_block {
         pending.use_block.insert(owner, callback);
     }
+    if let Some(callback) = hooks.player_will_destroy {
+        pending.player_will_destroy.insert(owner, callback);
+    }
 }
 
 fn split_items(
@@ -505,6 +513,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         entity_inside,
         use_on_block,
         use_block,
+        player_will_destroy,
     } = std::mem::take(&mut *lock(&PENDING));
     blocks.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
     items.sort_by(|(_, a), (_, b)| a.id.cmp(&b.id));
@@ -539,6 +548,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         entity_inside,
         use_on_block,
         use_block,
+        player_will_destroy,
         item_owners: HashMap::new(),
     };
     let mut assets = Vec::with_capacity(blocks.len());
@@ -638,6 +648,27 @@ impl BlockBehaviour for Behaviour {
         }
     }
 
+    fn player_will_destroy(&self, args: PlayerWillDestroyArgs<'_>) {
+        let Some(callback) = RUNTIME.get().and_then(|runtime| {
+            let owner = runtime.blocks.get(&args.block.id.as_u16())?.owner;
+            runtime.player_will_destroy.get(&owner).copied()
+        }) else {
+            return;
+        };
+        let world: &World = args.world;
+        let entity: &dyn EntityBase = args.player.as_ref();
+        // SAFETY: the world and player outlive this synchronous callback.
+        unsafe {
+            callback(
+                ptr::from_ref(world).cast(),
+                ptr::from_ref(&entity).cast(),
+                abi_pos(*args.position),
+                u32::from(args.state.id.as_u16()),
+                args.player.is_creative(),
+            );
+        }
+    }
+
     fn use_with_item(&self, args: UseWithItemArgs<'_>) -> BlockActionResult {
         let Some(callback) = use_block_callback(args.block) else {
             return BlockActionResult::PassToDefaultBlockAction;
@@ -702,6 +733,7 @@ impl BlockBehaviour for Behaviour {
 fn observe(world: &World, pos: BlockPos, change: Change) {
     match change {
         Change::State(old, state) => queue(world, pos, old, state, abi::STATE_CHANGED),
+        Change::Moved(old, state) => queue(world, pos, old, state, abi::MOVED_STATE_CHANGED),
         Change::Loaded(state) => queue(world, pos, BlockStateId::AIR, state, abi::LOADED),
         Change::Unloaded => {
             let mut worlds = lock(&WORLDS);
@@ -1017,6 +1049,41 @@ unsafe extern "C" fn read_block_entity(raw: WorldRef, pos: Pos, out: Sink) -> bo
     true
 }
 
+unsafe extern "C" fn block_drops(raw: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    let Some(id) = world.get_block_state_id_if_loaded(&pos) else {
+        return false;
+    };
+    let tool = if tool.len == 0 {
+        None
+    } else {
+        let Some(tool) = crate::stacks::read_stack(tool) else {
+            return false;
+        };
+        Some(tool)
+    };
+    let params = LootContextParameters {
+        world: Some(world.as_ref()),
+        tool,
+        block_state: Some(BlockState::from_id(id)),
+        position: Some(pos.to_f64()),
+        ..Default::default()
+    };
+    let drops = pumpkin_core::block::collect_loot(&world, Block::from_state_id(id), &pos, &params);
+    for (index, stack) in (0u64..).zip(drops) {
+        if let Some(saved) = stack.to_nbt() {
+            let bytes = Nbt::from(saved).write();
+            // SAFETY: bytes are valid until the synchronous sink returns.
+            unsafe { (out.put)(out.ctx, index, Str::new(&bytes)) };
+        }
+    }
+    true
+}
+
 unsafe extern "C" fn restore_block_entity(raw: WorldRef, pos: Pos, nbt: Str) -> bool {
     if nbt.len > abi::MAX_BLOCK_ENTITY_BYTES {
         return false;
@@ -1236,6 +1303,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     has_indirect_passenger: crate::entities::has_indirect_passenger,
     data: crate::entities::data,
     set_data: crate::entities::set_data,
+    may_build: crate::entities::may_build,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
@@ -1355,6 +1423,24 @@ fn use_context(
         main_hand,
         with_item,
     }
+}
+
+pub unsafe extern "C" fn on_player_will_destroy(
+    reg: Reg,
+    callback: abi::PlayerWillDestroyFn,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }
+        .content_hooks
+        .player_will_destroy;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
 }
 
 pub unsafe extern "C" fn on_use_block_content(reg: Reg, callback: abi::UseBlockFn) -> i32 {

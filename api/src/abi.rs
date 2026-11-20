@@ -534,6 +534,8 @@ pub const STATE_CHANGED: u8 = 0;
 pub const NEIGHBOR_CHANGED: u8 = 1;
 pub const LOADED: u8 = 2;
 pub const UNLOADED: u8 = 3;
+/// Replaced by an `UPDATE_MOVED` write, so a mod can detach the block without breaking it.
+pub const MOVED_STATE_CHANGED: u8 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -619,6 +621,10 @@ pub struct BlockWorldV1 {
     /// the saved position is ignored. Marks the chunk dirty and sends clients the new data.
     /// False for unloaded positions, a mismatched id or invalid NBT.
     pub restore_block_entity: unsafe extern "C" fn(world: WorldRef, pos: Pos, nbt: Str) -> bool,
+    /// Vanilla `Block.getDrops(state, level, pos, blockEntity, null, tool)` for the loaded block:
+    /// one saved stack per sink call, without changing the block or spawning anything. An empty
+    /// `tool` is an empty hand. False when unloaded or the tool can't be read.
+    pub block_drops: unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
 }
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
@@ -746,6 +752,9 @@ pub struct EntitiesV1 {
     /// Replace the compound under `key` with Java named-root NBT of at most
     /// `MAX_ENTITY_DATA_BYTES`; empty removes it.
     pub set_data: unsafe extern "C" fn(entity: EntityRef, key: Str, nbt: Str) -> bool,
+    /// Vanilla `Player.mayBuild()`: false for other entities and for Adventure and Spectator
+    /// players.
+    pub may_build: unsafe extern "C" fn(entity: EntityRef) -> bool,
 }
 
 /// Largest compound `EntitiesV1::set_data` accepts.
@@ -823,7 +832,21 @@ pub struct InteractionV1 {
     /// Vanilla `Inventory.placeItemBackInInventory`: add a saved stack to the player's inventory
     /// and drop what doesn't fit.
     pub give: unsafe extern "C" fn(player: EntityRef, stack: Str) -> bool,
+    // Appended later: require `InteractionExtension::PlayerWillDestroy`.
+    /// One callback per mod for its content blocks, staged during registration.
+    pub on_player_will_destroy:
+        unsafe extern "C" fn(reg: Reg, callback: PlayerWillDestroyFn) -> i32,
 }
+
+/// Vanilla `Block.playerWillDestroy`: a player is about to break one of the mod's blocks, after
+/// the break was accepted and before drops and removal. `creative` is the player's game mode.
+pub type PlayerWillDestroyFn = unsafe extern "C" fn(
+    world: WorldRef,
+    player: EntityRef,
+    position: Pos,
+    state: u32,
+    creative: bool,
+);
 
 /// Size of the interaction table before `on_use_block` was appended.
 pub const INTERACTION_V1_BASE_SIZE: usize = std::mem::offset_of!(InteractionV1, on_use_block);
