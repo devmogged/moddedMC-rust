@@ -2,4 +2,5 @@
 
 pub mod network;
 pub mod pipe_connection;
+pub mod pump_graph;
 pub mod transport;
