@@ -1,0 +1,11 @@
+# Vanilla 26.3 baseline: summon a stationary zombie and compare saved mob data.
+seed 12345
+area 0 150 0 7 154 7
+gamerules deterministic
+start
+cmd fill 0 150 0 7 150 7 minecraft:stone
+cmd summon minecraft:zombie 2.5 151 2.5 {NoAI:1b,PersistenceRequired:1b}
+tick 1
+probe execute if entity @e[type=minecraft:zombie,x=2.5,y=151,z=2.5,distance=..0.1]
+snapshot stationary-zombie
+stop
