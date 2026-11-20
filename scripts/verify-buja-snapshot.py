@@ -31,13 +31,18 @@ def verify(root: Path, expected_count: int) -> dict:
 
     matches = []
     with zipfile.ZipFile(archive) as zf:
-        zipped = {
-            PurePosixPath(info.filename).name.casefold(): info
-            for info in zf.infolist()
+        jar_entries = [
+            info for info in zf.infolist()
             if not info.is_dir() and info.filename.lower().endswith(".jar")
-        }
-        if len(zipped) != expected_count:
-            raise ValueError(f"expected {expected_count} zipped JARs, found {len(zipped)}")
+        ]
+        if len(jar_entries) != expected_count:
+            raise ValueError(f"expected {expected_count} zipped JARs, found {len(jar_entries)}")
+        zipped = {}
+        for info in jar_entries:
+            name = PurePosixPath(info.filename).name.casefold()
+            if name in zipped:
+                raise ValueError(f"duplicate zipped JAR basename: {name}")
+            zipped[name] = info
         if set(loose) != set(zipped):
             raise ValueError(
                 f"mismatched names: archive-only {set(zipped)-set(loose)}, "

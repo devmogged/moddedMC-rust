@@ -105,11 +105,6 @@ impl CuttingBoardInventory {
         let Some((incoming_id, count, incoming_components)) = parts(incoming) else {
             return Err(StackError::InvalidStack);
         };
-        // CuttingBoardBlockEntity.canAddItem/addItem rejects insertion while
-        // an item-carving tool occupies the board.
-        if self.is_item_carved {
-            return Ok(Some(incoming.clone()));
-        }
         let limit = item_max_count.min(slot_limit);
         if limit == 0 {
             return Err(StackError::InvalidLimit);
@@ -147,6 +142,26 @@ impl CuttingBoardInventory {
         } else {
             set_count(incoming, remaining).map(Some)
         }
+    }
+
+    /// Player-facing CuttingBoardBlockEntity.canAddItem: unlike the raw
+    /// ItemStackHandler capability, a carved-tool marker prevents placement.
+    pub fn can_add_item(&self) -> bool {
+        self.held.is_none() && !self.is_item_carved
+    }
+
+    /// Player-facing CuttingBoardBlockEntity.addItem, separate from the
+    /// capability's raw ItemStackHandler.insertItem semantics.
+    pub fn add_item(
+        &mut self,
+        incoming: &Value,
+        item_max_count: u32,
+        slot_limit: u32,
+    ) -> Result<Option<Value>, StackError> {
+        if !self.can_add_item() {
+            return Ok(Some(incoming.clone()));
+        }
+        self.insert(incoming, item_max_count, slot_limit, false)
     }
 
     /// Vanilla ItemStackHandler.extractItem; amount 0 leaves the inventory
@@ -372,6 +387,26 @@ mod tests {
     }
 
     #[test]
+    fn raw_handler_insert_after_carved_tool_extraction_preserves_marker() {
+        let mut board = CuttingBoardInventory::default();
+        board
+            .insert(&stack("minecraft:iron_axe", 1, 0), 1, 99, false)
+            .unwrap();
+        board.is_item_carved = true;
+        assert!(board.extract(1, 1, false).unwrap().is_some());
+        assert!(board.carved()); // raw extraction must not reset this marker
+        let offered = stack("minecraft:carrot", 3, 0);
+        assert_eq!(
+            board.add_item(&offered, 64, 99).unwrap(),
+            Some(offered.clone())
+        );
+        assert!(board.held().is_none());
+        assert!(board.insert(&offered, 64, 99, false).unwrap().is_none());
+        assert_eq!(board.held(), Some(&offered));
+        assert!(board.carved());
+    }
+
+    #[test]
     fn carving_blocks_insert_until_original_remove_resets_flag() {
         let mut board = CuttingBoardInventory::default();
         board
@@ -379,10 +414,7 @@ mod tests {
             .unwrap();
         board.is_item_carved = true;
         let offered = stack("minecraft:carrot", 12, 0);
-        assert_eq!(
-            board.insert(&offered, 64, 99, false).unwrap(),
-            Some(offered)
-        );
+        assert_eq!(board.add_item(&offered, 64, 99).unwrap(), Some(offered));
         assert_eq!(count(board.held().unwrap()), 1);
         let removed = board.remove(1).unwrap().unwrap();
         assert_eq!(count(&removed), 1);

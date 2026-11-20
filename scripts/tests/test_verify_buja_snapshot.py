@@ -44,6 +44,19 @@ class SnapshotAuditTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "expected 2 loose JARs"):
             module.verify(self.root, 2)
 
+    def test_duplicate_basename_with_conflicting_content_fails(self):
+        with zipfile.ZipFile(self.root / "mods.zip", "a") as zf:
+            zf.writestr("backup/a.jar", b"corrupt")
+        with self.assertRaisesRegex(ValueError, "expected 2 zipped JARs"):
+            module.verify(self.root, 2)
+
+    def test_duplicate_basename_fails_even_when_count_matches(self):
+        with zipfile.ZipFile(self.root / "mods.zip", "w") as zf:
+            zf.writestr("mods/a.jar", b"corrupt")
+            zf.writestr("backup/a.jar", self.entries["a.jar"])
+        with self.assertRaisesRegex(ValueError, "duplicate zipped JAR basename"):
+            module.verify(self.root, 2)
+
     def test_filename_mismatch_fails(self):
         (self.root / "mods" / "a.jar").rename(self.root / "mods" / "different.jar")
         with self.assertRaisesRegex(ValueError, "mismatched names"):
