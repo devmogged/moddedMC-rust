@@ -23,3 +23,20 @@ L/XL follow later: Farmer's Delight, Epic Knights, Small Ships, Sophisticated st
 ## Next
 
 Confirm authoritative buja source; correct and complete M0 license/source checks; review M1 prioritization with real ABI gaps; then start one independent S-sized mod (if one is found), adding genuine tests, scenario, original-mod comparison and benchmark where applicable. Use ports 26010-26019. Ask WS-0 for host gaps, never implement them in this branch.
+
+## M2: Farmer's Delight crop crates (first playable slice)
+
+Branch commit: recorded on push. Source: official vectorwing/FarmersDelight 1.21.1-1.3.4, revision dd8b9b0 (2026-08-29), from D:/mc-ref/farmers-delight-1.21.1-1.3.4. Original files: common/registry/ModBlocks.java (CARROT_CRATE, POTATO_CRATE, BEETROOT_CRATE: ordinary Block with oak-plank physics, strength 2.0/3.0, wood sound); common/registry/ModItems.java (three ordinary BlockItems); generated recipes, loot tables, models, and textures. LICENSE (MIT) included in the .mmc. No other Farmer's Delight mechanics are claimed.
+
+Added mods/farmersdelight as an independently built native crate with three blocks, six original packing/unpacking recipes, loot tables, models, textures and the original axe mineability tag narrowed to these blocks. Removed only NeoForge's condition for the default-true enableVanillaCropCrates option (see Configuration.java); the client-side configuration toggle is not ported.
+
+Checks run in WS-1 worktree:
+- cargo fmt --all --check: PASS.
+- cargo clippy -p farmersdelight --all-targets -- -D warnings: PASS.
+- cargo test -p farmersdelight: PASS (zero unit tests; this slice has no branchy logic).
+- powershell -NoProfile -File scripts/pack-mod.ps1 -Crate farmersdelight: PASS (69,095-byte farmersdelight.mmc).
+- powershell -NoProfile -File scripts/scenario.ps1 -Scenario tests/scenarios/farmersdelight-crates.txt -RunDir run/buja-fd-crates -Fresh -Port 26010 -Exe ..\..\mmc-shared\bin\d6e5e8d560\pack-dev.exe -BotExe ..\..\mmc-shared\bin\d6e5e8d560\moddedmc-bot.exe: PASS. The bot fetched a resource pack, placed all three crates; commands confirmed states, correct axe tag and absence from pickaxe tag, unlocked six recipes, generated the correct named loot drops, and found all three blocks retained after full server restart. Run dir was cleaned.
+
+Unverified: the actual 3x3 crafting GUI output and stack consumption, visual model in a real stock client, the Java 1.21.1 NeoForge original-mod oracle, and the disabled-crates config option. The simulation's native recipe registrations plus copied JSON are narrower evidence than full original-mod parity. Before claiming this portion complete per section 7, perform the original Java comparison and owner visual play test.
+
+Next content slice: basic ingredients straw/canvas/tree bark/rice panicle, then more of the small genuinely passive content with source-checked model/recipe data. Gameplay features requiring tool, crop, food, or cooking APIs must be requested through WS-0 and tested separately.

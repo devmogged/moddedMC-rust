@@ -1,0 +1,87 @@
+# Farmer's Delight 1.3.4 vanilla-crop storage crates, a narrow 1.21.1 source port.
+# Run on WS-1 port 26010 with the WS-0 shared engine and bot binaries.
+mods target\mods\farmersdelight.mmc
+start
+expect registered content block farmersdelight:(carrot|potato|beetroot)_crate
+expect Loaded built-in datapack 'mod/farmersdelight': 6 recipe\(s\), 3 loot table\(s\), 1 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack SHA-1 [0-9a-f]{40}
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 3
+cmd fill 1020 99 1018 1030 105 1030 minecraft:air
+cmd fill 1025 99 1025 1027 99 1025 minecraft:stone
+wait 1
+cmd item replace entity tester weapon.mainhand with farmersdelight:carrot_crate
+wait 0.5
+bot use 1025 99 1025
+wait 1
+cmd execute if block 1025 100 1025 farmersdelight:carrot_crate
+wait 0.5
+expect Test passed
+cmd item replace entity tester weapon.mainhand with farmersdelight:potato_crate
+wait 0.5
+bot use 1026 99 1025
+wait 1
+cmd execute if block 1026 100 1025 farmersdelight:potato_crate
+wait 0.5
+expect Test passed
+cmd item replace entity tester weapon.mainhand with farmersdelight:beetroot_crate
+wait 0.5
+bot use 1027 99 1025
+wait 1
+cmd execute if block 1027 100 1025 farmersdelight:beetroot_crate
+wait 0.5
+expect Test passed
+cmd execute if block 1025 100 1025 #minecraft:mineable/axe
+wait 0.5
+expect Test passed
+cmd execute if block 1025 100 1025 #minecraft:mineable/pickaxe
+wait 0.5
+expect Test failed
+cmd recipe give tester farmersdelight:carrot_crate
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester farmersdelight:potato_crate
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester farmersdelight:beetroot_crate
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester farmersdelight:carrot_from_crate
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester farmersdelight:potato_from_crate
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester farmersdelight:beetroot_from_crate
+wait 0.5
+expect Unlocked 1 recipe
+cmd loot spawn 1025 102 1025 mine 1025 100 1025
+wait 0.5
+expect Dropped 1 .*Carrot Crate
+cmd loot spawn 1026 102 1025 mine 1026 100 1025
+wait 0.5
+expect Dropped 1 .*Potato Crate
+cmd loot spawn 1027 102 1025 mine 1027 100 1025
+wait 0.5
+expect Dropped 1 .*Beetroot Crate
+bot quit
+stop
+start
+cmd forceload add 1025 1025
+wait 4
+cmd execute if block 1025 100 1025 farmersdelight:carrot_crate
+wait 0.5
+expect Test passed
+cmd execute if block 1026 100 1025 farmersdelight:potato_crate
+wait 0.5
+expect Test passed
+cmd execute if block 1027 100 1025 farmersdelight:beetroot_crate
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|invalid definition|failed to load
+stop
