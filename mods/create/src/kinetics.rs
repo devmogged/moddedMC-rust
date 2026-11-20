@@ -105,6 +105,7 @@ pub enum Kind {
     Piston(crate::piston::PistonBlock),
     GantryShaft(crate::gantry::Shaft),
     GantryCarriage(crate::gantry::Carriage),
+    Pulley(u8),
     Millstone,
     Wheel(u8),
     Belt(Belt),
@@ -232,6 +233,7 @@ impl Kind {
             | Self::Gearshift(axis, _)
             | Self::EncasedShaft(axis)
             | Self::Wheel(axis)
+            | Self::Pulley(axis)
             | Self::Press(axis) => axis,
             Self::Motor(facing)
             | Self::Fan(facing)
@@ -284,7 +286,11 @@ impl Kind {
     /// `CStress` impact at 1 RPM, from the `setImpact` calls in `AllBlocks`.
     pub const fn impact(self) -> f32 {
         match self {
-            Self::Turntable | Self::Millstone | Self::Bearing(_) | Self::Piston(_) => 4.0,
+            Self::Turntable
+            | Self::Millstone
+            | Self::Bearing(_)
+            | Self::Piston(_)
+            | Self::Pulley(_) => 4.0,
             Self::Press(_) | Self::Wheel(_) => 8.0,
             Self::Fan(_) => 2.0,
             _ => 0.0,
@@ -419,6 +425,7 @@ pub struct Be {
     pub piston: Option<Box<crate::piston::MechanicalPiston>>,
     pub gantries: Vec<crate::gantry::GantryContraption>,
     pub last_gantry_shaft: Option<(crate::gantry::Shaft, f32)>,
+    pub pulley: Option<Box<crate::pulley::RopePulley>>,
     pub millstone: Option<Box<crate::millstone::Millstone>>,
 }
 
@@ -459,6 +466,7 @@ impl Be {
             piston: None,
             gantries: Vec::new(),
             last_gantry_shaft: None,
+            pulley: None,
             millstone: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
@@ -596,6 +604,7 @@ pub struct Kinetics {
     pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
     pub dropped_gantries: Vec<crate::gantry::GantryContraption>,
+    pub dropped_pulleys: Vec<(Pos, Box<crate::pulley::RopePulley>)>,
     pub dropped_pistons: Vec<(
         Pos,
         crate::piston::PistonBlock,
@@ -692,6 +701,9 @@ impl Kinetics {
         if matches!(be.kind, Kind::Piston(_)) && be.piston.is_none() {
             be.piston = Some(Box::default());
         }
+        if matches!(be.kind, Kind::Pulley(_)) && be.pulley.is_none() {
+            be.pulley = Some(Box::default());
+        }
         if be.kind == Kind::Millstone && be.millstone.is_none() {
             be.millstone = Some(Box::default());
         }
@@ -720,6 +732,9 @@ impl Kinetics {
         }
         if eject {
             self.dropped_gantries.append(&mut be.gantries);
+            if let Some(pulley) = be.pulley.take() {
+                self.dropped_pulleys.push((pos, pulley));
+            }
         }
         let (Kind::Belt(belt), Some(inventory)) = (be.kind, be.inventory.take()) else {
             return;

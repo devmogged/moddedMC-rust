@@ -57,6 +57,7 @@ impl BlockMovementChecks {
         let immovable = [
             "minecraft:bedrock",
             "minecraft:barrier",
+            "minecraft:obsidian",
             "minecraft:reinforced_deepslate",
         ]
         .into_iter()

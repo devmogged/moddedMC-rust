@@ -1,0 +1,477 @@
+//! Create 6.0.10's PulleyBlockEntity and PulleyContraption.
+
+use std::collections::{HashSet, VecDeque};
+
+use moddedmc_api::{
+    Pos, RegistrationError, Registry,
+    block_displays::BlockDisplay,
+    content::{self, Block, BlockUpdate, Content, ShapeBox, State, UNLOADED_STATE, World},
+    interaction::{BlockUseResult, UseBlock},
+};
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    AXES, BLOCK_DISPLAYS, CONTENT, STONE, StateIds,
+    contraption::{
+        BlockMovement, BlockMovementChecks, Blocks, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES,
+        StructureTransform,
+    },
+    kinetics::{Kind, Kinetics, actuator_speed, offset},
+};
+
+const ID: &str = "create:rope_pulley";
+const ROPE: &str = "create:rope";
+const MAGNET: &str = "create:pulley_magnet";
+const MAX_ROPE_LENGTH: i32 = 384;
+const DOWN: u8 = 0;
+const UP: u8 = 1;
+
+pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
+    let states = [0, 2].map(|axis| State {
+        properties: if axis == 0 { "axis=x" } else { "axis=z" },
+        physical: STONE,
+        model: "create:block/rope_pulley/block",
+        rotating_model: "",
+        x: 0,
+        y: if axis == 0 { 90 } else { 0 },
+        orientation: crate::relay_orientation(axis),
+        shape: &[],
+    });
+    content.add_block(
+        registry,
+        &Block {
+            id: ID,
+            display_name: "Rope Pulley",
+            entity: ID,
+            item_model: "create:item/rope_pulley",
+            states: &states,
+        },
+        Some(crate::placed_state),
+    )?;
+    let pole = ShapeBox {
+        min: [6, 0, 6],
+        max: [10, 16, 10],
+    };
+    let magnet = [
+        pole,
+        ShapeBox {
+            min: [3, -3, 3],
+            max: [13, 2, 13],
+        },
+    ];
+    for (id, name, model, shape) in [
+        (
+            ROPE,
+            "Rope",
+            "create:block/rope_pulley/rope",
+            std::slice::from_ref(&pole),
+        ),
+        (
+            MAGNET,
+            "Pulley Magnet",
+            "create:block/rope_pulley/pulley_magnet",
+            magnet.as_slice(),
+        ),
+    ] {
+        let states = [false, true].map(|wet| State {
+            properties: if wet {
+                "waterlogged=true"
+            } else {
+                "waterlogged=false"
+            },
+            physical: if wet {
+                "minecraft:oak_stairs[waterlogged=true]"
+            } else {
+                STONE
+            },
+            model,
+            rotating_model: "",
+            x: 0,
+            y: 0,
+            orientation: [0.0, 0.0, 0.0, 1.0],
+            shape,
+        });
+        content.add_block(
+            registry,
+            &Block {
+                id,
+                display_name: name,
+                entity: "",
+                item_model: "",
+                states: &states,
+            },
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+pub fn add_states(content: Content, ids: &mut StateIds) {
+    for axis in [0, 2] {
+        ids.add(
+            content,
+            ID,
+            &format!("axis={}", AXES[usize::from(axis)]),
+            Some(Kind::Pulley(axis)),
+        );
+    }
+    for id in [ROPE, MAGNET] {
+        for wet in [false, true] {
+            ids.add(content, id, &format!("waterlogged={wet}"), None);
+        }
+    }
+}
+
+pub fn placed_state(axis: u8) -> Option<u32> {
+    CONTENT
+        .get()?
+        .state(&format!("{ID}[axis={}]", AXES[usize::from(axis)]))
+}
+
+fn below(pos: Pos, distance: i32) -> Pos {
+    offset(pos, [0, -distance, 0])
+}
+
+fn state_at(world: World<'_>, pos: Pos) -> u32 {
+    let mut state = [UNLOADED_STATE];
+    world.read(&[pos], &mut state);
+    state[0]
+}
+
+fn is_rope(states: &StateIds, state: u32) -> bool {
+    states
+        .by_id
+        .get(&state)
+        .is_some_and(|entry| matches!(entry.block, ROPE | MAGNET))
+}
+
+fn rope_state(id: &str, wet: bool) -> Option<u32> {
+    CONTENT.get()?.state(&format!("{id}[waterlogged={wet}]"))
+}
+
+fn extension_range(world: World<'_>, pos: Pos) -> i32 {
+    // The loaded controller and the rope column are in the same chunk.
+    let (mut low, mut high) = (0, MAX_ROPE_LENGTH);
+    while low < high {
+        let middle = (low + high + 1) / 2;
+        if state_at(world, below(pos, middle + 1)) == UNLOADED_STATE {
+            high = middle - 1;
+        } else {
+            low = middle;
+        }
+    }
+    low
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub struct PulleyData {
+    running: bool,
+    initial_offset: i32,
+    offset: f32,
+    extension_range: i32,
+    blocks: Blocks,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RopePulley {
+    pub data: PulleyData,
+    displays: ContraptionDisplays,
+    cable_displays: [i32; 2],
+    assemble_next_tick: bool,
+    previous_speed: f32,
+}
+
+impl RopePulley {
+    fn assemble(&mut self, world: World<'_>, states: &StateIds, pos: Pos, speed: f32) -> bool {
+        let range = extension_range(world, pos);
+        let initial = (1..=range)
+            .take_while(|&distance| is_rope(states, state_at(world, below(pos, distance))))
+            .count() as i32;
+        if (initial == 0 && speed < 0.0) || (initial >= range && speed > 0.0) {
+            return false;
+        }
+        let checks = &states.contraption_blocks;
+        let anchor = below(pos, initial + 1);
+        let mut blocks = match checks.classify(world, anchor) {
+            Some(BlockMovement::Movable(entry)) => {
+                let anchors = (0..=initial).map(|distance| below(pos, distance)).collect();
+                let frontier = VecDeque::from([(anchor, entry)]);
+                let Some((blocks, _)) =
+                    Blocks::collect_attached(anchor, frontier, anchors, |pos| {
+                        checks.classify(world, pos)
+                    })
+                else {
+                    return false;
+                };
+                blocks
+            }
+            Some(BlockMovement::Air) => Blocks::default(),
+            Some(BlockMovement::Immovable) if speed < 0.0 => Blocks::default(),
+            _ => return false,
+        };
+        if blocks.capture_entities(world, anchor).is_none() {
+            return false;
+        }
+        let sources: HashSet<_> = blocks
+            .positions(anchor)
+            .chain((1..=initial).map(|distance| below(pos, distance)))
+            .collect();
+        let direction = if speed > 0.0 { DOWN } else { UP };
+        if blocks.is_colliding_with_world(
+            world,
+            below(anchor, if speed > 0.0 { 1 } else { -1 }),
+            direction,
+            &sources,
+            None,
+        ) {
+            return false;
+        }
+        let Some((air, water)) = checks.state("minecraft:air").zip(
+            CONTENT
+                .get()
+                .and_then(|content| content.state("minecraft:water")),
+        ) else {
+            return false;
+        };
+        let remove: Vec<_> = (1..=initial)
+            .rev()
+            .map(|distance| {
+                let position = below(pos, distance);
+                let wet = world
+                    .fluid_id(position)
+                    .is_some_and(|id| id == "minecraft:water");
+                BlockUpdate {
+                    position,
+                    state: if wet { water } else { air },
+                    flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
+                }
+            })
+            .chain(blocks.positions(anchor).map(|position| BlockUpdate {
+                position,
+                state: air,
+                flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
+            }))
+            .collect();
+        let data = PulleyData {
+            running: true,
+            offset: initial as f32,
+            initial_offset: initial,
+            extension_range: range,
+            blocks,
+        };
+        if !fastnbt::to_bytes(&data).is_ok_and(|bytes| bytes.len() <= MAX_ASSEMBLY_DATA_BYTES)
+            || (!remove.is_empty() && world.write(&remove) != remove.len())
+        {
+            return false;
+        }
+        self.data = data;
+        true
+    }
+
+    fn grid_offset(&self, offset: f32) -> i32 {
+        ((offset + 0.5).floor() as i32).clamp(0, self.data.extension_range)
+    }
+
+    fn disassemble(
+        &mut self,
+        world: World<'_>,
+        checks: &BlockMovementChecks,
+        pos: Pos,
+        removed: bool,
+    ) -> bool {
+        if !self.data.running {
+            return true;
+        }
+        let length = self.grid_offset(self.data.offset);
+        let rope = if removed { 0 } else { length };
+        let Some(rope) = (1..=rope)
+            .rev()
+            .map(|distance| {
+                let position = below(pos, distance);
+                let current = state_at(world, position);
+                let wet = world
+                    .fluid_id(position)
+                    .is_some_and(|id| id == "minecraft:water");
+                // shortcut: preserve the assembly if a new block obstructs the rope during motion.
+                if !checks.is_air(current) && !wet {
+                    return None;
+                }
+                let state = rope_state(if distance == length { MAGNET } else { ROPE }, wet)?;
+                Some(BlockUpdate {
+                    position,
+                    state,
+                    flags: content::UPDATE_MOVED | content::UPDATE_CLIENTS,
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        let transform = StructureTransform {
+            anchor: below(pos, length + 1),
+            axis: 1,
+            angle: 0.0,
+        };
+        if !self.data.blocks.place(world, checks, transform, None) {
+            return false;
+        }
+        if !rope.is_empty() {
+            world.write(&rope);
+        }
+        self.clear_displays(world);
+        self.data = PulleyData::default();
+        true
+    }
+
+    pub fn clear_displays(&mut self, world: World<'_>) {
+        self.displays.clear(world);
+        if let Some(displays) = BLOCK_DISPLAYS.get() {
+            for id in self.cable_displays.iter_mut() {
+                if *id != 0 {
+                    displays.remove(world, std::mem::take(id));
+                }
+            }
+        }
+    }
+
+    fn show(&mut self, world: World<'_>, pos: Pos) {
+        let transform = StructureTransform {
+            anchor: below(pos, 1),
+            axis: 1,
+            angle: 0.0,
+        };
+        self.displays.show(
+            world,
+            &self.data.blocks,
+            transform,
+            [0.0, -self.data.offset, 0.0],
+        );
+        let Some(displays) = BLOCK_DISPLAYS.get() else {
+            return;
+        };
+        let length = (self.data.offset - 1.0).max(0.0);
+        for ((block, y, scale), id) in [(MAGNET, self.data.offset, 1.0), (ROPE, length, length)]
+            .into_iter()
+            .zip(&mut self.cable_displays)
+        {
+            let shown = BlockDisplay {
+                position: [pos.x, pos.y, pos.z].map(|coord| f64::from(coord) + 0.5),
+                translation: [-0.5, -0.5 - y, -0.5],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [1.0, scale.max(0.001), 1.0],
+                transform_interpolation: 1,
+                position_interpolation: 0,
+                brightness: -1,
+            };
+            if (*id == 0 || !displays.update(world, *id, &shown))
+                && let Some(state) = rope_state(block, false)
+            {
+                *id = displays.spawn(world, state, &shown).unwrap_or(0);
+            }
+        }
+    }
+
+    fn tick(&mut self, world: World<'_>, states: &StateIds, pos: Pos, rpm: f32) -> bool {
+        let previous = std::mem::replace(&mut self.previous_speed, rpm);
+        let speed = actuator_speed(rpm);
+        let queued = std::mem::take(&mut self.assemble_next_tick) || previous != rpm;
+        if !self.data.running {
+            return queued && rpm != 0.0 && self.assemble(world, states, pos, speed);
+        }
+        let checks = &states.contraption_blocks;
+        if speed == 0.0 {
+            if self.disassemble(world, checks, pos, false) {
+                return true;
+            }
+            self.show(world, pos);
+            return false;
+        }
+        let next = self.data.offset + speed;
+        let direction = if speed < 0.0 { UP } else { DOWN };
+        if self.data.blocks.block_list.is_empty()
+            && speed > 0.0
+            && next as i32 != self.data.offset as i32
+        {
+            let under = below(pos, next as i32 + 1);
+            if !checks.is_air(state_at(world, under)) && self.disassemble(world, checks, pos, false)
+            {
+                self.assemble_next_tick = true;
+                return true;
+            }
+        }
+        let extent = self.data.extension_range as f32;
+        let next = next.clamp(0.0, extent);
+        let shift = -(-next).floor() as i32 - i32::from(direction == UP);
+        let collision = self.data.blocks.is_colliding_with_world(
+            world,
+            below(pos, shift + 1),
+            direction,
+            &HashSet::new(),
+            None,
+        );
+        if collision {
+            self.data.offset =
+                self.grid_offset(self.grid_offset(self.data.offset) as f32 - speed) as f32;
+        } else {
+            self.data.offset = next;
+        }
+        if (collision || next == 0.0 || next == extent)
+            && self.disassemble(world, checks, pos, false)
+        {
+            return true;
+        }
+        self.show(world, pos);
+        true
+    }
+}
+
+pub fn use_item_on(kinetics: &mut Kinetics, context: &UseBlock<'_>) -> BlockUseResult {
+    if context.sneaking || context.stack.read().is_some() {
+        return BlockUseResult::TryEmptyHand;
+    }
+    if let Some(pulley) = kinetics
+        .get_mut(context.position)
+        .and_then(|be| be.pulley.as_mut())
+    {
+        pulley.assemble_next_tick = true;
+    }
+    BlockUseResult::Success
+}
+
+pub fn event(world: World<'_>, states: &StateIds, event: &content::ContentEvent) {
+    if event.reason != content::STATE_CHANGED
+        || !is_rope(states, event.previous)
+        || is_rope(states, event.state)
+    {
+        return;
+    }
+    for direction in [-1, 1] {
+        let pos = below(event.position, direction);
+        if is_rope(states, state_at(world, pos)) {
+            world.destroy(pos, true);
+        }
+    }
+}
+
+pub fn tick(world: World<'_>, states: &StateIds, kinetics: &mut Kinetics) {
+    for (pos, mut pulley) in kinetics.dropped_pulleys.drain(..) {
+        let rope = below(pos, 1);
+        if is_rope(states, state_at(world, rope)) {
+            world.destroy(rope, true);
+        }
+        if !pulley.disassemble(world, &states.contraption_blocks, pos, true) {
+            pulley.clear_displays(world);
+            pulley.data.blocks.drop_contents(world, pos, |item| item);
+        }
+    }
+    for pos in kinetics.positions(|kind| matches!(kind, Kind::Pulley(_))) {
+        let Some(be) = kinetics.get_mut(pos) else {
+            continue;
+        };
+        let rpm = be.get_speed();
+        if let Some(pulley) = &mut be.pulley {
+            be.dirty |= pulley.tick(world, states, pos, rpm);
+        }
+    }
+}

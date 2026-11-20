@@ -124,4 +124,10 @@ Connect four matching Gantry Shafts to a motor and place a Gantry Carriage on th
 
 The starting shaft holds the moving structure's save while its chunk is loaded. Sequenced gearshift limits, the shaft extension placement helper and collision with other moving contraptions are pending.
 
+### Rope Pulley
+
+Connect a Rope Pulley to a motor, lower its magnet to a slime platform, then reverse the motor to lift the platform. Drive it down again with a solid obstacle in the platform's path. The platform stops and the rope becomes blocks up to the pulley. The [rope pulley scenario](../../tests/scenarios/create-rope-pulley.txt) checks the cable displays, the stop above obsidian and the lift to the top.
+
+The stock view draws the moving cable with two block displays. Synchronized pulleys, movement mode controls, and carrying players are pending.
+
 Not ported yet: the rest of `BeltBlock.useItemOn` (dyes and water, the wrench and the connector on an existing belt, packages, a shaft turning a middle segment into a pulley, casings), and its `mayBuild` check; belt processing, tunnels and crushers; the belt surface doesn't scroll, only its top half is drawn, and sideways belts (between vertical shafts) are drawn turned the wrong way, because block models can't take the Z rotation `BeltRenderer` uses; breaking a pulley segment doesn't drop its shaft, belts can't be dyed or cased, and their placement makes no sound; the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.

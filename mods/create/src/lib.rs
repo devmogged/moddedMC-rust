@@ -42,6 +42,7 @@ mod millstone;
 mod piston;
 mod press;
 mod processing_recipes;
+mod pulley;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
 const AXES: [&str; 3] = ["x", "y", "z"];
@@ -150,6 +151,7 @@ impl Mod for Create {
         bearing::register(*content, registry)?;
         piston::register(*content, registry)?;
         gantry::register(*content, registry)?;
+        pulley::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -705,6 +707,7 @@ fn states() -> Option<&'static StateIds> {
         bearing::add_states(content, &mut ids);
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
+        pulley::add_states(content, &mut ids);
         ids.contraption_blocks.register_states(content);
         millstone::add_states(content, &mut ids);
         crusher::add_states(content, &mut ids);
@@ -792,6 +795,17 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::Pulley(_)) => {
+            let horizontal = connected
+                .filter(|&direction| face_axis(direction) != 1)
+                .map(face_axis);
+            let preferred = horizontal
+                .clone()
+                .next()
+                .filter(|first| horizontal.clone().all(|axis| *first == axis));
+            let look_axis = face_axis(nearest_looking_direction(args.yaw, 0.0));
+            return pulley::placed_state(preferred.unwrap_or(look_axis ^ 2));
+        }
         Some(Kind::GantryShaft(_)) => return gantry::place_shaft(args, states, &ids, look),
         Some(Kind::GantryCarriage(_)) => {
             return gantry::place_carriage(args.face ^ 1, states.kind(ids[usize::from(args.face)]));
@@ -949,6 +963,8 @@ struct KineticData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     gantries: Vec<gantry::GantryContraption>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pulley: Option<pulley::PulleyData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<fastnbt::IntArray>,
     #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<NetworkData>,
@@ -1030,6 +1046,13 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if matches!(kind, Kind::GantryShaft(_)) {
         be.gantries = data.gantries;
     }
+    if matches!(kind, Kind::Pulley(_))
+        && let Some(data) = data.pulley
+    {
+        let mut pulley = pulley::RopePulley::default();
+        pulley.data = data;
+        be.pulley = Some(Box::new(pulley));
+    }
     be.source = data.source.and_then(|pos| match *pos {
         [x, y, z] => Some(Pos { x, y, z }),
         _ => None,
@@ -1072,6 +1095,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         bearing: be.bearing.as_ref().map(|bearing| bearing.data.clone()),
         piston: be.piston.as_ref().map(|piston| piston.data.clone()),
         gantries: be.gantries.clone(),
+        pulley: be.pulley.as_ref().map(|pulley| pulley.data.clone()),
         source: be
             .source
             .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z])),
@@ -1160,6 +1184,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             chute::event(world, &mut kinetics.chutes, states, event);
             funnel::event(world, &mut kinetics.funnels, states, event);
             crusher::event(world, states, kinetics, event);
+            pulley::event(world, states, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             gantry_changed |= matches!(before, Some(Kind::GantryShaft(_)))
@@ -1180,6 +1205,9 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
                         }
                         for gantry in &mut be.gantries {
                             gantry.clear_displays(world);
+                        }
+                        if let Some(pulley) = &mut be.pulley {
+                            pulley.clear_displays(world);
                         }
                     }
                     kinetics.unload(pos);
@@ -1221,6 +1249,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
         piston::tick(world, &states.contraption_blocks, kinetics);
         gantry::tick(world, &states.contraption_blocks, kinetics);
+        pulley::tick(world, states, kinetics);
         for (pos, millstone) in kinetics.dropped_millstones.drain(..) {
             millstone.drop_contents(world, pos);
         }
@@ -1283,6 +1312,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         }),
         Some(Kind::GantryCarriage(_)) => with_world(context.world, |kinetics| {
             gantry::use_item_on(kinetics, context)
+        }),
+        Some(Kind::Pulley(_)) => with_world(context.world, |kinetics| {
+            pulley::use_item_on(kinetics, context)
         }),
         _ => BlockUseResult::TryEmptyHand,
     }
