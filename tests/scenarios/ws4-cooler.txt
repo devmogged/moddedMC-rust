@@ -33,6 +33,8 @@ wait 1
 bot expect slot 36 minecraft:snowball 2
 wait 0.5
 expect ^\[bot\] expect inventory ok slot 36
+cmd data get block 2250 100 2250
+expect fuelLevel: 1
 
 # Special fuel: original source uses the tag cmr:snowman_cooler_fuel/special.
 cmd item replace entity tester hotbar.0 with cmr:frozen_cake 2
