@@ -2,6 +2,8 @@
 //! Source: ModBlocks and ModItems in vectorwing/FarmersDelight branch 1.21.
 //! The four ingredients are basic items; the crates are oak-plank physical blocks.
 
+pub mod cutting;
+
 use std::sync::OnceLock;
 
 use moddedmc_api::{

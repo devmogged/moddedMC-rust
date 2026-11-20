@@ -26,6 +26,20 @@ crops and unpack to nine. `enableVanillaCropCrates` defaults to true in
 the vanilla 26.3 datapack reader does not implement NeoForge conditions. The
 configuration toggle is not yet ported.
 
+## Cutting-board recipe evaluator (preparatory, not active gameplay)
+
+`src/cutting.rs` ports the original `CuttingBoardRecipe` input/tool-matching
+rules and `ChanceResult.rollOutput` semantics. Its 72 source-backed JSON
+fixtures live under `tests/fixtures/cutting/` (official 1.3.4 release,
+revision `dd8b9b0`, MIT); the fixture test parses every recipe, including
+item-ability alternatives, chance outputs, and optional sound identifiers.
+Five targeted tests cover Java float-to-double probability promotion,
+per-unit draw consumption, fortune chances, invalid definitions, and exact
+tool alternatives. Production board block registration and callbacks are not
+wired up yet: tool wear, item-ability queries, and block inventory capability
+need the generic host interfaces requested in `WS-1-03`. Compiling this recipe
+layer does **not** mean the cutting board works in Survival yet.
+
 ## Remaining behavior
 
 Cabbage, tomato and onion crate recipes, and the rice bag recipe, depend on
