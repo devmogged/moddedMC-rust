@@ -147,6 +147,26 @@ pub(crate) fn register(
     )
 }
 
+/// The original track state shape and HAS_BE (turn) property.
+pub(super) fn track_state(content: Content, state: u32) -> Option<(TrackShape, bool)> {
+    states(content)
+        .by_id
+        .get(&state)
+        .map(|row| (row.shape, row.has_be))
+}
+
+/// A track state whose blockstate properties have already been registered.
+pub(super) fn rail_state(content: Content, shape: TrackShape, wet: bool) -> Option<u32> {
+    states(content)
+        .by_properties
+        .get(&TrackState {
+            shape,
+            has_be: false,
+            wet,
+        })
+        .copied()
+}
+
 /// Read-only diagnostic for a track state; used by the WS-3 bot scenario.
 pub(crate) fn describe_state(content: Content, state: u32) -> Option<String> {
     states(content)

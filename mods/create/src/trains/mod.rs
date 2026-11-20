@@ -11,9 +11,11 @@ mod bezier;
 mod curve;
 #[cfg(test)]
 mod graph;
+mod item;
 #[cfg(test)]
 mod propagate;
 #[cfg(test)]
 mod save;
 
+pub(crate) use item::use_on_block;
 pub(super) use runtime::{describe_state, placed_state, register};

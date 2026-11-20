@@ -1,0 +1,64 @@
+# WS-3: TrackBlockItem first selection + straight track connection.
+# Run with shared pack-dev and original Create 6.0.10 assets.
+mods target\mods\create.mmc
+start
+expect registered content block create:track \(76 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2253.5 102 2252.5 90 35
+wait 6
+cmd fill 2248 100 2248 2262 108 2262 minecraft:air
+cmd fill 2248 99 2248 2262 99 2262 minecraft:stone
+wait 1
+cmd item replace entity tester weapon.mainhand with create:track
+wait 1
+
+# Place two separate XO rails with vanilla block placement.
+bot use 2250 99 2254
+wait 1
+cmd track 2250 100 2254
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2250 100 2254
+bot use 2256 99 2254
+wait 1
+cmd track 2256 100 2254
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2256 100 2254
+
+# TrackBlockItem selection on the first track, then straight insertion.
+bot use 2250 100 2254
+wait 0.5
+bot use 2256 100 2254
+wait 1
+cmd track 2251 100 2254
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2251 100 2254
+cmd track 2253 100 2254
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2253 100 2254
+cmd track 2255 100 2254
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2255 100 2254
+reject (?i)panicked|trapped
+
+# Saved block states must persist through a separate server process.
+bot quit
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd track 2250 100 2254
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2250 100 2254
+cmd track 2253 100 2254
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2253 100 2254
+cmd track 2256 100 2254
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2256 100 2254
+bot quit
+stop

@@ -101,7 +101,6 @@ impl TrackShape {
         )
     }
 
-    #[cfg(test)]
     pub fn normal(self) -> Vec3 {
         match self {
             Self::AscendingNorth => vec3(0.0, 1.0, 1.0).normalized(),

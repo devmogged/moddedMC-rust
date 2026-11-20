@@ -15,7 +15,6 @@ impl Vec3 {
         }
     }
 
-    #[cfg(test)]
     pub(super) fn plus(self, other: Self) -> Self {
         Self {
             x: self.x + other.x,

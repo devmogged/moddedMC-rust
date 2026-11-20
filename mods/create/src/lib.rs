@@ -1092,6 +1092,10 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
 }
 
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    // WS-3: TrackBlockItem's item-on-rail selection and straight connections.
+    if context.item == "create:track" {
+        return trains::use_on_block(context);
+    }
     if context.item == chute::ID {
         chute::use_on_block(context)
     } else {
