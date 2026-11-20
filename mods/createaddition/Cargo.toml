@@ -1,0 +1,12 @@
+[package]
+name = "createaddition"
+version = "0.1.0"
+edition.workspace = true
+license = "MIT"
+description = "Create Crafts & Additions neoforge-1.21.1-1.7.2: energy/kinetics port in progress"
+publish = false
+
+# Promote to a separate cdylib only when the Create kinetic service contract
+# and required content registration are available; do not ship a no-op mod.
+[lib]
+crate-type = ["rlib"]
