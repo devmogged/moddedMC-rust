@@ -46,6 +46,7 @@ mod press;
 mod processing_recipes;
 mod pulley;
 mod sticker;
+mod trains;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
 const AXES: [&str; 3] = ["x", "y", "z"];
@@ -107,6 +108,8 @@ impl Mod for Create {
         content.require_extension(WorldExtension::FluidId)?;
         content.require_extension(WorldExtension::BlockEntities)?;
         let _ = CONTENT.set(content);
+        // WS-3: save-global Create railway data through the generic ABI.
+        trains::require_saved()?;
         let _ = COMMANDS.set(commands::require()?);
         let _ = ITEMS.set(items::require()?);
         let entities = entities::require()?;
@@ -147,6 +150,9 @@ impl Mod for Create {
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         register_casings(content, registry)?;
+        // WS-3: official Create 6.0.10 track blockstates and placement.
+        trains::register(content, registry)?;
+        trains::register_saved(registry)?;
         belt::register(content, registry)?;
         depot::register(*content, registry)?;
         chute::register(*content, registry)?;
@@ -211,7 +217,48 @@ impl Mod for Create {
                     number(Some(1), "z", -30_000_000, 30_000_000, Some(0)),
                     number(Some(2), "rpm", -MAX_SPEED, MAX_SPEED, Some(1)),
                 ],
-            )
+            )?;
+        // WS-3: read-only track state inspection for placement/restart scenarios.
+        COMMANDS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add(
+                registry,
+                "track",
+                "Inspect a loaded Create railway track blockstate",
+                2,
+                &[
+                    number(None, "x", -30_000_000, 30_000_000, None),
+                    number(Some(0), "y", -2_048, 2_047, None),
+                    number(Some(1), "z", -30_000_000, 30_000_000, Some(2)),
+                ],
+            )?;
+        // WS-3: read the saved railway root, or rebuild at a known-dimension
+        // admin command position while world callback dimension is unavailable.
+        for (name, help, tag) in [
+            ("railway", "Inspect stored Create railway networks", 3),
+            (
+                "railwaybuild",
+                "Build and save a Create railway at a rail position",
+                4,
+            ),
+        ] {
+            COMMANDS
+                .get()
+                .ok_or(RegistrationError::InvalidDefinition)?
+                .add(
+                    registry,
+                    name,
+                    help,
+                    2,
+                    &[
+                        number(None, "x", -30_000_000, 30_000_000, None),
+                        number(Some(0), "y", -2_048, 2_047, None),
+                        number(Some(1), "z", -30_000_000, 30_000_000, Some(tag)),
+                    ],
+                )?;
+        }
+        Ok(())
     }
 
     fn command(&self, tag: u64, command: Command<'_>) -> i32 {
@@ -225,14 +272,43 @@ impl Mod for Create {
         ) else {
             return 0;
         };
-        let (Some(world), Some(states)) = (content.command_world(&command), states()) else {
+        let Some(world) = content.command_world(&command) else {
             return 0;
         };
         let pos = Pos { x, y, z };
+        if tag == 3 || tag == 4 {
+            let result = if tag == 3 {
+                trains::summary(&world)
+            } else {
+                trains::rebuild_at(&world, &command, *content, pos)
+            };
+            match result {
+                Ok(message) => {
+                    command.reply(&message);
+                    return 1;
+                }
+                Err(message) => {
+                    command.reply(&message);
+                    return 0;
+                }
+            }
+        }
         let mut state = [0];
         if !world.read(&[pos], &mut state) {
             return 0;
         }
+        // WS-3: exact internal Create track selector, without vanilla command parsing.
+        if tag == 2 {
+            if let Some(selector) = trains::describe_state(*content, state[0]) {
+                command.reply(&format!("{selector} at {x} {y} {z}"));
+                return 1;
+            }
+            command.reply("There is no loaded Create track at that position");
+            return 0;
+        }
+        let Some(states) = states() else {
+            return 0;
+        };
         let Some(known) = states.by_id.get(&state[0]).filter(|s| s.kind.is_some()) else {
             command.reply("There is no loaded kinetic block at that position");
             return 0;
@@ -757,6 +833,13 @@ fn states() -> Option<&'static StateIds> {
 fn placed_state(args: Placement<'_>) -> Option<u32> {
     if usize::from(args.face) >= FACES.len() {
         return None;
+    }
+    // WS-3: train tracks use their own orientation and support checks.
+    if let Some(track) = CONTENT
+        .get()
+        .and_then(|content| trains::placed_state(&args, *content))
+    {
+        return Some(track);
     }
     let states = states()?;
     if states.chutes.contains_key(&args.state) {
@@ -1297,6 +1380,10 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
 }
 
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    // WS-3: TrackBlockItem's item-on-rail selection and straight connections.
+    if context.item == "create:track" {
+        return trains::use_on_block(context);
+    }
     if context.item == chute::ID {
         chute::use_on_block(context)
     } else {
