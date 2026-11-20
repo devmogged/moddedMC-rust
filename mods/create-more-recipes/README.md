@@ -30,7 +30,8 @@ Run `tests/scenarios/ws4-cooler.txt` on a WS-4 port using WS-0's shared `pack-de
 ## Still missing
 
 - Basin recipes with `cooled`/`frozen` heat, snowman-cooler-driven mixing, the Smithing Press and Block Spout, custom fan processing, and remaining recipe JSON. WS-4-02 asks the Create processing owner for the necessary service hook.
-- Capturing snow golems or spawner entities using the empty cooler; accepting thrown snowballs as fuel. These require item-on-entity and projectile-impact hooks not exposed today.
+- `Cooler::snowball_impact()` already ports and unit-tests the original +80 normal fuel ticks (capped at 10,000) and ignoring creative/special fuel. The actual thrown snowball event, cancellation and sound await WS-4-03, so it is **not** yet player-accessible.
+- Capturing snow golems or spawner entities using the empty cooler. The source-grounded thrown-snowball state transition is tested but still needs the projectile-impact callback. Both behaviors require generic host hooks requested in WS-4-03.
 - Full renderer, goggles interaction, animations, contextual collision shape, sound/particles, modded crafting dependencies, and an original 1.21.1 NeoForge differential oracle run.
 
 Passing the live bot scenario only verifies the implemented subset. It is not a claim of complete parity with the original addon.

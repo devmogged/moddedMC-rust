@@ -136,6 +136,20 @@ impl Cooler {
         }
     }
 
+    /// `SnowmanCoolerHandler.thrownEggsGetEatenByBurner`: a snowball
+    /// striking this cooler adds 80 ticks of normal fuel up to the maximum.
+    /// A special or creative cooler still consumes the impacting snowball,
+    /// but its fuel state does not change. Projectile cancellation and sound
+    /// remain the host's responsibility.
+    pub fn snowball_impact(&mut self) -> bool {
+        if self.creative || self.fuel == Fuel::Special {
+            return false;
+        }
+        self.fuel = Fuel::Normal;
+        self.remaining = self.remaining.saturating_add(80).min(MAX_HEAT_CAPACITY);
+        true
+    }
+
     /// `applyCreativeFuel` cycles idle -> cooling -> freezing -> idle;
     /// it skips fading and disables fuel countdown as in the original.
     pub fn apply_creative_fuel(&mut self) {
@@ -220,6 +234,37 @@ mod tests {
         assert!(!Heat::Cooling.allows(Heat::Freezing));
         assert!(Heat::Freezing.allows(Heat::Cooling));
         assert!(Heat::Freezing.allows(Heat::Freezing));
+    }
+
+    #[test]
+    fn snowball_hit_adds_80_fuel_and_caps_at_10000() {
+        let mut cooler = Cooler::default();
+        assert!(cooler.snowball_impact());
+        assert_eq!(cooler.fuel, Fuel::Normal);
+        assert_eq!(cooler.remaining, 80);
+        assert_eq!(cooler.heat(), Heat::Fading);
+        for _ in 0..150 {
+            cooler.snowball_impact();
+        }
+        assert_eq!(cooler.remaining, MAX_HEAT_CAPACITY);
+        assert_eq!(cooler.heat(), Heat::Cooling);
+        cooler.tick();
+        assert_eq!(cooler.remaining, MAX_HEAT_CAPACITY - 1);
+        assert!(cooler.snowball_impact());
+        assert_eq!(cooler.remaining, MAX_HEAT_CAPACITY);
+    }
+
+    #[test]
+    fn snowball_hit_does_not_change_special_or_creative_fuel() {
+        let mut cooler = Cooler::default();
+        assert!(cooler.refuel(Fuel::Special, false, false));
+        let before = cooler;
+        assert!(!cooler.snowball_impact());
+        assert_eq!(cooler, before);
+        cooler.apply_creative_fuel();
+        let before = cooler;
+        assert!(!cooler.snowball_impact());
+        assert_eq!(cooler, before);
     }
 
     #[test]
