@@ -127,6 +127,7 @@ impl TrackNodeLocation {
 }
 
 /// Metadata produced by ITrackBlock.getConnected, before the graph is reduced.
+#[derive(Clone, Debug)]
 pub(super) struct DiscoveredLocation {
     pub location: TrackNodeLocation,
     pub direction: Option<Vec3>,
@@ -134,6 +135,8 @@ pub(super) struct DiscoveredLocation {
     pub material_a: String,
     pub material_b: String,
     pub forced: bool,
+    /// TrackNodeLocation.DiscoveredLocation.turn (only when reached via a curve).
+    pub turn: Option<CurveRecord>,
 }
 
 impl DiscoveredLocation {
@@ -384,6 +387,7 @@ mod tests {
             material_a: "create:andesite".to_owned(),
             material_b: "create:andesite".to_owned(),
             forced: false,
+            turn: None,
         }
     }
 
