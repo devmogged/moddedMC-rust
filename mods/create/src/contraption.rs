@@ -133,6 +133,31 @@ pub struct Blocks {
 }
 
 impl Blocks {
+    pub fn positions(&self, anchor: Pos) -> impl Iterator<Item = Pos> {
+        self.block_list
+            .iter()
+            .map(move |block| offset(anchor, block.local_pos()))
+    }
+
+    pub fn is_colliding_with_world(
+        &self,
+        world: World<'_>,
+        anchor: Pos,
+        direction: u8,
+        sources: &HashSet<Pos>,
+        controller: Option<Pos>,
+    ) -> bool {
+        let destinations: HashSet<_> = self.positions(anchor).collect();
+        destinations.iter().any(|&pos| {
+            Some(pos) != controller
+                && !sources.contains(&pos)
+                && !destinations.contains(&offset(pos, FACES[usize::from(direction)]))
+                && world
+                    .collision_shape(pos)
+                    .is_none_or(|shape| !shape.is_empty())
+        })
+    }
+
     pub fn capture_entities(&mut self, world: World<'_>, anchor: Pos) -> Option<()> {
         for block in &mut self.block_list {
             if self.palette[block.palette_index()].has_storage() {

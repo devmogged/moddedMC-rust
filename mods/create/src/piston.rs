@@ -17,7 +17,9 @@ use crate::{
         BlockMovement, BlockMovementChecks, Blocks, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES,
         PaletteEntry, StructureTransform,
     },
-    kinetics::{FACES, Kind, Kinetics, face_axis, offset, positive},
+    kinetics::{
+        FACES, Kind, Kinetics, actuator_speed, directional_shaft_axis, face_axis, offset, positive,
+    },
 };
 
 const ID: &str = "create:mechanical_piston";
@@ -26,8 +28,6 @@ pub const POLE: &str = "create:piston_extension_pole";
 const HEAD: &str = "create:mechanical_piston_head";
 const MAX_PISTON_POLES: i32 = 64;
 const MAX_CHASSIS_RANGE: i32 = 16;
-const RPM_PER_BLOCK_PER_TICK: f32 = 512.0;
-const MAX_MOVEMENT_SPEED: f32 = 0.49;
 const ROTATIONS: [(i16, i16); 6] = [(180, 0), (0, 0), (90, 0), (90, 180), (90, 270), (90, 90)];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,13 +62,7 @@ impl PistonBlock {
     }
 
     pub const fn shaft_axis(self) -> u8 {
-        match face_axis(self.facing) {
-            0 if self.along_first => 1,
-            0 => 2,
-            _ if self.along_first => 0,
-            1 => 2,
-            _ => 1,
-        }
+        directional_shaft_axis(self.facing, self.along_first)
     }
 
     fn properties(self, state: PistonState) -> String {
@@ -87,8 +81,7 @@ impl PistonBlock {
     }
 
     fn movement_speed(self, rpm: f32) -> f32 {
-        let movement =
-            (rpm / RPM_PER_BLOCK_PER_TICK).clamp(-MAX_MOVEMENT_SPEED, MAX_MOVEMENT_SPEED);
+        let movement = actuator_speed(rpm);
         if positive(self.facing) ^ (face_axis(self.facing) == 2) {
             -movement
         } else {
@@ -363,7 +356,7 @@ pub fn placed_state(
 }
 
 pub fn pole_placement(args: Placement<'_>, wet: bool) -> Option<u32> {
-    part(POLE, args.face ^ 1, false, wet).state()
+    part(POLE, args.face, false, wet).state()
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -478,35 +471,6 @@ impl PistonContraption {
             extension_length: front + back,
         })
     }
-
-    fn occupied(&self, anchor: Pos) -> HashSet<Pos> {
-        self.blocks
-            .block_list
-            .iter()
-            .map(|block| offset(anchor, block.local_pos()))
-            .collect()
-    }
-
-    fn is_colliding_with_world(
-        &self,
-        world: World<'_>,
-        base: Pos,
-        piston: PistonBlock,
-        shift: i32,
-        extending: bool,
-        sources: &HashSet<Pos>,
-    ) -> bool {
-        let step = if extending { 1 } else { -1 };
-        let destinations = self.occupied(piston.at(base, shift));
-        destinations.iter().any(|&pos| {
-            pos != base
-                && !sources.contains(&pos)
-                && !destinations.contains(&piston.at(pos, step))
-                && world
-                    .collision_shape(pos)
-                    .is_none_or(|shape| !shape.is_empty())
-        })
-    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -542,14 +506,20 @@ impl MechanicalPiston {
             return false;
         };
         let initial = contraption.initial_length;
-        let sources = contraption.occupied(piston.at(base, initial));
-        if contraption.is_colliding_with_world(
+        let sources = contraption
+            .blocks
+            .positions(piston.at(base, initial))
+            .collect();
+        if contraption.blocks.is_colliding_with_world(
             world,
-            base,
-            piston,
-            initial + if extending { 1 } else { -1 },
-            extending,
+            piston.at(base, initial + if extending { 1 } else { -1 }),
+            if extending {
+                piston.facing
+            } else {
+                piston.facing ^ 1
+            },
             &sources,
+            Some(base),
         ) {
             return false;
         }
@@ -648,13 +618,16 @@ impl MechanicalPiston {
         let next = (self.data.offset + speed).clamp(0.0, end);
         let shift = piston.collision_offset(next, extending);
         let collision = speed != 0.0
-            && contraption.is_colliding_with_world(
+            && contraption.blocks.is_colliding_with_world(
                 world,
-                base,
-                piston,
-                shift,
-                extending,
+                piston.at(base, shift),
+                if extending {
+                    piston.facing
+                } else {
+                    piston.facing ^ 1
+                },
                 &HashSet::new(),
+                Some(base),
             );
         if collision {
             let grid = (self.data.offset + 0.5).floor();

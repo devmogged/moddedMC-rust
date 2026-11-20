@@ -4,7 +4,7 @@
 mods target\mods\create.mmc
 start
 expect registered content item create:andesite_alloy
-expect Loaded built-in datapack 'mod/create': 23 recipe\(s\), 25 loot table\(s\), 16 tag\(s\)
+expect Loaded built-in datapack 'mod/create': 25 recipe\(s\), 27 loot table\(s\), 16 tag\(s\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester

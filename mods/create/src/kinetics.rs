@@ -35,6 +35,24 @@ pub const fn face_axis(face: u8) -> u8 {
     [1, 1, 2, 2, 0, 0][face as usize]
 }
 
+/// DirectionalAxisKineticBlock.getRotationAxis.
+pub const fn directional_shaft_axis(facing: u8, along_first: bool) -> u8 {
+    match face_axis(facing) {
+        0 if along_first => 1,
+        0 => 2,
+        _ if along_first => 0,
+        1 => 2,
+        _ => 1,
+    }
+}
+
+/// LinearActuatorBlockEntity.getMovementSpeed before direction and range.
+pub fn actuator_speed(rpm: f32) -> f32 {
+    const RPM_PER_BLOCK_PER_TICK: f32 = 512.0;
+    const MAX_MOVEMENT_SPEED: f32 = 0.49;
+    (rpm / RPM_PER_BLOCK_PER_TICK).clamp(-MAX_MOVEMENT_SPEED, MAX_MOVEMENT_SPEED)
+}
+
 pub const fn positive(face: u8) -> bool {
     face % 2 == 1
 }
@@ -85,6 +103,8 @@ pub enum Kind {
     Bearing(u8),
     Windmill(u8),
     Piston(crate::piston::PistonBlock),
+    GantryShaft(crate::gantry::Shaft),
+    GantryCarriage(crate::gantry::Carriage),
     Millstone,
     Wheel(u8),
     Belt(Belt),
@@ -219,6 +239,8 @@ impl Kind {
             | Self::Windmill(facing) => face_axis(facing),
             Self::Turntable | Self::Millstone => 1,
             Self::Piston(block) => block.shaft_axis(),
+            Self::GantryShaft(shaft) => face_axis(shaft.facing),
+            Self::GantryCarriage(carriage) => carriage.axis(),
             // BeltBlock.getRotationAxis: sideways belts turn on Y, others on the facing's
             // clockwise axis.
             Self::Belt(belt) => match belt.slope {
@@ -298,6 +320,10 @@ impl Kind {
             | (Self::Bearing(a), Self::Bearing(b))
             | (Self::Windmill(a), Self::Windmill(b)) => a == b,
             (Self::Piston(a), Self::Piston(b)) => a == b,
+            (Self::GantryShaft(a), Self::GantryShaft(b)) => {
+                a.facing == b.facing && a.powered == b.powered
+            }
+            (Self::GantryCarriage(a), Self::GantryCarriage(b)) => a == b,
             _ => true,
         };
         self.same_block(other) && self.axis() == other.axis() && same_part
@@ -391,6 +417,8 @@ pub struct Be {
     pub fan: Option<Box<crate::fan::AirCurrent>>,
     pub bearing: Option<Box<crate::bearing::MechanicalBearing>>,
     pub piston: Option<Box<crate::piston::MechanicalPiston>>,
+    pub gantries: Vec<crate::gantry::GantryContraption>,
+    pub last_gantry_shaft: Option<(crate::gantry::Shaft, f32)>,
     pub millstone: Option<Box<crate::millstone::Millstone>>,
 }
 
@@ -429,6 +457,8 @@ impl Be {
             fan: None,
             bearing: None,
             piston: None,
+            gantries: Vec::new(),
+            last_gantry_shaft: None,
             millstone: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
@@ -565,6 +595,7 @@ pub struct Kinetics {
     dropped: Vec<Dropped>,
     pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
+    pub dropped_gantries: Vec<crate::gantry::GantryContraption>,
     pub dropped_pistons: Vec<(
         Pos,
         crate::piston::PistonBlock,
@@ -687,6 +718,9 @@ impl Kinetics {
         if eject && let (Kind::Piston(block), Some(piston)) = (be.kind, be.piston.take()) {
             self.dropped_pistons.push((pos, block, piston));
         }
+        if eject {
+            self.dropped_gantries.append(&mut be.gantries);
+        }
         let (Kind::Belt(belt), Some(inventory)) = (be.kind, be.inventory.take()) else {
             return;
         };
@@ -769,7 +803,7 @@ impl Kinetics {
     }
 
     /// `GearshiftBlock.detachKinetics`.
-    fn detach(&mut self, level: &mut dyn Level, pos: Pos, re_attach_next_tick: bool) {
+    pub(crate) fn detach(&mut self, level: &mut dyn Level, pos: Pos, re_attach_next_tick: bool) {
         let Some(be) = self.bes.get(&pos).cloned() else {
             return;
         };
@@ -956,6 +990,20 @@ impl Kinetics {
                 axis_modifier = 1.0 / axis_modifier;
             }
             return Self::axis_modifier(from, from_be, direction) * axis_modifier;
+        }
+
+        match (state_from, state_to) {
+            (Kind::GantryShaft(shaft), Kind::GantryCarriage(carriage))
+                if shaft.powered && carriage.facing == direction =>
+            {
+                return crate::gantry::pinion_modifier(shaft, carriage);
+            }
+            (Kind::GantryCarriage(carriage), Kind::GantryShaft(shaft))
+                if shaft.powered && carriage.facing == (direction ^ 1) =>
+            {
+                return crate::gantry::pinion_modifier(shaft, carriage);
+            }
+            _ => {}
         }
 
         if large_to_large(state_from, state_to, diff) {
