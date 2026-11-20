@@ -28,6 +28,7 @@ mod belt_inventory;
 mod belt_movement;
 mod chute;
 mod depot;
+mod funnel;
 mod kinetics;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
@@ -118,6 +119,7 @@ impl Mod for Create {
         belt::register(content, registry)?;
         depot::register(*content, registry)?;
         chute::register(*content, registry)?;
+        funnel::register(*content, registry)?;
         ITEMS
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -536,6 +538,7 @@ struct KnownState {
 #[derive(Default)]
 struct StateIds {
     chutes: HashMap<u32, chute::ChuteState>,
+    funnels: HashMap<u32, funnel::FunnelState>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
     /// Vanilla blocks a belt may run through (`canBeReplaced`).
@@ -662,6 +665,7 @@ fn states() -> Option<&'static StateIds> {
         }
         belt::add_states(&mut ids, content);
         chute::add_states(content, &mut ids);
+        funnel::add_states(content, &mut ids);
         for name in [
             "air",
             "cave_air",
@@ -705,6 +709,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     let states = states()?;
     if states.chutes.contains_key(&args.state) {
         return chute::placed_state(args, states);
+    }
+    if let Some(&default) = states.funnels.get(&args.state) {
+        return funnel::placed_state(args, default, states);
     }
     let placed = states.by_id.get(&args.state)?;
     let mut positions = [args.position; 7];
@@ -1003,6 +1010,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         for event in events {
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
+            funnel::event(world, &mut kinetics.funnels, states, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             match event.reason {
@@ -1034,9 +1042,12 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             }
         }
         kinetics.tick(&mut level);
+        funnel::update_states(world, states, kinetics);
         belt_movement::tick(world, kinetics, states);
         belt_inventory::tick(world, kinetics);
         chute::tick(world, states, kinetics);
+        funnel::tick(world, kinetics);
+        funnel::pull_from_depots(world, kinetics);
         depot::tick(world, &mut kinetics.depots);
         flush(world, kinetics);
     });
@@ -1063,6 +1074,11 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
             chute::use_item_on(context.world, &mut kinetics.chutes, context)
         });
     }
+    if states.funnels.contains_key(&context.state) {
+        return with_world(context.world, |kinetics| {
+            funnel::use_item_on(context.world, states, kinetics, context)
+        });
+    }
     if depot::is_depot(states, context.state) {
         return with_world(context.world, |kinetics| {
             depot::use_item_on(&mut kinetics.depots, context)
@@ -1083,6 +1099,12 @@ fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
             if let Some(depot) = kinetics.depots.get_mut(&pos) {
                 depot::on_landed(world, pos, depot, entity);
             }
+        });
+        return;
+    }
+    if let Some(&state) = states.funnels.get(&state) {
+        with_world(world, |kinetics| {
+            funnel::entity_inside(world, kinetics, pos, state, entity)
         });
         return;
     }

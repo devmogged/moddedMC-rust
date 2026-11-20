@@ -144,7 +144,7 @@ impl DepotBehaviour {
         })
     }
 
-    fn is_occupied(&self) -> bool {
+    pub fn is_occupied(&self) -> bool {
         self.held_item.as_ref().is_some_and(|item| !item.is_empty())
             || !self.processing_output_buffer.is_empty()
     }
@@ -226,17 +226,48 @@ impl DepotBehaviour {
     }
 
     /// `ItemHelper.extract` from the held slot and then compatible output slots.
-    pub fn extract_items(&mut self, world: World<'_>, limit: i32) -> Option<Value> {
+    pub fn extract_items(&mut self, world: World<'_>, limit: i32, simulate: bool) -> Option<Value> {
         let mut result = None;
         if let Some(item) = &mut self.held_item
-            && extract_matching(world, item, &mut result, limit)
+            && extract_matching(world, item, &mut result, limit, simulate)
         {
             self.held_item = None;
         }
         self.processing_output_buffer
-            .retain(|_, item| !extract_matching(world, item, &mut result, limit));
-        self.dirty |= result.is_some();
+            .retain(|_, item| !extract_matching(world, item, &mut result, limit, simulate));
+        self.dirty |= !simulate && result.is_some();
         result
+    }
+
+    /// `DepotBehaviour.handleBeltFunnelOutput`: output slots first, then the held item.
+    pub fn export_to_funnel(
+        &mut self,
+        world: World<'_>,
+        mut insert: impl FnMut(&TransportedItemStack) -> i32,
+    ) {
+        let Some(held) = &mut self.held_item else {
+            return;
+        };
+        if 0.5 - held.pos >= 1.0 / 16.0 {
+            return;
+        }
+        let mut sent = false;
+        self.processing_output_buffer.retain(|_, item| {
+            if sent {
+                return true;
+            }
+            let (changed, keep) = export_item(world, item, &mut insert);
+            sent = changed;
+            keep
+        });
+        if !sent {
+            let (changed, keep) = export_item(world, held, &mut insert);
+            sent = changed;
+            if !keep {
+                self.held_item = None;
+            }
+        }
+        self.dirty |= sent;
     }
 
     fn remove(self, world: World<'_>, pos: Pos, drop: bool) {
@@ -258,6 +289,7 @@ fn extract_matching(
     stack: &mut TransportedItemStack,
     result: &mut Option<Value>,
     limit: i32,
+    simulate: bool,
 ) -> bool {
     let total = result.as_ref().map_or(0, count);
     let amount = count(&stack.item);
@@ -271,12 +303,34 @@ fn extract_matching(
         return false;
     }
     *result = Some(with_count(&stack.item, total + taken));
+    if simulate {
+        return false;
+    }
     if taken == amount {
         remove_display(world, stack);
         true
     } else {
         stack.resize(world, amount - taken);
         false
+    }
+}
+
+fn export_item(
+    world: World<'_>,
+    item: &mut TransportedItemStack,
+    insert: &mut impl FnMut(&TransportedItemStack) -> i32,
+) -> (bool, bool) {
+    let sent = insert(item);
+    if sent <= 0 {
+        return (false, true);
+    }
+    let rest = count(&item.item) - sent;
+    if rest == 0 {
+        remove_display(world, item);
+        (true, false)
+    } else {
+        item.resize(world, rest);
+        (true, true)
     }
 }
 

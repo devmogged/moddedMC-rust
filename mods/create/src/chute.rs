@@ -364,6 +364,27 @@ impl ChuteBlockEntity {
         inserted
     }
 
+    pub fn extract(&mut self, world: World<'_>, limit: i32, simulate: bool) -> Option<Value> {
+        let item = self.item.as_mut()?;
+        let count = count(&item.item);
+        let amount = count.min(limit);
+        if amount <= 0 {
+            return None;
+        }
+        let extracted = with_count(&item.item, amount);
+        if !simulate {
+            if amount == count {
+                remove_display(world, item);
+                self.item = None;
+            } else {
+                item.resize(world, count - amount);
+            }
+            self.item_position = 1.0;
+            self.dirty = true;
+        }
+        Some(extracted)
+    }
+
     fn remove(self, world: World<'_>, pos: Pos, drop: bool) {
         if let Some(item) = self.item {
             remove_display(world, &item);
@@ -591,6 +612,7 @@ fn handle_downward_output(
     if state.facing != DOWN
         || read(world, below) == content::UNLOADED_STATE
         || world.face_sturdy(below, UP)
+        || crate::funnel::blocks_chute(&kinetics.funnels, below)
     {
         return 0;
     }
@@ -615,7 +637,7 @@ fn stack_count(bytes: &[u8]) -> i32 {
 fn extract_from_above(world: World<'_>, kinetics: &mut Kinetics, pos: Pos) -> Option<Value> {
     let source = shift(pos, UP);
     if let Some(depot) = kinetics.depots.get_mut(&source) {
-        return depot.extract_items(world, EXTRACTION_AMOUNT as i32);
+        return depot.extract_items(world, EXTRACTION_AMOUNT as i32, false);
     }
     if matches!(kinetics.kind(source), Some(Kind::Belt(_))) {
         return belt_inventory::extract_from_segment(

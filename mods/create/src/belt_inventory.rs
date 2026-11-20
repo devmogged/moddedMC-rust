@@ -223,7 +223,7 @@ impl Chain {
     }
 
     /// `getMovementFacing`.
-    fn movement_facing(self) -> u8 {
+    pub fn movement_facing(self) -> u8 {
         movement_facing(self.belt, self.speed)
     }
 
@@ -236,7 +236,7 @@ impl Chain {
     }
 
     /// `BeltHelper.getPositionForOffset`.
-    fn position_for_offset(self, offset: i32) -> Pos {
+    pub fn position_for_offset(self, offset: i32) -> Pos {
         let [x, _, z] = FACES[usize::from(self.belt.facing)];
         Pos {
             x: self.pos.x + offset * x,
@@ -450,6 +450,19 @@ impl BeltInventory {
                 item.locked = false;
                 changed = true;
             }
+            let (blocked, transferred) = crate::funnel::check_for_funnels(
+                world,
+                kinetics,
+                chain,
+                item,
+                positive_order,
+                item.pos + limited,
+            );
+            changed |= transferred;
+            current = Some(item.pos);
+            if blocked {
+                continue;
+            }
             if no_movement {
                 continue;
             }
@@ -468,55 +481,58 @@ impl BeltInventory {
                 Some(Ending::Insert) => {
                     let next =
                         chain.position_for_offset(if positive_order { chain.length } else { -1 });
-                    if kinetics.chutes.entries.contains_key(&next) {
-                        let accepted = crate::states().map_or(0, |states| {
-                            crate::chute::direct_insert(
-                                world,
-                                states,
-                                &mut kinetics.chutes,
-                                next,
-                                item,
-                            )
-                        });
-                        if accepted > 0 {
-                            let remaining = count(&item.item) - accepted;
-                            if remaining == 0 {
-                                remove_display(world, item);
-                                self.items.remove(index - 1);
-                                index -= 1;
-                            } else {
-                                item.resize(world, remaining);
-                            }
-                            changed = true;
-                        }
+                    let (accepted, keeps_display) = if kinetics.chutes.entries.contains_key(&next) {
+                        (
+                            crate::states().map_or(0, |states| {
+                                crate::chute::direct_insert(
+                                    world,
+                                    states,
+                                    &mut kinetics.chutes,
+                                    next,
+                                    item,
+                                )
+                            }),
+                            false,
+                        )
                     } else if let Some(depot) = kinetics.depots.get_mut(&next) {
-                        let accepted = crate::depot::try_inserting_from_side(
-                            world,
-                            next,
-                            depot,
-                            item,
-                            movement_facing,
-                        );
-                        let remaining = count(&item.item) - accepted;
-                        if accepted > 0 {
-                            if remaining == 0 {
-                                self.items.remove(index - 1);
-                                index -= 1;
-                            } else {
-                                item.resize(world, remaining);
-                            }
-                            changed = true;
-                        }
+                        (
+                            crate::depot::try_inserting_from_side(
+                                world,
+                                next,
+                                depot,
+                                item,
+                                movement_facing,
+                            ),
+                            true,
+                        )
+                    } else if crate::funnel::direct_input_present(&kinetics.funnels, next) {
+                        (
+                            crate::funnel::insert_from_belt_end(world, kinetics, next, item),
+                            false,
+                        )
                     } else if try_inserting_from_side(
                         kinetics,
-                        chain.pos,
+                        Some(chain.pos),
                         next,
                         item,
                         movement_facing,
+                        false,
                     ) {
-                        // The display moves on with the stack.
-                        self.items.remove(index - 1);
-                        index -= 1;
+                        (count(&item.item), true)
+                    } else {
+                        (0, true)
+                    };
+                    if accepted > 0 {
+                        let remaining = count(&item.item) - accepted;
+                        if remaining == 0 {
+                            if !keeps_display {
+                                remove_display(world, item);
+                            }
+                            self.items.remove(index - 1);
+                            index -= 1;
+                        } else {
+                            item.resize(world, remaining);
+                        }
                         changed = true;
                     }
                 }
@@ -552,6 +568,7 @@ fn resolve_ending(
     if matches!(kinetics.kind(next), Some(Kind::Belt(_)))
         || kinetics.depots.contains_key(&next)
         || kinetics.chutes.entries.contains_key(&next)
+        || crate::funnel::direct_input_present(&kinetics.funnels, next)
     {
         return Ending::Insert;
     }
@@ -642,12 +659,13 @@ pub fn extract_from_segment(
 
 /// `BeltBlockEntity.tryInsertingFromSide` on the segment at `pos`, for a stack arriving through
 /// `side`. True when it was taken.
-fn try_inserting_from_side(
+pub fn try_inserting_from_side(
     kinetics: &mut Kinetics,
-    ticking: Pos,
+    ticking: Option<Pos>,
     pos: Pos,
     stack: &TransportedItemStack,
     side: u8,
+    simulate: bool,
 ) -> bool {
     let Some(segment) = kinetics.get(pos) else {
         return false;
@@ -664,7 +682,7 @@ fn try_inserting_from_side(
     // A chain's own inventory is out of its block entity while it ticks.
     let Some(controller) = segment
         .controller
-        .filter(|&controller| controller != ticking)
+        .filter(|&controller| Some(controller) != ticking)
     else {
         return false;
     };
@@ -689,6 +707,9 @@ fn try_inserting_from_side(
     // isOccupied.
     if !inventory.can_insert_at_from_side(index, side, chain.movement_facing()) {
         return false;
+    }
+    if simulate {
+        return true;
     }
     let mut stack = stack.clone();
     stack.pos = index as f32 + 0.5 - direction_aware.signum() / 16.0;
@@ -717,6 +738,10 @@ fn try_inserting_from_side(
     inventory.to_insert.push(stack);
     be.dirty = true;
     true
+}
+
+pub fn facing_at(kinetics: &Kinetics, pos: Pos) -> Option<u8> {
+    Chain::of(kinetics, kinetics.get(pos)?.controller?).map(|chain| chain.movement_facing())
 }
 
 fn step_pos(pos: Pos, face: u8) -> Pos {

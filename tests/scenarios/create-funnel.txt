@@ -1,0 +1,124 @@
+# Andesite funnels use sided storage and check that the belt can accept each transfer.
+mods target\mods\create.mmc
+start
+expect registered content block create:andesite_belt_funnel
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2121.5 101 2112.5 0 0
+wait 2
+cmd fill 2116 99 2109 2127 99 2118 minecraft:stone
+cmd fill 2116 100 2109 2127 105 2118 minecraft:air
+cmd gamemode survival tester
+cmd tp tester 2121.5 100 2112.5 0 0
+cmd setblock 2119 100 2110 create:creative_motor[facing=east]
+cmd setblock 2120 100 2110 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2120 100 2114 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.0 with create:belt_connector
+wait 0.5
+bot use 2120 100 2110
+wait 0.5
+bot use 2120 100 2114
+wait 1
+
+cmd setblock 2119 101 2111 minecraft:chest
+cmd setblock 2121 101 2113 minecraft:barrel
+cmd item replace entity tester hotbar.0 with create:andesite_funnel 2
+wait 0.5
+bot input sneak
+bot place 2119 101 2111 east
+bot place 2121 101 2113 west
+bot input none
+wait 0.5
+bot expect block 2120 101 2111 minecraft:note_block[powered=true]
+wait 0.5
+expect ^\[bot\] expect block ok
+bot expect block 2120 101 2113 minecraft:note_block[powered=true]
+wait 0.5
+expect ^\[bot\] expect block ok
+
+# The source starts powered. A wrench makes it a pushing belt funnel.
+cmd setblock 2120 101 2110 minecraft:redstone_block
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 2120 101 2111 east
+cmd item replace block 2119 101 2111 container.0 with minecraft:iron_ingot 2
+wait 0.75
+bot expect entity minecraft:item_display near 2120.5 100.9 2111.5 within 0.32 count 0
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd setblock 2120 101 2110 minecraft:air
+wait 0.65
+bot expect entity minecraft:item_display near 2120.5 100.9 2111.8 within 0.55 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+wait 7
+bot use 2121 101 2113
+wait 0.5
+bot expect slot 0 minecraft:iron_ingot 2
+wait 0.5
+expect ^\[bot\] expect inventory ok
+bot inventory-close
+
+# An upward normal funnel inserts through the furnace's top face.
+cmd tp tester 2124.5 100 2112.5
+cmd setblock 2124 100 2114 minecraft:furnace
+cmd item replace entity tester hotbar.0 with create:andesite_funnel
+wait 0.5
+bot input sneak
+bot place 2124 100 2114
+bot input none
+wait 0.5
+cmd item replace entity tester hotbar.0 with minecraft:raw_iron 2
+wait 0.5
+bot use 2124 101 2114
+wait 0.5
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect ^\[bot\] expect inventory ok
+bot use 2124 100 2114 north
+wait 0.5
+bot expect slot 0 minecraft:raw_iron 2
+wait 0.5
+expect ^\[bot\] expect inventory ok
+bot inventory-close
+
+# A collector fills a hopper through the same container ABI.
+cmd setblock 2126 100 2114 minecraft:hopper[enabled=false]
+cmd item replace entity tester hotbar.0 with create:andesite_funnel
+wait 0.5
+bot input sneak
+bot place 2126 100 2114
+bot input none
+wait 0.5
+cmd item replace entity tester hotbar.0 with minecraft:flint 3
+wait 0.5
+bot use 2126 101 2114
+wait 0.5
+bot use 2126 100 2114 north
+wait 0.5
+bot expect slot 0 minecraft:flint 3
+wait 0.5
+expect ^\[bot\] expect inventory ok
+bot inventory-close
+
+# An extracting belt funnel can pull from a blocked chute onto a Depot.
+cmd tp tester 2125.5 100 2112.5
+cmd setblock 2125 100 2110 minecraft:stone
+cmd setblock 2125 101 2110 create:chute
+cmd setblock 2126 100 2110 create:depot
+cmd summon minecraft:item 2125.5 103 2110.5 {Item:{id:"minecraft:gold_ingot",count:1},PickupDelay:32767s}
+cmd item replace entity tester hotbar.0 with create:andesite_funnel
+wait 0.5
+bot place 2125 101 2110 east
+wait 1.5
+bot expect entity minecraft:item_display near 2126.5 100.9 2110.5 within 0.25 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+bot use 2126 100 2110
+wait 0.5
+bot expect slot 36 minecraft:gold_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok
+reject (?i)panicked|trapped|\[bot\] error
+stop
