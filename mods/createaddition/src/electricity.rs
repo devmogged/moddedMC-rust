@@ -13,15 +13,15 @@ pub fn motor_consumption(rpm: f32, fe_at_max_rpm: i32, minimum_consumption: i32)
     if rpm.abs() <= 0.0 {
         return 0;
     }
-    ((f64::from(fe_at_max_rpm) * f64::from(rpm.abs()) / MAX_RPM)
-        .max(f64::from(minimum_consumption))) as i32
+    (f64::from(fe_at_max_rpm) * (f64::from(rpm.abs()) / MAX_RPM))
+        .max(f64::from(minimum_consumption)) as i32
 }
 
 /// `AlternatorBlockEntity.getEnergyProductionRate` with live config.
 /// The Java int input is absolute-valued first, then converted to double.
 pub fn alternator_production(rpm: i32, fe_at_max_rpm: i32, efficiency: f64) -> i32 {
     let magnitude = rpm.wrapping_abs();
-    (f64::from(fe_at_max_rpm) * f64::from(magnitude.wrapping_abs()) / MAX_RPM * efficiency) as i32
+    (f64::from(fe_at_max_rpm) * (f64::from(magnitude.wrapping_abs()) / MAX_RPM) * efficiency) as i32
 }
 
 /// `AlternatorBlockEntity.calculateStressApplied` and
@@ -46,7 +46,7 @@ impl Motor {
     pub fn tick(&mut self, consumption: i32, powered: bool) -> bool {
         let old = self.active;
         if !self.active {
-            if self.energy > consumption.saturating_mul(2) && !powered {
+            if self.energy > consumption.wrapping_mul(2) && !powered {
                 self.active = true;
             }
         } else {
