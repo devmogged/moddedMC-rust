@@ -60,9 +60,14 @@ jobs:
 
       - name: Build the server
         working-directory: engine
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
         run: cargo build --profile release -p pack-dev
 
       - name: Build the agent
+        env:
+          # Link the C runtime in, so a fresh Windows without the VC++ redistributable runs them.
+          RUSTFLAGS: -C target-feature=+crt-static
         run: cargo build --release -p moddedmc-agent
 
       - name: Build the app

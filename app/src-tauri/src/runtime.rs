@@ -80,8 +80,10 @@ async fn installed(dir: &Path) -> Option<String> {
 }
 
 async fn manifest() -> Result<Manifest, String> {
+    // MODDEDMC_RUNTIME_MANIFEST points at a test copy of a release (scripts/fresh-install-test.ps1).
+    let url = std::env::var("MODDEDMC_RUNTIME_MANIFEST").unwrap_or_else(|_| MANIFEST_URL.into());
     let response = crate::agent::http()
-        .get(MANIFEST_URL)
+        .get(url)
         .send()
         .await
         .map_err(|_| "Can't reach GitHub. Are you online?".to_string())?;
