@@ -26,6 +26,7 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
+pub mod basin_inventory;
 mod bearing;
 mod belt;
 mod belt_inventory;
