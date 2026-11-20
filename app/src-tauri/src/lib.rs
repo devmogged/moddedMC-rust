@@ -10,6 +10,7 @@ mod join;
 mod mods;
 mod packs;
 mod ping;
+mod runtime;
 mod store;
 
 use tauri::Manager;
@@ -17,6 +18,8 @@ use tauri::Manager;
 pub fn run() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -42,6 +45,10 @@ pub fn run() {
             ping::friend_remove,
             join::friend_join,
             ping::ping,
+            runtime::runtime_status,
+            runtime::runtime_install,
+            runtime::runtime_server_exe,
+            runtime::agent_ensure,
             mods::mods_index,
             deploy::build_inspect,
             deploy::deploy,

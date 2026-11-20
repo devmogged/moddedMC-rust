@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, Globe, House, Network, Router } from "lucide-react";
-import { api, type Device } from "~/api";
+import { Globe, House, Network, Router } from "lucide-react";
+import { api } from "~/api";
 import { Button } from "~/components/ui/button";
 import {
   Dialog,
@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { errorText } from "~/lib/hooks";
 import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
@@ -78,19 +77,15 @@ export const HOSTING: {
 export function NewServerDialog({
   open,
   onOpenChange,
-  devices,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  devices: Device[];
   onCreated: (device: string, server: string) => void;
 }) {
   const [step, setStep] = useState<1 | 2>(1);
-  const [device, setDevice] = useState("local");
   const [name, setName] = useState("");
   const [port, setPort] = useState(25565);
-  const [exe, setExe] = useState("");
   const [hosting, setHosting] = useState<Hosting>("playit");
   const [busy, setBusy] = useState(false);
 
@@ -99,23 +94,18 @@ export function NewServerDialog({
       setStep(1);
       setName("");
       setBusy(false);
-      setDevice(devices.find((d) => d.route === "local")?.id ?? devices[0]?.id ?? "local");
     }
-  }, [open, devices]);
+  }, [open]);
 
-  const valid = NAME.test(name) && port >= 1024 && port <= 65535 && exe.trim().length > 0;
-
-  const browse = async () => {
-    const { open: pick } = await import("@tauri-apps/plugin-dialog");
-    const path = await pick({ multiple: false, filters: [{ name: "Server", extensions: ["exe", ""] }] });
-    if (typeof path === "string") setExe(path);
-  };
+  const valid = NAME.test(name) && port >= 1024 && port <= 65535;
 
   const create = async () => {
     setBusy(true);
     try {
-      await api.createServer(device, { name, exe: exe.trim(), port });
-      onCreated(device, name);
+      const exe = await api.runtimeServerExe();
+      // New servers go on this PC, running the server files the app installed.
+      await api.createServer("local", { name, exe, port });
+      onCreated("local", name);
       setStep(2);
     } catch (err) {
       toast(errorText(err), "error");
@@ -138,22 +128,6 @@ export function NewServerDialog({
               </DialogDescription>
             </DialogHeader>
             <DialogPanel className="flex flex-col gap-4">
-              {devices.length > 1 && (
-                <Field label="Runs on">
-                  <Select value={device} onValueChange={(v) => v && setDevice(v)}>
-                    <SelectTrigger>
-                      <SelectValue>{(v: string) => devices.find((d) => d.id === v)?.name ?? v}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {devices.map((d) => (
-                        <SelectItem key={d.id} value={d.id}>
-                          {d.name}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                </Field>
-              )}
               <Field label="Name" hint="Letters, numbers, - and _. Used for its folder.">
                 <Input
                   autoFocus
@@ -169,18 +143,6 @@ export function NewServerDialog({
                   value={port}
                   onChange={(e) => setPort(Number(e.target.value) || 0)}
                 />
-              </Field>
-              <Field label="Server program" hint="The moddedMC server, pack-dev.exe or a pack build.">
-                <div className="flex gap-2">
-                  <Input
-                    value={exe}
-                    placeholder="C:\\…\\pack-dev.exe"
-                    onChange={(e) => setExe(e.target.value)}
-                  />
-                  <Button variant="outline" onClick={browse}>
-                    <FolderOpen /> Browse
-                  </Button>
-                </div>
               </Field>
             </DialogPanel>
             <DialogFooter>

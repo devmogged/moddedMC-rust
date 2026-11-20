@@ -3,7 +3,8 @@ import { Binary, Copy, Minus, Puzzle, Server, Settings as SettingsIcon, Square, 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "~/assets/logo.png";
 import { Badge } from "~/components/ui/badge";
-import { Toaster } from "~/lib/toast";
+import { toast, Toaster } from "~/lib/toast";
+import type { LaunchResult } from "./Launch";
 import { cn } from "~/lib/utils";
 import { ComingSoonTab } from "./tabs/ComingSoonTab";
 import { ModsTab } from "./tabs/ModsTab";
@@ -32,8 +33,12 @@ function loadTab(): TabId {
   return "servers";
 }
 
-export function Shell() {
+export function Shell({ launch }: { launch: LaunchResult }) {
   const [tab, setTab] = useState<TabId>(loadTab);
+
+  useEffect(() => {
+    if (launch.notice) toast(launch.notice, "error");
+  }, [launch.notice]);
 
   const select = (next: TabId) => {
     setTab(next);

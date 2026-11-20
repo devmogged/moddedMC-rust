@@ -74,9 +74,92 @@ export function SettingsTab() {
           </Row>
         </Section>
 
+        <UpdatesSection />
         <DevicesSection />
       </div>
     </div>
+  );
+}
+
+/** The app's and the server files' versions, with checks on demand. */
+function UpdatesSection() {
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [appState, setAppState] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<{
+    installed: string | null;
+    latest: string | null;
+    error: string | null;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!inTauri) return;
+    import("@tauri-apps/api/app").then(({ getVersion }) => getVersion().then(setAppVersion));
+    api.runtimeStatus().then(setRuntime, () => {});
+  }, []);
+
+  const checkApp = async () => {
+    setBusy(true);
+    setAppState("Checking…");
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (!update) return setAppState("You have the latest version.");
+      setAppState(`Installing ${update.version}…`);
+      await update.downloadAndInstall();
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch (err) {
+      setAppState(`Couldn't check: ${errorText(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateRuntime = async () => {
+    setBusy(true);
+    try {
+      const version = await api.installRuntime();
+      await api.ensureAgent();
+      toast(`Server files updated to ${version}. Servers use them from their next start.`);
+      setRuntime(await api.runtimeStatus());
+    } catch (err) {
+      toast(errorText(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="Updates">
+      <Row
+        label="moddedMC"
+        hint={appState ?? (appVersion ? `Version ${appVersion}` : "Only in the installed app.")}
+      >
+        <Button size="sm" variant="outline" disabled={busy || !inTauri} onClick={checkApp}>
+          Check now
+        </Button>
+      </Row>
+      <Row
+        label="Server files"
+        hint={
+          !runtime
+            ? "Checking…"
+            : runtime.installed
+              ? `Version ${runtime.installed}${runtime.latest && runtime.latest !== runtime.installed ? ` · ${runtime.latest} available` : " · up to date"}`
+              : `Not installed${runtime.error ? `: ${runtime.error}` : ""}`
+        }
+      >
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || !runtime?.latest || runtime.latest === runtime.installed}
+          onClick={updateRuntime}
+        >
+          {runtime?.installed ? "Update" : "Install"}
+        </Button>
+      </Row>
+    </Section>
   );
 }
 

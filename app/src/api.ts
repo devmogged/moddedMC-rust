@@ -167,6 +167,8 @@ export type ServerConfig = {
 /** A drop-in mod in a server's `mods/`. */
 export type ServerMod = { file: string; id: string | null; version: string | null; bytes: number };
 
+export type RuntimeStatus = { installed: string | null; latest: string | null; error: string | null };
+
 export const api = {
   devices: () => call<Device[]>("devices_list"),
   addDevice: (device: { name: string; route: Route; host: string; port?: number }) =>
@@ -199,6 +201,20 @@ export const api = {
   ping: (address: string) => call<Status>("ping", { address }),
 
   mods: () => call<ModEntry[]>("mods_index"),
+
+  runtimeStatus: () => call<RuntimeStatus>("runtime_status"),
+  /** Downloads the server and agent; progress arrives through `onRuntimeProgress`. */
+  installRuntime: () => call<string>("runtime_install"),
+  runtimeServerExe: () => call<string>("runtime_server_exe"),
+  ensureAgent: () => call<void>("agent_ensure"),
+  onRuntimeProgress: (
+    handler: (event: { role: string; received: number; total: number }) => void,
+  ): Promise<UnlistenFn> =>
+    mock
+      ? Promise.resolve(() => {})
+      : listen<{ role: string; received: number; total: number }>("runtime-progress", (e) =>
+          handler(e.payload),
+        ),
 
   packs: () => call<Pack[]>("packs_list"),
   addPack: (path: string) => call<Pack>("pack_add", { path }),

@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Shell } from "./Shell";
+import { App } from "./App";
 import { applyAppearance } from "./settings";
 import "./theme.css";
 
@@ -9,7 +9,7 @@ const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <Shell />
+      <App />
     </StrictMode>,
   );
 }

@@ -159,7 +159,6 @@ export function ServersTab() {
       <NewServerDialog
         open={creating}
         onOpenChange={setCreating}
-        devices={devices.value ?? []}
         onCreated={(device, server) => select({ kind: "server", device, server })}
       />
     </div>
