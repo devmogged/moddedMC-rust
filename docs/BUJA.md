@@ -170,3 +170,71 @@ Each line names the original JAR used for the `Bundled` column. These are metada
 - `xaerominimap`: `xaerominimap-forge-1.20.1-25.3.9.jar`
 - `xaeroworldmap`: `xaeroworldmap-forge-1.20.1-1.40.10.jar`
 - `zeta`: `Zeta-1.0-31.jar`
+
+## WS-1 launch queue (M1)
+
+Priority is based on players' visible gameplay, the size of a correct port, and the generic host interfaces it depends on. A high priority does not authorize a fake substitute while an ABI dependency is missing.
+
+Before starting any substream, read docs/PARALLEL-PLAN.md sections 2-4, docs/PORTS.md, docs/MOD-ABI.md, the current main branch and the latest official source identified in the inventory. Each has its own branch/worktree and mod directory. The owner opens exactly one chat per substream; no substream should share WS-1's working directory or port 26010-26019. The integrator must allocate disjoint ports if multiple WS-1 substreams run simultaneously. First milestone for each is source and license verification, including the target release and its full Java call chain. Report generic host gaps to WS-0 using the request format in section 4.3.
+
+| Priority | Brief | Why | Current dependency |
+| --- | --- | --- | --- |
+| 1 | WS-1a Waystones (M) | Frequently used travel, distinct from the illustrative Wayshrine mod | Player/item activation, world saves, travel menus and cross-dimension teleport |
+| 2 | WS-1b Corpse (M) | Death recovery affects every survival session | Death event, durable corpse inventory, retrieval |
+| 3 | WS-1c Nature's Compass (M) | Important for biome hunting once E2 adds the worldgen packs | Bounded biome search, compass item state, destination UI |
+| 4 | WS-1d Explorer's Compass (M) | Structure hunting is a core progression tool | Structure-location query and UI |
+| 5 | WS-1e Polymorph (M) | Recipe conflicts are common in a large pack | Recipe enumeration, selectable result and craft authorization |
+| 6 | WS-1f Easy Villagers (M) | Trading and farm automation | Vanilla villager interaction/trading and persisted workstations |
+| 7 | WS-1g Lootr (M) | Per-player rewards matter with multiplayer | Loot containers, player-specific saved claiming state |
+| 8 | WS-1h Simple Storage Network (M) | Quality-of-life storage across many containers | Container networking, terminals and menu clicks |
+| 9 | WS-1i Musket Mod (M) | Player combat and equipment | Projectiles, reload timing, damage and packet events |
+
+### WS-1a: Waystones
+- Read first: [current release](https://modrinth.com/mod/waystones), latest official source, docs/PORTS.md and the existing mods/wayshrine example. Confirm version 26.3.0.3 or newer at start; do not confuse Wayshrines with the real Waystones port.
+- Owns: mods/waystones, tests/scenarios/waystones-*.txt, docs/ws/waystones.md; suggested branch ws/buja-waystones.
+- Milestones: M0 inspect the Java block/state, teleport menu, activation and saved location methods; M1 place/activate and persist every stone variant; M2 warp items, travel costs, ownership and menus; M3 original-mod scenarios, client verification checklist and perf. Assets require separate rights review (installed JAR says ARR).
+- ABI: request only generic missing menu, item-use or persistent-storage operations from WS-0.
+
+### WS-1b: Corpse
+- Read first: [current release](https://modrinth.com/mod/corpse), death/revive/item-drop code and docs/MOD-ABI.md. Installed content is 1.0.23, latest tracked 26.3 NeoForge 1.1.22.
+- Owns: mods/corpse, tests/scenarios/corpse-*.txt, docs/ws/corpse.md; branch ws/buja-corpse.
+- Milestones: M0 read full death flow and request engine hooks; M1 spawn a corpse holding its actual inventory, no duplication; M2 save/reload and retrieve with all rules around despawn, dimensions and permissions; M3 original-mod death/recovery scenario and performance. ARR art cannot be committed.
+
+### WS-1c: Nature's Compass
+- Read first: [current release](https://modrinth.com/mod/natures-compass), biome enumeration, search order, radius, failure conditions and needle update code. Current official release covers Java 26.3.
+- Owns: mods/naturescompass, tests/scenarios/naturescompass-*.txt; branch ws/buja-naturescompass.
+- Milestones: M0 trace the biome search and file a world query request; M1 match search math and exact reference candidate ordering with unit cases; M2 item selection/target persistence, commands and bot scenario; M3 compare with original mod over seed-bound biome fixtures. Do not make a fake compass pointing to arbitrary coordinates.
+
+### WS-1d: Explorer's Compass
+- Read first: [current release](https://modrinth.com/mod/explorers-compass) and the source's structure filtering and search semantics. The official 26.3 release is tracked in the inventory.
+- Owns: mods/explorerscompass, tests/scenarios/explorerscompass-*.txt; branch ws/buja-explorerscompass.
+- Milestones: M0 inventory all selectable structures and target offsets; M1 generic locate-structure ABI request and exact search regression tests; M2 compass target and inventory state; M3 original-mod scenarios using fixed seeds. Depends on worldgen/structure parity in E2.
+
+### WS-1e: Polymorph
+- Read first: [current release](https://modrinth.com/mod/polymorph), the source's recipe-conflict resolution, visible choices and persistent selection model.
+- Owns: mods/polymorph, tests/scenarios/polymorph-*.txt; branch ws/buja-polymorph.
+- Milestones: M0 trace crafting match/select/consume order; M1 enumerate conflicting recipes and design a generic recipe-choice interface with WS-0; M2 crafting table/furnace integration without dupes; M3 original-mod reference fixtures and owner UI check. Respect the LGPL license and separate asset rights.
+
+### WS-1f: Easy Villagers
+- Read first: [current release](https://modrinth.com/mod/easy-villagers) and NeoForge villager block/entity classes. The latest tracked release targets Java 26.3.
+- Owns: mods/easy_villagers, tests/scenarios/easy_villagers-*.txt; branch ws/buja-easy-villagers.
+- Milestones: M0 trace capture, villager NBT, trade and workstation callbacks; M1 correct vanilla-villager storage and release; M2 automated trading/farming/breeding per original; M3 cold-restart and original-mod parity. Coordinate E6 vanilla trading; do not implement engine AI or menus locally.
+
+### WS-1g: Lootr
+- Read first: [current release](https://modrinth.com/mod/lootr), chest/open triggers and per-player loot algorithms; inspect code and art licenses.
+- Owns: mods/lootr, tests/scenarios/lootr-*.txt; branch ws/buja-lootr.
+- Milestones: M0 map original loot-table calls and opener identifiers; M1 per-player loot allocation under the generic loot/container interfaces; M2 multiplayer claims and restart persistence without dupes; M3 same-seed original-mod oracle and load test.
+
+### WS-1h: Simple Storage Network
+- Read first: [current release](https://modrinth.com/mod/simple-storage-network), FLIB compatibility and the original graph, terminal and inventory synchronization code.
+- Owns: mods/storagenetwork, tests/scenarios/storagenetwork-*.txt; branch ws/buja-storage-network.
+- Milestones: M0 map cable adjacency and menu requirements; M1 graph and item routing with fixture tests; M2 terminal and remote access using WS-0 menu services; M3 chunk unload/restart tests and reference stress benchmark. Keep networking mechanics inside this mod.
+
+### WS-1i: Musket Mod
+- Read first: [official source](https://github.com/ewewukek/mc-musketmod) and [latest original 1.5.4](https://modrinth.com/mod/musket-mod/version/1.5.4) for NeoForge 1.21.1. Do not accidentally port the separately maintained Reloaded fork.
+- Owns: mods/musketmod, tests/scenarios/musketmod-*.txt; branch ws/buja-musket.
+- Milestones: M0 inspect shot, reload, ammo, projectile and damage code; M1 item definitions and correct recipes; M2 implement projectile/weapon behavior after generic WS-0 operations arrive; M3 test shoot/reload against Java with fixed targets, item state across restart and owner visuals. MIT code, assets require a separate check.
+
+### Current WS-1 implementation
+
+This WS-1 chat owns the first Farmer's Delight crate and ingredient slices under mods/farmersdelight. More L-size content follows only through small independently testable stages and generic engine interfaces from WS-0. Do not open another workstream that edits the same crate until it is handed off. The full game is not covered by the first slices.
