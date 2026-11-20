@@ -1,6 +1,7 @@
 //! Graph-node geometry and connectivity from Create 6.0.10's TrackNodeLocation,
 //! TrackPropagator and TrackGraph. World discovery and NBT integration follow.
 
+use super::{bezier::BezierGeometry, curve::CurveRecord};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::atomic::{AtomicI32, Ordering},
@@ -178,30 +179,61 @@ pub(super) struct TrackNode {
     pub normal: Vec3,
 }
 
-/// A directed straight edge. A curve will carry its own Bezier geometry.
+/// Cached runtime curve; controls and length are not recalculated per train tick.
+#[derive(Clone, Debug)]
+pub(super) struct TrackTurn {
+    pub record: CurveRecord,
+    pub geometry: BezierGeometry,
+}
+
+impl TrackTurn {
+    fn new(record: CurveRecord) -> Option<Self> {
+        let geometry = record.geometry()?;
+        Some(Self { record, geometry })
+    }
+}
+
+/// A directed edge, straight or curved, with matching reverse edge.
 #[derive(Clone, Debug)]
 pub(super) struct TrackEdge {
     pub from: TrackNodeLocation,
     pub to: TrackNodeLocation,
     pub material: String,
+    pub turn: Option<TrackTurn>,
 }
 
 impl TrackEdge {
     pub fn length(&self) -> f64 {
         if self.from.dimension != self.to.dimension {
             0.0
+        } else if let Some(turn) = &self.turn {
+            turn.geometry.length()
         } else {
             self.from.world().distance(self.to.world())
         }
+    }
+
+    pub(super) fn position(&self, t: f64) -> Vec3 {
+        if let Some(turn) = &self.turn {
+            turn.geometry.position(t)
+        } else {
+            self.from
+                .world()
+                .scale(1.0 - t)
+                .plus(self.to.world().scale(t))
+        }
+    }
+
+    fn direction(&self, from_first: bool) -> Vec3 {
+        let (a, b) = if from_first { (0.25, 0.0) } else { (1.0, 0.75) };
+        self.position(a).minus(self.position(b)).normalized()
     }
 
     pub fn can_travel_to(&self, other: &Self) -> bool {
         if self.from.dimension != self.to.dimension || other.from.dimension != other.to.dimension {
             return true;
         }
-        let incoming = self.to.world().minus(self.from.world()).normalized();
-        let outgoing = other.to.world().minus(other.from.world()).normalized();
-        incoming.dot(outgoing) > 7.0 / 8.0
+        self.direction(false).dot(other.direction(true)) > 7.0 / 8.0
     }
 }
 
@@ -233,6 +265,16 @@ impl TrackGraph {
         b: &TrackNodeLocation,
         material: &str,
     ) -> bool {
+        self.connect_nodes_with_curve(a, b, material, None)
+    }
+
+    pub fn connect_nodes_with_curve(
+        &mut self,
+        a: &TrackNodeLocation,
+        b: &TrackNodeLocation,
+        material: &str,
+        curve: Option<CurveRecord>,
+    ) -> bool {
         if a == b || !self.nodes.contains_key(a) || !self.nodes.contains_key(b) {
             return false;
         }
@@ -243,15 +285,27 @@ impl TrackGraph {
         {
             return false;
         }
+        let reverse_turn = match curve.as_ref().map(|turn| TrackTurn::new(turn.secondary())) {
+            Some(None) => return false,
+            Some(Some(turn)) => Some(turn),
+            None => None,
+        };
+        let forward_turn = match curve.map(TrackTurn::new) {
+            Some(None) => return false,
+            Some(Some(turn)) => Some(turn),
+            None => None,
+        };
         let forward = TrackEdge {
             from: a.clone(),
             to: b.clone(),
             material: material.to_owned(),
+            turn: forward_turn,
         };
         let reverse = TrackEdge {
             from: b.clone(),
             to: a.clone(),
             material: material.to_owned(),
+            turn: reverse_turn,
         };
         self.connections
             .entry(a.clone())
@@ -492,16 +546,19 @@ mod tests {
             from: a,
             to: b.clone(),
             material: "create:andesite".into(),
+            turn: None,
         };
         let forward = TrackEdge {
             from: b.clone(),
             to: c,
             material: edge.material.clone(),
+            turn: None,
         };
         let turning = TrackEdge {
             from: b.clone(),
             to: side,
             material: edge.material.clone(),
+            turn: None,
         };
         assert_eq!(edge.length(), 4.0);
         assert!(edge.can_travel_to(&forward));
@@ -518,6 +575,7 @@ mod tests {
                 0,
             ),
             material: "create:andesite".into(),
+            turn: None,
         };
         assert_eq!(portal.length(), 0.0);
         assert!(edge.can_travel_to(&portal));

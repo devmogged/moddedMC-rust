@@ -1,8 +1,11 @@
 //! TrackGraph/DimensionPalette NBT layout from Create 6.0.10.
-//! At this stage only straight edges with no edge points are supported;
-//! unsupported curve/signal data is rejected rather than silently erased.
+//! Graph edges support straight or Bezier rail paths. Signal/point data is
+//! not implemented and must be rejected rather than silently erased.
 
-use super::graph::{TrackGraph, TrackNodeLocation, Vec3};
+use super::{
+    curve::CurveRecord,
+    graph::{TrackGraph, TrackNodeLocation, Vec3},
+};
 use fastnbt::{IntArray, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -115,8 +118,8 @@ struct SavedEdge {
     material: String,
     #[serde(rename = "Signals", default)]
     signals: HashMap<String, Value>,
-    // BezierConnection.write(BlockPos.ZERO) adds Positions, Starts, Axes,
-    // Normals and optional Smoothing. Preserve unknown data at decode time.
+    // BezierConnection.write(BlockPos.ZERO) adds Positions/Starts/Axes/Normals.
+    // Unknown fields are rejected by CurveRecord; nothing silently discarded.
     #[serde(flatten)]
     extra: HashMap<String, Value>,
 }
@@ -136,7 +139,7 @@ struct SavedGraph {
 /// Saves one graph's real NBT compound, not an invented JSON representation.
 /// The returned bytes are suitable as the named-root NBT payload of an entry
 /// in RailwaySavedData.RailGraphs when WS-0 exposes persistent saved data.
-pub(super) fn encode_straight_graph(
+pub(super) fn encode_track_graph(
     graph: &TrackGraph,
     id: [i32; 4],
     color: i32,
@@ -173,7 +176,10 @@ pub(super) fn encode_straight_graph(
                     edge: SavedEdge {
                         material: edge.material.clone(),
                         signals: HashMap::new(),
-                        extra: HashMap::new(),
+                        extra: match &edge.turn {
+                            Some(turn) => turn.record.to_nbt_fields()?,
+                            None => HashMap::new(),
+                        },
                     },
                 });
             }
@@ -202,9 +208,9 @@ pub(super) fn encode_straight_graph(
     .map_err(|err| err.to_string())
 }
 
-/// Reject graphs with unsupported signals, curves or inconsistent reciprocal
-/// edges. Those must never be loaded as straight-only without their meaning.
-pub(super) fn decode_straight_graph(
+/// Reject unsupported signals, points, and inconsistent reverse curves.
+/// Do not truncate Create data to a straight track when the curve is invalid.
+pub(super) fn decode_track_graph(
     bytes: &[u8],
     palette: &DimensionPalette,
 ) -> Result<(TrackGraph, [i32; 4], i32), String> {
@@ -248,11 +254,16 @@ pub(super) fn decode_straight_graph(
             if to >= locations.len() || from == to {
                 return Err("invalid edge index".into());
             }
-            if !link.edge.signals.is_empty() || !link.edge.extra.is_empty() {
-                return Err("signal or curved edge requires later milestone".into());
+            if !link.edge.signals.is_empty() {
+                return Err("signal edge requires M2".into());
             }
+            let curve = if link.edge.extra.is_empty() {
+                None
+            } else {
+                Some(CurveRecord::from_nbt_fields(&link.edge.extra)?)
+            };
             if directed
-                .insert((from, to), link.edge.material.as_str())
+                .insert((from, to), (link.edge.material.as_str(), curve))
                 .is_some()
             {
                 return Err("duplicate directed edge".into());
@@ -261,12 +272,22 @@ pub(super) fn decode_straight_graph(
     }
 
     let mut connected = HashSet::new();
-    for (&(from, to), &material) in &directed {
-        if directed.get(&(to, from)).copied() != Some(material) {
-            return Err("missing or mismatched reverse edge".into());
+    for (&(from, to), (material, curve)) in &directed {
+        let Some((reverse_material, reverse_curve)) = directed.get(&(to, from)) else {
+            return Err("missing reverse edge".into());
+        };
+        if material != reverse_material
+            || curve.as_ref().map(CurveRecord::secondary) != *reverse_curve
+        {
+            return Err("mismatched reverse edge or curve".into());
         }
         if connected.insert((from.min(to), from.max(to)))
-            && !graph.connect_nodes(&locations[from], &locations[to], material)
+            && !graph.connect_nodes_with_curve(
+                &locations[from],
+                &locations[to],
+                material,
+                curve.clone(),
+            )
         {
             return Err("failed to connect graph edge".into());
         }
@@ -323,7 +344,7 @@ mod tests {
         let (graph, a, b) = graph_fixture();
         let mut palette = DimensionPalette::default();
         let id = [0x12, 0x34, -1, 0x42];
-        let bytes = encode_straight_graph(&graph, id, 0x52_66_88, &mut palette).unwrap();
+        let bytes = encode_track_graph(&graph, id, 0x52_66_88, &mut palette).unwrap();
         let saved: SavedGraph = fastnbt::from_bytes(&bytes).unwrap();
         assert_eq!(&*saved.id, &id);
         assert_eq!(saved.nodes.len(), 3);
@@ -338,7 +359,7 @@ mod tests {
         );
         assert_eq!(palette.decode(1), "minecraft:the_nether");
 
-        let (loaded, loaded_id, color) = decode_straight_graph(&bytes, &palette).unwrap();
+        let (loaded, loaded_id, color) = decode_track_graph(&bytes, &palette).unwrap();
         assert_eq!(loaded_id, id);
         assert_eq!(color, 0x52_66_88);
         assert_eq!(loaded.nodes.len(), graph.nodes.len());
@@ -352,7 +373,7 @@ mod tests {
     fn decoding_rejects_asymmetric_or_corrupted_connections() {
         let (graph, _, _) = graph_fixture();
         let mut palette = DimensionPalette::default();
-        let bytes = encode_straight_graph(&graph, [0; 4], 0, &mut palette).unwrap();
+        let bytes = encode_track_graph(&graph, [0; 4], 0, &mut palette).unwrap();
         let mut saved: SavedGraph = fastnbt::from_bytes(&bytes).unwrap();
         let connected_indices: Vec<_> = saved
             .nodes
@@ -365,7 +386,7 @@ mod tests {
         saved.nodes[connected_indices[0]].connections.clear();
         let bad = fastnbt::to_bytes(&saved).unwrap();
         assert!(
-            decode_straight_graph(&bad, &palette)
+            decode_track_graph(&bad, &palette)
                 .unwrap_err()
                 .contains("reverse")
         );
@@ -374,17 +395,17 @@ mod tests {
         saved.nodes[connected_indices[0]].connections[0].to = 99;
         let bad = fastnbt::to_bytes(&saved).unwrap();
         assert!(
-            decode_straight_graph(&bad, &palette)
+            decode_track_graph(&bad, &palette)
                 .unwrap_err()
                 .contains("index")
         );
     }
 
     #[test]
-    fn unsupported_curve_and_signal_data_fail_instead_of_being_dropped() {
+    fn malformed_curve_and_signal_data_fail_instead_of_being_dropped() {
         let (graph, _, _) = graph_fixture();
         let mut palette = DimensionPalette::default();
-        let bytes = encode_straight_graph(&graph, [0; 4], 0, &mut palette).unwrap();
+        let bytes = encode_track_graph(&graph, [0; 4], 0, &mut palette).unwrap();
         let mut saved: SavedGraph = fastnbt::from_bytes(&bytes).unwrap();
         let source = saved
             .nodes
@@ -397,16 +418,16 @@ mod tests {
             .insert("Positions".into(), Value::List(Vec::new()));
         let bad = fastnbt::to_bytes(&saved).unwrap();
         assert!(
-            decode_straight_graph(&bad, &palette)
+            decode_track_graph(&bad, &palette)
                 .unwrap_err()
-                .contains("curved")
+                .contains("missing")
         );
 
         let mut saved: SavedGraph = fastnbt::from_bytes(&bytes).unwrap();
         saved.points.insert("create:station".into(), Value::Int(4));
         let bad = fastnbt::to_bytes(&saved).unwrap();
         assert!(
-            decode_straight_graph(&bad, &palette)
+            decode_track_graph(&bad, &palette)
                 .unwrap_err()
                 .contains("point")
         );
@@ -431,7 +452,7 @@ mod tests {
             },
         );
         let mut palette = DimensionPalette::default();
-        let bytes = encode_straight_graph(&graph, [0; 4], 0, &mut palette).unwrap();
+        let bytes = encode_track_graph(&graph, [0; 4], 0, &mut palette).unwrap();
         let saved: SavedGraph = fastnbt::from_bytes(&bytes).unwrap();
         let special = saved
             .nodes
@@ -440,7 +461,99 @@ mod tests {
             .unwrap();
         assert_eq!(special.location.y_offset, 7);
         assert_eq!(special.location.pos.y, 128);
-        let (loaded, ..) = decode_straight_graph(&bytes, &palette).unwrap();
+        let (loaded, ..) = decode_track_graph(&bytes, &palette).unwrap();
         assert!(loaded.nodes.contains_key(&raised));
+    }
+
+    fn curve_fixture() -> (TrackGraph, TrackNodeLocation, TrackNodeLocation) {
+        let a = pos(OVERWORLD, 0.5, 64.0, 0.5);
+        let b = pos(OVERWORLD, 8.5, 64.0, 8.5);
+        let up = Vec3 {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        };
+        let mut graph = TrackGraph::default();
+        graph.create_node_if_absent(a.clone(), up);
+        graph.create_node_if_absent(b.clone(), up);
+        let turn = CurveRecord {
+            block_positions: [[0, 64, 0], [8, 64, 8]],
+            starts: [a.world(), b.world()],
+            axes: [
+                Vec3 {
+                    x: 1.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Vec3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: -1.0,
+                },
+            ],
+            normals: [up, up],
+            primary: true,
+            girder: false,
+            smoothing: Some([3, 0]),
+        };
+        assert!(graph.connect_nodes_with_curve(&a, &b, "create:andesite", Some(turn)));
+        (graph, a, b)
+    }
+
+    #[test]
+    fn curved_graph_nbt_roundtrips_bezier_in_both_directions() {
+        let (graph, a, b) = curve_fixture();
+        let mut palette = DimensionPalette::default();
+        let bytes = encode_track_graph(&graph, [1, 2, 3, 4], -1, &mut palette).unwrap();
+        let saved: SavedGraph = fastnbt::from_bytes(&bytes).unwrap();
+        assert_eq!(saved.nodes.len(), 2);
+        for node in &saved.nodes {
+            assert_eq!(node.connections.len(), 1);
+            let curve = &node.connections[0].edge.extra;
+            for key in [
+                "Positions",
+                "Starts",
+                "Axes",
+                "Normals",
+                "Primary",
+                "Girder",
+                "Smoothing",
+            ] {
+                assert!(curve.contains_key(key), "missing {key}");
+            }
+        }
+        let (loaded, id, color) = decode_track_graph(&bytes, &palette).unwrap();
+        assert_eq!(id, [1, 2, 3, 4]);
+        assert_eq!(color, -1);
+        let first = &loaded.connections[&a][&b];
+        let reverse = &loaded.connections[&b][&a];
+        assert!(first.turn.is_some());
+        assert!(reverse.turn.is_some());
+        assert!(first.turn.as_ref().unwrap().record.primary);
+        assert!(!reverse.turn.as_ref().unwrap().record.primary);
+        assert_eq!(first.turn.as_ref().unwrap().record.smoothing, Some([3, 0]));
+        assert_eq!(
+            reverse.turn.as_ref().unwrap().record.smoothing,
+            Some([0, 3])
+        );
+        assert!((first.length() - reverse.length()).abs() < 1.0e-8);
+        assert!((first.position(0.5).distance(reverse.position(0.5))) < 1.0e-8);
+    }
+
+    #[test]
+    fn rejects_curve_nbt_with_mismatched_reverse_primary() {
+        let (graph, _, _) = curve_fixture();
+        let mut palette = DimensionPalette::default();
+        let bytes = encode_track_graph(&graph, [0; 4], 0, &mut palette).unwrap();
+        let mut saved: SavedGraph = fastnbt::from_bytes(&bytes).unwrap();
+        let reverse = &mut saved.nodes[1].connections[0].edge.extra;
+        let value = reverse.get_mut("Primary").unwrap();
+        *value = Value::Byte(1);
+        let bad = fastnbt::to_bytes(&saved).unwrap();
+        assert!(
+            decode_track_graph(&bad, &palette)
+                .unwrap_err()
+                .contains("mismatched reverse edge")
+        );
     }
 }
