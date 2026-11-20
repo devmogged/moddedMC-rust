@@ -56,6 +56,10 @@ Seat support also needs `Entity::start_riding(vehicle, force) -> bool` and `Enti
 
 Host commit `0aaef9b` provides `World::block_drops(pos, tool)` for actors to collect loot before it becomes item entities. Drill and harvester scenarios have yet to exercise it.
 
+## Harvester replant checks
+
+`World::can_survive(pos: Pos, state: u32) -> Option<bool>` runs the candidate block state's vanilla `canSurvive` against the loaded world at that position. It makes no world changes and returns `None` when the state or required cells are unavailable. Create checks the reset crop after rolling its loot. In 26.3, `CropBlock.canSurvive` checks both the support and raw light of at least 8. `Content::block_item(state: u32) -> Option<String>` returns the state's `Block.asItem()` id. Create uses that item to identify which drop to subtract when replanting.
+
 ## Contraption entity queries
 
 `Entities::entities_in` limits results to 256 before Create can exclude visual and non-collidable entities. A large contraption can fill that result with its block displays. Add a box query that filters by entity kinds and flags before applying the limit and exposes a continuation for larger results. The collision path also needs the entity's piston reaction, vehicle id, and no-physics status to apply Create's eligibility rules to all types.
