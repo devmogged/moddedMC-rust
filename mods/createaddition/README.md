@@ -1,9 +1,23 @@
-# Create Crafts & Additions
+# Create Crafts & Additions (partial)
 
-This is the initial Rust logic port for **Create Crafts & Additions 1.7.2** (NeoForge 1.21.1), using the release jar as the behavioral reference. The original mod is licensed under MIT by MRH0.
+Rust port in progress for Create Crafts & Additions 1.7.2, NeoForge Minecraft 1.21.1, by MRH0 (MIT).
 
-`src/electricity.rs` implements the electric motor's energy-rate and active/inactive tick transitions and the alternator's FE generation and stress calculations. `src/energy_storage.rs` ports `InternalEnergyStorage`, including capped FE input/output, uncapped internal consumption/production and its exact `energy` NBT key. The original Java methods were checked in the published 1.7.2 binary using `javap -c -p` and against the corresponding public source tree. Config values remain parameters so that the eventual service uses the real values from the runtime config.
+## Native content available
 
-The current crate is an `rlib` for focused Rust logic tests. **It is not a loadable `.mmc` or a working energy network.** To implement that, WS-0 must publish the `create:kinetics` inter-mod service (request `N:/mmc-coord/requests/WS-4-01.md`) and provide the generic block content and FE interface required by the machines. At that point the crate will become a standalone `cdylib` and get an original-mod scenario covering live RPM, energy, stress, NBT and restart.
+The createaddition.mmc now registers four passive items (electrum ingot, electrum nugget, electrum sheet and zinc sheet), the electrum storage block, four released vanilla crafting recipes, its original block loot table, and the relevant common-namespace item/block tags and mining requirements. Their original data were taken from the 1.7.2 release jar. Only pickaxe/incorrect-tool tag lists were narrowed to the single block that is actually registered; no missing machines or items have been declared as supported.
 
-Run: `cargo test -p createaddition` and `cargo clippy -p createaddition --all-targets -- -D warnings`.
+The original client models/textures are not included in this repository or .mmc. The server may load them from the separately obtained release jar through MODDEDMC_ASSET_JARS.
+
+To build from the repository root:
+
+    powershell -NoProfile -File scripts/pack-mod.ps1 -Crate createaddition
+
+The integration scenario tests/scenarios/ws4-createaddition-electrum.txt checks the addon with Create loaded, recipe registration, placement/loot, tags, and restart. The additional tests/scenarios/ws4-createaddition-crafting.txt performs both recipes in the crafting table and verifies the custom items stay in player inventory after restart. Original NeoForge 1.21.1 oracle comparison and client rendering remain outstanding.
+
+## Source-checked mechanics, not yet gameplay-enabled
+
+src/electricity.rs ports the electric motor's FE consumption/activation, redstone transitions and the alternator's FE/stress calculations. src/energy_storage.rs ports InternalEnergyStorage, including bounded FE input/output, uncapped internal transfers and its saved energy NBT key. The relevant Java methods were checked against the published 1.7.2 binary using javap -c -p and public source.
+
+Electric motor, alternator, cables, rolling mill, electricity, spool use, and other machine behaviors are not registered. They require the named Create kinetic service (request N:/mmc-coord/requests/WS-4-01.md), generic energy handlers and further parity tests. Create's pressing recipes are also intentionally held back until pressing is running in the pinned Create baseline.
+
+Unit tests: cargo test -p createaddition; lint: cargo clippy -p createaddition --all-targets -- -D warnings. Original model rendering and full 1.21.1 NeoForge differential parity remain outstanding.

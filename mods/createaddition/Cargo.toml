@@ -6,11 +6,11 @@ license = "MIT"
 description = "Create Crafts & Additions neoforge-1.21.1-1.7.2: energy/kinetics port in progress"
 publish = false
 
-# Promote to a separate cdylib only when the Create kinetic service contract
-# and required content registration are available; do not ship a no-op mod.
+# Passive electrum content ships in a .mmc. Kinetic machines remain unregistered.
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+moddedmc-api.workspace = true
 serde = { version = "1", features = ["derive"] }
 fastnbt = "2.6.3"

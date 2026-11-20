@@ -227,6 +227,7 @@ name = "createaddition"
 version = "0.1.0"
 dependencies = [
  "fastnbt",
+ "moddedmc-api",
  "serde",
 ]
 
