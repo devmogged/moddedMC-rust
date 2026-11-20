@@ -174,17 +174,24 @@ export function ModsTab() {
             {shown.map((m) => (
               <article key={m.id} className="flex flex-col gap-3 rounded-xl border bg-card p-4">
                 <div className="flex items-start gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
-                    <Puzzle className="size-5" />
-                  </div>
+                  {m.icon ? (
+                    <img src={m.icon} alt="" className="size-10 shrink-0 rounded-lg" />
+                  ) : (
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                      <Puzzle className="size-5" />
+                    </div>
+                  )}
                   <div className="flex min-w-0 flex-col">
                     <span className="truncate font-medium">{m.name}</span>
                     <span className="truncate text-muted-foreground text-xs">
                       {m.version}
-                      {m.minecraft ? ` · port of ${m.minecraft}` : ""}
+                      {m.original ? ` · port of ${m.original}` : m.minecraft ? ` · from ${m.minecraft}` : ""}
                     </span>
                   </div>
                 </div>
+                {m.dependencies?.length > 0 && (
+                  <p className="text-muted-foreground text-xs">Also installs {m.dependencies.join(", ")}</p>
+                )}
                 {m.description && (
                   <p className="line-clamp-3 text-muted-foreground text-sm">{m.description}</p>
                 )}

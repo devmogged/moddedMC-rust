@@ -23,6 +23,9 @@ pub struct Mod {
     pub kind: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// The ported release, like `Saint's Dragons 0.9.88`.
+    #[serde(default)]
+    pub original: Option<String>,
     #[serde(default)]
     pub minecraft: Option<String>,
     #[serde(default)]
@@ -36,6 +39,11 @@ pub struct Mod {
     pub sha256: Option<String>,
     #[serde(default)]
     pub size: Option<u64>,
+    /// Ids of mods installed along with this one.
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -64,7 +72,8 @@ pub async fn mods_index() -> Result<Vec<Mod>, String> {
     Ok(index.mods)
 }
 
-/// Download mod `id` from the index and put it in a stopped server's `mods/`.
+/// Download mod `id` and the mods it depends on from the index and put them in a stopped
+/// server's `mods/`.
 #[tauri::command]
 pub async fn mod_install(
     store: State<'_, Store>,
@@ -74,10 +83,37 @@ pub async fn mod_install(
     id: String,
 ) -> Result<(), String> {
     let index = mods_index().await?;
-    let entry = index
-        .into_iter()
-        .find(|m| m.id == id)
-        .ok_or("That mod isn't in the list anymore.")?;
+    let find = |id: &str| index.iter().find(|m| m.id == id);
+    // The mod and everything it needs, dependencies first.
+    let mut order: Vec<&Mod> = Vec::new();
+    let mut stack = vec![(id.as_str(), false)];
+    while let Some((id, expanded)) = stack.pop() {
+        let entry = find(id).ok_or_else(|| format!("{id} isn't in the mod list anymore."))?;
+        if order.iter().any(|m| m.id == entry.id) {
+            continue;
+        }
+        if expanded {
+            order.push(entry);
+        } else if order.len() + stack.len() > 64 {
+            return Err("That mod has too many dependencies.".into());
+        } else {
+            stack.push((id, true));
+            stack.extend(entry.dependencies.iter().map(|d| (d.as_str(), false)));
+        }
+    }
+    for entry in order {
+        install_one(&store, &tunnels, &device, &server, entry).await?;
+    }
+    Ok(())
+}
+
+async fn install_one(
+    store: &Store,
+    tunnels: &Tunnels,
+    device: &str,
+    server: &str,
+    entry: &Mod,
+) -> Result<(), String> {
     let (Some(url), Some(sha256)) = (entry.download.as_deref(), entry.sha256.as_deref()) else {
         return Err(format!("{} can't be installed on its own.", entry.name));
     };
@@ -109,5 +145,5 @@ pub async fn mod_install(
         ));
     }
     let file = format!("{}.mmc", entry.id);
-    put_mod(&store, &tunnels, &device, &server, &file, bytes.to_vec()).await
+    put_mod(store, tunnels, device, server, &file, bytes.to_vec()).await
 }

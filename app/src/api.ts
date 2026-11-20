@@ -111,6 +111,11 @@ export interface ModEntry {
   download: string | null;
   sha256: string | null;
   size: number | null;
+  /** The ported release, like "Saint's Dragons 0.9.88". */
+  original: string | null;
+  /** Mod ids installed along with this one. */
+  dependencies: string[];
+  icon: string | null;
 }
 
 // Outside Tauri (a plain browser on `npm run dev`) a sample backend stands in.
