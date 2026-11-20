@@ -237,6 +237,52 @@ impl Entities {
         self.tracked.get(&id)
     }
 
+    pub fn check(&self, args: &str) -> Result<usize, String> {
+        let args = args.split_whitespace().collect::<Vec<_>>();
+        let usage = "expect entity requires type near x y z within distance [count n]";
+        let (prefix, count) = match args.as_slice() {
+            [prefix @ .., "count", count] => {
+                (prefix, Some(count.parse::<usize>().map_err(|_| usage)?))
+            }
+            prefix => (prefix, None),
+        };
+        let [name, "near", x, y, z, "within", radius] = prefix else {
+            return Err(usage.into());
+        };
+        let kind =
+            EntityType::from_name(name).ok_or_else(|| format!("unknown entity type {name}"))?;
+        let [x, y, z, radius] = [x, y, z, radius].map(|s| s.parse::<f64>().unwrap_or(f64::NAN));
+        if ![x, y, z, radius].into_iter().all(f64::is_finite) || radius < 0.0 {
+            return Err(
+                "expect entity requires finite coordinates and a nonnegative radius".into(),
+            );
+        }
+        let position = Vector3::new(x, y, z);
+        let mut nearest: Option<(f64, Vector3<f64>)> = None;
+        let mut found = 0;
+        for entity in self
+            .tracked
+            .values()
+            .filter(|entity| entity.kind.id == kind.id)
+        {
+            let distance = (entity.position - position).length_squared();
+            if distance <= radius * radius {
+                found += 1;
+            }
+            if nearest.is_none_or(|(best, _)| distance < best) {
+                nearest = Some((distance, entity.position));
+            }
+        }
+        if count.map_or(found > 0, |count| found == count) {
+            return Ok(found);
+        }
+        let expected = count.map_or_else(|| "at least one".to_owned(), |count| count.to_string());
+        let nearest = nearest.map(|(_, position)| position);
+        Err(format!(
+            "expected {expected} visible {name} near {position:?} within {radius}, saw {found} (nearest {nearest:?})"
+        ))
+    }
+
     pub fn target(&self, name: &str, anchor: Vector3<f64>) -> Result<VarInt, String> {
         let kind =
             EntityType::from_name(name).ok_or_else(|| format!("unknown entity type {name}"))?;

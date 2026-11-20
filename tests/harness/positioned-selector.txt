@@ -1,0 +1,13 @@
+# A distance filter uses the execute source position unless the selector supplies coordinates.
+seed 12345
+area 0 150 0 15 153 15
+start
+cmd fill 0 150 0 15 150 15 minecraft:stone
+cmd summon minecraft:armor_stand 4.5 151 3.5 {NoGravity:1b}
+probe execute if entity @e[type=minecraft:armor_stand,x=4.5,y=151,z=3.5,distance=..0.1]
+expect Test passed
+probe execute positioned 4.5 151 3.5 if entity @e[type=minecraft:armor_stand,distance=..0.1]
+expect Test passed
+probe execute positioned 8.5 151 3.5 unless entity @e[type=minecraft:armor_stand,distance=..0.1]
+expect Test passed
+stop

@@ -125,6 +125,17 @@ async fn main() -> Result<(), String> {
                     .check_vehicle(vehicle)
                     .map(|()| println!("[bot] expect riding ok {vehicle}"))
             }
+            "expect" if let Some(entity) = rest.strip_prefix("entity ") => player
+                .lock()
+                .await
+                .entities
+                .check(entity)
+                .map(|count| println!("[bot] expect entity ok {entity} ({count} visible)")),
+            "expect" if let Some(block) = rest.strip_prefix("block ") => player
+                .lock()
+                .await
+                .check_block(block)
+                .map(|actual| println!("[bot] expect block ok {actual}")),
             "expect" => player
                 .lock()
                 .await

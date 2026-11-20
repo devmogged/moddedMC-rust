@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use pumpkin_data::{
-    BlockStateId,
+    Block, BlockStateId,
     packet::{CURRENT_MC_VERSION, PacketId, clientbound::play as p},
 };
 use pumpkin_protocol::{
@@ -113,6 +113,62 @@ impl World {
                 .get(chunk.section(pos.y))
                 .map_or(BlockStateId::AIR, |section| section.get(index(pos))),
         )
+    }
+
+    pub fn check(&self, args: &str) -> Result<String, String> {
+        let args = args.split_whitespace().collect::<Vec<_>>();
+        let usage = "expect block requires integer x y z and a wire block state";
+        let [x, y, z, wanted] = args.as_slice() else {
+            return Err(usage.into());
+        };
+        let [Ok(x), Ok(y), Ok(z)] = [x, y, z].map(|value| value.parse::<i32>()) else {
+            return Err(usage.into());
+        };
+        let pos = Vector3::new(x, y, z);
+        let actual = self
+            .block(pos)
+            .ok_or_else(|| format!("block {x} {y} {z} is not loaded"))?;
+        let (name, constraints) =
+            wanted
+                .split_once('[')
+                .map_or(Ok((*wanted, None)), |(name, props)| {
+                    let props = props
+                        .strip_suffix(']')
+                        .filter(|props| !props.is_empty())
+                        .ok_or(usage)?;
+                    Ok::<_, &str>((name, Some(props)))
+                })?;
+        let block = Block::from_name(name).ok_or_else(|| format!("unknown wire block {name}"))?;
+        let actual_block = actual.to_block();
+        let properties = actual_block
+            .properties(actual)
+            .map_or_else(Vec::new, |props| props.to_props());
+        let matches = constraints.is_none_or(|props| {
+            props.split(',').all(|constraint| {
+                constraint.split_once('=').is_some_and(|(key, value)| {
+                    properties
+                        .iter()
+                        .any(|prop| prop.key_str() == key && prop.value_str() == value)
+                })
+            })
+        });
+        let properties = properties
+            .iter()
+            .map(|prop| format!("{}={}", prop.key_str(), prop.value_str()))
+            .collect::<Vec<_>>()
+            .join(",");
+        let actual = if properties.is_empty() {
+            actual_block.name.to_owned()
+        } else {
+            format!("{}[{properties}]", actual_block.name)
+        };
+        if block.id == actual_block.id && matches {
+            Ok(format!("{x} {y} {z} {actual}"))
+        } else {
+            Err(format!(
+                "expected wire block {wanted} at {x} {y} {z}, got {actual}"
+            ))
+        }
     }
 
     pub fn shapes(&self, bounds: BoundingBox) -> Vec<BoundingBox> {

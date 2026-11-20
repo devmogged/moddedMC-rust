@@ -146,6 +146,10 @@ Use `bot alice input forward sprint` to hold keys until the next input command. 
 
 For a live server using `scripts/scenario.ps1`, send `bot physics on` to run local ticks at 20 Hz. Send `bot expect pos x y z within d`, then check for `^\[bot\] expect pos ok` with the script's log assertion. The matching velocity marker is `^\[bot\] expect vel ok`. Physics starts disabled so older scenarios with fixed positions keep their existing timing. `physics off` disables it again. The current coverage and remaining gameplay gaps are tracked in [the bot coverage audit](harness-bot-coverage.md).
 
+**Client view.** Use `bot alice expect entity minecraft:item_display near x y z within d` to require at least one tracked entity within the radius. Append `count n` for an exact count, including zero. The position is the endpoint of the most recent movement packet. Use `bot alice expect block x y z minecraft:oak_log[axis=x]` to read the received chunk and block updates. A bare block id checks the type. Bracketed properties are exact constraints on that type. A modded block on a stock connection is checked by its vanilla carrier id and properties. The game client must have received the relevant chunk.
+
+In a live scenario omit the bot name and check the corresponding `^\[bot\] expect entity ok` or `^\[bot\] expect block ok` line.
+
 The action fence sends a block action at a position beyond the world border. Both servers acknowledge it on the same ordered play connection after earlier actions. Attack and clicks also fence before selecting the target or menu. These acknowledgements confirm processing. Use probes or snapshots to check the result, including failed moves or attacks that correctly do no damage.
 
 Cross-version mod-oracle launch and ID maps are open work.

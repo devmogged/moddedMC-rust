@@ -12,4 +12,18 @@ fn scenario_keeps_source_lines_and_requires_allow_reasons() {
         crate::scenario::parse(&source.replace("tick 3", "probe execute if entity @s run kill @s"))
             .is_err()
     );
+    assert!(
+        crate::scenario::parse(&source.replace(
+            "tick 3",
+            "probe execute positioned 4.5 70 3.5 if entity @e[distance=..0.1]",
+        ))
+        .is_ok()
+    );
+    assert!(
+        crate::scenario::parse(&source.replace(
+            "tick 3",
+            "probe execute positioned 4.5 70 3.5 if entity @s run kill @s",
+        ))
+        .is_err()
+    );
 }

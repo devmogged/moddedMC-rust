@@ -242,24 +242,10 @@ impl Parser {
 
 fn valid_bot_action(verb: &str, arguments: &str) -> bool {
     let args = arguments.split_whitespace().collect::<Vec<_>>();
-    let coords = |words: &[&str]| {
-        words.len() == 3
-            && words
-                .iter()
-                .all(|word| word.parse::<f64>().is_ok_and(f64::is_finite))
-    };
     let block = |coords: &[&str]| coords.iter().all(|word| word.parse::<i32>().is_ok());
     let face = |value| matches!(value, "up" | "down" | "north" | "south" | "east" | "west");
     let hand = |value| matches!(value, "main" | "off");
     let hotbar = |value: &str| value.parse::<u8>().is_ok_and(|slot| slot <= 8);
-    let slot_index = |value: &str| {
-        value
-            .parse::<i16>()
-            .is_ok_and(|slot| (0..4096).contains(&slot))
-    };
-    let item = |name, count: &str| {
-        pumpkin_data::item::Item::from_registry_key(name).is_some() && count.parse::<u8>().is_ok()
-    };
     match (verb, args.as_slice()) {
         ("await-teleport" | "inventory-close" | "release-item", [])
         | ("physics", ["off" | "manual"])
@@ -276,17 +262,7 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
                 })
         }
         ("physics-tick", [count]) => count.parse::<u16>().is_ok_and(|n| (1..=1200).contains(&n)),
-        ("expect", ["pos" | "vel", x, y, z, "within", tolerance]) => {
-            coords(&[x, y, z])
-                && tolerance
-                    .parse::<f64>()
-                    .is_ok_and(|d| d.is_finite() && d >= 0.0)
-        }
-        ("expect", ["slot", slot, name, count]) => slot_index(slot) && item(name, count),
-        ("expect", ["cursor", name, count]) => item(name, count),
-        ("expect", ["riding", vehicle]) => {
-            *vehicle == "none" || pumpkin_data::entity::EntityType::from_name(vehicle).is_some()
-        }
+        ("expect", args) => valid_bot_expectation(args),
         ("use" | "place" | "break", xyz @ [_, _, _]) => block(xyz),
         ("use" | "place", [x, y, z, direction]) | ("dig", ["start", x, y, z, direction]) => {
             block(&[x, y, z]) && face(direction)
@@ -323,6 +299,61 @@ fn valid_bot_action(verb: &str, arguments: &str) -> bool {
                         | "drop"
                         | "drop-stack"
                 ) || button.strip_prefix("swap-").is_some_and(hotbar))
+        }
+        _ => false,
+    }
+}
+
+fn coords(words: &[&str]) -> bool {
+    words.len() == 3
+        && words
+            .iter()
+            .all(|word| word.parse::<f64>().is_ok_and(f64::is_finite))
+}
+
+fn slot_index(value: &str) -> bool {
+    value
+        .parse::<i16>()
+        .is_ok_and(|slot| (0..4096).contains(&slot))
+}
+
+fn valid_bot_expectation(args: &[&str]) -> bool {
+    let item = |name, count: &str| {
+        pumpkin_data::item::Item::from_registry_key(name).is_some() && count.parse::<u8>().is_ok()
+    };
+    let within = |x, y, z, radius: &str| {
+        coords(&[x, y, z])
+            && radius
+                .parse::<f64>()
+                .is_ok_and(|d| d.is_finite() && d >= 0.0)
+    };
+    let nearby = |name, x, y, z, radius| {
+        pumpkin_data::entity::EntityType::from_name(name).is_some() && within(x, y, z, radius)
+    };
+    match args {
+        ["pos" | "vel", x, y, z, "within", tolerance] => within(x, y, z, tolerance),
+        ["slot", slot, name, count] => slot_index(slot) && item(name, count),
+        ["cursor", name, count] => item(name, count),
+        ["riding", vehicle] => {
+            *vehicle == "none" || pumpkin_data::entity::EntityType::from_name(vehicle).is_some()
+        }
+        ["entity", name, "near", x, y, z, "within", radius] => nearby(name, x, y, z, radius),
+        [
+            "entity",
+            name,
+            "near",
+            x,
+            y,
+            z,
+            "within",
+            radius,
+            "count",
+            count,
+        ] => nearby(name, x, y, z, radius) && count.parse::<usize>().is_ok(),
+        ["block", x, y, z, state] => {
+            let name = state.split_once('[').map_or(*state, |(name, _)| name);
+            [x, y, z].iter().all(|word| word.parse::<i32>().is_ok())
+                && pumpkin_data::Block::from_name(name).is_some()
         }
         _ => false,
     }
@@ -409,7 +440,15 @@ fn probe(rest: &str) -> Result<String, String> {
         "gamerule" => words.count() == 1,
         "scoreboard" => words.next() == Some("players") && words.next() == Some("get"),
         "execute" => {
-            matches!(words.next(), Some("if" | "unless"))
+            let mut condition = words.next();
+            if condition == Some("positioned") {
+                let coordinates = words
+                    .by_ref()
+                    .take(3)
+                    .all(|word| word.parse::<f64>().is_ok_and(f64::is_finite));
+                condition = coordinates.then(|| words.next()).flatten();
+            }
+            matches!(condition, Some("if" | "unless"))
                 && !words.any(|word| matches!(word, "run" | "store"))
         }
         _ => false,

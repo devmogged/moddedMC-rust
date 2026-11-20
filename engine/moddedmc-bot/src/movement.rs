@@ -293,6 +293,13 @@ impl Player {
         }
     }
 
+    pub fn check_block(&self, args: &str) -> Result<String, String> {
+        if let Some(error) = &self.terrain_error {
+            return Err(format!("cannot read client block state: {error}"));
+        }
+        self.world.check(args)
+    }
+
     fn steer(&mut self, has_carrot: bool) -> Option<(SMoveVehicle, Option<SPaddleBoat>)> {
         use pumpkin_data::entity::EntityType;
         let id = self.vehicle.filter(|_| self.driving)?;
