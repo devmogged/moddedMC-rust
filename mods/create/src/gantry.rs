@@ -579,6 +579,9 @@ fn try_assemble(
         be.gantries.pop();
         return None;
     }
+    if let Some(gantry) = be.gantries.last_mut() {
+        gantry.blocks.detach_glue(world);
+    }
     be.dirty = true;
     crate::contraption::detach_moved_belts(world, &remove, kinetics);
     Some(())

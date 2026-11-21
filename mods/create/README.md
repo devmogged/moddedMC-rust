@@ -155,3 +155,12 @@ check that its adjacent lamp lights when the platform arrives. Use the pulley ag
 mirroring it, to restore the blocks at that floor. The [elevator scenario](../../tests/scenarios/create-elevator.txt)
 restarts the server mid-trip, checks both floor lamps and the mirror cable, then disassembles
 through the mirror. Floor naming screens and contraption controls require client support.
+
+### Super Glue
+
+With Super Glue in hand, use two connected blocks to select opposite corners. Sneak and use
+a block to clear the selection. A completed Survival selection uses one of the item's 99 charges.
+Power a bearing or another actuator holding one of the glued blocks and check that the selection
+moves together. The [Super Glue scenario](../../tests/scenarios/create-super-glue.txt) checks
+the charge, restart, rotation, and the adjacent block that stays behind. The Create client
+outline, click-to-remove overlay, and offhand placement shortcut still need support.

@@ -18,6 +18,7 @@ use crate::{
     belt_movement::can_transport_objects,
     chassis,
     collider::Collider,
+    glue::{self, GlueBox, GlueScan},
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
     states, sticker,
 };
@@ -91,6 +92,7 @@ impl BlockMovementChecks {
         let mut contraption = Contraption::search_moved_structure(
             bearing,
             facing,
+            Some(world),
             |pos| self.classify(world, pos),
             |pos, entry| self.attachments(world, pos, entry, None),
         )?;
@@ -172,6 +174,7 @@ impl BlockMovementChecks {
     ) -> Option<(Blocks, HashMap<PaletteEntry, i32>)> {
         Blocks::collect_attached(
             anchor,
+            Some(world),
             frontier,
             visited,
             |pos| self.classify(world, pos),
@@ -230,6 +233,10 @@ pub struct Contraption {
 pub struct Blocks {
     pub palette: Vec<PaletteEntry>,
     pub block_list: Vec<StructureBlockInfo>,
+    #[serde(default, rename = "Superglue", skip_serializing_if = "Vec::is_empty")]
+    superglue: Vec<GlueBox>,
+    #[serde(skip)]
+    glue_to_remove: Vec<i32>,
 }
 
 impl Blocks {
@@ -245,7 +252,7 @@ impl Blocks {
         })
     }
 
-    pub fn positions(&self, anchor: Pos) -> impl Iterator<Item = Pos> {
+    pub fn positions(&self, anchor: Pos) -> impl Iterator<Item = Pos> + Clone {
         self.block_list
             .iter()
             .map(move |block| offset(anchor, block.local_pos()))
@@ -364,11 +371,14 @@ impl Blocks {
 
     fn collect_attached(
         anchor: Pos,
+        world: Option<World<'_>>,
         mut frontier: VecDeque<(Pos, PaletteEntry)>,
         mut visited: HashSet<Pos>,
         mut get: impl FnMut(Pos) -> Option<BlockMovement>,
         mut attachments: impl FnMut(Pos, &PaletteEntry) -> Option<Vec<Pos>>,
     ) -> Option<(Self, HashMap<PaletteEntry, i32>)> {
+        let excluded = visited.clone();
+        let mut glue = GlueScan::default();
         visited.extend(frontier.iter().map(|(pos, _)| *pos));
         let mut blocks = Self::default();
         let mut palette = HashMap::new();
@@ -384,12 +394,17 @@ impl Blocks {
             }
             for (face, step) in FACES.into_iter().enumerate() {
                 let adjacent = offset(pos, step);
+                if excluded.contains(&adjacent) {
+                    continue;
+                }
                 if visited.contains(&adjacent) {
+                    glue.is_glued(world, pos, adjacent);
                     continue;
                 }
                 // Leave the world intact if an unknown neighbour might attach to this face.
                 if let BlockMovement::Movable(next) = get(adjacent)?
-                    && (sticker::attachment(&next, adjacent) == Some(pos)
+                    && (glue.is_glued(world, pos, adjacent)
+                        || sticker::attachment(&next, adjacent) == Some(pos)
                         || can_stick(&entry.name, &next.name)
                             && !sticker::blocks_attachment(&entry, face as u8)
                             && !sticker::blocks_attachment(&next, face as u8 ^ 1))
@@ -411,7 +426,14 @@ impl Blocks {
                 return None;
             }
         }
+        (blocks.superglue, blocks.glue_to_remove) = glue.capture(anchor, blocks.positions(anchor));
         Some((blocks, palette))
+    }
+
+    pub fn detach_glue(&mut self, world: World<'_>) {
+        for id in self.glue_to_remove.drain(..) {
+            glue::discard(world, id);
+        }
     }
 
     pub fn place(
@@ -473,7 +495,20 @@ impl Blocks {
         else {
             return false;
         };
+        let mut glue_placed = Vec::new();
+        for &glue in &self.superglue {
+            let Some(id) = glue.place(world, transform) else {
+                for id in glue_placed {
+                    glue::discard(world, id);
+                }
+                return false;
+            };
+            glue_placed.push(id);
+        }
         if world.write(&place) != place.len() {
+            for id in glue_placed {
+                glue::discard(world, id);
+            }
             return false;
         }
         for (update, (belt, saved)) in place.iter().zip(saved_entities) {
@@ -494,6 +529,9 @@ impl Blocks {
                     })
                     .collect();
                 world.write(&rollback);
+                for id in glue_placed {
+                    glue::discard(world, id);
+                }
                 return false;
             }
         }
@@ -717,6 +755,7 @@ impl Contraption {
     fn search_moved_structure(
         bearing: Pos,
         facing: u8,
+        world: Option<World<'_>>,
         mut get: impl FnMut(Pos) -> Option<BlockMovement>,
         attachments: impl FnMut(Pos, &PaletteEntry) -> Option<Vec<Pos>>,
     ) -> Option<Self> {
@@ -726,6 +765,7 @@ impl Contraption {
         };
         let (blocks, _) = Blocks::collect_attached(
             anchor,
+            world,
             VecDeque::from([(anchor, entry)]),
             HashSet::from([bearing]),
             get,
@@ -940,6 +980,7 @@ mod tests {
         let contraption = Contraption::search_moved_structure(
             p(0, 0, 0),
             1,
+            None,
             |pos| {
                 assert_ne!(pos, p(0, 0, 0));
                 Some(tiles.get(&pos).cloned().unwrap_or(Air))

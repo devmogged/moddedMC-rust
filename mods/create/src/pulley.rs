@@ -314,6 +314,7 @@ impl RopePulley {
         {
             return false;
         }
+        data.blocks.detach_glue(world);
         crate::contraption::detach_moved_belts(world, &remove, kinetics);
         if let Some(motion) = &mut data.elevator {
             Self::start_mirrors(&data.blocks, anchor, pos, kinetics);

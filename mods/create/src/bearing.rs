@@ -125,7 +125,7 @@ impl MechanicalBearing {
             return false;
         };
         let remove: Vec<_> = removals.collect();
-        let saved = BearingData {
+        let mut saved = BearingData {
             running: true,
             angle: 0.0,
             contraption: Some(contraption),
@@ -134,6 +134,9 @@ impl MechanicalBearing {
             || world.write(&remove) != remove.len()
         {
             return false;
+        }
+        if let Some(contraption) = &mut saved.contraption {
+            contraption.blocks.detach_glue(world);
         }
         crate::contraption::detach_moved_belts(world, &remove, kinetics);
         self.data = saved;

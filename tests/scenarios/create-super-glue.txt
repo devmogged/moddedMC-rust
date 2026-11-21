@@ -1,0 +1,59 @@
+# Glue a bearing arm, save the glue marker, then move and reassemble the glued blocks.
+mods target\mods\create.mmc
+start
+expect registered content item create:super_glue
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2501.5 101 2502.5
+wait 2
+cmd fill 2496 98 2496 2505 98 2505 minecraft:stone
+cmd fill 2496 99 2496 2505 105 2505 minecraft:air
+cmd setblock 2500 99 2500 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2500 99 2500 0
+cmd setblock 2500 100 2500 create:mechanical_bearing[facing=up]
+cmd setblock 2500 101 2500 minecraft:stone
+cmd setblock 2501 101 2500 minecraft:cobblestone
+cmd setblock 2501 101 2501 minecraft:oak_planks
+cmd item replace entity tester hotbar.0 with create:super_glue
+wait 0.5
+bot use 2500 101 2500 south
+wait 0.25
+bot use 2501 101 2500 south
+wait 0.5
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.25
+expect has the following entity data: 1$
+cmd execute if entity @e[type=minecraft:marker,x=2501,y=101,z=2500.5,distance=..0.5]
+wait 0.25
+expect Test passed
+cmd save-all flush
+wait 0.75
+expect Saved the game
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if entity @e[type=minecraft:marker,x=2501,y=101,z=2500.5,distance=..0.5]
+wait 0.25
+expect Test passed
+cmd kinetics 2500 99 2500 15
+wait 0.95
+cmd kinetics 2500 99 2500 0
+wait 0.6
+bot expect block 2500 101 2499 minecraft:cobblestone
+bot expect block 2501 101 2500 minecraft:air
+bot expect block 2501 101 2501 minecraft:oak_planks
+wait 0.5
+expect ^\[bot\] expect block ok 2500 101 2499
+expect ^\[bot\] expect block ok 2501 101 2500
+expect ^\[bot\] expect block ok 2501 101 2501
+cmd execute unless entity @e[type=minecraft:marker,x=2501,y=101,z=2500.5,distance=..0.25]
+cmd execute if entity @e[type=minecraft:marker,x=2500.5,y=101,z=2500,distance=..0.25]
+wait 0.3
+expect Test passed
+expect Test passed
+reject (?i)panicked|trapped|\[bot\] error
+stop

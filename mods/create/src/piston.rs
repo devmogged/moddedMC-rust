@@ -683,7 +683,7 @@ impl MechanicalPiston {
                 update
             })
             .collect();
-        let data = PistonData {
+        let mut data = PistonData {
             offset: initial as f32,
             contraption: Some(contraption),
         };
@@ -691,6 +691,9 @@ impl MechanicalPiston {
             || world.write(&remove) != remove.len()
         {
             return false;
+        }
+        if let Some(contraption) = &mut data.contraption {
+            contraption.blocks.detach_glue(world);
         }
         crate::contraption::detach_moved_belts(world, &remove, kinetics);
         self.data = data;

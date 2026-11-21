@@ -40,6 +40,7 @@ mod elevator;
 mod fan;
 mod funnel;
 mod gantry;
+mod glue;
 mod kinetics;
 mod millstone;
 mod piston;
@@ -117,6 +118,7 @@ impl Mod for Create {
         entities.require_extension(EntitiesExtension::Movement)?;
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::MayBuild)?;
+        entities.require_extension(EntitiesExtension::Carriers)?;
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
@@ -168,6 +170,7 @@ impl Mod for Create {
         elevator::register(*content, registry)?;
         chassis::register(*content, registry)?;
         sticker::register(*content, registry)?;
+        glue::register(registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -1412,6 +1415,9 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
 }
 
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    if context.item == glue::ID {
+        return glue::use_on_block(context);
+    }
     // WS-3: TrackBlockItem's item-on-rail selection and straight connections.
     if context.item == "create:track" {
         return trains::use_on_block(context);
