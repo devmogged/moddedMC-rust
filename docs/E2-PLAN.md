@@ -62,7 +62,7 @@ changing a worldgen pack.
 The shared parser handles density functions, noise settings and normal-noise parameters.
 Pumpkin uses the selected default block, fluid, sea level, terrain shape and spawn targets.
 Surface rules, biome registries and features still use the existing engine paths until E2b–E2d.
-Custom noise parameters currently require legacy normalization with the default base amplitude.
+E2d adds Java 26.3's enabled, disabled and legacy noise normalization modes for runtime noise overrides.
 Settings that fail validation are logged and fall back to the generated dimension settings.
 
 The Tectonic reference is [3.0.29-datapack for Java 26.3](https://modrinth.com/datapack/tectonic/version/pxgiJaJp).
@@ -211,3 +211,38 @@ state pair that differs. Compare only corresponding generation stages and dimens
 The supported ore-vein rules still use the built-in copper and iron density pipeline.
 Custom ore-vein density functions are reported as unsupported. Relative anchors above the
 bottom or below the top currently use the existing signed-byte offsets.
+
+## E2d carvers
+
+Enabled packs can add or replace named carvers. Each biome uses its declared carvers in
+file order. Codegen and the runtime loader share the same carver and height-provider
+parser. Pack precedence applies even if an otherwise unmodified vanilla biome references
+the replaced carver. Unresolved or unsupported carvers are reported at startup.
+
+Incendium required Java's default normal-noise normalization. A fixture checked three
+coordinates and the maximum amplitude for each normalization mode against the Java 26.3
+codec, using identical seeds. All sampled values matched bit-for-bit. The runtime carver
+compiler also rebuilt all four generated vanilla carver configurations.
+
+| Reference pack | Compared Y | Block states | Differences |
+| --- | ---: | ---: | ---: |
+| [Terralith 2.6.5+26.3](https://modrinth.com/datapack/terralith/version/fqnsIp6d) | -64 to 319 | 786,432 | 0 |
+| [Incendium 5.5.4+26.3 alpha](https://modrinth.com/datapack/incendium/version/1phtTdhj) | 0 to 255 | 524,288 | 0 |
+
+Both archives matched Modrinth's SHA-512. Incendium was the latest standalone datapack
+published for Java 26.3 when tested. Seed 20261120, chunks (0,0) through (1,1) and
+(64,64) through (65,65), in the overworld and Nether respectively. On Java, disable
+structures and disable feature generation with the debug switch. Force-load the chunks and
+save. On Pumpkin, run through carvers, write the staged chunks to Anvil, and compare
+every state with the harness. Configured and placed features are the next E2d slice.
+
+The pack-profile stock `chunk_gen` benchmark used seed 42, 20 samples and CPU mask
+`0x54`. The figures are Criterion slope estimates from two runs in opposite orders.
+
+| Binary order | Full chunk before / after | Carvers before / after | Features before / after |
+| --- | ---: | ---: | ---: |
+| Before, then after | 10.386 / 10.620 ms | 782.73 / 690.73 µs | 1.117 / 1.047 ms |
+| After, then before | 10.482 / 10.343 ms | 707.68 / 662.56 µs | 1.020 / 1.060 ms |
+
+The full-chunk result reversed direction with run order. The carver point estimate
+was lower in both runs.
