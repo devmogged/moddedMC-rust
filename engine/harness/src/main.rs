@@ -25,7 +25,7 @@ use serde::Serialize;
 use crate::{diff::Report, process::ServerProgram, runner::Options};
 
 const USAGE: &str = "moddedmc-harness run <scenario> | run-all <directory> | self-test \
---reference <vanilla:jar|oracle:descriptor.json> [--subject <exe|vanilla:jar>] [--subject-mods <directory>] [--bot <exe>] [--run-root <dir>] [--jobs <n>] [--keep] [--json]";
+--reference <vanilla:jar|oracle:descriptor.json> [--subject <exe|vanilla:jar>] [--subject-mods <directory>] [--bot <exe>] [--run-root <dir>] [--jobs <n>] [--keep] [--json]\nmoddedmc-harness compare-biomes <reference-run-dir> <subject-run-dir> <x0> <y0> <z0> <x1> <y1> <z1>";
 
 #[expect(clippy::print_stderr, reason = "CLI diagnostics")]
 fn main() -> ExitCode {
@@ -44,6 +44,9 @@ fn cli(args: &[String]) -> Result<u8, String> {
     if matches!(mode, "--help" | "-h" | "help") {
         print_help();
         return Ok(0);
+    }
+    if mode == "compare-biomes" {
+        return compare_biomes(args);
     }
     let path = match mode {
         "run" | "run-all" => Some(PathBuf::from(
@@ -130,6 +133,31 @@ fn cli(args: &[String]) -> Result<u8, String> {
     } else {
         0
     })
+}
+
+#[expect(clippy::print_stdout, reason = "CLI biome parity report")]
+fn compare_biomes<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<u8, String> {
+    let reference = args.next().ok_or("missing reference run directory")?;
+    let subject = args.next().ok_or("missing subject run directory")?;
+    let area = scenario::parse_area(&args.collect::<Vec<_>>().join(" "))?;
+    let reference = snapshot::biomes(Path::new(reference), area)?;
+    let subject = snapshot::biomes(Path::new(subject), area)?;
+    let mut differences = 0;
+    for (quart, name) in &reference {
+        let actual = subject
+            .get(quart)
+            .ok_or("subject biome snapshot is incomplete")?;
+        if name != actual {
+            let [x, y, z] = quart;
+            println!("biome @ quart {x} {y} {z}: {name} vs {actual}");
+            differences += 1;
+        }
+    }
+    println!(
+        "{differences} differences across {} biome quarts",
+        reference.len()
+    );
+    Ok(u8::from(differences != 0))
 }
 
 fn subject_mods_for(

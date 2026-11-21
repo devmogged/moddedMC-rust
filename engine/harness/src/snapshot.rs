@@ -12,7 +12,6 @@ use uuid::Uuid;
 
 use crate::scenario::{Area, Position};
 
-const SECTION_VOLUME: usize = 4096;
 const PLAYER_FIELDS: &[&str] = &[
     "Pos",
     "Rotation",
@@ -75,6 +74,78 @@ pub fn world(dir: &Path, area: Area) -> Result<World, String> {
     Ok(world)
 }
 
+/// Reads each quart intersecting the block area, retaining the names from the save.
+pub fn biomes(dir: &Path, area: Area) -> Result<BTreeMap<Position, String>, String> {
+    let terrain = dir.join("world/dimensions/minecraft/overworld/region");
+    let quart_area = Area {
+        min: area.min.map(|coordinate| coordinate >> 2),
+        max: area.max.map(|coordinate| coordinate >> 2),
+    };
+    let mut regions = BTreeMap::new();
+    let mut biomes = BTreeMap::new();
+    for (x, z) in area.chunks() {
+        let data = read_region(&terrain, &mut regions, Vector2::new(x, z))?
+            .ok_or_else(|| format!("missing terrain chunk {x} {z} in {}", terrain.display()))?;
+        collect_biomes(&data, &mut biomes, quart_area, x, z)
+            .map_err(|error| format!("terrain chunk {x} {z} in {}: {error}", terrain.display()))?;
+    }
+    let count: usize = (0..3)
+        .map(|axis| (quart_area.max[axis] - quart_area.min[axis] + 1) as usize)
+        .product();
+    if biomes.len() != count {
+        return Err(format!(
+            "expected {count} biome quarts, read {} in {}",
+            biomes.len(),
+            terrain.display()
+        ));
+    }
+    Ok(biomes)
+}
+
+fn collect_biomes(
+    data: &NbtCompound,
+    biomes: &mut BTreeMap<Position, String>,
+    quart_area: Area,
+    x: i32,
+    z: i32,
+) -> Result<(), String> {
+    validate_terrain_chunk(data, x, z)?;
+    for entry in data.get_list("sections").ok_or("missing sections list")? {
+        let section = compound(entry)?;
+        let y = i32::from(section.get_byte("Y").ok_or("section with no Y")?) * 4;
+        if y + 3 < quart_area.min[1] || y > quart_area.max[1] {
+            continue;
+        }
+        let palette = section
+            .get_compound("biomes")
+            .ok_or("section with no biomes")?;
+        let (names, indices) = decode_named_palette::<4>(palette, 0, |tag| {
+            let NbtTag::String(name) = tag else {
+                return Err("biome palette entries must be registry names".into());
+            };
+            let name = name.to_string();
+            Ok(if name.contains(':') {
+                name
+            } else {
+                format!("minecraft:{name}")
+            })
+        })?;
+        for (index, id) in (&indices).into_iter().enumerate() {
+            let quart = [
+                x * 4 + (index & 3) as i32,
+                y + (index >> 4) as i32,
+                z * 4 + (index >> 2 & 3) as i32,
+            ];
+            if quart_area.contains(quart)
+                && biomes.insert(quart, names[id as usize].clone()).is_some()
+            {
+                return Err(format!("duplicate biome at quart {quart:?}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn read_region(
     dir: &Path,
     regions: &mut BTreeMap<(i32, i32), AnvilRegion>,
@@ -107,13 +178,7 @@ fn read_region(
     Ok(Some(data.root_tag))
 }
 
-fn collect_blocks(
-    data: &NbtCompound,
-    world: &mut World,
-    area: Area,
-    x: i32,
-    z: i32,
-) -> Result<(), String> {
+fn validate_terrain_chunk(data: &NbtCompound, x: i32, z: i32) -> Result<(), String> {
     if data.get_int("xPos") != Some(x) || data.get_int("zPos") != Some(z) {
         return Err("stored coordinates do not match the region slot".into());
     }
@@ -126,6 +191,17 @@ fn collect_blocks(
             data.get("Status")
         ));
     }
+    Ok(())
+}
+
+fn collect_blocks(
+    data: &NbtCompound,
+    world: &mut World,
+    area: Area,
+    x: i32,
+    z: i32,
+) -> Result<(), String> {
+    validate_terrain_chunk(data, x, z)?;
     let mut section_ids = std::collections::BTreeSet::new();
     let sections = data.get_list("sections").ok_or("missing sections list")?;
     for section in sections {
@@ -173,43 +249,47 @@ fn collect_blocks(
 fn decode_palette(
     states: &NbtCompound,
 ) -> Result<(Vec<String>, PalettedContainer<u16, 16>), String> {
-    let palette = states
-        .get_list("palette")
-        .ok_or("missing block state palette")?;
-    if !(1..=SECTION_VOLUME).contains(&palette.len()) {
+    decode_named_palette::<16>(states, 4, state_name)
+}
+
+fn decode_named_palette<const DIM: usize>(
+    states: &NbtCompound,
+    min_bits: u8,
+    name: impl Fn(&NbtTag) -> Result<String, String>,
+) -> Result<(Vec<String>, PalettedContainer<u16, DIM>), String> {
+    let volume = PalettedContainer::<u16, DIM>::VOLUME;
+    let palette = states.get_list("palette").ok_or("missing palette")?;
+    if !(1..=volume).contains(&palette.len()) {
         return Err(format!("invalid palette length {}", palette.len()));
     }
-    let names = palette
-        .iter()
-        .map(state_name)
-        .collect::<Result<Vec<_>, _>>()?;
+    let names = palette.iter().map(name).collect::<Result<Vec<_>, _>>()?;
     let data = match states.get("data") {
         Some(NbtTag::LongArray(values)) => values.as_slice(),
         None if palette.len() == 1 => &[],
-        _ => return Err("block palette is missing its packed long array".into()),
+        _ => return Err("palette is missing its packed long array".into()),
     };
     let bits = (palette.len() - 1)
         .checked_ilog2()
         .map_or(0, |bits| bits + 1)
-        .max(4);
-    let per_word = 64 / bits as usize;
+        .max(u32::from(min_bits));
     if palette.len() > 1 {
+        let per_word = 64 / bits as usize;
         let mask = (1 << bits) - 1;
-        if data.len() != SECTION_VOLUME.div_ceil(per_word)
-            || (0..SECTION_VOLUME).any(|i| {
+        if data.len() != volume.div_ceil(per_word)
+            || (0..volume).any(|i| {
                 let word = data[i / per_word] as u64;
                 ((word >> ((i % per_word) * bits as usize)) & mask) as usize >= palette.len()
             })
         {
-            return Err("packed block state palette contains an invalid length or index".into());
+            return Err("packed palette contains an invalid length or index".into());
         }
     } else if !data.is_empty() {
-        return Err("homogeneous block palette unexpectedly contains packed data".into());
+        return Err("homogeneous palette unexpectedly contains packed data".into());
     }
     let values = (0..palette.len() as u16).collect::<Vec<_>>();
     Ok((
         names,
-        PalettedContainer::from_palette_and_packed_data(&values, data, 4),
+        PalettedContainer::from_palette_and_packed_data(&values, data, min_bits),
     ))
 }
 
@@ -329,7 +409,36 @@ fn compound(tag: &NbtTag) -> Result<&NbtCompound, String> {
 mod tests {
     use pumpkin_nbt::{NbtCompound, nbt_compound_tag, tag::NbtTag};
 
-    use super::{decode_palette, state_name};
+    use super::{collect_biomes, decode_palette, state_name};
+
+    #[test]
+    fn reads_custom_biome_in_negative_quart_coordinates() -> Result<(), String> {
+        let mut palette = NbtCompound::new();
+        palette.put_list(
+            "palette",
+            vec![
+                NbtTag::String("minecraft:plains".into()),
+                NbtTag::String("pack:new_biome".into()),
+            ],
+        );
+        palette.put("data", NbtTag::LongArray(vec![1 << 21]));
+        let mut section = NbtCompound::new();
+        section.put_byte("Y", -3);
+        section.put_compound("biomes", palette);
+        let mut chunk = NbtCompound::new();
+        chunk.put_int("xPos", -1);
+        chunk.put_int("zPos", 4);
+        chunk.put_string("Status", "minecraft:full".into());
+        chunk.put_list("sections", vec![NbtTag::Compound(section)]);
+        let area = crate::scenario::Area {
+            min: [-3, -11, 17],
+            max: [-3, -11, 17],
+        };
+        let mut quarts = std::collections::BTreeMap::new();
+        collect_biomes(&chunk, &mut quarts, area, -1, 4)?;
+        assert_eq!(quarts[&[-3, -11, 17]], "pack:new_biome");
+        Ok(())
+    }
 
     #[test]
     fn compact_default_and_explicit_piston_states_compare_equally() {

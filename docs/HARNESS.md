@@ -157,3 +157,14 @@ Cross-version mod-oracle launch and ID maps are open work.
 ## Done means
 
 A system or port is done when its scenario set passes with no unexplained `allow`, and it also passes the performance gates in [ROADMAP.md](ROADMAP.md).
+
+## Saved biome comparison
+
+Use `compare-biomes` on two stopped servers with saved Anvil overworlds. Supply the two run
+directories followed by the inclusive block box. The harness compares every intersecting
+4×4×4 biome cell by registry name, including datapack IDs, and reports differences in quart
+coordinates. A mismatch returns exit code 1. Missing or invalid chunk data returns exit code 2.
+
+```powershell
+engine/target/pack/moddedmc-harness.exe compare-biomes run/reference run/subject 0 -64 0 31 319 31
+```

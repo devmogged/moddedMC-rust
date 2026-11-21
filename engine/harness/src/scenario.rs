@@ -379,7 +379,7 @@ fn valid_property(key: &str, value: &str) -> bool {
     }
 }
 
-fn parse_area(rest: &str) -> Result<Area, String> {
+pub fn parse_area(rest: &str) -> Result<Area, String> {
     let coords = rest
         .split_whitespace()
         .map(str::parse::<i32>)
