@@ -114,6 +114,8 @@ Attach one pulley of a horizontal belt to the frame. Load an item, disconnect th
 
 Place a Windmill Bearing with a shaft on the back and eight wool blocks attached to a slime frame on the front. Empty-hand click the bearing to start it. The shaft should turn at 1 RPM with 512 SU available. Click again to stop it and put the blocks back. The [windmill scenario](../../tests/scenarios/create-windmill.txt) checks both clicks and the eight-sail minimum. Sail blocks and the rotation-direction control are pending.
 
+Place an upward Clockwork Bearing on a motor and attach separate block frames at one and two blocks above the bearing. Stop the daylight cycle and set the time to 03:15. With the motor at 15 RPM, both hands should rotate to the quarter-turn position. Restart while it runs, then stop the motor and check both frames return to their original blocks. The [clockwork scenario](../../tests/scenarios/create-clockwork.txt) checks both angles and the restart. The in-world mode selector and smooth rendering are pending.
+
 ### Mechanical Piston
 
 Place a Sticky Mechanical Piston facing east above a Creative Motor facing up. Add three extension poles behind the piston, and attach a slime frame and platform at the front. Drive the motor at -128 RPM to extend three blocks. Reverse it to pull the platform back. Put obsidian in the platform's path and extend again. The platform should stop at the last clear block. Capture the extension, return and collision in one recording.

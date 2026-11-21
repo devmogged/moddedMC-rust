@@ -1,0 +1,58 @@
+# The two hands follow the stopped world clock, survive a restart, and reset on disassembly.
+mods target\mods\create.mmc
+start
+expect registered content block create:clockwork_bearing
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2473.5 101 2473.5
+wait 2
+cmd fill 2466 98 2466 2475 98 2475 minecraft:stone
+cmd fill 2466 99 2466 2475 106 2475 minecraft:air
+cmd gamerule minecraft:advance_time false
+cmd time set 21250
+cmd time query daytime
+wait 0.2
+expect Game rule advance_time is now set to false
+expect The time is 21250
+cmd setblock 2470 99 2470 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2470 99 2470 0
+cmd setblock 2470 100 2470 create:clockwork_bearing[facing=up]
+cmd setblock 2470 101 2470 minecraft:slime_block
+cmd setblock 2471 101 2470 minecraft:cobblestone
+cmd setblock 2470 102 2470 minecraft:honey_block
+cmd setblock 2469 102 2470 minecraft:stone
+wait 0.5
+cmd kinetics 2470 99 2470 15
+wait 5
+cmd data get block 2470 100 2470 Bearing.Angle
+wait 0.25
+expect has the following block data: -90f
+cmd data get block 2470 100 2470 Bearing.Clockwork.MinuteAngle
+wait 0.25
+expect has the following block data: -90f
+bot expect entity minecraft:block_display near 2470.5 101.5 2470.5 within 0.05 count 2
+bot expect entity minecraft:block_display near 2470.5 102.5 2470.5 within 0.05 count 2
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2470.5 101.5 2470.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2470.5 102.5 2470.5
+reject (?i)panicked|trapped|\[bot\] error
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+bot expect entity minecraft:block_display near 2470.5 102.5 2470.5 within 0.05 count 2
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2470.5 102.5 2470.5
+cmd kinetics 2470 99 2470 0
+wait 0.6
+bot expect block 2471 101 2470 minecraft:cobblestone
+bot expect block 2469 102 2470 minecraft:stone
+wait 0.5
+expect ^\[bot\] expect block ok 2471 101 2470
+expect ^\[bot\] expect block ok 2469 102 2470
+reject (?i)panicked|trapped|\[bot\] error
+stop

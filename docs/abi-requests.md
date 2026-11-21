@@ -36,7 +36,7 @@ Host commit `0aaef9b` exposes `MOVED_STATE_CHANGED` for replacements made with `
 
 Host commit `0aaef9b` exposes `Entity::may_build` and `Interaction::on_player_will_destroy`. The sticky conversion scenario checks Adventure permission, the clicked face and Survival stack consumption. The break scenario checks that the callback can inspect the intact pole chain and remove the attached parts before the main break.
 
-## Clockwork time (live clock fix needed)
+## Clockwork time (resolved)
 
 `World::day_time() -> Option<(i64, bool)>` returns the world's current Minecraft day time and the dimension's `natural` flag. Clockwork bearings use day time for both hands and multiply it by 24 in non-natural dimensions. The content tick's server-wide count does not reflect `/time set` or a paused daylight cycle.
 
@@ -44,7 +44,7 @@ Host commit `a553b83`: `World::day_time()` returns `DayTime { ticks, fixed_time 
 
 Repro on engine `24dbedcdc` with the local clockwork bearing slice. In a fresh overworld, run `gamerule minecraft:advance_time false`, `time set 21250`, and `time query daytime`. The query prints `The time is 21250`. Power an upward clockwork bearing at 15 RPM for five seconds. Reading `Bearing.Angle` and `Bearing.Clockwork.MinuteAngle` with `data get block` gives `-180f` and `0f`. At 03:15 both should be `-90f`. The observed angles are the targets at tick zero. Both hands still assemble, survive a restart and return to their original blocks when power stops.
 
-`day_time` reads `world.level_info.load().day_time`. The time command changes and queries `world.level_time.time_of_day`. Read the live overworld clock for the existing ABI field, including when the caller is in a fixed-time dimension.
+Host commit `1ed72ae` reads the live overworld clock, including for callers in fixed-time dimensions. The clockwork scenario reads `-90f` for both hands at 03:15 and checks the minute hand after restart.
 
 ## Elevator contact output (resolved)
 

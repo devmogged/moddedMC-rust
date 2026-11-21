@@ -985,7 +985,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             };
             format!("{}[facing={}]", fan::ID, DIRECTIONS[usize::from(face)])
         }
-        Some(Kind::Bearing(_) | Kind::Windmill(_) | Kind::Drill(_)) => {
+        Some(Kind::Bearing(_) | Kind::Windmill(_) | Kind::Drill(_) | Kind::Clockwork(_)) => {
             let face = if args.sneak {
                 look
             } else {
@@ -1503,9 +1503,11 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         Some(Kind::Millstone) => with_world(context.world, |kinetics| {
             millstone::use_item_on(kinetics, context)
         }),
-        Some(Kind::Bearing(_) | Kind::Windmill(_)) => with_world(context.world, |kinetics| {
-            bearing::use_item_on(kinetics, &states.contraption_blocks, context)
-        }),
+        Some(Kind::Bearing(_) | Kind::Windmill(_) | Kind::Clockwork(_)) => {
+            with_world(context.world, |kinetics| {
+                bearing::use_item_on(kinetics, &states.contraption_blocks, context)
+            })
+        }
         Some(Kind::Piston(block)) => with_world(context.world, |kinetics| {
             piston::use_item_on(kinetics, block, context)
         }),

@@ -91,11 +91,28 @@ impl BlockMovementChecks {
         facing: u8,
         kinetics: &Kinetics,
     ) -> Option<Contraption> {
+        self.scan_ignoring(world, bearing, facing, kinetics, &HashSet::new())
+    }
+
+    pub fn scan_ignoring(
+        &self,
+        world: World<'_>,
+        bearing: Pos,
+        facing: u8,
+        kinetics: &Kinetics,
+        ignored: &HashSet<Pos>,
+    ) -> Option<Contraption> {
         let mut contraption = Contraption::search_moved_structure(
             bearing,
             facing,
             Some(world),
-            |pos| self.classify(world, pos),
+            |pos| {
+                if ignored.contains(&pos) {
+                    Some(BlockMovement::Air)
+                } else {
+                    self.classify(world, pos)
+                }
+            },
             |pos, entry| self.attachments(world, pos, entry, None),
         )?;
         let anchor = contraption.anchor()?;
@@ -374,6 +391,35 @@ impl Blocks {
         })
     }
 
+    pub fn append_at(&mut self, anchor: Pos, other_anchor: Pos, other: &Self) {
+        let origin = Pos {
+            x: anchor.x - other_anchor.x,
+            y: anchor.y - other_anchor.y,
+            z: anchor.z - other_anchor.z,
+        };
+        self.superglue
+            .extend(other.superglue.iter().map(|glue| glue.local(origin)));
+        let mut palette = self
+            .palette
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, entry)| (entry, index as i32))
+            .collect();
+        for block in &other.block_list {
+            let pos = offset(other_anchor, block.local_pos());
+            let local = Pos {
+                x: pos.x - anchor.x,
+                y: pos.y - anchor.y,
+                z: pos.z - anchor.z,
+            };
+            let entry = other.palette[block.palette_index()].clone();
+            let inserted = self.push(local, entry, &mut palette);
+            inserted.nbt.clone_from(&block.nbt);
+            inserted.shapes.clone_from(&block.shapes);
+        }
+    }
+
     pub fn colliders(&self) -> impl Iterator<Item = Collider> + '_ {
         self.block_list.iter().flat_map(|block| {
             let local = block.local_pos().map(f64::from);
@@ -595,6 +641,20 @@ impl Blocks {
         controller: Option<Pos>,
         previous: Frame,
     ) -> bool {
+        if !self.place_structure(world, checks, transform, controller) {
+            return false;
+        }
+        self.settle_seats(world, transform, previous);
+        true
+    }
+
+    pub fn place_structure(
+        &self,
+        world: World<'_>,
+        checks: &BlockMovementChecks,
+        transform: StructureTransform,
+        controller: Option<Pos>,
+    ) -> bool {
         let targets: Vec<_> = self
             .block_list
             .iter()
@@ -688,6 +748,10 @@ impl Blocks {
                 return false;
             }
         }
+        true
+    }
+
+    pub fn settle_seats(&self, world: World<'_>, transform: StructureTransform, previous: Frame) {
         for local in self.seats() {
             let destination = transform.apply([local.x, local.y, local.z]);
             seat::move_carrier(
@@ -696,7 +760,6 @@ impl Blocks {
                 seat::position(destination),
             );
         }
-        true
     }
 
     pub fn drop_contents(self, world: World<'_>, pos: Pos, item_for: impl Fn(&str) -> &str) {

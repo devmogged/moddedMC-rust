@@ -71,7 +71,7 @@ impl GlueBox {
         }
     }
 
-    fn local(self, anchor: Pos) -> Self {
+    pub(crate) fn local(self, anchor: Pos) -> Self {
         let anchor = coords(anchor).map(f64::from);
         Self {
             from: std::array::from_fn(|i| self.from[i] - anchor[i]),

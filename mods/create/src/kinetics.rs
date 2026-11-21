@@ -103,6 +103,7 @@ pub enum Kind {
     Bearing(u8),
     Windmill(u8),
     Drill(u8),
+    Clockwork(u8),
     Piston(crate::piston::PistonBlock),
     GantryShaft(crate::gantry::Shaft),
     GantryCarriage(crate::gantry::Carriage),
@@ -241,7 +242,8 @@ impl Kind {
             | Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
-            | Self::Drill(facing) => face_axis(facing),
+            | Self::Drill(facing)
+            | Self::Clockwork(facing) => face_axis(facing),
             Self::Elevator(facing) => crate::elevator::shaft_axis(facing),
             Self::Turntable | Self::Millstone => 1,
             Self::Piston(block) => block.shaft_axis(),
@@ -264,7 +266,8 @@ impl Kind {
             Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
-            | Self::Drill(facing) => facing ^ 1 == face,
+            | Self::Drill(facing)
+            | Self::Clockwork(facing) => facing ^ 1 == face,
             Self::Gearbox(axis) => face_axis(face) != axis,
             Self::Turntable | Self::Millstone => face == DOWN,
             Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
@@ -295,6 +298,7 @@ impl Kind {
             | Self::Millstone
             | Self::Bearing(_)
             | Self::Drill(_)
+            | Self::Clockwork(_)
             | Self::Piston(_)
             | Self::Pulley(_)
             | Self::Elevator(_) => 4.0,
@@ -318,7 +322,10 @@ impl Kind {
     }
 
     pub const fn is_bearing(self) -> bool {
-        matches!(self, Self::Bearing(_) | Self::Windmill(_))
+        matches!(
+            self,
+            Self::Bearing(_) | Self::Windmill(_) | Self::Clockwork(_)
+        )
     }
 
     fn same_block(self, other: Self) -> bool {
@@ -332,7 +339,8 @@ impl Kind {
             (Self::Fan(a), Self::Fan(b))
             | (Self::Bearing(a), Self::Bearing(b))
             | (Self::Windmill(a), Self::Windmill(b))
-            | (Self::Drill(a), Self::Drill(b)) => a == b,
+            | (Self::Drill(a), Self::Drill(b))
+            | (Self::Clockwork(a), Self::Clockwork(b)) => a == b,
             (Self::Piston(a), Self::Piston(b)) => a == b,
             (Self::GantryShaft(a), Self::GantryShaft(b)) => {
                 a.facing == b.facing && a.powered == b.powered
