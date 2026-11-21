@@ -393,7 +393,13 @@ impl RopePulley {
             axis: 1,
             angle: 0.0,
         };
-        if !self.data.blocks.place(world, checks, transform, None) {
+        if !self.data.blocks.place(
+            world,
+            checks,
+            transform,
+            None,
+            collider::Frame::translated(below(pos, 1), [0.0, -f64::from(self.data.offset), 0.0]),
+        ) {
             return false;
         }
         if !rope.is_empty() {

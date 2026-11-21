@@ -164,3 +164,11 @@ Power a bearing or another actuator holding one of the glued blocks and check th
 moves together. The [Super Glue scenario](../../tests/scenarios/create-super-glue.txt) checks
 the charge, restart, rotation, and the adjacent block that stays behind. The Create client
 outline, click-to-remove overlay, and offhand placement shortcut still need support.
+
+### Seats
+
+Right-click a seat to sit, and use a different dye to recolor it. Assemble an occupied seat
+onto a moving contraption and check that the rider stays aboard through disassembly. The
+[seat scenario](../../tests/scenarios/create-seat.txt) checks a bearing turn, dismount on break,
+dyeing and a pig that stays seated after restart. The stock view uses an invisible vanilla carrier. Mounting an
+already moving seat and handing it a leashed mob need additional interaction hooks.

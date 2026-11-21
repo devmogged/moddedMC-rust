@@ -725,10 +725,17 @@ impl MechanicalPiston {
             axis: 0,
             angle: 0.0,
         };
-        if !contraption
-            .blocks
-            .place(world, checks, transform, Some(base))
-        {
+        if !contraption.blocks.place(
+            world,
+            checks,
+            transform,
+            Some(base),
+            collider::Frame::translated(
+                base,
+                FACES[usize::from(piston.facing)]
+                    .map(|axis| f64::from(axis) * f64::from(self.data.offset)),
+            ),
+        ) {
             return false;
         }
         if !removed {

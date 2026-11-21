@@ -448,7 +448,17 @@ impl GantryContraption {
             axis: 0,
             angle: 0.0,
         };
-        if !self.blocks.place(world, checks, transform, None) {
+        if !self.blocks.place(
+            world,
+            checks,
+            transform,
+            None,
+            collider::Frame::translated(
+                self.anchor(),
+                FACES[usize::from(self.gantry_axis)]
+                    .map(|axis| f64::from(axis) * f64::from(self.offset)),
+            ),
+        ) {
             return false;
         }
         self.clear_displays(world);

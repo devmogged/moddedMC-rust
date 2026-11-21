@@ -47,6 +47,7 @@ mod piston;
 mod press;
 mod processing_recipes;
 mod pulley;
+mod seat;
 mod sticker;
 mod trains;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
@@ -171,6 +172,7 @@ impl Mod for Create {
         chassis::register(*content, registry)?;
         sticker::register(*content, registry)?;
         glue::register(registry)?;
+        seat::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -794,6 +796,7 @@ fn states() -> Option<&'static StateIds> {
         press::add_states(content, &mut ids);
         fan::add_states(content, &mut ids);
         bearing::add_states(content, &mut ids);
+        seat::add_states(content, &mut ids);
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
@@ -858,6 +861,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return funnel::placed_state(args, default, states);
     }
     let placed = states.by_id.get(&args.state)?;
+    if seat::is_seat(placed.block) {
+        return seat::placed_state(args, placed.block);
+    }
     if placed.block == press::ID {
         return press::placed_state(args, states);
     }
@@ -1324,6 +1330,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             elevator::event(world, states, event);
             chassis::event(world, states, event);
             sticker::event(world, states, event);
+            seat::event(world, states, event);
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             gantry_changed |= matches!(before, Some(Kind::GantryShaft(_)))
@@ -1437,6 +1444,13 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     let Some(states) = states() else {
         return BlockUseResult::Pass;
     };
+    if let Some(entry) = states
+        .by_id
+        .get(&context.state)
+        .filter(|entry| seat::is_seat(entry.block))
+    {
+        return seat::use_item_on(context, &entry.selector);
+    }
     if states
         .by_id
         .get(&context.state)
@@ -1484,6 +1498,14 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
 
 fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
     let Some(states) = states() else { return };
+    if states
+        .by_id
+        .get(&state)
+        .is_some_and(|entry| seat::is_seat(entry.block))
+    {
+        seat::on_landed(world, pos, entity);
+        return;
+    }
     if states
         .crusher_controllers
         .get(&state)

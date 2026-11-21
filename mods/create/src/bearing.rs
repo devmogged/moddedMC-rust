@@ -155,7 +155,13 @@ impl MechanicalBearing {
             axis,
             angle: self.data.angle,
         };
-        if !contraption.blocks.place(world, blocks, transform, None) {
+        if !contraption.blocks.place(
+            world,
+            blocks,
+            transform,
+            None,
+            collider::Frame::rotating(anchor, axis, self.data.angle),
+        ) {
             return false;
         }
         self.clear_displays(world);

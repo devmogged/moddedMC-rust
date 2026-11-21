@@ -17,10 +17,10 @@ use crate::{
     belt_inventory::{self, BeltInventory, Chain},
     belt_movement::can_transport_objects,
     chassis,
-    collider::Collider,
+    collider::{Collider, Frame},
     glue::{self, GlueBox, GlueScan},
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
-    states, sticker,
+    seat, states, sticker,
 };
 
 /// CKinetics.maxBlocksMoved default.
@@ -134,6 +134,7 @@ impl BlockMovementChecks {
             return Some(BlockMovement::Air);
         }
         if chassis::is_chassis(&entry.name)
+            || seat::is_seat(&entry.name)
             || matches!(
                 entry.name.as_str(),
                 BELT | sticker::ID | crate::elevator::CONTACT
@@ -240,6 +241,13 @@ pub struct Blocks {
 }
 
 impl Blocks {
+    pub fn seats(&self) -> impl Iterator<Item = Pos> + '_ {
+        self.block_list.iter().filter_map(|block| {
+            let [x, y, z] = block.local_pos();
+            seat::is_seat(&self.palette.get(block.palette_index())?.name).then_some(Pos { x, y, z })
+        })
+    }
+
     pub fn colliders(&self) -> impl Iterator<Item = Collider> + '_ {
         self.block_list.iter().flat_map(|block| {
             let local = block.local_pos().map(f64::from);
@@ -267,7 +275,7 @@ impl Blocks {
         let water = checks.state("minecraft:water")?;
         Some(self.block_list.iter().map(move |block| {
             let entry = &self.palette[block.palette_index()];
-            let wet = entry.name == BELT
+            let wet = (entry.name == BELT || seat::is_seat(&entry.name))
                 && entry
                     .properties
                     .get("waterlogged")
@@ -442,6 +450,7 @@ impl Blocks {
         checks: &BlockMovementChecks,
         transform: StructureTransform,
         controller: Option<Pos>,
+        previous: Frame,
     ) -> bool {
         let targets: Vec<_> = self
             .block_list
@@ -463,17 +472,17 @@ impl Blocks {
             .map(|((position, block), &previous)| {
                 let entry = self.palette.get(block.palette_index())?;
                 let belt = entry.name == BELT;
+                let waterlog = belt || seat::is_seat(&entry.name);
                 let air = checks.is_air(previous);
-                // shortcut: plain water is replaceable by belts, extend with the other placement rules.
                 if !air
-                    && (!belt
+                    && (!waterlog
                         || CONTENT.get()?.describe_state(previous)?.split('[').next()
                             != Some("minecraft:water"))
                 {
                     return None;
                 }
                 let mut state = transform.block_state(entry);
-                if belt {
+                if waterlog {
                     let wet = !air && world.fluid_id(position)? == "minecraft:water";
                     state
                         .properties
@@ -534,6 +543,14 @@ impl Blocks {
                 }
                 return false;
             }
+        }
+        for local in self.seats() {
+            let destination = transform.apply([local.x, local.y, local.z]);
+            seat::move_carrier(
+                world,
+                previous.to_world(seat::position(local)),
+                seat::position(destination),
+            );
         }
         true
     }

@@ -2,6 +2,7 @@
 
 use moddedmc_api::{
     Pos,
+    abi::ENTITY_PASSENGER,
     content::{CollisionBox, World},
     entities::{
         ENTITY_ALIVE, ENTITY_HANGING, ENTITY_ITEM, ENTITY_LIVING, ENTITY_PLAYER,
@@ -10,7 +11,7 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{ENTITIES, contraption::Blocks};
+use crate::{ENTITIES, contraption::Blocks, seat};
 
 const ENTITY_BOUNDS_EPSILON: f64 = 1.0e-7;
 const SEPARATION_EPSILON: f64 = 1.0e-4;
@@ -75,7 +76,7 @@ impl Rotation {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Frame {
+pub struct Frame {
     origin: [f64; 3],
     rotation: Rotation,
 }
@@ -89,6 +90,14 @@ impl Frame {
         }
     }
 
+    pub fn translated(anchor: Pos, offset: [f64; 3]) -> Self {
+        Self::new(anchor, offset, Rotation::IDENTITY)
+    }
+
+    pub fn rotating(anchor: Pos, axis: u8, angle: f32) -> Self {
+        Self::new(anchor, [0.0; 3], Rotation::new(axis, angle))
+    }
+
     fn to_local(self, point: [f64; 3]) -> [f64; 3] {
         let from_pivot = std::array::from_fn(|i| point[i] - self.origin[i] - 0.5);
         self.rotation
@@ -97,7 +106,7 @@ impl Frame {
             .map(|n| n + 0.5)
     }
 
-    fn to_world(self, point: [f64; 3]) -> [f64; 3] {
+    pub fn to_world(self, point: [f64; 3]) -> [f64; 3] {
         let from_pivot = self.rotation.transform(point.map(|n| n - 0.5));
         std::array::from_fn(|i| from_pivot[i] + self.origin[i] + 0.5)
     }
@@ -338,8 +347,8 @@ pub fn collide_entities(
     collide(
         world,
         blocks,
-        Frame::new(anchor, before, Rotation::IDENTITY),
-        Frame::new(anchor, after, Rotation::IDENTITY),
+        Frame::translated(anchor, before),
+        Frame::translated(anchor, after),
     );
 }
 
@@ -354,12 +363,16 @@ pub fn collide_rotating(
     collide(
         world,
         blocks,
-        Frame::new(anchor, [0.0; 3], Rotation::new(axis, before)),
-        Frame::new(anchor, [0.0; 3], Rotation::new(axis, after)),
+        Frame::rotating(anchor, axis, before),
+        Frame::rotating(anchor, axis, after),
     );
 }
 
 fn collide(world: World<'_>, blocks: &Blocks, before: Frame, after: Frame) {
+    for local in blocks.seats() {
+        let point = seat::position(local);
+        seat::move_carrier(world, before.to_world(point), after.to_world(point));
+    }
     let Some(entities) = ENTITIES.get() else {
         return;
     };
@@ -385,7 +398,9 @@ fn collide(world: World<'_>, blocks: &Blocks, before: Frame, after: Frame) {
     for id in ids {
         entities.with_entity(world, id, |entity| {
             let flags = entity.flags();
-            if flags & (ENTITY_ALIVE | ENTITY_HANGING | ENTITY_PUSH_IGNORED) != ENTITY_ALIVE {
+            if flags & (ENTITY_ALIVE | ENTITY_HANGING | ENTITY_PUSH_IGNORED | ENTITY_PASSENGER)
+                != ENTITY_ALIVE
+            {
                 return;
             }
             let (Some(view), Some(body)) = (entity.view(), entity.body()) else {
