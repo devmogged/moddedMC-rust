@@ -133,3 +133,22 @@ A stock-protocol bot captured the same payload bytes before and after the change
 overworld login (110 bytes), death and respawn in the overworld (65 bytes), and transfer
 through a real Nether portal (66 bytes). The captured holder/key pairs were
 `0 / minecraft:overworld`, `0 / minecraft:overworld` and `3 / minecraft:the_nether`.
+
+### Runtime biome registry and Terralith parity
+
+Runtime biome IDs follow the synced registry order. Vanilla IDs retain their existing
+indexes, and the Java chunk palette uses the resulting registry size for direct encoding.
+Existing world IDs remain valid across `/reload`. Restart to apply biome registry changes.
+Both Anvil and Pump palettes save custom biome names so IDs can be resolved at the next
+startup. The engine currently accepts up to 256 biome entries.
+
+Terralith includes splines with points out of order. Java 26.3 accepts these in file order
+through the datapack codec and searches the array as supplied. Pumpkin now does the same.
+Before this fix, Pumpkin fell back to the built-in noise router and the harness counted
+6,716 differences in the sampled quarts.
+
+With the fix, the harness found zero differences across 12,288 saved Terralith biome quarts
+at seed 20261120. The samples covered chunks (0,0) through (1,1) and (64,64) through
+(65,65), each from Y -64 through 319. The vanilla run disabled surface, carver and feature
+generation. Converting the subject's world from Anvil to Pump and back left all sampled
+biomes unchanged. Surface rules, carvers and placed features are covered by the later stages.
