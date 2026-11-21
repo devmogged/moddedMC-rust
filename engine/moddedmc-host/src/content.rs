@@ -31,6 +31,7 @@ use pumpkin_data::{
     Block, BlockDirection, BlockState, BlockStateId, Property,
     content::{self, BlockDefinition, ItemDefinition, StateDefinition},
     data_component_impl::{EquipmentSlot, ItemModelImpl},
+    dimension::Dimension,
     entity::EntityType,
     fluid::Fluid,
     item::Item,
@@ -1302,9 +1303,15 @@ unsafe extern "C" fn day_time(raw: WorldRef, out: *mut abi::DayTime) -> bool {
     let (Some(world), Some(out)) = (unsafe { world(raw) }, unsafe { out.as_mut() }) else {
         return false;
     };
-    // Pumpkin keeps one level clock for every dimension, the overworld's.
+    // Level.getOverworldClockTime: every dimension reads the overworld's live clock.
+    let overworld = world
+        .server
+        .upgrade()
+        .map(|server| server.get_world_from_dimension(&Dimension::OVERWORLD));
+    let clock = overworld.as_deref().unwrap_or(world);
+    let ticks = lock(&clock.level_time).time_of_day;
     *out = abi::DayTime {
-        ticks: world.level_info.load().day_time,
+        ticks,
         fixed_time: world.dimension.has_fixed_time,
     };
     true
