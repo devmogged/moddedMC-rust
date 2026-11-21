@@ -122,3 +122,14 @@ back-to-back baseline and climate-source binaries measured 11.254 and 10.843 ms 
 chunk, 233.17 and 222.75 µs for biomes, and 3.226 and 3.294 ms for noise. The noise
 difference was inconclusive (p = 0.13). An earlier run of the tree-only change showed
 the opposite direction for full chunk and biome timings.
+
+### Java spawn info
+
+Java 26.3 writes the raw index in the synced `dimension_type` registry as a VarInt,
+then the level resource key. Login and respawn share the encoder for these fields.
+The serializer fixture uses holder index 130 and level key `fixture:deep`.
+
+A stock-protocol bot captured the same payload bytes before and after the change for
+overworld login (110 bytes), death and respawn in the overworld (65 bytes), and transfer
+through a real Nether portal (66 bytes). The captured holder/key pairs were
+`0 / minecraft:overworld`, `0 / minecraft:overworld` and `3 / minecraft:the_nether`.
