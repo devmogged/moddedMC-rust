@@ -1,0 +1,32 @@
+mods target\mods\simple-storage-network.mmc
+start
+cmd forceload add 1024 1024
+wait 3
+cmd fill 1024 99 1024 1026 100 1026 minecraft:air
+cmd setblock 1025 100 1025 storagenetwork:kabel
+cmd setblock 1026 100 1025 storagenetwork:kabel
+cmd setblock 1025 101 1025 storagenetwork:kabel
+wait 1
+cmd storage_network_cable 1025 100 1025
+wait 0.5
+expect Network Cable at 1025,100,1025: (?=.*east=cable)(?=.*up=cable)
+cmd storage_network_cable 1026 100 1025
+wait 0.5
+expect Network Cable at 1026,100,1025: (?=.*west=cable)
+cmd storage_network_cable 1025 101 1025
+wait 0.5
+expect Network Cable at 1025,101,1025: (?=.*down=cable)
+stop
+start
+cmd forceload add 1024 1024
+wait 3
+cmd storage_network_cable 1025 100 1025
+wait 0.5
+expect Network Cable at 1025,100,1025: (?=.*east=cable)(?=.*up=cable)
+cmd setblock 1026 100 1025 minecraft:air
+wait 1
+cmd storage_network_cable 1025 100 1025
+wait 0.5
+expect Network Cable at 1025,100,1025: (?=.*east=none)(?=.*up=cable)
+reject (?i)panicked|trapped|invalid definition|failed to load
+stop

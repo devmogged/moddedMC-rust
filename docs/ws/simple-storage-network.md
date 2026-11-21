@@ -37,3 +37,8 @@ Goal: Port the Simple Storage Network 1.13.2 gameplay to the Rust server for Jav
 
 - Bytecode inspection confirms BlockCable implements SimpleWaterloggedBlock, uses six directional enum properties plus waterlogged, creates a block entity, and updates shape on neighbor changes. Keep these as explicit follow-up behavior for a placement-only first slice. The nominal state product is 4^6 × 2 before checking which combinations are reachable. Do not reserve one stock-client carrier per possible state; consult the carrier sharing and resource-pack limits before adding connected variants.
 - Baseline on the previous Lucius engine: ws20-base-cable-baseline.txt failed exactly at the missing registration assertion (exit 1). See F:/mmc/moddedMC-rust/run/ws20-baseline-a0aefdb7/scenario.log. The workstream scenario is tests/scenarios/simple-storage-network-cable.txt.
+
+## Adjacent base cables
+
+- Network Cables now represent all 64 combinations of open and connected faces. The state values match the released names for this subset. Placement, removal and chunk load trigger a recompute from loaded neighboring base cables. Rendering and collision use the same center and arm dimensions. No upstream asset bytes included.
+- The server scenario checks horizontal and vertical connections in both directions, saved connection state after restart, and removal of just the disconnected arm. It uses the operator inspection command because the engine command predicate cannot parse this custom property vocabulary.
