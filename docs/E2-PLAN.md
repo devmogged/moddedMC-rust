@@ -92,3 +92,33 @@ on the same logical CPUs (affinity mask `0x54`).
 | Fixed CPU set, second pair | 13.967 | 13.607 | 4.939 | 4.364 |
 
 The initial full-chunk increase did not repeat consistently on the fixed CPU set.
+
+## E2b climate sources
+
+The runtime climate tree uses the Java 26.3 fanout and stable ordering. The test rebuilds
+the overworld and Nether trees and compares every node, bound and leaf against the
+extracted vanilla trees. A separate check with the ordered parameter points emitted by
+Java's preset providers matched both trees (7,594 overworld leaves and five Nether leaves).
+The runtime search keeps the previous leaf per thread and per tree, so it preserves
+vanilla's choice when two biome entries are equally close.
+
+Enabled packs can replace built-in dimension generator definitions. Direct multi-noise
+lists and checkerboards with explicit biome IDs work with the existing biome registry.
+Saved generator settings preserve those source definitions through a round trip.
+Dimension type overrides, new dimensions and synced runtime biome IDs remain in E2b.
+
+The Terralith reference is [2.6.5+26.3](https://modrinth.com/datapack/terralith/version/fqnsIp6d).
+The archive matched Modrinth's SHA-512. It adds 95 biome IDs and replaces the overworld
+source with 1,708 climate entries. The full comparison needs the runtime registry.
+
+The live smoke test used seed 20261120, an overworld override with one climate entry for
+`minecraft:desert`, and a fresh chunk at (64,64). Both servers reported desert at
+(1024,-32,1024), (1024,64,1024) and (1024,204,1024). Pumpkin reported the same after saving
+and restarting. The 312 world tests and three shared-model tests passed. Regenerating
+`biome.rs` after moving the biome metadata parser produced no generated source diff.
+
+On the pack-profile `chunk_gen` benchmark at seed 42 (20 samples, CPU mask `0x54`), the
+back-to-back baseline and climate-source binaries measured 11.254 and 10.843 ms for a full
+chunk, 233.17 and 222.75 µs for biomes, and 3.226 and 3.294 ms for noise. The noise
+difference was inconclusive (p = 0.13). An earlier run of the tree-only change showed
+the opposite direction for full chunk and biome timings.
