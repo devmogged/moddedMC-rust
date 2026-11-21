@@ -347,3 +347,19 @@ load. Full chunk slopes in milliseconds were 11.242 to 11.881, 13.794 to 15.523
 with the new binary first, and 14.252 to 14.178 on a longer repeat. Decoration
 slopes were 1.249 to 1.208, 2.159 to 1.712, and 1.928 to 1.561. The results do not
 establish a consistent slowdown.
+
+### E2d block columns and bamboo
+
+The runtime loader and codegen share the column and bamboo input validation.
+Codegen's output changed only in redundant integer suffixes. A column test
+proved that truncation keeps the tip when the next layer is obstructed, and a
+live fixture exercised a named tip provider and bamboo growth on grass. The
+frozen Java 26.3 and Pumpkin worlds matched all 6,400 states in chunk (64,64)
+from Y 294 through 318 at seed 20261120.
+
+Fmt and pack-profile clippy passed across the touched crates. The world suite
+passed 326 unit tests and one save test, and the shared model passed five tests.
+The stock benchmark used seed 42, CPU mask `0x54` and 25 samples. Full chunk
+slopes were 10.707 and 10.680 ms. Decoration slopes were 1.103 and 1.040 ms.
+Criterion detected no full-chunk change and classified the decoration change
+as within its noise threshold.
