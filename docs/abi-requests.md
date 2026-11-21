@@ -87,3 +87,11 @@ Host commit `518bfa8`: `Entities::entities_matching(world, min, max, except, exc
 Moving Create drills use `World::block_drops` before removal so the actor can own the output. That call rolls loot even when block drops are disabled. Expose `World::block_drops_enabled() -> Option<bool>` for the live block-drops game rule so actors can skip both the roll and spawning when it is off.
 
 For drill progress, expose `World::destroy_block_progress(breaker_id: i32, pos: Pos, stage: i8) -> bool` with vanilla stages 0 through 9 and -1 to clear. For entity contact, expose `Entity::hurt(damage_type: &str, amount: f32) -> bool` with vanilla hurt cooldowns and the registered damage type. The drill uses `create:drill`.
+
+## Stock players on translating contraptions
+
+P1d-6 needs the two prototypes described in the contraptions plan. For the teleport prototype, extend `moddedmc:entities` with `Entity::teleport_player(position: [f64; 3]) -> bool`. Accept a loaded player, stay in the current dimension, preserve look and send the client's normal position correction and teleport acknowledgement. `Player::teleport` already has the packet path, but a player found by the contraption's entity query is exposed as an `Entity`. Its `move_by` and `set_position` only move the server copy.
+
+For the collision prototype, add a `CARRIER_SHULKER` kind to `spawn_carrier` with the stock closed-shulker collision box. It needs to be invisible, silent and transient, with AI and block-attachment relocation disabled. Move it through `set_position` and discard it at disassembly or unload. Existing carrier kinds have no collision surface for a stock client. A regular shulker spawned through `moddedmc:mobs` still has its shulker tick behaviour.
+
+Baseline on engine `24dbedcdc`: in the piston rider scenario, replace the armor stand and item with the bot at `2451.5 103 2450.5`. Turn on `bot physics on`, wait half a second, and verify that it stays at the start point. Extend at -128 RPM and check the bot after 1.2 seconds. The block moves three blocks east. The bot reports `2451.5 99 2450.5`, five blocks from the expected `2454.5 103 2450.5`. The 20 and 50 ms latency comparison needs both prototypes.

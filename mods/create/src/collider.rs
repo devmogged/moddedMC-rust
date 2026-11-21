@@ -2,7 +2,7 @@
 
 use moddedmc_api::{
     Pos,
-    abi::ENTITY_PASSENGER,
+    abi::{ENTITY_NO_PHYSICS, ENTITY_PASSENGER},
     content::{CollisionBox, World},
     entities::{
         ENTITY_ALIVE, ENTITY_HANGING, ENTITY_ITEM, ENTITY_LIVING, ENTITY_PLAYER,
@@ -337,6 +337,19 @@ fn collide_many(
     response
 }
 
+fn supported_in_frame(body: Collider, frame: Frame, colliders: &[Collider]) -> bool {
+    let [x, y, z] = frame.to_local(body.min);
+    let [end_x, _, end_z] = frame.to_local(body.max);
+    colliders.iter().any(|shape| {
+        let gap = y - shape.max[1];
+        (0.0..=SEPARATION_EPSILON + 2.0 * ENTITY_BOUNDS_EPSILON).contains(&gap)
+            && x < shape.max[0]
+            && end_x > shape.min[0]
+            && z < shape.max[2]
+            && end_z > shape.min[2]
+    })
+}
+
 pub fn collide_entities(
     world: World<'_>,
     blocks: &mut Blocks,
@@ -395,21 +408,33 @@ fn collide(world: World<'_>, blocks: &mut Blocks, before: Frame, after: Frame) {
     }
     let mut query = after.bounds(bounds).inflate(2.0);
     query.max[1] += 32.0;
-    let ids = entities.entities_in(world, query.min, query.max, 0);
+    let ids = entities.entities_matching(
+        world,
+        query.min,
+        query.max,
+        -1,
+        ENTITY_HANGING | ENTITY_NO_PHYSICS | ENTITY_PUSH_IGNORED | ENTITY_PASSENGER,
+    );
     for id in ids {
         entities.with_entity(world, id, |entity| {
-            let flags = entity.flags();
-            if flags & (ENTITY_ALIVE | ENTITY_HANGING | ENTITY_PUSH_IGNORED | ENTITY_PASSENGER)
-                != ENTITY_ALIVE
-            {
+            if entity.flags() & ENTITY_ALIVE == 0 {
                 return;
             }
             let (Some(view), Some(body)) = (entity.view(), entity.body()) else {
                 return;
             };
-            // shortcut: living entities and loose items until generic push reactions and riders are exposed.
-            if view.kind & ENTITY_PLAYER != 0 || view.kind & (ENTITY_ITEM | ENTITY_LIVING) == 0 {
+            if view.kind & ENTITY_PLAYER != 0 {
                 return;
+            }
+            if view.kind & (ENTITY_ITEM | ENTITY_LIVING) == 0 {
+                let kind = entity.type_id();
+                // shortcut: keep the non-living filter explicit until the host reports all push reactions.
+                if !(kind.ends_with("minecart")
+                    || kind.ends_with("_boat")
+                    || kind.ends_with("_raft"))
+                {
+                    return;
+                }
             }
             let body = Collider {
                 min: body.min,
@@ -420,13 +445,23 @@ fn collide(world: World<'_>, blocks: &mut Blocks, before: Frame, after: Frame) {
                     .inflate(ENTITY_BOUNDS_EPSILON);
             let relative_motion =
                 rotation.transform(std::array::from_fn(|i| view.motion[i] - movement[i]));
-            let response = collide_many(
+            let mut response = collide_many(
                 oriented_body,
                 rotation,
                 &colliders,
                 relative_motion,
                 entity.step_height().unwrap_or(0.0),
             );
+            if !response.surface
+                && movement != [0.0; 3]
+                && movement[1] == 0.0
+                && view.motion[1] <= 0.0
+                && before.rotation.sin == 0.0
+                && before.rotation.cos == 1.0
+            {
+                // The separation slop leaves a resting body just above the previous top face.
+                response.surface = supported_in_frame(body, before, &colliders);
+            }
             let mut motion = view.motion;
             let mut change = EntityChange {
                 mask: SET_MOTION,

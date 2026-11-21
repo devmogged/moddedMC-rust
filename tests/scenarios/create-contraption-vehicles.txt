@@ -1,0 +1,36 @@
+# An unridden boat and minecart follow a translating platform.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2452.5 100 2452.5
+wait 2
+cmd fill 2445 98 2446 2457 98 2456 minecraft:stone
+cmd fill 2445 99 2446 2457 106 2456 minecraft:air
+cmd setblock 2450 100 2450 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2450 100 2450 0
+cmd item replace entity tester hotbar.0 with create:sticky_mechanical_piston
+bot look 90 0
+wait 0.3
+bot place 2450 100 2450 up
+wait 0.5
+cmd kinetics 2450 101 2450
+wait 0.25
+expect create:sticky_mechanical_piston\[axis_along_first=true,facing=east,state=retracted\] at 2450 101 2450
+cmd fill 2447 101 2450 2449 101 2450 create:piston_extension_pole[facing=east]
+cmd fill 2451 101 2449 2451 101 2453 minecraft:slime_block
+cmd fill 2451 102 2449 2451 102 2453 minecraft:cobblestone
+cmd summon minecraft:oak_boat 2451.5 103 2450.5
+cmd summon minecraft:minecart 2451.5 103 2453.5
+wait 0.5
+cmd kinetics 2450 100 2450 -128
+wait 1.2
+bot expect entity minecraft:oak_boat near 2454.5 103 2450.5 within 0.3 count 1
+bot expect entity minecraft:minecart near 2454.5 103 2453.5 within 0.3 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:oak_boat
+expect ^\[bot\] expect entity ok minecraft:minecart
+reject (?i)panicked|trapped|\[bot\] error
+stop
