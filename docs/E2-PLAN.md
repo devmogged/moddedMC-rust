@@ -157,3 +157,21 @@ The ordered-spline benchmark reran seed 42 on the same CPU mask with both binari
 Full chunk generation measured 11.722 ms and 11.406 ms, biome generation 241.96 µs
 and 216.87 µs, and noise 3.462 ms and 3.420 ms. Criterion found a change in biome
 generation. The paired full-chunk and noise differences were inconclusive.
+
+### Datapack dimensions
+
+Startup resolves each level key and its dimension type independently. It loads named
+dimensions from enabled packs and saved world settings, preserves their separate world
+folders, and gives Java spawn packets the type's synced index. Vanilla level keys and
+their existing types keep their normal packet fields. Changing dimension definitions
+requires a restart.
+
+The bot fixture used two flat levels sharing one type with minimum Y -80 and height 384.
+Both generated bedrock at Y -80. The respawn packets carried holder 4 and the distinct
+level keys `fixture:deep` and `fixture:copy`. A block placed in `fixture:deep` stayed
+there across restart. The bot rejoined `fixture:copy` at Y -78 with holder 4 in Login.
+
+The current generation and storage types support a bottom Y of -128 to 112 in multiples
+of 16 and heights of 256 to 496 in multiples of 16. The loader reports unsupported
+ranges before generation. Full Java height ranges still need signed generation
+coordinates, variable-width heightmaps and a larger random-tick section mask.
