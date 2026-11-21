@@ -16,6 +16,7 @@ use crate::{
         BlockMovement, BlockMovementChecks, Blocks, ContraptionDisplays, MAX_ASSEMBLY_DATA_BYTES,
         StructureTransform,
     },
+    elevator::{self, ElevatorMotion},
     kinetics::{Kind, Kinetics, actuator_speed, offset},
 };
 
@@ -171,6 +172,10 @@ pub struct PulleyData {
     offset: f32,
     extension_range: i32,
     blocks: Blocks,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    elevator: Option<ElevatorMotion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mirror_parent: Option<[i32; 3]>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -180,6 +185,7 @@ pub struct RopePulley {
     cable_displays: [i32; 2],
     assemble_next_tick: bool,
     previous_speed: f32,
+    previous_elevator_speed: f32,
 }
 
 impl RopePulley {
@@ -192,10 +198,23 @@ impl RopePulley {
         kinetics: &mut Kinetics,
     ) -> bool {
         let range = extension_range(world, pos);
-        let initial = (1..=range)
-            .take_while(|&distance| is_rope(states, state_at(world, below(pos, distance))))
-            .count() as i32;
-        if (initial == 0 && speed < 0.0) || (initial >= range && speed > 0.0) {
+        let is_elevator = matches!(kinetics.kind(pos), Some(Kind::Elevator(_)));
+        let initial = if is_elevator {
+            (1..=range)
+                .take_while(|&distance| {
+                    let pos = below(pos, distance);
+                    states.replaceable.contains(&state_at(world, pos))
+                        || world
+                            .collision_shape(pos)
+                            .is_some_and(|shape| shape.is_empty())
+                })
+                .count() as i32
+        } else {
+            (1..=range)
+                .take_while(|&distance| is_rope(states, state_at(world, below(pos, distance))))
+                .count() as i32
+        };
+        if !is_elevator && ((initial == 0 && speed < 0.0) || (initial >= range && speed > 0.0)) {
             return false;
         }
         let checks = &states.contraption_blocks;
@@ -215,6 +234,27 @@ impl RopePulley {
             Some(BlockMovement::Immovable) if speed < 0.0 => Blocks::default(),
             _ => return false,
         };
+        let elevator = if is_elevator {
+            let Some(motion) = ElevatorMotion::from_blocks(&blocks, anchor) else {
+                return false;
+            };
+            if kinetics
+                .positions(|kind| matches!(kind, Kind::Elevator(_)))
+                .into_iter()
+                .any(|other| {
+                    kinetics
+                        .get_mut(other)
+                        .and_then(|be| be.pulley.as_ref())
+                        .and_then(|pulley| pulley.data.elevator.as_ref())
+                        .is_some_and(|other| motion.same_column(other))
+                })
+            {
+                return false;
+            }
+            Some(motion)
+        } else {
+            None
+        };
         if blocks.capture_entities(world, anchor, kinetics).is_none() {
             return false;
         }
@@ -223,13 +263,15 @@ impl RopePulley {
             .chain((1..=initial).map(|distance| below(pos, distance)))
             .collect();
         let direction = if speed > 0.0 { DOWN } else { UP };
-        if blocks.is_colliding_with_world(
-            world,
-            below(anchor, if speed > 0.0 { 1 } else { -1 }),
-            direction,
-            &sources,
-            None,
-        ) {
+        if !is_elevator
+            && blocks.is_colliding_with_world(
+                world,
+                below(anchor, if speed > 0.0 { 1 } else { -1 }),
+                direction,
+                &sources,
+                None,
+            )
+        {
             return false;
         }
         let Some((air, water)) = checks.state("minecraft:air").zip(
@@ -242,7 +284,8 @@ impl RopePulley {
         let Some(removals) = blocks.removals(anchor, checks) else {
             return false;
         };
-        let remove: Vec<_> = (1..=initial)
+        let rope_length = if is_elevator { 0 } else { initial };
+        let remove: Vec<_> = (1..=rope_length)
             .rev()
             .map(|distance| {
                 let position = below(pos, distance);
@@ -257,12 +300,14 @@ impl RopePulley {
             })
             .chain(removals)
             .collect();
-        let data = PulleyData {
+        let mut data = PulleyData {
             running: true,
             offset: initial as f32,
             initial_offset: initial,
             extension_range: range,
             blocks,
+            elevator,
+            mirror_parent: None,
         };
         if !fastnbt::to_bytes(&data).is_ok_and(|bytes| bytes.len() <= MAX_ASSEMBLY_DATA_BYTES)
             || (!remove.is_empty() && world.write(&remove) != remove.len())
@@ -270,8 +315,33 @@ impl RopePulley {
             return false;
         }
         crate::contraption::detach_moved_belts(world, &remove, kinetics);
+        if let Some(motion) = &mut data.elevator {
+            Self::start_mirrors(&data.blocks, anchor, pos, kinetics);
+            motion.gather_all(world, states, pos.y + motion.contact_y - 1, range);
+            motion.trigger_contact(world, states, true);
+        }
         self.data = data;
         true
+    }
+
+    fn start_mirrors(blocks: &Blocks, anchor: Pos, pos: Pos, kinetics: &mut Kinetics) {
+        let occupied: HashSet<_> = blocks.positions(anchor).collect();
+        for block in occupied.iter().filter(|block| block.y == anchor.y) {
+            if occupied.contains(&offset(*block, [0, 1, 0])) {
+                continue;
+            }
+            let other = Pos { y: pos.y, ..*block };
+            if other != pos
+                && let Some(be) = kinetics.get_mut(other)
+                && matches!(be.kind, Kind::Elevator(_))
+                && let Some(pulley) = &mut be.pulley
+                && !pulley.data.running
+                && pulley.data.mirror_parent.is_none()
+            {
+                pulley.data.mirror_parent = Some([pos.x, pos.y, pos.z]);
+                be.dirty = true;
+            }
+        }
     }
 
     fn grid_offset(&self, offset: f32) -> i32 {
@@ -289,7 +359,11 @@ impl RopePulley {
             return true;
         }
         let length = self.grid_offset(self.data.offset);
-        let rope = if removed { 0 } else { length };
+        let rope = if removed || self.data.elevator.is_some() {
+            0
+        } else {
+            length
+        };
         let Some(rope) = (1..=rope)
             .rev()
             .map(|distance| {
@@ -352,11 +426,15 @@ impl RopePulley {
             transform,
             [0.0, -self.data.offset, 0.0],
         );
+        self.show_cable(world, pos, self.data.offset);
+    }
+
+    fn show_cable(&mut self, world: World<'_>, pos: Pos, offset: f32) {
         let Some(displays) = BLOCK_DISPLAYS.get() else {
             return;
         };
-        let length = (self.data.offset - 1.0).max(0.0);
-        for ((block, y, scale), id) in [(MAGNET, self.data.offset, 1.0), (ROPE, length, length)]
+        let length = (offset - 1.0).max(0.0);
+        for ((block, y, scale), id) in [(MAGNET, offset, 1.0), (ROPE, length, length)]
             .into_iter()
             .zip(&mut self.cable_displays)
         {
@@ -377,6 +455,56 @@ impl RopePulley {
         }
     }
 
+    fn tick_elevator(&mut self, world: World<'_>, states: &StateIds, pos: Pos, rpm: f32) -> bool {
+        let Some(motion) = &mut self.data.elevator else {
+            return false;
+        };
+        let before = self.data.offset;
+        let previous_target = motion.target;
+        motion.update_calls(world, states);
+        let target = (pos.y - motion.target + motion.contact_y - 1) as f32;
+        let diff = target - before;
+        let speed = elevator::movement_speed(rpm, diff, self.previous_elevator_speed);
+        self.previous_elevator_speed = speed;
+        motion.arrived = diff.abs() < 0.5;
+        let delta = if motion.arrived {
+            if diff.abs() > 1.0 / 128.0 {
+                diff * 0.25
+            } else {
+                diff
+            }
+        } else {
+            speed
+        };
+        let next = (before + delta).clamp(0.0, self.data.extension_range as f32);
+        if next != before {
+            let direction = if next < before { UP } else { DOWN };
+            let shift = next.ceil() as i32 - i32::from(direction == UP);
+            if !self.data.blocks.is_colliding_with_world(
+                world,
+                below(pos, shift + 1),
+                direction,
+                &HashSet::new(),
+                None,
+            ) {
+                self.data.offset = next;
+                collider::collide_entities(
+                    world,
+                    &self.data.blocks,
+                    below(pos, 1),
+                    [0.0, -f64::from(before), 0.0],
+                    [0.0, -f64::from(next), 0.0],
+                );
+            }
+        }
+        if motion.arrived {
+            motion.trigger_contact(world, states, true);
+        }
+        let dirty = before != self.data.offset || previous_target != motion.target;
+        self.show(world, pos);
+        dirty
+    }
+
     fn tick(
         &mut self,
         world: World<'_>,
@@ -385,6 +513,34 @@ impl RopePulley {
         rpm: f32,
         kinetics: &mut Kinetics,
     ) -> bool {
+        if matches!(kinetics.kind(pos), Some(Kind::Elevator(_))) {
+            if let Some([x, y, z]) = self.data.mirror_parent {
+                let parent = Pos { x, y, z };
+                if let Some(pulley) = kinetics.get_mut(parent).and_then(|be| be.pulley.as_ref())
+                    && pulley.data.elevator.is_some()
+                {
+                    self.show_cable(world, pos, pulley.data.offset);
+                    return false;
+                }
+                self.clear_displays(world);
+                if state_at(world, parent) != UNLOADED_STATE {
+                    self.data.mirror_parent = None;
+                    return true;
+                }
+                return false;
+            }
+            let clicked = std::mem::take(&mut self.assemble_next_tick);
+            if !self.data.running {
+                return clicked
+                    && rpm != 0.0
+                    && self.assemble(world, states, pos, actuator_speed(rpm), kinetics);
+            }
+            if clicked && self.disassemble(world, &states.contraption_blocks, pos, false) {
+                self.previous_elevator_speed = 0.0;
+                return true;
+            }
+            return self.tick_elevator(world, states, pos, rpm);
+        }
         let previous = std::mem::replace(&mut self.previous_speed, rpm);
         let speed = actuator_speed(rpm);
         let queued = std::mem::take(&mut self.assemble_next_tick) || previous != rpm;
@@ -447,13 +603,24 @@ impl RopePulley {
 }
 
 pub fn use_item_on(kinetics: &mut Kinetics, context: &UseBlock<'_>) -> BlockUseResult {
+    let is_elevator = matches!(kinetics.kind(context.position), Some(Kind::Elevator(_)));
+    if is_elevator && (context.sneaking || !context.player.is_some_and(|player| player.may_build()))
+    {
+        return BlockUseResult::Fail;
+    }
     if context.sneaking || context.stack.read().is_some() {
         return BlockUseResult::TryEmptyHand;
     }
-    if let Some(pulley) = kinetics
-        .get_mut(context.position)
-        .and_then(|be| be.pulley.as_mut())
+    let mut target = context.position;
+    if is_elevator
+        && let Some([x, y, z]) = kinetics
+            .get_mut(target)
+            .and_then(|be| be.pulley.as_ref())
+            .and_then(|pulley| pulley.data.mirror_parent)
     {
+        target = Pos { x, y, z };
+    }
+    if let Some(pulley) = kinetics.get_mut(target).and_then(|be| be.pulley.as_mut()) {
         pulley.assemble_next_tick = true;
     }
     BlockUseResult::Success
@@ -477,7 +644,10 @@ pub fn event(world: World<'_>, states: &StateIds, event: &content::ContentEvent)
 pub fn tick(world: World<'_>, states: &StateIds, kinetics: &mut Kinetics) {
     for (pos, mut pulley) in kinetics.dropped_pulleys.drain(..) {
         let rope = below(pos, 1);
-        if is_rope(states, state_at(world, rope)) {
+        if pulley.data.elevator.is_none()
+            && pulley.data.mirror_parent.is_none()
+            && is_rope(states, state_at(world, rope))
+        {
             world.destroy(rope, true);
         }
         if !pulley.disassemble(world, &states.contraption_blocks, pos, true) {
@@ -485,7 +655,7 @@ pub fn tick(world: World<'_>, states: &StateIds, kinetics: &mut Kinetics) {
             pulley.data.blocks.drop_contents(world, pos, |item| item);
         }
     }
-    for pos in kinetics.positions(|kind| matches!(kind, Kind::Pulley(_))) {
+    for pos in kinetics.positions(|kind| matches!(kind, Kind::Pulley(_) | Kind::Elevator(_))) {
         let Some(be) = kinetics.get_mut(pos) else {
             continue;
         };

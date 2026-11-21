@@ -145,3 +145,13 @@ Put a Sticker on a bearing with a block touching its front. Pulse redstone to ex
 Put an armor stand and a loose item on a cobblestone platform attached to a piston. Extend the piston and check both stay on the platform. The [piston rider scenario](../../tests/scenarios/create-contraption-riders.txt) checks their positions after a three-block move. The [bearing rider scenario](../../tests/scenarios/create-bearing-rider.txt) checks that an armor stand follows a quarter turn around the vertical axis. The [tilted bearing scenario](../../tests/scenarios/create-bearing-tilted-rider.txt) checks that bearings lift stands when rotating about X and Z. Contraptions use their captured block shapes to push living entities and items. Player carrying, special block reactions and other entity types are pending.
 
 Not ported yet: the rest of `BeltBlock.useItemOn` (dyes and water, the wrench and the connector on an existing belt, packages, a shaft turning a middle segment into a pulley, casings), and its `mayBuild` check; belt processing, tunnels and crushers; the belt surface doesn't scroll, only its top half is drawn, and sideways belts (between vertical shafts) are drawn turned the wrong way, because block models can't take the Z rotation `BeltRenderer` uses; breaking a pulley segment doesn't drop its shaft, belts can't be dyed or cased, and their placement makes no sound; the gearbox, clutch and gearshift show their casing without the turning shaft halves inside; the turntable spins mobs and items standing on it but not `setNoActionTime`, which Pumpkin lacks (players turn on their own client, as in Create); the vertical gearbox item, encasing a shaft with casing and casing recipes (Create's `item_application` recipe type); overstress particles and goggle tooltips; and the motor's in-world scroll control. The casing blocks use andesite as their physical template, so unlike Create they conduct redstone. The stock selection outline follows the vanilla carrier.
+
+### Elevator pulley
+
+Drive an Elevator Pulley from its horizontal shaft. Place a movable platform below it with one
+horizontal Redstone Contact on the platform. Place matching contacts facing it on the floors.
+Use the pulley with an empty hand to assemble. Power a floor contact to call the platform and
+check that its adjacent lamp lights when the platform arrives. Use the pulley again, or a pulley
+mirroring it, to restore the blocks at that floor. The [elevator scenario](../../tests/scenarios/create-elevator.txt)
+restarts the server mid-trip, checks both floor lamps and the mirror cable, then disassembles
+through the mirror. Floor naming screens and contraption controls require client support.

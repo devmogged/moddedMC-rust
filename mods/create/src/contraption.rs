@@ -131,7 +131,12 @@ impl BlockMovementChecks {
         if entry.name == "minecraft:water" {
             return Some(BlockMovement::Air);
         }
-        if chassis::is_chassis(&entry.name) || matches!(entry.name.as_str(), BELT | sticker::ID) {
+        if chassis::is_chassis(&entry.name)
+            || matches!(
+                entry.name.as_str(),
+                BELT | sticker::ID | crate::elevator::CONTACT
+            )
+        {
             return Some(BlockMovement::Movable(entry));
         }
         let movable = matches!(entry.name.as_str(), SHAFT | ENCASED_SHAFT)

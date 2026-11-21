@@ -36,6 +36,7 @@ mod collider;
 mod contraption;
 mod crusher;
 mod depot;
+mod elevator;
 mod fan;
 mod funnel;
 mod gantry;
@@ -119,6 +120,7 @@ impl Mod for Create {
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
+        interaction.require_extension(InteractionExtension::Redstone)?;
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
         let _ = INTERACTION.set(interaction);
         let _ = EFFECTS.set(effects::require()?);
@@ -163,6 +165,7 @@ impl Mod for Create {
         piston::register(*content, registry)?;
         gantry::register(*content, registry)?;
         pulley::register(*content, registry)?;
+        elevator::register(*content, registry)?;
         chassis::register(*content, registry)?;
         sticker::register(*content, registry)?;
         millstone::register(*content, registry)?;
@@ -196,6 +199,7 @@ impl Mod for Create {
             .ok_or(RegistrationError::InvalidDefinition)?;
         interaction.on_use_on_block(registry, use_on_block)?;
         interaction.on_use_block(registry, use_block)?;
+        interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
         interaction.on_player_will_destroy(registry, piston::player_will_destroy)?;
         content.on_tick(registry, tick)?;
         ENTITIES
@@ -655,6 +659,7 @@ struct StateIds {
     contraption_blocks: contraption::BlockMovementChecks,
     chutes: HashMap<u32, chute::ChuteState>,
     funnels: HashMap<u32, funnel::FunnelState>,
+    contacts: HashMap<u32, elevator::Contact>,
     crusher_controllers: HashMap<u32, (u8, bool)>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
@@ -789,6 +794,7 @@ fn states() -> Option<&'static StateIds> {
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
+        elevator::add_states(content, &mut ids);
         chassis::add_states(content, &mut ids);
         sticker::add_states(content, &mut ids);
         ids.contraption_blocks.register_states(content);
@@ -902,6 +908,10 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                 args.sneak,
             );
         }
+        None if placed.block == elevator::CONTACT => {
+            return elevator::placed_contact(&args, look, states);
+        }
+        Some(Kind::Elevator(_)) => return elevator::placed_pulley(args.yaw),
         Some(Kind::Pulley(_)) => {
             let horizontal = connected
                 .filter(|&direction| face_axis(direction) != 1)
@@ -1153,7 +1163,7 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if matches!(kind, Kind::GantryShaft(_)) {
         be.gantries = data.gantries;
     }
-    if matches!(kind, Kind::Pulley(_))
+    if matches!(kind, Kind::Pulley(_) | Kind::Elevator(_))
         && let Some(data) = data.pulley
     {
         let mut pulley = pulley::RopePulley::default();
@@ -1308,6 +1318,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             funnel::event(world, &mut kinetics.funnels, states, event);
             crusher::event(world, states, kinetics, event);
             pulley::event(world, states, event);
+            elevator::event(world, states, event);
             chassis::event(world, states, event);
             sticker::event(world, states, event);
             let pos = event.position;
@@ -1458,7 +1469,7 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         Some(Kind::GantryCarriage(_)) => with_world(context.world, |kinetics| {
             gantry::use_item_on(kinetics, context)
         }),
-        Some(Kind::Pulley(_)) => with_world(context.world, |kinetics| {
+        Some(Kind::Pulley(_) | Kind::Elevator(_)) => with_world(context.world, |kinetics| {
             pulley::use_item_on(kinetics, context)
         }),
         _ => BlockUseResult::TryEmptyHand,

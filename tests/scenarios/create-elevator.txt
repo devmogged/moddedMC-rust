@@ -1,0 +1,59 @@
+# Assemble from an empty shaft, call the next floor, then resume the selected floor after restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:elevator_pulley
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2392.5 106 2394.5 180 0
+wait 2
+cmd fill 2386 96 2386 2395 96 2395 minecraft:stone
+cmd fill 2386 97 2386 2395 110 2395 minecraft:air
+cmd setblock 2389 108 2390 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2389 108 2390 128
+cmd setblock 2390 108 2390 create:elevator_pulley[facing=north]
+cmd setblock 2390 108 2389 create:elevator_pulley[facing=north]
+cmd setblock 2390 100 2390 minecraft:slime_block
+cmd setblock 2390 100 2389 minecraft:stone
+cmd setblock 2391 100 2390 create:redstone_contact[facing=east,powered=false]
+cmd setblock 2392 100 2390 create:redstone_contact[facing=west,powered=false]
+cmd setblock 2392 104 2390 create:redstone_contact[facing=west,powered=false]
+cmd setblock 2393 100 2390 minecraft:redstone_lamp
+cmd setblock 2393 104 2390 minecraft:redstone_lamp
+cmd tp tester 2390.5 107 2393.5 180 0
+wait 0.5
+bot use 2390 108 2390
+wait 0.8
+bot expect block 2390 100 2390 minecraft:air
+bot expect block 2393 100 2390 minecraft:redstone_lamp[lit=true]
+bot expect entity minecraft:block_display near 2390.5 108.5 2389.5 within 0.05 count 2
+wait 0.5
+expect ^\[bot\] expect block ok 2390 100 2390
+expect ^\[bot\] expect block ok 2393 100 2390
+expect ^\[bot\] expect entity ok
+cmd setblock 2392 104 2391 minecraft:redstone_block
+wait 0.35
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+bot expect block 2393 100 2390 minecraft:redstone_lamp[lit=false]
+bot expect block 2393 104 2390 minecraft:redstone_lamp[lit=true]
+wait 0.5
+expect ^\[bot\] expect block ok 2393 100 2390
+expect ^\[bot\] expect block ok 2393 104 2390
+bot expect entity minecraft:block_display near 2390.5 108.5 2389.5 within 0.05 count 2
+wait 0.3
+expect ^\[bot\] expect entity ok
+cmd tp tester 2390.5 107 2392.5 180 0
+wait 0.5
+bot use 2390 108 2389
+wait 0.6
+bot expect block 2390 104 2390 minecraft:slime_block
+wait 0.5
+expect ^\[bot\] expect block ok 2390 104 2390
+reject (?i)panicked|trapped|\[bot\] error
+stop

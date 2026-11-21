@@ -106,6 +106,7 @@ pub enum Kind {
     GantryShaft(crate::gantry::Shaft),
     GantryCarriage(crate::gantry::Carriage),
     Pulley(u8),
+    Elevator(u8),
     Millstone,
     Wheel(u8),
     Belt(Belt),
@@ -239,6 +240,7 @@ impl Kind {
             | Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing) => face_axis(facing),
+            Self::Elevator(facing) => crate::elevator::shaft_axis(facing),
             Self::Turntable | Self::Millstone => 1,
             Self::Piston(block) => block.shaft_axis(),
             Self::GantryShaft(shaft) => face_axis(shaft.facing),
@@ -290,7 +292,8 @@ impl Kind {
             | Self::Millstone
             | Self::Bearing(_)
             | Self::Piston(_)
-            | Self::Pulley(_) => 4.0,
+            | Self::Pulley(_)
+            | Self::Elevator(_) => 4.0,
             Self::Press(_) | Self::Wheel(_) => 8.0,
             Self::Fan(_) => 2.0,
             _ => 0.0,
@@ -701,7 +704,7 @@ impl Kinetics {
         if matches!(be.kind, Kind::Piston(_)) && be.piston.is_none() {
             be.piston = Some(Box::default());
         }
-        if matches!(be.kind, Kind::Pulley(_)) && be.pulley.is_none() {
+        if matches!(be.kind, Kind::Pulley(_) | Kind::Elevator(_)) && be.pulley.is_none() {
             be.pulley = Some(Box::default());
         }
         if be.kind == Kind::Millstone && be.millstone.is_none() {
