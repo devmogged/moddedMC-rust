@@ -1,0 +1,12 @@
+[package]
+name = "simple-storage-network"
+version = "1.13.2"
+edition.workspace = true
+license = "MIT"
+description = "Partial native port of Simple Storage Network NeoForge 26.1.2-1.13.2"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+moddedmc-api.workspace = true

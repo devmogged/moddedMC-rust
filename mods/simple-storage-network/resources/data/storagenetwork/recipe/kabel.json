@@ -1,0 +1,6 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": ["sss", "i i", "sss"],
+  "key": {"s": "minecraft:stone_slab", "i": "#c:ingots/iron"},
+  "result": {"id": "storagenetwork:kabel", "count": 8}
+}

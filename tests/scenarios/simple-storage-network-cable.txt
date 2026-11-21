@@ -1,0 +1,48 @@
+# WS-20 M1 base cable smoke scenario.
+# This checks registration, client placement, recipe availability, loot and restart.
+# Actual crafting and connected cable states require separate checks.
+mods target\mods\simple-storage-network.mmc
+start
+expect registered content block storagenetwork:kabel
+expect Loaded built-in datapack 'mod/simple-storage-network': 1 recipe\(s\), 1 loot table\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 3
+cmd fill 1020 99 1018 1030 105 1030 minecraft:air
+cmd setblock 1025 99 1025 minecraft:stone
+wait 1
+cmd item replace entity tester weapon.mainhand with storagenetwork:kabel
+wait 0.5
+bot place 1025 99 1025 up
+wait 1
+cmd execute if block 1025 100 1025 storagenetwork:kabel
+wait 0.5
+expect Test passed
+cmd recipe give tester storagenetwork:kabel
+wait 0.5
+expect Unlocked 1 recipe
+bot quit
+stop
+start
+cmd forceload add 1025 1025
+wait 4
+cmd execute if block 1025 100 1025 storagenetwork:kabel
+wait 0.5
+expect Test passed
+cmd loot spawn 1025 102 1025 mine 1025 100 1025
+wait 0.5
+expect Dropped 1 .*Cable
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+bot break 1025 100 1025
+wait 1
+cmd execute if block 1025 100 1025 minecraft:air
+wait 0.5
+expect Test passed
+bot quit
+reject (?i)panicked|trapped|invalid definition|failed to load
+stop
