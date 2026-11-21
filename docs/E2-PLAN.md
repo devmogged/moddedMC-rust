@@ -152,3 +152,8 @@ at seed 20261120. The samples covered chunks (0,0) through (1,1) and (64,64) thr
 (65,65), each from Y -64 through 319. The vanilla run disabled surface, carver and feature
 generation. Converting the subject's world from Anvil to Pump and back left all sampled
 biomes unchanged. Surface rules, carvers and placed features are covered by the later stages.
+
+The ordered-spline benchmark reran seed 42 on the same CPU mask with both binaries.
+Full chunk generation measured 11.722 ms and 11.406 ms, biome generation 241.96 µs
+and 216.87 µs, and noise 3.462 ms and 3.420 ms. Criterion found a change in biome
+generation. The paired full-chunk and noise differences were inconclusive.
