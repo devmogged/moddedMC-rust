@@ -246,3 +246,46 @@ The pack-profile stock `chunk_gen` benchmark used seed 42, 20 samples and CPU ma
 
 The full-chunk result reversed direction with run order. The carver point estimate
 was lower in both runs.
+
+### E2d runtime feature wiring
+
+Biomes retain their placed-feature IDs and step order from the winning pack. Noise
+generators using datapack biome lists build the decoration order once from the source
+biome order. A skipped feature with a registered ID still takes its original slot,
+so later decoration seeds keep their indexes. Packs with a feature-order cycle report
+the feature involved and skip decoration in that level. Restart after changing packs.
+
+The first slice decodes no-op, simple block, fill layer, block pile, single-block
+replacement, netherrack replacement blobs, ore and scattered ore configurations.
+It shares the entry codec with codegen and the height-provider sampler with carvers.
+Other configurations are reported and skipped. Built-in feature definitions remain
+available without a datapack.
+
+| Pack | Named feature files | Files using a decoded type | Largest pending families |
+| --- | ---: | ---: | --- |
+| Terralith | 508 | 128 | Trees (189), random selectors (66), vegetation patches (36), disks (25) |
+| Incendium | 33 | 11 | Vegetation patches (10), random selectors (4), trees (4) |
+
+These counts classify types. Named provider resolution and feature behavior still
+need to be checked against both packs. Terralith also uses the shelf-mushroom tree
+decorator, which Pumpkin does not implement. The current loader only accepts named
+entries in biome feature lists. Nested placed holders and datapack block tags still
+need resolution.
+
+A live Java 26.3 fixture put a gold marker in two positions and then replaced the
+first with diamond in the same biome step. Pumpkin generated both expected states
+after enabling the pack and restarting. The harness found zero differences across
+the 256 blocks at Y 300 in chunk (64,64), seed 20261120.
+
+The first full-decoration sample used the same seed and compared chunks (64,64)
+through (65,65) with each named datapack enabled. Terralith differed at 289 of 393,216
+positions, including coal ore, moss, hanging moss and bubble columns. Incendium differed
+at 2,737 of 262,144 positions, mostly netherrack, red sand, red terracotta and vines.
+Java ran with structures disabled. Pumpkin used its default built-in structure sets.
+These runs record the earliest live baseline for feature loading. The E2d parity
+check still needs identical structure settings and the remaining feature codecs.
+
+The pack-profile stock benchmark compared this slice with E2c at seed 42, with 20
+samples and CPU mask `0x54`. Criterion slope estimates were 10.715 and 10.701 ms
+for full chunks, and 1.104 and 1.122 ms for decoration. Neither change was
+statistically significant.
