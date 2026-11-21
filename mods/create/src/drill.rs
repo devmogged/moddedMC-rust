@@ -7,7 +7,7 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CONTENT, DIRECTIONS, STACKS, STONE, StateIds, TAGS,
+    CONTENT, DIRECTIONS, STONE, StateIds, TAGS,
     collider::Frame,
     kinetics::{FACES, Kind, face_axis, positive},
 };
@@ -132,20 +132,10 @@ impl BreakProgress {
     }
 }
 
-fn destroy_block(world: World<'_>, position: Pos) -> bool {
-    let Some(drops) = world.block_drops(position, None) else {
-        return false;
-    };
-    if !world.destroy(position, false) {
-        return false;
-    }
-    if let Some(stacks) = STACKS.get() {
-        let at = [position.x, position.y, position.z].map(|n| f64::from(n) + 0.5);
-        for drop in drops {
-            stacks.spawn(world, at, [0.0; 3], &drop);
-        }
-    }
-    true
+pub enum Tick {
+    Travel,
+    Stalled,
+    Broke(Pos, Vec<Vec<u8>>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -173,9 +163,9 @@ impl DrillMovementBehaviour {
         }
     }
 
-    pub fn tick(&mut self, world: World<'_>, previous: Frame, next: Frame) -> bool {
+    pub fn tick(&mut self, world: World<'_>, previous: Frame, next: Frame) -> Tick {
         let Some(step) = FACES.get(usize::from(self.facing)) else {
-            return false;
+            return Tick::Travel;
         };
         let step = step.map(f64::from);
         let point =
@@ -188,7 +178,7 @@ impl DrillMovementBehaviour {
             self.breaking_pos = None;
             self.last_pos = None;
             self.breaker = BreakProgress::default();
-            return false;
+            return Tick::Travel;
         }
         let speed = motion
             .into_iter()
@@ -196,7 +186,7 @@ impl DrillMovementBehaviour {
             .sum::<f64>()
             .sqrt();
         if speed == 0.0 {
-            return false;
+            return Tick::Travel;
         }
 
         let grid = after.map(|n| n.floor() as i32);
@@ -208,19 +198,24 @@ impl DrillMovementBehaviour {
             self.speed = block_breaking_speed(speed);
         }
         let Some(target) = self.breaking_pos.map(block_pos) else {
-            return false;
+            return Tick::Travel;
         };
         let Some(hardness) = breakable(world, target) else {
             self.breaking_pos = None;
             self.breaker = BreakProgress::default();
-            return false;
+            return Tick::Travel;
         };
         if !self.breaker.tick(hardness, self.speed) {
-            return true;
+            return Tick::Stalled;
         }
         self.breaking_pos = None;
-        destroy_block(world, target);
-        false
+        if let Some(drops) = world.block_drops(target, None)
+            && world.destroy(target, false)
+        {
+            Tick::Broke(target, drops)
+        } else {
+            Tick::Travel
+        }
     }
 }
 

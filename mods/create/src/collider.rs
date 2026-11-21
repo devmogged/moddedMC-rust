@@ -339,7 +339,7 @@ fn collide_many(
 
 pub fn collide_entities(
     world: World<'_>,
-    blocks: &Blocks,
+    blocks: &mut Blocks,
     anchor: Pos,
     before: [f64; 3],
     after: [f64; 3],
@@ -354,7 +354,7 @@ pub fn collide_entities(
 
 pub fn collide_rotating(
     world: World<'_>,
-    blocks: &Blocks,
+    blocks: &mut Blocks,
     anchor: Pos,
     axis: u8,
     before: f32,
@@ -368,7 +368,8 @@ pub fn collide_rotating(
     );
 }
 
-fn collide(world: World<'_>, blocks: &Blocks, before: Frame, after: Frame) {
+fn collide(world: World<'_>, blocks: &mut Blocks, before: Frame, after: Frame) {
+    blocks.harvest(world, before, after);
     for local in blocks.seats() {
         let point = seat::position(local);
         seat::move_carrier(world, before.to_world(point), after.to_world(point));

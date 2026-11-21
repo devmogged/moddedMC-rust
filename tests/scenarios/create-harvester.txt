@@ -1,0 +1,65 @@
+# Harvest mature wheat while moving forward and leave an immature stand intact.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_harvester
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2622.5 100 2622.5
+wait 2
+cmd fill 2613 98 2615 2630 98 2625 minecraft:stone
+cmd fill 2613 99 2615 2630 106 2625 minecraft:air
+cmd gamerule minecraft:random_tick_speed 0
+cmd setblock 2620 100 2620 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2620 100 2620 0
+cmd item replace entity tester hotbar.0 with create:sticky_mechanical_piston
+bot look 90 0
+wait 0.3
+bot place 2620 100 2620 up
+wait 0.5
+cmd kinetics 2620 101 2620
+wait 0.25
+expect create:sticky_mechanical_piston\[axis_along_first=true,facing=east,state=retracted\] at 2620 101 2620
+cmd fill 2615 101 2620 2619 101 2620 create:piston_extension_pole[facing=east,waterlogged=false]
+cmd setblock 2621 101 2620 minecraft:slime_block
+cmd setblock 2621 101 2621 minecraft:slime_block
+cmd setblock 2621 102 2620 minecraft:chest
+cmd item replace block 2621 102 2620 container.26 with minecraft:wheat 63
+cmd setblock 2622 101 2621 create:mechanical_harvester[facing=east]
+cmd fill 2624 100 2621 2625 100 2621 minecraft:farmland[moisture=7]
+cmd setblock 2624 101 2621 minecraft:wheat[age=7]
+cmd setblock 2625 101 2621 minecraft:wheat[age=3]
+wait 0.5
+cmd kinetics 2620 100 2620 -128
+wait 1.6
+bot expect block 2624 101 2621 minecraft:wheat[age=0]
+bot expect block 2625 101 2621 minecraft:wheat[age=3]
+bot expect entity minecraft:item near 2625.5 100.5 2621.5 within 3 count 0
+wait 0.4
+expect ^\[bot\] expect block ok 2624 101 2621
+expect ^\[bot\] expect block ok 2625 101 2621
+expect ^\[bot\] expect entity ok minecraft:item
+cmd execute if block 2627 101 2621 create:mechanical_harvester[facing=east]
+wait 0.25
+expect Test passed
+reject (?i)panicked|trapped|\[bot\] error
+cmd data get block 2626 102 2620 Items[{Slot:26b}].count
+wait 0.25
+expect has the following block data: 64$
+cmd save-all flush
+wait 0.75
+expect Saved the game
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+bot expect block 2624 101 2621 minecraft:wheat[age=0]
+wait 0.4
+expect ^\[bot\] expect block ok 2624 101 2621
+cmd data get block 2626 102 2620 Items[{Slot:26b}].count
+wait 0.25
+expect has the following block data: 64$
+reject (?i)panicked|trapped|\[bot\] error
+stop

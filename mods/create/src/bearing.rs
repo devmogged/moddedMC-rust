@@ -249,7 +249,7 @@ impl MechanicalBearing {
                 }
                 collider::collide_rotating(
                     world,
-                    &contraption.blocks,
+                    &mut contraption.blocks,
                     anchor,
                     axis,
                     before,

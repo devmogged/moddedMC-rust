@@ -180,3 +180,10 @@ in front of the head and extend the piston. The platform pauses while the drill 
 continues once the block drops. The [drill scenario](../../tests/scenarios/create-drill.txt)
 checks mining progress, resumes across a restart, and checks the dropped item and final position.
 Stationary mining, damage, falling-block stacks and break overlays are pending.
+
+### Mechanical Harvester
+
+Attach a Mechanical Harvester to the front of a moving frame and run it down a crop row.
+Mature wheat is cut and replanted, and the blade leaves immature wheat intact. Mount a chest
+on the frame to collect the harvest. The [harvester scenario](../../tests/scenarios/create-harvester.txt)
+checks both crop ages, the existing stack in the chest, and the saved crop and chest after restart.

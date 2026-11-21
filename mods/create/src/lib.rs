@@ -42,6 +42,7 @@ mod fan;
 mod funnel;
 mod gantry;
 mod glue;
+mod harvester;
 mod kinetics;
 mod millstone;
 mod piston;
@@ -177,6 +178,7 @@ impl Mod for Create {
         glue::register(registry)?;
         seat::register(*content, registry)?;
         drill::register(*content, registry)?;
+        harvester::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -802,6 +804,7 @@ fn states() -> Option<&'static StateIds> {
         bearing::add_states(content, &mut ids);
         seat::add_states(content, &mut ids);
         drill::add_states(content, &mut ids);
+        harvester::add_states(content, &mut ids);
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
@@ -868,6 +871,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     let placed = states.by_id.get(&args.state)?;
     if seat::is_seat(placed.block) {
         return seat::placed_state(args, placed.block);
+    }
+    if placed.block == harvester::ID {
+        return harvester::placed_state(&args, nearest_looking_direction(args.yaw, 0.0));
     }
     if placed.block == press::ID {
         return press::placed_state(args, states);
@@ -1341,6 +1347,13 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             chassis::event(world, states, event);
             sticker::event(world, states, event);
             seat::event(world, states, event);
+            if states
+                .by_id
+                .get(&event.state)
+                .is_some_and(|entry| entry.block == harvester::ID)
+            {
+                harvester::event(world, event);
+            }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
             gantry_changed |= matches!(before, Some(Kind::GantryShaft(_)))

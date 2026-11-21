@@ -502,7 +502,7 @@ impl RopePulley {
                 self.data.offset = next;
                 collider::collide_entities(
                     world,
-                    &self.data.blocks,
+                    &mut self.data.blocks,
                     below(pos, 1),
                     [0.0, -f64::from(before), 0.0],
                     [0.0, -f64::from(next), 0.0],
@@ -607,7 +607,7 @@ impl RopePulley {
         }
         collider::collide_entities(
             world,
-            &self.data.blocks,
+            &mut self.data.blocks,
             below(pos, 1),
             [0.0, -f64::from(before), 0.0],
             [0.0, -f64::from(self.data.offset), 0.0],

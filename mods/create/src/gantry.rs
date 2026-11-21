@@ -545,8 +545,8 @@ impl GantryContraption {
         self.offset = next_offset;
         collider::collide_entities(
             world,
-            &self.blocks,
-            self.anchor(),
+            &mut self.blocks,
+            anchor,
             translation(before),
             translation(self.offset),
         );

@@ -20,6 +20,7 @@ use crate::{
     collider::{Collider, Frame},
     drill::{self, DrillMovementBehaviour},
     glue::{self, GlueBox, GlueScan},
+    harvester,
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
     seat, states, sticker,
 };
@@ -138,7 +139,7 @@ impl BlockMovementChecks {
             || seat::is_seat(&entry.name)
             || matches!(
                 entry.name.as_str(),
-                BELT | sticker::ID | crate::elevator::CONTACT | drill::ID
+                BELT | sticker::ID | crate::elevator::CONTACT | drill::ID | harvester::ID
             )
         {
             return Some(BlockMovement::Movable(entry));
@@ -193,6 +194,9 @@ impl BlockMovementChecks {
     ) -> Option<Vec<Pos>> {
         let mut attached = chassis::attachments(world, self, pos, entry, forced)?;
         attached.extend(sticker::attachment(entry, pos));
+        if let Some(face) = harvester::facing(entry) {
+            attached.push(offset(pos, FACES[usize::from(face ^ 1)]));
+        }
         if entry.name == BELT {
             // `Contraption.moveBelt` follows both ends even when only one pulley is attached.
             let Some(Kind::Belt(belt)) = states()?.kind(entry.state()?) else {
@@ -244,12 +248,123 @@ pub struct Blocks {
 }
 
 impl Blocks {
-    pub fn tick_drills(&mut self, world: World<'_>, before: Frame, after: Frame) -> bool {
-        let mut stalled = false;
-        for actor in &mut self.drills {
-            stalled |= actor.tick(world, before, after);
+    pub fn harvest(&mut self, world: World<'_>, before: Frame, after: Frame) {
+        let mut harvests = Vec::new();
+        for block in &self.block_list {
+            let entry = &self.palette[block.palette_index()];
+            if let Some(face) = harvester::facing(entry)
+                && let Some(pos) = harvester::newly_visited(block.local_pos(), face, before, after)
+                && let Some(drops) = harvester::visit_new_position(world, pos)
+            {
+                harvests.push((pos, drops));
+            }
         }
+        for (pos, drops) in harvests {
+            self.collect_or_drop_items(world, pos, drops);
+        }
+    }
+
+    pub fn tick_drills(&mut self, world: World<'_>, before: Frame, after: Frame) -> bool {
+        let mut drills = std::mem::take(&mut self.drills);
+        let mut stalled = false;
+        for actor in &mut drills {
+            match actor.tick(world, before, after) {
+                drill::Tick::Stalled => stalled = true,
+                drill::Tick::Broke(pos, drops) => self.collect_or_drop_items(world, pos, drops),
+                drill::Tick::Travel => {}
+            }
+        }
+        self.drills = drills;
         stalled
+    }
+
+    fn collect_or_drop_items(&mut self, world: World<'_>, position: Pos, drops: Vec<Vec<u8>>) {
+        let Some(stacks) = STACKS.get() else { return };
+        let at = [position.x, position.y, position.z].map(|n| f64::from(n) + 0.5);
+        for drop in drops {
+            let Some(info) = stacks.info(&drop) else {
+                continue;
+            };
+            let Ok(item) = fastnbt::from_bytes::<Value>(&drop) else {
+                continue;
+            };
+            let remaining = self.insert_into_chests(&item, info.max_count as i32);
+            if remaining == info.count as i32 {
+                stacks.spawn(world, at, [0.0; 3], &drop);
+            } else if remaining > 0
+                && let Ok(rest) = fastnbt::to_bytes(&belt_inventory::with_count(&item, remaining))
+            {
+                stacks.spawn(world, at, [0.0; 3], &rest);
+            }
+        }
+    }
+
+    fn insert_into_chests(&mut self, item: &Value, max_count: i32) -> i32 {
+        const CHEST_SIZE: u8 = 27;
+        let mut count = belt_inventory::count(item);
+        let Value::Compound(offered) = item else {
+            return count;
+        };
+        for merge in [true, false] {
+            for block in &mut self.block_list {
+                if self.palette[block.palette_index()].name != "minecraft:chest" {
+                    continue;
+                }
+                let Some(nbt) = &mut block.nbt else { continue };
+                let Value::List(items) = nbt
+                    .entry("Items".into())
+                    .or_insert_with(|| Value::List(Vec::new()))
+                else {
+                    continue;
+                };
+                if merge {
+                    for existing in &mut *items {
+                        let stackable = matches!(existing, Value::Compound(nbt) if
+                            nbt.get("id") == offered.get("id") && nbt.get("components") == offered.get("components"));
+                        if !stackable {
+                            continue;
+                        }
+                        let existing_count = belt_inventory::count(existing);
+                        let inserted = count.min((max_count - existing_count).max(0));
+                        if let Value::Compound(stack) = existing
+                            && inserted > 0
+                        {
+                            stack.insert("count".into(), Value::Int(existing_count + inserted));
+                        }
+                        count -= inserted;
+                        if count == 0 {
+                            return 0;
+                        }
+                    }
+                } else {
+                    let occupied: HashSet<_> = items
+                        .iter()
+                        .filter_map(|stored| {
+                            let Value::Compound(stored) = stored else {
+                                return None;
+                            };
+                            match stored.get("Slot")? {
+                                Value::Byte(slot) => u8::try_from(*slot).ok(),
+                                Value::Int(slot) => u8::try_from(*slot).ok(),
+                                _ => None,
+                            }
+                        })
+                        .collect();
+                    for slot in (0..CHEST_SIZE).filter(|slot| !occupied.contains(slot)) {
+                        let mut stack = offered.clone();
+                        let inserted = count.min(max_count);
+                        stack.insert("Slot".into(), Value::Byte(slot as i8));
+                        stack.insert("count".into(), Value::Int(inserted));
+                        items.push(Value::Compound(stack));
+                        count -= inserted;
+                        if count == 0 {
+                            return 0;
+                        }
+                    }
+                }
+            }
+        }
+        count
     }
 
     pub fn seats(&self) -> impl Iterator<Item = Pos> + '_ {
@@ -286,7 +401,8 @@ impl Blocks {
         let water = checks.state("minecraft:water")?;
         Some(self.block_list.iter().map(move |block| {
             let entry = &self.palette[block.palette_index()];
-            let wet = (entry.name == BELT || seat::is_seat(&entry.name))
+            let wet = (matches!(entry.name.as_str(), BELT | drill::ID | harvester::ID)
+                || seat::is_seat(&entry.name))
                 && entry
                     .properties
                     .get("waterlogged")
@@ -318,8 +434,11 @@ impl Blocks {
                     && world
                         .collision_shape(pos)
                         .is_none_or(|shape| !shape.is_empty())
-                    && (self.palette[block.palette_index()].name != drill::ID
-                        || drill::breakable(world, pos).is_none())
+                    && match self.palette[block.palette_index()].name.as_str() {
+                        drill::ID => drill::breakable(world, pos).is_none(),
+                        harvester::ID => !harvester::can_harvest(world, pos),
+                        _ => true,
+                    }
             })
     }
 
@@ -436,6 +555,7 @@ impl Blocks {
                 if let BlockMovement::Movable(next) = get(adjacent)?
                     && (glue.is_glued(world, pos, adjacent)
                         || sticker::attachment(&next, adjacent) == Some(pos)
+                        || harvester::facing(&next) == Some(face as u8)
                         || can_stick(&entry.name, &next.name)
                             && !entry.is_not_supportive(face as u8)
                             && !next.is_not_supportive(face as u8 ^ 1))
@@ -495,7 +615,8 @@ impl Blocks {
             .map(|((position, block), &previous)| {
                 let entry = self.palette.get(block.palette_index())?;
                 let belt = entry.name == BELT;
-                let waterlog = belt || seat::is_seat(&entry.name);
+                let waterlog = matches!(entry.name.as_str(), BELT | drill::ID | harvester::ID)
+                    || seat::is_seat(&entry.name);
                 let air = checks.is_air(previous);
                 if !air
                     && (!waterlog
@@ -721,7 +842,7 @@ pub struct PaletteEntry {
 impl PaletteEntry {
     pub(crate) fn is_not_supportive(&self, face: u8) -> bool {
         sticker::blocks_attachment(self, face)
-            || self.name == drill::ID
+            || matches!(self.name.as_str(), drill::ID | harvester::ID)
                 && self
                     .properties
                     .get("facing")
