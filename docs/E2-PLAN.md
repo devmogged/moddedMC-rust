@@ -363,3 +363,23 @@ The stock benchmark used seed 42, CPU mask `0x54` and 25 samples. Full chunk
 slopes were 10.707 and 10.680 ms. Decoration slopes were 1.103 and 1.040 ms.
 Criterion detected no full-chunk change and classified the decoration change
 as within its noise threshold.
+
+### E2d placement rules
+
+The Java block-match rule checks a state's block before drawing its probability.
+The per-layer count placement samples its provider at every loop condition,
+including the terminating check. Focused tests reproduced both discrepancies
+before the fix and passed after it.
+
+The Java 26.3 fixture used a block match on an X-axis oak log and a uniform
+count of one through four for gold markers. At seed 20261120 in chunk (64,64),
+the original engine left the log in place and produced two extra gold markers.
+After the fix, both servers replaced the log at (1028,290,1028) and placed one
+gold marker at (1036,291,1033). The frozen snapshots matched all 512 states.
+Fmt, clippy, 328 world unit tests and one save test passed.
+
+The stock benchmark used seed 42, CPU mask `0x54` and 25 samples. In two
+paired runs, full chunk slopes were 11.143 to 10.747 ms and 12.281 to 11.069 ms.
+Decoration slopes were 1.087 to 1.148 ms and 1.149 to 1.168 ms. The first
+decoration comparison detected a regression. The reverse-order repeat did
+not detect a change. Host timings varied between pairs.
