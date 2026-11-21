@@ -289,3 +289,22 @@ The pack-profile stock benchmark compared this slice with E2c at seed 42, with 2
 samples and CPU mask `0x54`. Criterion slope estimates were 10.715 and 10.701 ms
 for full chunks, and 1.104 and 1.122 ms for decoration. Neither change was
 statistically significant.
+
+### E2d tree configurations and block tags
+
+Runtime tree entries use the existing trunk, foliage, root and decorator implementations.
+Rule-based state providers try their conditions in file order. Named providers resolve
+across the enabled packs. At startup, Pumpkin compiles block tags into the feature
+definitions using the existing merged membership resolver, including `replace: true`.
+Missing tree types or decorators are logged with their feature ID.
+
+The runtime compiler rebuilt the extracted vanilla oak into the same generated block
+states as codegen. A Java 26.3 and Pumpkin fixture grew an oak over a named provider
+whose custom block tag selected a gold foundation. At seed 20261120, the frozen fixture
+matched all 2,816 states at Y 294 through 304 in chunk (64,64). The running-world fixture
+differed only at 34 leaf distances. Java schedules a leaf update from the edge of the
+generated tree, while Pumpkin's proto chunk does not yet carry block ticks.
+
+The stock pack-profile benchmark against E2c used seed 42, CPU mask `0x54` and 20
+samples. Criterion slope estimates were 11.262 and 10.955 ms for full chunks and
+1.228 and 1.140 ms for decoration. This pair showed no slowdown.
