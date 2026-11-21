@@ -303,8 +303,18 @@ states as codegen. A Java 26.3 and Pumpkin fixture grew an oak over a named prov
 whose custom block tag selected a gold foundation. At seed 20261120, the frozen fixture
 matched all 2,816 states at Y 294 through 304 in chunk (64,64). The running-world fixture
 differed only at 34 leaf distances. Java schedules a leaf update from the edge of the
-generated tree, while Pumpkin's proto chunk does not yet carry block ticks.
+generated tree. Pumpkin's proto chunk originally dropped those block ticks.
 
 The stock pack-profile benchmark against E2c used seed 42, CPU mask `0x54` and 20
 samples. Criterion slope estimates were 11.262 and 10.955 ms for full chunks and
 1.228 and 1.140 ms for decoration. This pair showed no slowdown.
+
+Block and fluid ticks now survive proto-chunk promotion and relighting. A loaded chunk
+with queued ticks enters the world's active scheduler, and `simple_block` honors its
+`schedule_tick` field. In the tree fixture, the number of block differences after four
+steps dropped from 34 to 12. After eight steps, all 2,816 states matched. The four-tick
+leaf-distance timing gap remains open.
+
+The stock pack-profile benchmark against the tree slice used seed 42, CPU mask
+`0x54` and 20 samples. Criterion slope estimates were 10.725 and 10.688 ms for full
+chunks and 1.110 and 1.091 ms for decoration. Neither difference was significant.
