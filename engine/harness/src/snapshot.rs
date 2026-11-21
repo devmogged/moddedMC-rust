@@ -74,6 +74,18 @@ pub fn world(dir: &Path, area: Area) -> Result<World, String> {
     Ok(world)
 }
 
+pub fn block_states(dir: &Path, area: Area) -> Result<BTreeMap<Position, String>, String> {
+    let mut regions = BTreeMap::new();
+    let mut blocks = BTreeMap::new();
+    for (x, z) in area.chunks() {
+        let data = read_region(dir, &mut regions, Vector2::new(x, z))?
+            .ok_or_else(|| format!("missing terrain chunk {x} {z} in {}", dir.display()))?;
+        collect_block_states(&data, &mut blocks, area, x, z)
+            .map_err(|error| format!("terrain chunk {x} {z} in {}: {error}", dir.display()))?;
+    }
+    Ok(blocks)
+}
+
 /// Reads each quart intersecting the block area, retaining the names from the save.
 pub fn biomes(dir: &Path, area: Area) -> Result<BTreeMap<Position, String>, String> {
     let terrain = dir.join("world/dimensions/minecraft/overworld/region");
@@ -201,6 +213,32 @@ fn collect_blocks(
     x: i32,
     z: i32,
 ) -> Result<(), String> {
+    collect_block_states(data, &mut world.blocks, area, x, z)?;
+    for entity in optional_list(data, "block_entities")? {
+        let entity = compound(entity)?;
+        let pos = ["x", "y", "z"].map(|axis| entity.get_int(axis));
+        let [Some(x), Some(y), Some(z)] = pos else {
+            return Err("block entity with missing integer coordinates".into());
+        };
+        if area.contains([x, y, z])
+            && world
+                .block_entities
+                .insert([x, y, z], entity.clone())
+                .is_some()
+        {
+            return Err(format!("duplicate block entity at {x} {y} {z}"));
+        }
+    }
+    Ok(())
+}
+
+fn collect_block_states(
+    data: &NbtCompound,
+    blocks: &mut BTreeMap<Position, String>,
+    area: Area,
+    x: i32,
+    z: i32,
+) -> Result<(), String> {
     validate_terrain_chunk(data, x, z)?;
     let mut section_ids = std::collections::BTreeSet::new();
     let sections = data.get_list("sections").ok_or("missing sections list")?;
@@ -224,23 +262,8 @@ fn collect_blocks(
                 z * 16 + ((index >> 4) & 15) as i32,
             ];
             if names[id as usize] != "minecraft:air" && area.contains(pos) {
-                world.blocks.insert(pos, names[id as usize].clone());
+                blocks.insert(pos, names[id as usize].clone());
             }
-        }
-    }
-    for entity in optional_list(data, "block_entities")? {
-        let entity = compound(entity)?;
-        let pos = ["x", "y", "z"].map(|axis| entity.get_int(axis));
-        let [Some(x), Some(y), Some(z)] = pos else {
-            return Err("block entity with missing integer coordinates".into());
-        };
-        if area.contains([x, y, z])
-            && world
-                .block_entities
-                .insert([x, y, z], entity.clone())
-                .is_some()
-        {
-            return Err(format!("duplicate block entity at {x} {y} {z}"));
         }
     }
     Ok(())

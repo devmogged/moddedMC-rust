@@ -2999,6 +2999,7 @@ dependencies = [
 name = "pumpkin-worldgen-model"
 version = "0.2.2+26.3-26.63"
 dependencies = [
+ "md5",
  "pumpkin-data",
  "serde",
  "serde_json",

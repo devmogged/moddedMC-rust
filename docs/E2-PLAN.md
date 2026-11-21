@@ -39,6 +39,13 @@ Commit each stage separately with its tests.
 | E2d | Carvers, configured and placed features per biome, from JSON at runtime. Feature types Pumpkin lacks are listed in this file with their users. | Vanilla's features rebuilt at runtime equal codegen; feature placement in Terralith and Incendium chunks matches dumps for every supported type. |
 | E2e | Structures, structure sets, processors (template pools and templates are already dynamic). | Incendium and Nullscape structures start at the same positions as vanilla and their pieces match. |
 
+## After E2e
+
+**Full Java height ranges.** Widen generation Y coordinates, size heightmaps from each
+dimension, and extend the random-tick section mask. Preserve existing saves and vanilla
+packet bytes. Compare tall and entirely negative worlds against Java 26.3 and verify
+that both Anvil and Pump can save and reopen them.
+
 ## Out of scope
 
 Bedrock worldgen. Datapacks shipped as zip files (Pumpkin loads directory packs only; unpacking
@@ -175,3 +182,32 @@ The current generation and storage types support a bottom Y of -128 to 112 in mu
 of 16 and heights of 256 to 496 in multiples of 16. The loader reports unsupported
 ranges before generation. Full Java height ranges still need signed generation
 coordinates, variable-width heightmaps and a larger random-tick section mask.
+
+## E2c surface rules
+
+Levels compile the selected noise settings' material rule once at startup. References
+resolve across enabled packs and the built-in registries, with the highest pack taking
+priority. The generator reuses its existing evaluator for the compiled rule. It preserves
+block state properties, resolves biome names and tags to synced IDs, and samples 3D noise
+thresholds at the block's Y. Worlds without overrides use the generated rules.
+
+The runtime compiler rebuilt all seven generated vanilla rule trees exactly. The
+Terralith 2.6.5+26.3 run at seed 20261120 matched all **786,432 block states** from Y -64
+through 319 in chunks (0,0) through (1,1) and (64,64) through (65,65). Vanilla 26.3
+generated and saved those chunks with structures, carvers and features disabled.
+Pumpkin ran the same pack through the surface stage and wrote the staged chunks to
+Anvil. The harness compared names and properties across both saved regions.
+
+The back-to-back vanilla `chunk_gen` benchmark used seed 42, the pack profile,
+20 samples and CPU mask `0x54`. Mean full-chunk time was 12.105 ms before and
+12.164 ms after. Surface time was 1.467 ms before and 1.451 ms after. Neither
+difference was statistically significant. The final evaluator keeps the original
+rule layout and caches repeated noise samples at the same position.
+
+`moddedmc-harness compare-blocks <reference-region-dir> <subject-region-dir> <x0> <y0> <z0> <x1> <y1> <z1>`
+compares an inclusive block area. It prints up to twenty coordinates and counts every
+state pair that differs. Compare only corresponding generation stages and dimensions.
+
+The supported ore-vein rules still use the built-in copper and iron density pipeline.
+Custom ore-vein density functions are reported as unsupported. Relative anchors above the
+bottom or below the top currently use the existing signed-byte offsets.
