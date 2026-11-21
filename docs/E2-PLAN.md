@@ -383,3 +383,22 @@ paired runs, full chunk slopes were 11.143 to 10.747 ms and 12.281 to 11.069 ms.
 Decoration slopes were 1.087 to 1.148 ms and 1.149 to 1.168 ms. The first
 decoration comparison detected a regression. The reverse-order repeat did
 not detect a change. Host timings varied between pairs.
+
+### E2d noise state providers
+
+Codegen and the runtime loader share the ordinary, dual-noise and threshold
+palette codecs. Both paths build their samplers once. Dual noise evaluates the
+selected candidate without allocating a list or sampling unused candidates.
+The direct sampler uses Java's double coordinate scaling. The dual provider's
+slow sampler preserves Java's float coordinate multiplication.
+
+The normalizer test matched nine raw Java float values across enabled,
+disabled and legacy modes, with positions up to 18 million blocks away.
+The Java 26.3 and Pumpkin fixture placed each provider in a separate layer.
+At seed 20261120, all 768 states matched in chunk (64,64) from Y 292 through 294.
+Fmt, clippy, 329 world unit tests, one save test and five shared-model tests passed.
+
+The stock benchmark used seed 42, CPU mask `0x54` and 25 samples. Full chunk
+slopes were 11.055 and 10.976 ms. Decoration slopes were 1.120 and 1.128 ms.
+Criterion classified the full-chunk change as within its noise threshold and
+detected no decoration change.
