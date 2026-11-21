@@ -318,3 +318,32 @@ leaf-distance timing gap remains open.
 The stock pack-profile benchmark against the tree slice used seed 42, CPU mask
 `0x54` and 20 samples. Criterion slope estimates were 10.725 and 10.688 ms for full
 chunks and 1.110 and 1.091 ms for decoration. Neither difference was significant.
+
+### E2d nested feature holders
+
+The loader resolves named and inline configured and placed holders across enabled
+packs. A placement shares its decoded children with other callers. Cycles and
+unavailable references skip the affected entry. A named block state provider
+falls back to the extracted vanilla definition when no enabled pack overrides it.
+
+Runtime decoding now covers random, random boolean, weighted random and simple
+random selectors, sequences, disks, vegetation patches and waterlogged vegetation
+patches. The Java 26.3 fixture used a named sequence to place the gold foundation
+and a named random selector to grow the oak with the custom foundation tag. The
+vanilla oak unit test exercises the built-in soil provider fallback separately.
+At seed 20261120, the frozen Java and Pumpkin worlds matched all 2,816
+states in chunk (64,64) from Y 294 through 304. The cycle test rejects a loop
+between a named configured and a named placed entry and still resolves an independent
+sequence with an inline child.
+
+This check covers the sequence and random-selector path. The remaining selector,
+disk and vegetation behavior still needs its own parity checks with real pack data.
+Pack-profile clippy passed. The world suite passed 325 unit tests plus one save
+test. The shared model passed five tests. The Nether biome hash test failed once,
+then passed in isolation and in five complete reruns.
+
+Stock benchmarks used seed 42 and CPU mask `0x54`. Runs varied with machine
+load. Full chunk slopes in milliseconds were 11.242 to 11.881, 13.794 to 15.523
+with the new binary first, and 14.252 to 14.178 on a longer repeat. Decoration
+slopes were 1.249 to 1.208, 2.159 to 1.712, and 1.928 to 1.561. The results do not
+establish a consistent slowdown.
