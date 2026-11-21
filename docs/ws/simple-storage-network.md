@@ -42,3 +42,8 @@ Goal: Port the Simple Storage Network 1.13.2 gameplay to the Rust server for Jav
 
 - Network Cables now represent all 64 combinations of open and connected faces. The state values match the released names for this subset. Placement, removal and chunk load trigger a recompute from loaded neighboring base cables. Rendering and collision use the same center and arm dimensions. No upstream asset bytes included.
 - The server scenario checks horizontal and vertical connections in both directions, saved connection state after restart, and removal of just the disconnected arm. It uses the operator inspection command because the engine command predicate cannot parse this custom property vocabulary.
+
+## Cable crafting
+
+- Pumpkin treats an ingredient string beginning with # as an item ID in its dynamic recipe loader. Use a tag object for c:ingots/iron to preserve the released ingredient.
+- The live-server crafting scenario loads a Crafter with six slabs and one ingot, pulses it, and checks that the output chest is empty. It fills the missing iron slot, pulses again, verifies exactly eight storagenetwork:kabel items in the chest, and checks that the Crafter consumed the inputs.

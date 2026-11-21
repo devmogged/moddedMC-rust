@@ -1,0 +1,35 @@
+mods target\mods\simple-storage-network.mmc
+start
+cmd forceload add 1024 1024
+wait 3
+cmd fill 1024 99 1024 1027 101 1026 minecraft:air
+cmd setblock 1025 100 1025 minecraft:crafter[orientation=east_up]
+cmd setblock 1026 100 1025 minecraft:chest
+wait 1
+cmd item replace block 1025 100 1025 container.0 with minecraft:stone_slab
+cmd item replace block 1025 100 1025 container.1 with minecraft:stone_slab
+cmd item replace block 1025 100 1025 container.2 with minecraft:stone_slab
+cmd item replace block 1025 100 1025 container.3 with minecraft:iron_ingot
+cmd item replace block 1025 100 1025 container.6 with minecraft:stone_slab
+cmd item replace block 1025 100 1025 container.7 with minecraft:stone_slab
+cmd item replace block 1025 100 1025 container.8 with minecraft:stone_slab
+cmd setblock 1024 100 1025 minecraft:redstone_block
+wait 1
+cmd data get block 1026 100 1025 Items[0]
+wait 0.5
+expect Found no elements matching Items
+cmd setblock 1024 100 1025 minecraft:air
+cmd item replace block 1025 100 1025 container.5 with minecraft:iron_ingot
+cmd setblock 1024 100 1025 minecraft:redstone_block
+wait 1
+cmd data get block 1026 100 1025 Items[0].id
+wait 0.5
+expect has the following block data: "storagenetwork:kabel"
+cmd data get block 1026 100 1025 Items[0].count
+wait 0.5
+expect has the following block data: 8\b
+cmd data get block 1025 100 1025 Items[0]
+wait 0.5
+expect Found no elements matching Items
+reject (?i)panicked|trapped|failed to load
+stop
