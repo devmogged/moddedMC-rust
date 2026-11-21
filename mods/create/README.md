@@ -172,3 +172,11 @@ onto a moving contraption and check that the rider stays aboard through disassem
 [seat scenario](../../tests/scenarios/create-seat.txt) checks a bearing turn, dismount on break,
 dyeing and a pig that stays seated after restart. The stock view uses an invisible vanilla carrier. Mounting an
 already moving seat and handing it a leashed mob need additional interaction hooks.
+
+### Moving drills
+
+Mount a Mechanical Drill on a piston platform with the drill pointing forward. Put oak planks
+in front of the head and extend the piston. The platform pauses while the drill mines, then
+continues once the block drops. The [drill scenario](../../tests/scenarios/create-drill.txt)
+checks mining progress, resumes across a restart, and checks the dropped item and final position.
+Stationary mining, damage, falling-block stacks and break overlays are pending.

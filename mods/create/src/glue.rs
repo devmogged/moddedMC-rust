@@ -15,7 +15,7 @@ use crate::{
     ENTITIES, ITEMS,
     contraption::{BlockMovement, BlockMovementChecks, StructureTransform},
     kinetics::{FACES, offset},
-    states, sticker,
+    states,
 };
 
 pub const ID: &str = "create:super_glue";
@@ -196,8 +196,8 @@ fn search_glue_group(world: World<'_>, checks: &BlockMovementChecks, start: Pos,
                 continue;
             }
             if let Some(BlockMovement::Movable(neighbor)) = checks.classify(world, adjacent)
-                && !sticker::blocks_attachment(&block, face as u8)
-                && !sticker::blocks_attachment(&neighbor, face as u8 ^ 1)
+                && !block.is_not_supportive(face as u8)
+                && !neighbor.is_not_supportive(face as u8 ^ 1)
             {
                 visited.insert(adjacent);
                 frontier.push_back(adjacent);

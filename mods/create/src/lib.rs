@@ -36,6 +36,7 @@ mod collider;
 mod contraption;
 mod crusher;
 mod depot;
+mod drill;
 mod elevator;
 mod fan;
 mod funnel;
@@ -110,6 +111,8 @@ impl Mod for Create {
         content.require_extension(WorldExtension::DescribeState)?;
         content.require_extension(WorldExtension::FluidId)?;
         content.require_extension(WorldExtension::BlockEntities)?;
+        content.require_extension(WorldExtension::Survival)?;
+        content.require_extension(WorldExtension::BlockDrops)?;
         let _ = CONTENT.set(content);
         // WS-3: save-global Create railway data through the generic ABI.
         trains::require_saved()?;
@@ -173,6 +176,7 @@ impl Mod for Create {
         sticker::register(*content, registry)?;
         glue::register(registry)?;
         seat::register(*content, registry)?;
+        drill::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -797,6 +801,7 @@ fn states() -> Option<&'static StateIds> {
         fan::add_states(content, &mut ids);
         bearing::add_states(content, &mut ids);
         seat::add_states(content, &mut ids);
+        drill::add_states(content, &mut ids);
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
@@ -974,7 +979,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             };
             format!("{}[facing={}]", fan::ID, DIRECTIONS[usize::from(face)])
         }
-        Some(Kind::Bearing(_) | Kind::Windmill(_)) => {
+        Some(Kind::Bearing(_) | Kind::Windmill(_) | Kind::Drill(_)) => {
             let face = if args.sneak {
                 look
             } else {
@@ -985,7 +990,12 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                     .unwrap_or(look)
                     ^ 1
             };
-            format!("{}[facing={}]", placed.block, DIRECTIONS[usize::from(face)])
+            let direction = DIRECTIONS[usize::from(face)];
+            if placed.block == drill::ID {
+                format!("{}[facing={direction},waterlogged={wet}]", placed.block)
+            } else {
+                format!("{}[facing={direction}]", placed.block)
+            }
         }
         None if placed.block == piston::POLE => return piston::pole_placement(args, wet),
         Some(Kind::Shaft(_)) => format!(

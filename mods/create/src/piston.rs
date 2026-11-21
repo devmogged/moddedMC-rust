@@ -571,7 +571,14 @@ impl PistonContraption {
             for distance in 1..=range {
                 let pos = piston.at(start, distance);
                 match checks.classify(world, pos) {
-                    Some(BlockMovement::Movable(entry)) => frontier.push_back((pos, entry)),
+                    Some(BlockMovement::Movable(entry)) => {
+                        let stop = entry.name == crate::drill::ID
+                            && entry.is_not_supportive(piston.facing);
+                        frontier.push_back((pos, entry));
+                        if stop {
+                            break;
+                        }
+                    }
                     Some(BlockMovement::Air) => break,
                     _ if !extending => break,
                     _ => return None,
@@ -771,14 +778,23 @@ impl MechanicalPiston {
         if speed == 0.0 && self.disassemble(world, checks, base, piston, false) {
             return true;
         }
-        let Some(contraption) = &self.data.contraption else {
+        let Some(contraption) = &mut self.data.contraption else {
             return false;
         };
         let end = contraption.extension_length as f32;
         let before = self.data.offset;
         let next = (before + speed).clamp(0.0, end);
+        let translation = |distance: f32| {
+            FACES[usize::from(piston.facing)].map(|axis| f64::from(axis) * f64::from(distance))
+        };
+        let stalled = contraption.blocks.tick_drills(
+            world,
+            collider::Frame::translated(base, translation(before)),
+            collider::Frame::translated(base, translation(next)),
+        );
         let shift = piston.collision_offset(next, extending);
-        let collision = speed != 0.0
+        let collision = !stalled
+            && speed != 0.0
             && contraption.blocks.is_colliding_with_world(
                 world,
                 piston.at(base, shift),
@@ -790,16 +806,15 @@ impl MechanicalPiston {
                 &HashSet::new(),
                 Some(base),
             );
-        if collision {
+        if stalled {
+            self.data.offset = before;
+        } else if collision {
             let grid = (self.data.offset + 0.5).floor();
             let speed = speed.clamp(-grid, end - grid);
             self.data.offset = (grid - speed + 0.5).floor().clamp(0.0, end);
         } else {
             self.data.offset = next;
         }
-        let translation = |distance: f32| {
-            FACES[usize::from(piston.facing)].map(|axis| f64::from(axis) * f64::from(distance))
-        };
         collider::collide_entities(
             world,
             &contraption.blocks,
@@ -807,7 +822,8 @@ impl MechanicalPiston {
             translation(before),
             translation(self.data.offset),
         );
-        if (collision || next == 0.0 || next == end)
+        if !stalled
+            && (collision || next == 0.0 || next == end)
             && self.disassemble(world, checks, base, piston, false)
         {
             self.assemble_next_tick = collision && extending;

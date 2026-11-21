@@ -235,10 +235,18 @@ impl MechanicalBearing {
                 speed
             };
             let before = self.data.angle;
-            self.data.angle = (before + speed * 360.0 / 60.0 / 20.0) % 360.0;
-            if let Some(contraption) = &self.data.contraption
+            let angle = (before + speed * 360.0 / 60.0 / 20.0) % 360.0;
+            self.data.angle = angle;
+            if let Some(contraption) = &mut self.data.contraption
                 && let Some(anchor) = contraption.anchor()
             {
+                if contraption.blocks.tick_drills(
+                    world,
+                    collider::Frame::rotating(anchor, axis, before),
+                    collider::Frame::rotating(anchor, axis, angle),
+                ) {
+                    self.data.angle = before;
+                }
                 collider::collide_rotating(
                     world,
                     &contraption.blocks,

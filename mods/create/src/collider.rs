@@ -98,7 +98,7 @@ impl Frame {
         Self::new(anchor, [0.0; 3], Rotation::new(axis, angle))
     }
 
-    fn to_local(self, point: [f64; 3]) -> [f64; 3] {
+    pub fn to_local(self, point: [f64; 3]) -> [f64; 3] {
         let from_pivot = std::array::from_fn(|i| point[i] - self.origin[i] - 0.5);
         self.rotation
             .inverse()

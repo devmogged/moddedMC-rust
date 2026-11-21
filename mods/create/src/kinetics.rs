@@ -102,6 +102,7 @@ pub enum Kind {
     Fan(u8),
     Bearing(u8),
     Windmill(u8),
+    Drill(u8),
     Piston(crate::piston::PistonBlock),
     GantryShaft(crate::gantry::Shaft),
     GantryCarriage(crate::gantry::Carriage),
@@ -239,7 +240,8 @@ impl Kind {
             Self::Motor(facing)
             | Self::Fan(facing)
             | Self::Bearing(facing)
-            | Self::Windmill(facing) => face_axis(facing),
+            | Self::Windmill(facing)
+            | Self::Drill(facing) => face_axis(facing),
             Self::Elevator(facing) => crate::elevator::shaft_axis(facing),
             Self::Turntable | Self::Millstone => 1,
             Self::Piston(block) => block.shaft_axis(),
@@ -259,9 +261,10 @@ impl Kind {
     pub const fn has_shaft_towards(self, face: u8) -> bool {
         match self {
             Self::Motor(facing) => facing == face,
-            Self::Fan(facing) | Self::Bearing(facing) | Self::Windmill(facing) => {
-                facing ^ 1 == face
-            }
+            Self::Fan(facing)
+            | Self::Bearing(facing)
+            | Self::Windmill(facing)
+            | Self::Drill(facing) => facing ^ 1 == face,
             Self::Gearbox(axis) => face_axis(face) != axis,
             Self::Turntable | Self::Millstone => face == DOWN,
             Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
@@ -291,6 +294,7 @@ impl Kind {
             Self::Turntable
             | Self::Millstone
             | Self::Bearing(_)
+            | Self::Drill(_)
             | Self::Piston(_)
             | Self::Pulley(_)
             | Self::Elevator(_) => 4.0,
@@ -327,7 +331,8 @@ impl Kind {
             (Self::Belt(a), Self::Belt(b)) => a.part == b.part,
             (Self::Fan(a), Self::Fan(b))
             | (Self::Bearing(a), Self::Bearing(b))
-            | (Self::Windmill(a), Self::Windmill(b)) => a == b,
+            | (Self::Windmill(a), Self::Windmill(b))
+            | (Self::Drill(a), Self::Drill(b)) => a == b,
             (Self::Piston(a), Self::Piston(b)) => a == b,
             (Self::GantryShaft(a), Self::GantryShaft(b)) => {
                 a.facing == b.facing && a.powered == b.powered

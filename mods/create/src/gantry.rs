@@ -515,24 +515,34 @@ impl GantryContraption {
             positive_direction,
             axis.floor() as i32 + i32::from(positive(direction)),
         );
+        let before = self.offset;
+        let next_offset = before
+            + if self.age < 2 {
+                0.0
+            } else if self.gantry_axis == shaft.facing {
+                speed
+            } else {
+                -speed
+            };
+        let translation = |distance: f32| {
+            FACES[usize::from(self.gantry_axis)].map(|axis| f64::from(axis) * f64::from(distance))
+        };
+        let anchor = self.anchor();
+        if self.blocks.tick_drills(
+            world,
+            collider::Frame::translated(anchor, translation(before)),
+            collider::Frame::translated(anchor, translation(next_offset)),
+        ) {
+            self.show(world);
+            return false;
+        }
         if self
             .blocks
             .is_colliding_with_world(world, cell, direction, &HashSet::new(), None)
         {
             return self.disassemble(world, checks);
         }
-        let before = self.offset;
-        if self.age >= 2 {
-            self.offset += speed
-                * if self.gantry_axis == shaft.facing {
-                    1.0
-                } else {
-                    -1.0
-                };
-        }
-        let translation = |distance: f32| {
-            FACES[usize::from(self.gantry_axis)].map(|axis| f64::from(axis) * f64::from(distance))
-        };
+        self.offset = next_offset;
         collider::collide_entities(
             world,
             &self.blocks,

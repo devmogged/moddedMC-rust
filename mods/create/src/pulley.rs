@@ -484,7 +484,12 @@ impl RopePulley {
             speed
         };
         let next = (before + delta).clamp(0.0, self.data.extension_range as f32);
-        if next != before {
+        let stalled = self.data.blocks.tick_drills(
+            world,
+            collider::Frame::translated(below(pos, 1), [0.0, -f64::from(before), 0.0]),
+            collider::Frame::translated(below(pos, 1), [0.0, -f64::from(next), 0.0]),
+        );
+        if !stalled && next != before {
             let direction = if next < before { UP } else { DOWN };
             let shift = next.ceil() as i32 - i32::from(direction == UP);
             if !self.data.blocks.is_colliding_with_world(
@@ -507,7 +512,7 @@ impl RopePulley {
         if motion.arrived {
             motion.trigger_contact(world, states, true);
         }
-        let dirty = before != self.data.offset || previous_target != motion.target;
+        let dirty = stalled || before != self.data.offset || previous_target != motion.target;
         self.show(world, pos);
         dirty
     }
@@ -578,15 +583,23 @@ impl RopePulley {
         let before = self.data.offset;
         let extent = self.data.extension_range as f32;
         let next = next.clamp(0.0, extent);
-        let shift = -(-next).floor() as i32 - i32::from(direction == UP);
-        let collision = self.data.blocks.is_colliding_with_world(
+        let stalled = self.data.blocks.tick_drills(
             world,
-            below(pos, shift + 1),
-            direction,
-            &HashSet::new(),
-            None,
+            collider::Frame::translated(below(pos, 1), [0.0, -f64::from(before), 0.0]),
+            collider::Frame::translated(below(pos, 1), [0.0, -f64::from(next), 0.0]),
         );
-        if collision {
+        let shift = -(-next).floor() as i32 - i32::from(direction == UP);
+        let collision = !stalled
+            && self.data.blocks.is_colliding_with_world(
+                world,
+                below(pos, shift + 1),
+                direction,
+                &HashSet::new(),
+                None,
+            );
+        if stalled {
+            self.data.offset = before;
+        } else if collision {
             self.data.offset =
                 self.grid_offset(self.grid_offset(self.data.offset) as f32 - speed) as f32;
         } else {
@@ -599,7 +612,8 @@ impl RopePulley {
             [0.0, -f64::from(before), 0.0],
             [0.0, -f64::from(self.data.offset), 0.0],
         );
-        if (collision || next == 0.0 || next == extent)
+        if !stalled
+            && (collision || next == 0.0 || next == extent)
             && self.disassemble(world, checks, pos, false)
         {
             return true;

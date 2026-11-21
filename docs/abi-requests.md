@@ -81,3 +81,9 @@ Host commit `a553b83`: `World::can_survive(pos, state)` (Pumpkin's `can_place_at
 Stock-player platform experiments need a player position update that sends the vanilla teleport and handles its acknowledgement. `Entity::set_position` only updates the server entity. The shulker experiment needs a no-AI setter for the spawned shulkers so their vanilla behavior does not change the result.
 
 Host commit `518bfa8`: `Entities::entities_matching(world, min, max, except, exclude)` filters by flag bits before counting and pages internally past 256, so it returns every match. New flags `ENTITY_NO_PHYSICS` and `ENTITY_PASSENGER`, plus `Entity::vehicle()`. Piston reaction stays `ENTITY_PUSH_IGNORED`; say if you need the other reactions. Require `EntitiesExtension::Carriers`.
+
+## Block breaker effects and drop rule
+
+Moving Create drills use `World::block_drops` before removal so the actor can own the output. That call rolls loot even when block drops are disabled. Expose `World::block_drops_enabled() -> Option<bool>` for the live block-drops game rule so actors can skip both the roll and spawning when it is off.
+
+For drill progress, expose `World::destroy_block_progress(breaker_id: i32, pos: Pos, stage: i8) -> bool` with vanilla stages 0 through 9 and -1 to clear. For entity contact, expose `Entity::hurt(damage_type: &str, amount: f32) -> bool` with vanilla hurt cooldowns and the registered damage type. The drill uses `create:drill`.

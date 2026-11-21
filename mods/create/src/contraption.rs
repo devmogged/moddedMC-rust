@@ -18,6 +18,7 @@ use crate::{
     belt_movement::can_transport_objects,
     chassis,
     collider::{Collider, Frame},
+    drill::{self, DrillMovementBehaviour},
     glue::{self, GlueBox, GlueScan},
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
     seat, states, sticker,
@@ -137,7 +138,7 @@ impl BlockMovementChecks {
             || seat::is_seat(&entry.name)
             || matches!(
                 entry.name.as_str(),
-                BELT | sticker::ID | crate::elevator::CONTACT
+                BELT | sticker::ID | crate::elevator::CONTACT | drill::ID
             )
         {
             return Some(BlockMovement::Movable(entry));
@@ -238,9 +239,19 @@ pub struct Blocks {
     superglue: Vec<GlueBox>,
     #[serde(skip)]
     glue_to_remove: Vec<i32>,
+    #[serde(default, rename = "Actors", skip_serializing_if = "Vec::is_empty")]
+    drills: Vec<DrillMovementBehaviour>,
 }
 
 impl Blocks {
+    pub fn tick_drills(&mut self, world: World<'_>, before: Frame, after: Frame) -> bool {
+        let mut stalled = false;
+        for actor in &mut self.drills {
+            stalled |= actor.tick(world, before, after);
+        }
+        stalled
+    }
+
     pub fn seats(&self) -> impl Iterator<Item = Pos> + '_ {
         self.block_list.iter().filter_map(|block| {
             let [x, y, z] = block.local_pos();
@@ -297,14 +308,19 @@ impl Blocks {
         controller: Option<Pos>,
     ) -> bool {
         let destinations: HashSet<_> = self.positions(anchor).collect();
-        destinations.iter().any(|&pos| {
-            Some(pos) != controller
-                && !sources.contains(&pos)
-                && !destinations.contains(&offset(pos, FACES[usize::from(direction)]))
-                && world
-                    .collision_shape(pos)
-                    .is_none_or(|shape| !shape.is_empty())
-        })
+        self.block_list
+            .iter()
+            .zip(self.positions(anchor))
+            .any(|(block, pos)| {
+                Some(pos) != controller
+                    && !sources.contains(&pos)
+                    && !destinations.contains(&offset(pos, FACES[usize::from(direction)]))
+                    && world
+                        .collision_shape(pos)
+                        .is_none_or(|shape| !shape.is_empty())
+                    && (self.palette[block.palette_index()].name != drill::ID
+                        || drill::breakable(world, pos).is_none())
+            })
     }
 
     pub fn capture_entities(
@@ -323,6 +339,13 @@ impl Blocks {
                 .collect();
             if shapes.as_slice() != [Collider::BLOCK] {
                 block.shapes = Some(shapes);
+            }
+            if entry.name == drill::ID {
+                let Some(Kind::Drill(facing)) = states()?.kind(entry.state()?) else {
+                    return None;
+                };
+                self.drills
+                    .push(DrillMovementBehaviour::new(block.local_pos(), facing));
             }
             if entry.name == BELT {
                 let be = kinetics.get(position)?;
@@ -414,8 +437,8 @@ impl Blocks {
                     && (glue.is_glued(world, pos, adjacent)
                         || sticker::attachment(&next, adjacent) == Some(pos)
                         || can_stick(&entry.name, &next.name)
-                            && !sticker::blocks_attachment(&entry, face as u8)
-                            && !sticker::blocks_attachment(&next, face as u8 ^ 1))
+                            && !entry.is_not_supportive(face as u8)
+                            && !next.is_not_supportive(face as u8 ^ 1))
                 {
                     visited.insert(adjacent);
                     frontier.push_back((adjacent, next));
@@ -696,6 +719,15 @@ pub struct PaletteEntry {
 }
 
 impl PaletteEntry {
+    pub(crate) fn is_not_supportive(&self, face: u8) -> bool {
+        sticker::blocks_attachment(self, face)
+            || self.name == drill::ID
+                && self
+                    .properties
+                    .get("facing")
+                    .is_some_and(|facing| facing == DIRECTIONS[usize::from(face)])
+    }
+
     pub(crate) fn parse(selector: &str) -> Self {
         let (name, properties) = selector
             .strip_suffix(']')
