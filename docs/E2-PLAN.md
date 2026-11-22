@@ -402,3 +402,25 @@ The stock benchmark used seed 42, CPU mask `0x54` and 25 samples. Full chunk
 slopes were 11.055 and 10.976 ms. Decoration slopes were 1.120 and 1.128 ms.
 Criterion classified the full-chunk change as within its noise threshold and
 detected no decoration change.
+### E2d terrain and cave features
+
+Runtime decoding now also covers vines, springs, underwater magma, sculk patches,
+huge fungi, fallen trees, multiface growth, geodes, block blobs, both huge mushrooms,
+speleothem clusters and large dripstone. Speleothem clusters and large dripstone
+were empty placeholders before. They are now ports of Java 26.3's
+`SpeleothemClusterFeature`, `LargeDripstoneFeature` and `SpeleothemUtils`, so the
+sulfur spike cluster works too.
+
+Porting against the Java source exposed engine bugs that affected vanilla worlds:
+
+- Geode and spring block lists never resolved `#` tags.
+- Codegen gave geodes zero distribution points and offsets instead of Java's
+  defaults, so amethyst geodes were broken.
+- Huge mushrooms checked the world top one block too high.
+- Block blobs used hard-coded tags instead of their `can_place_on` predicate.
+
+Tests decode every vanilla JSON of these types at runtime and compare the output with
+codegen in noise chunks at seed 42. The dripstone test also checks that both features
+change a real cave. These tests prove the decoders agree with codegen. They don't
+prove Java parity: no Java fixture has run for these features yet. Fmt, clippy and 334
+world unit tests passed. Pumpkin commits d836a6fc9 through 7c29d3b30.
