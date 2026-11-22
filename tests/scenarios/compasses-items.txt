@@ -1,0 +1,19 @@
+# WS-14 M1: registered items and shipped recipes on a restarted world.
+mods target\mods\compasses.mmc
+start
+expect registered content item explorerscompass:explorerscompass
+expect registered content item naturescompass:naturescompass
+expect Loaded built-in datapack 'mod/compasses': 4 recipe\(s\), 0 loot table\(s\), 1 tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd give tester naturescompass:naturescompass 1
+expect Gave 1 .*Nature's Compass
+cmd give tester explorerscompass:explorerscompass 1
+expect Gave 1 .*Explorer's Compass
+stop
+start
+expect registered content item explorerscompass:explorerscompass
+expect registered content item naturescompass:naturescompass
+reject ERROR|panicked
+stop

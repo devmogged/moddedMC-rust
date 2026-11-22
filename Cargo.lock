@@ -168,6 +168,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "compasses"
+version = "0.1.0"
+dependencies = [
+ "moddedmc-api",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
