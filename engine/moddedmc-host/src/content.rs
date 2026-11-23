@@ -466,6 +466,7 @@ fn split_items(
                     name: item.id.clone(),
                     display_name: item.name,
                     carrier: item.carrier,
+                    components: Vec::new(),
                 },
                 content_pack::ItemAssets {
                     id: item.id,
