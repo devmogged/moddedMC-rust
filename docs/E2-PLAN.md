@@ -598,8 +598,8 @@ generator produces the same 100 piece bounds for start (67, 16) as the Java
 save, including all 31 pieces that reach the box. Java's decoration trace in
 chunk (67, 22) places `incendium:abandoned_tower` before `minecraft:fortress`.
 Pumpkin's decoration list enumerates vanilla IDs first, then datapack IDs.
-The missing bricks are a structure placement issue. The registry-order audit
-remains the next task. Pumpkin commit 0e051bc83.
+The missing bricks are a structure placement issue. See Deferred parity for
+the registry-order repro. Pumpkin commit 0e051bc83.
 
 ### Nether fossils and amethyst geodes
 
@@ -614,3 +614,56 @@ The feature keeps its placement random stream for distribution points, layers,
 cracks and crystals. The plains replay had zero geode differences across
 884,736 blocks. The five remaining differences are leaf litter. Pumpkin
 commits 602b4f1b9 and 2b66d5d13.
+
+
+## Deferred parity
+
+Block repros use Java 26.3 and seed 20261120 unless specified. Box corners
+are inclusive X/Z coordinates. Use matched decoration order for feature comparisons.
+
+- **Structure registry order.** Incendium 5.5.4, Nether box (1024, 352) to
+  (1103, 431), Y 0?127. Pumpkin had air at 4,297 Java nether bricks and
+  was missing 49 Java fences. Another 14 fences had differing states. All
+  100 fortress piece bounds for start (67, 16) matched. In chunk (67, 22) Java
+  places the tower before the fortress. Java's `ResourceManagerRegistryLoadTask`
+  sorts the merged resources by `Identifier` (path, then namespace) before
+  registration. The winning pack supplies each definition. Pumpkin appends
+  pack IDs after vanilla IDs and derives decoration indexes from that list.
+  The local fix did not reach a verified build.
+- **Fortress bridge ends.** The stock fortress box (-48, -32) to (143, 159)
+  had 32 Java nether bricks where Pumpkin had air. Matched-order Nether wastes
+  (1008, 1072) to (1071, 1135) and soul sand valley (1072, 1072) to
+  (1135, 1135) had 12 and 49 fortress-brick differences. Java saves negative
+  bridge-end seeds at sample positions (22, 58, 134), (1008, 66, 1072), and
+  (1074, 67, 1094). Java widens the signed int to long. Pumpkin stores it as
+  `u32`. The signed-seed correction still needs a block comparison.
+- **Leaf litter and leaf distance.** The plains matched-order box (976, 1008)
+  to (1023, 1055) had five leaf-litter differences, all at Z 1055, Y 57?60.
+  The separate E2d tree fixture at chunk (64, 64), Y 294?304, had 12
+  leaf-distance differences after four ticks and zero after eight.
+- **`/place structure`.** Run `/place structure minecraft:fortress` at
+  (1074, 64, 258) in fresh Nether copies. Pumpkin seeds the command from the
+  block position hash. Compare the chosen layout and placed blocks with Java.
+  No block count has been recorded.
+- **Datapack ruined portals.** Override `minecraft:ruined_portal_nether`
+  `setups` and compare the generated portal near (80, 48). Pumpkin uses
+  hard-coded setups. Stock Nether ruined-portal starts matched 3/3 locate
+  queries. Custom setup blocks have not been compared.
+- **Full dimension heights.** A pack type with `min_y: -512` and
+  `height: 1024` exceeds Pumpkin's supported minimum Y of -128 to 112 and
+  height of 256 to 496. Java permits minimum Y down to -2032 and height up to
+  4064, in multiples of 16, with `min_y + height <= 2032`. Widen generation
+  coordinates and relative anchors, size heightmaps and the random-tick
+  section mask from the dimension, and verify generation, Anvil and Pump
+  reload, and matched-order blocks near both extremes. Check chunk and light
+  section counts with the headless client and measure stock Overworld RAM and
+  generation time.
+- **Other pack coverage.** The shelf-mushroom tree decorator used by Terralith
+  and custom ore-vein density functions remain unsupported. Exercise the
+  decorator in a fixed tree fixture and override the ore-vein router in a
+  noise settings pack. Neither has a block count. Repeat full decoration on
+  Terralith and Incendium with matched structure settings and decoration order.
+  The early live baselines at chunks (64, 64) to (65, 65) differed at 289 of
+  393,216 and 2,737 of 262,144 blocks, respectively, with different structure
+  settings. Nullscape 2.0.1 matched 12/12 locate queries. End block parity
+  still needs a saved chunk comparison.
