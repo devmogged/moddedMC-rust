@@ -465,10 +465,9 @@ Java 26.3 on every query:
   set override.
 - Vanilla Nether fortress and bastion, with a unit test for the Java positions.
 
-This proves start positions, not piece layouts. No block dump has compared the generated
-pieces yet. Datapack ruined portals are still
-unsupported, because Pumpkin hard-codes the vanilla portal setups. Pumpkin commits
-3c3576a3d through f2eb8bb17.
+These locate runs prove start positions. The block probes below check placement.
+Datapack ruined portals remain unsupported because Pumpkin hard-codes the
+vanilla setups. Pumpkin commits 3c3576a3d through f2eb8bb17.
 
 ### Nullscape features
 
@@ -545,3 +544,73 @@ generation. The original Pumpkin server failed both checks. The rebuilt
 `pack-dev` and Java passed both. A fresh stock run of the rebuilt server
 against the original Java dump had 56,533 non-fence differences and 43 fence
 state differences in the basalt-deltas box.
+
+### Replaying Java's decoration order
+
+Use matched Java decoration order for feature parity. Fresh server runs can
+exercise loading and saving, but their decoration order can differ.
+
+Build the server and comparator from `engine/`:
+
+```
+cargo build --locked --profile pack -p pack-dev -p moddedmc-harness
+```
+
+From the moddedMC-rust root, run the local replay tool with JDK 25 on PATH:
+
+```
+py -3 D:/mc-ref/pumpkin-replay/replay.py . run/e2-replay-basalt the_nether 20261120 1024 1024 1087 1087
+```
+
+The four coordinates are inclusive X/Z corners. The tool captures Java's
+decorating chunk order, generates a Pumpkin region in that order, loads the
+region through the normal server, and compares the saved blocks. It uses the
+server jar, extracted libraries, and decompiled sources in `D:/mc-ref/26.3`. It
+temporarily adds the replay driver to the Pumpkin world test module and
+restores the file when the test exits.
+
+Use `--capture-only` to record the Java half separately, `--reuse-java` to
+replay a recorded Java run after an engine change, or `--probe-only` to
+load an existing replay region through a rebuilt server. `--build-only` leaves
+the Pumpkin region before live post-processing. Keep the local tool for reuse
+and delete disposable worlds after comparing them.
+
+### Generation post-processing
+
+Structure pieces mark their shape-sensitive blocks through both placement
+helpers. Features mark blocks through the generation cache, and noise and
+carvers also mark fluids. Full chunks run fluid ticks and recompute shapes
+once all eight neighbors are full. The chunk sender waits for these updates,
+including for chunks within view but outside simulation distance. Anvil saves
+the packed section offsets as `PostProcessing`. Pump preserves the same
+offsets in its native format. A regression round-trips the list for a chunk
+saved before Full.
+
+At seed 20261120 the matched-order basalt-deltas box matched all 524,288 blocks,
+including both former brown mushroom positions (1067, 45, 1054) and
+(1065, 45, 1061). The stock fortress box from (-48, -32) through (143, 159)
+had zero fence-state differences and no missing or extra fences. It still had
+32 Java nether-brick blocks where Pumpkin had air.
+
+The Incendium 5.5.4 abandoned-tower box from (1024, 352) through (1103, 431)
+still had 4,297 Java nether-brick blocks where Pumpkin had air. The fortress
+generator produces the same 100 piece bounds for start (67, 16) as the Java
+save, including all 31 pieces that reach the box. Java's decoration trace in
+chunk (67, 22) places `incendium:abandoned_tower` before `minecraft:fortress`.
+Pumpkin's decoration list enumerates vanilla IDs first, then datapack IDs.
+The missing bricks are a structure placement issue. The registry-order audit
+remains the next task. Pumpkin commit 0e051bc83.
+
+### Nether fossils and amethyst geodes
+
+Nether fossil templates write to the destination chunk through the generation
+cache. Rotated placements use the rotated template's minimum corner, and dried
+ghasts use Java's world-seeded positional random. The matched-order wastes and
+soul sand valley boxes had zero fossil differences. They still had 12 and 49
+fortress-brick differences, respectively.
+
+Geode noise uses a separate legacy generator seeded from the world seed.
+The feature keeps its placement random stream for distribution points, layers,
+cracks and crystals. The plains replay had zero geode differences across
+884,736 blocks. The five remaining differences are leaf litter. Pumpkin
+commits 602b4f1b9 and 2b66d5d13.
