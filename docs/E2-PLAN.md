@@ -466,7 +466,7 @@ Java 26.3 on every query:
 - Vanilla Nether fortress and bastion, with a unit test for the Java positions.
 
 This proves start positions, not piece layouts. No block dump has compared the generated
-pieces yet. Nullscape still logs two feature gaps: the 26.x  feature
+pieces yet. Nullscape still logs two feature gaps: the 26.x `minecraft:template` feature
 type is missing, and its asteroid geode fails to decode. Datapack ruined portals are still
 unsupported, because Pumpkin hard-codes the vanilla portal setups. Pumpkin commits
 3c3576a3d through f2eb8bb17.
