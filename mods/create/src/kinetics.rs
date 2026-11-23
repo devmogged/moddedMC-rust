@@ -101,6 +101,7 @@ pub enum Kind {
     Press(u8),
     /// Mechanical pump axis derived from FACING, powered by small-cog meshing.
     Pump(u8),
+    Valve(u8),
     Fan(u8),
     Bearing(u8),
     Windmill(u8),
@@ -239,7 +240,8 @@ impl Kind {
             | Self::EncasedShaft(axis)
             | Self::Wheel(axis)
             | Self::Pulley(axis)
-            | Self::Press(axis) => axis,
+            | Self::Press(axis)
+            | Self::Valve(axis) => axis,
             Self::Pump(facing) => face_axis(facing),
             Self::Motor(facing)
             | Self::Fan(facing)
@@ -441,6 +443,7 @@ pub struct Be {
     /// A belt controller's items, created when the first one arrives.
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
+    pub valve: Option<crate::fluids::valve::Pointer>,
     pub fan: Option<Box<crate::fan::AirCurrent>>,
     pub bearing: Option<Box<crate::bearing::MechanicalBearing>>,
     pub piston: Option<Box<crate::piston::MechanicalPiston>>,
@@ -489,6 +492,7 @@ impl Be {
             last_gantry_shaft: None,
             pulley: None,
             millstone: None,
+            valve: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
                     crate::press::PressingData::EMPTY,

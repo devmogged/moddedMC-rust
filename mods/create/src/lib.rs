@@ -178,6 +178,7 @@ impl Mod for Create {
         fluids::tank_runtime::register(*content, registry)?;
         fluids::item_drain::register(*content, registry)?;
         fluids::spout::register(*content, registry)?;
+        fluids::valve::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
         piston::register(*content, registry)?;
@@ -816,6 +817,14 @@ fn states() -> Option<&'static StateIds> {
                 );
             }
         }
+        for valve in fluids::valve::variants() {
+            ids.add(
+                content,
+                fluids::valve::ID,
+                &valve.properties(),
+                Some(Kind::Valve(valve.shaft_axis())),
+            );
+        }
         for (index, axis) in AXES.into_iter().enumerate() {
             let axis_index = index as u8;
             ids.add(
@@ -1113,7 +1122,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         None if placed.block == depot::ID => {
             format!("{}[waterlogged={}]", depot::ID, states.wet(ids[6]))
         }
-        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Pump(_))
+        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Pump(_) | Kind::Valve(_))
         | Some(Kind::Millstone)
         | None => {
             return Some(args.state);
@@ -1155,6 +1164,8 @@ fn nearest_looking_direction(yaw: f32, pitch: f32) -> u8 {
 struct KineticData {
     #[serde(default)]
     speed: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pointer: Option<fluids::valve::Pointer>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     press: Option<press::PressingData>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
@@ -1223,6 +1234,7 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         return be;
     };
     be.speed = data.speed;
+    be.valve = data.pointer;
     if let Some(press) = &mut be.press {
         press.data = data.press.unwrap_or_default();
     }
@@ -1293,6 +1305,7 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
 fn save(pos: Pos, be: &Be) -> KineticData {
     KineticData {
         speed: be.speed,
+        pointer: be.valve,
         press: be.press.as_ref().map(|press| press.data),
         millstone: be.millstone.as_ref().map(|millstone| millstone.save()),
         bearing: be.bearing.as_ref().map(|bearing| bearing.data.clone()),
@@ -1487,7 +1500,8 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         }
         kinetics.tick(&mut level);
         // WS-2: distribute pump RPM as directional pipe pressures.
-        fluids::runtime::pressure_tick(world, kinetics, events);
+        let valve_changed = fluids::runtime::tick_valves(world, kinetics);
+        fluids::runtime::pressure_tick(world, kinetics, events, valve_changed);
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);

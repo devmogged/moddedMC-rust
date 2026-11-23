@@ -1,0 +1,84 @@
+# Positive rotation opens the fluid valve, negative rotation closes it.
+mods target\mods\create.mmc
+start
+expect registered content block create:fluid_valve \(48 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1027.5 102 1024.5 0 0
+wait 5
+cmd fill 1020 100 1018 1032 109 1031 minecraft:air
+cmd fill 1020 99 1018 1032 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 create:creative_motor[facing=up]
+cmd setblock 1025 101 1025 create:shaft[axis=y,waterlogged=false]
+cmd setblock 1025 102 1025 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 1027 100 1026 create:fluid_tank
+cmd setblock 1027 101 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 102 1026 create:mechanical_pump[facing=up,waterlogged=false]
+cmd setblock 1027 104 1026 create:fluid_tank
+cmd item replace entity tester weapon.mainhand with create:fluid_valve
+wait 1
+bot place 1027 102 1026
+wait 0.5
+cmd fluidpipe 1027 103 1026
+wait 0.5
+expect create:fluid_valve\[axis_along_first=true,enabled=false,facing=north,waterlogged=false\]
+cmd kinetics 1025 100 1025 64
+cmd item replace entity tester weapon.mainhand with minecraft:water_bucket
+wait 0.5
+bot use 1027 100 1026
+wait 3
+cmd fluidpipe 1027 100 1026
+wait 0.5
+expect Tank\(minecraft:water 1000/8000 mB\)
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect Tank\(empty 0/8000 mB\)
+
+cmd setblock 1026 103 1026 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 1026 103 1026 64
+wait 1
+cmd fluidpipe 1027 103 1026
+wait 0.5
+expect enabled=true
+wait 4
+cmd fluidpipe 1027 100 1026
+wait 0.5
+expect Tank\(empty 0/8000 mB\)
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect Tank\(minecraft:water 1000/8000 mB\)
+cmd kinetics 1026 103 1026 0
+wait 0.5
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd fluidpipe 1027 103 1026
+wait 0.5
+expect enabled=true
+cmd data get block 1027 103 1026 Pointer.Value
+wait 0.5
+expect block data: 1f
+cmd kinetics 1026 103 1026 -64
+wait 1
+cmd fluidpipe 1027 103 1026
+wait 0.5
+expect enabled=false
+bot use 1027 100 1026
+wait 3
+cmd fluidpipe 1027 100 1026
+wait 0.5
+expect Tank\(minecraft:water 1000/8000 mB\)
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect Tank\(minecraft:water 1000/8000 mB\)
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

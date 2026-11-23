@@ -18,6 +18,7 @@ use super::{
     pipe_states::{OpenFaces, update_block_state},
     pump_graph::{PumpTopology, distribute_pressure},
     spout, tank_runtime,
+    valve::{self, ValveState},
 };
 use crate::{
     CONTENT, DIRECTIONS, FACES, face_axis,
@@ -31,6 +32,7 @@ enum Kind {
     Encased(OpenFaces),
     Glass { axis: u8, alt: bool, wet: bool },
     Pump { facing: u8, wet: bool },
+    Valve(ValveState),
 }
 
 struct StateIndex {
@@ -124,6 +126,11 @@ impl StateIndex {
                 }
             }
         }
+        for valve in valve::variants() {
+            if let Some(id) = content.state(&format!("{}[{}]", valve::ID, valve.properties())) {
+                result.kinds.insert(id, Kind::Valve(valve));
+            }
+        }
         // Existing BlockWorld V1 can read vanilla water blocks. Generic
         // waterlogged states and fluid-state APIs are requested in WS-2-02.
         for level in 0..=15 {
@@ -207,6 +214,7 @@ fn can_connect_to(kind: Kind, direction: u8) -> bool {
         Kind::Encased(open) => open[usize::from(direction ^ 1)],
         Kind::Glass { axis, .. } => face_axis(direction) == axis,
         Kind::Pump { facing, .. } => face_axis(direction) == face_axis(facing),
+        Kind::Valve(valve) => face_axis(direction) == valve.pipe_axis(),
     }
 }
 
@@ -264,8 +272,52 @@ pub fn placed_state(args: &Placement<'_>) -> Option<u32> {
             let facing = pump_facing(look, args.sneak, neighbors);
             ids.pump[usize::from(facing)][usize::from(wet)]
         }
+        Kind::Valve(_) => {
+            let facing = if args.sneak { look } else { look ^ 1 };
+            let pipe = neighbor_connections(args.world, ids, args.position)?;
+            let states = crate::states()?;
+            let positions = FACES.map(|direction| offset(args.position, direction));
+            let mut neighbors = [content::UNLOADED_STATE; 6];
+            args.world.read(&positions, &mut neighbors);
+            let shaft = std::array::from_fn(|side| {
+                states
+                    .kind(neighbors[side])
+                    .is_some_and(|kind| kind.has_shaft_towards(side as u8 ^ 1))
+            });
+            let along_first = valve_alignment(
+                face_axis(facing),
+                face_axis(nearest_looking_direction(args.yaw, 0.0)),
+                shaft,
+                pipe,
+            );
+            let valve = ValveState {
+                facing,
+                along_first,
+                enabled: false,
+                wet,
+            };
+            CONTENT
+                .get()?
+                .state(&format!("{}[{}]", valve::ID, valve.properties()))
+        }
         Kind::Encased(_) => Some(args.state),
     }
+}
+
+fn valve_alignment(facing_axis: u8, look_axis: u8, shaft: OpenFaces, pipe: OpenFaces) -> bool {
+    if facing_axis == 1 {
+        let prefer_x = shaft[4] || shaft[5] || pipe[2] || pipe[3];
+        let prefer_z = shaft[2] || shaft[3] || pipe[4] || pipe[5];
+        return if prefer_x == prefer_z {
+            look_axis == 0
+        } else {
+            prefer_x
+        };
+    }
+    let perpendicular = if facing_axis == 0 { 3 } else { 5 };
+    let prefer_vertical_shaft =
+        shaft[0] || shaft[1] || pipe[perpendicular] || pipe[perpendicular ^ 1];
+    (facing_axis == 0) == prefer_vertical_shaft
 }
 
 /// PumpBlock.getStateForPlacement: the default is nearest-looking opposite
@@ -356,6 +408,7 @@ fn describe(kind: Kind) -> String {
             "create:mechanical_pump[facing={},waterlogged={wet}]",
             DIRECTIONS[usize::from(facing)]
         ),
+        Kind::Valve(valve) => format!("{}[{}]", valve::ID, valve.properties()),
     }
 }
 
@@ -410,6 +463,10 @@ impl LoadedTopology<'_> {
         }
         Some((current[0], self.states.kinds.get(&current[0]).copied()))
     }
+
+    fn closed_valve(&self, pos: Pos) -> bool {
+        matches!(self.read(pos), Some((_, Some(Kind::Valve(valve)))) if !valve.enabled)
+    }
 }
 
 fn pipe_faces(kind: Kind) -> Option<OpenFaces> {
@@ -418,6 +475,9 @@ fn pipe_faces(kind: Kind) -> Option<OpenFaces> {
         Kind::Encased(open) => Some(open),
         Kind::Glass { axis, .. } => Some(std::array::from_fn(|face| face_axis(face as u8) == axis)),
         Kind::Pump { .. } => None,
+        Kind::Valve(valve) => Some(std::array::from_fn(|face| {
+            face_axis(face as u8) == valve.pipe_axis()
+        })),
     }
 }
 
@@ -470,7 +530,12 @@ fn add_pressure(map: &mut HashMap<(Pos, u8), [f32; 2]>, face: super::pump_graph:
 /// only when absolute RPM, topology, or a pump's facing changes. Java
 /// PumpBlockEntity.onSpeedChanged similarly ignores sign-only changes.
 /// Advance fluid networks after the pump pressure update.
-pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEvent]) {
+pub fn pressure_tick(
+    world: World<'_>,
+    kinetics: &Kinetics,
+    events: &[ContentEvent],
+    valve_changed: bool,
+) {
     let Some(states) = index() else { return };
     let mut pumps: Vec<_> = kinetics
         .positions(|kind| matches!(kind, KineticKind::Pump(_)))
@@ -495,14 +560,15 @@ pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEve
     });
     let refresh = {
         let cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
-        topology_changed
+        valve_changed
+            || topology_changed
             || cache
                 .as_ref()
                 .and_then(|worlds| worlds.get(&world.id()))
                 .is_none_or(|before| before.pumps != pumps)
     };
+    let topology = LoadedTopology { world, states };
     let faces = refresh.then(|| {
-        let topology = LoadedTopology { world, states };
         let mut faces = HashMap::new();
         for pump in &pumps {
             if pump.speed == 0.0 {
@@ -526,9 +592,15 @@ pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEve
         .entry(world.id())
         .or_default();
     if let Some(faces) = faces {
+        let closed_valves: HashSet<_> = kinetics
+            .positions(|kind| matches!(kind, KineticKind::Valve(_)))
+            .into_iter()
+            .filter(|&pos| topology.closed_valve(pos))
+            .collect();
         pressure.flow.update_pressure(
             faces
                 .iter()
+                .filter(|((pos, _), _)| !closed_valves.contains(pos))
                 .map(|(&(pos, face), &values)| (pos, face, values))
                 .chain(
                     pumps
@@ -546,6 +618,39 @@ pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEve
         pressure.faces = faces;
     }
     pressure.flow.tick(world, &states.endpoints);
+}
+
+pub fn tick_valves(world: World<'_>, kinetics: &mut Kinetics) -> bool {
+    let Some((states, content)) = index().zip(CONTENT.get()) else {
+        return false;
+    };
+    let topology = LoadedTopology { world, states };
+    let mut changed = false;
+    for pos in kinetics.positions(|kind| matches!(kind, KineticKind::Valve(_))) {
+        let Some(be) = kinetics.get_mut(pos) else {
+            continue;
+        };
+        let rpm = be.get_speed();
+        let pointer = be.valve.get_or_insert_with(Default::default);
+        let previous = *pointer;
+        let enabled = pointer.advance(rpm);
+        be.dirty |= *pointer != previous;
+        let Some((_, Some(Kind::Valve(mut valve)))) = topology.read(pos) else {
+            continue;
+        };
+        let Some(enabled) = enabled.filter(|&enabled| enabled != valve.enabled) else {
+            continue;
+        };
+        valve.enabled = enabled;
+        if let Some(state) = content.state(&format!("{}[{}]", valve::ID, valve.properties())) {
+            changed |= world.write(&[BlockUpdate {
+                position: pos,
+                state,
+                flags: content::UPDATE_ALL,
+            }]) == 1;
+        }
+    }
+    changed
 }
 
 /// Pending engine ABI integration, show computed pressure as the two

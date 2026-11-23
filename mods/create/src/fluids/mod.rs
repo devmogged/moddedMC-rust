@@ -17,4 +17,5 @@ pub(crate) mod spout;
 pub mod tank;
 pub(crate) mod tank_runtime;
 pub mod transport;
+pub(crate) mod valve;
 pub mod vanilla_targets;
