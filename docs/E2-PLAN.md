@@ -445,6 +445,8 @@ Comparing against Java exposed engine bugs, most of which also hit vanilla world
 - NBT lists longer than 512,000 entries were rejected, which broke large templates.
 - An unparsable rule `position_predicate` failed the whole processor list. Java reads it
   leniently, so the rule always passes the position test.
+- Nullscape writes a structure set salt above 32 bits. Gson truncates it to the low
+  32 bits, so Java accepts it. Pumpkin rejected the pack.
 - Trapezoid int providers didn't accept `min` and `max`, so the vanilla Nether patch
   features failed to load from JSON.
 - Generated vanilla tags are flattened. A vanilla tag that nests a tag a pack extends,
@@ -455,13 +457,16 @@ Comparing against Java exposed engine bugs, most of which also hit vanilla world
 At seed 20261120, `/locate structure` from (0,0), (3000,-2000) and (-4000,5000) matched
 Java 26.3 on every query:
 
-- Incendium 5.4.5 in the Nether: all 39 results, covering 9 Incendium structures, fortress,
+- Incendium 5.5.4 in the Nether: all 39 results, covering 9 Incendium structures, fortress,
   bastion, Nether fossil and Nether ruined portal.
 - Terralith 2.6.5 in the Overworld: all 99 results, covering 29 Terralith structures and
   four vanilla ones. Both servers found nothing for the same 6 queries.
+- Nullscape 2.0.1 in the End: all 12 results, covering its 3 structures and its End city
+  set override.
 - Vanilla Nether fortress and bastion, with a unit test for the Java positions.
 
 This proves start positions, not piece layouts. No block dump has compared the generated
-pieces yet. Nullscape for the End hasn't been run. Datapack ruined portals are still
+pieces yet. Nullscape still logs two feature gaps: the 26.x  feature
+type is missing, and its asteroid geode fails to decode. Datapack ruined portals are still
 unsupported, because Pumpkin hard-codes the vanilla portal setups. Pumpkin commits
-3c3576a3d through daab022e7.
+3c3576a3d through f2eb8bb17.
