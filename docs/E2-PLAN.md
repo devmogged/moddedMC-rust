@@ -466,7 +466,21 @@ Java 26.3 on every query:
 - Vanilla Nether fortress and bastion, with a unit test for the Java positions.
 
 This proves start positions, not piece layouts. No block dump has compared the generated
-pieces yet. Nullscape still logs two feature gaps: the 26.x `minecraft:template` feature
-type is missing, and its asteroid geode fails to decode. Datapack ruined portals are still
+pieces yet. Datapack ruined portals are still
 unsupported, because Pumpkin hard-codes the vanilla portal setups. Pumpkin commits
 3c3576a3d through f2eb8bb17.
+
+### Nullscape features
+
+Nullscape loaded with feature and carver warnings until these were fixed:
+
+- Runtime decoding now covers chorus plants and the 26.x `minecraft:template` feature.
+  Codegen already had both.
+- Worldgen ints are read like vanilla's `Codec.INT` reads Gson numbers. A fraction is
+  dropped and a value past 32 bits keeps its low 32 bits. Nullscape's asteroid geode
+  writes `crack_point_offset` as `1.05`, which Java reads as 1.
+- The `biased_to_bottom` height provider was missing. Nullscape's canyon carver uses it.
+
+Pumpkin now boots Nullscape 2.0.1 without worldgen warnings, and the 12 End locate results
+still match Java. No End block dump has been compared yet. Pumpkin commits 6c22868db and
+d8bfca604.
