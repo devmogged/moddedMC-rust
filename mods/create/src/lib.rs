@@ -47,6 +47,7 @@ mod gantry;
 mod glue;
 mod harvester;
 mod kinetics;
+mod manual_application;
 mod millstone;
 mod piston;
 mod press;
@@ -68,6 +69,7 @@ const CLUTCH: &str = "create:clutch";
 const GEARSHIFT: &str = "create:gearshift";
 const ENCASED_SHAFT: &str = "create:andesite_encased_shaft";
 const CASING: &str = "create:andesite_casing";
+const COPPER_CASING: &str = "create:copper_casing";
 const TURNTABLE: &str = "create:turntable";
 const ANDESITE_ALLOY: &str = "create:andesite_alloy";
 const WRENCH: &str = "create:wrench";
@@ -130,6 +132,7 @@ impl Mod for Create {
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
+        interaction.require_extension(InteractionExtension::VanillaItemUse)?;
         interaction.require_extension(InteractionExtension::Redstone)?;
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
         let _ = INTERACTION.set(interaction);
@@ -173,6 +176,7 @@ impl Mod for Create {
         // WS-2 Create fluids
         fluids::blocks::register(*content, registry)?;
         fluids::tank_runtime::register(*content, registry)?;
+        fluids::item_drain::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
         piston::register(*content, registry)?;
@@ -215,6 +219,7 @@ impl Mod for Create {
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?;
         interaction.on_use_on_block(registry, use_on_block)?;
+        interaction.on_vanilla_use_on_block(registry, manual_application::use_on_block)?;
         interaction.on_use_block(registry, use_block)?;
         interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
         interaction.on_player_will_destroy(registry, piston::player_will_destroy)?;
@@ -598,6 +603,16 @@ fn register_casings(
         &single("create:block/andesite_casing"),
         &[],
         STONE,
+    )?;
+    add(
+        registry,
+        COPPER_CASING,
+        "Copper Casing",
+        "",
+        "",
+        &single("create:block/copper_casing"),
+        &[],
+        "minecraft:copper_block",
     )?;
     // AllShapes.TURNTABLE_SHAPE.
     add(
@@ -1494,6 +1509,9 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
 }
 
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    if context.item == ANDESITE_ALLOY {
+        return manual_application::use_on_block(context);
+    }
     if context.item == glue::ID {
         return glue::use_on_block(context);
     }
@@ -1513,8 +1531,8 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if !context.with_item {
         return BlockUseResult::Pass;
     }
-    if fluids::runtime::is_tank(context.state) {
-        return fluids::tank_runtime::use_item_on(context);
+    if let Some(result) = fluids::runtime::use_item_on(context) {
+        return result;
     }
     let Some(states) = states() else {
         return BlockUseResult::Pass;

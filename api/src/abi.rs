@@ -908,6 +908,8 @@ pub struct InteractionV1 {
         signal: RedstoneSignalFn,
         connects: RedstoneConnectsFn,
     ) -> i32,
+    /// One callback per mod, before the vanilla item behaviour. PASS continues dispatch.
+    pub on_vanilla_use_on_block: unsafe extern "C" fn(reg: Reg, callback: UseOnBlockFn) -> i32,
 }
 
 /// Vanilla `BlockState.getSignal(level, pos, direction)`, or `getDirectSignal` when `direct`, for

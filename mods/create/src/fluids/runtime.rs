@@ -1,6 +1,4 @@
-//! Create 6.0.10 fluid pipe placement and neighbor-facing state reconciliation.
-//! Fluid capabilities, waterlogged block-state introspection, and pressure ticks
-//! require the host's generic fluid interfaces (WS-2-01 and WS-2-02).
+//! Create 6.0.10 pipe placement, pressure and connected fluid transport.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -10,11 +8,13 @@ use std::{
 use moddedmc_api::{
     Pos,
     content::{self, BlockUpdate, Content, ContentEvent, Placement, World},
+    interaction::{BlockUseResult, UseBlock},
 };
 
 use super::{
     blocks::PipeState,
-    flow_runtime::FlowRuntime,
+    flow_runtime::{EndpointKind, FlowRuntime},
+    item_drain,
     pipe_states::{OpenFaces, update_block_state},
     pump_graph::{PumpTopology, distribute_pressure},
     tank_runtime,
@@ -39,7 +39,7 @@ struct StateIndex {
     glass: [[[Option<u32>; 2]; 2]; 3],
     pump: [[Option<u32>; 2]; 6],
     water: HashSet<u32>,
-    tanks: HashSet<u32>,
+    endpoints: HashMap<u32, EndpointKind>,
     /// Known vanilla open-end states. Unknown world blocks fail closed until WS-2-02.
     known_open_ends: HashSet<u32>,
 }
@@ -59,7 +59,15 @@ impl StateIndex {
             glass: [[[None; 2]; 2]; 3],
             pump: [[None; 2]; 6],
             water: HashSet::new(),
-            tanks: tank_runtime::state_ids(content),
+            endpoints: tank_runtime::state_ids(content)
+                .into_iter()
+                .map(|id| (id, EndpointKind::Tank))
+                .chain(
+                    content
+                        .state(item_drain::ID)
+                        .map(|id| (id, EndpointKind::ItemDrain)),
+                )
+                .collect(),
             known_open_ends: HashSet::new(),
         };
         for mask in 0..64u8 {
@@ -168,7 +176,9 @@ impl StateIndex {
     }
 
     fn can_connect_to(&self, neighbor: u32, direction: u8) -> bool {
-        self.tanks.contains(&neighbor)
+        self.endpoints
+            .get(&neighbor)
+            .is_some_and(|kind| kind.accessible(direction ^ 1))
             || self
                 .kinds
                 .get(&neighbor)
@@ -176,8 +186,11 @@ impl StateIndex {
     }
 }
 
-pub fn is_tank(state: u32) -> bool {
-    index().is_some_and(|ids| ids.tanks.contains(&state))
+pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
+    Some(match index()?.endpoints.get(&context.state)? {
+        EndpointKind::Tank => tank_runtime::use_item_on(context),
+        EndpointKind::ItemDrain => item_drain::use_item_on(context),
+    })
 }
 
 /// FluidPipeBlock.canConnectTo for the currently registered Create fluid blocks.
@@ -348,11 +361,11 @@ pub fn inspect(world: World<'_>, pos: Pos) -> Option<String> {
     if !world.read(&[pos], &mut current) {
         return None;
     }
-    if ids.tanks.contains(&current[0]) {
+    if let Some(kind) = ids.endpoints.get(&current[0]) {
         return Some(format!(
             "{}{}",
             CONTENT.get()?.describe_state(current[0])?,
-            tank_runtime::describe(&tank_runtime::load(world, pos)?)
+            tank_runtime::describe(&kind.load(world, pos)?)
         ));
     }
     Some(describe(*ids.kinds.get(&current[0])?))
@@ -434,7 +447,11 @@ impl PumpTopology for LoadedTopology<'_> {
         // face sturdiness, block tags and sided fluid capabilities.
         // This proven subset accepts only explicitly resolved vanilla
         // replaceable blocks / cauldrons, never arbitrary unknown blocks.
-        self.states.tanks.contains(&state) || self.states.known_open_ends.contains(&state)
+        self.states
+            .endpoints
+            .get(&state)
+            .is_some_and(|kind| kind.accessible(face ^ 1))
+            || self.states.known_open_ends.contains(&state)
     }
 }
 
@@ -468,7 +485,7 @@ pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEve
     let topology_changed = events.iter().any(|event| {
         [event.previous, event.state]
             .into_iter()
-            .any(|state| states.kinds.contains_key(&state) || states.tanks.contains(&state))
+            .any(|state| states.kinds.contains_key(&state) || states.endpoints.contains_key(&state))
     });
     let refresh = {
         let cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
@@ -522,7 +539,7 @@ pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEve
         pressure.pumps = pumps;
         pressure.faces = faces;
     }
-    pressure.flow.tick(world, &states.tanks);
+    pressure.flow.tick(world, &states.endpoints);
 }
 
 /// Pending engine ABI integration, show computed pressure as the two

@@ -1,0 +1,136 @@
+# Craft an item drain and pump out a bucket emptied in survival.
+mods target\mods\create.mmc
+start
+expect registered content block create:item_drain \(1 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1027.5 101 1024.5 0 40
+wait 5
+cmd fill 1020 100 1018 1032 108 1031 minecraft:air
+cmd fill 1020 99 1018 1032 99 1031 minecraft:stone
+cmd gamemode survival tester
+cmd setblock 1027 100 1025 minecraft:oak_log
+cmd item replace entity tester weapon.mainhand with minecraft:iron_axe
+wait 0.5
+bot use 1027 100 1025
+wait 0.5
+cmd execute if block 1027 100 1025 minecraft:stripped_oak_log
+wait 0.5
+expect Test passed
+cmd item replace entity tester weapon.mainhand with minecraft:copper_ingot 2
+wait 0.5
+bot use 1027 99 1025
+wait 0.5
+cmd clear tester minecraft:copper_ingot 0
+wait 0.5
+expect Found 2 matching item
+bot use 1027 100 1025
+wait 0.5
+cmd execute if block 1027 100 1025 create:copper_casing
+wait 0.5
+expect Test passed
+cmd clear tester minecraft:copper_ingot 0
+wait 0.5
+expect Found 1 matching item
+cmd loot give tester loot create:blocks/copper_casing
+wait 0.5
+cmd clear tester create:copper_casing 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester create:copper_casing
+cmd item replace entity tester hotbar.0 with minecraft:iron_bars
+cmd item replace entity tester hotbar.1 with create:copper_casing
+wait 0.5
+bot inventory-click 36 left
+wait 0.3
+bot inventory-click 1 left
+wait 0.3
+bot inventory-click 37 left
+wait 0.3
+bot inventory-click 3 left
+wait 0.3
+bot inventory-click 0 left
+wait 0.3
+bot inventory-click 36 left
+wait 0.5
+cmd clear tester create:item_drain 0
+wait 0.5
+expect Found 1 matching item
+
+cmd setblock 1027 103 1026 minecraft:stone
+cmd setblock 1027 101 1024 minecraft:stone
+cmd tp tester 1027.5 102 1024.5 0 0
+wait 0.5
+bot place 1027 103 1026
+wait 0.5
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect create:item_drain.*Tank\(empty 0/1500 mB\)
+cmd item replace entity tester weapon.mainhand with minecraft:water_bucket
+wait 0.5
+bot use 1027 104 1026
+wait 0.5
+bot expect slot 36 minecraft:bucket 1
+wait 0.5
+expect \[bot\] expect inventory ok
+cmd item replace entity tester weapon.mainhand with minecraft:water_bucket
+wait 0.5
+bot use 1027 104 1026
+wait 0.5
+bot expect slot 36 minecraft:water_bucket 1
+wait 0.5
+expect \[bot\] expect inventory ok
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect create:item_drain.*Tank\(minecraft:water 1000/1500 mB\)
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect create:item_drain.*Tank\(minecraft:water 1000/1500 mB\)
+cmd setblock 1025 100 1025 create:creative_motor[facing=up]
+cmd setblock 1025 101 1025 create:shaft[axis=y,waterlogged=false]
+cmd setblock 1025 102 1025 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 1027 102 1026 create:mechanical_pump[facing=down,waterlogged=false]
+cmd setblock 1027 103 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 101 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 100 1026 create:fluid_tank
+wait 1
+cmd kinetics 1025 100 1025 64
+wait 0.5
+cmd kinetics 1027 102 1026
+wait 0.5
+expect create:mechanical_pump\[facing=down,waterlogged=false\].*Speed=128
+cmd fluidpipe 1027 103 1026
+wait 0.5
+expect Pressure\(down=0.00/128.00,up=128.00/0.00\)
+wait 6
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect create:item_drain.*Tank\(empty 0/1500 mB\)
+cmd fluidpipe 1027 100 1026
+wait 0.5
+expect create:fluid_tank.*Tank\(minecraft:water 1000/8000 mB\)
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd fluidpipe 1027 100 1026
+wait 0.5
+expect create:fluid_tank.*Tank\(minecraft:water 1000/8000 mB\)
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect create:item_drain.*Tank\(empty 0/1500 mB\)
+bot quit
+stop

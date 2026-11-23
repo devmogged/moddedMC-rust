@@ -116,6 +116,7 @@ struct Runtime {
     ticks: BTreeMap<usize, abi::ContentTick>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    vanilla_use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
@@ -129,6 +130,7 @@ pub struct Hooks {
     pub tick: Option<abi::ContentTick>,
     pub entity_inside: Option<abi::EntityInside>,
     pub use_on_block: Option<abi::UseOnBlockFn>,
+    pub vanilla_use_on_block: Option<abi::UseOnBlockFn>,
     pub use_block: Option<abi::UseBlockFn>,
     pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
     pub redstone: Option<(abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
@@ -141,6 +143,7 @@ struct Pending {
     ticks: BTreeMap<usize, abi::ContentTick>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    vanilla_use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
@@ -151,6 +154,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     ticks: BTreeMap::new(),
     entity_inside: BTreeMap::new(),
     use_on_block: BTreeMap::new(),
+    vanilla_use_on_block: BTreeMap::new(),
     use_block: BTreeMap::new(),
     player_will_destroy: BTreeMap::new(),
     redstone: BTreeMap::new(),
@@ -444,6 +448,9 @@ pub fn register(
     if let Some(callback) = hooks.use_on_block {
         pending.use_on_block.insert(owner, callback);
     }
+    if let Some(callback) = hooks.vanilla_use_on_block {
+        pending.vanilla_use_on_block.insert(owner, callback);
+    }
     if let Some(callback) = hooks.use_block {
         pending.use_block.insert(owner, callback);
     }
@@ -541,6 +548,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         ticks,
         entity_inside,
         use_on_block,
+        vanilla_use_on_block,
         use_block,
         player_will_destroy,
         redstone,
@@ -577,6 +585,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         ticks,
         entity_inside,
         use_on_block,
+        vanilla_use_on_block,
         use_block,
         player_will_destroy,
         redstone,
@@ -1635,13 +1644,16 @@ pub unsafe extern "C" fn on_use_block_content(reg: Reg, callback: abi::UseBlockF
     code::OK
 }
 
-/// The mod callback for using a content item on a block.
-pub fn use_on_block_callback(item: u16) -> Option<abi::UseOnBlockFn> {
-    let runtime = RUNTIME.get()?;
-    runtime
-        .use_on_block
-        .get(runtime.item_owners.get(&item)?)
-        .copied()
+/// For a content item, call its owner. For a vanilla item, call the opt-in interceptors.
+pub fn use_on_block_callbacks(item: u16) -> impl Iterator<Item = abi::UseOnBlockFn> {
+    let runtime = RUNTIME.get();
+    let owner =
+        runtime.and_then(|runtime| runtime.use_on_block.get(runtime.item_owners.get(&item)?));
+    let vanilla = runtime
+        .filter(|_| item < Item::VANILLA_COUNT)
+        .into_iter()
+        .flat_map(|runtime| runtime.vanilla_use_on_block.values());
+    owner.into_iter().chain(vanilla).copied()
 }
 
 pub unsafe extern "C" fn on_use_on_block(reg: Reg, callback: abi::UseOnBlockFn) -> i32 {
@@ -1650,6 +1662,21 @@ pub unsafe extern "C" fn on_use_on_block(reg: Reg, callback: abi::UseOnBlockFn) 
     }
     // SAFETY: registration is live for the call.
     let slot = &mut unsafe { native::staging(reg) }.content_hooks.use_on_block;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
+pub unsafe extern "C" fn on_vanilla_use_on_block(reg: Reg, callback: abi::UseOnBlockFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }
+        .content_hooks
+        .vanilla_use_on_block;
     if slot.is_some() {
         return code::DUPLICATE_ID;
     }

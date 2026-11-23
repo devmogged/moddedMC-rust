@@ -51,6 +51,7 @@ pub type Use = fn(&mut UseOnBlock<'_>) -> UseResult;
 
 static TABLE: OnceLock<&'static abi::InteractionV1> = OnceLock::new();
 static USE: OnceLock<Use> = OnceLock::new();
+static VANILLA_USE: OnceLock<Use> = OnceLock::new();
 
 pub fn require() -> Result<Interaction, InterfaceUnavailable> {
     // SAFETY: this is the published table type for moddedmc:interaction v1; appended fields are
@@ -76,6 +77,8 @@ pub enum InteractionExtension {
     PlayerWillDestroy,
     /// `Interaction::on_redstone`.
     Redstone,
+    /// `Interaction::on_vanilla_use_on_block`.
+    VanillaItemUse,
 }
 
 /// Vanilla `getSignal` (or `getDirectSignal` when `direct`) for one of the mod's blocks.
@@ -262,6 +265,10 @@ impl Interaction {
                 std::mem::offset_of!(abi::InteractionV1, on_redstone),
                 "moddedmc:interaction.redstone",
             ),
+            InteractionExtension::VanillaItemUse => (
+                std::mem::offset_of!(abi::InteractionV1, on_vanilla_use_on_block),
+                "moddedmc:interaction.vanilla_item_use",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -332,6 +339,21 @@ impl Interaction {
         // SAFETY: registration is live and the trampoline is a static function.
         RegistrationError::from_code(unsafe { (self.0.on_use_on_block)(reg.reg, use_on_block) })
     }
+
+    /// Intercept vanilla `Item.useOn`. Needs `InteractionExtension::VanillaItemUse`.
+    pub fn on_vanilla_use_on_block(
+        self,
+        reg: &mut Registry<'_>,
+        callback: Use,
+    ) -> Result<(), RegistrationError> {
+        if VANILLA_USE.set(callback).is_err() {
+            return Err(RegistrationError::DuplicateId);
+        }
+        // SAFETY: the extension was required, registration is live and the trampoline is static.
+        RegistrationError::from_code(unsafe {
+            (self.0.on_vanilla_use_on_block)(reg.reg, vanilla_use_on_block)
+        })
+    }
 }
 
 unsafe extern "C" fn use_on_block(
@@ -340,10 +362,31 @@ unsafe extern "C" fn use_on_block(
     stack: abi::StackRef,
     context: *const abi::UseOnBlock,
 ) -> i32 {
+    // SAFETY: this trampoline forwards unmodified values from the host.
+    unsafe { dispatch_use(USE.get(), world, player, stack, context) }
+}
+
+unsafe extern "C" fn vanilla_use_on_block(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    stack: abi::StackRef,
+    context: *const abi::UseOnBlock,
+) -> i32 {
+    // SAFETY: this trampoline forwards unmodified values from the host.
+    unsafe { dispatch_use(VANILLA_USE.get(), world, player, stack, context) }
+}
+
+unsafe fn dispatch_use(
+    callback: Option<&Use>,
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    stack: abi::StackRef,
+    context: *const abi::UseOnBlock,
+) -> i32 {
     guard("use_on_block", abi::USE_PASS, || {
         // SAFETY: the host passes a context that is live for this call.
         let (Some(&api), Some(callback), Some(world), Some(context)) =
-            (TABLE.get(), USE.get(), World::borrowed(world), unsafe {
+            (TABLE.get(), callback, World::borrowed(world), unsafe {
                 context.as_ref()
             })
         else {

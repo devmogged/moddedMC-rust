@@ -1,7 +1,4 @@
-//! Create 6.0.10 FluidTankBlockEntity's single-fluid inventory and multiblock
-//! capacity rules. This is the state model; world block registration, controller
-//! discovery, persistence and sided capability exposure await the host interfaces.
-//! TODO(abi): #42 - register a sided tank capability with stable handler identity.
+//! Create 6.0.10 tank storage, capacity and controller NBT.
 
 use super::{network::FluidHandler, pipe_connection::FluidStack};
 
@@ -101,6 +98,17 @@ impl TankInventory {
     pub fn write_controller_nbt(&self) -> std::collections::HashMap<String, fastnbt::Value> {
         use fastnbt::Value;
         use std::collections::HashMap;
+        HashMap::from([
+            ("Window".into(), Value::Byte(i8::from(self.window))),
+            ("Size".into(), Value::Int(i32::from(self.width))),
+            ("Height".into(), Value::Int(i32::from(self.height))),
+            ("TankContent".into(), self.content_nbt()),
+        ])
+    }
+
+    pub(super) fn content_nbt(&self) -> fastnbt::Value {
+        use fastnbt::Value;
+        use std::collections::HashMap;
         let mut content = HashMap::new();
         if let Some(fluid) = &self.fluid {
             let mut saved = HashMap::from([
@@ -112,12 +120,7 @@ impl TankInventory {
             }
             content.insert("Fluid".into(), Value::Compound(saved));
         }
-        HashMap::from([
-            ("Window".into(), Value::Byte(i8::from(self.window))),
-            ("Size".into(), Value::Int(i32::from(self.width))),
-            ("Height".into(), Value::Int(i32::from(self.height))),
-            ("TankContent".into(), Value::Compound(content)),
-        ])
+        Value::Compound(content)
     }
 
     /// Reject malformed controller shapes or fluid payloads transactionally.
@@ -139,12 +142,35 @@ impl TankInventory {
             _ => return Err(TankShapeError::InvalidDimensions),
         };
         let capacity = capacity_for(width, height, self.max_height, self.millibuckets_per_block)?;
-        let content = match data.get("TankContent") {
-            Some(Value::Compound(content)) => content,
-            _ => return Err(TankShapeError::InvalidDimensions),
+        let content = data
+            .get("TankContent")
+            .ok_or(TankShapeError::InvalidDimensions)?;
+        let fluid = Self::fluid_from_content(content, capacity)?;
+        self.width = width;
+        self.height = height;
+        self.window = matches!(data.get("Window"), Some(Value::Byte(1)));
+        self.fluid = fluid;
+        Ok(())
+    }
+
+    pub(super) fn read_content_nbt(
+        &mut self,
+        content: &fastnbt::Value,
+    ) -> Result<(), TankShapeError> {
+        self.fluid = Self::fluid_from_content(content, self.capacity())?;
+        Ok(())
+    }
+
+    fn fluid_from_content(
+        content: &fastnbt::Value,
+        capacity: u32,
+    ) -> Result<Option<FluidStack>, TankShapeError> {
+        use fastnbt::Value;
+        let Value::Compound(content) = content else {
+            return Err(TankShapeError::InvalidDimensions);
         };
-        let fluid = match content.get("Fluid") {
-            None => None,
+        match content.get("Fluid") {
+            None => Ok(None),
             Some(Value::Compound(tag)) => {
                 let id = match tag.get("id") {
                     Some(Value::String(id)) if !id.is_empty() => id.clone(),
@@ -162,15 +188,10 @@ impl TankInventory {
                 if stack.is_empty() {
                     return Err(TankShapeError::InvalidDimensions);
                 }
-                Some(stack)
+                Ok(Some(stack))
             }
-            _ => return Err(TankShapeError::InvalidDimensions),
-        };
-        self.width = width;
-        self.height = height;
-        self.window = matches!(data.get("Window"), Some(Value::Byte(1)));
-        self.fluid = fluid;
-        Ok(())
+            _ => Err(TankShapeError::InvalidDimensions),
+        }
     }
     pub fn fill_ratio(&self) -> f32 {
         self.amount() as f32 / self.capacity() as f32

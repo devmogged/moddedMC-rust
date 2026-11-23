@@ -185,6 +185,7 @@ A `.mmc` is a zip with
 | | `vehicle(entity)` | The ridden entity's id, 0 for none. |
 | | `entities_matching(world, min, max, except, exclude, skip, out, capacity)` | `entities_in` with entities carrying any `exclude` flag bit filtered out before counting, and the first `skip` matches left out, so a caller pages through any number of results. Returns the matches after `skip`. |
 | `moddedmc:interaction` v1 | `on_use_on_block(reg, callback)` | Stage one callback per mod, called like vanilla `Item.useOn` for any of the mod's content items, block items included. It gets the world, the player (an entity reference), the held stack and the context: item id, clicked position and face, hit point, sneaking and creative. `PASS` lets the server place the item's block as usual. |
+| `moddedmc:interaction` v1 extension | `on_vanilla_use_on_block(reg, callback)` | Stage one callback per mod for vanilla items at the same item-use phase, before the item's built-in behavior. Returning `PASS` leaves the stack and world unchanged and continues to the next callback, then vanilla. The first handled result ends item dispatch. Require `InteractionExtension::VanillaItemUse` before registration. |
 | | `stack_count`, `stack_shrink` | Read or shrink the held stack. |
 | | `stack_data`, `set_stack_data` | Read or replace up to 1 KiB of mod bytes stored on the stack (`custom_data` key `moddedmc:data`). Empty removes them. |
 | | `cooldown(player, item, ticks)` | Vanilla `ItemCooldowns.addCooldown`. |

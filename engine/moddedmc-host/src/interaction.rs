@@ -1,4 +1,4 @@
-//! `moddedmc:interaction`: content items used on blocks.
+//! `moddedmc:interaction`: item uses on blocks.
 
 use std::{cell::Cell, ptr, sync::Arc};
 
@@ -20,7 +20,7 @@ use pumpkin_util::{
     math::{position::BlockPos, vector3::Vector3},
 };
 
-use crate::content::use_on_block_callback;
+use crate::content::use_on_block_callbacks;
 
 pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     size: size_of::<abi::InteractionV1>(),
@@ -36,6 +36,7 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     give,
     on_player_will_destroy: crate::content::on_player_will_destroy,
     on_redstone: crate::content::on_redstone,
+    on_vanilla_use_on_block: crate::content::on_vanilla_use_on_block,
 };
 
 /// The `custom_data` key that holds a mod's bytes on its item stacks.
@@ -54,9 +55,10 @@ impl ItemBehaviour for ItemUse {
         _block: &Block,
         _server: &Server,
     ) -> BlockActionResult {
-        let Some(callback) = use_on_block_callback(item.item.id) else {
+        let mut callbacks = use_on_block_callbacks(item.item.id).peekable();
+        if callbacks.peek().is_none() {
             return BlockActionResult::Pass;
-        };
+        }
         let world = player.world();
         let id = item.item.registry_key;
         let context = abi::UseOnBlock {
@@ -75,21 +77,24 @@ impl ItemBehaviour for ItemUse {
             creative: player.is_creative(),
         };
         let entity: &dyn EntityBase = player;
-        // SAFETY: the world, player, stack and context outlive this synchronous callback.
-        let result = unsafe {
-            callback(
-                ptr::from_ref(world.as_ref()).cast(),
-                ptr::from_ref(&entity).cast(),
-                ptr::from_mut(item).cast(),
-                &raw const context,
-            )
-        };
-        match result {
-            abi::USE_SUCCESS => BlockActionResult::Success,
-            abi::USE_CONSUME => BlockActionResult::Consume,
-            abi::USE_FAIL => BlockActionResult::Fail,
-            _ => BlockActionResult::Pass,
+        for callback in callbacks {
+            // SAFETY: the world, player, stack and context outlive this synchronous callback.
+            let result = unsafe {
+                callback(
+                    ptr::from_ref(world.as_ref()).cast(),
+                    ptr::from_ref(&entity).cast(),
+                    ptr::from_mut(item).cast(),
+                    &raw const context,
+                )
+            };
+            match result {
+                abi::USE_SUCCESS => return BlockActionResult::Success,
+                abi::USE_CONSUME => return BlockActionResult::Consume,
+                abi::USE_FAIL => return BlockActionResult::Fail,
+                _ => {}
+            }
         }
+        BlockActionResult::Pass
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
