@@ -630,7 +630,10 @@ fn belt_processing(
     next: f32,
     no_movement: bool,
 ) -> BeltProcessing {
-    use crate::press::{self, ProcessingResult};
+    use crate::{
+        press,
+        processing_recipes::{self, ProcessingResult},
+    };
     const CENTER_MARGIN: f32 = 1.0 / 512.0;
     let positive = chain.direction_aware_speed() > 0.0;
     let side = if positive {
@@ -640,7 +643,12 @@ fn belt_processing(
     };
     if item.locked {
         let segment = item.pos as i32;
-        return match press::process_item(kinetics, chain.position_for_offset(segment), item) {
+        return match processing_recipes::process_transported(
+            world,
+            kinetics,
+            chain.position_for_offset(segment),
+            item,
+        ) {
             ProcessingResult::Pass => {
                 item.locked = false;
                 BeltProcessing::Pass
@@ -664,7 +672,10 @@ fn belt_processing(
             }
         };
     }
-    if no_movement || !positive && item.pos <= 0.5 || kinetics.recipes.is_none() {
+    if no_movement
+        || !positive && item.pos <= 0.5
+        || (kinetics.recipes.is_none() && kinetics.spouts.is_empty())
+    {
         return BeltProcessing::Pass;
     }
     let mut segment = (item.pos + if positive { 0.5 } else { -0.5 }) as i32;
@@ -678,15 +689,10 @@ fn belt_processing(
             break;
         }
         let pos = chain.position_for_offset(segment);
-        if kinetics
-            .get(Pos {
-                y: pos.y + 2,
-                ..pos
-            })
-            .is_some_and(|be| be.press.is_some())
+        if processing_recipes::has_processor(kinetics, pos)
             && !press::is_blocked(world, pos)
             && matches!(
-                press::process_item(kinetics, pos, item),
+                processing_recipes::process_transported(world, kinetics, pos, item),
                 ProcessingResult::Hold
             )
         {

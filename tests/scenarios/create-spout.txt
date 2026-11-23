@@ -1,0 +1,132 @@
+# The spout holds an empty container until enough fluid arrives.
+mods target\mods\create.mmc
+start
+expect registered content block create:spout \(1 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1027.5 101 1024.5 0 40
+wait 5
+cmd fill 1020 100 1018 1032 110 1031 minecraft:air
+cmd fill 1020 99 1018 1032 99 1031 minecraft:stone
+cmd setblock 1027 100 1026 create:depot
+cmd setblock 1027 102 1026 create:spout
+cmd setblock 1027 103 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 104 1026 create:mechanical_pump[facing=down,waterlogged=false]
+cmd setblock 1027 105 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 106 1026 create:fluid_tank
+cmd setblock 1025 102 1025 create:creative_motor[facing=up]
+cmd setblock 1025 103 1025 create:shaft[axis=y,waterlogged=false]
+cmd setblock 1025 104 1025 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 1026 104 1026 create:cogwheel[axis=y,waterlogged=false]
+wait 1
+cmd kinetics 1025 102 1025 64
+cmd gamemode survival tester
+cmd tp tester 1027.5 100 1024.5 0 40
+cmd item replace entity tester weapon.mainhand with minecraft:glass_bottle
+wait 0.5
+bot use 1027 100 1026
+wait 2
+cmd data get block 1027 100 1026 HeldItem.Item
+wait 0.5
+expect minecraft:glass_bottle
+cmd fluidpipe 1027 102 1026
+wait 0.5
+expect create:spout.*Tank\(empty 0/1000 mB\)
+cmd gamemode creative tester
+cmd tp tester 1027.5 104 1024.5 0 0
+cmd item replace entity tester hotbar.4 with minecraft:water_bucket
+bot hotbar 4
+wait 0.5
+bot use 1027 106 1026
+wait 5
+cmd fluidpipe 1027 102 1026
+wait 0.5
+expect create:spout.*Tank\(minecraft:water 750/1000 mB\)
+cmd data get block 1027 100 1026 HeldItem.Item
+wait 0.5
+expect minecraft:potion_contents.*minecraft:water
+cmd gamemode survival tester
+cmd tp tester 1027.5 100 1024.5 0 40
+bot hotbar 0
+wait 0.5
+bot use 1027 100 1026
+wait 0.5
+cmd clear tester minecraft:potion 0
+wait 0.5
+expect Found 1 matching item
+cmd item replace entity tester weapon.mainhand with minecraft:bucket
+wait 0.5
+bot use 1027 100 1026
+wait 2
+cmd data get block 1027 100 1026 HeldItem.Item
+wait 0.5
+expect minecraft:bucket
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd fluidpipe 1027 102 1026
+wait 0.5
+expect create:spout.*Tank\(minecraft:water 750/1000 mB\)
+cmd data get block 1027 100 1026 HeldItem.Item
+wait 0.5
+expect minecraft:bucket
+cmd gamemode creative tester
+cmd tp tester 1027.5 104 1024.5 0 0
+cmd item replace entity tester hotbar.4 with minecraft:water_bucket
+bot hotbar 4
+wait 0.5
+bot use 1027 106 1026
+wait 5
+cmd fluidpipe 1027 102 1026
+wait 0.5
+expect create:spout.*Tank\(minecraft:water 750/1000 mB\)
+cmd data get block 1027 100 1026 HeldItem.Item
+wait 0.5
+expect minecraft:water_bucket
+cmd gamemode survival tester
+cmd tp tester 1027.5 100 1024.5 0 40
+bot hotbar 0
+cmd clear tester minecraft:water_bucket 1
+wait 0.5
+bot use 1027 100 1026
+wait 0.5
+cmd clear tester minecraft:water_bucket 0
+wait 0.5
+expect Found 1 matching item
+cmd fluidpipe 1027 106 1026
+wait 0.5
+expect create:fluid_tank.*Tank\(empty 0/8000 mB\)
+
+# Route a bottle from a moving belt through the same spout to a depot.
+cmd gamemode creative tester
+cmd tp tester 1028.5 100 1026.5 90 20
+cmd setblock 1027 100 1026 minecraft:air
+cmd setblock 1026 100 1023 create:creative_motor[facing=east]
+cmd setblock 1027 100 1023 create:shaft[axis=x,waterlogged=false]
+cmd setblock 1027 100 1029 create:shaft[axis=x,waterlogged=false]
+cmd setblock 1027 100 1030 create:depot
+cmd item replace entity tester hotbar.1 with create:belt_connector
+bot hotbar 1
+wait 1
+bot use 1027 100 1023
+wait 0.5
+bot use 1027 100 1029
+wait 1
+cmd kinetics 1026 100 1023 128
+cmd summon minecraft:item 1027.5 101.1 1023.5 {Item:{id:"minecraft:glass_bottle",count:1},PickupDelay:32767s}
+wait 6
+cmd data get block 1027 100 1030 HeldItem.Item
+wait 0.5
+expect minecraft:potion_contents.*minecraft:water
+cmd fluidpipe 1027 102 1026
+wait 0.5
+expect create:spout.*Tank\(minecraft:water 500/1000 mB\)
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

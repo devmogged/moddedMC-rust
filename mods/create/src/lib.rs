@@ -177,6 +177,7 @@ impl Mod for Create {
         fluids::blocks::register(*content, registry)?;
         fluids::tank_runtime::register(*content, registry)?;
         fluids::item_drain::register(*content, registry)?;
+        fluids::spout::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
         piston::register(*content, registry)?;
@@ -1400,6 +1401,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         for event in events {
             // WS-2: recalculate fluid pipe faces when adjacent blocks change.
             fluids::runtime::event(world, event);
+            fluids::spout::event(world, &mut kinetics.spouts, event);
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
             funnel::event(world, &mut kinetics.funnels, states, event);
@@ -1486,6 +1488,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         kinetics.tick(&mut level);
         // WS-2: distribute pump RPM as directional pipe pressures.
         fluids::runtime::pressure_tick(world, kinetics, events);
+        fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);

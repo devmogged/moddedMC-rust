@@ -17,7 +17,7 @@ use super::{
     item_drain,
     pipe_states::{OpenFaces, update_block_state},
     pump_graph::{PumpTopology, distribute_pressure},
-    tank_runtime,
+    spout, tank_runtime,
 };
 use crate::{
     CONTENT, DIRECTIONS, FACES, face_axis,
@@ -67,6 +67,7 @@ impl StateIndex {
                         .state(item_drain::ID)
                         .map(|id| (id, EndpointKind::ItemDrain)),
                 )
+                .chain(content.state(spout::ID).map(|id| (id, EndpointKind::Spout)))
                 .collect(),
             known_open_ends: HashSet::new(),
         };
@@ -190,7 +191,12 @@ pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
     Some(match index()?.endpoints.get(&context.state)? {
         EndpointKind::Tank => tank_runtime::use_item_on(context),
         EndpointKind::ItemDrain => item_drain::use_item_on(context),
+        EndpointKind::Spout => return None,
     })
+}
+
+pub fn is_spout(state: u32) -> bool {
+    index().is_some_and(|ids| ids.endpoints.get(&state) == Some(&EndpointKind::Spout))
 }
 
 /// FluidPipeBlock.canConnectTo for the currently registered Create fluid blocks.

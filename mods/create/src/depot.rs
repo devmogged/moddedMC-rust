@@ -20,8 +20,8 @@ use crate::{
     },
     fan::{self, FanProcessingType},
     kinetics::{FACES, Kinetics, face_axis},
-    press::{self, ProcessingResult},
-    processing_recipes::RecipeBook,
+    press,
+    processing_recipes::{self, ProcessingResult, RecipeBook},
 };
 
 pub const ID: &str = "create:depot";
@@ -625,17 +625,11 @@ impl DepotBehaviour {
             return;
         }
         if !item.locked
-            && (kinetics
-                .get(Pos {
-                    y: pos.y + 2,
-                    ..pos
-                })
-                .is_none_or(|be| be.press.is_none())
-                || press::is_blocked(world, pos))
+            && (!processing_recipes::has_processor(kinetics, pos) || press::is_blocked(world, pos))
         {
             return;
         }
-        match press::process_item(kinetics, pos, item) {
+        match processing_recipes::process_transported(world, kinetics, pos, item) {
             ProcessingResult::Pass => {
                 self.dirty |= item.locked;
                 item.locked = false;

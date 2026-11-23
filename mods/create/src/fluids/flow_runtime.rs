@@ -9,6 +9,7 @@ use super::{
     network::{FluidHandler, transfer_tick},
     network_graph::{BlockFace, FluidNetworkGraph, NetworkTopology, Source},
     pipe_connection::{FluidStack, PipeConnection},
+    smart_tank, spout,
     tank::TankInventory,
     tank_runtime,
     transport::Transport,
@@ -18,24 +19,30 @@ use super::{
 pub(super) enum EndpointKind {
     Tank,
     ItemDrain,
+    Spout,
 }
 
 impl EndpointKind {
     pub fn accessible(self, face: u8) -> bool {
-        self != Self::ItemDrain || face != 1
+        match self {
+            Self::Tank => true,
+            Self::ItemDrain => face != 1,
+            Self::Spout => face != 0,
+        }
     }
 
     pub fn load(self, world: World<'_>, pos: Pos) -> Option<TankInventory> {
         match self {
             Self::Tank => tank_runtime::load(world, pos),
             Self::ItemDrain => item_drain::load(world, pos),
+            Self::Spout => spout::load_tank(world, pos),
         }
     }
 
     fn save(self, world: World<'_>, pos: Pos, tank: &TankInventory) -> bool {
         match self {
             Self::Tank => tank_runtime::save(world, pos, tank),
-            Self::ItemDrain => item_drain::save(world, pos, tank),
+            Self::ItemDrain | Self::Spout => smart_tank::save(world, pos, tank),
         }
     }
 }
@@ -218,14 +225,14 @@ fn move_tank_fluid(
         .into_iter()
         .filter(|&pos| pos != source)
         // The item drain exposes extraction only.
-        .filter_map(|pos| match tanks.get(&pos) {
-            Some((EndpointKind::Tank, tank)) => Some((pos, tank.clone())),
-            _ => None,
+        .filter_map(|pos| {
+            let (kind, tank) = tanks.get(&pos)?;
+            (*kind != EndpointKind::ItemDrain).then(|| (pos, *kind, tank.clone()))
         })
         .collect();
     let mut handlers: Vec<&mut dyn FluidHandler> = targets
         .iter_mut()
-        .map(|(_, tank)| tank as &mut dyn FluidHandler)
+        .map(|(_, _, tank)| tank as &mut dyn FluidHandler)
         .collect();
     let moved = transfer_tick(
         &mut updated_source,
@@ -239,11 +246,11 @@ fn move_tank_fluid(
 
     // The tick is synchronous. If a target's entity write fails, return its share.
     let mut returned = 0;
-    for (pos, tank) in targets {
+    for (pos, kind, tank) in targets {
         let received = tank.amount() - tanks[&pos].1.amount();
         if received > 0 {
-            if tank_runtime::save(world, pos, &tank) {
-                tanks.insert(pos, (EndpointKind::Tank, tank));
+            if kind.save(world, pos, &tank) {
+                tanks.insert(pos, (kind, tank));
             } else {
                 returned += received;
             }

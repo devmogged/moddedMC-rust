@@ -14,7 +14,7 @@ use crate::{
     DIRECTIONS, EFFECTS, ENTITIES, ITEMS, STACKS, STONE, StateIds,
     belt_inventory::{TransportedItemStack, count, next_int, with_count},
     kinetics::{FACES, Kind, Kinetics, face_axis, offset},
-    processing_recipes::{Process, RecipeBook},
+    processing_recipes::{Process, ProcessingResult, RecipeBook},
 };
 
 pub const ID: &str = "create:mechanical_press";
@@ -207,12 +207,6 @@ fn running_tick_speed(speed: f32) -> i32 {
         return 0;
     }
     (1.0 + 59.0 * (speed.abs() / 512.0).min(1.0)) as i32
-}
-
-pub enum ProcessingResult {
-    Pass,
-    Hold,
-    Convert(Vec<Value>),
 }
 
 pub fn process_item(

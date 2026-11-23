@@ -4,13 +4,40 @@ use std::{
 };
 
 use fastnbt::Value;
+use moddedmc_api::{Pos, content::World};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
 use crate::{
     RESOURCES, STACKS, TAGS,
-    belt_inventory::{count, next_int, with_count},
+    belt_inventory::{TransportedItemStack, count, next_int, with_count},
+    kinetics::Kinetics,
+    press,
 };
+
+pub enum ProcessingResult {
+    Pass,
+    Hold,
+    Convert(Vec<Value>),
+}
+
+pub fn has_processor(kinetics: &Kinetics, pos: Pos) -> bool {
+    let above = crate::offset(pos, [0, 2, 0]);
+    kinetics.spouts.contains_key(&above) || kinetics.get(above).is_some_and(|be| be.press.is_some())
+}
+
+pub fn process_transported(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    item: &TransportedItemStack,
+) -> ProcessingResult {
+    let above = crate::offset(pos, [0, 2, 0]);
+    if let Some(spout) = kinetics.spouts.get_mut(&above) {
+        return spout.process(world, above, item);
+    }
+    press::process_item(kinetics, pos, item)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Process {
