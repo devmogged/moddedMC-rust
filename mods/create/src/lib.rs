@@ -172,6 +172,7 @@ impl Mod for Create {
         press::register(*content, registry)?;
         // WS-2 Create fluids
         fluids::blocks::register(*content, registry)?;
+        fluids::tank_runtime::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
         piston::register(*content, registry)?;
@@ -1511,6 +1512,9 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if !context.with_item {
         return BlockUseResult::Pass;
+    }
+    if fluids::runtime::is_tank(context.state) {
+        return fluids::tank_runtime::use_item_on(context);
     }
     let Some(states) = states() else {
         return BlockUseResult::Pass;

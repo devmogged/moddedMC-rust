@@ -2,6 +2,7 @@
 
 pub mod blocks;
 pub mod connection_nbt;
+mod flow_runtime;
 pub mod flow_source;
 pub mod network;
 pub mod network_graph;
@@ -11,5 +12,6 @@ pub mod pipe_states;
 pub mod pump_graph;
 pub mod runtime;
 pub mod tank;
+pub(crate) mod tank_runtime;
 pub mod transport;
 pub mod vanilla_targets;

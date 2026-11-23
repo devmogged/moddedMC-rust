@@ -4,7 +4,7 @@
 mods target\mods\create.mmc
 start
 expect registered content item create:andesite_alloy
-expect Loaded built-in datapack 'mod/create': 67 recipe\(s\), 56 loot table\(s\), 22 tag\(s\)
+expect Loaded built-in datapack 'mod/create': 70 recipe\(s\), 61 loot table\(s\), 23 tag\(s\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester
@@ -24,6 +24,15 @@ wait 1
 expect Unlocked 1 recipe
 cmd recipe give tester create:crafting/kinetics/wrench
 wait 1
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/fluid_pipe
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/mechanical_pump
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/fluid_tank
+wait 0.5
 expect Unlocked 1 recipe
 cmd give tester create:andesite_alloy 2
 wait 1
@@ -45,5 +54,8 @@ expect Dropped 1 .*Cogwheel
 cmd loot spawn 1025 101 1025 loot create:blocks/depot
 wait 1
 expect Dropped 1 .*Depot
+cmd loot spawn 1025 101 1025 loot create:blocks/fluid_tank
+wait 0.5
+expect Dropped 1 .*Fluid Tank
 reject Unknown recipe|not found|ERROR|panicked
 stop

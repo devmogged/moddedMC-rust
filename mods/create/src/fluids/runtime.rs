@@ -14,8 +14,10 @@ use moddedmc_api::{
 
 use super::{
     blocks::PipeState,
+    flow_runtime::FlowRuntime,
     pipe_states::{OpenFaces, update_block_state},
     pump_graph::{PumpTopology, distribute_pressure},
+    tank_runtime,
 };
 use crate::{
     CONTENT, DIRECTIONS, FACES, face_axis,
@@ -37,6 +39,7 @@ struct StateIndex {
     glass: [[[Option<u32>; 2]; 2]; 3],
     pump: [[Option<u32>; 2]; 6],
     water: HashSet<u32>,
+    tanks: HashSet<u32>,
     /// Known vanilla open-end states. Unknown world blocks fail closed until WS-2-02.
     known_open_ends: HashSet<u32>,
 }
@@ -56,6 +59,7 @@ impl StateIndex {
             glass: [[[None; 2]; 2]; 3],
             pump: [[None; 2]; 6],
             water: HashSet::new(),
+            tanks: tank_runtime::state_ids(content),
             known_open_ends: HashSet::new(),
         };
         for mask in 0..64u8 {
@@ -164,10 +168,16 @@ impl StateIndex {
     }
 
     fn can_connect_to(&self, neighbor: u32, direction: u8) -> bool {
-        self.kinds
-            .get(&neighbor)
-            .is_some_and(|kind| can_connect_to(*kind, direction))
+        self.tanks.contains(&neighbor)
+            || self
+                .kinds
+                .get(&neighbor)
+                .is_some_and(|kind| can_connect_to(*kind, direction))
     }
+}
+
+pub fn is_tank(state: u32) -> bool {
+    index().is_some_and(|ids| ids.tanks.contains(&state))
 }
 
 /// FluidPipeBlock.canConnectTo for the currently registered Create fluid blocks.
@@ -338,6 +348,13 @@ pub fn inspect(world: World<'_>, pos: Pos) -> Option<String> {
     if !world.read(&[pos], &mut current) {
         return None;
     }
+    if ids.tanks.contains(&current[0]) {
+        return Some(format!(
+            "{}{}",
+            CONTENT.get()?.describe_state(current[0])?,
+            tank_runtime::describe(&tank_runtime::load(world, pos)?)
+        ));
+    }
     Some(describe(*ids.kinds.get(&current[0])?))
 }
 
@@ -353,6 +370,7 @@ struct WorldPressure {
     pumps: Vec<PumpSource>,
     /// PipeConnection pressure (inbound, outward) by position and face.
     faces: HashMap<(Pos, u8), [f32; 2]>,
+    flow: FlowRuntime,
 }
 
 static PRESSURES: Mutex<Option<HashMap<usize, WorldPressure>>> = Mutex::new(None);
@@ -416,7 +434,7 @@ impl PumpTopology for LoadedTopology<'_> {
         // face sturdiness, block tags and sided fluid capabilities.
         // This proven subset accepts only explicitly resolved vanilla
         // replaceable blocks / cauldrons, never arbitrary unknown blocks.
-        self.states.known_open_ends.contains(&state)
+        self.states.tanks.contains(&state) || self.states.known_open_ends.contains(&state)
     }
 }
 
@@ -428,8 +446,7 @@ fn add_pressure(map: &mut HashMap<(Pos, u8), [f32; 2]>, face: super::pump_graph:
 /// Recompute pump-induced PipeConnection pressure after the kinetic tick,
 /// only when absolute RPM, topology, or a pump's facing changes. Java
 /// PumpBlockEntity.onSpeedChanged similarly ignores sign-only changes.
-/// The resulting read-only pressures are available to the fluid network
-/// integration and admin diagnostics; no fluids are moved yet.
+/// Advance fluid networks after the pump pressure update.
 pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEvent]) {
     let Some(states) = index() else { return };
     let mut pumps: Vec<_> = kinetics
@@ -449,7 +466,9 @@ pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEve
     pumps.sort_by_key(|pump| (pump.pos.x, pump.pos.y, pump.pos.z, pump.facing));
 
     let topology_changed = events.iter().any(|event| {
-        states.kinds.contains_key(&event.previous) || states.kinds.contains_key(&event.state)
+        [event.previous, event.state]
+            .into_iter()
+            .any(|state| states.kinds.contains_key(&state) || states.tanks.contains(&state))
     });
     let refresh = {
         let cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
@@ -459,30 +478,51 @@ pub fn pressure_tick(world: World<'_>, kinetics: &Kinetics, events: &[ContentEve
                 .and_then(|worlds| worlds.get(&world.id()))
                 .is_none_or(|before| before.pumps != pumps)
     };
-    if !refresh {
-        return;
-    }
-
-    let topology = LoadedTopology { world, states };
-    let mut faces = HashMap::new();
-    for pump in &pumps {
-        if pump.speed == 0.0 {
-            continue;
-        }
-        for side in [pump.facing, pump.facing ^ 1] {
-            let pull = side != pump.facing;
-            for face in distribute_pressure(
-                &topology, pump.pos, side, pull, pump.speed,
-                16, // CFluids.mechanicalPumpRange default (configurable in Java)
-            ) {
-                add_pressure(&mut faces, face);
+    let faces = refresh.then(|| {
+        let topology = LoadedTopology { world, states };
+        let mut faces = HashMap::new();
+        for pump in &pumps {
+            if pump.speed == 0.0 {
+                continue;
+            }
+            for side in [pump.facing, pump.facing ^ 1] {
+                let pull = side != pump.facing;
+                for face in distribute_pressure(
+                    &topology, pump.pos, side, pull, pump.speed,
+                    16, // CFluids.mechanicalPumpRange default (configurable in Java)
+                ) {
+                    add_pressure(&mut faces, face);
+                }
             }
         }
-    }
+        faces
+    });
     let mut cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
-    cache
+    let pressure = cache
         .get_or_insert_with(HashMap::new)
-        .insert(world.id(), WorldPressure { pumps, faces });
+        .entry(world.id())
+        .or_default();
+    if let Some(faces) = faces {
+        pressure.flow.update_pressure(
+            faces
+                .iter()
+                .map(|(&(pos, face), &values)| (pos, face, values))
+                .chain(
+                    pumps
+                        .iter()
+                        .filter(|pump| pump.speed > 0.0)
+                        .flat_map(|pump| {
+                            [
+                                (pump.pos, pump.facing, [0.0, pump.speed]),
+                                (pump.pos, pump.facing ^ 1, [pump.speed, 0.0]),
+                            ]
+                        }),
+                ),
+        );
+        pressure.pumps = pumps;
+        pressure.faces = faces;
+    }
+    pressure.flow.tick(world, &states.tanks);
 }
 
 /// Pending engine ABI integration, show computed pressure as the two
