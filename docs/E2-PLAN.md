@@ -424,3 +424,44 @@ codegen in noise chunks at seed 42. The dripstone test also checks that both fea
 change a real cave. These tests prove the decoders agree with codegen. They don't
 prove Java parity: no Java fixture has run for these features yet. Fmt, clippy and 334
 world unit tests passed. Pumpkin commits d836a6fc9 through 7c29d3b30.
+
+## E2e structures
+
+Startup now reads `worldgen/structure` and `worldgen/structure_set` from enabled packs.
+A process-wide registry layers them over the generated vanilla data. Datapack structures
+get custom keys, vanilla IDs can be overridden, and each structure's biomes are resolved
+against the merged biome tags. `/locate structure` accepts datapack IDs.
+
+Comparing against Java exposed engine bugs, most of which also hit vanilla worlds:
+
+- `/locate` sampled Overworld biomes in every dimension, so it never found Nether
+  structures.
+- `/locate` counted any structure of a multi-structure set in a chunk instead of the
+  one the set's weighted pick chose there.
+- Vanilla returns the first hit in each placement's ring order and compares distance only
+  across placements. Pumpkin took the nearest hit in a ring.
+- Jigsaw `max_distance_from_center` was read as one number with a fixed vertical reach
+  of 384. Java uses the value for both axes, or an object with a separate `vertical`.
+- NBT lists longer than 512,000 entries were rejected, which broke large templates.
+- An unparsable rule `position_predicate` failed the whole processor list. Java reads it
+  leniently, so the rule always passes the position test.
+- Trapezoid int providers didn't accept `min` and `max`, so the vanilla Nether patch
+  features failed to load from JSON.
+- Generated vanilla tags are flattened. A vanilla tag that nests a tag a pack extends,
+  like `has_structure/ruined_portal_nether` through `is_nether`, missed the additions.
+  Codegen now records each vanilla tag's direct references, and tag resolution follows
+  them.
+
+At seed 20261120, `/locate structure` from (0,0), (3000,-2000) and (-4000,5000) matched
+Java 26.3 on every query:
+
+- Incendium 5.4.5 in the Nether: all 39 results, covering 9 Incendium structures, fortress,
+  bastion, Nether fossil and Nether ruined portal.
+- Terralith 2.6.5 in the Overworld: all 99 results, covering 29 Terralith structures and
+  four vanilla ones. Both servers found nothing for the same 6 queries.
+- Vanilla Nether fortress and bastion, with a unit test for the Java positions.
+
+This proves start positions, not piece layouts. No block dump has compared the generated
+pieces yet. Nullscape for the End hasn't been run. Datapack ruined portals are still
+unsupported, because Pumpkin hard-codes the vanilla portal setups. Pumpkin commits
+3c3576a3d through daab022e7.
