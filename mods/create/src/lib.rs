@@ -26,6 +26,7 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
+pub mod basin_inventory;
 mod bearing;
 mod belt;
 mod belt_inventory;
@@ -40,6 +41,8 @@ mod drill;
 mod elevator;
 mod fan;
 mod funnel;
+// WS-2 Create fluids
+pub mod fluids;
 mod gantry;
 mod glue;
 mod harvester;
@@ -167,6 +170,8 @@ impl Mod for Create {
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
         press::register(*content, registry)?;
+        // WS-2 Create fluids
+        fluids::blocks::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
         piston::register(*content, registry)?;
@@ -233,7 +238,22 @@ impl Mod for Create {
                     number(Some(2), "rpm", -MAX_SPEED, MAX_SPEED, Some(1)),
                 ],
             )?;
+        // WS-2: read Create's exact pipe state for behavioral scenarios.
         // WS-3: read-only track state inspection for placement/restart scenarios.
+        COMMANDS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add(
+                registry,
+                "fluidpipe",
+                "Inspect the registered state of a Create fluid pipe or pump",
+                2,
+                &[
+                    number(None, "x", -30_000_000, 30_000_000, None),
+                    number(Some(0), "y", -2_048, 2_047, None),
+                    number(Some(1), "z", -30_000_000, 30_000_000, Some(200)),
+                ],
+            )?;
         COMMANDS
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -291,6 +311,16 @@ impl Mod for Create {
             return 0;
         };
         let pos = Pos { x, y, z };
+        if tag == 200 {
+            match fluids::runtime::inspect(world, pos) {
+                Some(selector) => command.reply(&format!(
+                    "{selector} at {x} {y} {z}{}",
+                    fluids::runtime::pressure_text(world, pos)
+                )),
+                None => command.reply("There is no loaded Create fluid block at that position"),
+            }
+            return 1;
+        }
         if tag == 3 || tag == 4 {
             let result = if tag == 3 {
                 trains::summary(&world)
@@ -760,6 +790,14 @@ fn states() -> Option<&'static StateIds> {
                 &format!("facing={name}"),
                 Some(Kind::Motor(face as u8)),
             );
+            for wet in [false, true] {
+                ids.add(
+                    content,
+                    "create:mechanical_pump",
+                    &format!("facing={name},waterlogged={wet}"),
+                    Some(Kind::Pump(face as u8)),
+                );
+            }
         }
         for (index, axis) in AXES.into_iter().enumerate() {
             let axis_index = index as u8;
@@ -853,6 +891,10 @@ fn states() -> Option<&'static StateIds> {
 fn placed_state(args: Placement<'_>) -> Option<u32> {
     if usize::from(args.face) >= FACES.len() {
         return None;
+    }
+    // WS-2 fluid blocks choose connected faces, axis, and waterlogged state.
+    if let Some(state) = fluids::runtime::placed_state(&args) {
+        return Some(state);
     }
     // WS-3: train tracks use their own orientation and support checks.
     if let Some(track) = CONTENT
@@ -1054,7 +1096,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         None if placed.block == depot::ID => {
             format!("{}[waterlogged={}]", depot::ID, states.wet(ids[6]))
         }
-        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Millstone) | None => {
+        Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Pump(_))
+        | Some(Kind::Millstone)
+        | None => {
             return Some(args.state);
         }
     };
@@ -1338,6 +1382,8 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         let mut level = WorldLevel { world, states };
         let mut gantry_changed = false;
         for event in events {
+            // WS-2: recalculate fluid pipe faces when adjacent blocks change.
+            fluids::runtime::event(world, event);
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
             funnel::event(world, &mut kinetics.funnels, states, event);
@@ -1422,6 +1468,8 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             gantry::refresh_lines(world, &mut level, kinetics);
         }
         kinetics.tick(&mut level);
+        // WS-2: distribute pump RPM as directional pipe pressures.
+        fluids::runtime::pressure_tick(world, kinetics, events);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);

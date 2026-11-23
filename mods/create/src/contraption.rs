@@ -142,7 +142,7 @@ impl BlockMovementChecks {
         Some(contraption)
     }
 
-    pub fn classify(&self, world: World<'_>, pos: Pos) -> Option<BlockMovement> {
+    pub(crate) fn classify(&self, world: World<'_>, pos: Pos) -> Option<BlockMovement> {
         let mut state = [UNLOADED_STATE];
         world.read(&[pos], &mut state);
         if let Some(known) = self.states.get(&state[0]) {

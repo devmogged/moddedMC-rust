@@ -1,0 +1,45 @@
+# WS-2 Create 6.0.10 pipe and pump content registration smoke.
+# Covers default-state block registration and persistence, NOT fluid movement.
+mods target\mods\create.mmc
+start
+expect registered content block create:fluid_pipe \(128 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 5
+cmd fill 1020 99 1018 1030 103 1030 minecraft:air
+wait 1
+cmd setblock 1025 100 1025 create:fluid_pipe
+cmd setblock 1026 100 1025 create:glass_fluid_pipe
+cmd setblock 1027 100 1025 create:encased_fluid_pipe
+cmd setblock 1028 100 1025 create:mechanical_pump
+wait 1
+# Avoid asserting client chunk loaded before asynchronous propagation.
+cmd data get block 1025 100 1025
+expect 1025, 100, 1025 has the following block data: .*create:fluid_pipe
+cmd data get block 1026 100 1025
+expect 1026, 100, 1025 has the following block data: .*create:glass_fluid_pipe
+cmd data get block 1027 100 1025
+expect 1027, 100, 1025 has the following block data: .*create:encased_fluid_pipe
+cmd data get block 1028 100 1025
+expect 1028, 100, 1025 has the following block data: .*create:mechanical_pump
+bot quit
+cmd save-all flush
+stop
+start
+botstart tester
+wait 3
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 5
+cmd data get block 1025 100 1025
+expect 1025, 100, 1025 has the following block data: .*create:fluid_pipe
+cmd data get block 1026 100 1025
+expect 1026, 100, 1025 has the following block data: .*create:glass_fluid_pipe
+cmd data get block 1027 100 1025
+expect 1027, 100, 1025 has the following block data: .*create:encased_fluid_pipe
+cmd data get block 1028 100 1025
+expect 1028, 100, 1025 has the following block data: .*create:mechanical_pump
+reject (?i)panicked|trapped|failed to register
+bot quit
+stop

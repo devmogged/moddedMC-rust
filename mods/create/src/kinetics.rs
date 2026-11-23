@@ -99,6 +99,8 @@ pub enum Kind {
     EncasedShaft(u8),
     Turntable,
     Press(u8),
+    /// Mechanical pump axis derived from FACING, powered by small-cog meshing.
+    Pump(u8),
     Fan(u8),
     Bearing(u8),
     Windmill(u8),
@@ -238,6 +240,7 @@ impl Kind {
             | Self::Wheel(axis)
             | Self::Pulley(axis)
             | Self::Press(axis) => axis,
+            Self::Pump(facing) => face_axis(facing),
             Self::Motor(facing)
             | Self::Fan(facing)
             | Self::Bearing(facing)
@@ -263,6 +266,7 @@ impl Kind {
     pub const fn has_shaft_towards(self, face: u8) -> bool {
         match self {
             Self::Motor(facing) => facing == face,
+            Self::Pump(_) => false, // PumpBlock does not expose shaft connections
             Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
@@ -276,7 +280,7 @@ impl Kind {
     }
 
     const fn small_cog(self) -> bool {
-        matches!(self, Self::Small(_) | Self::Millstone)
+        matches!(self, Self::Small(_) | Self::Pump(_) | Self::Millstone)
     }
 
     const fn large_cog(self) -> bool {
@@ -294,7 +298,8 @@ impl Kind {
     /// `CStress` impact at 1 RPM, from the `setImpact` calls in `AllBlocks`.
     pub const fn impact(self) -> f32 {
         match self {
-            Self::Turntable
+            Self::Pump(_)
+            | Self::Turntable
             | Self::Millstone
             | Self::Bearing(_)
             | Self::Drill(_)
@@ -1853,6 +1858,37 @@ mod tests {
 
     /// P1a's rig: a motor facing up at 16 RPM, a shaft, a large cog and two meshed small cogs.
     /// The large cog doubles into a small cog (-2), which reverses into the next (-1).
+    /// PumpBlock implements ICogWheel (small), not an axial shaft.
+    /// AllBlocks.MECHANICAL_PUMP assigns four stress units per RPM.
+    #[test]
+    fn mechanical_pump_meshes_with_cogs_and_applies_four_stress_units() {
+        let pump_kind = Kind::Pump(UP);
+        assert_eq!(pump_kind.axis(), Y);
+        assert!(pump_kind.small_cog());
+        assert!(!pump_kind.has_shaft_towards(UP));
+        assert_eq!(pump_kind.impact(), 4.0);
+
+        let mut rig = Rig::new();
+        rig.motor(pos(0, 0, 0), 16, UP);
+        rig.place(&[
+            (pos(0, 1, 0), Kind::Shaft(Y)),
+            (pos(0, 2, 0), Kind::Large(Y)),
+            (pos(1, 2, 1), Kind::Small(Y)),
+            (pos(2, 2, 1), pump_kind),
+        ]);
+        rig.ticks(3);
+        assert_eq!(rig.speed(pos(1, 2, 1)), -32.0);
+        assert_eq!(rig.speed(pos(2, 2, 1)), 32.0);
+        assert_eq!(
+            rig.kinetics.get(pos(2, 2, 1)).unwrap().last_stress_applied,
+            4.0
+        );
+        // Breaking the intermediate cog disconnects the pump.
+        rig.kinetics.remove(&mut rig.level, pos(1, 2, 1));
+        rig.ticks(2);
+        assert_eq!(rig.speed(pos(2, 2, 1)), 0.0);
+    }
+
     #[test]
     fn motor_shaft_and_cogs_take_create_ratios() {
         let mut rig = Rig::new();
