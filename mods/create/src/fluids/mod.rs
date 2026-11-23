@@ -15,6 +15,7 @@ pub mod runtime;
 mod smart_tank;
 pub(crate) mod spout;
 pub mod tank;
+pub(crate) mod tank_connectivity;
 pub(crate) mod tank_runtime;
 pub mod transport;
 pub(crate) mod valve;

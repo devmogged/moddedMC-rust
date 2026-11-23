@@ -615,6 +615,7 @@ pub struct Kinetics {
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub item_drains: HashMap<Pos, crate::fluids::item_drain::ItemDrain>,
     pub spouts: HashMap<Pos, crate::fluids::spout::Spout>,
+    pub fluid_tanks: crate::fluids::tank_connectivity::Connectivity,
     pub chutes: crate::chute::Chutes,
     pub funnels: crate::funnel::Funnels,
     pub crushers: HashMap<Pos, crate::crusher::Controller>,

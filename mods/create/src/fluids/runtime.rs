@@ -196,7 +196,9 @@ impl StateIndex {
 
 pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
     Some(match index()?.endpoints.get(&context.state)? {
-        EndpointKind::Tank => tank_runtime::use_item_on(context),
+        EndpointKind::Tank => crate::with_world(context.world, |kinetics| {
+            tank_runtime::use_item_on(context, &kinetics.fluid_tanks)
+        }),
         EndpointKind::ItemDrain => crate::with_world(context.world, |kinetics| {
             item_drain::use_item_on(&mut kinetics.item_drains, context)
         }),
@@ -206,6 +208,10 @@ pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
 
 pub fn is_item_drain(state: u32) -> bool {
     index().is_some_and(|ids| ids.endpoints.get(&state) == Some(&EndpointKind::ItemDrain))
+}
+
+pub(super) fn is_tank(state: u32) -> bool {
+    index().is_some_and(|ids| ids.endpoints.get(&state) == Some(&EndpointKind::Tank))
 }
 
 pub fn is_spout(state: u32) -> bool {
@@ -427,10 +433,15 @@ pub fn inspect(world: World<'_>, pos: Pos) -> Option<String> {
         return None;
     }
     if let Some(kind) = ids.endpoints.get(&current[0]) {
+        let tank = if *kind == EndpointKind::Tank {
+            tank_runtime::canonical(world, pos)?.1
+        } else {
+            kind.load(world, pos)?
+        };
         return Some(format!(
             "{}{}",
             CONTENT.get()?.describe_state(current[0])?,
-            tank_runtime::describe(&kind.load(world, pos)?)
+            tank_runtime::describe(&tank)
         ));
     }
     Some(describe(*ids.kinds.get(&current[0])?))
@@ -623,7 +634,9 @@ pub fn pressure_tick(
         pressure.pumps = pumps;
         pressure.faces = faces;
     }
-    pressure.flow.tick(world, &states.endpoints);
+    pressure
+        .flow
+        .tick(world, &states.endpoints, &kinetics.fluid_tanks);
 }
 
 pub fn tick_valves(world: World<'_>, kinetics: &mut Kinetics) -> bool {

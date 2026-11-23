@@ -110,6 +110,8 @@ struct Create;
 impl Mod for Create {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let content = content::require()?;
+        content.require_replaced()?;
+        fluids::tank_connectivity::require()?;
         content.require_extension(WorldExtension::NeighborSignal)?;
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
@@ -176,6 +178,8 @@ impl Mod for Create {
         // WS-2 Create fluids
         fluids::blocks::register(*content, registry)?;
         fluids::tank_runtime::register(*content, registry)?;
+        fluids::tank_connectivity::register(registry)?;
+        content.on_replaced(registry, fluids::tank_connectivity::replaced)?;
         fluids::item_drain::register(*content, registry)?;
         fluids::spout::register(*content, registry)?;
         fluids::valve::register(*content, registry)?;
@@ -1406,7 +1410,7 @@ impl Level for WorldLevel<'_> {
     }
 }
 
-fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
+fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
     let Some(states) = states() else { return };
     with_world(world, |kinetics| {
         let mut level = WorldLevel { world, states };
@@ -1500,6 +1504,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
             gantry::refresh_lines(world, &mut level, kinetics);
         }
         kinetics.tick(&mut level);
+        kinetics.fluid_tanks.tick(world, time, events);
         // WS-2: distribute pump RPM as directional pipe pressures.
         let valve_changed = fluids::runtime::tick_valves(world, kinetics);
         fluids::runtime::pressure_tick(world, kinetics, events, valve_changed);

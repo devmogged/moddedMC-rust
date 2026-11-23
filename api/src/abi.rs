@@ -549,6 +549,8 @@ pub struct ContentEvent {
 pub type ContentTick =
     unsafe extern "C" fn(world: WorldRef, tick: u64, events: *const ContentEvent, count: usize);
 
+pub type ContentReplaced = unsafe extern "C" fn(world: WorldRef, event: *const ContentEvent);
+
 #[repr(C)]
 pub struct ContentV1 {
     pub size: usize,
@@ -556,7 +558,11 @@ pub struct ContentV1 {
     /// Exact name[single=value,...] selector. Missing definitions return UNLOADED_STATE.
     pub state: unsafe extern "C" fn(selector: Str) -> u32,
     pub on_tick: unsafe extern "C" fn(reg: Reg, callback: ContentTick) -> i32,
+    /// Appended. Called after the state write, before the old block entity is removed.
+    pub on_replaced: unsafe extern "C" fn(reg: Reg, callback: ContentReplaced) -> i32,
 }
+
+pub const CONTENT_V1_BASE_SIZE: usize = std::mem::offset_of!(ContentV1, on_replaced);
 
 #[repr(C)]
 pub struct ContentItemDefinition {

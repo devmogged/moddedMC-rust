@@ -1,0 +1,94 @@
+# Pipes at a member and a controller share one inventory. Split the receiving tank after restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:fluid_tank
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1023.5 102 1022.5 0 20
+wait 5
+cmd fill 1016 98 1016 1030 109 1030 minecraft:air
+cmd fill 1016 97 1016 1030 97 1030 minecraft:stone
+cmd fill 1023 99 1024 1023 100 1024 create:fluid_tank
+cmd fill 1023 104 1023 1024 105 1024 create:fluid_tank
+cmd setblock 1021 100 1023 create:creative_motor[facing=up]
+cmd setblock 1021 101 1023 create:shaft[axis=y,waterlogged=false]
+cmd setblock 1021 102 1023 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 1022 102 1024 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 1023 101 1024 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1023 103 1024 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1023 102 1024 create:mechanical_pump[facing=up,waterlogged=false]
+wait 0.5
+cmd kinetics 1021 100 1023 0
+cmd fluidpipe 1023 100 1024
+wait 0.5
+expect bottom=false,shape=window,top=true.*Tank\(empty 0/16000 mB\)
+cmd fluidpipe 1023 104 1024
+wait 0.5
+expect bottom=true,shape=window_sw,top=false.*Tank\(empty 0/64000 mB\)
+cmd data get block 1024 105 1024 Controller
+wait 0.5
+expect \[I; 1023, 104, 1023\]
+cmd item replace entity tester weapon.mainhand with minecraft:water_bucket
+wait 0.5
+bot use 1023 100 1024
+wait 0.2
+bot use 1023 100 1024
+wait 0.2
+bot use 1023 100 1024
+wait 0.2
+bot use 1023 100 1024
+wait 0.2
+bot use 1023 100 1024
+wait 0.2
+bot use 1023 100 1024
+wait 0.2
+bot use 1023 100 1024
+wait 0.2
+bot use 1023 100 1024
+wait 0.2
+bot use 1023 100 1024
+wait 0.5
+cmd fluidpipe 1023 99 1024
+wait 0.5
+expect Tank\(minecraft:water 9000/16000 mB\)
+cmd kinetics 1021 100 1023 128
+wait 12
+cmd fluidpipe 1023 99 1024
+wait 0.5
+expect Tank\(empty 0/16000 mB\)
+cmd fluidpipe 1024 105 1024
+wait 0.5
+expect bottom=false,shape=window_se,top=true.*Tank\(minecraft:water 9000/64000 mB\)
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 1024 105 1024
+wait 0.5
+cmd fluidpipe 1023 104 1023
+wait 0.5
+expect bottom=true,shape=plain,top=false.*Tank\(minecraft:water 9000/64000 mB\)
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd fluidpipe 1024 105 1024
+wait 0.5
+expect shape=plain.*Tank\(minecraft:water 9000/64000 mB\)
+cmd setblock 1023 104 1023 minecraft:air
+wait 1
+cmd fluidpipe 1023 104 1024
+wait 0.5
+expect Tank\(minecraft:water 8000/8000 mB\)
+cmd fluidpipe 1024 104 1023
+wait 0.5
+expect Tank\(minecraft:water 1000/8000 mB\)
+cmd fluidpipe 1024 105 1024
+wait 0.5
+expect Tank\(empty 0/32000 mB\)
+reject (?i)panicked|trapped|invalid tank split|failed to register|\[bot\] error
+bot quit
+stop

@@ -11,6 +11,7 @@ use super::{
     pipe_connection::{FluidStack, PipeConnection},
     smart_tank, spout,
     tank::TankInventory,
+    tank_connectivity::Connectivity,
     tank_runtime,
     transport::Transport,
 };
@@ -48,6 +49,7 @@ impl EndpointKind {
 }
 
 type Endpoints = HashMap<Pos, (EndpointKind, TankInventory)>;
+type EndpointOwners = HashMap<Pos, Pos>;
 
 #[derive(Default)]
 pub struct FlowRuntime {
@@ -85,11 +87,17 @@ impl FlowRuntime {
         self.networks.clear();
     }
 
-    pub fn tick(&mut self, world: World<'_>, endpoint_states: &HashMap<u32, EndpointKind>) {
+    pub fn tick(
+        &mut self,
+        world: World<'_>,
+        endpoint_states: &HashMap<u32, EndpointKind>,
+        connectivity: &Connectivity,
+    ) {
         if self.pipes.is_empty() {
             return;
         }
         let mut tanks = HashMap::new();
+        let mut owners = HashMap::new();
         let mut checked = HashSet::new();
         let mut provided = Vec::with_capacity(self.pipes.len());
         for (&pos, pipe) in &self.pipes {
@@ -112,12 +120,33 @@ impl FlowRuntime {
                         let mut state = [0];
                         if world.read(&[adjacent.pos], &mut state)
                             && let Some(&kind) = endpoint_states.get(&state[0])
-                            && let Some(tank) = kind.load(world, adjacent.pos)
                         {
-                            tanks.insert(adjacent.pos, (kind, tank));
+                            let (owner, tag) = if kind == EndpointKind::Tank {
+                                let tag = tank_runtime::read_tag(world, adjacent.pos)?;
+                                let owner = tank_runtime::controller_from_tag(&tag, adjacent.pos)?;
+                                (owner, (owner == adjacent.pos).then_some(tag))
+                            } else {
+                                (adjacent.pos, None)
+                            };
+                            if let std::collections::hash_map::Entry::Vacant(entry) =
+                                tanks.entry(owner)
+                                && !connectivity.pending(owner)
+                                && let Some(tank) = match tag {
+                                    Some(tag) => tank_runtime::from_tag(&tag),
+                                    None => kind.load(world, owner),
+                                }
+                            {
+                                entry.insert((kind, tank));
+                            }
+                            if tanks.get(&owner).is_some_and(|(_, tank)| {
+                                kind != EndpointKind::Tank
+                                    || tank_runtime::contains(owner, tank, adjacent.pos)
+                            }) {
+                                owners.insert(adjacent.pos, owner);
+                            }
                         }
                     }
-                    let (kind, tank) = tanks.get(&adjacent.pos)?;
+                    let (kind, tank) = tanks.get(owners.get(&adjacent.pos)?)?;
                     kind.accessible(adjacent.side)
                         .then(|| tank.fluid().cloned())
                         .flatten()
@@ -134,6 +163,7 @@ impl FlowRuntime {
         let topology = Topology {
             pipes: &self.pipes,
             tanks: &tanks,
+            owners: &owners,
         };
         for (&pos, pipe) in &self.pipes {
             for connection in pipe.connections.iter().flatten() {
@@ -160,7 +190,7 @@ impl FlowRuntime {
         for face in starts {
             let graph = &self.networks[&face];
             if let Some(fluid) = &graph.fluid {
-                move_tank_fluid(world, &mut tanks, graph, fluid);
+                move_tank_fluid(world, &mut tanks, &owners, graph, fluid);
             }
         }
     }
@@ -173,6 +203,7 @@ fn face_order(face: &BlockFace) -> (i32, i32, i32, u8) {
 struct Topology<'a> {
     pipes: &'a HashMap<Pos, Transport>,
     tanks: &'a Endpoints,
+    owners: &'a EndpointOwners,
 }
 
 impl NetworkTopology for Topology<'_> {
@@ -187,8 +218,9 @@ impl NetworkTopology for Topology<'_> {
     fn source(&self, face: BlockFace) -> Source {
         let adjacent = face.opposite();
         if self
-            .tanks
+            .owners
             .get(&adjacent.pos)
+            .and_then(|owner| self.tanks.get(owner))
             .is_some_and(|(kind, _)| kind.accessible(adjacent.side))
         {
             Source::Endpoint
@@ -207,17 +239,20 @@ impl NetworkTopology for Topology<'_> {
 fn move_tank_fluid(
     world: World<'_>,
     tanks: &mut Endpoints,
+    owners: &EndpointOwners,
     graph: &FluidNetworkGraph,
     fluid: &FluidStack,
 ) {
-    let source = graph.start.connected_pos();
+    let Some(&source) = owners.get(&graph.start.connected_pos()) else {
+        return;
+    };
     let Some((source_kind, mut updated_source)) = tanks.get(&source).cloned() else {
         return;
     };
     let mut targets: Vec<_> = graph
         .targets
         .iter()
-        .map(|face| face.connected_pos())
+        .filter_map(|face| owners.get(&face.connected_pos()).copied())
         .collect();
     targets.sort_unstable_by_key(|pos| (pos.x, pos.y, pos.z));
     targets.dedup();

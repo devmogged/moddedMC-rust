@@ -52,6 +52,7 @@ pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     add_block,
     state,
     on_tick,
+    on_replaced,
 };
 pub static ITEMS: abi::ItemsV1 = abi::ItemsV1 {
     size: size_of::<abi::ItemsV1>(),
@@ -114,6 +115,7 @@ struct Runtime {
     blocks: HashMap<u16, RuntimeBlock>,
     overlays: HashMap<u16, content_pack::OverlayModel>,
     ticks: BTreeMap<usize, abi::ContentTick>,
+    replaced: BTreeMap<usize, abi::ContentReplaced>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     vanilla_use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
@@ -128,6 +130,7 @@ struct Runtime {
 #[derive(Clone, Copy, Default)]
 pub struct Hooks {
     pub tick: Option<abi::ContentTick>,
+    pub replaced: Option<abi::ContentReplaced>,
     pub entity_inside: Option<abi::EntityInside>,
     pub use_on_block: Option<abi::UseOnBlockFn>,
     pub vanilla_use_on_block: Option<abi::UseOnBlockFn>,
@@ -141,6 +144,7 @@ struct Pending {
     blocks: Vec<(usize, Registration)>,
     items: Vec<(usize, ItemRegistration)>,
     ticks: BTreeMap<usize, abi::ContentTick>,
+    replaced: BTreeMap<usize, abi::ContentReplaced>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     vanilla_use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
@@ -152,6 +156,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     blocks: Vec::new(),
     items: Vec::new(),
     ticks: BTreeMap::new(),
+    replaced: BTreeMap::new(),
     entity_inside: BTreeMap::new(),
     use_on_block: BTreeMap::new(),
     vanilla_use_on_block: BTreeMap::new(),
@@ -406,6 +411,19 @@ unsafe extern "C" fn on_tick(reg: Reg, callback: abi::ContentTick) -> i32 {
     code::OK
 }
 
+unsafe extern "C" fn on_replaced(reg: Reg, callback: abi::ContentReplaced) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.replaced;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
 unsafe extern "C" fn state(text: Str) -> u32 {
     // SAFETY: the selector is borrowed for this call.
     let text = unsafe { text.str() };
@@ -441,6 +459,9 @@ pub fn register(
         .extend(items.into_iter().map(|item| (owner, item)));
     if let Some(tick) = hooks.tick {
         pending.ticks.insert(owner, tick);
+    }
+    if let Some(callback) = hooks.replaced {
+        pending.replaced.insert(owner, callback);
     }
     if let Some(inside) = hooks.entity_inside {
         pending.entity_inside.insert(owner, inside);
@@ -546,6 +567,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         mut blocks,
         mut items,
         ticks,
+        replaced,
         entity_inside,
         use_on_block,
         vanilla_use_on_block,
@@ -583,6 +605,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         blocks: HashMap::new(),
         overlays: HashMap::new(),
         ticks,
+        replaced,
         entity_inside,
         use_on_block,
         vanilla_use_on_block,
@@ -824,6 +847,17 @@ fn queue(world: &World, pos: BlockPos, old: BlockStateId, state: BlockStateId, r
     if before.is_none() && after.is_none() {
         return;
     }
+    let event = event(pos, old, state, reason);
+    if let Some(owner) = before
+        && matches!(reason, abi::STATE_CHANGED | abi::MOVED_STATE_CHANGED)
+        && let Some(callback) = RUNTIME
+            .get()
+            .and_then(|runtime| runtime.replaced.get(&owner))
+        && Block::from_state_id(old) != Block::from_state_id(state)
+    {
+        // SAFETY: the world and event are borrowed for this synchronous callback.
+        unsafe { callback(ptr::from_ref(world).cast(), &raw const event) };
+    }
     let mut worlds = lock(&WORLDS);
     let w = worlds.entry(world.uuid).or_default();
     if after.is_some() {
@@ -832,7 +866,6 @@ fn queue(world: &World, pos: BlockPos, old: BlockStateId, state: BlockStateId, r
         w.blocks.remove(&pos);
         w.rotation.remove(&pos);
     }
-    let event = event(pos, old, state, reason);
     if let Some(before) = before.filter(|before| Some(*before) != after) {
         w.events.push((before, event));
     }

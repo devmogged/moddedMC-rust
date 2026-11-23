@@ -2,7 +2,7 @@
 use std::{ffi::c_void, marker::PhantomData, sync::OnceLock};
 
 use crate::{
-    Command, InterfaceUnavailable, Pos, RegistrationError, Registry, abi, guard, require_interface,
+    Command, InterfaceUnavailable, Pos, RegistrationError, Registry, abi, guard,
     require_interface_prefix, s,
 };
 
@@ -34,6 +34,7 @@ pub struct Placement<'a> {
 
 pub type Place = fn(Placement<'_>) -> Option<u32>;
 pub type Tick = fn(World<'_>, u64, &[ContentEvent]);
+pub type Replaced = fn(World<'_>, &ContentEvent);
 
 pub struct State<'a> {
     pub properties: &'a str,
@@ -119,13 +120,14 @@ pub struct Block<'a> {
 
 static WORLD_TABLE: OnceLock<&'static abi::BlockWorldV1> = OnceLock::new();
 static TICK: OnceLock<Tick> = OnceLock::new();
+static REPLACED: OnceLock<Replaced> = OnceLock::new();
 static PLACE: OnceLock<Place> = OnceLock::new();
 
 pub fn require() -> Result<Content, InterfaceUnavailable> {
     // SAFETY: each table is read using its published type and version.
     let (content, world) = unsafe {
         (
-            require_interface(abi::CONTENT, 1)?,
+            require_interface_prefix(abi::CONTENT, 1, abi::CONTENT_V1_BASE_SIZE)?,
             require_interface_prefix(abi::BLOCK_WORLD, 1, abi::BLOCK_WORLD_V1_BASE_SIZE)?,
         )
     };
@@ -155,6 +157,23 @@ unsafe extern "C" fn place(args: *const abi::Placement) -> u32 {
         })
         .unwrap_or(UNLOADED_STATE)
     })
+}
+
+unsafe extern "C" fn replaced(world: abi::WorldRef, event: *const ContentEvent) {
+    guard("content replacement", (), || {
+        let Some((&api, callback)) = WORLD_TABLE.get().zip(REPLACED.get()) else {
+            return;
+        };
+        // SAFETY: host borrows the world and event for the callback.
+        callback(
+            World {
+                raw: world,
+                api,
+                scope: PhantomData,
+            },
+            unsafe { &*event },
+        );
+    });
 }
 
 unsafe extern "C" fn tick(
@@ -238,6 +257,32 @@ impl Content {
             .map_err(|_| RegistrationError::DuplicateId)?;
         // SAFETY: live registration and a callback defined for the life of the mod.
         RegistrationError::from_code(unsafe { (self.0.on_tick)(reg.reg, tick) })
+    }
+
+    pub fn require_replaced(self) -> Result<(), InterfaceUnavailable> {
+        if self.0.size < abi::CONTENT_V1_BASE_SIZE + size_of::<abi::ContentReplaced>() {
+            return Err(InterfaceUnavailable {
+                name: "moddedmc:content.on_replaced",
+                version: 1,
+            });
+        }
+        Ok(())
+    }
+
+    /// Observe a replacement of one of this mod's blocks before its entity is removed.
+    /// Copy any data needed later and defer world writes to the tick callback.
+    pub fn on_replaced(
+        self,
+        reg: &mut Registry<'_>,
+        callback: Replaced,
+    ) -> Result<(), RegistrationError> {
+        self.require_replaced()
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        REPLACED
+            .set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        // SAFETY: the size check covers the appended function and registration is live.
+        RegistrationError::from_code(unsafe { (self.0.on_replaced)(reg.reg, replaced) })
     }
 
     pub fn state(self, selector: &str) -> Option<u32> {
