@@ -484,3 +484,58 @@ Nullscape loaded with feature and carver warnings until these were fixed:
 Pumpkin now boots Nullscape 2.0.1 without worldgen warnings, and the 12 End locate results
 still match Java. No End block dump has been compared yet. Pumpkin commits 6c22868db and
 d8bfca604.
+
+### Stock Nether feature placement
+
+At seed 20261120, the 16-chunk basalt-deltas box at x/z 1024..1087 had 55,257
+non-fence differences in a fresh stock Java 26.3 and Pumpkin comparison.
+Isolating vanilla features with a biome override reproduced 10,736 from basalt
+blobs, 3,099 from blackstone blobs, 1,818 from large basalt columns, 201 from
+small columns and 133 from deltas. Magma ore had zero.
+
+With only chunk (64,64) decorating, the two engines matched all 294,912 states
+in its 3x3 write area except fortress fence connections. The basalt and
+blackstone blob origins, target heights and radius draws also matched. In a
+fresh world, decoration can read and write blocks in neighboring chunks. A
+prior blob can replace the last target in a column, so the next blob skips its
+three radius draws and the rest of that feature's attempts use a different
+random sequence. Java runs of the same stock box differed by 37 states with
+the same worker settings and by 1,431 when the worker settings changed.
+
+Recording Java's decorating chunk order and replaying it in Pumpkin's
+generation cache reduced the stock basalt-deltas box to two non-fence
+differences. Java placed both brown mushrooms at light level 0. The saved Java
+chunks held air at both positions with block light 13. Brown mushrooms request
+post-processing and their survival check fails at 13.
+
+The other boxes were centered on Java `/locate biome` results. The replay
+compares Pumpkin's feature-stage blocks with Java's saved chunks.
+
+| Biome | Block box (x, z) | Fresh-server non-fence differences | Matched-order non-fence differences |
+| --- | --- | ---: | ---: |
+| Basalt deltas | (1024, 1024) to (1087, 1087) | 55,257 | 2 |
+| Nether wastes | (1008, 1072) to (1071, 1135) | 15,318 | 12 |
+| Soul sand valley | (1072, 1072) to (1135, 1135) | 690 | 85 |
+| Crimson forest | (1040, 1264) to (1103, 1327) | 4,320 | 0 |
+| Warped forest | (944, 944) to (1007, 1007) | 61,617 | 0 |
+| Plains | (976, 1008) to (1023, 1055) | 2,348 | 2,107 |
+| Jungle | (1488, 1424) to (1535, 1471) | 1,720 | 0 |
+
+The Nether wastes and soul sand valley residuals involve fortress and fossil
+blocks. The plains residual is mostly an amethyst geode. The matched-order
+test controls decoration order in memory. Fresh server runs still use their own
+chunk schedulers.
+
+The fungus audit found two placement bugs. Wild huge fungi now check the
+generator's depth for headroom, and stems and hats honor the state's
+replaceable flag. On Java 26.3 a wild crimson fungus replaced crimson roots
+above the stem origin and refused placement at y=124. Both focused Pumpkin
+regressions failed before the fix and passed afterwards.
+
+Pumpkin commits `16ded18ea` and `3f7bf46a1`. Formatting, Clippy for
+`pumpkin-world` and `pumpkin-core`, 337 world unit tests, and two integration
+tests passed. The existing Nether biome hash test failed once, then passed
+alone and in the full rerun. At seed 42 with CPU mask `0x54`, the stock
+Overworld Criterion estimates were 17.03 to 15.62 ms for full chunk generation
+and 2.77 to 1.67 ms for decoration. Nether generation timings were outside that
+benchmark.
