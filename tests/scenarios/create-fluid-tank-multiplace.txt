@@ -1,0 +1,50 @@
+# A tank placed on top of a 2x2 tank fills the new layer and spends four tanks. Too few tanks places one.
+mods target\mods\create.mmc
+start
+expect registered content block create:fluid_tank
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 3102.5 99 3099.5 0 40
+wait 5
+cmd fill 3096 98 3096 3108 108 3108 minecraft:air
+cmd fill 3096 97 3096 3108 97 3108 minecraft:stone
+cmd fill 3100 98 3100 3101 98 3101 create:fluid_tank
+wait 1
+cmd fluidpipe 3100 98 3100
+wait 0.5
+expect Tank\(empty 0/32000 mB\)
+cmd item replace entity tester weapon.mainhand with create:fluid_tank 8
+wait 0.5
+bot use 3101 98 3101 up
+wait 1
+cmd fluidpipe 3100 99 3101
+wait 0.5
+expect bottom=false,shape=window_sw,top=true.*Tank\(empty 0/64000 mB\)
+cmd clear tester create:fluid_tank 0
+wait 0.5
+expect Found 4 matching item
+cmd item replace entity tester weapon.mainhand with create:fluid_tank 2
+wait 0.5
+bot use 3101 99 3101 up
+wait 1
+cmd clear tester create:fluid_tank 0
+wait 0.5
+expect Found 1 matching item
+cmd fluidpipe 3101 100 3101
+wait 0.5
+expect Tank\(empty 0/8000 mB\)
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd fluidpipe 3101 98 3100
+wait 0.5
+expect Tank\(empty 0/64000 mB\)
+reject (?i)panicked|trapped|invalid tank split|failed to register|\[bot\] error
+bot quit
+stop

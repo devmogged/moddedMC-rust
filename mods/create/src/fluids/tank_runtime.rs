@@ -4,6 +4,7 @@ use fastnbt::{IntArray, Value};
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
     content::{self, Block, BlockUpdate, Content, State, World},
+    effects::SOUND_BLOCKS,
     interaction::{BlockUseResult, UseBlock},
 };
 
@@ -14,6 +15,8 @@ pub(super) const ID: &str = "create:fluid_tank";
 pub(super) const CAPACITY_PER_BLOCK: u32 = 8_000;
 pub(super) const MAX_HEIGHT: u16 = 32;
 const BUCKET: u32 = 1_000;
+/// `SoundType.COPPER` from `SharedProperties.copperMetal`.
+const PLACE_SOUND: &str = "minecraft:block.copper.place";
 const SHAPES: [&str; 6] = [
     "window",
     "plain",
@@ -249,6 +252,78 @@ pub fn describe(tank: &TankInventory) -> String {
     format!(" Tank({fluid} {}/{} mB)", tank.amount(), tank.capacity())
 }
 
+/// Create 6.0.10 `FluidTankItem.tryMultiPlace`: a tank placed on the top or bottom face of a
+/// wider tank fills that whole layer when every spot is free and the stack holds enough tanks.
+/// `None` falls back to placing the single block.
+fn multi_place(
+    context: &mut UseBlock<'_>,
+    connectivity: &super::tank_connectivity::Connectivity,
+) -> Option<BlockUseResult> {
+    let step = match context.face {
+        0 => -1,
+        1 => 1,
+        _ => return None,
+    };
+    if context.player.is_none() || context.sneaking {
+        return None;
+    }
+    let world = context.world;
+    let (owner, tank) = canonical(world, context.position)?;
+    if tank.width() == 1 || connectivity.pending(owner) {
+        return None;
+    }
+    let y = if step < 0 {
+        owner.y - 1
+    } else {
+        owner.y + i32::from(tank.height())
+    };
+    if context.position.y + step != y {
+        return None;
+    }
+    let (content, states) = CONTENT.get().zip(crate::STATES.get())?;
+    let placed = content.state(&format!("{ID}[bottom=true,shape=window,top=true]"))?;
+    let layer: Vec<_> = parts(Pos { y, ..owner }, tank.width(), 1).collect();
+    let mut current = vec![content::UNLOADED_STATE; layer.len()];
+    if !world.read(&layer, &mut current) {
+        return None;
+    }
+    let mut updates = Vec::new();
+    for (position, state) in layer.into_iter().zip(current) {
+        if super::runtime::is_tank(state) {
+            continue;
+        }
+        if !states.replaceable.contains(&state) {
+            return None;
+        }
+        updates.push(BlockUpdate {
+            position,
+            state: placed,
+            flags: content::UPDATE_ALL,
+        });
+    }
+    let count = u32::try_from(updates.len()).ok()?;
+    if count == 0 || (!context.creative && context.stack.count() < count) {
+        return None;
+    }
+    if world.write(&updates) != updates.len() {
+        return None;
+    }
+    if !context.creative {
+        context.stack.shrink(count);
+    }
+    // BlockItem.place sounds once; Create silences the extra parts.
+    if let Some(&effects) = crate::EFFECTS.get() {
+        let first = updates[0].position;
+        let center = [
+            f64::from(first.x) + 0.5,
+            f64::from(first.y) + 0.5,
+            f64::from(first.z) + 0.5,
+        ];
+        effects.play_sound(world, center, PLACE_SOUND, SOUND_BLOCKS, 1.0, 0.8);
+    }
+    Some(BlockUseResult::Success)
+}
+
 pub fn use_item_on(
     context: &mut UseBlock<'_>,
     connectivity: &super::tank_connectivity::Connectivity,
@@ -263,6 +338,9 @@ pub fn use_item_on(
     let Some(Value::String(id)) = stack.get("id") else {
         return BlockUseResult::Pass;
     };
+    if id == ID {
+        return multi_place(context, connectivity).unwrap_or(BlockUseResult::TryEmptyHand);
+    }
     let world = context.world;
     let Some((pos, mut tank)) = canonical(world, context.position) else {
         return BlockUseResult::Fail;
