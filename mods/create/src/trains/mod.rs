@@ -4,6 +4,8 @@ mod curve;
 mod graph;
 mod item;
 mod math;
+#[cfg(test)]
+mod observer;
 mod propagate;
 mod railway;
 #[cfg(test)]
