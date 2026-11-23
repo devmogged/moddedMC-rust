@@ -539,3 +539,9 @@ alone and in the full rerun. At seed 42 with CPU mask `0x54`, the stock
 Overworld Criterion estimates were 17.03 to 15.62 ms for full chunk generation
 and 2.77 to 1.67 ms for decoration. Nether generation timings were outside that
 benchmark.
+
+A fixed-placement datapack exercised both fungus cases during normal chunk
+generation. The original Pumpkin server failed both checks. The rebuilt
+`pack-dev` and Java passed both. A fresh stock run of the rebuilt server
+against the original Java dump had 56,533 non-fence differences and 43 fence
+state differences in the basalt-deltas box.
