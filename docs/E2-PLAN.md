@@ -622,7 +622,7 @@ Block repros use Java 26.3 and seed 20261120 unless specified. Box corners
 are inclusive X/Z coordinates. Use matched decoration order for feature comparisons.
 
 - **Structure registry order.** Incendium 5.5.4, Nether box (1024, 352) to
-  (1103, 431), Y 0?127. Pumpkin had air at 4,297 Java nether bricks and
+  (1103, 431), Y 0 to 127. Pumpkin had air at 4,297 Java nether bricks and
   was missing 49 Java fences. Another 14 fences had differing states. All
   100 fortress piece bounds for start (67, 16) matched. In chunk (67, 22) Java
   places the tower before the fortress. Java's `ResourceManagerRegistryLoadTask`
@@ -638,8 +638,8 @@ are inclusive X/Z coordinates. Use matched decoration order for feature comparis
   (1074, 67, 1094). Java widens the signed int to long. Pumpkin stores it as
   `u32`. The signed-seed correction still needs a block comparison.
 - **Leaf litter and leaf distance.** The plains matched-order box (976, 1008)
-  to (1023, 1055) had five leaf-litter differences, all at Z 1055, Y 57?60.
-  The separate E2d tree fixture at chunk (64, 64), Y 294?304, had 12
+  to (1023, 1055) had five leaf-litter differences, all at Z 1055, Y 57 to 60.
+  The separate E2d tree fixture at chunk (64, 64), Y 294 to 304, had 12
   leaf-distance differences after four ticks and zero after eight.
 - **`/place structure`.** Run `/place structure minecraft:fortress` at
   (1074, 64, 258) in fresh Nether copies. Pumpkin seeds the command from the
