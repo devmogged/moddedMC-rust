@@ -197,9 +197,15 @@ impl StateIndex {
 pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
     Some(match index()?.endpoints.get(&context.state)? {
         EndpointKind::Tank => tank_runtime::use_item_on(context),
-        EndpointKind::ItemDrain => item_drain::use_item_on(context),
+        EndpointKind::ItemDrain => crate::with_world(context.world, |kinetics| {
+            item_drain::use_item_on(&mut kinetics.item_drains, context)
+        }),
         EndpointKind::Spout => return None,
     })
+}
+
+pub fn is_item_drain(state: u32) -> bool {
+    index().is_some_and(|ids| ids.endpoints.get(&state) == Some(&EndpointKind::ItemDrain))
 }
 
 pub fn is_spout(state: u32) -> bool {

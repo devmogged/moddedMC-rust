@@ -1,0 +1,87 @@
+# A belt feeds a drain that has no room for a second bucket. Restart, power the pump, and collect the empty bucket.
+mods target\mods\create.mmc
+start
+expect registered content block create:item_drain
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1028.5 104 1025.5 90 20
+wait 5
+cmd fill 1020 100 1018 1032 110 1031 minecraft:air
+cmd fill 1020 99 1018 1032 99 1031 minecraft:stone
+cmd setblock 1023 104 1026 create:item_drain
+cmd setblock 1023 104 1025 create:depot
+cmd summon minecraft:item 1023.5 105.5 1026.5 {Item:{id:"minecraft:potion",count:1,components:{"minecraft:potion_contents":{potion:"minecraft:water"}}},PickupDelay:32767s}
+wait 4
+cmd data get block 1023 104 1025 HeldItem.Item
+wait 0.5
+expect count: 1, id: "minecraft:glass_bottle"
+cmd fluidpipe 1023 104 1026
+wait 0.5
+expect Tank\(minecraft:water 250/1500 mB\)
+cmd setblock 1028 103 1025 minecraft:stone
+cmd setblock 1027 104 1026 create:item_drain
+cmd setblock 1027 104 1027 create:depot
+cmd item replace entity tester hotbar.0 with minecraft:water_bucket
+wait 0.5
+bot use 1027 104 1026
+wait 0.5
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect Tank\(minecraft:water 1000/1500 mB\)
+cmd setblock 1026 104 1022 create:creative_motor[facing=east]
+cmd setblock 1027 104 1022 create:shaft[axis=x,waterlogged=false]
+cmd setblock 1027 104 1025 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.1 with create:belt_connector
+bot hotbar 1
+wait 0.5
+bot use 1027 104 1022
+wait 0.5
+bot use 1027 104 1025
+wait 1
+cmd kinetics 1026 104 1022 128
+cmd summon minecraft:item 1027.5 105.1 1022.5 {Item:{id:"minecraft:water_bucket",count:1},PickupDelay:32767s}
+wait 4
+cmd data get block 1027 104 1026 HeldItem.Item
+wait 0.5
+expect id: "minecraft:water_bucket"
+cmd data get block 1027 104 1026 ProcessingTicks
+wait 0.5
+expect block data: 20
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect Tank\(minecraft:water 1000/1500 mB\)
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd data get block 1027 104 1026 HeldItem.Item
+wait 0.5
+expect id: "minecraft:water_bucket"
+cmd setblock 1025 100 1025 create:creative_motor[facing=up]
+cmd setblock 1025 101 1025 create:shaft[axis=y,waterlogged=false]
+cmd setblock 1025 102 1025 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 1027 102 1026 create:mechanical_pump[facing=down,waterlogged=false]
+cmd setblock 1027 103 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 101 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 100 1026 create:fluid_tank
+wait 1
+cmd kinetics 1025 100 1025 64
+wait 7
+cmd data get block 1027 104 1027 HeldItem.Item
+wait 0.5
+expect count: 1, id: "minecraft:bucket"
+cmd fluidpipe 1027 100 1026
+wait 0.5
+expect Tank\(minecraft:water 2000/8000 mB\)
+cmd fluidpipe 1027 104 1026
+wait 0.5
+expect Tank\(empty 0/1500 mB\)
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

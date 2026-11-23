@@ -170,8 +170,13 @@ impl TransportedItemStack {
     }
 
     pub fn similar(&self, item: Value) -> Self {
-        let mut output = self.clone();
+        let mut output = self.copy_with_item(item);
         output.angle = next_int(360);
+        output
+    }
+
+    pub fn copy_with_item(&self, item: Value) -> Self {
+        let mut output = self.clone();
         output.item = item;
         output.block = None;
         output.clear_display();
@@ -542,6 +547,8 @@ impl BeltInventory {
                             }),
                             false,
                         )
+                    } else if let Some(drain) = kinetics.item_drains.get_mut(&next) {
+                        (drain.insert(item, movement_facing), false)
                     } else if let Some(depot) = kinetics.depots.get_mut(&next) {
                         (
                             crate::depot::try_inserting_from_side(
@@ -715,6 +722,7 @@ fn resolve_ending(
     let next = chain.position_for_offset(if positive_order { chain.length } else { -1 });
     if matches!(kinetics.kind(next), Some(Kind::Belt(_) | Kind::Millstone))
         || kinetics.depots.contains_key(&next)
+        || kinetics.item_drains.contains_key(&next)
         || kinetics.chutes.entries.contains_key(&next)
         || crate::funnel::direct_input_present(&kinetics.funnels, next)
         || crate::crusher::is_controller(kinetics, next, chain.movement_facing())

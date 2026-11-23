@@ -613,6 +613,7 @@ pub trait Level {
 #[derive(Default)]
 pub struct Kinetics {
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
+    pub item_drains: HashMap<Pos, crate::fluids::item_drain::ItemDrain>,
     pub spouts: HashMap<Pos, crate::fluids::spout::Spout>,
     pub chutes: crate::chute::Chutes,
     pub funnels: crate::funnel::Funnels,

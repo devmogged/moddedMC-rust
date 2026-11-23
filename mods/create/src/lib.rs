@@ -1414,6 +1414,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         for event in events {
             // WS-2: recalculate fluid pipe faces when adjacent blocks change.
             fluids::runtime::event(world, event);
+            fluids::item_drain::event(world, &mut kinetics.item_drains, event);
             fluids::spout::event(world, &mut kinetics.spouts, event);
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
@@ -1515,6 +1516,7 @@ fn tick(world: World<'_>, _time: u64, events: &[ContentEvent]) {
         millstone::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);
         belt_inventory::tick(world, kinetics);
+        fluids::item_drain::tick(world, kinetics);
         chute::tick(world, states, kinetics);
         funnel::tick(world, kinetics);
         funnel::pull_from_depots(world, kinetics);
@@ -1609,6 +1611,14 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
 }
 
 fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
+    if fluids::runtime::is_item_drain(state) {
+        with_world(world, |kinetics| {
+            if let Some(drain) = kinetics.item_drains.get_mut(&pos) {
+                fluids::item_drain::on_landed(pos, drain, entity);
+            }
+        });
+        return;
+    }
     let Some(states) = states() else { return };
     if states
         .by_id
