@@ -2,10 +2,18 @@ plugins {
     id 'net.fabricmc.fabric-loom' version "${loom_version}"
 }
 
+repositories {
+    maven {
+        url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/'
+        content { includeGroup('com.geckolib') }
+    }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${loader_version}"
-    for (def module : ['fabric-api-base', 'fabric-networking-api-v1']) {
+    compileOnly "com.geckolib:geckolib-fabric-${minecraft_version}:${geckolib_version}"
+    for (def module : ['fabric-api-base', 'fabric-networking-api-v1', 'fabric-creative-tab-api-v1']) {
         def dependency = fabricApi.module(module, fabric_api_version)
         implementation dependency
         include dependency

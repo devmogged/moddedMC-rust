@@ -1,0 +1,23 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.hinge.swing": {
+      "loop": true,
+      "animation_length": 1,
+      "bones": {
+        "arm": {
+          "rotation": {
+            "0.0": [0, 0, -65],
+            "0.5": {"vector": [0, 0, 65], "easing": "easeInOutSine"},
+            "1.0": [0, 0, -65]
+          }
+        }
+      }
+    },
+    "animation.hinge.park": {
+      "loop": "hold_on_last_frame",
+      "animation_length": 0.2,
+      "bones": {"arm": {"rotation": [0, 0, 0]}}
+    }
+  }
+}

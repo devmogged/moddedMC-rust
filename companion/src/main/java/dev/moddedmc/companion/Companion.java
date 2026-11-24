@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationNetworking;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.network.FriendlyByteBuf;
@@ -23,12 +24,23 @@ import org.slf4j.LoggerFactory;
 
 public final class Companion implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("moddedmc-companion");
-    private static volatile Protocol.Offer offer;
+    private static volatile Session session;
+
+    private static final class Session {
+        private final Protocol.Offer offer;
+        private volatile byte[] creativeCatalog;
+
+        private Session(Protocol.Offer offer) {
+            this.offer = offer;
+        }
+    }
 
     @Override
     public void onInitializeClient() {
-        ClientConfigurationConnectionEvents.INIT.register((listener, client) -> offer = null);
-        ClientConfigurationConnectionEvents.DISCONNECT.register((listener, client) -> offer = null);
+        CreativeCatalog.register();
+        ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> session = null);
+        ClientConfigurationConnectionEvents.INIT.register((listener, client) -> session = null);
+        ClientConfigurationConnectionEvents.DISCONNECT.register((listener, client) -> session = null);
         PayloadTypeRegistry.clientboundConfiguration().register(Negotiate.TYPE, Negotiate.CODEC);
         PayloadTypeRegistry.serverboundConfiguration().register(Negotiate.TYPE, Negotiate.CODEC);
         ClientConfigurationNetworking.registerGlobalReceiver(Negotiate.TYPE, (packet, context) -> {
@@ -38,15 +50,20 @@ public final class Companion implements ClientModInitializer {
             }
             var answer = Protocol.answer(packet.bytes());
             if (answer != null) {
-                offer = answer.offer();
+                session = answer.offer() == null ? null : new Session(answer.offer());
                 LOGGER.info("moddedMC companion protocol {}, active capabilities {}", Protocol.VERSION, answer.flags());
             }
         });
     }
 
+    static byte[] creativeCatalog() {
+        var current = session;
+        return current == null ? null : current.creativeCatalog;
+    }
+
     public static Path materialize(URL url, String zipSha1, Proxy proxy) throws IOException {
-        var current = offer;
-        if (current == null || !current.zipSha1().equals(zipSha1)) return null;
+        var current = session;
+        if (current == null || !current.offer.zipSha1().equals(zipSha1)) return null;
         URI base;
         try {
             base = url.toURI();
@@ -54,8 +71,9 @@ public final class Companion implements ClientModInitializer {
             throw new IOException("Invalid pack URL", error);
         }
         Path cache = FabricLoader.getInstance().getGameDir().resolve("moddedmc");
-        Path local = PackCache.materialize(cache, current.manifest(), key -> open(base.resolve(key), proxy));
-        LOGGER.info("Loaded verified moddedMC asset pack {}", current.manifest());
+        Path local = PackCache.materialize(cache, current.offer.manifest(), key -> open(base.resolve(key), proxy));
+        current.creativeCatalog = CreativeCatalog.load(local);
+        LOGGER.info("Loaded verified moddedMC asset pack {}", current.offer.manifest());
         return local;
     }
 

@@ -1,0 +1,6 @@
+{
+  "geometry": "rig_test:hinge",
+  "animations": "rig_test:hinge",
+  "texture": "minecraft:textures/block/warped_planks.png",
+  "clip": "animation.hinge.swing"
+}

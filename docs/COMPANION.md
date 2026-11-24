@@ -2,6 +2,10 @@
 
 The companion is an optional Fabric mod for Java Edition 26.3. Its own code is MIT OR Apache-2.0. The same JAR works with every pack. Mods supply data through the server's existing content interfaces.
 
+The companion implements shared client capabilities. A pack supplies rig descriptors, assets and state for the mods installed on that server. The animated display descriptor below is the existing example. A creative item catalog or new control bindings would also use shared code and per-pack definitions. A feature that needs its own client code can use an optional add-on.
+
+For Saint's Dragons, the server runs the Rust `.mmc` and enhanced clients use our 26.3 companion. The upstream 0.9.88 Fabric JAR targets Minecraft 1.20.1 and expects its Java-side registries and networking.
+
 ## Build
 
 With JDK 25 or newer, run `./gradlew build` from `companion/` (`gradlew.bat build` on Windows). Use `build/libs/moddedmc-companion-0.1.0.jar`. The JAR includes the Fabric networking modules it needs. Fabric Loader 0.20.1 and Minecraft 26.3 come from the launcher.
@@ -38,6 +42,46 @@ Click **Join** on a friend. The app checks the official launcher's standard game
 4. Join the same server from a stock 26.3 installation with the HTTP route available. Accept its pack and expect the same stock models. Then join an ordinary 26.3 server from **moddedMC** and expect a normal join with no companion negotiation log for that connection.
 5. Click **Join** again for the same friend. Expect one saved server entry. On a machine with Prism or MultiMC, repeat using its instance. On a machine without a detected launcher, import the exported ZIP in Prism or MultiMC and expect the server already listed.
 
+## Animated displays
+
+With [GeckoLib 5.5.7](https://modrinth.com/mod/geckolib/version/5.5.7) and Fabric API installed alongside the companion, an item display can render a textured, animated GeckoLib rig. The display's position, transform and light still come from Minecraft. Each display has its own animation playback.
+
+For an item model ID `example:hinge`, add `assets/example/moddedmc/rigs/hinge.json` to a client resource pack.
+
+```json
+{
+  "geometry": "example:hinge",
+  "animations": "example:hinge",
+  "texture": "example:textures/entity/hinge.png",
+  "clip": "animation.hinge.swing"
+}
+```
+
+The geometry and animation IDs resolve to `assets/example/geckolib/models/hinge.geo.json` and `assets/example/geckolib/animations/hinge.animation.json`. The texture uses its full resource path. The default clip comes from the descriptor. A server can select another clip in the same animation file by setting the string `moddedmc:rig_clip` in the display item's `minecraft:custom_data`. An unknown clip uses the default. Without GeckoLib or a valid rig, the client renders the regular item model.
+
+Optional `scale`, `y_offset` and `yaw_offset` fields adjust the rig relative to the item display. `hide_parts` lists item model IDs used only by the multipart stock model. The companion suppresses those IDs while the replacement rig's resources are available.
+
+An optional `textures` object maps names to full texture resource IDs. The server can set `moddedmc:rig_texture` in the display stack's `minecraft:custom_data` to select one of those names. An unknown name or unavailable texture uses the descriptor's default `texture`.
+
+An `.mmc` can supply the descriptor and its referenced files under `assets/`. The host finds rigs for registered standalone item model IDs and adds the descriptor and its geometry, animations and texture to the generated server resource pack. This uses the same pack acceptance and hashed asset cache as stock models.
+
+To exercise the renderer, enable the [test resource pack](../companion/src/test/resources/rig-pack) on a 26.3 Fabric client with the companion and GeckoLib. Run the following in a world with commands enabled.
+
+```mcfunction
+summon minecraft:item_display ~ ~ ~2 {Tags:["rig_test"],item:{id:"minecraft:paper",count:1,components:{"minecraft:item_model":"rig_test:hinge"}}}
+data merge entity @e[type=minecraft:item_display,tag=rig_test,limit=1] {item:{id:"minecraft:paper",count:1,components:{"minecraft:item_model":"rig_test:hinge","minecraft:custom_data":{"moddedmc:rig_clip":"animation.hinge.park"}}}}
+```
+
+The first command shows a swinging arm and the second parks it upright. The item model is a gold block on a stock client with the test pack enabled.
+
+## Server Mods Creative tab
+
+A Creative player using the companion sees **Server Mods** when the connected server supplies a catalog. Entries carry the item names, models, and components sent by the server during normal play. Taking a stack uses the normal Creative inventory action. The server checks the player's game mode.
+
+A pack can include `assets/<namespace>/moddedmc/creative.json` with a JSON array of item paths in display order. For example, `["bucket_of_moop", "dragonlord_sword"]` lists those two registered items within that namespace. The host includes registered block items too, skips missing and repeated entries, and orders namespaces alphabetically. Display models and other internal items stay out of the tab unless listed.
+
+The host puts a versioned, bounded stack catalog in the verified resource pack. The companion uses it for the current connection and clears it on disconnect. Players with the stock client can use the same server resource pack and obtain items through their normal gameplay and commands.
+
 ## C5 extension
 
-Add renderer capabilities to the configuration answer and carry the negotiated flags into play. Send versioned per-pack definitions and connection-local slot mappings. Keep the stock carrier path until a connection has accepted the relevant definitions. Kinetic rendering still needs position, axis, signed RPM and a tick reference. Entity rigs need model and animation definitions, state transitions and interpolation. Both can use the existing hashed asset cache.
+Add renderer capabilities to the configuration answer and carry the negotiated flags into play. Send versioned per-pack definitions and connection-local slot mappings. Keep the stock carrier path until a connection has accepted the relevant definitions. Kinetic rendering needs position, axis, signed RPM and a tick reference. Animated displays already use the item model ID and the server resource pack for rig delivery.
