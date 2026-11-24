@@ -415,6 +415,8 @@ mod layout {
         assert_eq!(offset_of!(ContentV1, add_block), 8);
         assert_eq!(offset_of!(ContentV1, state), 16);
         assert_eq!(offset_of!(ContentV1, on_tick), 24);
+        assert_eq!(offset_of!(ContentV1, on_replaced), 32);
+        assert_eq!(offset_of!(ContentV1, set_comparator_output), 40);
         assert_eq!(offset_of!(ItemsV1, size), 0);
         assert_eq!(offset_of!(ItemsV1, add_item), 8);
         assert_eq!(offset_of!(ContentItemDefinition, carrier), 32);
@@ -430,6 +432,7 @@ mod layout {
         assert_eq!(offset_of!(BlockWorldV1, write_entity), 40);
         assert_eq!(offset_of!(BlockWorldV1, rotate), 48);
         assert_eq!(offset_of!(BlockWorldV1, dimension_id), 160);
+        assert_eq!(offset_of!(BlockWorldV1, is_thundering), 168);
         assert_eq!(size_of::<ShapeBox>(), 12);
 
         assert_eq!(offset_of!(CommandNode, name), 0);
@@ -455,6 +458,15 @@ pub const CONTENT: &str = "moddedmc:content";
 pub const BLOCK_WORLD: &str = "moddedmc:block_world";
 pub const FLUID_WORLD: &str = "moddedmc:fluid_world";
 pub const ITEMS: &str = "moddedmc:items";
+pub const ITEM_DEFAULTS: &str = "moddedmc:item_defaults";
+
+#[repr(C)]
+pub struct ItemDefaultsV1 {
+    pub size: usize,
+    /// The named-root ItemStack NBT describes a one-count stack of the vanilla carrier.
+    /// Its explicit persistent components become the custom item's default overrides.
+    pub add_item: unsafe extern "C" fn(Reg, *const ContentItemDefinition, Str) -> i32,
+}
 pub const UNLOADED_STATE: u32 = u32::MAX;
 pub const MAX_WORLD_BATCH: usize = 4096;
 
@@ -568,6 +580,8 @@ pub struct ContentV1 {
     pub on_tick: unsafe extern "C" fn(reg: Reg, callback: ContentTick) -> i32,
     /// Appended. Called after the state write, before the old block entity is removed.
     pub on_replaced: unsafe extern "C" fn(reg: Reg, callback: ContentReplaced) -> i32,
+    /// Sets the comparator output of a state already staged by this mod.
+    pub set_comparator_output: unsafe extern "C" fn(reg: Reg, selector: Str, strength: u8) -> i32,
 }
 
 pub const CONTENT_V1_BASE_SIZE: usize = std::mem::offset_of!(ContentV1, on_replaced);
@@ -658,6 +672,7 @@ pub struct BlockWorldV1 {
     pub block_item: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
     /// The world's canonical dimension registry id. Static, or empty for an invalid handle.
     pub dimension_id: unsafe extern "C" fn(world: WorldRef) -> Str,
+    pub is_thundering: unsafe extern "C" fn(world: WorldRef) -> bool,
 }
 
 #[repr(C)]
@@ -868,6 +883,13 @@ pub struct EntitiesV1 {
         out: *mut i32,
         capacity: usize,
     ) -> usize,
+    /// Borrow a player handle from an entity for the same callback lifetime.
+    pub as_player: unsafe extern "C" fn(entity: EntityRef) -> PlayerRef,
+    pub with_player_context: unsafe extern "C" fn(
+        player: PlayerRef,
+        context: *mut c_void,
+        visit: unsafe extern "C" fn(*mut c_void, WorldRef, EntityRef),
+    ) -> bool,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.
@@ -999,7 +1021,53 @@ pub struct InteractionV1 {
     pub item_use_animation: unsafe extern "C" fn(reg: Reg, item: Str, ticks: u16) -> i32,
     /// Show a short status message to the player in an interaction callback.
     pub action_bar: unsafe extern "C" fn(player: EntityRef, text: Str),
+    // Appended later: require `InteractionExtension::MobUse`.
+    /// During registration: vanilla `Mob.mobInteract` for a mod mob type (`moddedmc:mobs`),
+    /// one callback per type. A result other than `USE_PASS` ends the click there.
+    pub on_use_mob: unsafe extern "C" fn(reg: Reg, kind: Str, callback: UseMobFn) -> i32,
+    /// During registration: one direct melee modifier for the mod's content items.
+    pub on_melee_damage: unsafe extern "C" fn(reg: Reg, callback: MeleeDamageFn) -> i32,
+    /// One Item.use callback per mod, staged during registration.
+    pub on_use_item: unsafe extern "C" fn(reg: Reg, callback: UseItemFn) -> i32,
+    pub on_player_placed: unsafe extern "C" fn(reg: Reg, callback: PlayerPlacedFn) -> i32,
 }
+
+/// A content item used in the air, with the rotation sent for that action.
+#[repr(C)]
+pub struct UseItem {
+    pub item: Str,
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+pub type PlayerPlacedFn = unsafe extern "C" fn(WorldRef, EntityRef, Pos, u32);
+
+pub type UseItemFn = unsafe extern "C" fn(
+    world: WorldRef,
+    player: EntityRef,
+    stack: StackRef,
+    context: *const UseItem,
+) -> i32;
+
+/// Returns replacement damage before defenses. Empty `target_kind` means a vanilla entity.
+pub type MeleeDamageFn = unsafe extern "C" fn(item: Str, target_kind: Str, damage: f32) -> f32;
+
+/// A player right-clicking a mod mob with one hand.
+#[repr(C)]
+pub struct UseMob {
+    pub sneaking: bool,
+    pub creative: bool,
+    pub main_hand: bool,
+}
+
+/// Returns a `USE_*` code. `stack` is the stack in the hand used, possibly empty.
+pub type UseMobFn = unsafe extern "C" fn(
+    world: WorldRef,
+    player: EntityRef,
+    stack: StackRef,
+    mob: EntityRef,
+    context: *const UseMob,
+) -> i32;
 
 /// Vanilla `BlockState.getSignal(level, pos, direction)`, or `getDirectSignal` when `direct`, for
 /// one of the mod's content blocks: 0 to 15. `direction` is vanilla's argument, in order down, up,
@@ -1340,7 +1408,115 @@ pub struct MobsV1 {
     pub state: unsafe extern "C" fn(entity: EntityRef, out: Sink) -> bool,
     /// Replace them, at most 64 KiB. They are saved with the mob.
     pub set_state: unsafe extern "C" fn(entity: EntityRef, state: Str) -> bool,
+    // Appended after the first release: require `MobsExtension::Taming`.
+    /// During registration: hear each mob of `kind` die (vanilla `die`), before its loot drops.
+    /// One callback per type.
+    pub on_death: unsafe extern "C" fn(reg: Reg, kind: Str, callback: MobDeathFn) -> i32,
+    /// The entity's UUID (vanilla `getUUID`) into `out`.
+    pub uuid: unsafe extern "C" fn(entity: EntityRef, out: *mut [u8; 16]) -> bool,
+    /// The loaded entity with this UUID, or -1.
+    pub by_uuid: unsafe extern "C" fn(world: WorldRef, uuid: *const [u8; 16]) -> i32,
+    /// Health, and `getMaxHealth` into `max` when not null. -1 for an entity that isn't living.
+    pub health: unsafe extern "C" fn(entity: EntityRef, max: *mut f32) -> f32,
+    /// Vanilla `LivingEntity.heal`.
+    pub heal: unsafe extern "C" fn(entity: EntityRef, amount: f32) -> bool,
+    /// Entity ids of the direct passengers, the controlling one first, into `out`; returns how
+    /// many there are, which can exceed `capacity`.
+    pub passengers:
+        unsafe extern "C" fn(entity: EntityRef, out: *mut i32, capacity: usize) -> usize,
+    /// Vanilla `broadcastEntityEvent` 7 (hearts) or 6 (smoke) after a taming try.
+    pub tame_effect: unsafe extern "C" fn(world: WorldRef, entity: EntityRef, tamed: bool) -> bool,
+    /// Vanilla `setNoGravity`.
+    pub set_no_gravity: unsafe extern "C" fn(entity: EntityRef, no_gravity: bool) -> bool,
+    /// Vanilla `igniteForTicks`; 0 puts the fire out (`clearFire`).
+    pub set_on_fire: unsafe extern "C" fn(entity: EntityRef, ticks: u32) -> bool,
+    /// Vanilla `invulnerableTime = 0`: the next hit lands even during the hurt cooldown.
+    pub reset_hurt_cooldown: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// A player's movement keys from their last input packet (`PLAYER_INPUT_*` bits), or -1
+    /// for anything else.
+    pub player_input: unsafe extern "C" fn(player: EntityRef) -> i32,
+    /// A player's game mode (0 survival, 1 creative, 2 adventure, 3 spectator), or -1.
+    pub game_mode: unsafe extern "C" fn(player: EntityRef) -> i32,
+    /// Vanilla `displayClientMessage`: plain text in chat, or above the hotbar.
+    pub message: unsafe extern "C" fn(player: EntityRef, text: Str, action_bar: bool) -> bool,
+    /// Vanilla `Mob.setPersistenceRequired`: keep this mob from naturally despawning.
+    pub make_persistent: unsafe extern "C" fn(entity: EntityRef) -> bool,
 }
+
+/// A mod mob dying; the entity is still in the world.
+pub type MobDeathFn = unsafe extern "C" fn(world: WorldRef, mob: EntityRef);
+
+/// Size of the mobs table before `on_death` was appended.
+pub const MOBS_V1_BASE_SIZE: usize = std::mem::offset_of!(MobsV1, on_death);
+
+pub const MOB_LOOT: &str = "moddedmc:mob_loot";
+
+#[repr(C)]
+pub struct MobLootV1 {
+    pub size: usize,
+    /// Save an empty death loot table override on a registered mob.
+    pub suppress: unsafe extern "C" fn(entity: EntityRef) -> bool,
+}
+
+pub const MOB_STORAGE: &str = "moddedmc:mob_storage";
+
+#[repr(C)]
+pub struct MobStorageV1 {
+    pub size: usize,
+    /// Save a living registered mob as named-root NBT, excluding passengers.
+    pub save: unsafe extern "C" fn(entity: EntityRef, out: Sink) -> bool,
+    /// Restore a saved registered mob at a loaded, unoccupied position with its original UUID.
+    /// Returns its new runtime entity ID, or -1 if it could not be spawned.
+    pub restore: unsafe extern "C" fn(world: WorldRef, kind: Str, nbt: Str, at: Vec3) -> i32,
+}
+
+pub const FISH_BUCKETS: &str = "moddedmc:fish_buckets";
+
+#[repr(C)]
+pub struct FishBucketsV1 {
+    pub size: usize,
+    /// Associate a staged COD_BUCKET-carried item and a staged fish-carried mob.
+    pub bind: unsafe extern "C" fn(reg: Reg, item: Str, mob: Str) -> i32,
+}
+
+pub const ARROW_AMMO: &str = "moddedmc:arrow_ammo";
+
+/// A living target was successfully damaged by this arrow. The target is borrowed for the call.
+pub type ArrowHurtFn = unsafe extern "C" fn(item: Str, target: EntityRef);
+
+#[repr(C)]
+pub struct ArrowAmmoV1 {
+    pub size: usize,
+    /// Configure an arrow-carried item already staged by this mod.
+    pub bind: unsafe extern "C" fn(
+        reg: Reg,
+        item: Str,
+        velocity_multiplier: f32,
+        water_inertia: f64,
+        after_hurt: ArrowHurtFn,
+    ) -> i32,
+}
+
+pub const MOB_HEALTH: &str = "moddedmc:mob_health";
+
+#[repr(C)]
+pub struct MobHealthV1 {
+    pub size: usize,
+    /// Set the health of a live registered mob without issuing a damage or heal event.
+    /// Only finite values above zero and at or below the mob's maximum are accepted.
+    pub set_health: unsafe extern "C" fn(entity: EntityRef, health: f32) -> bool,
+    pub set_attribute_base:
+        unsafe extern "C" fn(entity: EntityRef, attribute: Str, value: f64) -> bool,
+}
+
+/// Vanilla `Input` bits, as the client sends them.
+pub const PLAYER_INPUT_FORWARD: i32 = 1;
+pub const PLAYER_INPUT_BACKWARD: i32 = 2;
+pub const PLAYER_INPUT_LEFT: i32 = 4;
+pub const PLAYER_INPUT_RIGHT: i32 = 8;
+pub const PLAYER_INPUT_JUMP: i32 = 16;
+pub const PLAYER_INPUT_SNEAK: i32 = 32;
+pub const PLAYER_INPUT_SPRINT: i32 = 64;
 
 #[cfg(test)]
 mod mobs_layout {
@@ -1354,7 +1530,10 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, kind), 24);
         assert_eq!(offset_of!(MobsV1, state), 32);
         assert_eq!(offset_of!(MobsV1, set_state), 40);
-        assert_eq!(size_of::<MobsV1>(), 48);
+        assert_eq!(MOBS_V1_BASE_SIZE, 48);
+        assert_eq!(offset_of!(MobsV1, message), 144);
+        assert_eq!(offset_of!(MobsV1, make_persistent), 152);
+        assert_eq!(size_of::<MobsV1>(), 160);
         assert_eq!(size_of::<MobAttribute>(), 24);
         assert_eq!(offset_of!(MobDefinition, attributes), 32);
         assert_eq!(size_of::<MobDefinition>(), 48);
@@ -1420,7 +1599,26 @@ pub struct MobAiV1 {
     pub set_target: unsafe extern "C" fn(world: WorldRef, mob: EntityRef, target: i32) -> bool,
     /// The attack target's entity id, or -1.
     pub target: unsafe extern "C" fn(mob: EntityRef) -> i32,
+    // Appended after the first release: require `MobAiExtension::Combat`.
+    /// During registration: `callback` hears every hit a mob of `kind` is about to take, as
+    /// vanilla `hurt` starts. One callback per type.
+    pub on_hurt: unsafe extern "C" fn(reg: Reg, kind: Str, callback: HurtCallback) -> i32,
+    /// Vanilla `getLastHurtByMob`: the entity id of whoever last hurt the mob, or -1. Writes
+    /// `getLastHurtByMobTimestamp` (the mob's tick count then) to `timestamp` when not null.
+    pub last_hurt_by: unsafe extern "C" fn(mob: EntityRef, timestamp: *mut i32) -> i32,
+    /// `target.hurt(damageSources().mobAttack(mob), amount)` on the loaded entity `target`. True
+    /// when it took the hit.
+    pub attack:
+        unsafe extern "C" fn(world: WorldRef, mob: EntityRef, target: i32, amount: f32) -> bool,
 }
+
+/// A hit a mod mob is about to take: the vanilla damage type id (`minecraft:fall`) and the
+/// amount before armour. False cancels it, like vanilla `hurt` returning false.
+pub type HurtCallback =
+    unsafe extern "C" fn(world: WorldRef, mob: EntityRef, damage_type: Str, amount: f32) -> bool;
+
+/// Size of the mob AI table before `on_hurt` was appended.
+pub const MOB_AI_V1_BASE_SIZE: usize = std::mem::offset_of!(MobAiV1, on_hurt);
 
 #[cfg(test)]
 mod mob_ai_layout {
@@ -1437,7 +1635,10 @@ mod mob_ai_layout {
         assert_eq!(offset_of!(MobAiV1, look_at), 48);
         assert_eq!(offset_of!(MobAiV1, set_target), 56);
         assert_eq!(offset_of!(MobAiV1, target), 64);
-        assert_eq!(size_of::<MobAiV1>(), 72);
+        assert_eq!(MOB_AI_V1_BASE_SIZE, 72);
+        assert_eq!(offset_of!(MobAiV1, last_hurt_by), 80);
+        assert_eq!(offset_of!(MobAiV1, attack), 88);
+        assert_eq!(size_of::<MobAiV1>(), 96);
         assert_eq!(offset_of!(GoalDefinition, key), 16);
         assert_eq!(offset_of!(GoalDefinition, controls), 28);
         assert_eq!(offset_of!(GoalDefinition, callback), 32);

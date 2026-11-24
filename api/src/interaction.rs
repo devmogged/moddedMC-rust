@@ -4,14 +4,14 @@ use std::marker::PhantomData;
 use std::sync::OnceLock;
 
 use crate::{
-    InterfaceUnavailable, Pos, RegistrationError, Registry, abi, content::World, entities::Entity,
-    guard, require_interface_prefix,
+    InterfacePrefix, InterfaceUnavailable, Pos, RegistrationError, Registry, abi, content::World,
+    entities::Entity, guard,
 };
 
 pub use abi::MAX_STACK_DATA;
 
 #[derive(Clone, Copy)]
-pub struct Interaction(&'static abi::InteractionV1);
+pub struct Interaction(InterfacePrefix<abi::InteractionV1>);
 
 /// Vanilla `InteractionResult` for a use on a block.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,32 +37,27 @@ pub struct UseOnBlock<'a> {
     pub sneaking: bool,
     pub creative: bool,
     raw_player: abi::EntityRef,
-    api: &'static abi::InteractionV1,
+    api: InterfacePrefix<abi::InteractionV1>,
 }
 
 /// The player's held stack, valid only during the callback.
 pub struct Stack<'a> {
     raw: abi::StackRef,
-    api: &'static abi::InteractionV1,
+    api: InterfacePrefix<abi::InteractionV1>,
     scope: PhantomData<&'a mut ()>,
 }
 
 pub type Use = fn(&mut UseOnBlock<'_>) -> UseResult;
 
-static TABLE: OnceLock<&'static abi::InteractionV1> = OnceLock::new();
+static TABLE: OnceLock<InterfacePrefix<abi::InteractionV1>> = OnceLock::new();
 static USE: OnceLock<Use> = OnceLock::new();
 static VANILLA_USE: OnceLock<Use> = OnceLock::new();
 
 pub fn require() -> Result<Interaction, InterfaceUnavailable> {
     // SAFETY: this is the published table type for moddedmc:interaction v1; appended fields are
     // read only after require_extension checks the size.
-    let table = unsafe {
-        require_interface_prefix::<abi::InteractionV1>(
-            abi::INTERACTION,
-            1,
-            abi::INTERACTION_V1_BASE_SIZE,
-        )
-    }?;
+    let table =
+        unsafe { InterfacePrefix::require(abi::INTERACTION, 1, abi::INTERACTION_V1_BASE_SIZE) }?;
     let _ = TABLE.set(table);
     Ok(Interaction(table))
 }
@@ -83,6 +78,174 @@ pub enum InteractionExtension {
     PlaceHeldBlock,
     /// Normal item use, including completion and release for timed actions.
     ItemUse,
+    /// `Interaction::on_use_mob`.
+    MobUse,
+    /// `Interaction::on_melee_damage`.
+    MeleeDamage,
+    ImmediateItemUse,
+    PlayerPlaced,
+}
+
+/// Vanilla Item.use, with the held stack and the look reported by this action.
+pub struct UseItem<'a> {
+    pub world: World<'a>,
+    pub player: Option<Entity<'a>>,
+    pub stack: Stack<'a>,
+    pub item: &'a str,
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+impl UseItem<'_> {
+    /// Start the cooldown for the held item.
+    pub fn cooldown(&self, ticks: u32) {
+        if let Some(player) = self.player {
+            // SAFETY: both the player and item identifier are live for the call.
+            unsafe {
+                ((&raw const (*self.stack.api.ptr).cooldown).read())(
+                    player.raw(),
+                    crate::s(self.item),
+                    ticks,
+                );
+            }
+        }
+    }
+}
+
+/// Called after a player successfully places a block owned by this mod.
+pub type PlayerPlaced = fn(World<'_>, Entity<'_>, Pos, u32);
+static PLAYER_PLACED: OnceLock<PlayerPlaced> = OnceLock::new();
+
+unsafe extern "C" fn player_placed(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    position: Pos,
+    state: u32,
+) {
+    guard("player placed block", (), || {
+        if let (Some(callback), Some(world), Some(player)) = (
+            PLAYER_PLACED.get(),
+            World::borrowed(world),
+            Entity::borrowed(player),
+        ) {
+            callback(world, player, position, state);
+        }
+    });
+}
+
+pub type ItemUseCallback = fn(&mut UseItem<'_>) -> UseResult;
+static ITEM_USE: OnceLock<ItemUseCallback> = OnceLock::new();
+
+unsafe extern "C" fn use_item(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    stack: abi::StackRef,
+    context: *const abi::UseItem,
+) -> i32 {
+    guard("item use", abi::USE_PASS, || {
+        // SAFETY: the host borrows the context, player, world and stack for the call.
+        let (Some(&api), Some(callback), Some(world), Some(context)) = (
+            TABLE.get(),
+            ITEM_USE.get(),
+            World::borrowed(world),
+            unsafe { context.as_ref() },
+        ) else {
+            return abi::USE_PASS;
+        };
+        let mut use_item = UseItem {
+            world,
+            player: Entity::borrowed(player),
+            stack: Stack {
+                raw: stack,
+                api,
+                scope: PhantomData,
+            },
+            // SAFETY: the item ID belongs to the borrowed context.
+            item: unsafe { context.item.str() },
+            yaw: context.yaw,
+            pitch: context.pitch,
+        };
+        match callback(&mut use_item) {
+            UseResult::Pass => abi::USE_PASS,
+            UseResult::Success => abi::USE_SUCCESS,
+            UseResult::Consume => abi::USE_CONSUME,
+            UseResult::Fail => abi::USE_FAIL,
+        }
+    })
+}
+
+/// A player right-clicking a mod mob with one hand, valid only during the callback.
+pub struct UseMob<'a> {
+    pub world: World<'a>,
+    pub player: Option<Entity<'a>>,
+    /// The stack in the hand used, possibly empty.
+    pub stack: Stack<'a>,
+    pub mob: Option<Entity<'a>>,
+    pub sneaking: bool,
+    pub creative: bool,
+    pub main_hand: bool,
+    raw_player: abi::EntityRef,
+    api: InterfacePrefix<abi::InteractionV1>,
+}
+
+/// Vanilla `Mob.mobInteract`; anything but `Pass` ends the click there.
+pub type UseMobCallback = fn(&mut UseMob<'_>) -> UseResult;
+static USE_MOB: OnceLock<UseMobCallback> = OnceLock::new();
+
+unsafe extern "C" fn use_mob(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    stack: abi::StackRef,
+    mob: abi::EntityRef,
+    context: *const abi::UseMob,
+) -> i32 {
+    guard("use_mob", abi::USE_PASS, || {
+        // SAFETY: the host passes a context that is live for this call.
+        let (Some(&api), Some(callback), Some(world), Some(context)) =
+            (TABLE.get(), USE_MOB.get(), World::borrowed(world), unsafe {
+                context.as_ref()
+            })
+        else {
+            return abi::USE_PASS;
+        };
+        let mut use_mob = UseMob {
+            world,
+            player: Entity::borrowed(player),
+            stack: Stack {
+                raw: stack,
+                api,
+                scope: PhantomData,
+            },
+            mob: Entity::borrowed(mob),
+            sneaking: context.sneaking,
+            creative: context.creative,
+            main_hand: context.main_hand,
+            raw_player: player,
+            api,
+        };
+        match callback(&mut use_mob) {
+            UseResult::Pass => abi::USE_PASS,
+            UseResult::Success => abi::USE_SUCCESS,
+            UseResult::Consume => abi::USE_CONSUME,
+            UseResult::Fail => abi::USE_FAIL,
+        }
+    })
+}
+
+impl UseMob<'_> {
+    /// Add a cooldown to the held item, using its registered ID.
+    pub fn cooldown(&self, item: &str, ticks: u32) {
+        // SAFETY: the player is live and the ID is borrowed for this call.
+        unsafe {
+            ((&raw const (*self.api.ptr).cooldown).read())(self.raw_player, crate::s(item), ticks)
+        }
+    }
+
+    /// Vanilla `Inventory.placeItemBackInInventory` with a saved stack; what doesn't fit drops.
+    pub fn give(&self, stack: &[u8]) -> bool {
+        // SAFETY: the player is live for this callback and the bytes are borrowed for the call.
+        unsafe { ((&raw const (*self.api.ptr).give).read())(self.raw_player, abi::Str::new(stack)) }
+    }
 }
 
 /// Vanilla `getSignal` (or `getDirectSignal` when `direct`) for one of the mod's blocks.
@@ -158,7 +321,7 @@ pub struct UseBlock<'a> {
     pub main_hand: bool,
     pub with_item: bool,
     raw_player: abi::EntityRef,
-    api: &'static abi::InteractionV1,
+    api: InterfacePrefix<abi::InteractionV1>,
 }
 
 pub type UseBlockCallback = fn(&mut UseBlock<'_>) -> BlockUseResult;
@@ -250,14 +413,14 @@ impl UseBlock<'_> {
             >= std::mem::offset_of!(abi::InteractionV1, action_bar) + size_of::<usize>()
         {
             // SAFETY: the function is present and both arguments are borrowed for this call.
-            unsafe { (self.api.action_bar)(self.raw_player, abi::Str::from(text)) };
+            unsafe { ((&raw const (*self.api.ptr).action_bar).read())(self.raw_player, abi::Str::from(text)) };
         }
     }
 
     /// Vanilla `Inventory.placeItemBackInInventory` with a saved stack; what doesn't fit drops.
     pub fn give(&self, stack: &[u8]) -> bool {
         // SAFETY: the player is live for this callback and the bytes are borrowed for the call.
-        unsafe { (self.api.give)(self.raw_player, abi::Str::new(stack)) }
+        unsafe { ((&raw const (*self.api.ptr).give).read())(self.raw_player, abi::Str::new(stack)) }
     }
 
     /// Place the held block at the center of a clicked face. The caller spends the item on success.
@@ -265,7 +428,7 @@ impl UseBlock<'_> {
         // SAFETY: the size check covers the appended function and the player is borrowed.
         self.api.size
             >= std::mem::offset_of!(abi::InteractionV1, place_held_block) + size_of::<usize>()
-            && unsafe { (self.api.place_held_block)(self.raw_player, clicked, face) }
+            && unsafe { ((&raw const (*self.api.ptr).place_held_block).read())(self.raw_player, clicked, face) }
     }
 }
 
@@ -295,18 +458,18 @@ pub struct ItemUse<'a> {
     pub main_hand: bool,
     pub phase: ItemUsePhase,
     raw_player: abi::EntityRef,
-    api: &'static abi::InteractionV1,
+    api: InterfacePrefix<abi::InteractionV1>,
 }
 
 impl ItemUse<'_> {
     pub fn give(&self, stack: &[u8]) -> bool {
         // SAFETY: requiring ItemUse covers the earlier give field. The player and bytes are live.
-        unsafe { (self.api.give)(self.raw_player, abi::Str::new(stack)) }
+        unsafe { ((&raw const (*self.api.ptr).give).read())(self.raw_player, abi::Str::new(stack)) }
     }
 }
 
-type ItemUseCallback = fn(&mut ItemUse<'_>) -> ItemUseResult;
-static ITEM_USE: OnceLock<ItemUseCallback> = OnceLock::new();
+type TimedItemUseCallback = fn(&mut ItemUse<'_>) -> ItemUseResult;
+static TIMED_ITEM_USE: OnceLock<TimedItemUseCallback> = OnceLock::new();
 
 unsafe extern "C" fn item_use(
     world: abi::WorldRef,
@@ -319,7 +482,7 @@ unsafe extern "C" fn item_use(
         // SAFETY: the host borrows the context for this callback.
         let (Some(&api), Some(callback), Some(world), Some(context)) = (
             TABLE.get(),
-            ITEM_USE.get(),
+            TIMED_ITEM_USE.get(),
             World::borrowed(world),
             unsafe { context.as_ref() },
         ) else {
@@ -358,7 +521,38 @@ unsafe extern "C" fn item_use(
     })
 }
 
+/// Item ID, registered mod mob ID (empty for vanilla), and damage before defenses.
+pub type MeleeDamage = fn(&str, &str, f32) -> f32;
+static MELEE_DAMAGE: OnceLock<MeleeDamage> = OnceLock::new();
+
+unsafe extern "C" fn melee_damage(item: abi::Str, target_kind: abi::Str, damage: f32) -> f32 {
+    guard("melee damage", damage, || {
+        MELEE_DAMAGE.get().map_or(damage, |callback| {
+            // SAFETY: both strings are borrowed for this callback.
+            unsafe { callback(item.str(), target_kind.str(), damage) }
+        })
+    })
+}
+
 impl Interaction {
+    /// Modify direct player melee damage from this mod's items, before target defenses.
+    /// Needs `InteractionExtension::MeleeDamage`.
+    pub fn on_melee_damage(
+        self,
+        reg: &mut Registry<'_>,
+        callback: MeleeDamage,
+    ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::MeleeDamage)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        if MELEE_DAMAGE.set(callback).is_err() {
+            return Err(RegistrationError::DuplicateId);
+        }
+        // SAFETY: the extension was required; registration is live and the trampoline static.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).on_melee_damage).read())(reg.reg, melee_damage)
+        })
+    }
+
     pub fn require_extension(
         self,
         extension: InteractionExtension,
@@ -388,6 +582,22 @@ impl Interaction {
                 std::mem::offset_of!(abi::InteractionV1, item_use_animation),
                 "moddedmc:interaction.item_use",
             ),
+            InteractionExtension::MeleeDamage => (
+                std::mem::offset_of!(abi::InteractionV1, on_melee_damage),
+                "moddedmc:interaction.melee_damage",
+            ),
+            InteractionExtension::PlayerPlaced => (
+                std::mem::offset_of!(abi::InteractionV1, on_player_placed),
+                "moddedmc:interaction.player_placed",
+            ),
+            InteractionExtension::ImmediateItemUse => (
+                std::mem::offset_of!(abi::InteractionV1, on_use_item),
+                "moddedmc:interaction.use_item",
+            ),
+            InteractionExtension::MobUse => (
+                std::mem::offset_of!(abi::InteractionV1, on_use_mob),
+                "moddedmc:interaction.mob_use",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -403,11 +613,15 @@ impl Interaction {
         reg: &mut Registry<'_>,
         callback: UseBlockCallback,
     ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::BlockUse)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
         if USE_BLOCK.set(callback).is_err() {
             return Err(RegistrationError::DuplicateId);
         }
         // SAFETY: the extension was required; registration is live and the trampoline static.
-        RegistrationError::from_code(unsafe { (self.0.on_use_block)(reg.reg, use_block) })
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).on_use_block).read())(reg.reg, use_block)
+        })
     }
 
     /// Vanilla `Block.playerWillDestroy` for every content block this mod registers: after the
@@ -418,12 +632,14 @@ impl Interaction {
         reg: &mut Registry<'_>,
         callback: PlayerWillDestroyCallback,
     ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::PlayerWillDestroy)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
         if PLAYER_WILL_DESTROY.set(callback).is_err() {
             return Err(RegistrationError::DuplicateId);
         }
         // SAFETY: the extension was required; registration is live and the trampoline static.
         RegistrationError::from_code(unsafe {
-            (self.0.on_player_will_destroy)(reg.reg, player_will_destroy)
+            ((&raw const (*self.0.ptr).on_player_will_destroy).read())(reg.reg, player_will_destroy)
         })
     }
 
@@ -437,12 +653,35 @@ impl Interaction {
         signal: RedstoneSignalCallback,
         connects: RedstoneConnectsCallback,
     ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::Redstone)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
         if REDSTONE.set((signal, connects)).is_err() {
             return Err(RegistrationError::DuplicateId);
         }
         // SAFETY: the extension was required; registration is live and the trampolines static.
         RegistrationError::from_code(unsafe {
-            (self.0.on_redstone)(reg.reg, redstone_signal, redstone_connects)
+            ((&raw const (*self.0.ptr).on_redstone).read())(
+                reg.reg,
+                redstone_signal,
+                redstone_connects,
+            )
+        })
+    }
+
+    /// Right-clicks on mobs of the mod mob type `kind`. A mod has one callback: the first one
+    /// passed serves every kind. Needs `InteractionExtension::MobUse`.
+    pub fn on_use_mob(
+        self,
+        reg: &mut Registry<'_>,
+        kind: &str,
+        callback: UseMobCallback,
+    ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::MobUse)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        let _ = USE_MOB.set(callback);
+        // SAFETY: the extension was required; registration is live and the trampoline static.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).on_use_mob).read())(reg.reg, crate::s(kind), use_mob)
         })
     }
 
@@ -450,15 +689,15 @@ impl Interaction {
     pub fn on_item_use(
         self,
         reg: &mut Registry<'_>,
-        callback: ItemUseCallback,
+        callback: TimedItemUseCallback,
     ) -> Result<(), RegistrationError> {
         self.require_extension(InteractionExtension::ItemUse)
             .map_err(|_| RegistrationError::InvalidDefinition)?;
-        ITEM_USE
+        TIMED_ITEM_USE
             .set(callback)
             .map_err(|_| RegistrationError::DuplicateId)?;
         // SAFETY: the table size was checked and the registrar is live.
-        RegistrationError::from_code(unsafe { (self.0.on_item_use)(reg.reg, item_use) })
+        RegistrationError::from_code(unsafe { ((&raw const (*self.0.ptr).on_item_use).read())(reg.reg, item_use) })
     }
 
     /// Present a timed hand-use animation to the stock client for a registered item.
@@ -473,11 +712,42 @@ impl Interaction {
             .map_err(|_| RegistrationError::InvalidDefinition)?;
         // SAFETY: the table size was checked and the registrar and name are live.
         RegistrationError::from_code(unsafe {
-            (self.0.item_use_animation)(reg.reg, crate::s(item), ticks)
+            ((&raw const (*self.0.ptr).item_use_animation).read())(reg.reg, crate::s(item), ticks)
         })
     }
 
     /// Vanilla `Item.useOn` for every content item this mod registers.
+    /// Observe successful player placement of this mod's registered blocks.
+    pub fn on_player_placed(
+        self,
+        reg: &mut Registry<'_>,
+        callback: PlayerPlaced,
+    ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::PlayerPlaced)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        let _ = PLAYER_PLACED.set(callback);
+        // SAFETY: the table size was checked and the trampoline is static.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).on_player_placed).read())(reg.reg, player_placed)
+        })
+    }
+
+    pub fn on_use_item(
+        self,
+        reg: &mut Registry<'_>,
+        callback: ItemUseCallback,
+    ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::ImmediateItemUse)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        ITEM_USE
+            .set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        // SAFETY: the checked field, live registration and static trampoline are valid.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).on_use_item).read())(reg.reg, use_item)
+        })
+    }
+
     pub fn on_use_on_block(
         self,
         reg: &mut Registry<'_>,
@@ -487,7 +757,9 @@ impl Interaction {
             return Err(RegistrationError::DuplicateId);
         }
         // SAFETY: registration is live and the trampoline is a static function.
-        RegistrationError::from_code(unsafe { (self.0.on_use_on_block)(reg.reg, use_on_block) })
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).on_use_on_block).read())(reg.reg, use_on_block)
+        })
     }
 
     /// Intercept vanilla `Item.useOn`. Needs `InteractionExtension::VanillaItemUse`.
@@ -501,7 +773,7 @@ impl Interaction {
         }
         // SAFETY: the extension was required, registration is live and the trampoline is static.
         RegistrationError::from_code(unsafe {
-            (self.0.on_vanilla_use_on_block)(reg.reg, vanilla_use_on_block)
+            ((&raw const (*self.0.ptr).on_vanilla_use_on_block).read())(reg.reg, vanilla_use_on_block)
         })
     }
 }
@@ -576,32 +848,40 @@ impl UseOnBlock<'_> {
             return false;
         }
         // SAFETY: the player and saved stack are borrowed for this synchronous call.
-        unsafe { (self.api.give)(self.raw_player, abi::Str::new(stack)) }
+        unsafe { ((&raw const (*self.api.ptr).give).read())(self.raw_player, abi::Str::new(stack)) }
     }
 
     /// Vanilla `ItemCooldowns.addCooldown` for the held item.
     pub fn cooldown(&self, ticks: u32) {
         // SAFETY: the player is live for this callback and the id is borrowed for the call.
-        unsafe { (self.api.cooldown)(self.raw_player, abi::Str::new(self.item.as_bytes()), ticks) }
+        unsafe {
+            ((&raw const (*self.api.ptr).cooldown).read())(
+                self.raw_player,
+                abi::Str::new(self.item.as_bytes()),
+                ticks,
+            )
+        }
     }
 }
 
 impl Stack<'_> {
     pub fn count(&self) -> u32 {
         // SAFETY: the stack is live for this callback.
-        unsafe { (self.api.stack_count)(self.raw) }
+        unsafe { ((&raw const (*self.api.ptr).stack_count).read())(self.raw) }
     }
 
     pub fn shrink(&mut self, count: u32) {
         // SAFETY: the stack is live for this callback.
-        unsafe { (self.api.stack_shrink)(self.raw, count) }
+        unsafe { ((&raw const (*self.api.ptr).stack_shrink).read())(self.raw, count) }
     }
 
     /// The mod data stored on this stack, if any.
     pub fn data(&self) -> Option<Vec<u8>> {
         let mut out = vec![0; MAX_STACK_DATA];
         // SAFETY: the stack is live and `out` has the capacity passed.
-        let len = unsafe { (self.api.stack_data)(self.raw, out.as_mut_ptr(), out.len()) };
+        let len = unsafe {
+            ((&raw const (*self.api.ptr).stack_data).read())(self.raw, out.as_mut_ptr(), out.len())
+        };
         (len != usize::MAX && len <= out.len()).then(|| {
             out.truncate(len);
             out
@@ -611,23 +891,38 @@ impl Stack<'_> {
     /// Replace the stack's mod data; empty removes it.
     pub fn set_data(&mut self, data: &[u8]) -> bool {
         // SAFETY: the stack is live and the slice is borrowed for the call.
-        unsafe { (self.api.set_stack_data)(self.raw, data.as_ptr(), data.len()) }
+        unsafe {
+            ((&raw const (*self.api.ptr).set_stack_data).read())(
+                self.raw,
+                data.as_ptr(),
+                data.len(),
+            )
+        }
     }
 
     /// The stack as saved NBT, `None` when empty. Needs `InteractionExtension::BlockUse`.
     pub fn read(&self) -> Option<Vec<u8>> {
+        Interaction(self.api)
+            .require_extension(InteractionExtension::BlockUse)
+            .ok()?;
         let mut data = Vec::new();
         let sink = abi::Sink {
             ctx: (&raw mut data).cast(),
             put: crate::content::bytes,
         };
         // SAFETY: the stack is live and the sink collects into the local Vec synchronously.
-        unsafe { (self.api.stack_read)(self.raw, sink) }.then_some(data)
+        unsafe { ((&raw const (*self.api.ptr).stack_read).read())(self.raw, sink) }.then_some(data)
     }
 
     /// Replace the stack with saved NBT; empty clears it. Needs `InteractionExtension::BlockUse`.
     pub fn write(&mut self, stack: &[u8]) -> bool {
+        if Interaction(self.api)
+            .require_extension(InteractionExtension::BlockUse)
+            .is_err()
+        {
+            return false;
+        }
         // SAFETY: the stack is live and the bytes are borrowed for the call.
-        unsafe { (self.api.stack_write)(self.raw, abi::Str::new(stack)) }
+        unsafe { ((&raw const (*self.api.ptr).stack_write).read())(self.raw, abi::Str::new(stack)) }
     }
 }

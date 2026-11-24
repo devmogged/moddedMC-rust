@@ -12,9 +12,9 @@ use moddedmc_api::abi::{self, BlockUpdate, ContentEvent, Pos, Reg, Sink, Str, Wo
 use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
-        BlockBehaviour, BlockHitResult, EmitsRedstonePowerArgs, GetRedstonePowerArgs,
-        NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
-        PlayerWillDestroyArgs, UseWithItemArgs,
+        BlockBehaviour, BlockHitResult, EmitsRedstonePowerArgs, GetComparatorOutputArgs,
+        GetRedstonePowerArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
+        OnPlaceArgs, PlayerPlacedArgs, PlayerWillDestroyArgs, UseWithItemArgs,
         blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
@@ -23,7 +23,13 @@ use pumpkin_core::{
         registry::{BlockActionResult, install_content_behaviour},
     },
     command::context::CommandContext,
-    entity::{Entity, EntityBase, decoration::display::ItemDisplayEntity, player::Player},
+    entity::{
+        Entity, EntityBase,
+        decoration::display::ItemDisplayEntity,
+        player::Player,
+        projectile::arrow::{CustomArrowAmmo, install_custom_arrow_ammo},
+    },
+    item::items::bucket::{CustomFishBuckets, install_custom_fish_buckets},
     server::Server,
     world::{World, loot::LootContextParameters},
 };
@@ -58,11 +64,24 @@ pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     state,
     on_tick,
     on_replaced,
+    set_comparator_output,
 };
 pub static ITEMS: abi::ItemsV1 = abi::ItemsV1 {
     size: size_of::<abi::ItemsV1>(),
     add_item,
     item_durability,
+};
+pub static ITEM_DEFAULTS: abi::ItemDefaultsV1 = abi::ItemDefaultsV1 {
+    size: size_of::<abi::ItemDefaultsV1>(),
+    add_item: add_item_defaults,
+};
+pub static ARROW_AMMO: abi::ArrowAmmoV1 = abi::ArrowAmmoV1 {
+    size: size_of::<abi::ArrowAmmoV1>(),
+    bind: bind_arrow_ammo,
+};
+pub static FISH_BUCKETS: abi::FishBucketsV1 = abi::FishBucketsV1 {
+    size: size_of::<abi::FishBucketsV1>(),
+    bind: bind_fish_bucket,
 };
 pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     size: size_of::<abi::BlockWorldV1>(),
@@ -86,6 +105,7 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     can_survive,
     block_item,
     dimension_id,
+    is_thundering,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -93,6 +113,11 @@ unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
     unsafe { world(raw) }.map_or(Str::EMPTY, |world| {
         Str::from(world.dimension.minecraft_name)
     })
+}
+
+unsafe extern "C" fn is_thundering(raw: WorldRef) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    unsafe { world(raw) }.is_some_and(World::is_thundering)
 }
 
 const MAX_BATCH: usize = 4096;
@@ -113,10 +138,20 @@ pub struct ItemRegistration {
     model: String,
     use_animation: Option<u16>,
     max_damage: Option<u16>,
+    components: Vec<(DataComponent, Box<dyn DataComponentImpl>)>,
+    bucket_mob: Option<String>,
+    arrow: Option<ArrowRegistration>,
+}
+
+struct ArrowRegistration {
+    velocity_multiplier: f32,
+    water_inertia: f64,
+    after_hurt: abi::ArrowHurtFn,
 }
 
 struct RegisteredState {
     properties: BTreeMap<String, String>,
+    comparator_output: Option<u8>,
     physical: &'static BlockState,
     shape: Vec<pumpkin_util::math::boundingbox::BoundingBox>,
     visual: content_pack::StateAssets,
@@ -136,6 +171,9 @@ struct Runtime {
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     item_use: BTreeMap<usize, abi::ItemUseFn>,
     vanilla_use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    use_item: BTreeMap<usize, abi::UseItemFn>,
+    player_placed: BTreeMap<usize, abi::PlayerPlacedFn>,
+    melee_damage: BTreeMap<usize, abi::MeleeDamageFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
@@ -152,6 +190,9 @@ pub struct Hooks {
     pub use_on_block: Option<abi::UseOnBlockFn>,
     pub item_use: Option<abi::ItemUseFn>,
     pub vanilla_use_on_block: Option<abi::UseOnBlockFn>,
+    pub use_item: Option<abi::UseItemFn>,
+    pub player_placed: Option<abi::PlayerPlacedFn>,
+    pub melee_damage: Option<abi::MeleeDamageFn>,
     pub use_block: Option<abi::UseBlockFn>,
     pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
     pub redstone: Option<(abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
@@ -167,6 +208,9 @@ struct Pending {
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     item_use: BTreeMap<usize, abi::ItemUseFn>,
     vanilla_use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    use_item: BTreeMap<usize, abi::UseItemFn>,
+    player_placed: BTreeMap<usize, abi::PlayerPlacedFn>,
+    melee_damage: BTreeMap<usize, abi::MeleeDamageFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
@@ -180,6 +224,9 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     use_on_block: BTreeMap::new(),
     item_use: BTreeMap::new(),
     vanilla_use_on_block: BTreeMap::new(),
+    use_item: BTreeMap::new(),
+    player_placed: BTreeMap::new(),
+    melee_damage: BTreeMap::new(),
     use_block: BTreeMap::new(),
     player_will_destroy: BTreeMap::new(),
     redstone: BTreeMap::new(),
@@ -347,6 +394,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         }
         registered.push(RegisteredState {
             properties,
+            comparator_output: None,
             physical,
             shape,
             visual: content_pack::StateAssets {
@@ -370,6 +418,35 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         states: registered,
         placement: def.on_place,
     });
+    code::OK
+}
+
+unsafe extern "C" fn set_comparator_output(reg: Reg, id: Str, strength: u8) -> i32 {
+    if strength > 15 || RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the host owns staging and the selector is borrowed for this call.
+    let (staging, id) = unsafe { (native::staging(reg), id.str()) };
+    let Some((name, props)) = selector(id) else {
+        return code::INVALID_DEFINITION;
+    };
+    let Some(state) = staging
+        .content
+        .iter_mut()
+        .find(|block| block.id == name)
+        .and_then(|block| {
+            block
+                .states
+                .iter_mut()
+                .find(|state| state.properties == props)
+        })
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    if state.comparator_output.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    state.comparator_output = Some(strength);
     code::OK
 }
 
@@ -415,6 +492,9 @@ unsafe extern "C" fn add_item(reg: Reg, def: *const abi::ContentItemDefinition) 
         model: model.into(),
         use_animation: None,
         max_damage: None,
+        components: Vec::new(),
+        bucket_mob: None,
+        arrow: None,
     });
     code::OK
 }
@@ -432,10 +512,191 @@ unsafe extern "C" fn item_durability(reg: Reg, item: Str, max_damage: u16) -> i3
     else {
         return code::INVALID_DEFINITION;
     };
-    if definition.max_damage.is_some() {
+    if definition.max_damage.is_some()
+        || definition.components.iter().any(|(id, _)| matches!(id,
+            DataComponent::MaxStackSize | DataComponent::MaxDamage | DataComponent::Damage)) {
         return code::DUPLICATE_ID;
     }
     definition.max_damage = Some(max_damage);
+    code::OK
+}
+
+unsafe extern "C" fn bind_arrow_ammo(
+    reg: Reg,
+    item: Str,
+    velocity_multiplier: f32,
+    water_inertia: f64,
+    after_hurt: abi::ArrowHurtFn,
+) -> i32 {
+    if !velocity_multiplier.is_finite()
+        || velocity_multiplier <= 0.0
+        || !(0.0..=1.0).contains(&water_inertia)
+    {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the host owns staging and the item id is borrowed for this call.
+    let (staging, item) = unsafe { (native::staging(reg), item.str()) };
+    let Some(entry) = staging
+        .content_items
+        .iter_mut()
+        .find(|entry| entry.id == item && entry.carrier == &Item::ARROW)
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    if entry.arrow.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    entry.arrow = Some(ArrowRegistration {
+        velocity_multiplier,
+        water_inertia,
+        after_hurt,
+    });
+    code::OK
+}
+
+fn install_arrow_ammo(bindings: Vec<(String, ArrowRegistration)>) -> io::Result<()> {
+    if bindings.is_empty() {
+        return Ok(());
+    }
+    let mut ammo = HashMap::new();
+    for (name, definition) in bindings {
+        let item = Item::from_registry_key(&name)
+            .ok_or_else(|| io::Error::other("arrow ammunition missing after registration"))?;
+        ammo.insert(
+            item.id,
+            CustomArrowAmmo {
+                velocity_multiplier: definition.velocity_multiplier,
+                water_inertia: definition.water_inertia,
+                after_hurt: Box::new(move |target| {
+                    // SAFETY: the library stays loaded and the id and target are borrowed for the call.
+                    unsafe {
+                        (definition.after_hurt)(
+                            Str::from(item.registry_key),
+                            ptr::from_ref(&target).cast(),
+                        );
+                    }
+                }),
+            },
+        );
+    }
+    if !install_custom_arrow_ammo(ammo) {
+        return Err(io::Error::other("arrow ammunition hooks already installed"));
+    }
+    Ok(())
+}
+
+unsafe extern "C" fn bind_fish_bucket(reg: Reg, item: Str, mob: Str) -> i32 {
+    // SAFETY: the host owns staging and the identifiers are borrowed for this call.
+    let (staging, item, mob) = unsafe { (native::staging(reg), item.str(), mob.str()) };
+    if !crate::mobs::staged_fish(&staging.mobs, mob) {
+        return code::INVALID_DEFINITION;
+    }
+    if staging
+        .content_items
+        .iter()
+        .any(|entry| entry.bucket_mob.as_deref() == Some(mob))
+    {
+        return code::DUPLICATE_ID;
+    }
+    let Some(entry) = staging
+        .content_items
+        .iter_mut()
+        .find(|entry| entry.id == item && entry.carrier == &Item::COD_BUCKET)
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    if entry.bucket_mob.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    entry.bucket_mob = Some(mob.to_owned());
+    code::OK
+}
+
+#[derive(Default)]
+struct FishBucketRegistry {
+    by_mob: HashMap<String, &'static Item>,
+    by_item: HashMap<u16, String>,
+}
+
+impl CustomFishBuckets for FishBucketRegistry {
+    fn bucket_for(&self, mob: &dyn EntityBase) -> Option<&'static Item> {
+        self.by_mob.get(crate::mobs::registered_kind(mob)?).copied()
+    }
+
+    fn contains(&self, item: &Item) -> bool {
+        self.by_item.contains_key(&item.id)
+    }
+
+    fn create(
+        &self,
+        item: &Item,
+        world: &Arc<World>,
+        position: Vector3<f64>,
+    ) -> Option<Arc<dyn EntityBase>> {
+        crate::mobs::create(self.by_item.get(&item.id)?, world, position)
+    }
+}
+
+fn install_fish_buckets(bindings: Vec<(String, String)>) -> io::Result<()> {
+    if bindings.is_empty() {
+        return Ok(());
+    }
+    let mut buckets = FishBucketRegistry::default();
+    for (item, mob) in bindings {
+        let item = Item::from_registry_key(&item)
+            .ok_or_else(|| io::Error::other("fish bucket missing after registration"))?;
+        buckets.by_mob.insert(mob.clone(), item);
+        buckets.by_item.insert(item.id, mob);
+    }
+    if !install_custom_fish_buckets(Box::new(buckets)) {
+        return Err(io::Error::other("fish bucket hooks already installed"));
+    }
+    Ok(())
+}
+
+unsafe extern "C" fn add_item_defaults(
+    reg: Reg,
+    def: *const abi::ContentItemDefinition,
+    defaults: Str,
+) -> i32 {
+    // SAFETY: registration and its definition remain live during the call.
+    let Some(definition) = (unsafe { def.as_ref() }) else {
+        return code::INVALID_DEFINITION;
+    };
+    let Some(stack) = crate::stacks::read_stack(defaults) else {
+        return code::INVALID_DEFINITION;
+    };
+    // SAFETY: the carrier string belongs to the live definition.
+    let carrier = Item::from_registry_key(unsafe { definition.carrier.str() });
+    if stack.item_count != 1 || carrier != Some(stack.item) {
+        return code::INVALID_DEFINITION;
+    }
+    let Some(components) = stack
+        .patch
+        .into_iter()
+        .map(|(id, value)| Some((id, value?)))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    for (index, (id, _)) in components.iter().enumerate() {
+        if *id == DataComponent::ItemModel
+            || components[..index]
+                .iter()
+                .any(|(previous, _)| previous == id)
+        {
+            return code::INVALID_DEFINITION;
+        }
+    }
+    // SAFETY: the same borrowed definition and registration are still live.
+    let result = unsafe { add_item(reg, def) };
+    if result != code::OK {
+        return result;
+    }
+    // SAFETY: add_item successfully staged the definition on this handle.
+    if let Some(entry) = unsafe { native::staging(reg) }.content_items.last_mut() {
+        entry.components = components;
+    }
     code::OK
 }
 
@@ -508,6 +769,15 @@ pub fn register(
     if let Some(inside) = hooks.entity_inside {
         pending.entity_inside.insert(owner, inside);
     }
+    if let Some(callback) = hooks.melee_damage {
+        pending.melee_damage.insert(owner, callback);
+    }
+    if let Some(callback) = hooks.player_placed {
+        pending.player_placed.insert(owner, callback);
+    }
+    if let Some(callback) = hooks.use_item {
+        pending.use_item.insert(owner, callback);
+    }
     if let Some(callback) = hooks.use_on_block {
         pending.use_on_block.insert(owner, callback);
     }
@@ -539,8 +809,10 @@ fn split_items(
                     name: item.id.clone(),
                     display_name: item.name,
                     carrier: item.carrier,
-                    components: item.max_damage.map_or_else(Vec::new, |max_damage| {
-                        vec![
+                    components: {
+                        let mut components = item.components;
+                        if let Some(max_damage) = item.max_damage {
+                            components.extend([
                             (
                                 DataComponent::MaxStackSize,
                                 Box::new(MaxStackSizeImpl { size: 1 })
@@ -553,8 +825,10 @@ fn split_items(
                                 }),
                             ),
                             (DataComponent::Damage, Box::new(DamageImpl { damage: 0 })),
-                        ]
-                    }),
+                            ]);
+                        }
+                        components
+                    },
                     client_components: item.use_animation.map_or_else(Vec::new, |ticks| {
                         vec![(
                             DataComponent::Consumable,
@@ -633,6 +907,25 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
     Ok(definitions)
 }
 
+fn open_registry(
+    path: &Path,
+    blocks: &[(usize, Registration)],
+    items: &[ItemDefinition],
+) -> io::Result<content::Registry> {
+    let definitions = block_definitions(blocks)?;
+    content::Registry::open_with_comparator_outputs(
+        &path.join("moddedmc/registry.dat"),
+        &definitions,
+        items,
+        |name, state_index| {
+            let index = blocks
+                .binary_search_by(|(_, block)| block.id.as_str().cmp(name))
+                .ok()?;
+            blocks[index].1.states[state_index].comparator_output
+        },
+    )
+}
+
 pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result<()> {
     load_mods();
     let Pending {
@@ -644,6 +937,9 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         use_on_block,
         item_use,
         vanilla_use_on_block,
+        use_item,
+        player_placed,
+        melee_damage,
         use_block,
         player_will_destroy,
         redstone,
@@ -664,13 +960,16 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         )
         .collect();
 
-    let definitions = block_definitions(&blocks)?;
+    let fish_buckets: Vec<_> = items
+        .iter_mut()
+        .filter_map(|(_, item)| item.bucket_mob.take().map(|mob| (item.id.clone(), mob)))
+        .collect();
+    let arrow_ammo = items
+        .iter_mut()
+        .filter_map(|(_, item)| item.arrow.take().map(|arrow| (item.id.clone(), arrow)))
+        .collect();
     let (item_definitions, item_assets) = split_items(items);
-    let registry = content::Registry::open(
-        &path.join("moddedmc/registry.dat"),
-        &definitions,
-        &item_definitions,
-    )?;
+    let registry = open_registry(path, &blocks, &item_definitions)?;
     for item in &item_assets {
         tracing::info!("moddedmc: registered content item {}", item.id);
     }
@@ -683,6 +982,9 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         use_on_block,
         item_use,
         vanilla_use_on_block,
+        use_item,
+        player_placed,
+        melee_damage,
         use_block,
         player_will_destroy,
         redstone,
@@ -712,6 +1014,8 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         });
     }
     registry.install()?;
+    install_fish_buckets(fish_buckets)?;
+    install_arrow_ammo(arrow_ammo)?;
     runtime.item_owners = owners
         .into_iter()
         .filter_map(|(id, owner)| Some((Item::from_registry_key(&id)?.id, owner)))
@@ -722,6 +1026,10 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         &assets,
         &item_assets,
     )?;
+    install_runtime(runtime)
+}
+
+fn install_runtime(runtime: Runtime) -> io::Result<()> {
     if RUNTIME.set(runtime).is_err()
         || !install_content_behaviour(Arc::new(Behaviour))
         || !crate::interaction::install()
@@ -764,6 +1072,27 @@ impl BlockBehaviour for Behaviour {
             .unwrap_or(default)
     }
 
+    fn player_placed(&self, args: PlayerPlacedArgs<'_>) {
+        let Some(runtime) = RUNTIME.get() else { return };
+        let Some(callback) = runtime
+            .blocks
+            .get(&args.block.id.as_u16())
+            .and_then(|block| runtime.player_placed.get(&block.owner))
+        else {
+            return;
+        };
+        let player: &dyn EntityBase = args.player;
+        // SAFETY: the borrowed world and player outlive this synchronous callback.
+        unsafe {
+            callback(
+                ptr::from_ref(args.world.as_ref()).cast(),
+                ptr::from_ref(&player).cast(),
+                abi_pos(*args.position),
+                u32::from(args.state_id.as_u16()),
+            );
+        }
+    }
+
     fn on_entity_collision(&self, args: OnEntityCollisionArgs<'_>) {
         let Some(runtime) = RUNTIME.get() else { return };
         let Some(callback) = runtime
@@ -798,6 +1127,10 @@ impl BlockBehaviour for Behaviour {
 
     fn get_strong_redstone_power(&self, args: GetRedstonePowerArgs<'_>) -> u8 {
         redstone_signal(&args, true)
+    }
+
+    fn get_comparator_output(&self, args: GetComparatorOutputArgs<'_>) -> Option<u8> {
+        content::state(args.state.id.as_u16())?.comparator_output
     }
 
     fn player_will_destroy(&self, args: PlayerWillDestroyArgs<'_>) {
@@ -1560,6 +1893,8 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     stop_riding: crate::entities::stop_riding,
     vehicle: crate::entities::vehicle,
     entities_matching: crate::entities::entities_matching,
+    as_player: crate::entities::as_player,
+    with_player_context: crate::entities::with_player_context,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
@@ -1748,6 +2083,62 @@ pub unsafe extern "C" fn on_use_block_content(reg: Reg, callback: abi::UseBlockF
     }
     // SAFETY: registration is live for the call.
     let slot = &mut unsafe { native::staging(reg) }.content_hooks.use_block;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
+/// The owning mod's modifier for a direct melee strike with this item.
+pub fn melee_damage_callback(item: u16) -> Option<abi::MeleeDamageFn> {
+    let runtime = RUNTIME.get()?;
+    runtime
+        .melee_damage
+        .get(runtime.item_owners.get(&item)?)
+        .copied()
+}
+
+pub unsafe extern "C" fn on_melee_damage(reg: Reg, callback: abi::MeleeDamageFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.melee_damage;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
+pub fn use_item_callback(item: u16) -> Option<abi::UseItemFn> {
+    let runtime = RUNTIME.get()?;
+    runtime
+        .use_item
+        .get(runtime.item_owners.get(&item)?)
+        .copied()
+}
+
+pub unsafe extern "C" fn on_player_placed(reg: Reg, callback: abi::PlayerPlacedFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.player_placed;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
+pub unsafe extern "C" fn on_use_item(reg: Reg, callback: abi::UseItemFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for the call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.use_item;
     if slot.is_some() {
         return code::DUPLICATE_ID;
     }

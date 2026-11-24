@@ -386,7 +386,7 @@ pub unsafe fn text(s: Str) -> String {
 
 /// # Safety
 /// `p` is null or a player reference the host handed out for the current call.
-const unsafe fn player<'a>(p: PlayerRef) -> Option<&'a Player> {
+pub const unsafe fn player<'a>(p: PlayerRef) -> Option<&'a Player> {
     // SAFETY: the caller's contract; the host keeps the `Arc<Player>` alive for the call.
     unsafe { p.0.cast::<Player>().as_ref() }
 }

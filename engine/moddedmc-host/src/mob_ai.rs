@@ -17,8 +17,17 @@ use pumpkin_core::{
         },
         mob::Mob,
     },
+    plugin::{
+        BoxFuture, Cancellable, EventHandler,
+        api::events::{
+            entity::{entity_damage::EntityDamageEvent, entity_death::EntityDeathEvent},
+            player::player_interact_entity_event::PlayerInteractEntityEvent,
+        },
+    },
+    server::Server,
     world::{World, install_entity_added_hook},
 };
+use pumpkin_data::{damage::DamageType, data_component_impl::IDSetContent};
 use pumpkin_util::math::vector3::Vector3;
 
 use crate::{
@@ -36,6 +45,9 @@ pub static MOB_AI: abi::MobAiV1 = abi::MobAiV1 {
     look_at,
     set_target,
     target,
+    on_hurt,
+    last_hurt_by,
+    attack,
 };
 
 #[derive(Clone, Copy)]
@@ -51,6 +63,9 @@ pub struct StagedGoal {
 pub struct TypeAi {
     replace: bool,
     goals: Vec<StagedGoal>,
+    hurt: Option<abi::HurtCallback>,
+    use_mob: Option<abi::UseMobFn>,
+    death: Option<abi::MobDeathFn>,
 }
 
 static TYPES: Mutex<BTreeMap<String, TypeAi>> = Mutex::new(BTreeMap::new());
@@ -99,6 +114,132 @@ unsafe extern "C" fn replace_goals(reg: Reg, kind: Str) -> i32 {
     code::OK
 }
 
+unsafe extern "C" fn on_hurt(reg: Reg, kind: Str, callback: abi::HurtCallback) -> i32 {
+    // SAFETY: registration is live for the call.
+    let Some(ai) = (unsafe { staged(reg, kind) }) else {
+        return code::INVALID_DEFINITION;
+    };
+    if ai.hurt.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    ai.hurt = Some(callback);
+    code::OK
+}
+
+pub unsafe extern "C" fn on_use_mob(reg: Reg, kind: Str, callback: abi::UseMobFn) -> i32 {
+    // SAFETY: registration is live for the call.
+    let Some(ai) = (unsafe { staged(reg, kind) }) else {
+        return code::INVALID_DEFINITION;
+    };
+    if ai.use_mob.replace(callback).is_some() {
+        return code::DUPLICATE_ID;
+    }
+    code::OK
+}
+
+pub unsafe extern "C" fn on_death(reg: Reg, kind: Str, callback: abi::MobDeathFn) -> i32 {
+    // SAFETY: registration is live for the call.
+    let Some(ai) = (unsafe { staged(reg, kind) }) else {
+        return code::INVALID_DEFINITION;
+    };
+    if ai.death.replace(callback).is_some() {
+        return code::DUPLICATE_ID;
+    }
+    code::OK
+}
+
+/// The loaded entity `id` in any world, with its world.
+fn find(server: &Server, id: i32) -> Option<(Arc<World>, Arc<dyn EntityBase>)> {
+    server.worlds.load().iter().find_map(|world| {
+        world
+            .get_entity_by_id(id)
+            .map(|entity| (world.clone(), entity))
+    })
+}
+
+/// Hands a right-click on a mod mob to its type's callback; a result other than pass cancels
+/// the carrier's own interaction.
+pub struct UseMobHandler;
+
+impl EventHandler<PlayerInteractEntityEvent> for UseMobHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut PlayerInteractEntityEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            use pumpkin_protocol::java::server::play::ActionType;
+            // Java 26.3 sends a single InteractAt for a right-click.
+            if event.cancelled() || !matches!(event.action, ActionType::InteractAt) {
+                return;
+            }
+            let Some(callback) = mobs::registered_kind(event.target.as_ref())
+                .and_then(|kind| types().get(kind).and_then(|ai| ai.use_mob))
+            else {
+                return;
+            };
+            let player = event.player.clone();
+            let world = player.world();
+            let hand = event.hand;
+            let inventory = player.inventory();
+            let before = inventory.get_stack_in_hand(hand);
+            let mut stack = before.clone();
+            let context = abi::UseMob {
+                sneaking: event.sneaking,
+                creative: player.is_creative(),
+                main_hand: hand == pumpkin_util::Hand::Right,
+            };
+            let result = crate::interaction::use_mob(
+                callback,
+                &world,
+                &player,
+                (&mut stack, hand),
+                event.target.as_ref(),
+                &context,
+            );
+            if !stack.are_equal(&before) {
+                inventory.set_stack_in_hand(hand, stack);
+            }
+            if result != abi::USE_PASS {
+                event.set_cancelled(true);
+            }
+        })
+    }
+}
+
+/// Tells a mod mob type's callback that one of its mobs died, before its loot drops.
+pub struct DeathHandler;
+
+impl EventHandler<EntityDeathEvent> for DeathHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut EntityDeathEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if types().values().all(|ai| ai.death.is_none()) {
+                return;
+            }
+            let Some((world, entity)) = find(server, event.entity_id) else {
+                return;
+            };
+            let Some(callback) = mobs::registered_kind(entity.as_ref())
+                .and_then(|kind| types().get(kind).and_then(|ai| ai.death))
+            else {
+                return;
+            };
+            let base: &dyn EntityBase = entity.as_ref();
+            // SAFETY: the world and the mob outlive this synchronous callback.
+            unsafe {
+                callback(
+                    ptr::from_ref(world.as_ref()).cast(),
+                    ptr::from_ref(&base).cast(),
+                );
+            }
+        })
+    }
+}
+
 /// Commit a mod's staged AI after its registration succeeded.
 pub fn register(staged: BTreeMap<String, TypeAi>) {
     let mut types = types();
@@ -106,6 +247,48 @@ pub fn register(staged: BTreeMap<String, TypeAi>) {
         let entry = types.entry(kind).or_default();
         entry.replace |= ai.replace;
         entry.goals.extend(ai.goals);
+        entry.hurt = entry.hurt.or(ai.hurt);
+        entry.use_mob = entry.use_mob.or(ai.use_mob);
+        entry.death = entry.death.or(ai.death);
+    }
+}
+
+/// Asks a mod mob type's hurt callback about each hit as vanilla `hurt` starts.
+pub struct HurtHandler;
+
+impl EventHandler<EntityDamageEvent> for HurtHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut EntityDamageEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if event.cancelled() || types().values().all(|ai| ai.hurt.is_none()) {
+                return;
+            }
+            let Some((world, entity)) = find(server, event.entity_id) else {
+                return;
+            };
+            let Some(callback) = mobs::registered_kind(entity.as_ref())
+                .and_then(|kind| types().get(kind).and_then(|ai| ai.hurt))
+            else {
+                return;
+            };
+            let name = event.damage_type.to_string();
+            let base: &dyn EntityBase = entity.as_ref();
+            // SAFETY: the world, the mob and the name outlive this synchronous callback.
+            let take = unsafe {
+                callback(
+                    ptr::from_ref(world.as_ref()).cast(),
+                    ptr::from_ref(&base).cast(),
+                    Str::new(name.as_bytes()),
+                    event.damage,
+                )
+            };
+            if !take {
+                event.set_cancelled(true);
+            }
+        })
     }
 }
 
@@ -119,11 +302,12 @@ fn attach(_world: &World, entity: &Arc<dyn EntityBase>) {
     let Some(kind) = mobs::registered_kind(entity.as_ref()) else {
         return;
     };
+    let me = mob.get_mob_entity();
+    mobs::default_loot(me, kind);
     let (replace, goals) = match types().get(kind) {
         Some(ai) => (ai.replace, ai.goals.clone()),
         None => return,
     };
-    let me = mob.get_mob_entity();
     if replace {
         me.goals_selector.clear(mob);
         me.target_selector.clear(mob);
@@ -281,4 +465,41 @@ unsafe extern "C" fn target(raw: EntityRef) -> i32 {
     unsafe { mob(raw) }
         .and_then(|mob| mob.get_mob_entity().get_target())
         .map_or(-1, |t| t.get_entity().entity_id)
+}
+
+unsafe extern "C" fn last_hurt_by(raw: EntityRef, timestamp: *mut i32) -> i32 {
+    // SAFETY: the mob is live for the callback.
+    let Some(living) = (unsafe { entity(raw) }).and_then(EntityBase::get_living_entity) else {
+        return -1;
+    };
+    let Some(id) = living.get_last_hurt_by_mob_id() else {
+        return -1;
+    };
+    // SAFETY: a non-null timestamp is writable for the call.
+    if let Some(out) = unsafe { timestamp.as_mut() } {
+        *out = living.get_last_hurt_by_mob_timestamp();
+    }
+    id
+}
+
+unsafe extern "C" fn attack(raw_world: WorldRef, raw: EntityRef, target: i32, amount: f32) -> bool {
+    // SAFETY: the world and the mob are live for the callback.
+    let (Some(world), Some(attacker)) = (unsafe { world(raw_world) }, unsafe { entity(raw) })
+    else {
+        return false;
+    };
+    if !amount.is_finite() || target == attacker.get_entity().entity_id {
+        return false;
+    }
+    let Some(target) = world.get_entity_by_id(target) else {
+        return false;
+    };
+    target.damage_with_context(
+        target.as_ref(),
+        amount,
+        DamageType::MOB_ATTACK,
+        None,
+        Some(attacker),
+        Some(attacker),
+    )
 }

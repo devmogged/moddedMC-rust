@@ -44,6 +44,34 @@ fn finite(abi::Vec3([x, y, z]): abi::Vec3) -> Option<Vector3<f64>> {
     (x.is_finite() && y.is_finite() && z.is_finite()).then(|| Vector3::new(x, y, z))
 }
 
+pub unsafe extern "C" fn with_player_context(
+    raw: abi::PlayerRef,
+    context: *mut c_void,
+    visit: unsafe extern "C" fn(*mut c_void, WorldRef, abi::EntityRef),
+) -> bool {
+    // SAFETY: the player handle was borrowed by the active mod callback.
+    let Some(player) = (unsafe { crate::native::player(raw) }) else {
+        return false;
+    };
+    let world = player.world();
+    let player: &dyn EntityBase = player;
+    // SAFETY: the world Arc, entity reference and caller's context outlive this synchronous visit.
+    unsafe {
+        visit(
+            context,
+            Arc::as_ptr(&world).cast(),
+            (&raw const player).cast(),
+        );
+    };
+    true
+}
+
+pub unsafe extern "C" fn as_player(raw: abi::EntityRef) -> abi::PlayerRef {
+    // SAFETY: the source entity and the resulting player are borrowed for the callback.
+    let player = unsafe { entity(raw) }.and_then(EntityBase::get_player);
+    abi::PlayerRef(player.map_or(std::ptr::null(), |player| std::ptr::from_ref(player).cast()))
+}
+
 pub unsafe extern "C" fn id(raw: abi::EntityRef) -> i32 {
     // SAFETY: the entity is live for the callback.
     unsafe { entity(raw) }.map_or(0, |base| base.get_entity().entity_id)

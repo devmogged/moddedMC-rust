@@ -26,6 +26,8 @@ pub enum EntitiesExtension {
     /// Carrier entities, `discard`, riding, `vehicle`, filtered box queries, and the
     /// `ENTITY_NO_PHYSICS` and `ENTITY_PASSENGER` flags.
     Carriers,
+    /// Convert a borrowed player entity to a player handle.
+    Player,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -94,6 +96,10 @@ impl Entities {
             EntitiesExtension::MayBuild => (
                 std::mem::offset_of!(abi::EntitiesV1, may_build),
                 "moddedmc:entities.may_build",
+            ),
+            EntitiesExtension::Player => (
+                std::mem::offset_of!(abi::EntitiesV1, with_player_context),
+                "moddedmc:entities.player",
             ),
             EntitiesExtension::Carriers => (
                 std::mem::offset_of!(abi::EntitiesV1, entities_matching),
@@ -400,7 +406,62 @@ impl Entity<'_> {
     }
 }
 
-impl Entity<'_> {
+impl crate::Player<'_> {
+    /// Borrow the current world and player entity while handling a player callback.
+    /// Requires `EntitiesExtension::Player`.
+    pub fn with_entity_context<F, T>(&self, visit: F) -> Option<T>
+    where
+        F: FnOnce(World<'_>, Entity<'_>) -> T,
+    {
+        unsafe extern "C" fn call<F, T>(
+            context: *mut c_void,
+            world: abi::WorldRef,
+            entity: abi::EntityRef,
+        ) where
+            F: FnOnce(World<'_>, Entity<'_>) -> T,
+        {
+            // SAFETY: the pointer names the tuple below and the host borrows it exclusively.
+            let (visit, output) = unsafe { &mut *context.cast::<(Option<F>, Option<T>)>() };
+            if let (Some(visit), Some(world), Some(entity)) = (
+                visit.take(),
+                World::borrowed(world),
+                Entity::borrowed(entity),
+            ) {
+                *output =
+                    crate::guard("player entity context", None, || Some(visit(world, entity)));
+            }
+        }
+        let api = *TABLE.get()?;
+        Entities(api)
+            .require_extension(EntitiesExtension::Player)
+            .ok()?;
+        let mut context = (Some(visit), None);
+        // SAFETY: the extension was checked and the tuple is borrowed until the synchronous visit returns.
+        unsafe {
+            (api.with_player_context)(self.raw, (&raw mut context).cast(), call::<F, T>);
+        }
+        context.1
+    }
+}
+
+impl<'a> Entity<'a> {
+    /// The player represented by this borrowed entity, if there is one.
+    /// Requires `EntitiesExtension::Player`.
+    pub fn as_player(self) -> Option<crate::Player<'a>> {
+        if Entities(self.api)
+            .require_extension(EntitiesExtension::Player)
+            .is_err()
+        {
+            return None;
+        }
+        // SAFETY: the table contains the field and the handle is borrowed for 'a.
+        let raw = unsafe { (self.api.as_player)(self.raw) };
+        (!raw.0.is_null()).then_some(crate::Player {
+            raw,
+            _call: PhantomData,
+        })
+    }
+
     pub(crate) const fn raw(self) -> abi::EntityRef {
         self.raw
     }

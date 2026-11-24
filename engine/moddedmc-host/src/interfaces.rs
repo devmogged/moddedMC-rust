@@ -60,6 +60,14 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
             native::request_pre_world();
             ptr::from_ref(&crate::content::ITEMS).cast()
         }
+        (abi::ITEM_DEFAULTS, 1) => {
+            native::request_pre_world();
+            ptr::from_ref(&crate::content::ITEM_DEFAULTS).cast()
+        }
+        (abi::ARROW_AMMO, 1) => {
+            native::request_pre_world();
+            ptr::from_ref(&crate::content::ARROW_AMMO).cast()
+        }
         (abi::BLOCK_WORLD, 1) => ptr::from_ref(&crate::content::WORLD).cast(),
         (abi::FLUID_WORLD, 1) => ptr::from_ref(&crate::fluid_world::FLUID_WORLD).cast(),
         (abi::ENTITIES, 1) => ptr::from_ref(&crate::content::ENTITIES).cast(),
@@ -67,6 +75,10 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         (abi::DISPLAYS, 1) => ptr::from_ref(&crate::stacks::DISPLAYS_TABLE).cast(),
         (abi::EFFECTS, 1) => ptr::from_ref(&crate::effects::EFFECTS).cast(),
         (abi::MOBS, 1) => ptr::from_ref(&crate::mobs::MOBS).cast(),
+        (abi::FISH_BUCKETS, 1) => ptr::from_ref(&crate::content::FISH_BUCKETS).cast(),
+        (abi::MOB_LOOT, 1) => ptr::from_ref(&crate::mobs::MOB_LOOT).cast(),
+        (abi::MOB_STORAGE, 1) => ptr::from_ref(&crate::mobs::MOB_STORAGE).cast(),
+        (abi::MOB_HEALTH, 1) => ptr::from_ref(&crate::mobs::MOB_HEALTH).cast(),
         (abi::MOB_AI, 1) => ptr::from_ref(&crate::mob_ai::MOB_AI).cast(),
         (abi::RESOURCES, 1) => ptr::from_ref(&crate::resources::RESOURCES).cast(),
         (abi::SAVED_DATA, 1) => ptr::from_ref(&crate::saved_data::SAVED_DATA).cast(),

@@ -45,6 +45,10 @@ use pumpkin_core::{
     net::ClientPlatform,
     plugin::{
         BoxFuture, Cancellable, EventHandler, EventPriority,
+        api::events::{
+            entity::{entity_damage::EntityDamageEvent, entity_death::EntityDeathEvent},
+            player::player_interact_entity_event::PlayerInteractEntityEvent,
+        },
         block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent},
         dialog::dialog_click_action::DialogClickActionEvent,
         player::player_interact_event::PlayerInteractEvent,
@@ -205,6 +209,13 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<BlockBreakEvent, _>(Arc::new(BreakHandler), EventPriority::Normal, true);
     pm.register::<PlayerInteractEvent, _>(Arc::new(UseHandler), EventPriority::Normal, true);
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
+    pm.register::<EntityDamageEvent, _>(Arc::new(mob_ai::HurtHandler), EventPriority::Normal, true);
+    pm.register::<EntityDeathEvent, _>(Arc::new(mob_ai::DeathHandler), EventPriority::Normal, true);
+    pm.register::<PlayerInteractEntityEvent, _>(
+        Arc::new(mob_ai::UseMobHandler),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<ServerCommandEvent, _>(
         Arc::new(console::ConsoleHandler),
         EventPriority::Normal,

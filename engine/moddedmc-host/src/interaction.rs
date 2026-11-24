@@ -43,6 +43,10 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     on_item_use: crate::content::on_item_use,
     item_use_animation: crate::content::item_use_animation,
     action_bar,
+    on_use_mob: crate::mob_ai::on_use_mob,
+    on_melee_damage: crate::content::on_melee_damage,
+    on_use_item: crate::content::on_use_item,
+    on_player_placed: crate::content::on_player_placed,
 };
 
 unsafe extern "C" fn action_bar(raw: abi::EntityRef, message: Str) {
@@ -72,8 +76,37 @@ impl ItemBehaviour for ItemUse {
         hand: Hand,
     ) -> bool {
         let current = player.inventory().get_stack_in_hand(hand);
-        current.item.id == item.id
-            && self.content_use(&current, player, hand, ContentItemUse::Start { yaw, pitch })
+        if current.item.id != item.id || current.is_empty() {
+            return false;
+        }
+        if self.content_use(&current, player, hand, ContentItemUse::Start { yaw, pitch }) {
+            return true;
+        }
+        let Some(callback) = crate::content::use_item_callback(item.id) else {
+            return false;
+        };
+        let inventory = player.inventory();
+        let mut stack = current;
+        let world = player.world();
+        let entity: &dyn EntityBase = player;
+        let context = abi::UseItem {
+            item: Str::from(item.registry_key),
+            yaw,
+            pitch,
+        };
+        // SAFETY: the stack is a local copy and the world, player and context outlive the call.
+        let result = unsafe {
+            callback(
+                ptr::from_ref(world.as_ref()).cast(),
+                ptr::from_ref(&entity).cast(),
+                ptr::from_mut(&mut stack).cast(),
+                &raw const context,
+            )
+        };
+        if matches!(result, abi::USE_SUCCESS | abi::USE_CONSUME) {
+            inventory.set_stack_in_hand(hand, stack);
+        }
+        result != abi::USE_PASS
     }
 
     fn content_use(
@@ -231,6 +264,26 @@ impl ItemBehaviour for ItemUse {
             }
         }
         BlockActionResult::Pass
+    }
+
+    fn modify_melee_damage(&self, item: &Item, target: &dyn EntityBase, damage: f32) -> f32 {
+        let Some(callback) = crate::content::melee_damage_callback(item.id) else {
+            return damage;
+        };
+        let kind = crate::mobs::registered_kind(target).unwrap_or("");
+        // SAFETY: both IDs are borrowed for this synchronous call.
+        let adjusted = unsafe {
+            callback(
+                Str::new(item.registry_key.as_bytes()),
+                Str::new(kind.as_bytes()),
+                damage,
+            )
+        };
+        if adjusted.is_finite() && adjusted >= 0.0 {
+            adjusted
+        } else {
+            damage
+        }
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -457,6 +510,37 @@ pub fn use_block(
             ptr::from_ref(world).cast(),
             ptr::from_ref(&entity).cast(),
             stack.cast(),
+            context,
+        )
+    };
+    HAND_USE.set(previous);
+    result
+}
+
+/// Vanilla `Mob.mobInteract` for a mod mob. `stack` is a copy of the stack in `hand`, which the
+/// caller writes back.
+pub fn use_mob(
+    callback: abi::UseMobFn,
+    world: &World,
+    player: &Player,
+    (stack, hand): (&mut ItemStack, Hand),
+    mob: &dyn EntityBase,
+    context: &abi::UseMob,
+) -> i32 {
+    let entity: &dyn EntityBase = player;
+    let stack = ptr::from_mut(stack);
+    let previous = HAND_USE.replace(Some(HandUse {
+        player: ptr::from_ref(player),
+        hand,
+        stack,
+    }));
+    // SAFETY: the world, player, stack, mob and context outlive this synchronous callback.
+    let result = unsafe {
+        callback(
+            ptr::from_ref(world).cast(),
+            ptr::from_ref(&entity).cast(),
+            stack.cast(),
+            ptr::from_ref(&mob).cast(),
             context,
         )
     };

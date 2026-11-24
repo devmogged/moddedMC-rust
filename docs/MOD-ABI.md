@@ -146,6 +146,7 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | Interface | Function | Contract |
 | --- | --- | --- |
 | `moddedmc:content` v1 | `add_block(reg, definition)` | Stage the block, its item, its block entity name and an ordered list of states. The first state is the default. States provide exact property strings, a vanilla physics template, optional collision and outline boxes in sixteenths, model resource locations, and a display orientation. |
+| | `set_comparator_output(reg, selector, strength)` | Assign a fixed analog output (0 to 15) to an exact state of a block already staged by this mod. Zero is a readable signal. Unknown states and duplicate assignments are rejected. Appended: require with `Content::require_comparator_output()`. |
 | | `state(selector)` | Resolve a block name or exact `namespace:path[key=value,...]` after registration. Missing definitions return `UNLOADED_STATE`. |
 | | `on_tick(reg, callback)` | Call the mod once per loaded dimension in the server tick with queued state, neighbor and chunk lifecycle changes. The callback and its world handle are synchronous. |
 | | `on_replaced(reg, callback)` | Report replacement of an owned block by another block type after the state write and before the old block entity is removed. The callback can copy the old entity NBT and must defer world writes to the mod tick. Moved replacements have their own event reason. Appended. |
@@ -200,6 +201,10 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | | `on_item_use(reg, callback)` | Normal use for this mod's items. Borrows both hand stacks and passes the initial outline ray hit. Return 0 to continue default dispatch, -1 to handle the action, or a positive tick count on start to enter timed use. Finish and release receive the original hand only while it still holds the original item and components. A handled finish replaces default consumption. Require `InteractionExtension::ItemUse`. |
 | | `item_use_animation(reg, item, ticks)` | Add held-use prediction to the stock Java view of a registered standalone item. The client can release early. The server still uses the callback's timer and never consumes the rendered carrier. Require `InteractionExtension::ItemUse`. |
 | | `UseBlock::action_bar(text)` | Send an action bar message to the player using a content block. The SDK checks the appended field and skips the message on older hosts. |
+| | `on_melee_damage(reg, callback)` | Appended. Require `InteractionExtension::MeleeDamage`. The item's owning mod can modify a player's direct melee damage before target defenses. The callback receives the item ID, the target's registered mod mob ID (empty for vanilla), and the damage. Invalid return values preserve the original damage. |
+| | `on_use_item(reg, callback)` | Immediate use of this mod?s content item from either hand, after the timed callback if it passes. Supplies the held stack and packet yaw and pitch. Require `InteractionExtension::ImmediateItemUse`. |
+| | `on_player_placed(reg, callback)` | Observe a successful player placement of this mod?s content block. Require `InteractionExtension::PlayerPlaced`. |
+| | `on_use_mob(reg, kind, callback)` | Appended. Require `InteractionExtension::MobUse`. Stage one right-click callback per registered mod mob type. It receives the world, player, mob, held stack, hand, sneaking and creative state. `PASS` lets the carrier handle the click. |
 | | `stack_count`, `stack_shrink` | Read or shrink the held stack. |
 | | `stack_data`, `set_stack_data` | Read or replace up to 1 KiB of mod bytes stored on the stack (`custom_data` key `moddedmc:data`). Empty removes them. |
 | | `cooldown(player, item, ticks)` | Vanilla `ItemCooldowns.addCooldown`. |
@@ -228,18 +233,111 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | `moddedmc:displays` v1 | `spawn_item(world, stack, display)` | An item display that is never saved, for things that aren't entities (items on a belt). The display gives the position, a left rotation quaternion, a uniform scale, the `ItemDisplayContext` and the client's position interpolation in ticks. Returns its id. |
 | | `update`, `set_item`, `remove` | Move or restyle it, change its stack, or take it down. `update` returns false once the display is gone (its chunk unloaded); spawn a new one then. |
 | `moddedmc:mobs` v1 | `add_mob(reg, definition)` | Stage a mob type: its id, the vanilla living type that carries it (`minecraft:ravager`), and base attribute values set when it spawns (then saved like any attribute). Stock clients see the carrier. |
-| | `spawn(world, kind, position)` | Spawn a registered mob type, or a vanilla mob by id. Returns its entity id, or -1. A registered mob starts at full health for its `max_health`. |
+| | `spawn(world, kind, position)` | Spawn a registered mob type, or a vanilla mob by id. Returns its entity id, or -1. A registered mob starts at full health for its `max_health` and drops the loot table `<namespace>:entities/<path>` of its id when it dies, not its carrier's; ship it in the mod's `data/`. |
 | | `kind(entity)` | The registered type of a mod mob, or empty. It is kept in the entity's custom data (`data.moddedmc.mob`), so it survives restarts; a mob whose type is no longer registered reads as empty. |
 | | `state(entity, out)`, `set_state(entity, bytes)` | The mod's own bytes on a mod mob, at most 64 KiB, saved with it (`data.moddedmc.state`). False for anything that isn't a mod mob. |
+| | `on_death(reg, kind, callback)` | Appended. Require `MobsExtension::Taming` for this and the remaining mob calls. Run one callback per registered mob type before its death loot drops. |
+| | `uuid(entity, out)`, `by_uuid(world, uuid)` | Read a 16-byte entity UUID or find a loaded entity by UUID in this world. |
+| | `health`, `heal`, `passengers`, `tame_effect` | Read current and maximum health, heal a living entity, list direct passenger IDs in seat order, or broadcast the vanilla taming status. |
+| | `set_no_gravity`, `set_on_fire`, `reset_hurt_cooldown` | Set the gravity flag, ignite an entity for a duration (zero extinguishes it), or reset a living entity's damage cooldown. |
+| | `player_input`, `game_mode`, `message` | Read a player's latest movement key bits or game mode, or send plain text to chat or the action bar. |
+| | `make_persistent` | Prevent a mob from naturally despawning. Pumpkin saves the flag with the mob. |
 | `moddedmc:mob_ai` v1 | `add_goal(reg, definition)` | Stage a goal for a registered mod mob type: a key, a vanilla priority, `goal_control` bits (`MOVE`, `LOOK`, `JUMP`, `TARGET`) and a callback. Every mob of the type gets it as it joins a world, spawned or loaded. The callback is asked each tick with a `goal_phase` (`CAN_START`, `CONTINUE`, `START`, `STOP`, `TICK`), the world and the mob; only the answer to `CAN_START` and `CONTINUE` counts. Goals with `TARGET` run in the target selector. |
 | | `replace_goals(reg, kind)` | Mobs of the type drop their carrier's own goals and targets before getting the mod's. |
 | | `walk_to(mob, target, speed)`, `stop(mob)`, `navigating(mob)` | Path to a position at a multiple of the movement speed, drop the path, or ask whether one is being followed. |
 | | `look_at(mob, position)` | Turn the head toward a position this tick. |
 | | `set_target(world, mob, id)`, `target(mob)` | Set or clear (-1) the attack target by entity id, or read it (-1 when none). |
+| | `on_hurt(reg, kind, callback)` | Appended; require `MobAiExtension::Combat`. Hear every hit a mob of the type is about to take, with the damage type id (`minecraft:fall`) and the amount before armour, as vanilla `hurt` starts. Returning false cancels the hit. One callback per type. |
+| | `last_hurt_by(mob, timestamp)` | Appended. Vanilla `getLastHurtByMob` as an entity id (-1 when none), and `getLastHurtByMobTimestamp`. |
+| | `attack(world, mob, target, amount)` | Appended. The mob hits a loaded entity with vanilla's mob attack damage source. True when it took the hit. |
 
 Require the tables from `Mod::start` and register definitions in `Mod::register`. Requesting `moddedmc:content` or `moddedmc:items` during startup moves that mod's registration before world load. Legacy mods continue to register on the first tick. State numbers are runtime handles. Store names and properties in mod-owned data. Mods with a placement hook can choose one of the placing block's states from the clicked face, look direction, sneak state and loaded neighbors.
 
 The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects`, `moddedmc_api::mobs` and `moddedmc_api::mob_ai`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.
+
+## Item defaults (`moddedmc:item_defaults` v1)
+
+This pre-world interface starts with its byte size and exposes
+`add_item(Reg, *const ContentItemDefinition, Str) -> i32`. The last argument
+is named-root binary `ItemStack` NBT for one item of the declared vanilla
+carrier. Explicit persistent components in the NBT override the carrier's
+defaults. The host rejects component removals. Explicit per-stack changes still
+apply, and the Java wire stack includes the default overrides so the client
+receives the same tool and durability values. Use `items::require_defaults()`
+at startup to require the interface.
+
+For a custom record, set `minecraft:jukebox_playable` to an inline song
+definition and ship the same definition in `data/<namespace>/jukebox_song/`.
+The song specifies `sound_event` (a compound containing `sound_id` and an optional
+`range`), `description`, `length_in_seconds`, and `comparator_output`. The
+matching datapack entry supplies the synced song ID for position-specific
+jukebox playback and ejection. Ship the referenced sound in the resource pack.
+
+The appended `moddedmc:block_world` v1 field `is_thundering(world)` reads the
+world's thunder state. Require `WorldExtension::Weather` before using it.
+`dimension_id(world)` returns the loaded world's static dimension identifier.
+Require `WorldExtension::DimensionId` before using it.
+
+## Mob storage (`moddedmc:mob_storage` v1)
+
+`save(entity, out)` writes a live registered mob's named-root NBT with its
+UUID and mod data, excluding passengers. It never removes the entity.
+`restore(world, kind, nbt, at)` restores that registered carrier and UUID at an
+unoccupied, loaded position and clears movement and fall distance. A live
+duplicate UUID, invalid data, or rejected spawn returns -1. The SDK exposes
+the calls through `mobs::require_storage()`. The saved data is limited to 64 KiB.
+
+`moddedmc:interaction` v1 appends `on_use_item(reg, callback)`
+(`InteractionExtension::ItemUse`). One callback per mod receives the held
+content item, world and player, and the look angles for the action. It edits
+the borrowed hand stack through the existing stack calls. Success or consume
+writes the hand back. Pass and fail leave that slot alone.
+
+`moddedmc:entities.player` (`EntitiesExtension::Player`) exposes a borrowed
+player handle for a player entity, so item and entity callbacks can use the
+SDK's dialog and other player methods. The handle shares the entity callback's
+lifetime. A player callback can also borrow the player's current world and entity
+through `Player::with_entity_context`.
+
+`moddedmc:interaction.player_placed` (`InteractionExtension::PlayerPlaced`)
+notifies a mod after a player successfully places one of its registered blocks.
+The callback borrows the world and player and receives the placed state and
+position. The block entity has been initialized when the callback runs.
+Commands and world generation use their own placement paths.
+
+## Arrow ammunition (`moddedmc:arrow_ammo` v1)
+
+`bind(reg, item, velocity_multiplier, water_inertia, after_hurt)` makes an item
+staged by this mod with the `minecraft:arrow` carrier usable in bows and
+crossbows. The velocity multiplier is finite and positive. Water inertia is
+between 0 and 1. A successful hit against a living entity invokes
+`after_hurt(item, target)` synchronously after normal arrow damage and effects.
+The item id and target reference live for the call. The SDK requires
+`moddedmc:entities` for a usable target reference and uses one callback per mod
+for its bound arrows. The projectile saves its ammunition stack and pickup
+rules with the chunk.
+
+## Fish buckets (`moddedmc:fish_buckets` v1)
+
+`bind(reg, item, mob)` associates an item carried by `minecraft:cod_bucket` with a custom mob carried by cod, salmon, tropical fish, or pufferfish. Both definitions must already be staged by the same mod. Each item and mob can participate in one binding. Pumpkin handles water-bucket pickup, release, and the carrier's bucket data, including health, name and persistent flags. The item and released fish keep their registered mod identities.
+
+## Mob loot (`moddedmc:mob_loot` v1)
+
+`MobLoot::suppress` assigns the empty death loot table to a registered mob.
+The override is saved with the mob. Equipment drops and experience have their
+own rules.
+
+## Direct mob health (`moddedmc:mob_health` v1)
+
+The standalone table starts with its byte size and exposes
+`set_health(EntityRef, f32) -> bool`. It accepts finite positive health up to
+the maximum of a living registered mod mob. The operation updates tracked
+health directly and skips attack or healing events. Use
+`mobs::require_health()` at startup and `MobHealth::set` in a callback.
+
+The appended `moddedmc:mob_health` v1 field `set_attribute_base(entity, attribute, value)`
+updates a vanilla base attribute on a registered mod mob. Require it with
+`MobHealth::require_attributes()` before using it.
 
 ## Save-global data (`moddedmc:saved_data` v1)
 

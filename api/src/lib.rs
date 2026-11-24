@@ -140,21 +140,60 @@ unsafe fn require_interface_prefix<T>(
     version: u32,
     min_size: usize,
 ) -> Result<&'static T, InterfaceUnavailable> {
-    let unavailable = InterfaceUnavailable { name, version };
-    // SAFETY: size is part of the checked ABI 1 prefix.
-    if unsafe { host_field!(size) } < size_of::<HostApi>() {
-        return Err(unavailable);
+    // SAFETY: forwarded from the caller.
+    let table = unsafe { InterfacePrefix::<T>::require(name, version, min_size)? };
+    // SAFETY: the caller identifies T and checks the fields in use.
+    Ok(unsafe { &*table.ptr })
+}
+
+/// A table whose host may implement only the original prefix.
+struct InterfacePrefix<T> {
+    ptr: *const T,
+    size: usize,
+}
+
+impl<T> Clone for InterfacePrefix<T> {
+    fn clone(&self) -> Self {
+        *self
     }
-    // SAFETY: the size check includes get_interface and the name is borrowed for the call.
-    let table = unsafe { (host_field!(get_interface))(s(name), version) };
-    // SAFETY: a non-null result points to a static, aligned table with a leading size.
-    let size = unsafe { table.cast::<usize>().as_ref() }.ok_or(unavailable)?;
-    if *size < min_size {
-        return Err(unavailable);
+}
+
+impl<T> Copy for InterfacePrefix<T> {}
+
+// SAFETY: the host owns the immutable, process-lifetime ABI table.
+unsafe impl<T: Sync> Send for InterfacePrefix<T> {}
+// SAFETY: sharing this handle does not mutate the immutable ABI table.
+unsafe impl<T: Sync> Sync for InterfacePrefix<T> {}
+
+impl<T> InterfacePrefix<T> {
+    /// T must be the ABI table for this name and version, starting with its size.
+    unsafe fn require(
+        name: &'static str,
+        version: u32,
+        min_size: usize,
+    ) -> Result<Self, InterfaceUnavailable> {
+        let unavailable = InterfaceUnavailable { name, version };
+        // SAFETY: size is part of the checked ABI 1 prefix.
+        if unsafe { host_field!(size) } < size_of::<HostApi>() {
+            return Err(unavailable);
+        }
+        // SAFETY: the size check includes get_interface and the name is borrowed for the call.
+        let table = unsafe { (host_field!(get_interface))(s(name), version) };
+        // SAFETY: a non-null result points to a static, aligned table with a leading size.
+        let size = unsafe { table.cast::<usize>().as_ref() }.ok_or(unavailable)?;
+        if *size < min_size {
+            return Err(unavailable);
+        }
+        Ok(Self {
+            ptr: table.cast::<T>(),
+            size: *size,
+        })
     }
-    // SAFETY: the caller identifies T, the table holds every field below min_size, and the caller
-    // checks the size before reading later fields.
-    Ok(unsafe { &*table.cast::<T>() })
+
+    fn full(self) -> Option<&'static T> {
+        // SAFETY: require verifies the table type, and the size covers every field of T.
+        (self.size >= size_of::<T>()).then(|| unsafe { &*self.ptr })
+    }
 }
 
 /// A block entity type. Its state is opaque bytes owned by the mod; the server saves them with

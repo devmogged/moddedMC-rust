@@ -1,5 +1,6 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::Write as _,
     fs::{self, File},
     io::{self, Cursor, Read, Write},
@@ -11,7 +12,10 @@ use std::{
 use axum::{Router, extract::Path, http::StatusCode, routing::get};
 use bytes::Bytes;
 use pumpkin_config::resource_pack::JavaResourcePackConfig;
-use pumpkin_data::Block;
+use pumpkin_data::{Block, item::Item, item_stack::ItemStack, packet::CURRENT_MC_VERSION};
+use pumpkin_protocol::{
+    VarInt, codec::item_stack_seralizer::ItemStackSerializer, ser::NetworkWriteExt,
+};
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
@@ -19,6 +23,9 @@ use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 const EMPTY_MODEL: &str = "moddedmc:block/empty";
 const PLACEHOLDER: &str = "moddedmc:block/placeholder";
+const CREATIVE_CATALOG: &str = "assets/moddedmc/moddedmc/creative-v1.bin";
+const MAX_CREATIVE_BYTES: usize = 512 * 1024;
+const MAX_CREATIVE_ENTRIES: usize = 4096;
 const MAX_ASSET: u64 = 8 * 1024 * 1024;
 
 pub static CATALOG: OnceLock<Catalog> = OnceLock::new();
@@ -71,7 +78,7 @@ pub fn valid_model(name: &str) -> bool {
             const fn byte(c: u8) -> bool {
                 c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'_' | b'-' | b'.')
             }
-            !namespace.is_empty()
+            !matches!(namespace, "" | "." | "..")
                 && namespace.bytes().all(byte)
                 && path.split('/').all(|piece| {
                     !piece.is_empty() && piece != "." && piece != ".." && piece.bytes().all(byte)
@@ -195,6 +202,7 @@ fn build_pack(
     let mut note_variants =
         BTreeMap::from([(String::new(), json!({"model":"minecraft:block/note_block"}))]);
     let mut display_models = HashMap::new();
+    pack.namespace_assets(blocks, items)?;
     pack.standalone_items(items)?;
     for block in blocks {
         let Some(registered) = Block::from_name(&block.id) else {
@@ -265,6 +273,41 @@ fn build_pack(
     Ok((pack, display_models))
 }
 
+fn encode_creative_catalog(items: &[&'static Item]) -> io::Result<Option<Vec<u8>>> {
+    if items.is_empty() {
+        return Ok(None);
+    }
+    if items.len() > MAX_CREATIVE_ENTRIES {
+        tracing::warn!("moddedmc: creative catalog exceeds the item limit");
+        return Ok(None);
+    }
+    let mut bytes = Vec::new();
+    bytes
+        .write_var_int(&VarInt(
+            i32::try_from(items.len()).map_err(io::Error::other)?,
+        ))
+        .map_err(io::Error::other)?;
+    let mut entry = Vec::new();
+    for item in items {
+        let stack = ItemStack::new(1, item);
+        entry.clear();
+        ItemStackSerializer(Cow::Borrowed(&stack))
+            .write_untrusted_with_version(&mut entry, &CURRENT_MC_VERSION)
+            .map_err(io::Error::other)?;
+        bytes
+            .write_var_int(&VarInt(
+                i32::try_from(entry.len()).map_err(io::Error::other)?,
+            ))
+            .map_err(io::Error::other)?;
+        bytes.extend_from_slice(&entry);
+        if bytes.len() > MAX_CREATIVE_BYTES {
+            tracing::warn!("moddedmc: creative catalog exceeds the byte limit");
+            return Ok(None);
+        }
+    }
+    Ok(Some(bytes))
+}
+
 fn note_variant(state: pumpkin_data::BlockStateId) -> Option<String> {
     let properties = Block::NOTE_BLOCK.properties(state)?;
     Some(
@@ -292,6 +335,82 @@ impl Pack {
         Ok(())
     }
 
+    fn namespace_assets(&mut self, blocks: &[BlockAssets], items: &[ItemAssets]) -> io::Result<()> {
+        let registered: HashSet<_> = blocks
+            .iter()
+            .map(|block| block.id.as_str())
+            .chain(items.iter().map(|item| item.id.as_str()))
+            .collect();
+        let namespaces: BTreeSet<_> = registered
+            .iter()
+            .filter_map(|id| id.split_once(':').map(|(namespace, _)| namespace))
+            .collect();
+        let mut entries = Vec::new();
+        let mut seen = HashSet::new();
+        for namespace in namespaces {
+            self.sounds(namespace);
+            let path = format!("assets/{namespace}/moddedmc/creative.json");
+            let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file))
+            else {
+                continue;
+            };
+            let Ok(paths) = serde_json::from_slice::<Vec<String>>(&bytes) else {
+                tracing::warn!("moddedmc: invalid creative catalog {path}");
+                continue;
+            };
+            for path in paths {
+                let id = format!("{namespace}:{path}");
+                if registered.contains(id.as_str())
+                    && seen.insert(id.clone())
+                    && let Some(item) = Item::from_registry_key(&id)
+                {
+                    entries.push(item);
+                }
+            }
+        }
+        let catalog = encode_creative_catalog(&entries)?;
+        if let Some(catalog) = catalog {
+            self.files.insert(CREATIVE_CATALOG.to_owned(), catalog);
+        }
+        Ok(())
+    }
+
+    fn sounds(&mut self, namespace: &str) {
+        let path = format!("assets/{namespace}/sounds.json");
+        let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file)) else {
+            return;
+        };
+        let Ok(events) = serde_json::from_slice::<BTreeMap<String, Value>>(&bytes) else {
+            tracing::warn!("moddedmc: invalid resource pack sound definitions in {path}");
+            return;
+        };
+        for event in events.values() {
+            let Some(sounds) = event.get("sounds").and_then(Value::as_array) else {
+                continue;
+            };
+            for sound in sounds {
+                if sound.get("type").and_then(Value::as_str) == Some("event") {
+                    continue;
+                }
+                let Some(id) = sound.as_str().or_else(|| sound.get("name")?.as_str()) else {
+                    continue;
+                };
+                let (source, name) = id.split_once(':').unwrap_or(("minecraft", id));
+                if !valid_model(&format!("{source}:{name}")) {
+                    continue;
+                }
+                let key = format!("assets/{source}/sounds/{name}.ogg");
+                if !self.files.contains_key(&key)
+                    && let Some(audio) =
+                        shipped_asset(&key).and_then(|file| read_shipped_asset(&file))
+                {
+                    self.files.insert(key, audio);
+                }
+            }
+        }
+        self.files.insert(path, bytes);
+    }
+
     fn standalone_items(&mut self, items: &[ItemAssets]) -> io::Result<()> {
         for item in items {
             if let Some((namespace, path)) = item.id.split_once(':') {
@@ -299,6 +418,7 @@ impl Pack {
                     &format!("assets/{namespace}/items/{path}.json"),
                     &item.model,
                 )?;
+                self.rig(namespace, path);
             }
         }
         Ok(())
@@ -310,6 +430,63 @@ impl Pack {
             path,
             &json!({"model": {"type": "minecraft:model", "model": model}}),
         )
+    }
+
+    fn rig(&mut self, namespace: &str, item: &str) {
+        let descriptor = format!("assets/{namespace}/moddedmc/rigs/{item}.json");
+        let Some(path) = shipped_asset(&descriptor) else {
+            return;
+        };
+        let Some(bytes) = read_shipped_asset(&path) else {
+            self.missing = true;
+            return;
+        };
+        let Ok(definition) = serde_json::from_slice::<Value>(&bytes) else {
+            self.missing = true;
+            return;
+        };
+        let mut assets = Vec::new();
+        let mut resources = vec![
+            (definition.get("geometry"), "geckolib/models/", ".geo.json"),
+            (
+                definition.get("animations"),
+                "geckolib/animations/",
+                ".animation.json",
+            ),
+            (definition.get("texture"), "", ""),
+        ];
+        if let Some(textures) = definition.get("textures") {
+            let Some(textures) = textures.as_object() else {
+                self.missing = true;
+                return;
+            };
+            resources.extend(textures.values().map(|texture| (Some(texture), "", "")));
+        }
+        for (resource, prefix, suffix) in resources {
+            let Some(id) = resource
+                .and_then(Value::as_str)
+                .filter(|id| valid_model(id))
+            else {
+                self.missing = true;
+                return;
+            };
+            let Some((namespace, path)) = id.split_once(':') else {
+                self.missing = true;
+                return;
+            };
+            if prefix.is_empty() && namespace == "minecraft" {
+                continue;
+            }
+            let key = format!("assets/{namespace}/{prefix}{path}{suffix}");
+            if !self.files.contains_key(&key) {
+                let Some(data) = self.asset(namespace, &key) else {
+                    return;
+                };
+                assets.push((key, data));
+            }
+        }
+        self.files.extend(assets);
+        self.files.insert(descriptor, bytes);
     }
 
     fn model<'a>(&mut self, id: &'a str) -> &'a str {
@@ -376,25 +553,20 @@ impl Pack {
     }
 
     fn asset(&mut self, namespace: &str, path: &str) -> Option<Vec<u8>> {
-        let shipped = ASSET_ROOTS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .map(|root| root.join(path))
-            .find(|file| file.is_file());
-        if let Some(file) = shipped {
-            let bytes = fs::metadata(&file)
-                .is_ok_and(|meta| meta.len() <= MAX_ASSET)
-                .then(|| fs::read(&file).ok())
-                .flatten();
-            self.missing |= bytes.is_none();
-            return bytes;
+        let bytes = self.read_asset(namespace, path);
+        self.missing |= bytes.is_none();
+        bytes
+    }
+
+    fn read_asset(&mut self, namespace: &str, path: &str) -> Option<Vec<u8>> {
+        if let Some(file) = shipped_asset(path) {
+            return read_shipped_asset(&file);
         }
         let jar = self
             .jars
             .entry(namespace.to_owned())
             .or_insert_with(|| open_jar(namespace));
-        let bytes = jar.as_mut().and_then(|archive| {
+        jar.as_mut().and_then(|archive| {
             let file = archive.by_name(path).ok()?;
             if file.size() > MAX_ASSET {
                 return None;
@@ -402,9 +574,7 @@ impl Pack {
             let mut bytes = Vec::with_capacity(file.size() as usize);
             file.take(MAX_ASSET + 1).read_to_end(&mut bytes).ok()?;
             (bytes.len() as u64 <= MAX_ASSET).then_some(bytes)
-        });
-        self.missing |= bytes.is_none();
-        bytes
+        })
     }
 
     fn zip(&self) -> io::Result<Vec<u8>> {
@@ -412,6 +582,14 @@ impl Pack {
         let options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         for (name, bytes) in &self.files {
+            let options = if std::path::Path::new(name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ogg"))
+            {
+                options.compression_method(zip::CompressionMethod::Stored)
+            } else {
+                options
+            };
             zip.start_file(name, options)?;
             zip.write_all(bytes)?;
         }
@@ -443,6 +621,22 @@ impl Pack {
         }
         Ok(Some((manifest, blobs)))
     }
+}
+
+fn shipped_asset(path: &str) -> Option<PathBuf> {
+    ASSET_ROOTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .map(|root| root.join(path))
+        .find(|file| file.is_file())
+}
+
+fn read_shipped_asset(file: &std::path::Path) -> Option<Vec<u8>> {
+    fs::metadata(file)
+        .is_ok_and(|meta| meta.len() <= MAX_ASSET)
+        .then(|| fs::read(file).ok())
+        .flatten()
 }
 
 fn open_jar(namespace: &str) -> Option<ZipArchive<File>> {
