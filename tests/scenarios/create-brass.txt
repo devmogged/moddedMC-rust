@@ -1,0 +1,129 @@
+# Craft zinc from nuggets, heat copper and zinc to make brass, and apply brass to stripped wood.
+mods target\mods\create.mmc
+start
+expect registered content block create:brass_casing
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1029.5 100 1026.5 90 45
+wait 4
+cmd fill 1021 99 1021 1033 99 1032 minecraft:stone
+cmd fill 1021 100 1021 1033 106 1032 minecraft:air
+cmd setblock 1029 100 1028 minecraft:crafting_table
+cmd gamemode survival tester
+cmd item replace entity tester hotbar.0 with create:zinc_nugget 9
+wait 0.5
+bot use 1029 100 1028 north
+wait 1
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 right
+wait 0.2
+bot inventory-click 2 right
+wait 0.2
+bot inventory-click 3 right
+wait 0.2
+bot inventory-click 4 right
+wait 0.2
+bot inventory-click 5 right
+wait 0.2
+bot inventory-click 6 right
+wait 0.2
+bot inventory-click 7 right
+wait 0.2
+bot inventory-click 8 right
+wait 0.2
+bot inventory-click 9 right
+wait 0.5
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester create:zinc_ingot 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester create:zinc_nugget 0
+wait 0.5
+expect No items were found
+
+# Check that both furnace types cook the registered crushed zinc item.
+cmd setblock 1025 100 1024 minecraft:furnace{Items:[{Slot:0b,id:"create:crushed_raw_zinc",count:1},{Slot:1b,id:"minecraft:coal",count:1}]}
+cmd setblock 1026 100 1024 minecraft:blast_furnace{Items:[{Slot:0b,id:"create:crushed_raw_zinc",count:1},{Slot:1b,id:"minecraft:coal",count:1}]}
+wait 11
+cmd data get block 1025 100 1024 Items[{Slot:2b}].id
+wait 0.5
+expect block data: "create:zinc_ingot"
+cmd data get block 1026 100 1024 Items[{Slot:2b}].id
+wait 0.5
+expect block data: "create:zinc_ingot"
+
+cmd setblock 1027 99 1026 create:blaze_burner
+cmd setblock 1027 100 1026 create:basin
+cmd setblock 1027 102 1026 create:mechanical_mixer
+cmd setblock 1026 101 1026 create:creative_motor[facing=up]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+wait 0.5
+cmd kinetics 1026 101 1026 64
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"minecraft:copper_ingot",count:1},PickupDelay:32767s}
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"create:zinc_ingot",count:1},PickupDelay:32767s}
+wait 5
+cmd data get block 1027 100 1026 OutputItems.Items[0]
+wait 0.5
+expect Found no elements matching OutputItems
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd data get block 1027 100 1026 InputItems
+wait 0.5
+expect block data: .*create:zinc_ingot
+cmd item replace entity tester weapon.mainhand with minecraft:coal 1
+wait 0.5
+bot use 1027 99 1026 east
+wait 6
+cmd data get block 1027 100 1026 OutputItems.Items[0].id
+wait 0.5
+expect block data: "create:brass_ingot"
+cmd data get block 1027 100 1026 OutputItems.Items[0].count
+wait 0.5
+expect block data: 2
+bot use 1027 100 1026 east
+wait 0.5
+cmd clear tester create:brass_ingot 0
+wait 0.5
+expect Found 2 matching item
+
+# Give the retrieved stack a known hotbar slot before using it on both block tags.
+cmd clear tester create:brass_ingot
+cmd item replace entity tester weapon.mainhand with create:brass_ingot 2
+cmd setblock 1029 100 1024 minecraft:oak_log
+cmd setblock 1028 100 1024 minecraft:stripped_oak_log[axis=x]
+cmd setblock 1030 100 1024 minecraft:stripped_spruce_wood[axis=z]
+wait 0.5
+bot use 1029 100 1024 south
+wait 0.5
+cmd clear tester create:brass_ingot 0
+wait 0.5
+expect Found 2 matching item
+bot use 1028 100 1024 south
+wait 0.5
+cmd execute if block 1028 100 1024 create:brass_casing
+wait 0.5
+expect Test passed
+bot use 1030 100 1024 south
+wait 0.5
+cmd execute if block 1030 100 1024 create:brass_casing
+wait 0.5
+expect Test passed
+cmd clear tester create:brass_ingot 0
+wait 0.5
+expect No items were found
+cmd loot spawn 1030 101 1024 mine 1030 100 1024
+wait 0.5
+expect Dropped 1 .*Brass Casing
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

@@ -72,6 +72,9 @@ const CLUTCH: &str = "create:clutch";
 const GEARSHIFT: &str = "create:gearshift";
 const ENCASED_SHAFT: &str = "create:andesite_encased_shaft";
 const CASING: &str = "create:andesite_casing";
+const BRASS_CASING: &str = "create:brass_casing";
+const BRASS_INGOT: &str = "create:brass_ingot";
+const ZINC_INGOT: &str = "create:zinc_ingot";
 const COPPER_CASING: &str = "create:copper_casing";
 const TURNTABLE: &str = "create:turntable";
 const ANDESITE_ALLOY: &str = "create:andesite_alloy";
@@ -170,6 +173,23 @@ impl Mod for Create {
                     model: "create:item/andesite_alloy",
                 },
             )?;
+        for (id, name, model) in [
+            (BRASS_INGOT, "Brass Ingot", "create:item/brass_ingot"),
+            (ZINC_INGOT, "Zinc Ingot", "create:item/zinc_ingot"),
+        ] {
+            ITEMS
+                .get()
+                .ok_or(RegistrationError::InvalidDefinition)?
+                .add_item(
+                    registry,
+                    &Item {
+                        id,
+                        display_name: name,
+                        carrier: "minecraft:iron_ingot",
+                        model,
+                    },
+                )?;
+        }
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         register_casings(content, registry)?;
@@ -629,6 +649,16 @@ fn register_casings(
         &single("create:block/copper_casing"),
         &[],
         "minecraft:copper_block",
+    )?;
+    add(
+        registry,
+        BRASS_CASING,
+        "Brass Casing",
+        "",
+        "",
+        &single("create:block/brass_casing"),
+        &[],
+        STONE,
     )?;
     // AllShapes.TURNTABLE_SHAPE.
     add(
@@ -1591,7 +1621,7 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == blaze_burner::EMPTY {
         return blaze_burner::capture(context);
     }
-    if context.item == ANDESITE_ALLOY {
+    if matches!(context.item, ANDESITE_ALLOY | BRASS_INGOT) {
         return manual_application::use_on_block(context);
     }
     if context.item == glue::ID {

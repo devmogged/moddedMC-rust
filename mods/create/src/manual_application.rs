@@ -1,4 +1,4 @@
-//! ManualApplicationRecipe for the available copper and andesite casings.
+//! ManualApplicationRecipe for Create casings.
 
 use moddedmc_api::{
     content::{self, BlockUpdate},
@@ -6,11 +6,14 @@ use moddedmc_api::{
     interaction::{UseOnBlock, UseResult},
 };
 
-use crate::{ANDESITE_ALLOY, CASING, CONTENT, COPPER_CASING, EFFECTS, TAGS};
+use crate::{
+    ANDESITE_ALLOY, BRASS_CASING, BRASS_INGOT, CASING, CONTENT, COPPER_CASING, EFFECTS, TAGS,
+};
 
 pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     let output = match context.item {
         ANDESITE_ALLOY => CASING,
+        BRASS_INGOT => BRASS_CASING,
         "minecraft:copper_ingot" | "copper_ingot" => COPPER_CASING,
         _ => return UseResult::Pass,
     };
