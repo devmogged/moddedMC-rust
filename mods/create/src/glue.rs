@@ -213,27 +213,6 @@ struct Selection {
     from: [i32; 3],
 }
 
-fn use_charge(stack: &moddedmc_api::interaction::Stack<'_>) -> Option<Vec<u8>> {
-    use fastnbt::Value;
-    let mut data = fastnbt::from_bytes::<HashMap<String, Value>>(&stack.read()?).ok()?;
-    let Value::Compound(components) = data
-        .entry("components".into())
-        .or_insert_with(|| Value::Compound(HashMap::new()))
-    else {
-        return None;
-    };
-    let damage = match components.get("minecraft:damage") {
-        Some(Value::Int(damage)) => damage.saturating_add(1),
-        _ => 1,
-    };
-    if damage >= DURABILITY {
-        return Some(Vec::new());
-    }
-    components.insert("minecraft:max_damage".into(), Value::Int(DURABILITY));
-    components.insert("minecraft:damage".into(), Value::Int(damage));
-    fastnbt::to_bytes(&data).ok()
-}
-
 pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if !context.player.is_some_and(|player| player.may_build()) {
         return UseResult::Fail;
@@ -292,7 +271,8 @@ pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
         return UseResult::Fail;
     };
     if !(context.creative
-        || use_charge(&context.stack).is_some_and(|nbt| context.stack.write(&nbt)))
+        || crate::stack_after_damage(&context.stack, DURABILITY)
+            .is_some_and(|nbt| context.stack.write(&nbt)))
     {
         discard(world, id);
         return UseResult::Fail;

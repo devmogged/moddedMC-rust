@@ -63,6 +63,7 @@ pub fn process_transported(
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Process {
     Pressing,
+    Polishing,
     Splashing,
     Haunting,
     Smoking,
@@ -76,6 +77,7 @@ impl Process {
     const fn from_type(id: &str) -> Option<Self> {
         match id.as_bytes() {
             b"create:pressing" => Some(Self::Pressing),
+            b"create:sandpaper_polishing" => Some(Self::Polishing),
             b"create:splashing" => Some(Self::Splashing),
             b"create:haunting" => Some(Self::Haunting),
             b"minecraft:smoking" => Some(Self::Smoking),

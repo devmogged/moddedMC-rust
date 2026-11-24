@@ -586,7 +586,11 @@ pub struct ContentItemDefinition {
 pub struct ItemsV1 {
     pub size: usize,
     pub add_item: unsafe extern "C" fn(reg: Reg, def: *const ContentItemDefinition) -> i32,
+    /// Set the maximum damage on a registered standalone, single-stack item.
+    pub item_durability: unsafe extern "C" fn(reg: Reg, item: Str, max_damage: u16) -> i32,
 }
+
+pub const ITEMS_V1_BASE_SIZE: usize = std::mem::offset_of!(ItemsV1, item_durability);
 
 #[repr(C)]
 pub struct BlockWorldV1 {
@@ -927,6 +931,29 @@ pub type UseOnBlockFn = unsafe extern "C" fn(
     context: *const UseOnBlock,
 ) -> i32;
 
+pub const ITEM_USE_START: u8 = 0;
+pub const ITEM_USE_FINISH: u8 = 1;
+pub const ITEM_USE_RELEASE: u8 = 2;
+
+/// The held item and ray hit from a normal item-use action.
+#[repr(C)]
+pub struct ItemUseContext {
+    pub item: Str,
+    pub hit: [f64; 3],
+    pub phase: u8,
+    pub main_hand: bool,
+    pub creative: bool,
+}
+
+/// Return zero to pass, -1 to handle without starting a timer, or a positive duration on START.
+pub type ItemUseFn = unsafe extern "C" fn(
+    world: WorldRef,
+    player: EntityRef,
+    stack: StackRef,
+    other_hand: StackRef,
+    context: *const ItemUseContext,
+) -> i32;
+
 #[repr(C)]
 pub struct InteractionV1 {
     pub size: usize,
@@ -966,6 +993,10 @@ pub struct InteractionV1 {
     pub on_vanilla_use_on_block: unsafe extern "C" fn(reg: Reg, callback: UseOnBlockFn) -> i32,
     /// Place the current hand's block through normal player placement. The caller spends items.
     pub place_held_block: unsafe extern "C" fn(player: EntityRef, clicked: Pos, face: u8) -> bool,
+    /// One callback per mod for normal uses of its content items.
+    pub on_item_use: unsafe extern "C" fn(reg: Reg, callback: ItemUseFn) -> i32,
+    /// Give a registered item stock-client held-use prediction for the given tick duration.
+    pub item_use_animation: unsafe extern "C" fn(reg: Reg, item: Str, ticks: u16) -> i32,
 }
 
 /// Vanilla `BlockState.getSignal(level, pos, direction)`, or `getDirectSignal` when `direct`, for

@@ -1,0 +1,159 @@
+# Create 6.0.10 sandpaper, Electron Tube, and Train Signal progression.
+mods target\mods\create.mmc
+start
+expect registered content item create:sand_paper
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2469.5 100 2469.5 0 90
+wait 5
+cmd fill 2465 100 2465 2474 108 2474 minecraft:air
+cmd fill 2465 99 2465 2474 99 2474 minecraft:stone
+cmd gamemode survival tester
+cmd recipe give tester create:crafting/materials/rose_quartz
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/materials/sand_paper
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/materials/red_sand_paper
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/materials/electron_tube
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/track_signal
+wait 0.5
+expect Unlocked 1 recipe
+
+# The opposite hand supplies one input. Finishing takes 32 game ticks.
+cmd item replace entity tester weapon.mainhand with create:sand_paper 1
+cmd item replace entity tester weapon.offhand with create:rose_quartz 2
+wait 0.5
+bot use-item main
+wait 0.3
+cmd clear tester create:polished_rose_quartz 0
+wait 0.3
+expect No items were found
+wait 1.6
+cmd clear tester create:polished_rose_quartz 0
+wait 0.5
+expect Found 1 matching item
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 1$
+
+# A release returns the input without spending durability.
+bot use-item main
+wait 0.3
+bot release-item
+wait 0.6
+cmd clear tester create:rose_quartz 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester create:polished_rose_quartz 0
+wait 0.5
+expect Found 1 matching item
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 1$
+
+# With an empty opposite hand, the outline ray hit finds loose material.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd summon minecraft:item 2469.5 100.1 2469.5 {Item:{id:"create:rose_quartz",count:1},PickupDelay:32767s}
+wait 0.5
+bot look 0 90
+bot use-item main
+wait 2.25
+cmd clear tester create:polished_rose_quartz 0
+wait 0.5
+expect Found 2 matching item
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 2$
+
+# A tool in use saves the reserved input on the stack. Resume it after login.
+cmd item replace entity tester weapon.offhand with create:rose_quartz 1
+wait 0.5
+bot use-item main
+wait 0.25
+reject (?i)panicked|trapped|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd clear tester create:polished_rose_quartz 0
+wait 0.5
+expect Found 2 matching item
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 2$
+bot use-item main
+wait 2.25
+cmd clear tester create:polished_rose_quartz 0
+wait 0.5
+expect Found 3 matching item
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 3$
+
+# The red variant also polishes, and its eighth use breaks it.
+cmd item replace entity tester weapon.mainhand with create:red_sand_paper[minecraft:damage=7]
+cmd item replace entity tester weapon.offhand with create:rose_quartz 1
+wait 0.5
+bot use-item main
+wait 2.25
+cmd clear tester create:polished_rose_quartz 0
+wait 0.5
+expect Found 4 matching item
+cmd clear tester create:red_sand_paper 0
+wait 0.5
+expect No items were found
+
+# Craft a tube from the applied recipe, then turn it into four Train Signals.
+cmd clear tester
+cmd item replace entity tester hotbar.0 with create:polished_rose_quartz 1
+cmd item replace entity tester hotbar.1 with create:iron_sheet 1
+wait 0.5
+bot inventory-click 36 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 3 left
+wait 0.25
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester create:electron_tube 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester
+cmd item replace entity tester hotbar.0 with create:electron_tube 1
+cmd item replace entity tester hotbar.1 with create:railway_casing 1
+wait 0.5
+bot inventory-click 36 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 2 left
+wait 0.25
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester create:track_signal 0
+wait 0.5
+expect Found 4 matching item
+reject (?i)panicked|trapped|\[bot\] error
+bot quit
+stop

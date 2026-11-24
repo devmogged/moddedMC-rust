@@ -81,6 +81,8 @@ pub enum InteractionExtension {
     VanillaItemUse,
     /// `UseBlock::place_held_block`.
     PlaceHeldBlock,
+    /// Normal item use, including completion and release for timed actions.
+    ItemUse,
 }
 
 /// Vanilla `getSignal` (or `getDirectSignal` when `direct`) for one of the mod's blocks.
@@ -257,6 +259,95 @@ impl UseBlock<'_> {
     }
 }
 
+/// The normal item-use lifecycle. Completion and release refer to the original hand.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ItemUsePhase {
+    Start,
+    Finish,
+    Release,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ItemUseResult {
+    Pass,
+    Handled,
+    Start(u16),
+}
+
+pub struct ItemUse<'a> {
+    pub world: World<'a>,
+    pub player: Option<Entity<'a>>,
+    pub stack: Stack<'a>,
+    pub other_hand: Stack<'a>,
+    pub item: &'a str,
+    pub hit: [f64; 3],
+    pub creative: bool,
+    pub main_hand: bool,
+    pub phase: ItemUsePhase,
+    raw_player: abi::EntityRef,
+    api: &'static abi::InteractionV1,
+}
+
+impl ItemUse<'_> {
+    pub fn give(&self, stack: &[u8]) -> bool {
+        // SAFETY: requiring ItemUse covers the earlier give field. The player and bytes are live.
+        unsafe { (self.api.give)(self.raw_player, abi::Str::new(stack)) }
+    }
+}
+
+type ItemUseCallback = fn(&mut ItemUse<'_>) -> ItemUseResult;
+static ITEM_USE: OnceLock<ItemUseCallback> = OnceLock::new();
+
+unsafe extern "C" fn item_use(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    stack: abi::StackRef,
+    other_hand: abi::StackRef,
+    context: *const abi::ItemUseContext,
+) -> i32 {
+    guard("item use", 0, || {
+        // SAFETY: the host borrows the context for this callback.
+        let (Some(&api), Some(callback), Some(world), Some(context)) = (
+            TABLE.get(),
+            ITEM_USE.get(),
+            World::borrowed(world),
+            unsafe { context.as_ref() },
+        ) else {
+            return 0;
+        };
+        let phase = match context.phase {
+            abi::ITEM_USE_START => ItemUsePhase::Start,
+            abi::ITEM_USE_FINISH => ItemUsePhase::Finish,
+            abi::ITEM_USE_RELEASE => ItemUsePhase::Release,
+            _ => return 0,
+        };
+        let borrow = |raw| Stack {
+            raw,
+            api,
+            scope: PhantomData,
+        };
+        let result = callback(&mut ItemUse {
+            world,
+            player: Entity::borrowed(player),
+            stack: borrow(stack),
+            other_hand: borrow(other_hand),
+            // SAFETY: the item name is borrowed for this callback.
+            item: unsafe { context.item.str() },
+            hit: context.hit,
+            creative: context.creative,
+            main_hand: context.main_hand,
+            phase,
+            raw_player: player,
+            api,
+        });
+        match result {
+            ItemUseResult::Pass => 0,
+            ItemUseResult::Handled => -1,
+            ItemUseResult::Start(ticks) => i32::from(ticks),
+        }
+    })
+}
+
 impl Interaction {
     pub fn require_extension(
         self,
@@ -282,6 +373,10 @@ impl Interaction {
             InteractionExtension::PlaceHeldBlock => (
                 std::mem::offset_of!(abi::InteractionV1, place_held_block),
                 "moddedmc:interaction.place_held_block",
+            ),
+            InteractionExtension::ItemUse => (
+                std::mem::offset_of!(abi::InteractionV1, item_use_animation),
+                "moddedmc:interaction.item_use",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -338,6 +433,37 @@ impl Interaction {
         // SAFETY: the extension was required; registration is live and the trampolines static.
         RegistrationError::from_code(unsafe {
             (self.0.on_redstone)(reg.reg, redstone_signal, redstone_connects)
+        })
+    }
+
+    /// Handle normal use of this mod's items.
+    pub fn on_item_use(
+        self,
+        reg: &mut Registry<'_>,
+        callback: ItemUseCallback,
+    ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::ItemUse)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        ITEM_USE
+            .set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        // SAFETY: the table size was checked and the registrar is live.
+        RegistrationError::from_code(unsafe { (self.0.on_item_use)(reg.reg, item_use) })
+    }
+
+    /// Present a timed hand-use animation to the stock client for a registered item.
+    /// The use callback still controls the server's item and the timer.
+    pub fn item_use_animation(
+        self,
+        reg: &mut Registry<'_>,
+        item: &str,
+        ticks: u16,
+    ) -> Result<(), RegistrationError> {
+        self.require_extension(InteractionExtension::ItemUse)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        // SAFETY: the table size was checked and the registrar and name are live.
+        RegistrationError::from_code(unsafe {
+            (self.0.item_use_animation)(reg.reg, crate::s(item), ticks)
         })
     }
 

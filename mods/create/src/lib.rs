@@ -56,6 +56,7 @@ mod piston;
 mod press;
 mod processing_recipes;
 mod pulley;
+mod sandpaper;
 mod seat;
 mod shaft_casing;
 mod sticker;
@@ -115,6 +116,30 @@ const RELAYS: [(&str, &str, Relay); 3] = [
 /// `axis=` blockstate rotations Create's `axisBlock` generator writes: x, y, z.
 const AXIS_ROTATIONS: [(i16, i16); 3] = [(90, 90), (0, 0), (90, 180)];
 
+fn stack_after_damage(
+    stack: &moddedmc_api::interaction::Stack<'_>,
+    durability: i32,
+) -> Option<Vec<u8>> {
+    use fastnbt::Value;
+    let mut data = fastnbt::from_bytes::<HashMap<String, Value>>(&stack.read()?).ok()?;
+    let Value::Compound(components) = data
+        .entry("components".into())
+        .or_insert_with(|| Value::Compound(HashMap::new()))
+    else {
+        return None;
+    };
+    let damage = match components.get("minecraft:damage") {
+        Some(Value::Int(damage)) => damage.saturating_add(1),
+        _ => 1,
+    };
+    if damage >= durability {
+        return Some(Vec::new());
+    }
+    components.insert("minecraft:max_damage".into(), Value::Int(durability));
+    components.insert("minecraft:damage".into(), Value::Int(damage));
+    fastnbt::to_bytes(&data).ok()
+}
+
 struct Create;
 
 impl Mod for Create {
@@ -146,6 +171,7 @@ impl Mod for Create {
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
+        interaction.require_extension(InteractionExtension::ItemUse)?;
         interaction.require_extension(InteractionExtension::VanillaItemUse)?;
         interaction.require_extension(InteractionExtension::PlaceHeldBlock)?;
         interaction.require_extension(InteractionExtension::Redstone)?;
@@ -278,6 +304,8 @@ impl Mod for Create {
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?;
         interaction.on_use_on_block(registry, use_on_block)?;
+        interaction.on_item_use(registry, sandpaper::item_use)?;
+        sandpaper::register(registry)?;
         interaction.on_vanilla_use_on_block(registry, manual_application::use_on_block)?;
         interaction.on_use_block(registry, use_block)?;
         interaction.on_redstone(registry, elevator::signal, elevator::connects)?;

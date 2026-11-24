@@ -6,13 +6,13 @@ use moddedmc_api::abi::{self, Str};
 use pumpkin_core::{
     block::registry::BlockActionResult,
     entity::{EntityBase, player::Player},
-    item::{ItemBehaviour, registry::install_content_behaviour},
+    item::{ContentItemUse, ItemBehaviour, registry::install_content_behaviour},
     server::Server,
     world::World,
 };
 use pumpkin_data::{
     Block, BlockDirection, data_component::DataComponent, data_component_impl::CustomDataImpl,
-    item_stack::ItemStack,
+    item::Item, item_stack::ItemStack,
 };
 use pumpkin_nbt::{compound::NbtCompound, tag::NbtTag};
 use pumpkin_protocol::{codec::var_int::VarInt, java::server::play::SUseItemOn};
@@ -21,7 +21,8 @@ use pumpkin_util::{
     math::{position::BlockPos, vector3::Vector3},
 };
 
-use crate::content::use_on_block_callbacks;
+use crate::content::{item_use_callback, use_on_block_callbacks};
+use pumpkin_world::clip::{ClipBlock, ClipContext, ClipFluid};
 
 pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     size: size_of::<abi::InteractionV1>(),
@@ -39,6 +40,8 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     on_redstone: crate::content::on_redstone,
     on_vanilla_use_on_block: crate::content::on_vanilla_use_on_block,
     place_held_block,
+    on_item_use: crate::content::on_item_use,
+    item_use_animation: crate::content::item_use_animation,
 };
 
 /// The `custom_data` key that holds a mod's bytes on its item stacks.
@@ -47,6 +50,124 @@ const DATA_KEY: &str = "moddedmc:data";
 struct ItemUse;
 
 impl ItemBehaviour for ItemUse {
+    fn use_content_item(
+        &self,
+        item: &Item,
+        player: &Player,
+        yaw: f32,
+        pitch: f32,
+        hand: Hand,
+    ) -> bool {
+        let current = player.inventory().get_stack_in_hand(hand);
+        current.item.id == item.id
+            && self.content_use(&current, player, hand, ContentItemUse::Start { yaw, pitch })
+    }
+
+    fn content_use(
+        &self,
+        expected: &ItemStack,
+        player: &Player,
+        hand: Hand,
+        event: ContentItemUse,
+    ) -> bool {
+        let Some(callback) = item_use_callback(expected.item.id) else {
+            return false;
+        };
+        let inventory = player.inventory();
+        let mut held = inventory.get_stack_in_hand(hand);
+        let start = matches!(event, ContentItemUse::Start { .. });
+        if !held.are_items_and_components_equal(expected) {
+            // A moved or replaced stack must never complete against its replacement.
+            return !start;
+        }
+        if start
+            && player
+                .living_entity
+                .item_use_time
+                .load(std::sync::atomic::Ordering::Relaxed)
+                > 0
+        {
+            let active = *player
+                .living_entity
+                .active_hand
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if active == Some(hand) {
+                return true;
+            }
+        }
+
+        let other_hand = match hand {
+            Hand::Right => Hand::Left,
+            Hand::Left => Hand::Right,
+        };
+        let held_before = held.clone();
+        let mut other = inventory.get_stack_in_hand(other_hand);
+        let other_before = other.clone();
+        let world = player.world();
+        let (phase, hit) = match event {
+            ContentItemUse::Start { yaw, pitch } => {
+                let eye = player.eye_position();
+                let end = eye.add(
+                    &(Vector3::rotation_vector(f64::from(pitch), f64::from(yaw))
+                        * player.block_interaction_range()),
+                );
+                let hit = world
+                    .clip(&ClipContext::new(
+                        eye,
+                        end,
+                        ClipBlock::Outline,
+                        ClipFluid::None,
+                    ))
+                    .location;
+                (abi::ITEM_USE_START, [hit.x, hit.y, hit.z])
+            }
+            ContentItemUse::Finish => (abi::ITEM_USE_FINISH, [0.0; 3]),
+            ContentItemUse::Release => (abi::ITEM_USE_RELEASE, [0.0; 3]),
+        };
+        let context = abi::ItemUseContext {
+            item: Str::new(held.item.registry_key.as_bytes()),
+            hit,
+            phase,
+            main_hand: hand == Hand::Right,
+            creative: player.is_creative(),
+        };
+        let entity: &dyn EntityBase = player;
+        // SAFETY: both stacks are disjoint locals and the other values are borrowed for this call.
+        let result = unsafe {
+            callback(
+                ptr::from_ref(world.as_ref()).cast(),
+                ptr::from_ref(&entity).cast(),
+                ptr::from_mut(&mut held).cast(),
+                ptr::from_mut(&mut other).cast(),
+                &raw const context,
+            )
+        };
+        if result == 0 {
+            return false;
+        }
+        if !other.are_items_and_components_equal(&other_before)
+            || other.item_count != other_before.item_count
+        {
+            inventory.set_stack_in_hand(other_hand, other);
+        }
+        if !held.are_items_and_components_equal(&held_before)
+            || held.item_count != held_before.item_count
+        {
+            inventory.set_stack_in_hand(hand, held.clone());
+        }
+        if start
+            && let Ok(ticks) = u16::try_from(result)
+            && ticks != 0
+            && !held.is_empty()
+        {
+            player
+                .living_entity
+                .set_active_hand(hand, held, i32::from(ticks));
+        }
+        true
+    }
+
     fn use_on_block(
         &self,
         item: &mut ItemStack,

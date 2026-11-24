@@ -30,12 +30,17 @@ use pumpkin_core::{
 use pumpkin_data::{
     Block, BlockDirection, BlockState, BlockStateId, Property,
     content::{self, BlockDefinition, ItemDefinition, StateDefinition},
-    data_component_impl::{EquipmentSlot, ItemModelImpl},
+    data_component::DataComponent,
+    data_component_impl::{
+        ConsumableImpl, ConsumeAnimation, DamageImpl, DataComponentImpl, EquipmentSlot, IdOr,
+        ItemModelImpl, MaxDamageImpl, MaxStackSizeImpl,
+    },
     dimension::Dimension,
     entity::EntityType,
     fluid::Fluid,
     item::Item,
     item_stack::ItemStack,
+    sound::Sound,
 };
 use pumpkin_nbt::Nbt;
 use pumpkin_util::{
@@ -57,6 +62,7 @@ pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
 pub static ITEMS: abi::ItemsV1 = abi::ItemsV1 {
     size: size_of::<abi::ItemsV1>(),
     add_item,
+    item_durability,
 };
 pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     size: size_of::<abi::BlockWorldV1>(),
@@ -105,6 +111,8 @@ pub struct ItemRegistration {
     name: String,
     carrier: &'static Item,
     model: String,
+    use_animation: Option<u16>,
+    max_damage: Option<u16>,
 }
 
 struct RegisteredState {
@@ -126,6 +134,7 @@ struct Runtime {
     replaced: BTreeMap<usize, abi::ContentReplaced>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    item_use: BTreeMap<usize, abi::ItemUseFn>,
     vanilla_use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
@@ -141,6 +150,7 @@ pub struct Hooks {
     pub replaced: Option<abi::ContentReplaced>,
     pub entity_inside: Option<abi::EntityInside>,
     pub use_on_block: Option<abi::UseOnBlockFn>,
+    pub item_use: Option<abi::ItemUseFn>,
     pub vanilla_use_on_block: Option<abi::UseOnBlockFn>,
     pub use_block: Option<abi::UseBlockFn>,
     pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
@@ -155,6 +165,7 @@ struct Pending {
     replaced: BTreeMap<usize, abi::ContentReplaced>,
     entity_inside: BTreeMap<usize, abi::EntityInside>,
     use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
+    item_use: BTreeMap<usize, abi::ItemUseFn>,
     vanilla_use_on_block: BTreeMap<usize, abi::UseOnBlockFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
@@ -167,6 +178,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     replaced: BTreeMap::new(),
     entity_inside: BTreeMap::new(),
     use_on_block: BTreeMap::new(),
+    item_use: BTreeMap::new(),
     vanilla_use_on_block: BTreeMap::new(),
     use_block: BTreeMap::new(),
     player_will_destroy: BTreeMap::new(),
@@ -401,7 +413,29 @@ unsafe extern "C" fn add_item(reg: Reg, def: *const abi::ContentItemDefinition) 
         name: name.into(),
         carrier,
         model: model.into(),
+        use_animation: None,
+        max_damage: None,
     });
+    code::OK
+}
+
+unsafe extern "C" fn item_durability(reg: Reg, item: Str, max_damage: u16) -> i32 {
+    if RUNTIME.get().is_some() || max_damage == 0 {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the registrar and item ID are borrowed for this call.
+    let (staging, item) = unsafe { (native::staging(reg), item.str()) };
+    let Some(definition) = staging
+        .content_items
+        .iter_mut()
+        .find(|definition| definition.id == item)
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    if definition.max_damage.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    definition.max_damage = Some(max_damage);
     code::OK
 }
 
@@ -477,6 +511,9 @@ pub fn register(
     if let Some(callback) = hooks.use_on_block {
         pending.use_on_block.insert(owner, callback);
     }
+    if let Some(callback) = hooks.item_use {
+        pending.item_use.insert(owner, callback);
+    }
     if let Some(callback) = hooks.vanilla_use_on_block {
         pending.vanilla_use_on_block.insert(owner, callback);
     }
@@ -502,7 +539,34 @@ fn split_items(
                     name: item.id.clone(),
                     display_name: item.name,
                     carrier: item.carrier,
-                    components: Vec::new(),
+                    components: item.max_damage.map_or_else(Vec::new, |max_damage| {
+                        vec![
+                            (
+                                DataComponent::MaxStackSize,
+                                Box::new(MaxStackSizeImpl { size: 1 })
+                                    as Box<dyn DataComponentImpl>,
+                            ),
+                            (
+                                DataComponent::MaxDamage,
+                                Box::new(MaxDamageImpl {
+                                    max_damage: i32::from(max_damage),
+                                }),
+                            ),
+                            (DataComponent::Damage, Box::new(DamageImpl { damage: 0 })),
+                        ]
+                    }),
+                    client_components: item.use_animation.map_or_else(Vec::new, |ticks| {
+                        vec![(
+                            DataComponent::Consumable,
+                            Box::new(ConsumableImpl::new(
+                                f32::from(ticks) / 20.0,
+                                ConsumeAnimation::Eat,
+                                IdOr::Id(Sound::ItemBrushBrushingGeneric),
+                                false,
+                                Cow::Borrowed(&[]),
+                            )) as Box<dyn DataComponentImpl>,
+                        )]
+                    }),
                 },
                 content_pack::ItemAssets {
                     id: item.id,
@@ -578,6 +642,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         replaced,
         entity_inside,
         use_on_block,
+        item_use,
         vanilla_use_on_block,
         use_block,
         player_will_destroy,
@@ -616,6 +681,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         replaced,
         entity_inside,
         use_on_block,
+        item_use,
         vanilla_use_on_block,
         use_block,
         player_will_destroy,
@@ -1686,6 +1752,47 @@ pub unsafe extern "C" fn on_use_block_content(reg: Reg, callback: abi::UseBlockF
         return code::DUPLICATE_ID;
     }
     *slot = Some(callback);
+    code::OK
+}
+
+pub fn item_use_callback(item: u16) -> Option<abi::ItemUseFn> {
+    let runtime = RUNTIME.get()?;
+    runtime
+        .item_use
+        .get(runtime.item_owners.get(&item)?)
+        .copied()
+}
+
+pub unsafe extern "C" fn on_item_use(reg: Reg, callback: abi::ItemUseFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration is live for this call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.item_use;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
+pub unsafe extern "C" fn item_use_animation(reg: Reg, item: Str, ticks: u16) -> i32 {
+    if RUNTIME.get().is_some() || ticks == 0 {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the registrar and item ID are borrowed for this call.
+    let (staging, item) = unsafe { (native::staging(reg), item.str()) };
+    let Some(definition) = staging
+        .content_items
+        .iter_mut()
+        .find(|definition| definition.id == item)
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    if definition.use_animation.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    definition.use_animation = Some(ticks);
     code::OK
 }
 
