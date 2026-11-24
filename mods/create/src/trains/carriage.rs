@@ -6,8 +6,11 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     bogey::{AssemblyTrack, is_bogey},
-    controls, railway,
+    controls,
+    math::Vec3,
+    railway,
     targeting::{Selection, coords, directed_edge, pos, state_at},
+    travelling_point::TravellingPoint,
 };
 use crate::{
     DIRECTIONS, Kinetics,
@@ -31,6 +34,8 @@ pub(super) struct DockedTrain {
 struct Carriage {
     anchor: [i32; 3],
     blocks: Blocks,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    wheels: Vec<[TravellingPoint; 2]>,
 }
 
 impl DockedTrain {
@@ -50,17 +55,50 @@ impl DockedTrain {
         if bogeys.windows(2).any(|pair| pair[1].0 - pair[0].0 < 3) {
             return Err("Leave at least three blocks between bogeys");
         }
-        let graph = railway::read(&world).map_err(|_| "Could not read the rail network")?;
+        let network = railway::read(&world).map_err(|_| "Could not read the rail network")?;
+        let (station_edge, _) = directed_edge(&network, world, content, &station)
+            .ok_or("The station must be connected to the rail network")?;
+        let graph = &network
+            .graphs
+            .iter()
+            .find(|entry| {
+                entry
+                    .graph
+                    .edge(&station_edge.from, &station_edge.to)
+                    .is_some()
+            })
+            .ok_or("Could not find the station's rail network")?
+            .graph;
+        let mut wheel_points = Vec::with_capacity(bogeys.len());
         for &(_, bogey) in &bogeys {
             let rail = offset(bogey, [0, -1, 0]);
             // The StandardBogeyBlock wheel points are one block ahead and behind its center.
-            for step in [track.step, track.step.map(|axis| -axis)] {
-                let mut wheel = station.clone();
-                wheel.target = coords(offset(rail, step));
-                if directed_edge(&graph, world, content, &wheel).is_none() {
+            let selection = Selection {
+                target: coords(rail),
+                ..station.clone()
+            };
+            let (edge, distance) = directed_edge(&network, world, content, &selection)
+                .ok_or("Extend the straight track beyond the bogeys")?;
+            let mut points = [
+                TravellingPoint::new(edge, distance),
+                TravellingPoint::new(edge, distance),
+            ];
+            for (point, (travel, sign)) in points.iter_mut().zip([(1.0, -1), (-1.0, 1)]) {
+                let expected = offset(rail, track.step.map(|axis| sign * axis));
+                let location = Vec3 {
+                    x: f64::from(expected.x) + 0.5,
+                    y: f64::from(expected.y),
+                    z: f64::from(expected.z) + 0.5,
+                };
+                if point.travel_straight(graph, travel) != Some(travel)
+                    || point
+                        .location(graph)
+                        .is_none_or(|actual| actual.distance(location) > 1.0e-6)
+                {
                     return Err("Extend the straight track beyond the bogeys");
                 }
             }
+            wheel_points.push(points);
         }
         let direction = FACES
             .iter()
@@ -139,11 +177,13 @@ impl DockedTrain {
                     entry.properties.insert("open".into(), "true".into());
                 }
             }
+            let next = index + 1 + usize::from(second_bogey);
             carriages.push(Carriage {
                 anchor: coords(anchor),
                 blocks,
+                wheels: wheel_points[index..next].to_vec(),
             });
-            index += 1 + usize::from(second_bogey);
+            index = next;
         }
         if !forward_controls {
             return Err("Add Train Controls facing the assembly direction");
@@ -153,6 +193,13 @@ impl DockedTrain {
 
     pub(super) fn count(&self) -> usize {
         self.carriages.len()
+    }
+
+    pub(super) fn wheel_count(&self) -> usize {
+        self.carriages
+            .iter()
+            .map(|carriage| carriage.wheels.len() * 2)
+            .sum()
     }
 
     pub(super) fn removals(&self, checks: &BlockMovementChecks) -> Option<Vec<BlockUpdate>> {

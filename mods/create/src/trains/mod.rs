@@ -20,6 +20,7 @@ pub(crate) mod signal;
 pub(crate) mod station;
 mod targeting;
 mod track;
+mod travelling_point;
 mod visual;
 mod world_graph;
 

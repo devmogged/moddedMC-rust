@@ -2,6 +2,7 @@
 //! TrackPropagator and TrackGraph. World discovery and NBT integration follow.
 
 use super::{bezier::BezierGeometry, curve::CurveRecord, math::Vec3};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::atomic::{AtomicI32, Ordering},
@@ -12,7 +13,7 @@ static NODE_NET_IDS: AtomicI32 = AtomicI32::new(0);
 
 /// Create packs horizontal positions in half-blocks and vertical positions in
 /// whole blocks; a second field carries the vertical smoothing in pixels.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub(super) struct TrackNodeLocation {
     pub dimension: String,
     pub x: i32,
@@ -193,6 +194,14 @@ pub(super) struct TrackGraph {
 // Pending: rail removal and graph splits are later M1 work
 #[cfg_attr(not(test), allow(dead_code))]
 impl TrackGraph {
+    pub(super) fn edge(
+        &self,
+        from: &TrackNodeLocation,
+        to: &TrackNodeLocation,
+    ) -> Option<&TrackEdge> {
+        self.connections.get(from)?.get(to)
+    }
+
     pub fn create_node_if_absent(&mut self, location: TrackNodeLocation, normal: Vec3) -> bool {
         if self.nodes.contains_key(&location) {
             return false;

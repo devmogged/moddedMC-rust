@@ -481,7 +481,11 @@ pub(crate) fn describe(world: World<'_>, content: Content, position: Pos) -> Opt
     let mode = if assembling {
         " Assembling".to_owned()
     } else if let Some(train) = data.trains.iter().find(|train| train.station == selection) {
-        format!(" Docked Carriages={}", train.count())
+        format!(
+            " Docked Carriages={} WheelPoints={}",
+            train.count(),
+            train.wheel_count()
+        )
     } else {
         String::new()
     };

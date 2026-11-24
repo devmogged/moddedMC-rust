@@ -85,7 +85,7 @@ bot use 2451 100 2450
 wait 0.5
 cmd station 2451 100 2450
 wait 0.5
-expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Docked Carriages=1$
+expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Docked Carriages=1 WheelPoints=4$
 cmd execute if block 2450 101 2449 minecraft:air if block 2453 101 2449 minecraft:air if block 2451 102 2449 minecraft:air
 wait 0.5
 expect Test passed
@@ -105,7 +105,7 @@ wait 4
 expect \[bot\] joined as tester
 cmd station 2451 100 2450
 wait 0.5
-expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Docked Carriages=1$
+expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Docked Carriages=1 WheelPoints=4$
 bot expect entity minecraft:block_display near 2450.5 101.5 2449.5 within 0.05 count 5
 wait 0.5
 expect ^\[bot\] expect entity ok minecraft:block_display near 2450.5 101.5 2449.5
@@ -120,7 +120,7 @@ wait 0.5
 expect Test passed
 cmd station 2451 100 2450
 wait 0.5
-expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Docked Carriages=1$
+expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Docked Carriages=1 WheelPoints=4$
 cmd setblock 2453 101 2449 minecraft:air
 bot use 2451 100 2450
 wait 0.5
