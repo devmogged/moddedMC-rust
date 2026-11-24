@@ -365,9 +365,7 @@ pub(crate) fn use_on_block(
         }
         let count = updates.len();
         if world.write(&updates) != count {
-            // The world could unload during the callback; don't charge tracks
-            // if any write did not commit. A save-global graph is NOT created
-            // here until WS-3-01 is implemented.
+            // Do not charge for an incomplete placement.
             return UseResult::Fail;
         }
         if !context.creative {

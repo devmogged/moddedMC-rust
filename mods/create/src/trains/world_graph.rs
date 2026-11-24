@@ -98,7 +98,6 @@ where
         result
     }
 
-    #[cfg(test)]
     pub fn cell(&self, pos: Pos) -> RailCell {
         (self.read)(pos)
     }

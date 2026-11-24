@@ -1,5 +1,5 @@
 # WS-3: Save-global railway graph NBT across real server process restart.
-# The admin rebuild is temporary until WorldRef.dimension is available.
+# Straight tracks create graphs automatically, including across chunk boundaries.
 mods target\mods\create.mmc
 start
 expect registered content block create:track \(76 states\)
@@ -34,7 +34,7 @@ wait 0.5
 expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2416 100 2414
 cmd railway 2416 100 2414
 wait 0.5
-expect Create railway: Graphs=0 Nodes=0 DirectedEdges=0
+expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
 cmd railwaybuild 2416 100 2414
 wait 1
 expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
@@ -55,5 +55,34 @@ expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
 cmd track 2416 100 2414
 wait 0.5
 expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2416 100 2414
+cmd setblock 2416 100 2414 minecraft:air
+wait 1
+cmd railway 2416 100 2414
+wait 0.5
+expect Create railway: Graphs=2 Nodes=4 DirectedEdges=4
+bot use 2416 99 2414
+wait 1
+cmd railway 2416 100 2414
+wait 0.5
+expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
+
+# Build the same line at the same coordinates in another dimension.
+cmd execute in minecraft:the_nether run tp tester 2416.5 102 2412.5 90 35
+wait 5
+cmd execute in minecraft:the_nether run fill 2408 100 2408 2424 108 2420 minecraft:air
+cmd execute in minecraft:the_nether run fill 2408 99 2408 2424 99 2420 minecraft:stone
+wait 0.5
+bot use 2413 99 2414
+wait 0.5
+bot use 2420 99 2414
+wait 0.5
+bot use 2413 100 2414
+wait 0.5
+bot use 2420 100 2414
+wait 0.5
+cmd railway 2416 100 2414
+wait 0.5
+expect Create railway: Graphs=2 Nodes=6 DirectedEdges=8
+reject (?i)panicked|trapped|\[bot\] error
 bot quit
 stop

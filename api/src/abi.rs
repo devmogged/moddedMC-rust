@@ -429,6 +429,7 @@ mod layout {
         assert_eq!(offset_of!(BlockWorldV1, read_entity), 32);
         assert_eq!(offset_of!(BlockWorldV1, write_entity), 40);
         assert_eq!(offset_of!(BlockWorldV1, rotate), 48);
+        assert_eq!(offset_of!(BlockWorldV1, dimension_id), 160);
         assert_eq!(size_of::<ShapeBox>(), 12);
 
         assert_eq!(offset_of!(CommandNode, name), 0);
@@ -651,6 +652,8 @@ pub struct BlockWorldV1 {
     /// Vanilla `Block.asItem()` for the state's block as a namespaced item id, `minecraft:air`
     /// when the block has no item. False for an unknown state.
     pub block_item: unsafe extern "C" fn(state: u32, out: Sink) -> bool,
+    /// The world's canonical dimension registry id. Static, or empty for an invalid handle.
+    pub dimension_id: unsafe extern "C" fn(world: WorldRef) -> Str,
 }
 
 #[repr(C)]

@@ -8,7 +8,6 @@ mod math;
 mod observer;
 mod propagate;
 mod railway;
-#[cfg(test)]
 mod reconcile;
 mod runtime;
 mod save;
@@ -17,6 +16,6 @@ mod world_graph;
 
 pub(crate) use item::use_on_block;
 pub(crate) use railway::{
-    rebuild_at, register as register_saved, require as require_saved, summary,
+    RailUpdates, rebuild_at, register as register_saved, require as require_saved, summary,
 };
 pub(super) use runtime::{describe_state, placed_state, register};

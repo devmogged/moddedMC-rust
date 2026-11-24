@@ -79,7 +79,15 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     destroy_speed,
     can_survive,
     block_item,
+    dimension_id,
 };
+
+unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
+    // SAFETY: the world handle is borrowed for the synchronous callback.
+    unsafe { world(raw) }.map_or(Str::EMPTY, |world| {
+        Str::from(world.dimension.minecraft_name)
+    })
+}
 
 const MAX_BATCH: usize = 4096;
 

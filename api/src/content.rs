@@ -61,6 +61,8 @@ pub enum WorldExtension {
     BlockDrops,
     /// `day_time`, `destroy_speed`, `can_survive` and `block_item`.
     Survival,
+    /// `World::dimension_id`.
+    Dimension,
 }
 
 impl WorldExtension {
@@ -101,6 +103,10 @@ impl WorldExtension {
             Self::Survival => (
                 std::mem::offset_of!(abi::BlockWorldV1, block_item),
                 "moddedmc:block_world.block_item",
+            ),
+            Self::Dimension => (
+                std::mem::offset_of!(abi::BlockWorldV1, dimension_id),
+                "moddedmc:block_world.dimension_id",
             ),
         }
     }
@@ -357,6 +363,16 @@ impl World<'_> {
             api: WORLD_TABLE.get()?,
             scope: PhantomData,
         })
+    }
+
+    /// The canonical namespaced dimension, including custom dimensions.
+    pub fn dimension_id(self) -> Option<&'static str> {
+        if !WorldExtension::Dimension.available(self.api) {
+            return None;
+        }
+        // SAFETY: the versioned entry is present, and the host returns a static name.
+        let name = unsafe { (self.api.dimension_id)(self.raw).str() };
+        (!name.is_empty()).then_some(name)
     }
 
     pub fn read(self, positions: &[Pos], states: &mut [u32]) -> bool {

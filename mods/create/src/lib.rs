@@ -131,6 +131,7 @@ impl Mod for Create {
         content.require_extension(WorldExtension::FluidId)?;
         content.require_extension(WorldExtension::BlockEntities)?;
         content.require_extension(WorldExtension::Survival)?;
+        content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::BlockDrops)?;
         let _ = CONTENT.set(content);
         // WS-3: save-global Create railway data through the generic ABI.
@@ -1631,6 +1632,9 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             gantry::refresh_lines(world, &mut level, kinetics);
         }
         kinetics.tick(&mut level);
+        if let Some(&content) = CONTENT.get() {
+            kinetics.rail_updates.tick(world, content, time, events);
+        }
         kinetics.fluid_tanks.tick(world, time, events);
         // WS-2: distribute pump RPM as directional pipe pressures.
         let valve_changed = fluids::runtime::tick_valves(world, kinetics);

@@ -1,6 +1,4 @@
-//! Bounded graph replacement/splitting for one rail placement or removal.
-//! This pure reconciliation is tested while the host WorldRef.dimension callback
-//! is pending. It does not run on a live tick with an invented dimension.
+//! Bounded graph replacement and splitting for one rail placement or removal.
 
 use super::{
     graph::{TrackEdge, TrackGraph},
@@ -54,7 +52,7 @@ fn block_touches_edge(pos: Pos, edge: &TrackEdge, dim: &str) -> bool {
     false
 }
 
-fn graph_touches_change(graph: &TrackGraph, dimension: &str, pos: Pos) -> bool {
+pub(super) fn graph_touches_change(graph: &TrackGraph, dimension: &str, pos: Pos) -> bool {
     graph
         .connections
         .values()
