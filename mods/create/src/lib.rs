@@ -57,6 +57,7 @@ mod press;
 mod processing_recipes;
 mod pulley;
 mod seat;
+mod shaft_casing;
 mod sticker;
 mod trains;
 mod zinc;
@@ -72,6 +73,7 @@ const GEARBOX: &str = "create:gearbox";
 const CLUTCH: &str = "create:clutch";
 const GEARSHIFT: &str = "create:gearshift";
 const ENCASED_SHAFT: &str = "create:andesite_encased_shaft";
+const BRASS_ENCASED_SHAFT: &str = "create:brass_encased_shaft";
 const CASING: &str = "create:andesite_casing";
 const BRASS_CASING: &str = "create:brass_casing";
 const BRASS_INGOT: &str = "create:brass_ingot";
@@ -621,16 +623,31 @@ fn register_casings(
             .collect();
         add(registry, id, name, entity, "", &states, &[], STONE)?;
     }
-    add(
-        registry,
-        ENCASED_SHAFT,
-        "Andesite Encased Shaft",
-        "create:encased_shaft",
-        "create:block/shaft",
-        &axis_states("create:block/encased_shaft/block_andesite"),
-        &[],
-        STONE,
-    )?;
+    for (id, name, item, model) in [
+        (
+            ENCASED_SHAFT,
+            "Andesite Encased Shaft",
+            "create:item/andesite_encased_shaft",
+            "create:block/encased_shaft/block_andesite",
+        ),
+        (
+            BRASS_ENCASED_SHAFT,
+            "Brass Encased Shaft",
+            "create:item/brass_encased_shaft",
+            "create:block/encased_shaft/block_brass",
+        ),
+    ] {
+        add(
+            registry,
+            id,
+            name,
+            "create:encased_shaft",
+            item,
+            &axis_states(model),
+            &[],
+            STONE,
+        )?;
+    }
     let single = |model: &str| vec![(String::new(), model.to_owned(), 0, 0, 1)];
     add(
         registry,
@@ -887,12 +904,14 @@ fn states() -> Option<&'static StateIds> {
                 &format!("axis={axis}"),
                 Some(Kind::Gearbox(axis_index)),
             );
-            ids.add(
-                content,
-                ENCASED_SHAFT,
-                &format!("axis={axis}"),
-                Some(Kind::EncasedShaft(axis_index)),
-            );
+            for block in [ENCASED_SHAFT, BRASS_ENCASED_SHAFT] {
+                ids.add(
+                    content,
+                    block,
+                    &format!("axis={axis}"),
+                    Some(Kind::EncasedShaft(axis_index)),
+                );
+            }
             for powered in [false, true] {
                 let properties = format!("axis={axis},powered={powered}");
                 ids.add(
@@ -1172,7 +1191,8 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         Some(Kind::Gearbox(_)) => format!("{GEARBOX}[axis=y]"),
         // AbstractEncasedShaftBlock.getStateForPlacement
         Some(Kind::EncasedShaft(_)) => format!(
-            "{ENCASED_SHAFT}[axis={}]",
+            "{}[axis={}]",
+            placed.block,
             AXES[usize::from(encased_axis(preferred, pillar_axis, look, args.sneak))]
         ),
         Some(Kind::Clutch(..) | Kind::Gearshift(..)) => format!(
@@ -1625,6 +1645,11 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     }
     if matches!(context.item, ANDESITE_ALLOY | BRASS_INGOT) {
         return manual_application::use_on_block(context);
+    }
+    if matches!(context.item, CASING | BRASS_CASING | WRENCH)
+        && let Some(result) = shaft_casing::use_on_shaft(context)
+    {
+        return result;
     }
     if context.item == glue::ID {
         return glue::use_on_block(context);

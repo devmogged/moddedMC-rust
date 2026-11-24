@@ -11,8 +11,8 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AXES, BLOCK_DISPLAYS, CONTENT, DIRECTIONS, DISPLAYS, ENCASED_SHAFT, SHAFT, STACKS, TAGS,
-    WorldLevel,
+    AXES, BLOCK_DISPLAYS, BRASS_ENCASED_SHAFT, CONTENT, DIRECTIONS, DISPLAYS, ENCASED_SHAFT, SHAFT,
+    STACKS, TAGS, WorldLevel,
     belt::BELT,
     belt_inventory::{self, BeltInventory, Chain},
     belt_movement::can_transport_objects,
@@ -161,13 +161,15 @@ impl BlockMovementChecks {
         {
             return Some(BlockMovement::Movable(entry));
         }
-        let movable = matches!(entry.name.as_str(), SHAFT | ENCASED_SHAFT)
-            || entry.name.strip_prefix("minecraft:").is_some_and(|id| {
-                id.ends_with("_log")
-                    || id.ends_with("_stairs")
-                    || id.ends_with("_wool")
-                    || entry.has_storage()
-            });
+        let movable = matches!(
+            entry.name.as_str(),
+            SHAFT | ENCASED_SHAFT | BRASS_ENCASED_SHAFT
+        ) || entry.name.strip_prefix("minecraft:").is_some_and(|id| {
+            id.ends_with("_log")
+                || id.ends_with("_stairs")
+                || id.ends_with("_wool")
+                || entry.has_storage()
+        });
         (movable
             && entry
                 .properties

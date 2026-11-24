@@ -1,0 +1,68 @@
+# Case a powered shaft with each casing type, restart, then uncover it with a wrench.
+mods target\mods\create.mmc
+start
+expect registered content block create:brass_encased_shaft
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1028.5 100 1027.5 180 35
+wait 4
+cmd fill 1024 99 1022 1032 99 1030 minecraft:stone
+cmd fill 1024 100 1022 1032 104 1030 minecraft:air
+cmd gamemode survival tester
+cmd setblock 1027 100 1025 create:creative_motor[facing=east]
+cmd setblock 1028 100 1025 create:shaft[axis=x,waterlogged=false]
+cmd setblock 1029 100 1025 create:shaft[axis=x,waterlogged=false]
+wait 0.5
+cmd kinetics 1027 100 1025 64
+cmd item replace entity tester weapon.mainhand with create:andesite_casing 1
+wait 0.5
+bot use 1028 100 1025 south
+wait 1
+cmd kinetics 1028 100 1025
+wait 0.5
+expect create:andesite_encased_shaft\[axis=x\].*Speed=64
+cmd clear tester create:andesite_casing 0
+wait 0.5
+expect Found 1 matching item
+cmd item replace entity tester weapon.mainhand with create:brass_casing 1
+wait 0.5
+bot use 1029 100 1025 south
+wait 1
+cmd kinetics 1029 100 1025
+wait 0.5
+expect create:brass_encased_shaft\[axis=x\].*Speed=64
+cmd clear tester create:brass_casing 0
+wait 0.5
+expect Found 1 matching item
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd kinetics 1028 100 1025
+wait 0.5
+expect create:andesite_encased_shaft\[axis=x\].*Speed=64
+cmd kinetics 1029 100 1025
+wait 0.5
+expect create:brass_encased_shaft\[axis=x\].*Speed=64
+cmd loot spawn 1029 102 1025 mine 1029 100 1025
+wait 0.5
+expect Dropped 1 .*Shaft
+cmd item replace entity tester weapon.mainhand with create:wrench 1
+wait 0.5
+bot input sneak
+wait 0.5
+bot use 1029 100 1025 south
+wait 1
+cmd kinetics 1029 100 1025
+wait 0.5
+expect create:shaft\[axis=x,waterlogged=false\].*Speed=64
+cmd clear tester create:wrench 0
+wait 0.5
+expect Found 1 matching item
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
