@@ -114,6 +114,11 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for (id, display_name, model) in [
         (EMPTY, "Empty Blaze Burner", "minecraft:item/cauldron"),
+        (
+            "create:blaze_cake_base",
+            "Blaze Cake Base",
+            "create:item/blaze_cake_base",
+        ),
         ("create:blaze_cake", "Blaze Cake", "create:item/blaze_cake"),
         (
             CREATIVE_FUEL,

@@ -11,10 +11,10 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DIRECTIONS, EFFECTS, ENTITIES, ITEMS, STACKS, STONE, StateIds,
+    DIRECTIONS, EFFECTS, ENTITIES, ITEMS, STACKS, STONE, StateIds, basin,
     belt_inventory::{TransportedItemStack, count, next_int, with_count},
     kinetics::{FACES, Kind, Kinetics, face_axis, offset},
-    processing_recipes::{Process, ProcessingResult, RecipeBook},
+    processing_recipes::{BasinProcess, Process, ProcessingResult, RecipeBook},
 };
 
 pub const ID: &str = "create:mechanical_press";
@@ -23,6 +23,7 @@ const STROKE: i32 = CYCLE / 2;
 const ENTITY_SCAN: u8 = 10;
 const WORLD: i32 = 0;
 const BELT: i32 = 1;
+const BASIN: i32 = 2;
 const HORIZONTAL: [u8; 4] = [2, 3, 4, 5];
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
@@ -171,6 +172,7 @@ impl PressingData {
 #[derive(Clone, Debug)]
 pub struct PressingBehaviour {
     pub data: PressingData,
+    pub basin_recipe: Option<String>,
     entity_scan_cooldown: u8,
 }
 
@@ -178,6 +180,7 @@ impl PressingBehaviour {
     pub const fn new(data: PressingData) -> Self {
         Self {
             data,
+            basin_recipe: None,
             entity_scan_cooldown: ENTITY_SCAN,
         }
     }
@@ -186,6 +189,7 @@ impl PressingBehaviour {
         self.data.mode = mode;
         self.data.running = true;
         self.data.ticks = 0;
+        self.basin_recipe = None;
     }
 
     fn advance(&mut self, speed: f32) {
@@ -297,7 +301,7 @@ fn sounding(world: World<'_>, pos: Pos, belt: bool, speed: f32) {
     }
 }
 
-pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
+pub fn tick(world: World<'_>, states: &StateIds, kinetics: &mut Kinetics) {
     let positions = kinetics.positions(|kind| matches!(kind, Kind::Press(_)));
     if positions.is_empty() {
         return;
@@ -310,17 +314,27 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
         let below = above(pos, -2);
         let is_belt = matches!(kinetics.kind(below), Some(Kind::Belt(_)));
         let processing_space = is_belt || kinetics.depots.contains_key(&below);
+        let mut state = [content::UNLOADED_STATE];
+        let on_basin = world.read(&[below], &mut state) && basin::is_basin(states, state[0]);
         let Some(be) = kinetics.get_mut(pos) else {
             continue;
         };
         let speed = be.get_speed();
         let Some(press) = &mut be.press else { continue };
+        if press.data.running && press.data.mode == BASIN && !on_basin {
+            press.data = PressingData::EMPTY;
+            press.basin_recipe = None;
+            be.dirty = true;
+            continue;
+        }
         if !press.data.running {
             if speed != 0.0 {
                 press.entity_scan_cooldown = press.entity_scan_cooldown.saturating_sub(1);
                 if press.entity_scan_cooldown == 0 {
                     press.entity_scan_cooldown = ENTITY_SCAN;
-                    if !processing_space
+                    if on_basin {
+                        be.dirty |= start_basin(world, below, press, &recipes);
+                    } else if !processing_space
                         && visit_items(world, above(pos, -1), 0.125, |entity| {
                             try_process_in_world(world, &recipes, entity, true)
                         })
@@ -333,7 +347,19 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
             continue;
         }
         if press.data.ticks == STROKE && speed != 0.0 {
-            if press.data.mode == WORLD {
+            if press.data.mode == BASIN {
+                if let Some(recipe) = press.basin_recipe.as_deref()
+                    && let Some(mut basin) = basin::Basin::load(world, below).and_then(|basin| {
+                        recipes.apply_basin(
+                            recipe,
+                            &basin,
+                            crate::blaze_burner::heat_at(world, above(below, -1)),
+                        )
+                    })
+                {
+                    basin.save(world, below);
+                }
+            } else if press.data.mode == WORLD {
                 visit_items(world, above(pos, -1), 0.0, |entity| {
                     press.entity_scan_cooldown = 0;
                     try_process_in_world(world, &recipes, entity, false);
@@ -344,8 +370,33 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
         }
         let previous = press.data;
         press.advance(speed);
+        if !press.data.running && press.data.mode == BASIN {
+            if speed != 0.0 {
+                start_basin(world, below, press, &recipes);
+            }
+            if !press.data.running {
+                press.basin_recipe = None;
+            }
+        }
         be.dirty |= press.data != previous;
     }
+}
+
+fn start_basin(
+    world: World<'_>,
+    pos: Pos,
+    press: &mut PressingBehaviour,
+    recipes: &RecipeBook,
+) -> bool {
+    let heat = crate::blaze_burner::heat_at(world, above(pos, -1));
+    let Some(recipe) = basin::Basin::load(world, pos)
+        .and_then(|basin| recipes.matching_basin(BasinProcess::Compacting, &basin, heat))
+    else {
+        return false;
+    };
+    press.start(BASIN);
+    press.basin_recipe = Some(recipe.to_owned());
+    true
 }
 
 fn visit_items(

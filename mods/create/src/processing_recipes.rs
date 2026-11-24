@@ -73,7 +73,8 @@ impl Process {
 #[derive(Default)]
 pub struct RecipeBook {
     by_item: HashMap<(Process, String), Vec<Recipe>>,
-    mixing: Vec<MixingRecipe>,
+    basin: Vec<BasinRecipe>,
+    filling: Vec<FillingRecipe>,
 }
 
 #[derive(Deserialize)]
@@ -118,8 +119,15 @@ pub struct Recipe {
     pub duration: i32,
 }
 
-struct MixingRecipe {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BasinProcess {
+    Mixing,
+    Compacting,
+}
+
+struct BasinRecipe {
     id: String,
+    process: BasinProcess,
     minimum_heat: Heat,
     items: Vec<HashSet<String>>,
     fluids: Vec<(HashSet<String>, u32)>,
@@ -127,7 +135,7 @@ struct MixingRecipe {
     recipe: Recipe,
 }
 
-impl MixingRecipe {
+impl BasinRecipe {
     fn consume(&self, basin: &mut Basin) -> bool {
         self.items
             .iter()
@@ -145,6 +153,13 @@ impl MixingRecipe {
                 .iter()
                 .all(|fluid| basin.put_fluid_result(fluid))
     }
+}
+
+struct FillingRecipe {
+    items: HashSet<String>,
+    fluids: HashSet<String>,
+    amount: u32,
+    output: Value,
 }
 
 static BOOK: Mutex<Option<(u64, Arc<RecipeBook>)>> = Mutex::new(None);
@@ -187,13 +202,18 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
                 .or_insert_with(|| tag_api.values("item", tag).unwrap_or_default())
                 .clone()
         };
-        if raw.recipe_type == "create:mixing" {
-            book.add_mixing(path, raw, &mut values, tag_api);
-        } else {
-            book.add(raw, values);
+        match raw.recipe_type.as_str() {
+            "create:mixing" => {
+                book.add_basin(path, BasinProcess::Mixing, raw, &mut values, tag_api)
+            }
+            "create:compacting" => {
+                book.add_basin(path, BasinProcess::Compacting, raw, &mut values, tag_api)
+            }
+            "create:filling" => book.add_filling(raw, &mut values, tag_api),
+            _ => book.add(raw, values),
         }
     }
-    book.mixing
+    book.basin
         .sort_by_key(|recipe| std::cmp::Reverse(recipe.items.len()));
     Some(book)
 }
@@ -236,9 +256,10 @@ impl RecipeBook {
         }
     }
 
-    fn add_mixing(
+    fn add_basin(
         &mut self,
         id: String,
+        process: BasinProcess,
         raw: RawRecipe,
         tags: &mut impl FnMut(&str) -> Vec<String>,
         tag_api: Tags,
@@ -258,30 +279,10 @@ impl RecipeBook {
             let kind = ingredient.get("type").and_then(Json::as_str);
             let tag = ingredient.get("tag").and_then(Json::as_str);
             if matches!(kind, Some("neoforge:single" | "neoforge:tag")) {
-                let ids: HashSet<String> =
-                    if let Some(id) = ingredient.get("fluid").and_then(Json::as_str) {
-                        HashSet::from([canonical_id(id)])
-                    } else if let Some(tag) = tag {
-                        tag_api
-                            .values("fluid", tag)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .collect()
-                    } else {
-                        return;
-                    };
-                let Some(amount) = ingredient
-                    .get("amount")
-                    .and_then(Json::as_u64)
-                    .and_then(|amount| u32::try_from(amount).ok())
-                    .filter(|amount| *amount > 0)
-                else {
+                let Some(fluid) = read_fluid_ingredient(ingredient, tag_api) else {
                     return;
                 };
-                if ids.is_empty() {
-                    return;
-                }
-                fluids.push((ids, amount));
+                fluids.push(fluid);
                 continue;
             }
             let mut accepted = HashSet::new();
@@ -321,8 +322,9 @@ impl RecipeBook {
                 outputs.push(item);
             }
         }
-        self.mixing.push(MixingRecipe {
+        self.basin.push(BasinRecipe {
             id,
+            process,
             minimum_heat,
             items,
             fluids,
@@ -335,13 +337,14 @@ impl RecipeBook {
         });
     }
 
-    pub fn matching_mixing(&self, basin: &Basin, heat: Heat) -> Option<&str> {
-        self.mixing
-            .iter()
-            .find_map(|recipe| Self::can_mix(recipe, basin, heat).then_some(recipe.id.as_str()))
+    pub fn matching_basin(&self, process: BasinProcess, basin: &Basin, heat: Heat) -> Option<&str> {
+        self.basin.iter().find_map(|recipe| {
+            (recipe.process == process && Self::can_process_basin(recipe, basin, heat))
+                .then_some(recipe.id.as_str())
+        })
     }
 
-    fn can_mix(recipe: &MixingRecipe, basin: &Basin, heat: Heat) -> bool {
+    fn can_process_basin(recipe: &BasinRecipe, basin: &Basin, heat: Heat) -> bool {
         if heat < recipe.minimum_heat {
             return false;
         }
@@ -349,23 +352,23 @@ impl RecipeBook {
         recipe.consume(&mut staged) && recipe.store_results(&mut staged, &recipe.recipe.outputs)
     }
 
-    pub fn mixing_duration(&self, id: &str) -> Option<i32> {
-        self.mixing
+    pub fn basin_duration(&self, id: &str) -> Option<i32> {
+        self.basin
             .iter()
             .find(|recipe| recipe.id == id)
             .map(|recipe| recipe.recipe.duration)
     }
 
-    pub fn can_continue_mixing(&self, id: &str, basin: &Basin, heat: Heat) -> bool {
-        self.mixing
+    pub fn can_continue_basin(&self, id: &str, basin: &Basin, heat: Heat) -> bool {
+        self.basin
             .iter()
             .find(|recipe| recipe.id == id)
-            .is_some_and(|recipe| Self::can_mix(recipe, basin, heat))
+            .is_some_and(|recipe| Self::can_process_basin(recipe, basin, heat))
     }
 
-    pub fn apply_mixing(&self, id: &str, basin: &Basin, heat: Heat) -> Option<Basin> {
+    pub fn apply_basin(&self, id: &str, basin: &Basin, heat: Heat) -> Option<Basin> {
         let recipe = self
-            .mixing
+            .basin
             .iter()
             .find(|recipe| recipe.id == id && heat >= recipe.minimum_heat)?;
         let mut staged = basin.clone();
@@ -374,17 +377,77 @@ impl RecipeBook {
         .then_some(staged)
     }
 
-    pub fn find(&self, process: Process, item: &Value) -> Option<&Recipe> {
-        let key = (process, item_id(item)?.to_owned());
-        self.by_item.get(&key)?.iter().find(|recipe| {
-            recipe.outputs.iter().all(|output| {
-                fastnbt::to_bytes(output)
-                    .ok()
-                    .and_then(|bytes| STACKS.get()?.info(&bytes))
-                    .is_some_and(|info| info.count > 0)
-            })
+    fn add_filling(
+        &mut self,
+        raw: RawRecipe,
+        tags: &mut impl FnMut(&str) -> Vec<String>,
+        tag_api: Tags,
+    ) {
+        let [item, fluid] = raw.ingredients.as_slice() else {
+            return;
+        };
+        let [result] = raw.results.as_slice() else {
+            return;
+        };
+        let Some((fluids, amount)) = read_fluid_ingredient(fluid, tag_api) else {
+            return;
+        };
+        let Some(output) = result.clone().into_nbt() else {
+            return;
+        };
+        let mut items = HashSet::new();
+        read_ingredient(item, tags, &mut items);
+        if !items.is_empty() && is_registered_output(&output) {
+            self.filling.push(FillingRecipe {
+                items,
+                fluids,
+                amount,
+                output,
+            });
+        }
+    }
+
+    pub fn can_fill(&self, item: &str) -> bool {
+        self.filling
+            .iter()
+            .any(|recipe| recipe.items.contains(item))
+    }
+
+    pub fn fill(&self, item: &str, fluid: &FluidStack) -> Option<(u32, Value)> {
+        self.filling.iter().find_map(|recipe| {
+            (recipe.items.contains(item) && recipe.fluids.contains(&fluid.id))
+                .then(|| (recipe.amount, recipe.output.clone()))
         })
     }
+
+    pub fn find(&self, process: Process, item: &Value) -> Option<&Recipe> {
+        let key = (process, item_id(item)?.to_owned());
+        self.by_item
+            .get(&key)?
+            .iter()
+            .find(|recipe| recipe.outputs.iter().all(is_registered_output))
+    }
+}
+
+fn is_registered_output(output: &Value) -> bool {
+    fastnbt::to_bytes(output)
+        .ok()
+        .and_then(|bytes| STACKS.get()?.info(&bytes))
+        .is_some_and(|info| info.count > 0)
+}
+
+fn read_fluid_ingredient(ingredient: &Json, tags: Tags) -> Option<(HashSet<String>, u32)> {
+    let kind = ingredient.get("type")?.as_str()?;
+    let ids: HashSet<_> = match kind {
+        "neoforge:single" => HashSet::from([canonical_id(ingredient.get("fluid")?.as_str()?)]),
+        "neoforge:tag" => tags
+            .values("fluid", ingredient.get("tag")?.as_str()?)?
+            .into_iter()
+            .collect(),
+        _ => return None,
+    };
+    let amount = u32::try_from(ingredient.get("amount")?.as_u64()?).ok()?;
+    (!ids.is_empty() && amount > 0).then_some((ids, amount))
 }
 
 impl ResultStack {

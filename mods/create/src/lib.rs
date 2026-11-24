@@ -1198,6 +1198,8 @@ struct KineticData {
     pointer: Option<fluids::valve::Pointer>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     press: Option<press::PressingData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    basin_recipe: Option<String>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     mixer: Option<mixer::MixerData>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
@@ -1269,6 +1271,7 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     be.valve = data.pointer;
     if let Some(press) = &mut be.press {
         press.data = data.press.unwrap_or_default();
+        press.basin_recipe = data.basin_recipe;
     }
     if kind == Kind::Mixer {
         be.mixer = data.mixer.map(mixer::Mixer::load).map(Box::new);
@@ -1342,6 +1345,10 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         speed: be.speed,
         pointer: be.valve,
         press: be.press.as_ref().map(|press| press.data),
+        basin_recipe: be
+            .press
+            .as_ref()
+            .and_then(|press| press.basin_recipe.clone()),
         mixer: be.mixer.as_ref().map(|mixer| mixer.data.clone()),
         millstone: be.millstone.as_ref().map(|millstone| millstone.save()),
         bearing: be.bearing.as_ref().map(|bearing| bearing.data.clone()),
@@ -1551,7 +1558,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         fluids::runtime::pressure_tick(world, kinetics, events, valve_changed);
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
-        press::tick(world, kinetics);
+        press::tick(world, states, kinetics);
         blaze_burner::tick(world, &mut kinetics.blaze_burners);
         mixer::tick(world, time, states, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);

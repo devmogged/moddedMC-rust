@@ -1,0 +1,72 @@
+# A press compacts the cake base. The spout waits for 250 mB of lava across restart.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1029.5 100 1026.5 90 45
+wait 5
+cmd fill 1021 100 1021 1034 106 1032 minecraft:air
+cmd fill 1021 99 1021 1034 99 1032 minecraft:stone
+cmd tp tester 1029.5 100 1026.5 90 45
+cmd gamemode survival tester
+cmd setblock 1027 100 1026 create:basin
+cmd setblock 1027 102 1026 create:mechanical_press[facing=east]
+cmd setblock 1026 102 1026 create:creative_motor[facing=east]
+cmd setblock 1031 100 1026 create:depot
+cmd setblock 1031 102 1026 create:spout
+wait 0.5
+cmd kinetics 1026 102 1026 128
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"minecraft:egg",count:1},PickupDelay:32767s}
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"minecraft:sugar",count:1},PickupDelay:32767s}
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"create:cinder_flour",count:1},PickupDelay:32767s}
+wait 4
+cmd data get block 1027 100 1026 OutputItems.Items[0].id
+wait 0.5
+expect create:blaze_cake_base
+cmd data get block 1027 100 1026 InputItems.Items[0].id
+wait 0.5
+expect Found no elements matching InputItems
+bot use 1027 100 1026
+wait 0.5
+cmd clear tester create:blaze_cake_base 0
+wait 0.5
+expect Found 1 matching item
+cmd data merge block 1031 102 1026 {Tanks:[{TankContent:{Fluid:{id:"minecraft:lava",amount:249}}}]}
+bot use 1031 100 1026
+wait 4
+cmd data get block 1031 100 1026 HeldItem.Item.id
+wait 0.5
+expect create:blaze_cake_base
+cmd data get block 1031 102 1026 Tanks[0].TankContent.Fluid.amount
+wait 0.5
+expect block data: 249
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd data get block 1031 100 1026 HeldItem.Item.id
+wait 0.5
+expect create:blaze_cake_base
+cmd data get block 1031 102 1026 Tanks[0].TankContent.Fluid.amount
+wait 0.5
+expect block data: 249
+cmd data merge block 1031 102 1026 {Tanks:[{TankContent:{Fluid:{id:"minecraft:lava",amount:250}}}]}
+wait 3
+cmd data get block 1031 100 1026 HeldItem.Item.id
+wait 0.5
+expect create:blaze_cake"
+cmd data get block 1031 102 1026 Tanks[0].TankContent.Fluid
+wait 0.5
+expect Found no elements matching Tanks
+bot use 1031 100 1026
+wait 0.5
+cmd clear tester create:blaze_cake 0
+wait 0.5
+expect Found 1 matching item
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

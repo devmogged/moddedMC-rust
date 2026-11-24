@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     BLOCK_DISPLAYS, CONTENT, ITEMS, STONE, StateIds, basin,
     kinetics::{Kind, Kinetics, offset},
-    processing_recipes::RecipeBook,
+    processing_recipes::{BasinProcess, RecipeBook},
 };
 
 pub const ID: &str = "create:mechanical_mixer";
@@ -239,7 +239,7 @@ impl MixerData {
         let Some(recipe) = self.recipe.as_deref() else {
             let heat = crate::blaze_burner::heat_at(world, offset(basin_pos, [0, -1, 0]));
             if let Some(recipe) = basin::Basin::load(world, basin_pos)
-                .and_then(|basin| book.matching_mixing(&basin, heat))
+                .and_then(|basin| book.matching_basin(BasinProcess::Mixing, &basin, heat))
             {
                 self.recipe = Some(recipe.to_owned());
             }
@@ -258,7 +258,7 @@ impl MixerData {
             self.ticks += 1;
             return;
         }
-        let Some(duration) = book.mixing_duration(recipe) else {
+        let Some(duration) = book.basin_duration(recipe) else {
             self.ticks += 1;
             return;
         };
@@ -282,9 +282,9 @@ impl MixerData {
         self.ticks += 1;
         let heat = crate::blaze_burner::heat_at(world, offset(basin_pos, [0, -1, 0]));
         if let Some(mut basin) = basin::Basin::load(world, basin_pos)
-            .and_then(|basin| book.apply_mixing(recipe, &basin, heat))
+            .and_then(|basin| book.apply_basin(recipe, &basin, heat))
             && basin.save(world, basin_pos)
-            && book.can_continue_mixing(recipe, &basin, heat)
+            && book.can_continue_basin(recipe, &basin, heat)
         {
             self.ticks = PROCESSING_STROKE;
         }

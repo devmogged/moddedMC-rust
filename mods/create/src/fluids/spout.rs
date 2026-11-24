@@ -86,9 +86,15 @@ impl Spout {
         if item.locked && (self.filled_this_tick || !matches!(self.ticks, IDLE | FILL_TICK)) {
             return Hold;
         }
-        let Some(id @ ("minecraft:bucket" | "minecraft:glass_bottle")) = item_id(&item.item) else {
+        let Some(id) = item_id(&item.item) else {
             return Pass;
         };
+        let recipes = crate::processing_recipes::current();
+        if !matches!(id, "minecraft:bucket" | "minecraft:glass_bottle")
+            && !recipes.as_ref().is_some_and(|recipes| recipes.can_fill(id))
+        {
+            return Pass;
+        }
         let Some(mut data) = smart_tank::read(world, pos) else {
             return Pass;
         };
@@ -98,7 +104,11 @@ impl Spout {
         let Some(fluid) = tank.fluid() else {
             return Hold;
         };
-        let Some((amount, output)) = filled_container(id, fluid) else {
+        let Some((amount, output)) = recipes
+            .as_ref()
+            .and_then(|recipes| recipes.fill(id, fluid))
+            .or_else(|| filled_container(id, fluid))
+        else {
             return Pass;
         };
         if !item.locked || fluid.amount < amount {
