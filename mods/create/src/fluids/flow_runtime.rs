@@ -2,7 +2,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use moddedmc_api::{Pos, content::World};
+use moddedmc_api::{
+    Pos,
+    content::{self, BlockUpdate, World},
+};
 
 use super::{
     item_drain,
@@ -14,7 +17,7 @@ use super::{
     tank::TankInventory,
     tank_connectivity::Connectivity,
     tank_runtime,
-    transport::Transport,
+    transport::{TickOutcome, Transport},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -175,8 +178,19 @@ impl FlowRuntime {
             ));
         }
         for (pos, provided) in provided {
-            if let Some(pipe) = self.pipes.get_mut(&pos) {
-                pipe.tick(&provided);
+            if let Some(TickOutcome::Collision { first, second }) =
+                self.pipes.get_mut(&pos).map(|pipe| pipe.tick(&provided))
+                && world.destroy(pos, true)
+            {
+                self.pipes.remove(&pos);
+                self.networks.clear();
+                if let Some(state) = collision_state(&first.id, &second.id) {
+                    world.write(&[BlockUpdate {
+                        position: pos,
+                        state,
+                        flags: content::UPDATE_ALL,
+                    }]);
+                }
             }
         }
 
@@ -216,6 +230,20 @@ impl FlowRuntime {
             }
         }
     }
+}
+
+fn collision_state(first: &str, second: &str) -> Option<u32> {
+    let other = match (first, second) {
+        ("minecraft:lava", other) | (other, "minecraft:lava") => other,
+        _ => return None,
+    };
+    let result = match other {
+        "minecraft:water" => "minecraft:cobblestone",
+        "create:honey" => "create:limestone",
+        "create:chocolate" => "create:scoria",
+        _ => return None,
+    };
+    crate::CONTENT.get()?.state(result)
 }
 
 fn face_order(face: &BlockFace) -> (i32, i32, i32, u8) {
