@@ -320,3 +320,42 @@ pub fn use_block(
     be.dirty = true;
     BlockUseResult::Success
 }
+
+/// The Deployer item handler has one held stack. Only identical stacks merge.
+pub fn insert(
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    incoming: &TransportedItemStack,
+    simulate: bool,
+) -> Option<i32> {
+    let be = kinetics.get_mut(pos)?;
+    let deployer = be.deployer.as_mut()?;
+    let held = deployer.held_item.as_ref();
+    if held.is_some_and(|held| with_count(held, 1) != with_count(&incoming.item, 1)) {
+        return Some(0);
+    }
+    let stored = held.map_or(0, count);
+    let accepted = count(&incoming.item).min((incoming.max_count() - stored).max(0));
+    if !simulate && accepted > 0 {
+        deployer.held_item = Some(with_count(&incoming.item, stored + accepted));
+        be.dirty = true;
+    }
+    Some(accepted)
+}
+
+pub fn extract(kinetics: &mut Kinetics, pos: Pos, limit: i32, simulate: bool) -> Option<Value> {
+    let be = kinetics.get_mut(pos)?;
+    let deployer = be.deployer.as_mut()?;
+    let item = deployer.held_item.as_ref()?;
+    let extracted = count(item).min(limit);
+    if extracted <= 0 {
+        return None;
+    }
+    let stack = with_count(item, extracted);
+    if !simulate {
+        let remaining = count(item) - extracted;
+        deployer.held_item = (remaining > 0).then(|| with_count(item, remaining));
+        be.dirty = true;
+    }
+    Some(stack)
+}

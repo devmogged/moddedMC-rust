@@ -402,6 +402,9 @@ pub fn insert(
     if kinetics.kind(pos) == Some(Kind::Millstone) {
         return crate::millstone::insert(kinetics, pos, &item.item, simulate);
     }
+    if let Some(accepted) = crate::deployer::insert(kinetics, pos, item, simulate) {
+        return accepted;
+    }
     if kinetics.crushers.contains_key(&pos) {
         return crate::crusher::insert(kinetics, pos, &item.item, simulate);
     }
@@ -438,6 +441,9 @@ fn extract(
     }
     if kinetics.kind(pos) == Some(Kind::Millstone) {
         return crate::millstone::extract(kinetics, pos, amount, simulate);
+    }
+    if matches!(kinetics.kind(pos), Some(Kind::Deployer { .. })) {
+        return crate::deployer::extract(kinetics, pos, amount, simulate);
     }
     if let Some(item) = crate::basin::extract(world, pos, amount, simulate) {
         return Some(item);

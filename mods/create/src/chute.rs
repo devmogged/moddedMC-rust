@@ -593,6 +593,8 @@ fn handle_downward_output(
         Some(crate::millstone::insert(
             kinetics, below, &item.item, simulate,
         ))
+    } else if let Some(accepted) = crate::deployer::insert(kinetics, below, item, simulate) {
+        Some(accepted)
     } else if crate::crusher::is_controller(kinetics, below, DOWN) {
         Some(crate::crusher::insert(
             kinetics, below, &item.item, simulate,
@@ -660,6 +662,9 @@ fn extract_from_above(world: World<'_>, kinetics: &mut Kinetics, pos: Pos) -> Op
     }
     if kinetics.kind(source) == Some(Kind::Millstone) {
         return crate::millstone::extract(kinetics, source, EXTRACTION_AMOUNT as i32, false);
+    }
+    if matches!(kinetics.kind(source), Some(Kind::Deployer { .. })) {
+        return crate::deployer::extract(kinetics, source, EXTRACTION_AMOUNT as i32, false);
     }
     if let Some(item) = crate::basin::extract(world, source, EXTRACTION_AMOUNT as i32, false) {
         return Some(item);
