@@ -79,6 +79,8 @@ pub enum InteractionExtension {
     Redstone,
     /// `Interaction::on_vanilla_use_on_block`.
     VanillaItemUse,
+    /// `UseBlock::place_held_block`.
+    PlaceHeldBlock,
 }
 
 /// Vanilla `getSignal` (or `getDirectSignal` when `direct`) for one of the mod's blocks.
@@ -245,6 +247,14 @@ impl UseBlock<'_> {
         // SAFETY: the player is live for this callback and the bytes are borrowed for the call.
         unsafe { (self.api.give)(self.raw_player, abi::Str::new(stack)) }
     }
+
+    /// Place the held block at the center of a clicked face. The caller spends the item on success.
+    pub fn place_held_block(&self, clicked: Pos, face: u8) -> bool {
+        // SAFETY: the size check covers the appended function and the player is borrowed.
+        self.api.size
+            >= std::mem::offset_of!(abi::InteractionV1, place_held_block) + size_of::<usize>()
+            && unsafe { (self.api.place_held_block)(self.raw_player, clicked, face) }
+    }
 }
 
 impl Interaction {
@@ -268,6 +278,10 @@ impl Interaction {
             InteractionExtension::VanillaItemUse => (
                 std::mem::offset_of!(abi::InteractionV1, on_vanilla_use_on_block),
                 "moddedmc:interaction.vanilla_item_use",
+            ),
+            InteractionExtension::PlaceHeldBlock => (
+                std::mem::offset_of!(abi::InteractionV1, place_held_block),
+                "moddedmc:interaction.place_held_block",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {

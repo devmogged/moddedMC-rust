@@ -17,6 +17,18 @@ wait 0.5
 expect Tank\(empty 0/32000 mB\)
 cmd item replace entity tester weapon.mainhand with create:fluid_tank 8
 wait 0.5
+cmd tp tester 3101.5 99 3101.5 0 90
+wait 0.5
+bot use 3101 98 3101 up
+wait 0.5
+cmd clear tester create:fluid_tank 0
+wait 0.5
+expect Found 8 matching item
+cmd execute if block 3100 99 3100 minecraft:air if block 3101 99 3101 minecraft:air
+wait 0.5
+expect Test passed
+cmd tp tester 3102.5 99 3099.5 0 40
+wait 0.5
 bot use 3101 98 3101 up
 wait 1
 cmd fluidpipe 3100 99 3101
@@ -45,6 +57,17 @@ expect \[bot\] joined as tester
 cmd fluidpipe 3101 98 3100
 wait 0.5
 expect Tank\(empty 0/64000 mB\)
+cmd fill 3100 97 3100 3101 97 3101 minecraft:air
+cmd item replace entity tester weapon.mainhand with create:fluid_tank 8
+wait 0.5
+bot use 3101 98 3101 down
+wait 1
+cmd clear tester create:fluid_tank 0
+wait 0.5
+expect Found 4 matching item
+cmd fluidpipe 3101 97 3101
+wait 0.5
+expect bottom=true,shape=window_se,top=false.*Tank\(empty 0/96000 mB\)
 reject (?i)panicked|trapped|invalid tank split|failed to register|\[bot\] error
 bot quit
 stop

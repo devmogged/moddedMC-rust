@@ -15,6 +15,7 @@ use pumpkin_data::{
     item_stack::ItemStack,
 };
 use pumpkin_nbt::{compound::NbtCompound, tag::NbtTag};
+use pumpkin_protocol::{codec::var_int::VarInt, java::server::play::SUseItemOn};
 use pumpkin_util::{
     Hand,
     math::{position::BlockPos, vector3::Vector3},
@@ -37,6 +38,7 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     on_player_will_destroy: crate::content::on_player_will_destroy,
     on_redstone: crate::content::on_redstone,
     on_vanilla_use_on_block: crate::content::on_vanilla_use_on_block,
+    place_held_block,
 };
 
 /// The `custom_data` key that holds a mod's bytes on its item stacks.
@@ -221,6 +223,54 @@ struct HandUse {
 
 thread_local! {
     static HAND_USE: Cell<Option<HandUse>> = const { Cell::new(None) };
+}
+
+unsafe extern "C" fn place_held_block(raw: abi::EntityRef, clicked: abi::Pos, face: u8) -> bool {
+    // SAFETY: the player is live for this callback.
+    let Some(player) = (unsafe { crate::content::entity(raw) }).and_then(EntityBase::get_player)
+    else {
+        return false;
+    };
+    let Some(used) = HAND_USE.get().filter(|used| ptr::eq(used.player, player)) else {
+        return false;
+    };
+    let Some(face) = BlockDirection::all().get(usize::from(face)).copied() else {
+        return false;
+    };
+    // SAFETY: HAND_USE keeps the stack borrowed for the outer callback.
+    let Some(block) = unsafe { used.stack.as_ref() }
+        .filter(|stack| !stack.is_empty())
+        .and_then(|stack| Block::from_item_id(stack.item.id))
+    else {
+        return false;
+    };
+    let world = player.world();
+    let (Some(player), Some(server)) = (
+        world.get_player_by_id(player.entity_id()),
+        world.server.upgrade(),
+    ) else {
+        return false;
+    };
+    let position = crate::content::block_pos(clicked);
+    let normal = face.to_offset();
+    let center = |delta| match delta {
+        -1 => 0.0,
+        1 => 1.0,
+        _ => 0.5,
+    };
+    let hit = SUseItemOn {
+        hand: VarInt(i32::from(used.hand == Hand::Left)),
+        position,
+        face: VarInt(i32::from(face.to_index())),
+        cursor_pos: Vector3::new(center(normal.x), center(normal.y), center(normal.z)),
+        inside_block: false,
+        is_against_world_border: false,
+        sequence: VarInt(0),
+    };
+    server
+        .block_registry
+        .place_block(&player, block, &server, &hit, position, face)
+        .is_ok_and(|placed| placed.is_some())
 }
 
 unsafe extern "C" fn give(player: abi::EntityRef, nbt: Str) -> bool {

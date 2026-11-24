@@ -916,6 +916,8 @@ pub struct InteractionV1 {
     ) -> i32,
     /// One callback per mod, before the vanilla item behaviour. PASS continues dispatch.
     pub on_vanilla_use_on_block: unsafe extern "C" fn(reg: Reg, callback: UseOnBlockFn) -> i32,
+    /// Place the current hand's block through normal player placement. The caller spends items.
+    pub place_held_block: unsafe extern "C" fn(player: EntityRef, clicked: Pos, face: u8) -> bool,
 }
 
 /// Vanilla `BlockState.getSignal(level, pos, direction)`, or `getDirectSignal` when `direct`, for

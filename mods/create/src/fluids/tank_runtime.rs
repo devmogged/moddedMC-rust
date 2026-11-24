@@ -280,44 +280,48 @@ fn multi_place(
     if context.position.y + step != y {
         return None;
     }
-    let (content, states) = CONTENT.get().zip(crate::STATES.get())?;
-    let placed = content.state(&format!("{ID}[bottom=true,shape=window,top=true]"))?;
+    let states = crate::STATES.get()?;
     let layer: Vec<_> = parts(Pos { y, ..owner }, tank.width(), 1).collect();
     let mut current = vec![content::UNLOADED_STATE; layer.len()];
     if !world.read(&layer, &mut current) {
         return None;
     }
-    let mut updates = Vec::new();
+    let destination = offset(context.position, [0, step, 0]);
+    let mut positions = Vec::new();
     for (position, state) in layer.into_iter().zip(current) {
         if super::runtime::is_tank(state) {
+            if position == destination {
+                return None;
+            }
             continue;
         }
         if !states.replaceable.contains(&state) {
             return None;
         }
-        updates.push(BlockUpdate {
-            position,
-            state: placed,
-            flags: content::UPDATE_ALL,
-        });
+        positions.push(position);
     }
-    let count = u32::try_from(updates.len()).ok()?;
-    if count == 0 || (!context.creative && context.stack.count() < count) {
+    let count = u32::try_from(positions.len()).ok()?;
+    if !context.creative && context.stack.count() < count {
         return None;
     }
-    if world.write(&updates) != updates.len() {
-        return None;
+    if !context.place_held_block(context.position, context.face) {
+        return Some(BlockUseResult::Fail);
     }
     if !context.creative {
-        context.stack.shrink(count);
+        context.stack.shrink(1);
+    }
+    for position in positions.into_iter().filter(|&pos| pos != destination) {
+        let clicked = offset(position, [0, -step, 0]);
+        if context.place_held_block(clicked, context.face) && !context.creative {
+            context.stack.shrink(1);
+        }
     }
     // BlockItem.place sounds once; Create silences the extra parts.
     if let Some(&effects) = crate::EFFECTS.get() {
-        let first = updates[0].position;
         let center = [
-            f64::from(first.x) + 0.5,
-            f64::from(first.y) + 0.5,
-            f64::from(first.z) + 0.5,
+            f64::from(destination.x) + 0.5,
+            f64::from(destination.y) + 0.5,
+            f64::from(destination.z) + 0.5,
         ];
         effects.play_sound(world, center, PLACE_SOUND, SOUND_BLOCKS, 1.0, 0.8);
     }

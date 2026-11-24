@@ -135,6 +135,7 @@ impl Mod for Create {
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
         interaction.require_extension(InteractionExtension::VanillaItemUse)?;
+        interaction.require_extension(InteractionExtension::PlaceHeldBlock)?;
         interaction.require_extension(InteractionExtension::Redstone)?;
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
         let _ = INTERACTION.set(interaction);
