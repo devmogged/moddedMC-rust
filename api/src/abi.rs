@@ -460,6 +460,8 @@ pub const UPDATE_ALL: u8 = UPDATE_NEIGHBORS | UPDATE_CLIENTS;
 /// removed without its side effects, so a captured container doesn't scatter. Hosts before it
 /// reject the whole batch.
 pub const UPDATE_MOVED: u8 = 4;
+/// Skip neighbour shape updates. Requires the fluid world tick-control extension.
+pub const UPDATE_KNOWN_SHAPE: u8 = 8;
 
 #[repr(C)]
 pub struct StateDefinition {
@@ -663,6 +665,8 @@ pub const FLUID_SOURCE: u32 = 1;
 pub const FLUID_REPLACEABLE: u32 = 2;
 pub const FLUID_HAS_WATERLOGGED: u32 = 4;
 pub const FLUID_WATERLOGGED: u32 = 8;
+pub const FLUID_LIQUID_BLOCK: u32 = 16;
+pub const FLUID_BLOCKS_MOTION: u32 = 32;
 /// Request the fluid's normal delay for the dimension.
 pub const DEFAULT_FLUID_TICK_DELAY: u32 = u32::MAX;
 
@@ -686,6 +690,13 @@ pub struct FluidWorldV1 {
     pub would_regenerate_source: unsafe extern "C" fn(world: WorldRef, pos: Pos, fluid: Str) -> i32,
     /// Vanilla 26.3 WATER_EVAPORATES environment attribute.
     pub water_evaporates: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
+}
+
+#[repr(C)]
+pub struct FluidWorldV1TickControl {
+    pub base: FluidWorldV1,
+    /// Clear pending fluid ticks at a loaded position.
+    pub clear_ticks: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
 }
 
 pub const ENTITIES: &str = "moddedmc:entities";

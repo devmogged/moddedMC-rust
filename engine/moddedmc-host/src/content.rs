@@ -1037,7 +1037,8 @@ unsafe extern "C" fn write(raw: WorldRef, updates: *const BlockUpdate, count: us
         .map(|update| {
             let pos = block_pos(update.position);
             let state = BlockStateId::from_runtime_id(u16::try_from(update.state).ok()?)?;
-            if update.flags & !(abi::UPDATE_ALL | abi::UPDATE_MOVED) != 0 {
+            if update.flags & !(abi::UPDATE_ALL | abi::UPDATE_MOVED | abi::UPDATE_KNOWN_SHAPE) != 0
+            {
                 return None;
             }
             let mut flags = BlockFlags::from_bits(u32::from(update.flags & abi::UPDATE_ALL))?;
@@ -1045,6 +1046,9 @@ unsafe extern "C" fn write(raw: WorldRef, updates: *const BlockUpdate, count: us
                 flags |= BlockFlags::MOVED
                     | BlockFlags::SKIP_DROPS
                     | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK;
+            }
+            if update.flags & abi::UPDATE_KNOWN_SHAPE != 0 {
+                flags |= BlockFlags::UPDATE_KNOWN_SHAPE;
             }
             world.get_block_state_id_if_loaded(&pos)?;
             Some((pos, state, flags))

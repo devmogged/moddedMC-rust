@@ -8,6 +8,7 @@ use moddedmc_api::{
 };
 
 use super::{
+    hose_pulley::{self, HosePulleys, HoseTransfer},
     item_drain,
     network::{FluidHandler, transfer_tick},
     network_graph::{BlockFace, FluidNetworkGraph, NetworkTopology, Source},
@@ -25,6 +26,7 @@ pub(super) enum EndpointKind {
     Tank,
     ItemDrain,
     Spout,
+    Hose(u8),
 }
 
 impl EndpointKind {
@@ -33,6 +35,7 @@ impl EndpointKind {
             Self::Tank => true,
             Self::ItemDrain => face != 1,
             Self::Spout => face != 0,
+            Self::Hose(facing) => face == hose_pulley::pipe_side(facing),
         }
     }
 
@@ -41,6 +44,7 @@ impl EndpointKind {
             Self::Tank => tank_runtime::load(world, pos),
             Self::ItemDrain => item_drain::load(world, pos),
             Self::Spout => spout::load_tank(world, pos),
+            Self::Hose(_) => hose_pulley::load_tank(world, pos),
         }
     }
 
@@ -48,6 +52,7 @@ impl EndpointKind {
         match self {
             Self::Tank => tank_runtime::save(world, pos, tank),
             Self::ItemDrain | Self::Spout => smart_tank::save(world, pos, tank),
+            Self::Hose(_) => false,
         }
     }
 }
@@ -96,6 +101,7 @@ impl FlowRuntime {
         world: World<'_>,
         endpoint_states: &HashMap<u32, EndpointKind>,
         connectivity: &Connectivity,
+        pulleys: &mut HosePulleys,
         is_transport: impl Fn(u32) -> bool,
     ) {
         if self.pipes.is_empty() {
@@ -159,10 +165,15 @@ impl FlowRuntime {
                     if let Some((kind, tank)) =
                         owners.get(&adjacent.pos).and_then(|owner| tanks.get(owner))
                     {
-                        return kind
-                            .accessible(adjacent.side)
-                            .then(|| tank.fluid().cloned())
-                            .flatten();
+                        if !kind.accessible(adjacent.side) {
+                            return None;
+                        }
+                        return tank.fluid().cloned().or_else(|| {
+                            matches!(kind, EndpointKind::Hose(_))
+                                .then(|| pulleys.get(&adjacent.pos))
+                                .flatten()
+                                .and_then(|pulley| HoseTransfer::source_fluid(world, pulley))
+                        });
                     }
                     let state = checked[&adjacent.pos];
                     if endpoint_states.contains_key(&state) || is_transport(state) {
@@ -226,7 +237,7 @@ impl FlowRuntime {
         for face in starts {
             let graph = &self.networks[&face];
             if let Some(fluid) = &graph.fluid {
-                move_fluid(world, &mut tanks, &owners, &open, graph, fluid);
+                move_fluid(world, &mut tanks, &owners, &open, pulleys, graph, fluid);
             }
         }
     }
@@ -291,13 +302,15 @@ impl NetworkTopology for Topology<'_> {
 enum Storage {
     Tank(Pos, EndpointKind),
     Open(OpenEnd),
+    Hose(HoseTransfer),
 }
 
 impl Storage {
-    fn save(&self, world: World<'_>, tank: &TankInventory) -> bool {
+    fn save(&self, world: World<'_>, tank: &TankInventory, pulleys: &mut HosePulleys) -> bool {
         match self {
             Self::Tank(pos, kind) => kind.save(world, *pos, tank),
             Self::Open(end) => end.save(world, tank),
+            Self::Hose(hose) => hose.save(world, tank, pulleys),
         }
     }
 
@@ -305,6 +318,7 @@ impl Storage {
         match self {
             Self::Tank(pos, kind) => kind.save(world, *pos, tank),
             Self::Open(end) => end.refund(world, tank),
+            Self::Hose(hose) => hose.refund(world, tank),
         }
     }
 
@@ -320,6 +334,7 @@ fn move_fluid(
     tanks: &mut Endpoints,
     owners: &EndpointOwners,
     open: &HashSet<BlockFace>,
+    pulleys: &mut HosePulleys,
     graph: &FluidNetworkGraph,
     fluid: &FluidStack,
 ) {
@@ -329,7 +344,14 @@ fn move_fluid(
         && let Some((kind, tank)) = tanks.get(&owner)
     {
         seen_tanks.insert(owner);
-        (Storage::Tank(owner, *kind), tank.clone())
+        if matches!(kind, EndpointKind::Hose(_)) {
+            let Some((hose, tank)) = HoseTransfer::source(world, owner, pulleys.get(&owner)) else {
+                return;
+            };
+            (Storage::Hose(hose), tank)
+        } else {
+            (Storage::Tank(owner, *kind), tank.clone())
+        }
     } else if open.contains(&graph.start)
         && let Some(cell) = open_cell(world, graph.start)
         && let Some((end, tank)) = OpenEnd::source(world, graph.start, &cell)
@@ -361,7 +383,13 @@ fn move_fluid(
                 if *kind == EndpointKind::ItemDrain || !seen_tanks.insert(owner) {
                     return None;
                 }
-                (Storage::Tank(owner, *kind), tank.clone())
+                if matches!(kind, EndpointKind::Hose(_)) {
+                    let (hose, tank) =
+                        HoseTransfer::target(world, owner, pulleys.get_mut(&owner), fluid)?;
+                    (Storage::Hose(hose), tank)
+                } else {
+                    (Storage::Tank(owner, *kind), tank.clone())
+                }
             } else if open.contains(&face) {
                 let cell = open_cell(world, face)?;
                 let (end, tank) = OpenEnd::target(world, face, &cell, fluid)?;
@@ -382,7 +410,7 @@ fn move_fluid(
         fluid,
         graph.transfer_speed as f32 * 2.0,
     );
-    if moved == 0 || !source.save(world, &updated_source) {
+    if moved == 0 || !source.save(world, &updated_source, pulleys) {
         return;
     }
 
@@ -391,7 +419,7 @@ fn move_fluid(
     for (storage, before, tank) in targets {
         let received = tank.amount() - before;
         if received > 0 {
-            if storage.save(world, &tank) {
+            if storage.save(world, &tank, pulleys) {
                 storage.update_cache(tanks, tank);
             } else {
                 returned += received;

@@ -4,6 +4,7 @@ pub mod blocks;
 pub mod connection_nbt;
 mod flow_runtime;
 pub mod flow_source;
+pub(crate) mod hose_pulley;
 pub(crate) mod item_drain;
 pub mod network;
 pub mod network_graph;

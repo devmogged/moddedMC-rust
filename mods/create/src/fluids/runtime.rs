@@ -14,7 +14,7 @@ use moddedmc_api::{
 use super::{
     blocks::PipeState,
     flow_runtime::{EndpointKind, FlowRuntime},
-    item_drain,
+    hose_pulley, item_drain,
     network_graph::BlockFace,
     open_end_runtime::open_cell,
     pipe_states::{OpenFaces, update_block_state},
@@ -70,6 +70,9 @@ impl StateIndex {
                         .map(|id| (id, EndpointKind::ItemDrain)),
                 )
                 .chain(content.state(spout::ID).map(|id| (id, EndpointKind::Spout)))
+                .chain(hose_pulley::FACINGS.into_iter().filter_map(|facing| {
+                    hose_pulley::state(content, facing).map(|id| (id, EndpointKind::Hose(facing)))
+                }))
                 .collect(),
         };
         for mask in 0..64u8 {
@@ -175,7 +178,7 @@ pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
         EndpointKind::ItemDrain => crate::with_world(context.world, |kinetics| {
             item_drain::use_item_on(&mut kinetics.item_drains, context)
         }),
-        EndpointKind::Spout => return None,
+        EndpointKind::Spout | EndpointKind::Hose(_) => return None,
     })
 }
 
@@ -221,6 +224,10 @@ fn neighbor_connections(world: World<'_>, ids: &StateIndex, pos: Pos) -> Option<
     Some(std::array::from_fn(|face| {
         ids.can_connect_to(states[face], face as u8)
     }))
+}
+
+pub(super) fn hose_pipe_neighbors(world: World<'_>, pos: Pos) -> Option<OpenFaces> {
+    neighbor_connections(world, index()?, pos)
 }
 
 fn current_water(world: World<'_>, ids: &StateIndex, pos: Pos) -> Option<bool> {
@@ -523,7 +530,7 @@ fn add_pressure(map: &mut HashMap<(Pos, u8), [f32; 2]>, face: super::pump_graph:
 /// Advance fluid networks after the pump pressure update.
 pub fn pressure_tick(
     world: World<'_>,
-    kinetics: &Kinetics,
+    kinetics: &mut Kinetics,
     events: &[ContentEvent],
     valve_changed: bool,
 ) {
@@ -608,11 +615,13 @@ pub fn pressure_tick(
         pressure.pumps = pumps;
         pressure.faces = faces;
     }
-    pressure
-        .flow
-        .tick(world, &states.endpoints, &kinetics.fluid_tanks, |state| {
-            states.kinds.contains_key(&state)
-        });
+    pressure.flow.tick(
+        world,
+        &states.endpoints,
+        &kinetics.fluid_tanks,
+        &mut kinetics.hose_pulleys,
+        |state| states.kinds.contains_key(&state),
+    );
 }
 
 pub fn tick_valves(world: World<'_>, kinetics: &mut Kinetics) -> bool {

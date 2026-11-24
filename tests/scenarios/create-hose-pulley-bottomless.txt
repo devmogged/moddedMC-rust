@@ -1,0 +1,66 @@
+# A tagged lake above the 10,000-block threshold supplies water without deleting a source.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1027.5 191 1023.5 0 0
+cmd forceload add 1008 1008 1047 1047
+wait 8
+cmd gamerule minecraft:water_source_conversion false
+wait 0.5
+expect water_source_conversion.*false
+cmd setblock 1027 179 1026 minecraft:stone
+cmd setblock 1027 190 1026 create:hose_pulley[facing=north]
+cmd setblock 1028 190 1026 create:creative_motor[facing=west]
+cmd setblock 1023 188 1023 create:creative_motor[facing=east]
+cmd setblock 1024 188 1023 create:shaft[axis=x,waterlogged=false]
+cmd setblock 1025 188 1023 create:large_cogwheel[axis=x,waterlogged=false]
+cmd setblock 1025 189 1024 create:cogwheel[axis=x,waterlogged=false]
+cmd setblock 1025 190 1024 create:cogwheel[axis=x,waterlogged=false]
+cmd setblock 1025 190 1025 create:cogwheel[axis=x,waterlogged=false]
+cmd setblock 1025 190 1026 create:mechanical_pump[facing=west,waterlogged=false]
+cmd setblock 1026 190 1026 create:fluid_pipe[down=false,up=false,north=false,south=false,west=true,east=true,waterlogged=false]
+cmd setblock 1024 190 1026 create:fluid_tank
+wait 2
+cmd kinetics 1028 190 1026 -64
+cmd kinetics 1023 188 1023 64
+wait 5
+cmd data get block 1027 190 1026 Offset.Value
+wait 0.5
+expect block data: 10f
+cmd fill 1008 179 1008 1047 179 1047 minecraft:stone strict
+cmd fill 1008 180 1008 1047 186 1047 minecraft:water strict
+wait 20
+expect Successfully filled 11200 block
+cmd fluidpipe 1024 190 1026
+wait 0.5
+expect Tank\(minecraft:water 8000/8000 mB\)
+cmd execute if block 1008 186 1008 minecraft:water[level=0] if block 1008 186 1047 minecraft:water[level=0] if block 1047 186 1008 minecraft:water[level=0] if block 1047 186 1047 minecraft:water[level=0]
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 1027 190 1026 Offset.Value
+wait 0.5
+expect block data: 10f
+cmd fluidpipe 1024 190 1026
+wait 0.5
+expect Tank\(minecraft:water 8000/8000 mB\)
+cmd setblock 1025 190 1026 create:mechanical_pump[facing=east,waterlogged=false]
+wait 10
+cmd fluidpipe 1024 190 1026
+wait 0.5
+expect Tank\(empty 0/8000 mB\)
+cmd execute if block 1008 187 1008 minecraft:air if block 1047 187 1047 minecraft:air
+wait 0.5
+expect Test passed
+bot quit
+stop

@@ -185,6 +185,7 @@ impl Mod for Create {
         fluids::item_drain::register(*content, registry)?;
         fluids::spout::register(*content, registry)?;
         fluids::valve::register(*content, registry)?;
+        fluids::hose_pulley::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
         piston::register(*content, registry)?;
@@ -831,6 +832,14 @@ fn states() -> Option<&'static StateIds> {
                 Some(Kind::Valve(valve.shaft_axis())),
             );
         }
+        for facing in fluids::hose_pulley::FACINGS {
+            ids.add(
+                content,
+                fluids::hose_pulley::ID,
+                &format!("facing={}", DIRECTIONS[usize::from(facing)]),
+                Some(Kind::HosePulley(facing)),
+            );
+        }
         for (index, axis) in AXES.into_iter().enumerate() {
             let axis_index = index as u8;
             ids.add(
@@ -985,6 +994,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::HosePulley(_)) => {
+            return fluids::hose_pulley::placed_state(&args, &ids, states);
+        }
         None if placed.block == sticker::ID => {
             return sticker::placed_state(
                 args.world,
@@ -1421,6 +1433,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             // WS-2: recalculate fluid pipe faces when adjacent blocks change.
             fluids::runtime::event(world, event);
             fluids::item_drain::event(world, &mut kinetics.item_drains, event);
+            fluids::hose_pulley::event(world, &mut kinetics.hose_pulleys, event);
             fluids::spout::event(world, &mut kinetics.spouts, event);
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
@@ -1509,6 +1522,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         kinetics.fluid_tanks.tick(world, time, events);
         // WS-2: distribute pump RPM as directional pipe pressures.
         let valve_changed = fluids::runtime::tick_valves(world, kinetics);
+        fluids::hose_pulley::tick(world, kinetics);
         fluids::runtime::pressure_tick(world, kinetics, events, valve_changed);
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
@@ -1703,7 +1717,10 @@ fn turntable_entity_inside(world: World<'_>, pos: Pos, entity: Entity<'_>) {
 /// Save changed block entities and show their speed (`getSpeed`, zero when overstressed).
 fn flush(world: World<'_>, kinetics: &mut Kinetics) {
     for (pos, be) in kinetics.drain_dirty() {
-        if let Ok(bytes) = fastnbt::to_bytes(&save(pos, &be)) {
+        let data = save(pos, &be);
+        if matches!(be.kind, Kind::HosePulley(_)) {
+            fluids::hose_pulley::save_kinetics(world, pos, &data);
+        } else if let Ok(bytes) = fastnbt::to_bytes(&data) {
             let _ = world.set_entity(pos, &bytes);
         }
         let _ = world.rotate(pos, be.kind.axis(), be.get_speed());

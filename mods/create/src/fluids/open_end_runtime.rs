@@ -25,8 +25,16 @@ static FLUID_WORLD: OnceLock<FluidWorld> = OnceLock::new();
 static SPECIAL: OnceLock<HashMap<u32, (Target, Option<u32>)>> = OnceLock::new();
 
 pub fn require() -> Result<(), InterfaceUnavailable> {
-    let _ = FLUID_WORLD.set(fluid_world::require()?);
+    let _ = FLUID_WORLD.set(fluid_world::require_tick_control()?);
     Ok(())
+}
+
+pub(super) fn fluids() -> Option<FluidWorld> {
+    FLUID_WORLD.get().copied()
+}
+
+pub(super) fn inspect(world: World<'_>, pos: moddedmc_api::Pos) -> Option<FluidCell> {
+    fluids()?.inspect(world, pos)
 }
 
 fn specials() -> Option<&'static HashMap<u32, (Target, Option<u32>)>> {
@@ -100,7 +108,7 @@ enum Change {
     Evaporate,
 }
 
-fn waterlogged_state(cell: &FluidCell, wet: bool) -> Option<u32> {
+pub(super) fn waterlogged_state(cell: &FluidCell, wet: bool) -> Option<u32> {
     let content = CONTENT.get()?;
     let state = content.describe_state(cell.state)?;
     let selector = if wet {

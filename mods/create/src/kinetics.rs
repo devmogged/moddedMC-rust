@@ -101,6 +101,7 @@ pub enum Kind {
     Press(u8),
     /// Mechanical pump axis derived from FACING, powered by small-cog meshing.
     Pump(u8),
+    HosePulley(u8),
     Valve(u8),
     Fan(u8),
     Bearing(u8),
@@ -243,6 +244,7 @@ impl Kind {
             | Self::Press(axis)
             | Self::Valve(axis) => axis,
             Self::Pump(facing) => face_axis(facing),
+            Self::HosePulley(facing) => face_axis(crate::fluids::hose_pulley::shaft_side(facing)),
             Self::Motor(facing)
             | Self::Fan(facing)
             | Self::Bearing(facing)
@@ -269,6 +271,7 @@ impl Kind {
         match self {
             Self::Motor(facing) => facing == face,
             Self::Pump(_) => false, // PumpBlock does not expose shaft connections
+            Self::HosePulley(facing) => crate::fluids::hose_pulley::shaft_side(facing) == face,
             Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
@@ -301,6 +304,7 @@ impl Kind {
     pub const fn impact(self) -> f32 {
         match self {
             Self::Pump(_)
+            | Self::HosePulley(_)
             | Self::Turntable
             | Self::Millstone
             | Self::Bearing(_)
@@ -347,6 +351,7 @@ impl Kind {
             | (Self::Bearing(a), Self::Bearing(b))
             | (Self::Windmill(a), Self::Windmill(b))
             | (Self::Drill(a), Self::Drill(b))
+            | (Self::HosePulley(a), Self::HosePulley(b))
             | (Self::Clockwork(a), Self::Clockwork(b)) => a == b,
             (Self::Piston(a), Self::Piston(b)) => a == b,
             (Self::GantryShaft(a), Self::GantryShaft(b)) => {
@@ -614,6 +619,7 @@ pub trait Level {
 pub struct Kinetics {
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub item_drains: HashMap<Pos, crate::fluids::item_drain::ItemDrain>,
+    pub hose_pulleys: crate::fluids::hose_pulley::HosePulleys,
     pub spouts: HashMap<Pos, crate::fluids::spout::Spout>,
     pub fluid_tanks: crate::fluids::tank_connectivity::Connectivity,
     pub chutes: crate::chute::Chutes,

@@ -4,7 +4,10 @@ use moddedmc_api::abi::{self, Pos, Sink, Str, WorldRef};
 use pumpkin_core::block::fluid::{
     flowing_trait::FlowingFluid, lava::FlowingLava, water::FlowingWater,
 };
-use pumpkin_data::{BlockDirection, BlockState, HorizontalFacingExt, fluid::Fluid};
+use pumpkin_data::{
+    BlockDirection, BlockState, HorizontalFacingExt, block_properties::blocks_movement,
+    fluid::Fluid,
+};
 use pumpkin_util::math::position::BlockPos;
 use pumpkin_world::tick::TickPriority;
 
@@ -13,13 +16,30 @@ use crate::content::{block_pos, world};
 /// `Shapes.EPSILON`.
 const EPSILON: f64 = 1.0e-7;
 
-pub static FLUID_WORLD: abi::FluidWorldV1 = abi::FluidWorldV1 {
-    size: size_of::<abi::FluidWorldV1>(),
-    inspect,
-    schedule_tick,
-    would_regenerate_source,
-    water_evaporates,
+pub static FLUID_WORLD: abi::FluidWorldV1TickControl = abi::FluidWorldV1TickControl {
+    base: abi::FluidWorldV1 {
+        size: size_of::<abi::FluidWorldV1TickControl>(),
+        inspect,
+        schedule_tick,
+        would_regenerate_source,
+        water_evaporates,
+    },
+    clear_ticks,
 };
+
+unsafe extern "C" fn clear_ticks(raw: WorldRef, pos: Pos) -> bool {
+    // SAFETY: the world is borrowed for the call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    world
+        .level
+        .read_chunk_sync(&pos.chunk_position(), |chunk| {
+            chunk.fluid_ticks.clear_area(&pos, &pos.add(1, 1, 1));
+        })
+        .is_some()
+}
 
 unsafe extern "C" fn inspect(
     raw: WorldRef,
@@ -56,6 +76,12 @@ unsafe extern "C" fn inspect(
     }
     if fluid_state.is_source {
         flags |= abi::FLUID_SOURCE;
+    }
+    if state.is_liquid() {
+        flags |= abi::FLUID_LIQUID_BLOCK;
+    }
+    if blocks_movement(state, block.id) {
+        flags |= abi::FLUID_BLOCKS_MOTION;
     }
     if !fluid_state.is_empty {
         let still = if fluid.matches_type(&Fluid::WATER) {
