@@ -33,6 +33,47 @@ impl MobLoot {
 }
 
 #[derive(Clone, Copy)]
+pub struct StructureMobs(&'static abi::StructureMobsV1);
+
+pub type StructureMobInit = fn(Entity<'_>, &[u8]);
+
+static STRUCTURE_MOB_INIT: OnceLock<StructureMobInit> = OnceLock::new();
+
+pub fn require_structure_mobs() -> Result<StructureMobs, InterfaceUnavailable> {
+    // SAFETY: this is the complete published structure_mobs v1 table.
+    unsafe { crate::require_interface(abi::STRUCTURE_MOBS, 1) }.map(StructureMobs)
+}
+
+unsafe extern "C" fn structure_mob_init(raw: abi::EntityRef, nbt: abi::Str) {
+    guard("structure mob initialization", (), || {
+        if let (Some(init), Some(mob)) = (STRUCTURE_MOB_INIT.get(), Entity::borrowed(raw)) {
+            // SAFETY: the host owns the named-root NBT bytes for this callback.
+            init(mob, unsafe { nbt.bytes() });
+        }
+    });
+}
+
+impl StructureMobs {
+    /// Register initialization for a staged mob type. The callback receives named-root NBT,
+    /// up to 64 KiB, from the structure template. The mob has not yet joined the world.
+    pub fn on_load(
+        self,
+        reg: &mut Registry<'_>,
+        kind: &str,
+        callback: StructureMobInit,
+    ) -> Result<(), RegistrationError> {
+        let installed = STRUCTURE_MOB_INIT.get_or_init(|| callback);
+        if !std::ptr::fn_addr_eq(*installed, callback) {
+            return Err(RegistrationError::InvalidDefinition);
+        }
+        // SAFETY: registration and kind are borrowed for the call. The trampoline is static.
+        RegistrationError::from_code(unsafe {
+            (self.0.on_load)(reg.reg, s(kind), structure_mob_init)
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct MobStorage(&'static abi::MobStorageV1);
 
 pub fn require_storage() -> Result<MobStorage, InterfaceUnavailable> {

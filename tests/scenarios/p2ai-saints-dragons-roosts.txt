@@ -1,0 +1,59 @@
+# Run in a new directory with -Seed 1796137205646843071.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd execute positioned 0 120 0 run locate structure saintsdragons:ivy_house
+wait 0.5
+expect The nearest saintsdragons:ivy_house is at \[-352, ~, 880\]
+cmd execute positioned 0 120 0 run locate structure saintsdragons:ignivorus_roost
+wait 0.5
+expect The nearest saintsdragons:ignivorus_roost is at \[-1840, ~, -1344\]
+cmd execute positioned 0 120 0 run locate structure saintsdragons:varasuchus_roost
+wait 0.5
+expect The nearest saintsdragons:varasuchus_roost is at \[352, ~, 384\]
+
+cmd tp tester -352 95 880
+wait 8
+cmd execute positioned -352 75 880 run data get entity @e[type=minecraft:villager,distance=..70,nbt={data:{moddedmc:{mob:"saintsdragons:ivy_oleander"}}},limit=1] PersistenceRequired
+wait 0.5
+expect has the following entity data: 1b$
+cmd data get block -355 75 874 LootTable
+wait 0.5
+expect following block data: "saintsdragons:chests/ivy_house_chest"
+cmd loot give tester loot saintsdragons:chests/ivy_house_chest
+wait 0.5
+cmd clear tester saintsdragons:draconic_codex 0
+wait 0.5
+expect Found 1 matching item
+
+cmd tp tester -1840 110 -1344
+wait 8
+cmd execute positioned -1840 80 -1344 run data get entity @e[type=minecraft:ravager,distance=..90,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] Health
+wait 0.5
+expect has the following entity data: 450f$
+cmd execute positioned -1840 80 -1344 run data get entity @e[type=minecraft:ravager,distance=..90,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect has the following entity data: (?=.*female: 1b)(?=.*variant: 0b)
+
+cmd tp tester 352 100 384
+wait 8
+cmd execute positioned 352 75 384 run data get entity @e[type=minecraft:ravager,distance=..65,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] Health
+wait 0.5
+expect has the following entity data: 200f$
+cmd execute positioned 352 75 384 run data get entity @e[type=minecraft:ravager,distance=..65,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect has the following entity data: (?=.*female: 0b)(?=.*variant: 0b)
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+cmd execute positioned 352 75 384 run data get entity @e[type=minecraft:ravager,distance=..65,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] PersistenceRequired
+wait 0.5
+expect has the following entity data: 1b$
+bot quit
+stop

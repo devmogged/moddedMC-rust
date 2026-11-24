@@ -13,7 +13,7 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species | Species-specific taming, grooming animations, sleep reactions, codex updates and hunger; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
 | Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips | Armor set abilities, Dragonlord armor fire and blast resistance, Blood Tempest and Dragonlord sword active abilities and on-hit effects, worn armor models, and remaining equipment components |
-| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock-client interaction and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, and the End Nucleus structure | Egg trampling and hatch advancements, original Crucible GUI and animations, remaining custom crafting, advancement predicates, other structures and biome generation, and Pellucida hardness, sound and swarm-specific collision |
+| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock-client interaction and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts, and Ivy?s house | Egg trampling and hatch advancements, original Crucible GUI and animations, roost marker behavior, some legacy decorations, remaining custom crafting and advancement predicates, and Pellucida hardness, sound and swarm-specific collision |
 | Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, and hurt and death cues for the roster except Moop. A connected bot verified Cindervane, Raevyx and Mossback. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Remaining per-species playback, animation keyframe cues, footsteps, takeoff and landing, and moving or looping sources |
 | Presentation | Adult rig path with Creative gender and skin changes in the Fabric companion, and stock display fallbacks | Juvenile rigs, overlays, particles, special renderers, equipment visuals, screens and translations |
 | Integration | Stock 26.3 client fallback and versioned mod interfaces | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
@@ -116,6 +116,14 @@ scenario verified the Overworld and End variants and retained the End
 Varasuchus's appearance through a restart.
 [Spawn egg appearance scenario](../tests/scenarios/p2ah-saints-dragons-spawn-appearance.txt)
 
+The original Ignivorus and Varasuchus roosts and Ivy's house generate with their
+released jigsaw placement and biome rules. The seeded scenario located all
+three, verified that Ivy spawned and her chest retained its original loot table,
+and checked the template dragons' health, skin and gender. Varasuchus retained
+its persistence flag after a server restart. Roost marker behavior and some
+legacy decorations still need parity.
+[Roost and house scenario](../tests/scenarios/p2ai-saints-dragons-roosts.txt)
+
 The Draconic Codex opens a stock-client dialog from either hand or when used
 on a dragon. It reads owner-specific records from the save, updates loaded
 dragons, and tracks taming, death, and binder transfers. The restart scenario
@@ -135,7 +143,7 @@ scenario followed the recruitment dialogue, earned the plushie, verified
 its UUID after recall on a restarted server, and rejected a different player.
 The original trade
 and companion inventory screens, custom name input, cross-dimension recall,
-natural placement, merchant combat, and client dialogue animations remain
+merchant combat, and client dialogue animations remain
 pending.
 [Ivy recruitment scenario](../tests/scenarios/p2ae-saints-dragons-ivy.txt)
 

@@ -1039,6 +1039,7 @@ fn install_runtime(runtime: Runtime) -> io::Result<()> {
         || !install_content_behaviour(Arc::new(Behaviour))
         || !crate::interaction::install()
         || !crate::mob_ai::install()
+        || !crate::mobs::install_structure_mobs()
         || !engine::observe(observe)
     {
         return Err(io::Error::other("content hooks already installed"));

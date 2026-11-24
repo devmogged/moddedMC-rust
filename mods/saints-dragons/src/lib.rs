@@ -67,6 +67,7 @@ static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static FISH_BUCKETS: OnceLock<mobs::FishBuckets> = OnceLock::new();
 static MOB_HEALTH: OnceLock<mobs::MobHealth> = OnceLock::new();
 static MOBS: OnceLock<Mobs> = OnceLock::new();
+static STRUCTURE_MOBS: OnceLock<mobs::StructureMobs> = OnceLock::new();
 static MOB_AI: OnceLock<MobAi> = OnceLock::new();
 static INTERACTION: OnceLock<Interaction> = OnceLock::new();
 static ITEM_DEFAULTS: OnceLock<items::ItemDefaults> = OnceLock::new();
@@ -95,6 +96,9 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Player)?;
         let _ = ENTITIES.set(entities);
         let _ = FISH_BUCKETS.set(mobs::require_fish_buckets()?);
+        if cfg!(feature = "original-assets") {
+            let _ = STRUCTURE_MOBS.set(mobs::require_structure_mobs()?);
+        }
         let health = mobs::require_health()?;
         health.require_attributes()?;
         let _ = MOB_HEALTH.set(health);
@@ -229,6 +233,11 @@ impl Mod for SaintsDragons {
             &nodes,
         )?;
         roster::register(registry)?;
+        if let Some(structures) = STRUCTURE_MOBS.get() {
+            for species in ["saintsdragons:ignivorus", "saintsdragons:varasuchus"] {
+                structures.on_load(registry, species, appearance::spawned_from_template)?;
+            }
+        }
         FISH_BUCKETS.get().ok_or(missing)?.bind(
             registry,
             catalog::MOOP_BUCKET,

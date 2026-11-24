@@ -4,6 +4,7 @@
 use std::{
     collections::BTreeMap,
     io::Cursor,
+    ptr,
     sync::{Arc, Mutex, PoisonError, atomic::Ordering},
 };
 
@@ -13,7 +14,7 @@ use pumpkin_core::{
         EntityBase,
         r#type::{from_type, load_entity},
     },
-    world::World,
+    world::{World, install_structure_entity_loader},
 };
 use pumpkin_data::{
     attributes::Attributes, data_component_impl::combat::attribute_from_name, entity::EntityType,
@@ -201,6 +202,7 @@ pub struct Registration {
     id: &'static str,
     carrier: &'static EntityType,
     attributes: Vec<(&'static Attributes, f64)>,
+    structure_init: Option<abi::StructureMobInitFn>,
 }
 
 /// Registered mob types by id. Ids are leaked once at registration so `kind` can return them.
@@ -270,6 +272,7 @@ unsafe extern "C" fn add_mob(reg: Reg, def: *const abi::MobDefinition) -> i32 {
         id: String::leak(id.to_owned()),
         carrier,
         attributes,
+        structure_init: None,
     });
     code::OK
 }
@@ -332,6 +335,76 @@ pub fn create(
             {
                 living.set_health(*health as f32);
             }
+        }
+    }
+    Some(mob)
+}
+
+pub static STRUCTURE_MOBS: abi::StructureMobsV1 = abi::StructureMobsV1 {
+    size: size_of::<abi::StructureMobsV1>(),
+    on_load: on_structure_mob,
+};
+
+unsafe extern "C" fn on_structure_mob(
+    raw: Reg,
+    kind: Str,
+    callback: abi::StructureMobInitFn,
+) -> i32 {
+    // SAFETY: registration and the kind identifier remain live for the call.
+    let (staging, kind) = unsafe { (native::staging(raw), kind.str()) };
+    let Some(mob) = staging.mobs.iter_mut().find(|mob| mob.id == kind) else {
+        return code::INVALID_DEFINITION;
+    };
+    if mob.structure_init.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    mob.structure_init = Some(callback);
+    code::OK
+}
+
+pub fn install_structure_mobs() -> bool {
+    install_structure_entity_loader(load_structure_mob)
+}
+
+fn load_structure_mob(world: &Arc<World>, nbt: &NbtCompound) -> Option<Arc<dyn EntityBase>> {
+    let kind = nbt.get_string("id")?;
+    let init = types().get(kind)?.structure_init;
+    let [x, y, z] = nbt.get_list("Pos")? else {
+        return None;
+    };
+    let at = [
+        x.extract_double()?,
+        y.extract_double()?,
+        z.extract_double()?,
+    ];
+    if !at.into_iter().all(f64::is_finite) {
+        return None;
+    }
+
+    let mob = create(kind, world, Vector3::new(at[0], at[1], at[2]))?;
+    if let Some([yaw, pitch]) = nbt.get_list("Rotation")
+        && let (Some(yaw), Some(pitch)) = (yaw.extract_float(), pitch.extract_float())
+        && yaw.is_finite()
+        && pitch.is_finite()
+    {
+        mob.get_entity().set_rotation(yaw, pitch);
+    }
+    if nbt.get_bool("PersistenceRequired") == Some(true) {
+        mob.get_mob()?.get_mob_entity().set_persistence_required();
+    }
+    if let Some(living) = mob.get_living_entity()
+        && let Some(health) = nbt
+            .get_float("Health")
+            .filter(|health| health.is_finite() && *health > 0.0)
+    {
+        living.set_health(health.min(living.get_max_health()));
+    }
+    if let Some(init) = init {
+        let bytes = Nbt::from(nbt.clone()).write();
+        if bytes.len() <= MAX_STATE_BYTES {
+            let entity = mob.as_ref();
+            // SAFETY: the borrowed entity and the NBT bytes outlive the synchronous call.
+            unsafe { init(ptr::from_ref(&entity).cast(), Str::new(&bytes)) };
         }
     }
     Some(mob)

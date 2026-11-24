@@ -321,6 +321,18 @@ rules with the chunk.
 
 `bind(reg, item, mob)` associates an item carried by `minecraft:cod_bucket` with a custom mob carried by cod, salmon, tropical fish, or pufferfish. Both definitions must already be staged by the same mod. Each item and mob can participate in one binding. Pumpkin handles water-bucket pickup, release, and the carrier's bucket data, including health, name and persistent flags. The item and released fish keep their registered mod identities.
 
+## Structure mobs (`moddedmc:structure_mobs` v1)
+
+Structure templates can name any registered mob by its namespaced id. The host creates
+the mob with its registered carrier and attributes at the template's transformed
+position. The host applies the template's rotation, health and persistence flag.
+
+During registration, `on_load(reg, kind, callback)` attaches an initializer to a mob
+staged by the same mod. Before the mob joins the world, the initializer receives its
+borrowed handle and the named-root template entity NBT, up to 64 KiB. Mods can copy
+their own saved properties onto the entity during the call. The normal mob spawn,
+binder restore and chunk reload paths already have their own state and skip this hook.
+
 ## Mob loot (`moddedmc:mob_loot` v1)
 
 `MobLoot::suppress` assigns the empty death loot table to a registered mob.

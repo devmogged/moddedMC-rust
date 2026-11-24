@@ -1462,6 +1462,17 @@ pub struct MobLootV1 {
     pub suppress: unsafe extern "C" fn(entity: EntityRef) -> bool,
 }
 
+pub const STRUCTURE_MOBS: &str = "moddedmc:structure_mobs";
+
+/// Initialize a registered mob from a structure's saved entity tag, before adding it to the world.
+pub type StructureMobInitFn = unsafe extern "C" fn(mob: EntityRef, nbt: Str);
+
+#[repr(C)]
+pub struct StructureMobsV1 {
+    pub size: usize,
+    pub on_load: unsafe extern "C" fn(reg: Reg, kind: Str, callback: StructureMobInitFn) -> i32,
+}
+
 pub const MOB_STORAGE: &str = "moddedmc:mob_storage";
 
 #[repr(C)]

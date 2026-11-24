@@ -286,7 +286,12 @@ try {
         $pack = [IO.Compression.ZipFile]::Open($scratch, [IO.Compression.ZipArchiveMode]::Create)
         try {
             if ($AllDragons) {
-                $copies['data/saintsdragons/structures/draconian_nucleus.nbt'] = 'data/saintsdragons/structure/draconian_nucleus.nbt'
+                foreach ($template in @(
+                    'draconian_nucleus', 'igni_roost_bottom_left', 'igni_roost_bottom_right',
+                    'igni_roost_top_left', 'igni_roost_top_right', 'ivy_house', 'varasuchus_roost'
+                )) {
+                    $copies["data/saintsdragons/structures/$template.nbt"] = "data/saintsdragons/structure/$template.nbt"
+                }
                 foreach ($entry in $inputJar.Entries) {
                     $path = $entry.FullName
                     if ($path -eq "$assets/sounds.json" -or

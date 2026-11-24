@@ -78,6 +78,7 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         (abi::FISH_BUCKETS, 1) => ptr::from_ref(&crate::content::FISH_BUCKETS).cast(),
         (abi::MOB_LOOT, 1) => ptr::from_ref(&crate::mobs::MOB_LOOT).cast(),
         (abi::MOB_STORAGE, 1) => ptr::from_ref(&crate::mobs::MOB_STORAGE).cast(),
+        (abi::STRUCTURE_MOBS, 1) => ptr::from_ref(&crate::mobs::STRUCTURE_MOBS).cast(),
         (abi::MOB_HEALTH, 1) => ptr::from_ref(&crate::mobs::MOB_HEALTH).cast(),
         (abi::MOB_AI, 1) => ptr::from_ref(&crate::mob_ai::MOB_AI).cast(),
         (abi::RESOURCES, 1) => ptr::from_ref(&crate::resources::RESOURCES).cast(),

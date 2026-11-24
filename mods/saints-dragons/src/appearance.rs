@@ -54,6 +54,34 @@ pub fn spawned_from_egg(mob: Entity<'_>, species: &str, in_end: bool) {
     }
 }
 
+#[derive(Deserialize)]
+struct TemplateAppearance<'a> {
+    id: &'a str,
+    #[serde(rename = "IsFemale", default)]
+    female: bool,
+    #[serde(rename = "TextureVariantId", default)]
+    variant: Option<&'a str>,
+}
+
+pub fn spawned_from_template(mob: Entity<'_>, nbt: &[u8]) {
+    let Ok(data) = fastnbt::from_bytes::<TemplateAppearance<'_>>(nbt) else {
+        return;
+    };
+    let Some(variants) = data.id.strip_prefix("saintsdragons:").and_then(variants) else {
+        return;
+    };
+    let variant = data
+        .variant
+        .and_then(|id| id.strip_prefix("saintsdragons:"))
+        .and_then(|name| variants.iter().position(|candidate| *candidate == name))
+        .unwrap_or_default() as u8;
+    Appearance {
+        female: data.female,
+        variant,
+    }
+    .save(mob);
+}
+
 impl Appearance {
     pub fn load(mob: Entity<'_>) -> Self {
         mob.data(DATA)
