@@ -1,6 +1,7 @@
 //! Station placement follows TrackTargetingBlockItem and TrackTargetingBehaviour.
 use super::{
     bogey::{AssemblyTrack, Placement as BogeyPlacement},
+    carriage::{DockedTrain, TrainDisplays},
     railway, runtime, signal,
     targeting::{
         Selection, TargetUse, coords, directed_edge, place_block, placement, pos, sound, state_at,
@@ -50,6 +51,8 @@ struct Station {
 struct Stations {
     #[serde(rename = "Stations")]
     stations: Vec<Station>,
+    #[serde(rename = "Trains", default, skip_serializing_if = "Vec::is_empty")]
+    trains: Vec<DockedTrain>,
 }
 
 pub(crate) fn register(
@@ -177,9 +180,6 @@ pub(crate) fn use_station(context: &UseBlock<'_>, content: Content) -> Option<Bl
     let row = station_states(content)
         .iter()
         .position(|&state| state == Some(context.state))?;
-    if context.sneaking {
-        return Some(BlockUseResult::Pass);
-    }
     if context.with_item {
         return Some(if context.stack.read().is_none() {
             BlockUseResult::TryEmptyHand
@@ -193,16 +193,37 @@ pub(crate) fn use_station(context: &UseBlock<'_>, content: Content) -> Option<Bl
     if !can_edit {
         return Some(BlockUseResult::Fail);
     }
-    Some(crate::with_world(world, |_| {
+    Some(crate::with_world(world, |kinetics| {
+        if context.sneaking {
+            return match use_assembly(context, content, row, kinetics) {
+                Ok(result) => result,
+                Err(message) => {
+                    context.action_bar(message);
+                    sound(world, position, "minecraft:block.lever.click", 0.5);
+                    BlockUseResult::Fail
+                }
+            };
+        }
         if row < 2 {
             let Some(dimension) = world.dimension_id() else {
                 return BlockUseResult::Fail;
             };
-            let Some(station) = station_at(world, dimension, position) else {
+            let Some(stations) = read(world) else {
+                return BlockUseResult::Fail;
+            };
+            let Some(station) = stations.at(dimension, position) else {
                 return BlockUseResult::Fail;
             };
             let selection = station.selection();
-            if assembly_track(world, content, &station).is_none()
+            if stations
+                .trains
+                .iter()
+                .any(|train| train.station == selection)
+            {
+                context.action_bar("Sneak-use the station to disassemble the train");
+                return BlockUseResult::Success;
+            }
+            if assembly_track(world, content, station).is_none()
                 || !railway::read(&world)
                     .is_ok_and(|data| directed_edge(&data, world, content, &selection).is_some())
             {
@@ -225,6 +246,83 @@ pub(crate) fn use_station(context: &UseBlock<'_>, content: Content) -> Option<Bl
     }))
 }
 
+fn use_assembly(
+    context: &UseBlock<'_>,
+    content: Content,
+    row: usize,
+    kinetics: &mut crate::Kinetics,
+) -> Result<BlockUseResult, &'static str> {
+    let world = context.world;
+    let dimension = world
+        .dimension_id()
+        .ok_or("The station's dimension is unknown")?;
+    let mut data = read(world).ok_or("Could not read the train stations")?;
+    let station = data
+        .at(dimension, context.position)
+        .ok_or("Place the station against a rail")?;
+    let selection = station.selection();
+    let checks = &crate::states()
+        .ok_or("Could not load Create's block states")?
+        .contraption_blocks;
+    if let Some(index) = data
+        .trains
+        .iter()
+        .position(|train| train.station == selection)
+    {
+        let train = data.trains.remove(index);
+        if !write(world, &data) {
+            return Err("Could not save the train");
+        }
+        if !train.disassemble(world, checks) {
+            data.trains.insert(index, train);
+            if !write(world, &data) {
+                moddedmc_api::warn("Could not restore train save after disassembly failed");
+            }
+            return Err("Clear the space around the train before disassembling");
+        }
+    } else if row >= 2 {
+        let track = assembly_track(world, content, station)
+            .ok_or("The station needs straight, level track")?;
+        let train = DockedTrain::capture(
+            world,
+            content,
+            selection,
+            track,
+            checks,
+            kinetics,
+            &data.trains,
+        )?;
+        let mut removals = train
+            .removals(checks)
+            .ok_or("Could not prepare the carriage blocks")?;
+        removals.push(BlockUpdate {
+            position: context.position,
+            state: station_states(content)[row ^ 2].ok_or("Could not update the station flag")?,
+            flags: content::UPDATE_ALL,
+        });
+        data.trains.push(train);
+        if !write(world, &data) {
+            return Err("Could not save the train");
+        }
+        if world.write(&removals) != removals.len() {
+            data.trains.pop();
+            if !write(world, &data) {
+                moddedmc_api::warn("Could not restore train save after assembly failed");
+            }
+            return Err("The train's blocks must all be loaded");
+        }
+        if let Some(train) = data.trains.last_mut() {
+            train.detach_glue(world);
+        }
+        crate::contraption::detach_moved_belts(world, &removals, kinetics);
+    } else {
+        return Ok(BlockUseResult::Pass);
+    }
+    kinetics.train_displays.refresh(world);
+    sound(world, context.position, "minecraft:block.lever.click", 1.0);
+    Ok(BlockUseResult::Success)
+}
+
 impl Station {
     fn selection(&self) -> Selection {
         Selection {
@@ -235,11 +333,12 @@ impl Station {
     }
 }
 
-fn station_at(world: World<'_>, dimension: &str, position: Pos) -> Option<Station> {
-    read(world)?
-        .stations
-        .into_iter()
-        .find(|station| station.dimension == dimension && station.position == coords(position))
+impl Stations {
+    fn at(&self, dimension: &str, position: Pos) -> Option<&Station> {
+        self.stations
+            .iter()
+            .find(|station| station.dimension == dimension && station.position == coords(position))
+    }
 }
 
 fn assembly_track(world: World<'_>, content: Content, station: &Station) -> Option<AssemblyTrack> {
@@ -326,7 +425,16 @@ pub(crate) fn use_assembly_track(
     }
 }
 
-pub(crate) fn tick(world: World<'_>, content: Content, events: &[ContentEvent]) {
+pub(crate) fn tick(
+    world: World<'_>,
+    content: Content,
+    events: &[ContentEvent],
+    time: u64,
+    displays: &mut TrainDisplays,
+) {
+    displays.tick(world, time, events, || {
+        read(world).map(|stations| stations.trains)
+    });
     let removed: Vec<_> = events
         .iter()
         .filter_map(|event| {
@@ -358,7 +466,8 @@ pub(crate) fn describe(world: World<'_>, content: Content, position: Pos) -> Opt
     if !is_station(content, state_at(world, position)?) {
         return None;
     }
-    let station = station_at(world, dimension, position)?;
+    let data = read(world)?;
+    let station = data.at(dimension, position)?;
     let [x, y, z] = station.target;
     let selection = station.selection();
     let graph = railway::read(&world).ok()?;
@@ -369,7 +478,13 @@ pub(crate) fn describe(world: World<'_>, content: Content, position: Pos) -> Opt
     };
     let assembling = state_at(world, position)
         .is_some_and(|state| station_states(content)[2..].contains(&Some(state)));
-    let mode = if assembling { " Assembling" } else { "" };
+    let mode = if assembling {
+        " Assembling".to_owned()
+    } else if let Some(train) = data.trains.iter().find(|train| train.station == selection) {
+        format!(" Docked Carriages={}", train.count())
+    } else {
+        String::new()
+    };
     Some(format!(
         "{} targets {x} {y} {z} {status}{mode}",
         station.name

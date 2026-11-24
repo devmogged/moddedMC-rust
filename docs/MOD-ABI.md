@@ -199,6 +199,7 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | | `place_held_block(player, clicked, face)` | Place the current hand's block during a content block use through the normal player placement pipeline. The caller spends the item for each successful placement. Require `InteractionExtension::PlaceHeldBlock`. |
 | | `on_item_use(reg, callback)` | Normal use for this mod's items. Borrows both hand stacks and passes the initial outline ray hit. Return 0 to continue default dispatch, -1 to handle the action, or a positive tick count on start to enter timed use. Finish and release receive the original hand only while it still holds the original item and components. A handled finish replaces default consumption. Require `InteractionExtension::ItemUse`. |
 | | `item_use_animation(reg, item, ticks)` | Add held-use prediction to the stock Java view of a registered standalone item. The client can release early. The server still uses the callback's timer and never consumes the rendered carrier. Require `InteractionExtension::ItemUse`. |
+| | `UseBlock::action_bar(text)` | Send an action bar message to the player using a content block. The SDK checks the appended field and skips the message on older hosts. |
 | | `stack_count`, `stack_shrink` | Read or shrink the held stack. |
 | | `stack_data`, `set_stack_data` | Read or replace up to 1 KiB of mod bytes stored on the stack (`custom_data` key `moddedmc:data`). Empty removes them. |
 | | `cooldown(player, item, ticks)` | Vanilla `ItemCooldowns.addCooldown`. |

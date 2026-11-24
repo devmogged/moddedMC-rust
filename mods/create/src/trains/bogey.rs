@@ -90,10 +90,39 @@ pub(super) enum Placement {
     Rejected,
 }
 
+pub(crate) fn is_bogey(id: &str) -> bool {
+    IDS.contains(&id)
+}
+
 impl AssemblyTrack {
     fn rail(&self, offset: i32) -> Pos {
         let [x, y, z] = self.step.map(|step| step * (offset + 1));
         crate::offset(self.anchor, [x, y, z])
+    }
+
+    fn aligned(&self, world: World<'_>, content: Content, position: Pos) -> Option<bool> {
+        let state = state_at(world, position)?;
+        Some(
+            runtime::track_state(content, state).is_some_and(|(shape, _)| shape == self.shape)
+                && runtime::track_waterlogged(content, state) == self.waterlogged,
+        )
+    }
+
+    pub(super) fn bogeys(&self, world: World<'_>, content: Content) -> Vec<(i32, Pos)> {
+        let states = states(content);
+        (0..MAX_ASSEMBLY_LENGTH - 1)
+            .map(|i| (i, self.rail(i)))
+            .take_while(|&(_, rail)| self.aligned(world, content, rail) == Some(true))
+            .filter_map(|(i, rail)| {
+                let bogey = crate::offset(rail, [0, 1, 0]);
+                let state = state_at(world, bogey)?;
+                states
+                    .iter()
+                    .any(|rows| rows.contains(&Some(state)))
+                    .then_some((i, bogey))
+            })
+            .take(MAX_BOGEY_COUNT)
+            .collect()
     }
 
     pub(super) fn place(
@@ -116,15 +145,12 @@ impl AssemblyTrack {
         let mut nearby = Vec::new();
         for i in 0..MAX_ASSEMBLY_LENGTH - 1 {
             let rail = self.rail(i);
-            let Some(state) = state_at(world, rail) else {
+            let Some(aligned) = self.aligned(world, content, rail) else {
                 if i <= offset + 1 {
                     return Placement::Rejected;
                 }
                 break;
             };
-            let aligned = runtime::track_state(content, state)
-                .is_some_and(|(shape, _)| shape == self.shape)
-                && runtime::track_waterlogged(content, state) == self.waterlogged;
             if !aligned {
                 if i <= offset + 1 {
                     return Placement::None;

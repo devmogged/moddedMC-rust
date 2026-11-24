@@ -244,6 +244,16 @@ unsafe extern "C" fn use_block(
 }
 
 impl UseBlock<'_> {
+    /// Show a status message to this player. Older hosts omit the message.
+    pub fn action_bar(&self, text: &str) {
+        if self.api.size
+            >= std::mem::offset_of!(abi::InteractionV1, action_bar) + size_of::<usize>()
+        {
+            // SAFETY: the function is present and both arguments are borrowed for this call.
+            unsafe { (self.api.action_bar)(self.raw_player, abi::Str::from(text)) };
+        }
+    }
+
     /// Vanilla `Inventory.placeItemBackInInventory` with a saved stack; what doesn't fit drops.
     pub fn give(&self, stack: &[u8]) -> bool {
         // SAFETY: the player is live for this callback and the bytes are borrowed for the call.

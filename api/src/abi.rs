@@ -997,6 +997,8 @@ pub struct InteractionV1 {
     pub on_item_use: unsafe extern "C" fn(reg: Reg, callback: ItemUseFn) -> i32,
     /// Give a registered item stock-client held-use prediction for the given tick duration.
     pub item_use_animation: unsafe extern "C" fn(reg: Reg, item: Str, ticks: u16) -> i32,
+    /// Show a short status message to the player in an interaction callback.
+    pub action_bar: unsafe extern "C" fn(player: EntityRef, text: Str),
 }
 
 /// Vanilla `BlockState.getSignal(level, pos, direction)`, or `getDirectSignal` when `direct`, for

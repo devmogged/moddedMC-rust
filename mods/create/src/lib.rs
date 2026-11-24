@@ -1084,10 +1084,10 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return Some(state);
     }
     // WS-3: train tracks use their own orientation and support checks.
-    if let Some(track) = CONTENT
-        .get()
-        .and_then(|content| trains::placed_state(&args, *content))
-    {
+    if let Some(track) = CONTENT.get().and_then(|&content| {
+        trains::placed_state(&args, content)
+            .or_else(|| trains::controls::placed_state(&args, content))
+    }) {
         return Some(track);
     }
     let states = states()?;
@@ -1691,7 +1691,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             kinetics
                 .signal_updates
                 .tick(world, content, time, events, rails_changed);
-            trains::station::tick(world, content, events);
+            trains::station::tick(world, content, events, time, &mut kinetics.train_displays);
         }
         kinetics.fluid_tanks.tick(world, time, events);
         // WS-2: distribute pump RPM as directional pipe pressures.

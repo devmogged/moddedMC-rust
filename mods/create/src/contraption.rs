@@ -23,6 +23,7 @@ use crate::{
     harvester,
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
     seat, states, sticker,
+    trains::{bogey, controls},
 };
 
 /// CKinetics.maxBlocksMoved default.
@@ -152,11 +153,22 @@ impl BlockMovementChecks {
         if entry.name == "minecraft:water" {
             return Some(BlockMovement::Air);
         }
+        if matches!(
+            entry.name.as_str(),
+            "create:track" | "create:track_station" | "create:track_signal"
+        ) {
+            return Some(BlockMovement::Immovable);
+        }
         if chassis::is_chassis(&entry.name)
             || seat::is_seat(&entry.name)
+            || bogey::is_bogey(&entry.name)
             || matches!(
                 entry.name.as_str(),
-                BELT | sticker::ID | crate::elevator::CONTACT | drill::ID | harvester::ID
+                BELT | sticker::ID
+                    | crate::elevator::CONTACT
+                    | drill::ID
+                    | harvester::ID
+                    | controls::ID
             )
         {
             return Some(BlockMovement::Movable(entry));
@@ -213,6 +225,15 @@ impl BlockMovementChecks {
     ) -> Option<Vec<Pos>> {
         let mut attached = chassis::attachments(world, self, pos, entry, forced)?;
         attached.extend(sticker::attachment(entry, pos));
+        if let Some(axis) = entry.bogey_axis() {
+            attached.extend(
+                FACES
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(face, _)| face_axis(*face as u8) == axis)
+                    .map(|(_, step)| offset(pos, step)),
+            );
+        }
         if let Some(face) = harvester::facing(entry) {
             attached.push(offset(pos, FACES[usize::from(face ^ 1)]));
         }
@@ -449,8 +470,7 @@ impl Blocks {
         let water = checks.state("minecraft:water")?;
         Some(self.block_list.iter().map(move |block| {
             let entry = &self.palette[block.palette_index()];
-            let wet = (matches!(entry.name.as_str(), BELT | drill::ID | harvester::ID)
-                || seat::is_seat(&entry.name))
+            let wet = entry.can_waterlog_on_placement()
                 && entry
                     .properties
                     .get("waterlogged")
@@ -534,7 +554,10 @@ impl Blocks {
                     return None;
                 }
                 block.nbt = Some(fastnbt::from_bytes(&fastnbt::to_bytes(&data).ok()?).ok()?);
-            } else if entry.has_storage() || chassis::is_chassis(&entry.name) {
+            } else if entry.has_storage()
+                || chassis::is_chassis(&entry.name)
+                || bogey::is_bogey(&entry.name)
+            {
                 let bytes = world.block_entity(position)?;
                 let mut data: HashMap<String, Value> = fastnbt::from_bytes(&bytes).ok()?;
                 for coordinate in ["x", "y", "z"] {
@@ -604,6 +627,7 @@ impl Blocks {
                     && (glue.is_glued(world, pos, adjacent)
                         || sticker::attachment(&next, adjacent) == Some(pos)
                         || harvester::facing(&next) == Some(face as u8)
+                        || next.bogey_axis() == Some(face_axis(face as u8))
                         || can_stick(&entry.name, &next.name)
                             && !entry.is_not_supportive(face as u8)
                             && !next.is_not_supportive(face as u8 ^ 1))
@@ -677,8 +701,7 @@ impl Blocks {
             .map(|((position, block), &previous)| {
                 let entry = self.palette.get(block.palette_index())?;
                 let belt = entry.name == BELT;
-                let waterlog = matches!(entry.name.as_str(), BELT | drill::ID | harvester::ID)
-                    || seat::is_seat(&entry.name);
+                let waterlog = entry.can_waterlog_on_placement();
                 let air = checks.is_air(previous);
                 if !air
                     && (!waterlog
@@ -688,6 +711,9 @@ impl Blocks {
                     return None;
                 }
                 let mut state = transform.block_state(entry);
+                if state.name == controls::ID {
+                    state.properties.insert("open".into(), "false".into());
+                }
                 if waterlog {
                     let wet = !air && world.fluid_id(position)? == "minecraft:water";
                     state
@@ -905,6 +931,25 @@ pub struct PaletteEntry {
 }
 
 impl PaletteEntry {
+    fn can_waterlog_on_placement(&self) -> bool {
+        matches!(
+            self.name.as_str(),
+            BELT | drill::ID | harvester::ID | controls::ID
+        ) || seat::is_seat(&self.name)
+            || bogey::is_bogey(&self.name)
+    }
+
+    fn bogey_axis(&self) -> Option<u8> {
+        if !bogey::is_bogey(&self.name) {
+            return None;
+        }
+        match self.properties.get("axis")?.as_str() {
+            "x" => Some(0),
+            "z" => Some(2),
+            _ => None,
+        }
+    }
+
     pub(crate) fn is_not_supportive(&self, face: u8) -> bool {
         sticker::blocks_attachment(self, face)
             || matches!(self.name.as_str(), drill::ID | harvester::ID)

@@ -1,6 +1,8 @@
 //! Create train tracks, graph geometry and persisted global railway state.
 mod bezier;
-mod bogey;
+pub(super) mod bogey;
+mod carriage;
+pub(super) mod controls;
 mod curve;
 mod graph;
 mod item;
@@ -21,6 +23,7 @@ mod track;
 mod visual;
 mod world_graph;
 
+pub(crate) use carriage::TrainDisplays;
 pub(crate) use item::use_on_block;
 pub(crate) use railway::{
     RailUpdates, rebuild_at, register as register_saved, require as require_saved, summary,

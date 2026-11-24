@@ -42,7 +42,20 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     place_held_block,
     on_item_use: crate::content::on_item_use,
     item_use_animation: crate::content::item_use_animation,
+    action_bar,
 };
+
+unsafe extern "C" fn action_bar(raw: abi::EntityRef, message: Str) {
+    // SAFETY: the callback borrows the entity for this call.
+    let Some(player) =
+        (unsafe { raw.cast::<&dyn EntityBase>().as_ref() }).and_then(|entity| entity.get_player())
+    else {
+        return;
+    };
+    // SAFETY: the message is borrowed for this call.
+    let message = unsafe { message.str() };
+    player.send_system_message_raw(&pumpkin_util::text::TextComponent::text(message), true);
+}
 
 /// The `custom_data` key that holds a mod's bytes on its item stacks.
 const DATA_KEY: &str = "moddedmc:data";
