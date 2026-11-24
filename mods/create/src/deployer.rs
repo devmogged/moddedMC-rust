@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     DIRECTIONS, ITEMS, Kinetics, STACKS, StateIds, WRENCH,
     belt_inventory::{TransportedItemStack, count, with_count},
-    kinetics::{Kind, directional_shaft_axis, face_axis, positive},
+    kinetics::{FACES, Kind, directional_shaft_axis, face_axis, positive},
+    manual_application, offset,
     processing_recipes::{self, ProcessingResult, item_id},
 };
 
@@ -159,6 +160,15 @@ pub struct Deployer {
     pub held_item: Option<Value>,
 }
 
+impl Deployer {
+    fn consume_held(&mut self) {
+        if let Some(held) = &self.held_item {
+            let remaining = count(held) - 1;
+            self.held_item = (remaining > 0).then(|| with_count(held, remaining));
+        }
+    }
+}
+
 fn start(deployer: &mut Deployer) {
     deployer.phase = Phase::Expanding;
     deployer.timer = EXTEND;
@@ -179,8 +189,16 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
     if positions.is_empty() {
         return;
     }
-    kinetics.recipes = processing_recipes::current();
+    let recipes = processing_recipes::current();
+    kinetics.recipes.clone_from(&recipes);
     for pos in positions {
+        let Some(Kind::Deployer { facing, .. }) = kinetics.kind(pos) else {
+            continue;
+        };
+        let target = offset(pos, FACES[usize::from(facing)].map(|step| step * 2));
+        let has_transport = facing == 0
+            && (kinetics.depots.contains_key(&target)
+                || matches!(kinetics.kind(target), Some(Kind::Belt(_))));
         let Some(be) = kinetics.get_mut(pos) else {
             continue;
         };
@@ -195,9 +213,27 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
             let timer_speed = (speed * 2.0).clamp(8.0, 512.0) as i32;
             deployer.timer = (deployer.timer - timer_speed).max(0);
         } else {
+            let application = || {
+                if has_transport {
+                    return None;
+                }
+                let ingredient = deployer.held_item.as_ref().and_then(item_id)?;
+                manual_application::recipe_at(world, target, recipes.as_deref()?, ingredient)
+            };
             match deployer.phase {
-                Phase::Waiting => continue,
+                Phase::Waiting => {
+                    if application().is_none() || world.has_neighbor_signal(pos) {
+                        continue;
+                    }
+                    start(deployer);
+                }
                 Phase::Expanding => {
+                    if let Some(recipe) = application()
+                        && manual_application::apply(world, target, recipe)
+                        && !recipe.keep_held_item
+                    {
+                        deployer.consume_held();
+                    }
                     deployer.phase = Phase::Retracting;
                     deployer.timer = RETRACT;
                 }
@@ -255,8 +291,7 @@ pub fn process(
         return Hold;
     }
     if !recipe.keep_held_item() {
-        let remaining = count(held) - 1;
-        deployer.held_item = (remaining > 0).then(|| with_count(held, remaining));
+        deployer.consume_held();
         be.dirty = true;
     }
     let outputs = recipe.finish();

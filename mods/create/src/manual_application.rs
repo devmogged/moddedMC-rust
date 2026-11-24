@@ -1,37 +1,61 @@
 //! ManualApplicationRecipe for Create casings.
 
 use moddedmc_api::{
-    content::{self, BlockUpdate},
+    Pos,
+    content::{self, BlockUpdate, World},
     effects::SOUND_PLAYERS,
     interaction::{UseOnBlock, UseResult},
 };
 
-use crate::{CONTENT, EFFECTS, processing_recipes};
+use crate::{
+    CONTENT, EFFECTS,
+    processing_recipes::{self, ItemApplication, RecipeBook},
+};
 
 pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.stack.count() == 0 || !context.player.is_some_and(|player| player.may_build()) {
         return UseResult::Pass;
     }
     let (world, position) = (context.world, context.position);
-    let Some((content, recipes)) = CONTENT.get().zip(processing_recipes::current()) else {
+    let Some(recipes) = processing_recipes::current() else {
         return UseResult::Pass;
     };
-    let recipes = recipes.applications(context.item);
-    if recipes.is_empty() {
+    let Some(recipe) = recipe_at(world, position, &recipes, context.item) else {
         return UseResult::Pass;
+    };
+    if !apply(world, position, recipe) {
+        return UseResult::Fail;
+    }
+    if !context.creative && !recipe.keep_held_item {
+        context.stack.shrink(1);
+    }
+    UseResult::Success
+}
+
+pub fn recipe_at<'a>(
+    world: World<'_>,
+    position: Pos,
+    recipes: &'a RecipeBook,
+    ingredient: &str,
+) -> Option<&'a ItemApplication> {
+    let recipes = recipes.applications(ingredient);
+    if recipes.is_empty() {
+        return None;
     }
     let mut state = [content::UNLOADED_STATE];
     if !world.read(&[position], &mut state) {
-        return UseResult::Pass;
+        return None;
     }
-    let Some(item) = content.block_item(state[0]) else {
-        return UseResult::Pass;
-    };
-    let Some(recipe) = recipes.iter().find(|recipe| recipe.matches(&item)) else {
-        return UseResult::Pass;
-    };
-    let Some(state) = content.state(&recipe.result) else {
-        return UseResult::Fail;
+    let item = CONTENT.get()?.block_item(state[0])?;
+    recipes.iter().find(|recipe| recipe.matches(&item))
+}
+
+pub fn apply(world: World<'_>, position: Pos, recipe: &ItemApplication) -> bool {
+    let Some(state) = CONTENT
+        .get()
+        .and_then(|content| content.state(&recipe.result))
+    else {
+        return false;
     };
     if world.write(&[BlockUpdate {
         position,
@@ -39,10 +63,7 @@ pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
         flags: content::UPDATE_ALL,
     }]) != 1
     {
-        return UseResult::Fail;
-    }
-    if !context.creative && !recipe.keep_held_item {
-        context.stack.shrink(1);
+        return false;
     }
     if let Some(effects) = EFFECTS.get() {
         effects.play_sound(
@@ -54,5 +75,5 @@ pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
             1.45,
         );
     }
-    UseResult::Success
+    true
 }

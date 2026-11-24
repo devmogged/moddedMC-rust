@@ -1,0 +1,77 @@
+# Apply sturdy sheets to placed brass casings and preserve a paused stroke through restart.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 2600.5 100 2598.5 0 30
+wait 5
+cmd fill 2596 99 2596 2606 99 2607 minecraft:stone
+cmd fill 2596 100 2596 2606 108 2607 minecraft:air
+cmd setblock 2599 102 2600 create:creative_motor[facing=east]
+cmd setblock 2600 102 2600 create:deployer
+cmd setblock 2600 100 2600 create:brass_casing
+wait 0.5
+cmd kinetics 2599 102 2600 8
+cmd item replace entity tester weapon.mainhand with create:sturdy_sheet 2
+wait 0.5
+bot use 2600 102 2600 down
+wait 0.7
+cmd kinetics 2599 102 2600 0
+wait 0.5
+cmd data get block 2600 102 2600 Deployer.State
+wait 0.5
+expect block data: "EXPANDING"
+cmd data get block 2600 102 2600 Deployer.HeldItem.count
+wait 0.5
+expect block data: 2$
+cmd execute if block 2600 100 2600 create:brass_casing
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2600 102 2600 Deployer.State
+wait 0.5
+expect block data: "EXPANDING"
+cmd data get block 2600 102 2600 Deployer.HeldItem.count
+wait 0.5
+expect block data: 2$
+cmd setblock 2600 100 2600 minecraft:granite
+cmd kinetics 2599 102 2600 128
+wait 1.5
+cmd data get block 2600 102 2600 Deployer.State
+wait 0.5
+expect block data: "WAITING"
+cmd data get block 2600 102 2600 Deployer.HeldItem.count
+wait 0.5
+expect block data: 2$
+cmd execute if block 2600 100 2600 minecraft:granite
+wait 0.5
+expect Test passed
+
+cmd setblock 2600 100 2600 create:brass_casing
+wait 1.5
+cmd execute if block 2600 100 2600 create:railway_casing
+wait 0.5
+expect Test passed
+cmd data get block 2600 102 2600 Deployer.HeldItem.count
+wait 0.5
+expect block data: 1$
+cmd setblock 2600 100 2600 create:brass_casing
+wait 1.5
+cmd execute if block 2600 100 2600 create:railway_casing
+wait 0.5
+expect Test passed
+cmd data get block 2600 102 2600 Deployer.HeldItem
+wait 0.5
+expect Found no elements matching Deployer
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
