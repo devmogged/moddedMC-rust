@@ -14,9 +14,14 @@ use crate::{
     EFFECTS, STACKS, STONE, StateIds,
     basin_inventory::{BASIN_SLOTS, BasinInventory, BasinStack},
     belt_inventory::next_int,
+    fluids::{
+        basin_tanks::{BasinTanks, container_exchange, is_container},
+        pipe_connection::FluidStack,
+    },
 };
 
 pub const ID: &str = "create:basin";
+pub const FACINGS: [&str; 5] = ["down", "north", "south", "west", "east"];
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
     let states = [
@@ -76,7 +81,7 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
 }
 
 pub fn add_states(content: Content, ids: &mut StateIds) {
-    for face in ["down", "north", "south", "west", "east"] {
+    for face in FACINGS {
         ids.add(content, ID, &format!("facing={face}"), None);
     }
 }
@@ -129,6 +134,23 @@ impl Basin {
         accepted == stack.amount
     }
 
+    pub fn consume_fluid(&mut self, matches: impl Fn(&FluidStack) -> bool, amount: u32) -> bool {
+        self.modify_tanks(|tanks| tanks.drain_matching(matches, amount).then_some(()))
+            .is_some()
+    }
+
+    pub fn put_fluid_result(&mut self, fluid: &FluidStack) -> bool {
+        self.modify_tanks(|tanks| tanks.insert_result(fluid).then_some(()))
+            .is_some()
+    }
+
+    fn modify_tanks<T>(&mut self, change: impl FnOnce(&mut BasinTanks) -> Option<T>) -> Option<T> {
+        let mut tanks = BasinTanks::load(&self.data)?;
+        let result = change(&mut tanks)?;
+        tanks.store(&mut self.data);
+        Some(result)
+    }
+
     fn take_contents(&mut self) -> Vec<(usize, usize, BasinStack)> {
         self.inventories
             .iter_mut()
@@ -148,13 +170,31 @@ fn max_stack(item: &Value) -> Option<u32> {
 }
 
 pub fn use_item_on(context: &mut UseBlock<'_>) -> BlockUseResult {
-    if context.stack.read().is_some() {
-        return BlockUseResult::TryEmptyHand;
-    }
     let (world, pos) = (context.world, context.position);
     let Some(mut basin) = Basin::load(world, pos) else {
         return BlockUseResult::Pass;
     };
+    if let Some(bytes) = context.stack.read() {
+        let Ok(item) = fastnbt::from_bytes::<Value>(&bytes) else {
+            return BlockUseResult::Pass;
+        };
+        let mut before = basin.clone();
+        let Some(container) = basin.modify_tanks(|tanks| tanks.use_held(&item)) else {
+            return if is_container(&item) {
+                BlockUseResult::Success
+            } else {
+                BlockUseResult::TryEmptyHand
+            };
+        };
+        if !basin.save(world, pos) {
+            return BlockUseResult::Fail;
+        }
+        if !container_exchange(context, container) {
+            before.save(world, pos);
+            return BlockUseResult::Fail;
+        }
+        return BlockUseResult::Success;
+    }
     let mut holding = basin.take_contents();
     if holding.is_empty() {
         return BlockUseResult::Success;

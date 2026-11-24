@@ -23,7 +23,7 @@ use super::{
     valve::{self, ValveState},
 };
 use crate::{
-    CONTENT, DIRECTIONS, FACES, face_axis,
+    CONTENT, DIRECTIONS, FACES, basin, face_axis,
     kinetics::{Kind as KineticKind, Kinetics},
     nearest_looking_direction, offset,
 };
@@ -72,6 +72,11 @@ impl StateIndex {
                 .chain(content.state(spout::ID).map(|id| (id, EndpointKind::Spout)))
                 .chain(hose_pulley::FACINGS.into_iter().filter_map(|facing| {
                     hose_pulley::state(content, facing).map(|id| (id, EndpointKind::Hose(facing)))
+                }))
+                .chain(basin::FACINGS.into_iter().filter_map(|face| {
+                    content
+                        .state(&format!("{}[facing={face}]", basin::ID))
+                        .map(|state| (state, EndpointKind::Basin))
                 }))
                 .collect(),
         };
@@ -178,7 +183,7 @@ pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
         EndpointKind::ItemDrain => crate::with_world(context.world, |kinetics| {
             item_drain::use_item_on(&mut kinetics.item_drains, context)
         }),
-        EndpointKind::Spout | EndpointKind::Hose(_) => return None,
+        EndpointKind::Spout | EndpointKind::Hose(_) | EndpointKind::Basin => return None,
     })
 }
 

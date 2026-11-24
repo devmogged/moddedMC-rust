@@ -4,7 +4,7 @@ use std::{
 };
 
 use fastnbt::Value;
-use moddedmc_api::{Pos, content::World};
+use moddedmc_api::{Pos, content::World, tags::Tags};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -12,6 +12,7 @@ use crate::{
     RESOURCES, STACKS, TAGS,
     basin::Basin,
     belt_inventory::{TransportedItemStack, count, next_int, with_count},
+    fluids::pipe_connection::FluidStack,
     kinetics::Kinetics,
     press,
 };
@@ -98,6 +99,7 @@ struct ResultStack {
     components: Option<Json>,
     #[serde(default = "certain")]
     chance: f32,
+    amount: Option<u32>,
 }
 
 const fn certain() -> f32 {
@@ -117,15 +119,29 @@ pub struct Recipe {
 
 struct MixingRecipe {
     id: String,
-    inputs: Vec<HashSet<String>>,
+    items: Vec<HashSet<String>>,
+    fluids: Vec<(HashSet<String>, u32)>,
+    fluid_results: Vec<FluidStack>,
     recipe: Recipe,
 }
 
 impl MixingRecipe {
     fn consume(&self, basin: &mut Basin) -> bool {
-        self.inputs
+        self.items
             .iter()
             .all(|items| basin.consume(|item| items.contains(item)))
+            && self
+                .fluids
+                .iter()
+                .all(|(ids, amount)| basin.consume_fluid(|fluid| ids.contains(&fluid.id), *amount))
+    }
+
+    fn store_results(&self, basin: &mut Basin, items: &[Value]) -> bool {
+        items.iter().all(|item| basin.put_result(item))
+            && self
+                .fluid_results
+                .iter()
+                .all(|fluid| basin.put_fluid_result(fluid))
     }
 }
 
@@ -170,13 +186,13 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
                 .clone()
         };
         if raw.recipe_type == "create:mixing" {
-            book.add_mixing(path, raw, &mut values);
+            book.add_mixing(path, raw, &mut values, tag_api);
         } else {
             book.add(raw, values);
         }
     }
     book.mixing
-        .sort_by_key(|recipe| std::cmp::Reverse(recipe.inputs.len()));
+        .sort_by_key(|recipe| std::cmp::Reverse(recipe.items.len()));
     Some(book)
 }
 
@@ -223,35 +239,91 @@ impl RecipeBook {
         id: String,
         raw: RawRecipe,
         tags: &mut impl FnMut(&str) -> Vec<String>,
+        tag_api: Tags,
     ) {
         if raw
             .heat_requirement
             .as_deref()
             .is_some_and(|heat| heat != "none")
-            || !(1..=9).contains(&raw.ingredients.len())
+            || !(1..=11).contains(&raw.ingredients.len())
             || raw.results.is_empty()
         {
             return;
         }
-        let inputs: Vec<_> = raw
-            .ingredients
-            .iter()
-            .map(|ingredient| {
-                let mut items = HashSet::new();
-                read_ingredient(ingredient, tags, &mut items);
-                items
-            })
-            .collect();
-        if inputs.iter().any(HashSet::is_empty) {
+        let mut items = Vec::new();
+        let mut fluids = Vec::new();
+        for ingredient in &raw.ingredients {
+            let kind = ingredient.get("type").and_then(Json::as_str);
+            let tag = ingredient.get("tag").and_then(Json::as_str);
+            if matches!(kind, Some("neoforge:single" | "neoforge:tag")) {
+                let ids: HashSet<String> =
+                    if let Some(id) = ingredient.get("fluid").and_then(Json::as_str) {
+                        HashSet::from([canonical_id(id)])
+                    } else if let Some(tag) = tag {
+                        tag_api
+                            .values("fluid", tag)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect()
+                    } else {
+                        return;
+                    };
+                let Some(amount) = ingredient
+                    .get("amount")
+                    .and_then(Json::as_u64)
+                    .and_then(|amount| u32::try_from(amount).ok())
+                    .filter(|amount| *amount > 0)
+                else {
+                    return;
+                };
+                if ids.is_empty() {
+                    return;
+                }
+                fluids.push((ids, amount));
+                continue;
+            }
+            let mut accepted = HashSet::new();
+            if kind == Some("neoforge:block_tag")
+                && let Some(tag) = tag
+            {
+                accepted.extend(tag_api.values("block", tag).unwrap_or_default());
+            } else {
+                read_ingredient(ingredient, tags, &mut accepted);
+            }
+            if accepted.is_empty() {
+                return;
+            }
+            items.push(accepted);
+        }
+        if items.len() > 9 || fluids.len() > 2 {
             return;
         }
-        let chances = raw.results.iter().map(|result| result.chance).collect();
-        let Some(outputs) = raw.results.into_iter().map(ResultStack::into_nbt).collect() else {
-            return;
-        };
+        let mut outputs = Vec::new();
+        let mut chances = Vec::new();
+        let mut fluid_results = Vec::new();
+        for result in raw.results {
+            if let Some(amount) = result.amount {
+                if amount == 0 || result.components.is_some() {
+                    return;
+                }
+                fluid_results.push(FluidStack {
+                    id: canonical_id(&result.id),
+                    amount,
+                    components: None,
+                });
+            } else {
+                chances.push(result.chance);
+                let Some(item) = result.into_nbt() else {
+                    return;
+                };
+                outputs.push(item);
+            }
+        }
         self.mixing.push(MixingRecipe {
             id,
-            inputs,
+            items,
+            fluids,
+            fluid_results,
             recipe: Recipe {
                 outputs,
                 chances,
@@ -268,12 +340,7 @@ impl RecipeBook {
 
     fn can_mix(recipe: &MixingRecipe, basin: &Basin) -> bool {
         let mut staged = basin.clone();
-        recipe.consume(&mut staged)
-            && recipe
-                .recipe
-                .outputs
-                .iter()
-                .all(|item| staged.put_result(item))
+        recipe.consume(&mut staged) && recipe.store_results(&mut staged, &recipe.recipe.outputs)
     }
 
     pub fn mixing_duration(&self, id: &str) -> Option<i32> {
@@ -294,11 +361,7 @@ impl RecipeBook {
         let recipe = self.mixing.iter().find(|recipe| recipe.id == id)?;
         let mut staged = basin.clone();
         (recipe.consume(&mut staged)
-            && recipe
-                .recipe
-                .roll_results(1)
-                .iter()
-                .all(|item| staged.put_result(item)))
+            && recipe.store_results(&mut staged, &recipe.recipe.roll_results(1)))
         .then_some(staged)
     }
 
@@ -317,7 +380,7 @@ impl RecipeBook {
 
 impl ResultStack {
     fn into_nbt(self) -> Option<Value> {
-        if !(1..=99).contains(&self.count) || self.components.is_some() {
+        if !(1..=99).contains(&self.count) || self.components.is_some() || self.amount.is_some() {
             return None;
         }
         Some(Value::Compound(HashMap::from([

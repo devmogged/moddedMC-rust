@@ -1,5 +1,6 @@
 //! Create 6.0.10 fluid transport, pressure, pipes and machines.
 
+pub(crate) mod basin_tanks;
 pub mod blocks;
 pub mod connection_nbt;
 mod flow_runtime;

@@ -149,7 +149,7 @@ pub fn tick(world: World<'_>, spouts: &mut HashMap<Pos, Spout>) {
     }
 }
 
-fn filled_container(id: &str, fluid: &FluidStack) -> Option<(u32, Value)> {
+pub(super) fn filled_container(id: &str, fluid: &FluidStack) -> Option<(u32, Value)> {
     let (amount, output_id) = match (id, fluid.id.as_str()) {
         ("minecraft:bucket", "minecraft:water") => (1_000, "minecraft:water_bucket"),
         ("minecraft:bucket", "minecraft:lava") => (1_000, "minecraft:lava_bucket"),

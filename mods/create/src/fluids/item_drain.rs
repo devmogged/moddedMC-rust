@@ -61,7 +61,7 @@ pub fn load(world: World<'_>, pos: Pos) -> Option<TankInventory> {
     smart_tank::load(&smart_tank::read(world, pos)?, CAPACITY)
 }
 
-fn emptying(item: &Value) -> Option<(FluidStack, Value)> {
+pub(super) fn emptying(item: &Value) -> Option<(FluidStack, Value)> {
     let (fluid, amount, container) = match item_id(item)? {
         "minecraft:water_bucket" => ("minecraft:water", 1_000, "minecraft:bucket"),
         "minecraft:lava_bucket" => ("minecraft:lava", 1_000, "minecraft:bucket"),

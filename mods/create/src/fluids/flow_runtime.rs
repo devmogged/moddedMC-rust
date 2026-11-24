@@ -8,6 +8,7 @@ use moddedmc_api::{
 };
 
 use super::{
+    basin_tanks::BasinTransfer,
     hose_pulley::{self, HosePulleys, HoseTransfer},
     item_drain,
     network::{FluidHandler, transfer_tick},
@@ -27,12 +28,13 @@ pub(super) enum EndpointKind {
     ItemDrain,
     Spout,
     Hose(u8),
+    Basin,
 }
 
 impl EndpointKind {
     pub fn accessible(self, face: u8) -> bool {
         match self {
-            Self::Tank => true,
+            Self::Tank | Self::Basin => true,
             Self::ItemDrain => face != 1,
             Self::Spout => face != 0,
             Self::Hose(facing) => face == hose_pulley::pipe_side(facing),
@@ -45,6 +47,7 @@ impl EndpointKind {
             Self::ItemDrain => item_drain::load(world, pos),
             Self::Spout => spout::load_tank(world, pos),
             Self::Hose(_) => hose_pulley::load_tank(world, pos),
+            Self::Basin => BasinTransfer::describe(world, pos),
         }
     }
 
@@ -52,7 +55,7 @@ impl EndpointKind {
         match self {
             Self::Tank => tank_runtime::save(world, pos, tank),
             Self::ItemDrain | Self::Spout => smart_tank::save(world, pos, tank),
-            Self::Hose(_) => false,
+            Self::Hose(_) | Self::Basin => false,
         }
     }
 }
@@ -303,6 +306,7 @@ enum Storage {
     Tank(Pos, EndpointKind),
     Open(OpenEnd),
     Hose(HoseTransfer),
+    Basin(BasinTransfer),
 }
 
 impl Storage {
@@ -311,6 +315,7 @@ impl Storage {
             Self::Tank(pos, kind) => kind.save(world, *pos, tank),
             Self::Open(end) => end.save(world, tank),
             Self::Hose(hose) => hose.save(world, tank, pulleys),
+            Self::Basin(basin) => basin.save(world, tank),
         }
     }
 
@@ -319,6 +324,7 @@ impl Storage {
             Self::Tank(pos, kind) => kind.save(world, *pos, tank),
             Self::Open(end) => end.refund(world, tank),
             Self::Hose(hose) => hose.refund(world, tank),
+            Self::Basin(basin) => basin.save(world, tank),
         }
     }
 
@@ -344,13 +350,21 @@ fn move_fluid(
         && let Some((kind, tank)) = tanks.get(&owner)
     {
         seen_tanks.insert(owner);
-        if matches!(kind, EndpointKind::Hose(_)) {
-            let Some((hose, tank)) = HoseTransfer::source(world, owner, pulleys.get(&owner)) else {
-                return;
-            };
-            (Storage::Hose(hose), tank)
-        } else {
-            (Storage::Tank(owner, *kind), tank.clone())
+        match kind {
+            EndpointKind::Hose(_) => {
+                let Some((hose, tank)) = HoseTransfer::source(world, owner, pulleys.get(&owner))
+                else {
+                    return;
+                };
+                (Storage::Hose(hose), tank)
+            }
+            EndpointKind::Basin => {
+                let Some((basin, tank)) = BasinTransfer::source(world, owner, fluid) else {
+                    return;
+                };
+                (Storage::Basin(basin), tank)
+            }
+            _ => (Storage::Tank(owner, *kind), tank.clone()),
         }
     } else if open.contains(&graph.start)
         && let Some(cell) = open_cell(world, graph.start)
@@ -383,12 +397,17 @@ fn move_fluid(
                 if *kind == EndpointKind::ItemDrain || !seen_tanks.insert(owner) {
                     return None;
                 }
-                if matches!(kind, EndpointKind::Hose(_)) {
-                    let (hose, tank) =
-                        HoseTransfer::target(world, owner, pulleys.get_mut(&owner), fluid)?;
-                    (Storage::Hose(hose), tank)
-                } else {
-                    (Storage::Tank(owner, *kind), tank.clone())
+                match kind {
+                    EndpointKind::Hose(_) => {
+                        let (hose, tank) =
+                            HoseTransfer::target(world, owner, pulleys.get_mut(&owner), fluid)?;
+                        (Storage::Hose(hose), tank)
+                    }
+                    EndpointKind::Basin => {
+                        let (basin, tank) = BasinTransfer::target(world, owner, fluid)?;
+                        (Storage::Basin(basin), tank)
+                    }
+                    _ => (Storage::Tank(owner, *kind), tank.clone()),
                 }
             } else if open.contains(&face) {
                 let cell = open_cell(world, face)?;
