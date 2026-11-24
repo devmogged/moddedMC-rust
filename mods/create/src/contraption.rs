@@ -864,14 +864,42 @@ impl ContraptionDisplays {
         transform: StructureTransform,
         translation: [f32; 3],
     ) {
+        self.render(world, blocks, transform, translation, false);
+    }
+
+    pub(crate) fn show_moving(
+        &mut self,
+        world: World<'_>,
+        blocks: &Blocks,
+        transform: StructureTransform,
+        translation: [f32; 3],
+    ) {
+        self.render(world, blocks, transform, translation, true);
+    }
+
+    fn render(
+        &mut self,
+        world: World<'_>,
+        blocks: &Blocks,
+        transform: StructureTransform,
+        translation: [f32; 3],
+        moving: bool,
+    ) {
         let Some(displays) = BLOCK_DISPLAYS.get() else {
             return;
         };
         self.blocks.resize(blocks.block_list.len(), 0);
         for (block, id) in blocks.block_list.iter().zip(&mut self.blocks) {
             let mut shown = transform.block_display(block.local_pos());
-            for (shown, shift) in shown.translation.iter_mut().zip(translation) {
-                *shown += shift;
+            if moving {
+                for (position, shift) in shown.position.iter_mut().zip(translation) {
+                    *position += f64::from(shift);
+                }
+                shown.position_interpolation = 1;
+            } else {
+                for (offset, shift) in shown.translation.iter_mut().zip(translation) {
+                    *offset += shift;
+                }
             }
             if (*id == 0 || !displays.update(world, *id, &shown))
                 && let Some(state) = blocks

@@ -171,7 +171,7 @@ impl TrackEdge {
         }
     }
 
-    fn direction(&self, from_first: bool) -> Vec3 {
+    pub(super) fn direction(&self, from_first: bool) -> Vec3 {
         let (a, b) = if from_first { (0.25, 0.0) } else { (1.0, 0.75) };
         self.position(a).minus(self.position(b)).normalized()
     }

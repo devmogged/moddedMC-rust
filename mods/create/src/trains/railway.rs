@@ -16,14 +16,19 @@ use moddedmc_api::{
 use std::{
     collections::{HashMap, VecDeque, hash_map::RandomState},
     hash::{BuildHasher, Hash, Hasher},
-    sync::OnceLock,
+    sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
+static REVISION: AtomicU64 = AtomicU64::new(0);
 static TABLE: OnceLock<SavedData> = OnceLock::new();
 static KEY: OnceLock<Key> = OnceLock::new();
 static DIMENSIONS: OnceLock<DimensionWorld> = OnceLock::new();
 
 pub(crate) fn require() -> Result<(), InterfaceUnavailable> {
+    super::driving::require()?;
     let saved = saved_data::require()?;
     let dimensions = world::require()?;
     let _ = TABLE.set(saved);
@@ -360,7 +365,16 @@ fn write(world: &World<'_>, data: &RailwayData) -> bool {
     let (Ok((saved, key)), Ok(bytes)) = (table(), data.to_nbt()) else {
         return false;
     };
-    saved.write(world, key, &bytes)
+    if saved.write(world, key, &bytes) {
+        REVISION.fetch_add(1, Ordering::Relaxed);
+        true
+    } else {
+        false
+    }
+}
+
+pub(super) fn revision() -> u64 {
+    REVISION.load(Ordering::Relaxed)
 }
 
 pub(super) fn new_uuid(

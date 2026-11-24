@@ -4,6 +4,7 @@ pub(super) mod bogey;
 mod carriage;
 pub(super) mod controls;
 mod curve;
+mod driving;
 mod graph;
 mod item;
 mod math;
@@ -24,7 +25,7 @@ mod travelling_point;
 mod visual;
 mod world_graph;
 
-pub(crate) use carriage::TrainDisplays;
+pub(crate) use driving::TrainRuntime;
 pub(crate) use item::use_on_block;
 pub(crate) use railway::{
     RailUpdates, rebuild_at, register as register_saved, require as require_saved, summary,

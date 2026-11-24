@@ -637,7 +637,7 @@ pub trait Level {
 pub struct Kinetics {
     pub(crate) rail_updates: crate::trains::RailUpdates,
     pub(crate) signal_updates: crate::trains::signal::SignalUpdates,
-    pub(crate) train_displays: crate::trains::TrainDisplays,
+    pub(crate) train_runtime: crate::trains::TrainRuntime,
     pub blaze_burners: HashMap<Pos, crate::blaze_burner::Burner>,
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub item_drains: HashMap<Pos, crate::fluids::item_drain::ItemDrain>,
