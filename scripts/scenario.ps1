@@ -1,6 +1,6 @@
 # Runs a console scenario against the built server and checks the log.
 #   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh] [-Keep] [-Port 25565] [-Seed <long>]
-# Parallel runs need their own -Port and -RunDir.
+# Parallel runs need distinct run directories and ports, including each resource pack listener at -Port + 1.
 # A passing run deletes its run dir, because worlds add up fast. -Keep leaves it; a failing run is always kept.
 # Scenario lines (blank lines and # comments ignored):
 #   mods <path> [...]        copy mods (.mmc, .jar, .dll) into the run dir's mods/ (before the first start)

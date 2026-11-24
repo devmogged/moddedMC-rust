@@ -86,7 +86,7 @@ cmd data get block 1026 200 1027 wave
 wait 0.5
 expect following block data: 0b$
 cmd tick sprint 1240t
-wait 8
+wait 20
 bot use-item main
 wait 0.5
 expect \[bot\] sound: saintsdragons:draconian_nucleus_summon

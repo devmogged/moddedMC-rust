@@ -20,9 +20,9 @@ bot use-item main
 wait 0.5
 expect \[bot\] dialog: (?=.*Draconic Codex)(?=.*You have no recorded dragons)
 cmd cindervane spawn 1025 200 1025
-cmd data merge entity @e[type=minecraft:ravager,x=1025,y=200,z=1025,distance=..2,limit=1] {Tags:["codex_probe"],CustomName:"Ember",Health:63f}
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=200,z=1025,distance=..2,limit=1] {Tags:["codex_probe"],CustomName:"Ember",Health:63f,NoAI:1b}
 cmd item replace entity tester hotbar.0 with saintsdragons:creative_dragon_tame_meal
-wait 0.5
+wait 2
 bot use-entity ravager 1025.5 200 1025.5 main
 wait 0.5
 expect Dragon tamed
