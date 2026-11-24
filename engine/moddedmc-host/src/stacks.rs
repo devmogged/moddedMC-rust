@@ -13,7 +13,8 @@ use pumpkin_core::{
     plugin::api::events::entity::item_spawn::ItemSpawnEvent,
 };
 use pumpkin_data::{
-    Block, data_component::DataComponent, entity::EntityType, item_stack::ItemStack,
+    Block, data_component::DataComponent, data_component_impl::CookingFuelImpl, entity::EntityType,
+    item_stack::ItemStack,
 };
 use pumpkin_nbt::{Nbt, compound::NbtCompound, deserializer::NbtReadHelperJava, tag::NbtTag};
 use pumpkin_util::math::vector3::Vector3;
@@ -159,13 +160,31 @@ pub unsafe extern "C" fn component(stack: Str, component: Str, out: Sink) -> boo
     true
 }
 
-pub static ITEM_STACKS: abi::ItemStacksV1 = abi::ItemStacksV1 {
-    size: size_of::<abi::ItemStacksV1>(),
-    entity_stack,
-    set_entity_stack,
-    spawn,
-    info,
-    component,
+unsafe extern "C" fn fuel(stack: Str, remainder: Sink) -> u32 {
+    let Some(stack) = read_stack(stack) else {
+        return 0;
+    };
+    let Some(fuel) = stack.get_data_component::<CookingFuelImpl>() else {
+        return 0;
+    };
+    if let Some(saved) = stack.crafting_remainder().and_then(|stack| stack.to_nbt()) {
+        let data = Nbt::from(saved).write();
+        // SAFETY: the crafting remainder is borrowed until the synchronous sink returns.
+        unsafe { (remainder.put)(remainder.ctx, 0, Str::new(&data)) };
+    }
+    u32::from(fuel.get_burn_ticks(false))
+}
+
+pub static ITEM_STACKS: abi::ItemStacksV1Fuel = abi::ItemStacksV1Fuel {
+    base: abi::ItemStacksV1 {
+        size: size_of::<abi::ItemStacksV1Fuel>(),
+        entity_stack,
+        set_entity_stack,
+        spawn,
+        info,
+        component,
+    },
+    fuel,
 };
 
 /// Validated display fields, or `None` when any is out of range.

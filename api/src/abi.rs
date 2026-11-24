@@ -418,6 +418,10 @@ mod layout {
         assert_eq!(offset_of!(ItemsV1, size), 0);
         assert_eq!(offset_of!(ItemsV1, add_item), 8);
         assert_eq!(offset_of!(ContentItemDefinition, carrier), 32);
+        assert_eq!(
+            offset_of!(ItemStacksV1Fuel, fuel),
+            size_of::<ItemStacksV1>()
+        );
         assert_eq!(offset_of!(BlockWorldV1, size), 0);
         assert_eq!(offset_of!(BlockWorldV1, read), 8);
         assert_eq!(offset_of!(BlockWorldV1, write), 16);
@@ -1074,6 +1078,13 @@ pub struct ItemStacksV1 {
     /// (unit components, or ones Pumpkin doesn't encode yet). False when absent, for an unknown
     /// component id or an unreadable stack.
     pub component: unsafe extern "C" fn(stack: Str, component: Str, out: Sink) -> bool,
+}
+
+#[repr(C)]
+pub struct ItemStacksV1Fuel {
+    pub base: ItemStacksV1,
+    /// Effective furnace fuel ticks. The sink receives the saved crafting remainder, if any.
+    pub fuel: unsafe extern "C" fn(stack: Str, remainder: Sink) -> u32,
 }
 
 #[repr(C)]

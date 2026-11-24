@@ -624,6 +624,7 @@ pub trait Level {
 /// The kinetic block entities and networks of one world.
 #[derive(Default)]
 pub struct Kinetics {
+    pub blaze_burners: HashMap<Pos, crate::blaze_burner::Burner>,
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub item_drains: HashMap<Pos, crate::fluids::item_drain::ItemDrain>,
     pub hose_pulleys: crate::fluids::hose_pulley::HosePulleys,

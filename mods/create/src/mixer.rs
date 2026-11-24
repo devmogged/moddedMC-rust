@@ -237,8 +237,9 @@ impl MixerData {
             return;
         }
         let Some(recipe) = self.recipe.as_deref() else {
-            if let Some(recipe) =
-                basin::Basin::load(world, basin_pos).and_then(|basin| book.matching_mixing(&basin))
+            let heat = crate::blaze_burner::heat_at(world, offset(basin_pos, [0, -1, 0]));
+            if let Some(recipe) = basin::Basin::load(world, basin_pos)
+                .and_then(|basin| book.matching_mixing(&basin, heat))
             {
                 self.recipe = Some(recipe.to_owned());
             }
@@ -279,10 +280,11 @@ impl MixerData {
             return;
         }
         self.ticks += 1;
-        if let Some(mut basin) =
-            basin::Basin::load(world, basin_pos).and_then(|basin| book.apply_mixing(recipe, &basin))
+        let heat = crate::blaze_burner::heat_at(world, offset(basin_pos, [0, -1, 0]));
+        if let Some(mut basin) = basin::Basin::load(world, basin_pos)
+            .and_then(|basin| book.apply_mixing(recipe, &basin, heat))
             && basin.save(world, basin_pos)
-            && book.can_continue_mixing(recipe, &basin)
+            && book.can_continue_mixing(recipe, &basin, heat)
         {
             self.ticks = PROCESSING_STROKE;
         }

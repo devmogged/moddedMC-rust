@@ -434,6 +434,15 @@ unsafe fn dispatch_use(
 }
 
 impl UseOnBlock<'_> {
+    /// Add a saved stack to the player's inventory, dropping any remainder.
+    pub fn give(&self, stack: &[u8]) -> bool {
+        if self.api.size < std::mem::offset_of!(abi::InteractionV1, give) + size_of::<usize>() {
+            return false;
+        }
+        // SAFETY: the player and saved stack are borrowed for this synchronous call.
+        unsafe { (self.api.give)(self.raw_player, abi::Str::new(stack)) }
+    }
+
     /// Vanilla `ItemCooldowns.addCooldown` for the held item.
     pub fn cooldown(&self, ticks: u32) {
         // SAFETY: the player is live for this callback and the id is borrowed for the call.

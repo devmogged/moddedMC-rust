@@ -12,6 +12,7 @@ use crate::{
     RESOURCES, STACKS, TAGS,
     basin::Basin,
     belt_inventory::{TransportedItemStack, count, next_int, with_count},
+    blaze_burner::Heat,
     fluids::pipe_connection::FluidStack,
     kinetics::Kinetics,
     press,
@@ -119,6 +120,7 @@ pub struct Recipe {
 
 struct MixingRecipe {
     id: String,
+    minimum_heat: Heat,
     items: Vec<HashSet<String>>,
     fluids: Vec<(HashSet<String>, u32)>,
     fluid_results: Vec<FluidStack>,
@@ -241,13 +243,13 @@ impl RecipeBook {
         tags: &mut impl FnMut(&str) -> Vec<String>,
         tag_api: Tags,
     ) {
-        if raw
-            .heat_requirement
-            .as_deref()
-            .is_some_and(|heat| heat != "none")
-            || !(1..=11).contains(&raw.ingredients.len())
-            || raw.results.is_empty()
-        {
+        let minimum_heat = match raw.heat_requirement.as_deref() {
+            None | Some("none") => Heat::None,
+            Some("heated") => Heat::Fading,
+            Some("superheated") => Heat::Seething,
+            _ => return,
+        };
+        if !(1..=11).contains(&raw.ingredients.len()) || raw.results.is_empty() {
             return;
         }
         let mut items = Vec::new();
@@ -321,6 +323,7 @@ impl RecipeBook {
         }
         self.mixing.push(MixingRecipe {
             id,
+            minimum_heat,
             items,
             fluids,
             fluid_results,
@@ -332,13 +335,16 @@ impl RecipeBook {
         });
     }
 
-    pub fn matching_mixing(&self, basin: &Basin) -> Option<&str> {
+    pub fn matching_mixing(&self, basin: &Basin, heat: Heat) -> Option<&str> {
         self.mixing
             .iter()
-            .find_map(|recipe| Self::can_mix(recipe, basin).then_some(recipe.id.as_str()))
+            .find_map(|recipe| Self::can_mix(recipe, basin, heat).then_some(recipe.id.as_str()))
     }
 
-    fn can_mix(recipe: &MixingRecipe, basin: &Basin) -> bool {
+    fn can_mix(recipe: &MixingRecipe, basin: &Basin, heat: Heat) -> bool {
+        if heat < recipe.minimum_heat {
+            return false;
+        }
         let mut staged = basin.clone();
         recipe.consume(&mut staged) && recipe.store_results(&mut staged, &recipe.recipe.outputs)
     }
@@ -350,15 +356,18 @@ impl RecipeBook {
             .map(|recipe| recipe.recipe.duration)
     }
 
-    pub fn can_continue_mixing(&self, id: &str, basin: &Basin) -> bool {
+    pub fn can_continue_mixing(&self, id: &str, basin: &Basin, heat: Heat) -> bool {
         self.mixing
             .iter()
             .find(|recipe| recipe.id == id)
-            .is_some_and(|recipe| Self::can_mix(recipe, basin))
+            .is_some_and(|recipe| Self::can_mix(recipe, basin, heat))
     }
 
-    pub fn apply_mixing(&self, id: &str, basin: &Basin) -> Option<Basin> {
-        let recipe = self.mixing.iter().find(|recipe| recipe.id == id)?;
+    pub fn apply_mixing(&self, id: &str, basin: &Basin, heat: Heat) -> Option<Basin> {
+        let recipe = self
+            .mixing
+            .iter()
+            .find(|recipe| recipe.id == id && heat >= recipe.minimum_heat)?;
         let mut staged = basin.clone();
         (recipe.consume(&mut staged)
             && recipe.store_results(&mut staged, &recipe.recipe.roll_results(1)))

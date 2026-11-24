@@ -32,6 +32,7 @@ mod bearing;
 mod belt;
 mod belt_inventory;
 mod belt_movement;
+mod blaze_burner;
 mod chassis;
 mod chute;
 mod collider;
@@ -145,6 +146,7 @@ impl Mod for Create {
         let _ = EFFECTS.set(effects::require()?);
         let item_stacks = stacks::require()?;
         item_stacks.require_extension(stacks::StacksExtension::Component)?;
+        item_stacks.require_extension(stacks::StacksExtension::Fuel)?;
         let _ = STACKS.set(item_stacks);
         let _ = DISPLAYS.set(stacks::require_displays()?);
         let _ = BLOCK_DISPLAYS.set(block_displays::require()?);
@@ -181,6 +183,7 @@ impl Mod for Create {
         press::register(*content, registry)?;
         basin::register(*content, registry)?;
         mixer::register(*content, registry)?;
+        blaze_burner::register(*content, registry)?;
         // WS-2 Create fluids
         fluids::blocks::register(*content, registry)?;
         fluids::tank_runtime::register(*content, registry)?;
@@ -939,6 +942,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     if usize::from(args.face) >= FACES.len() {
         return None;
     }
+    if let Some(state) = blaze_burner::placed(&args) {
+        return Some(state);
+    }
     // WS-2 fluid blocks choose connected faces, axis, and waterlogged state.
     if let Some(state) = fluids::runtime::placed_state(&args) {
         return Some(state);
@@ -1446,6 +1452,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             fluids::runtime::event(world, event);
             fluids::item_drain::event(world, &mut kinetics.item_drains, event);
             fluids::hose_pulley::event(world, &mut kinetics.hose_pulleys, event);
+            blaze_burner::event(world, &mut kinetics.blaze_burners, event);
             fluids::spout::event(world, &mut kinetics.spouts, event);
             depot::event(world, &mut kinetics.depots, states, event);
             chute::event(world, &mut kinetics.chutes, states, event);
@@ -1545,6 +1552,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
+        blaze_burner::tick(world, &mut kinetics.blaze_burners);
         mixer::tick(world, time, states, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
         piston::tick(world, &states.contraption_blocks, kinetics);
@@ -1573,6 +1581,9 @@ fn content_replaced(world: World<'_>, event: &ContentEvent) {
 }
 
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    if context.item == blaze_burner::EMPTY {
+        return blaze_burner::capture(context);
+    }
     if context.item == ANDESITE_ALLOY {
         return manual_application::use_on_block(context);
     }
@@ -1597,6 +1608,12 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     }
     if let Some(result) = fluids::runtime::use_item_on(context) {
         return result;
+    }
+    if blaze_burner::is_burner(context.state) {
+        return with_world(context.world, |kinetics| {
+            blaze_burner::use_item(&mut kinetics.blaze_burners, context)
+                .unwrap_or(BlockUseResult::TryEmptyHand)
+        });
     }
     let Some(states) = states() else {
         return BlockUseResult::Pass;

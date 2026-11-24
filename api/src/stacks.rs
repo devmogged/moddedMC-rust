@@ -8,11 +8,18 @@ use crate::{InterfaceUnavailable, abi, content::World, entities::Entity, require
 pub use abi::{ItemDisplay, MAX_STACK_BYTES, StackInfo};
 
 #[derive(Clone, Copy)]
-pub struct ItemStacks(&'static abi::ItemStacksV1);
+pub struct ItemStacks(
+    &'static abi::ItemStacksV1,
+    Option<&'static abi::ItemStacksV1Fuel>,
+);
 
 pub fn require() -> Result<ItemStacks, InterfaceUnavailable> {
+    // SAFETY: this is the extended table type for moddedmc:item_stacks v1.
+    if let Ok(table) = unsafe { require_interface::<abi::ItemStacksV1Fuel>(abi::ITEM_STACKS, 1) } {
+        return Ok(ItemStacks(&table.base, Some(table)));
+    }
     // SAFETY: this is the published table type for moddedmc:item_stacks v1.
-    unsafe { require_interface(abi::ITEM_STACKS, 1) }.map(ItemStacks)
+    unsafe { require_interface(abi::ITEM_STACKS, 1) }.map(|table| ItemStacks(table, None))
 }
 
 impl ItemStacks {
@@ -62,11 +69,18 @@ impl ItemStacks {
 
     /// Requires the functions appended after the first release, in `Mod::start`.
     pub fn require_extension(self, extension: StacksExtension) -> Result<(), InterfaceUnavailable> {
-        if extension.available(self.0) {
+        let available = match extension {
+            StacksExtension::Component => extension.available(self.0),
+            StacksExtension::Fuel => self.1.is_some(),
+        };
+        if available {
             Ok(())
         } else {
             Err(InterfaceUnavailable {
-                name: "moddedmc:item_stacks.component",
+                name: match extension {
+                    StacksExtension::Component => "moddedmc:item_stacks.component",
+                    StacksExtension::Fuel => "moddedmc:item_stacks.fuel",
+                },
                 version: 1,
             })
         }
@@ -95,12 +109,26 @@ impl ItemStacks {
         }
         .then_some(data)
     }
+
+    /// Effective regular furnace burn time and the item's crafting remainder.
+    pub fn fuel(self, stack: &[u8]) -> Option<(u32, Vec<u8>)> {
+        let table = self.1?;
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: the saved stack and sink are valid for this synchronous callback.
+        let ticks = unsafe { (table.fuel)(abi::Str::new(stack), sink) };
+        (ticks > 0).then_some((ticks, data))
+    }
 }
 
 /// Item stack functions added after the first ABI 1 release.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StacksExtension {
     Component,
+    Fuel,
 }
 
 impl StacksExtension {
@@ -109,6 +137,7 @@ impl StacksExtension {
             Self::Component => {
                 api.size >= std::mem::offset_of!(abi::ItemStacksV1, component) + size_of::<usize>()
             }
+            Self::Fuel => api.size >= size_of::<abi::ItemStacksV1Fuel>(),
         }
     }
 }

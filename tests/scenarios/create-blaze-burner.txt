@@ -1,0 +1,98 @@
+# Capture a blaze from its spawner, heat a basin with coal, then superheat it with a blaze cake.
+mods target\mods\create.mmc
+start
+expect registered content block create:blaze_burner
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1029.5 99 1026.5 90 45
+wait 5
+cmd fill 1021 99 1021 1033 106 1032 minecraft:air
+cmd fill 1021 98 1021 1033 98 1032 minecraft:stone
+cmd setblock 1029 99 1025 minecraft:spawner{SpawnData:{entity:{id:"minecraft:blaze"}},RequiredPlayerRange:0s}
+cmd tp tester 1029.5 99 1026.5 90 45
+cmd gamemode survival tester
+cmd item replace entity tester weapon.mainhand with create:empty_blaze_burner
+wait 0.5
+bot use 1029 99 1025
+wait 0.5
+cmd clear tester create:blaze_burner 0
+wait 0.5
+expect Found 1 matching item
+bot use 1027 98 1026
+wait 0.5
+cmd execute if block 1027 99 1026 create:blaze_burner
+wait 0.5
+expect Test passed
+cmd setblock 1027 100 1026 create:basin
+cmd setblock 1027 102 1026 create:mechanical_mixer
+cmd setblock 1026 101 1026 create:creative_motor[facing=up]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+wait 0.5
+cmd kinetics 1026 101 1026 64
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"minecraft:honey_block",count:1},PickupDelay:32767s}
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"minecraft:cobblestone",count:1},PickupDelay:32767s}
+wait 5
+cmd data get block 1027 100 1026 OutputTanks[0].TankContent.Fluid
+wait 0.5
+expect Found no elements matching OutputTanks
+cmd item replace entity tester weapon.mainhand with minecraft:coal 1
+wait 0.5
+bot use 1027 99 1026
+wait 0.5
+cmd data get block 1027 99 1026 fuelLevel
+wait 0.5
+expect block data: 1
+cmd clear tester minecraft:coal 0
+wait 0.5
+expect No items were found
+wait 5
+cmd data get block 1027 100 1026 OutputTanks[0].TankContent.Fluid.amount
+wait 0.5
+expect block data: 1000
+cmd data get block 1027 100 1026 OutputTanks[0].TankContent.Fluid.id
+wait 0.5
+expect create:honey
+cmd data get block 1027 100 1026 InputItems.Items[0].id
+wait 0.5
+expect minecraft:cobblestone
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd data get block 1027 99 1026 fuelLevel
+wait 0.5
+expect block data: 1
+cmd data get block 1027 99 1026 burnTimeRemaining
+wait 0.5
+expect block data: 1[0-5][0-9][0-9]
+cmd item replace entity tester weapon.mainhand with minecraft:lava_bucket
+wait 0.5
+bot use 1027 99 1026
+wait 0.5
+bot expect slot 36 minecraft:bucket 1
+wait 0.5
+expect \[bot\] expect inventory ok.*bucket
+cmd data get block 1027 99 1026 burnTimeRemaining
+wait 0.5
+expect block data: (9[0-9]{3}|10000)
+cmd item replace entity tester weapon.mainhand with create:blaze_cake
+wait 0.5
+bot use 1027 99 1026
+wait 0.5
+cmd data get block 1027 99 1026 fuelLevel
+wait 0.5
+expect block data: 2
+wait 5
+cmd data get block 1027 100 1026 OutputTanks[1].TankContent.Fluid.id
+wait 0.5
+expect minecraft:lava
+cmd data get block 1027 100 1026 OutputTanks[1].TankContent.Fluid.amount
+wait 0.5
+expect block data: 50
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
