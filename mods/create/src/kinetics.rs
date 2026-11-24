@@ -99,6 +99,10 @@ pub enum Kind {
     EncasedShaft(u8),
     Turntable,
     Press(u8),
+    Deployer {
+        facing: u8,
+        along_first: bool,
+    },
     Mixer,
     /// Mechanical pump axis derived from FACING, powered by small-cog meshing.
     Pump(u8),
@@ -244,6 +248,10 @@ impl Kind {
             | Self::Pulley(axis)
             | Self::Press(axis)
             | Self::Valve(axis) => axis,
+            Self::Deployer {
+                facing,
+                along_first,
+            } => directional_shaft_axis(facing, along_first),
             Self::Pump(facing) => face_axis(facing),
             Self::HosePulley(facing) => face_axis(crate::fluids::hose_pulley::shaft_side(facing)),
             Self::Motor(facing)
@@ -311,6 +319,7 @@ impl Kind {
             | Self::HosePulley(_)
             | Self::Mixer
             | Self::Turntable
+            | Self::Deployer { .. }
             | Self::Millstone
             | Self::Bearing(_)
             | Self::Drill(_)
@@ -453,6 +462,7 @@ pub struct Be {
     /// A belt controller's items, created when the first one arrives.
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
+    pub deployer: Option<Box<crate::deployer::Deployer>>,
     pub mixer: Option<Box<crate::mixer::Mixer>>,
     pub valve: Option<crate::fluids::valve::Pointer>,
     pub fan: Option<Box<crate::fan::AirCurrent>>,
@@ -512,6 +522,7 @@ impl Be {
             } else {
                 None
             },
+            deployer: None,
         }
     }
 
@@ -647,6 +658,7 @@ pub struct Kinetics {
     /// Belt inventories whose controller left since the last tick.
     dropped: Vec<Dropped>,
     pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
+    pub dropped_deployers: Vec<(Pos, fastnbt::Value)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
     pub dropped_gantries: Vec<crate::gantry::GantryContraption>,
     pub dropped_pulleys: Vec<(Pos, Box<crate::pulley::RopePulley>)>,
@@ -740,6 +752,9 @@ impl Kinetics {
 
     /// A block entity created by placement or loaded with its saved fields.
     pub fn insert(&mut self, pos: Pos, mut be: Be) {
+        if matches!(be.kind, Kind::Deployer { .. }) && be.deployer.is_none() {
+            be.deployer = Some(Box::default());
+        }
         if be.kind.is_bearing() && be.bearing.is_none() {
             be.bearing = Some(Box::default());
         }
@@ -766,6 +781,9 @@ impl Kinetics {
     }
 
     fn drop_inventory(&mut self, pos: Pos, mut be: Be, eject: bool) {
+        if eject && let Some(item) = be.deployer.take().and_then(|deployer| deployer.held_item) {
+            self.dropped_deployers.push((pos, item));
+        }
         if eject && let Some(millstone) = be.millstone.take() {
             self.dropped_millstones.push((pos, millstone));
         }

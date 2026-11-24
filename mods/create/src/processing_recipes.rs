@@ -13,6 +13,7 @@ use crate::{
     basin::Basin,
     belt_inventory::{TransportedItemStack, count, next_int, with_count},
     blaze_burner::Heat,
+    deployer,
     fluids::pipe_connection::FluidStack,
     kinetics::Kinetics,
     press,
@@ -44,7 +45,10 @@ pub enum ProcessingResult {
 
 pub fn has_processor(kinetics: &Kinetics, pos: Pos) -> bool {
     let above = crate::offset(pos, [0, 2, 0]);
-    kinetics.spouts.contains_key(&above) || kinetics.get(above).is_some_and(|be| be.press.is_some())
+    kinetics.spouts.contains_key(&above)
+        || kinetics
+            .get(above)
+            .is_some_and(|be| be.press.is_some() || be.deployer.is_some())
 }
 
 pub fn process_transported(
@@ -56,6 +60,9 @@ pub fn process_transported(
     let above = crate::offset(pos, [0, 2, 0]);
     if let Some(spout) = kinetics.spouts.get_mut(&above) {
         return spout.process(world, above, item);
+    }
+    if kinetics.get(above).is_some_and(|be| be.deployer.is_some()) {
+        return deployer::process(world, kinetics, above, item);
     }
     press::process_item(kinetics, pos, item)
 }
@@ -97,6 +104,7 @@ pub struct RecipeBook {
     filling: Vec<FillingRecipe>,
     assemblies: Vec<Assembly>,
     applications: HashMap<String, Vec<ItemApplication>>,
+    deploying: Vec<DeployingRecipe>,
 }
 
 #[derive(Deserialize)]
@@ -198,6 +206,39 @@ struct FillingRecipe {
     output: Value,
 }
 
+struct DeployingRecipe {
+    inputs: HashSet<String>,
+    held: HashSet<String>,
+    recipe: Recipe,
+    keep_held_item: bool,
+}
+
+pub enum Deployment<'a> {
+    Assembly(Advance<'a>, bool),
+    Recipe(&'a Recipe, bool),
+    Application(&'a ItemApplication),
+}
+
+impl Deployment<'_> {
+    pub fn keep_held_item(&self) -> bool {
+        match self {
+            Self::Assembly(_, keep) | Self::Recipe(_, keep) => *keep,
+            Self::Application(application) => application.keep_held_item,
+        }
+    }
+
+    pub fn finish(self) -> Vec<Value> {
+        match self {
+            Self::Assembly(step, _) => vec![step.finish()],
+            Self::Recipe(recipe, _) => recipe.roll_results(1),
+            Self::Application(application) => vec![Value::Compound(HashMap::from([
+                ("id".to_owned(), Value::String(application.result.clone())),
+                ("count".to_owned(), Value::Int(1)),
+            ]))],
+        }
+    }
+}
+
 static BOOK: Mutex<Option<(u64, Arc<RecipeBook>)>> = Mutex::new(None);
 
 pub fn current() -> Option<Arc<RecipeBook>> {
@@ -247,6 +288,7 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
             }
             "create:filling" => book.add_filling(raw, &mut values, tag_api),
             "create:item_application" => book.add_application(raw, &mut values),
+            "create:deploying" => book.add_deploying(raw, &mut values),
             "create:sequenced_assembly" => {
                 book.assemblies
                     .extend(Assembly::parse(&path, &bytes, &mut values, tag_api));
@@ -491,6 +533,65 @@ impl RecipeBook {
             self.applications.get(&canonical_id(held))
         }
         .map_or(&[], Vec::as_slice)
+    }
+
+    fn add_deploying(&mut self, raw: RawRecipe, tags: &mut impl FnMut(&str) -> Vec<String>) {
+        let [input, held] = raw.ingredients.as_slice() else {
+            return;
+        };
+        let mut inputs = HashSet::new();
+        let mut held_items = HashSet::new();
+        read_ingredient(input, tags, &mut inputs);
+        read_ingredient(held, tags, &mut held_items);
+        let chances = raw.results.iter().map(|result| result.chance).collect();
+        let Some(outputs) = raw
+            .results
+            .into_iter()
+            .map(|result| result.into_nbt().filter(is_registered_output))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
+        if !inputs.is_empty() && !held_items.is_empty() && !outputs.is_empty() {
+            self.deploying.push(DeployingRecipe {
+                inputs,
+                held: held_items,
+                recipe: Recipe {
+                    outputs,
+                    chances,
+                    duration: raw.duration,
+                },
+                keep_held_item: raw.keep_held_item,
+            });
+        }
+    }
+
+    pub fn deploy(&self, item: &Value, held_item: &str) -> Option<Deployment<'_>> {
+        for assembly in &self.assemblies {
+            if let Some((
+                Step::Deploying {
+                    held,
+                    keep_held_item,
+                },
+                advance,
+            )) = assembly.next(item)
+                && held.contains(held_item)
+            {
+                return Some(Deployment::Assembly(advance, *keep_held_item));
+            }
+        }
+        let id = item_id(item)?;
+        if let Some(recipe) = self
+            .deploying
+            .iter()
+            .find(|recipe| recipe.inputs.contains(id) && recipe.held.contains(held_item))
+        {
+            return Some(Deployment::Recipe(&recipe.recipe, recipe.keep_held_item));
+        }
+        self.applications(held_item)
+            .iter()
+            .find(|recipe| recipe.matches(id))
+            .map(Deployment::Application)
     }
 
     pub fn can_fill(&self, item: &Value) -> bool {

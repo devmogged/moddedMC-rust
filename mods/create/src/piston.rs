@@ -143,7 +143,7 @@ fn part(id: &str, facing: u8, sticky: bool, wet: bool) -> PaletteEntry {
     ))
 }
 
-fn axial_box(facing: u8, from: i16, to: i16, min: i16, max: i16) -> ShapeBox {
+pub(super) fn axial_box(facing: u8, from: i16, to: i16, min: i16, max: i16) -> ShapeBox {
     let axis = usize::from(face_axis(facing));
     let mut shape = ShapeBox {
         min: [min; 3],

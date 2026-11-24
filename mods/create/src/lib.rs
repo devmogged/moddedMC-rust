@@ -38,6 +38,7 @@ mod chute;
 mod collider;
 mod contraption;
 mod crusher;
+mod deployer;
 mod depot;
 mod drill;
 mod elevator;
@@ -247,6 +248,7 @@ impl Mod for Create {
         trains::register_saved(*content, registry)?;
         belt::register(content, registry)?;
         depot::register(*content, registry)?;
+        deployer::register(*content, registry)?;
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
         press::register(*content, registry)?;
@@ -1020,6 +1022,7 @@ fn states() -> Option<&'static StateIds> {
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
+        deployer::add_states(content, &mut ids);
         basin::add_states(content, &mut ids);
         ids.add(content, mixer::ID, "", Some(Kind::Mixer));
         fan::add_states(content, &mut ids);
@@ -1140,6 +1143,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::Deployer { .. }) => return deployer::placed(&args, look, states, &ids),
         Some(Kind::HosePulley(_)) => {
             return fluids::hose_pulley::placed_state(&args, &ids, states);
         }
@@ -1334,6 +1338,8 @@ struct KineticData {
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     press: Option<press::PressingData>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    deployer: Option<deployer::Deployer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     basin_recipe: Option<String>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     mixer: Option<mixer::MixerData>,
@@ -1408,6 +1414,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         press.data = data.press.unwrap_or_default();
         press.basin_recipe = data.basin_recipe;
     }
+    if matches!(kind, Kind::Deployer { .. }) {
+        be.deployer = Some(Box::new(data.deployer.unwrap_or_default()));
+    }
     if kind == Kind::Mixer {
         be.mixer = data.mixer.map(mixer::Mixer::load).map(Box::new);
     }
@@ -1480,6 +1489,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         speed: be.speed,
         pointer: be.valve,
         press: be.press.as_ref().map(|press| press.data),
+        deployer: be.deployer.as_deref().cloned(),
         basin_recipe: be
             .press
             .as_ref()
@@ -1701,6 +1711,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
         press::tick(world, states, kinetics);
+        deployer::tick(world, kinetics);
         blaze_burner::tick(world, &mut kinetics.blaze_burners);
         mixer::tick(world, time, states, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
@@ -1785,6 +1796,13 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         if let Some(result) = trains::station::use_assembly_track(context, content) {
             return result;
         }
+    }
+    if let Some(Kind::Deployer { facing, .. }) =
+        states().and_then(|states| states.kind(context.state))
+    {
+        return with_world(context.world, |kinetics| {
+            deployer::use_block(kinetics, context, facing)
+        });
     }
     if !context.with_item {
         return BlockUseResult::Pass;

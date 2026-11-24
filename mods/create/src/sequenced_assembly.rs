@@ -1,4 +1,4 @@
-//! Ordered press and spout steps from Create's sequenced assembly recipes.
+//! Ordered press, spout and deployer steps from Create's sequenced assembly recipes.
 
 use super::{
     Json, ResultStack, is_registered_output, item_id, next_int, read_fluid_ingredient,
@@ -27,6 +27,8 @@ struct StepDefinition {
     #[serde(rename = "type")]
     kind: String,
     ingredients: Vec<Json>,
+    #[serde(default)]
+    keep_held_item: bool,
 }
 
 pub(super) enum Step {
@@ -34,6 +36,10 @@ pub(super) enum Step {
     Fill {
         fluids: HashSet<String>,
         amount: u32,
+    },
+    Deploying {
+        held: HashSet<String>,
+        keep_held_item: bool,
     },
 }
 
@@ -68,6 +74,14 @@ impl Assembly {
                     ("create:filling", [_, fluid]) => {
                         let (fluids, amount) = read_fluid_ingredient(fluid, tag_api)?;
                         Some(Step::Fill { fluids, amount })
+                    }
+                    ("create:deploying", [_, ingredient]) => {
+                        let mut held = HashSet::new();
+                        read_ingredient(ingredient, tags, &mut held);
+                        (!held.is_empty()).then_some(Step::Deploying {
+                            held,
+                            keep_held_item: step.keep_held_item,
+                        })
                     }
                     _ => None,
                 },

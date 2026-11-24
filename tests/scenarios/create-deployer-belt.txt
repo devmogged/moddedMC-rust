@@ -1,0 +1,65 @@
+# A Deployer leaves an unrelated item alone and applies one plank to a moving shaft.
+mods target\mods\create.mmc
+start
+expect registered content block create:deployer
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1028.5 100 1026.5 90 20
+wait 5
+cmd fill 1021 99 1020 1034 99 1033 minecraft:stone
+cmd fill 1021 100 1020 1034 106 1033 minecraft:air
+cmd setblock 1026 100 1023 create:creative_motor[facing=east]
+cmd setblock 1027 100 1023 create:shaft[axis=x,waterlogged=false]
+cmd setblock 1027 100 1029 create:shaft[axis=x,waterlogged=false]
+cmd setblock 1026 102 1026 create:creative_motor[facing=east]
+cmd setblock 1027 102 1026 create:deployer
+cmd setblock 1027 100 1030 create:depot
+cmd item replace entity tester weapon.mainhand with create:belt_connector
+wait 0.5
+bot use 1027 100 1023
+wait 0.5
+bot use 1027 100 1029
+wait 1
+cmd kinetics 1026 100 1023 128
+cmd kinetics 1026 102 1026 128
+cmd item replace entity tester weapon.mainhand with minecraft:oak_planks 2
+wait 0.5
+bot use 1027 102 1026 down
+wait 0.5
+cmd summon minecraft:item 1027.5 101.1 1023.5 {Item:{id:"minecraft:dirt",count:1},PickupDelay:32767s}
+wait 5
+cmd data get block 1027 100 1030 HeldItem.Item.id
+wait 0.5
+expect minecraft:dirt"
+cmd data get block 1027 102 1026 Deployer.HeldItem.count
+wait 0.5
+expect block data: 2$
+bot use 1027 100 1030
+wait 0.5
+cmd summon minecraft:item 1027.5 101.1 1023.5 {Item:{id:"create:shaft",count:1},PickupDelay:32767s}
+wait 5
+cmd data get block 1027 100 1030 HeldItem.Item.id
+wait 0.5
+expect create:cogwheel"
+cmd data get block 1027 102 1026 Deployer.HeldItem.count
+wait 0.5
+expect block data: 1$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 1027 100 1030 HeldItem.Item.id
+wait 0.5
+expect create:cogwheel"
+cmd data get block 1027 102 1026 Deployer.HeldItem.count
+wait 0.5
+expect block data: 1$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

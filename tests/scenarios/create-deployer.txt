@@ -1,0 +1,198 @@
+# A powered Deployer applies a gold sheet's fifteen assembly steps, with a restart mid-stroke.
+mods target\mods\create.mmc
+start
+expect registered content item create:precision_mechanism
+expect registered content block create:deployer \(12 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 2600.5 101 2598.5 90 -75
+wait 5
+cmd fill 2595 99 2595 2606 99 2606 minecraft:stone
+cmd fill 2595 100 2595 2606 107 2606 minecraft:air
+cmd setblock 2600 100 2600 create:depot
+cmd setblock 2600 103 2600 minecraft:stone
+cmd setblock 2599 102 2600 create:creative_motor[facing=east]
+cmd item replace entity tester weapon.mainhand with create:deployer 1
+wait 0.5
+bot look 90 -75
+wait 0.5
+bot use 2600 103 2600 down
+wait 0.5
+cmd kinetics 2600 102 2600
+wait 0.5
+expect create:deployer\[axis_along_first=true,facing=down\].*Speed=16\b
+cmd clear tester create:deployer 0
+wait 0.5
+expect No items were found
+cmd recipe give tester create:crafting/kinetics/brass_hand
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/deployer
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/controls
+wait 0.5
+expect Unlocked 1 recipe
+
+cmd setblock 2601 102 2600 minecraft:redstone_block
+cmd kinetics 2599 102 2600 8
+cmd item replace entity tester weapon.mainhand with create:cogwheel 1
+wait 0.5
+bot use 2600 102 2600 down
+wait 0.5
+cmd clear tester create:cogwheel 0
+wait 0.5
+expect No items were found
+cmd item replace entity tester weapon.mainhand with create:golden_sheet 1
+wait 0.5
+bot use 2600 100 2600
+wait 1
+cmd data get block 2600 100 2600 HeldItem.Item.id
+wait 0.5
+expect create:golden_sheet"
+cmd data get block 2600 102 2600 Deployer.State
+wait 0.5
+expect block data: "WAITING"
+cmd setblock 2601 102 2600 minecraft:air
+wait 0.7
+cmd kinetics 2599 102 2600 0
+wait 0.5
+cmd data get block 2600 102 2600 Deployer.State
+wait 0.5
+expect block data: "EXPANDING"
+cmd data get block 2600 102 2600 Deployer.HeldItem.id
+wait 0.5
+expect create:cogwheel"
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2600 102 2600 Deployer.State
+wait 0.5
+expect block data: "EXPANDING"
+cmd data get block 2600 102 2600 Deployer.HeldItem.id
+wait 0.5
+expect create:cogwheel"
+cmd kinetics 2599 102 2600 256
+wait 1
+cmd data get block 2600 100 2600 HeldItem.Item.components."minecraft:custom_data"."create:sequenced_assembly".step
+wait 0.5
+expect block data: 1$
+
+# Finish the first loop.
+cmd item replace entity tester weapon.mainhand with create:large_cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with minecraft:iron_nugget 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd data get block 2600 100 2600 HeldItem.Item.components."minecraft:custom_data"."create:sequenced_assembly".step
+wait 0.5
+expect block data: 3$
+
+# Loop 2.
+cmd item replace entity tester weapon.mainhand with create:cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with create:large_cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with minecraft:iron_nugget 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd data get block 2600 100 2600 HeldItem.Item.components."minecraft:custom_data"."create:sequenced_assembly".step
+wait 0.5
+expect block data: 6$
+
+# Loop 3.
+cmd item replace entity tester weapon.mainhand with create:cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with create:large_cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with minecraft:iron_nugget 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd data get block 2600 100 2600 HeldItem.Item.components."minecraft:custom_data"."create:sequenced_assembly".step
+wait 0.5
+expect block data: 9$
+
+# Loop 4.
+cmd item replace entity tester weapon.mainhand with create:cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with create:large_cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with minecraft:iron_nugget 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd data get block 2600 100 2600 HeldItem.Item.components."minecraft:custom_data"."create:sequenced_assembly".step
+wait 0.5
+expect block data: 12$
+
+# Loop 5.
+cmd item replace entity tester weapon.mainhand with create:cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with create:large_cogwheel 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd item replace entity tester weapon.mainhand with minecraft:iron_nugget 1
+wait 0.25
+bot use 2600 102 2600 down
+wait 0.75
+cmd data get block 2600 100 2600 HeldItem.Item.id
+wait 0.5
+expect "(create:(precision_mechanism|golden_sheet|andesite_alloy|cogwheel|shaft|crushed_raw_gold)|minecraft:(gold_nugget|iron_ingot|clock))"$
+cmd data get block 2600 100 2600 HeldItem.Item.components."minecraft:custom_data"."create:sequenced_assembly"
+wait 0.5
+expect Found no elements matching HeldItem
+cmd data get block 2600 102 2600 Deployer.HeldItem
+wait 0.5
+expect Found no elements matching Deployer
+bot use 2600 100 2600
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:oak_planks 1
+wait 0.5
+bot use 2600 102 2600 down
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:shaft 1
+wait 0.5
+bot use 2600 100 2600
+wait 1
+cmd data get block 2600 100 2600 HeldItem.Item.id
+wait 0.5
+expect create:cogwheel"
+cmd item replace entity tester weapon.mainhand with minecraft:iron_nugget 2
+wait 0.5
+bot use 2600 102 2600 down
+wait 0.5
+cmd setblock 2600 102 2600 minecraft:air destroy
+wait 0.5
+cmd execute if entity @e[type=minecraft:item,x=2600.5,y=102.5,z=2600.5,distance=..3,nbt={Item:{id:"minecraft:iron_nugget",count:2}}]
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
