@@ -90,6 +90,62 @@ pub fn is_basin(states: &StateIds, id: u32) -> bool {
     states.by_id.get(&id).is_some_and(|entry| entry.block == ID)
 }
 
+fn basin_at(world: World<'_>, pos: Pos) -> bool {
+    let mut state = [content::UNLOADED_STATE];
+    world.read(&[pos], &mut state)
+        && crate::states().is_some_and(|states| is_basin(states, state[0]))
+}
+
+/// Offer items to the input inventory. `None` means the target is a different block.
+pub fn insert(world: World<'_>, pos: Pos, item: &Value, simulate: bool) -> Option<i32> {
+    if !basin_at(world, pos) {
+        return None;
+    }
+    let Some((mut basin, (stack, max))) =
+        Basin::load(world, pos).zip(BasinStack::from_nbt(item).zip(max_stack(item)))
+    else {
+        return Some(0);
+    };
+    let accepted = basin.inventories[0].insert_stack(&stack, max);
+    if accepted > 0 && (simulate || basin.save(world, pos)) {
+        Some(accepted as i32)
+    } else {
+        Some(0)
+    }
+}
+
+/// `CombinedInvWrapper` exposes input slots first, then output slots, to extractors.
+pub fn extract(world: World<'_>, pos: Pos, limit: i32, simulate: bool) -> Option<Value> {
+    let limit = u32::try_from(limit).ok()?;
+    if limit == 0 || !basin_at(world, pos) {
+        return None;
+    }
+    let mut basin = Basin::load(world, pos)?;
+    let mut taken = basin
+        .inventories
+        .iter()
+        .flat_map(|inventory| (0..BASIN_SLOTS).filter_map(|slot| inventory.slot(slot)))
+        .next()?
+        .clone();
+    let limit = limit.min(max_stack(&taken.nbt())?);
+    taken.amount = 0;
+    'inventories: for inventory in &mut basin.inventories {
+        for slot in 0..BASIN_SLOTS {
+            if inventory
+                .slot(slot)
+                .is_some_and(|item| item.same_item(&taken))
+                && let Some(stack) = inventory.extract(slot, limit - taken.amount, false)
+            {
+                taken.amount += stack.amount;
+            }
+            if taken.amount == limit {
+                break 'inventories;
+            }
+        }
+    }
+    (taken.amount != 0 && (simulate || basin.save(world, pos))).then(|| taken.nbt())
+}
+
 #[derive(Clone)]
 pub struct Basin {
     data: HashMap<String, Value>,

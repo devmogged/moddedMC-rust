@@ -41,7 +41,7 @@ impl BasinStack {
         Value::Compound(fields)
     }
 
-    fn same_item(&self, other: &Self) -> bool {
+    pub(crate) fn same_item(&self, other: &Self) -> bool {
         self.id == other.id
             && match (&self.components, &other.components) {
                 (None, Some(Value::Compound(empty))) | (Some(Value::Compound(empty)), None) => {

@@ -1,0 +1,108 @@
+# Feed a basin through a chute and a funnel, then withdraw ingredients and mixer output.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1029.5 100 1026.5 90 45
+wait 4
+cmd fill 1021 99 1021 1034 99 1032 minecraft:stone
+cmd fill 1021 100 1021 1034 106 1032 minecraft:air
+cmd gamemode survival tester
+cmd setblock 1027 100 1026 create:basin
+cmd setblock 1027 101 1026 create:chute
+cmd setblock 1027 102 1026 minecraft:chest
+cmd item replace block 1027 102 1026 container.0 with minecraft:andesite 2
+cmd item replace block 1027 102 1026 container.1 with minecraft:iron_nugget 2
+wait 5
+cmd data get block 1027 100 1026 InputItems.Items[0].id
+wait 0.5
+expect block data: "minecraft:andesite"
+cmd data get block 1027 100 1026 InputItems.Items[1].id
+wait 0.5
+expect block data: "minecraft:iron_nugget"
+
+# The funnel should accept only the amount that fits in the basin's matching slot.
+cmd setblock 1031 100 1026 create:basin
+cmd tp tester 1031.5 100 1029.5 180 35
+cmd item replace entity tester weapon.mainhand with create:andesite_funnel
+wait 0.5
+bot input sneak
+bot place 1031 100 1026 south
+bot input none
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:iron_nugget 48
+wait 0.5
+bot use 1031 100 1027 south
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:iron_nugget 20
+wait 0.5
+bot use 1031 100 1027 south
+wait 0.5
+cmd clear tester minecraft:iron_nugget 0
+wait 0.5
+expect Found 4 matching item
+cmd data get block 1031 100 1026 InputItems.Items[0].count
+wait 0.5
+expect block data: 64
+cmd data get block 1031 100 1026 InputItems.Items[1]
+wait 0.5
+expect Found no elements matching InputItems
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd data get block 1027 100 1026 InputItems.Items[1].count
+wait 0.5
+expect block data: 2
+cmd data get block 1031 100 1026 InputItems.Items[0].count
+wait 0.5
+expect block data: 64
+
+# Chutes pull from the basin and preserve the total as they move it into a chest.
+cmd setblock 1031 98 1026 minecraft:chest
+cmd setblock 1031 99 1026 create:chute
+wait 9
+cmd data get block 1031 98 1026 Items[0].count
+wait 0.5
+expect block data: 64
+cmd data get block 1031 100 1026 InputItems.Items[0]
+wait 0.5
+expect Found no elements matching InputItems
+
+# Replace the input chute with a mixer, then collect its output through a side funnel.
+cmd setblock 1027 101 1026 minecraft:air
+cmd setblock 1027 102 1026 create:mechanical_mixer
+cmd setblock 1026 101 1026 create:creative_motor[facing=up]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+wait 0.5
+cmd kinetics 1026 101 1026 64
+wait 8
+cmd data get block 1027 100 1026 OutputItems.Items[0].count
+wait 0.5
+expect block data: 2
+cmd tp tester 1027.5 100 1029.5 180 35
+cmd item replace entity tester weapon.mainhand with create:andesite_funnel
+wait 0.5
+bot input sneak
+bot place 1027 100 1026 south
+bot input none
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 1027 100 1027 south
+wait 1
+cmd tp tester 1027.5 100 1027.95
+wait 4
+cmd clear tester create:andesite_alloy 0
+wait 0.5
+expect Found 2 matching item
+cmd data get block 1027 100 1026 OutputItems.Items[0]
+wait 0.5
+expect Found no elements matching OutputItems
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

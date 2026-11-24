@@ -405,6 +405,9 @@ pub fn insert(
     if kinetics.crushers.contains_key(&pos) {
         return crate::crusher::insert(kinetics, pos, &item.item, simulate);
     }
+    if let Some(accepted) = crate::basin::insert(world, pos, &item.item, simulate) {
+        return accepted;
+    }
     let Some(container) = CONTAINERS
         .get()
         .and_then(|containers| containers.at(world, pos, face))
@@ -435,6 +438,9 @@ fn extract(
     }
     if kinetics.kind(pos) == Some(Kind::Millstone) {
         return crate::millstone::extract(kinetics, pos, amount, simulate);
+    }
+    if let Some(item) = crate::basin::extract(world, pos, amount, simulate) {
+        return Some(item);
     }
     let container = CONTAINERS.get()?.at(world, pos, face)?;
     chute::extract_container(container, amount as u32, simulate)
