@@ -6,24 +6,20 @@ use moddedmc_api::{
     interaction::{UseOnBlock, UseResult},
 };
 
-use crate::{
-    ANDESITE_ALLOY, BRASS_CASING, BRASS_INGOT, CASING, CONTENT, COPPER_CASING, EFFECTS, TAGS,
-};
+use crate::{CONTENT, EFFECTS, processing_recipes};
 
 pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
-    let output = match context.item {
-        ANDESITE_ALLOY => CASING,
-        BRASS_INGOT => BRASS_CASING,
-        "minecraft:copper_ingot" | "copper_ingot" => COPPER_CASING,
-        _ => return UseResult::Pass,
-    };
     if context.stack.count() == 0 || !context.player.is_some_and(|player| player.may_build()) {
         return UseResult::Pass;
     }
     let (world, position) = (context.world, context.position);
-    let (Some(content), Some(tags)) = (CONTENT.get(), TAGS.get()) else {
+    let Some((content, recipes)) = CONTENT.get().zip(processing_recipes::current()) else {
         return UseResult::Pass;
     };
+    let recipes = recipes.applications(context.item);
+    if recipes.is_empty() {
+        return UseResult::Pass;
+    }
     let mut state = [content::UNLOADED_STATE];
     if !world.read(&[position], &mut state) {
         return UseResult::Pass;
@@ -31,13 +27,10 @@ pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     let Some(item) = content.block_item(state[0]) else {
         return UseResult::Pass;
     };
-    if !["c:stripped_logs", "c:stripped_woods"]
-        .iter()
-        .any(|tag| tags.contains("item", tag, &item))
-    {
+    let Some(recipe) = recipes.iter().find(|recipe| recipe.matches(&item)) else {
         return UseResult::Pass;
-    }
-    let Some(state) = content.state(output) else {
+    };
+    let Some(state) = content.state(&recipe.result) else {
         return UseResult::Fail;
     };
     if world.write(&[BlockUpdate {
@@ -48,7 +41,7 @@ pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     {
         return UseResult::Fail;
     }
-    if !context.creative {
+    if !context.creative && !recipe.keep_held_item {
         context.stack.shrink(1);
     }
     if let Some(effects) = EFFECTS.get() {

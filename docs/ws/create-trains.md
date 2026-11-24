@@ -72,3 +72,5 @@ Checked the source directly at tag `mc1.21.1-6.0.10` / commit `ac0c444`. This is
 
 - Integrated the remaining WS-3 code from d9cb730 and b49cd46. Curve NBT retains Material and defaults missing or blank legacy values to andesite. The track observer's eight-tick pulse and NBT fields have unit coverage. Live observer activation and curved placement still need world integration.
 - Create format, 173 unit tests and strict Clippy passed. The Create package passed ws3-track-placement, ws3-straight-connection, ws3-create-endpoint, ws3-survival-track and ws3-railway-save against engine 2b66d5d13. The bot verified placement, survival rail consumption and graph reload after restart. Client models still need a real 26.3 check.
+
+- Use a sturdy sheet on brass casing to make Train Casing. The release item-application recipes supply the ingredients and replacement blocks. `scripts/scenario.ps1 -Scenario tests/scenarios/create-railway-casing.txt -RunDir run/create-railway-casing` checks Survival and Creative consumption, case identity after restart, and mining loot.

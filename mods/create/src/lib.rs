@@ -76,6 +76,7 @@ const ENCASED_SHAFT: &str = "create:andesite_encased_shaft";
 const BRASS_ENCASED_SHAFT: &str = "create:brass_encased_shaft";
 const CASING: &str = "create:andesite_casing";
 const BRASS_CASING: &str = "create:brass_casing";
+const RAILWAY_CASING: &str = "create:railway_casing";
 const BRASS_INGOT: &str = "create:brass_ingot";
 const ZINC_INGOT: &str = "create:zinc_ingot";
 const COPPER_CASING: &str = "create:copper_casing";
@@ -693,6 +694,16 @@ fn register_casings(
         "",
         "",
         &single("create:block/brass_casing"),
+        &[],
+        STONE,
+    )?;
+    add(
+        registry,
+        RAILWAY_CASING,
+        "Train Casing",
+        "",
+        "create:item/railway_casing",
+        &single("create:block/railway_casing"),
         &[],
         STONE,
     )?;
@@ -1660,9 +1671,6 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == blaze_burner::EMPTY {
         return blaze_burner::capture(context);
     }
-    if matches!(context.item, ANDESITE_ALLOY | BRASS_INGOT) {
-        return manual_application::use_on_block(context);
-    }
     if matches!(context.item, CASING | BRASS_CASING | WRENCH)
         && let Some(result) = shaft_casing::use_on_shaft(context)
     {
@@ -1674,6 +1682,10 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     // WS-3: TrackBlockItem's item-on-rail selection and straight connections.
     if context.item == "create:track" {
         return trains::use_on_block(context);
+    }
+    let application = manual_application::use_on_block(context);
+    if application != UseResult::Pass {
+        return application;
     }
     if context.item == chute::ID {
         chute::use_on_block(context)

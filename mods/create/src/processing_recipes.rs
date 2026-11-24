@@ -94,6 +94,7 @@ pub struct RecipeBook {
     basin: Vec<BasinRecipe>,
     filling: Vec<FillingRecipe>,
     assemblies: Vec<Assembly>,
+    applications: HashMap<String, Vec<ItemApplication>>,
 }
 
 #[derive(Deserialize)]
@@ -109,6 +110,8 @@ struct RawRecipe {
     #[serde(default, rename = "processing_time")]
     duration: i32,
     heat_requirement: Option<String>,
+    #[serde(default)]
+    keep_held_item: bool,
 }
 
 #[derive(Clone, Deserialize)]
@@ -174,6 +177,18 @@ impl BasinRecipe {
     }
 }
 
+pub struct ItemApplication {
+    blocks: HashSet<String>,
+    pub result: String,
+    pub keep_held_item: bool,
+}
+
+impl ItemApplication {
+    pub fn matches(&self, block_item: &str) -> bool {
+        self.blocks.contains(block_item)
+    }
+}
+
 struct FillingRecipe {
     items: HashSet<String>,
     fluids: HashSet<String>,
@@ -229,6 +244,7 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
                 book.add_basin(path, BasinProcess::Compacting, raw, &mut values, tag_api)
             }
             "create:filling" => book.add_filling(raw, &mut values, tag_api),
+            "create:item_application" => book.add_application(raw, &mut values),
             "create:sequenced_assembly" => {
                 book.assemblies
                     .extend(Assembly::parse(&path, &bytes, &mut values, tag_api));
@@ -428,6 +444,51 @@ impl RecipeBook {
                 output,
             });
         }
+    }
+
+    fn add_application(&mut self, raw: RawRecipe, tags: &mut impl FnMut(&str) -> Vec<String>) {
+        let ([block, held], [result]) = (raw.ingredients.as_slice(), raw.results.as_slice()) else {
+            return;
+        };
+        if result.count != 1
+            || result.chance != 1.0
+            || result.components.is_some()
+            || result.amount.is_some()
+        {
+            return;
+        }
+        let mut blocks = HashSet::new();
+        read_ingredient(block, tags, &mut blocks);
+        let result = canonical_id(&result.id);
+        if blocks.is_empty()
+            || crate::CONTENT
+                .get()
+                .and_then(|content| content.state(&result))
+                .is_none()
+        {
+            return;
+        }
+        let mut held_items = HashSet::new();
+        read_ingredient(held, tags, &mut held_items);
+        for held in held_items {
+            self.applications
+                .entry(held)
+                .or_default()
+                .push(ItemApplication {
+                    blocks: blocks.clone(),
+                    result: result.clone(),
+                    keep_held_item: raw.keep_held_item,
+                });
+        }
+    }
+
+    pub fn applications(&self, held: &str) -> &[ItemApplication] {
+        if held.contains(':') {
+            self.applications.get(held)
+        } else {
+            self.applications.get(&canonical_id(held))
+        }
+        .map_or(&[], Vec::as_slice)
     }
 
     pub fn can_fill(&self, item: &Value) -> bool {

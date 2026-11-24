@@ -1,0 +1,84 @@
+# Apply a sturdy sheet to brass casing in Survival, preserving Creative mode's held stack.
+mods target\mods\create.mmc
+start
+expect registered content block create:railway_casing
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1029.5 100 1026.5 180 40
+wait 4
+cmd fill 1024 99 1021 1033 99 1031 minecraft:stone
+cmd fill 1024 100 1021 1033 104 1031 minecraft:air
+cmd tp tester 1029.5 100 1026.5 180 40
+cmd gamemode survival tester
+cmd setblock 1028 100 1024 create:andesite_casing
+cmd setblock 1029 100 1024 create:brass_casing
+cmd setblock 1030 100 1024 create:brass_casing
+cmd item replace entity tester weapon.mainhand with create:sturdy_sheet 2
+wait 0.5
+bot use 1028 100 1024 south
+wait 0.5
+cmd execute if block 1028 100 1024 create:andesite_casing
+wait 0.5
+expect Test passed
+cmd clear tester create:sturdy_sheet 0
+wait 0.5
+expect Found 2 matching item
+bot use 1029 100 1024 south
+wait 0.5
+cmd execute if block 1029 100 1024 create:railway_casing
+wait 0.5
+expect Test passed
+cmd clear tester create:sturdy_sheet 0
+wait 0.5
+expect Found 1 matching item
+cmd gamemode creative tester
+bot use 1030 100 1024 south
+wait 0.5
+cmd execute if block 1030 100 1024 create:railway_casing
+wait 0.5
+expect Test passed
+cmd clear tester create:sturdy_sheet 0
+wait 0.5
+expect Found 1 matching item
+
+# The same recipe loader serves the existing custom and vanilla casing inputs.
+cmd gamemode survival tester
+cmd setblock 1028 100 1024 minecraft:stripped_oak_log
+cmd item replace entity tester weapon.mainhand with minecraft:copper_ingot 1
+wait 0.5
+bot use 1028 100 1024 south
+wait 0.5
+cmd execute if block 1028 100 1024 create:copper_casing
+wait 0.5
+expect Test passed
+cmd clear tester minecraft:copper_ingot 0
+wait 0.5
+expect No items were found
+cmd setblock 1028 100 1024 minecraft:stripped_birch_wood
+cmd item replace entity tester weapon.mainhand with create:andesite_alloy 1
+wait 0.5
+bot use 1028 100 1024 south
+wait 0.5
+cmd execute if block 1028 100 1024 create:andesite_casing
+wait 0.5
+expect Test passed
+cmd clear tester create:andesite_alloy 0
+wait 0.5
+expect No items were found
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 1029 100 1024 create:railway_casing if block 1030 100 1024 create:railway_casing
+wait 0.5
+expect Test passed
+cmd loot spawn 1029 101 1024 mine 1029 100 1024
+wait 0.5
+expect Dropped 1 .*Train Casing
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
