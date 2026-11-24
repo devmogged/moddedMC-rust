@@ -3,6 +3,7 @@ use fastnbt::Value;
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
     content::{Block, Content, Placement, State, World},
+    effects::SOUND_BLOCKS,
     interaction::{BlockUseResult, UseBlock},
     items::Item,
 };
@@ -13,7 +14,7 @@ use crate::{
     belt_inventory::{TransportedItemStack, count, with_count},
     kinetics::{FACES, Kind, directional_shaft_axis, face_axis, positive},
     manual_application, offset,
-    processing_recipes::{self, ProcessingResult, item_id},
+    processing_recipes::{self, Deployment, ProcessingResult, item_id},
 };
 
 pub const ID: &str = "create:deployer";
@@ -290,7 +291,27 @@ pub fn process(
     if !item.locked || deployer.phase != Phase::Retracting || deployer.timer != RETRACT {
         return Hold;
     }
-    if !recipe.keep_held_item() {
+    if matches!(recipe, Deployment::Polishing(_)) {
+        let Some(Value::Compound(held)) = &mut deployer.held_item else {
+            return Pass;
+        };
+        match crate::wear_stack(held, i32::from(crate::sandpaper::DURABILITY)) {
+            Some(true) => {}
+            Some(false) => deployer.held_item = None,
+            None => return Pass,
+        }
+        be.dirty = true;
+        if let Some(effects) = crate::EFFECTS.get() {
+            effects.play_sound(
+                world,
+                [pos.x, pos.y, pos.z].map(|coordinate| f64::from(coordinate) + 0.5),
+                "minecraft:item.brush.brushing_generic",
+                SOUND_BLOCKS,
+                0.35,
+                1.0,
+            );
+        }
+    } else if !recipe.keep_held_item() {
         deployer.consume_held();
         be.dirty = true;
     }

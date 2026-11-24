@@ -217,6 +217,7 @@ pub enum Deployment<'a> {
     Assembly(Advance<'a>, bool),
     Recipe(&'a Recipe, bool),
     Application(&'a ItemApplication),
+    Polishing(&'a Recipe),
 }
 
 impl Deployment<'_> {
@@ -224,13 +225,14 @@ impl Deployment<'_> {
         match self {
             Self::Assembly(_, keep) | Self::Recipe(_, keep) => *keep,
             Self::Application(application) => application.keep_held_item,
+            Self::Polishing(_) => false,
         }
     }
 
     pub fn finish(self) -> Vec<Value> {
         match self {
             Self::Assembly(step, _) => vec![step.finish()],
-            Self::Recipe(recipe, _) => recipe.roll_results(1),
+            Self::Recipe(recipe, _) | Self::Polishing(recipe) => recipe.roll_results(1),
             Self::Application(application) => vec![Value::Compound(HashMap::from([
                 ("id".to_owned(), Value::String(application.result.clone())),
                 ("count".to_owned(), Value::Int(1)),
@@ -567,6 +569,11 @@ impl RecipeBook {
     }
 
     pub fn deploy(&self, item: &Value, held_item: &str) -> Option<Deployment<'_>> {
+        if crate::sandpaper::is_sandpaper(held_item)
+            && let Some(recipe) = self.find(Process::Polishing, item)
+        {
+            return Some(Deployment::Polishing(recipe));
+        }
         for assembly in &self.assemblies {
             if let Some((
                 Step::Deploying {

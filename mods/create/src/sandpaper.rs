@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 const SAND_PAPER: &str = "create:sand_paper";
 const RED_SAND_PAPER: &str = "create:red_sand_paper";
-const DURABILITY: u16 = 8;
+pub(crate) const DURABILITY: u16 = 8;
 const USE_TICKS: u16 = 32;
 
 #[derive(Deserialize, Serialize)]
@@ -76,8 +76,12 @@ pub(crate) fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationEr
     Ok(())
 }
 
+pub(crate) fn is_sandpaper(id: &str) -> bool {
+    matches!(id, SAND_PAPER | RED_SAND_PAPER)
+}
+
 pub(crate) fn item_use(context: &mut ItemUse<'_>) -> ItemUseResult {
-    if !matches!(context.item, SAND_PAPER | RED_SAND_PAPER) {
+    if !is_sandpaper(context.item) {
         return ItemUseResult::Pass;
     }
     let saved = context

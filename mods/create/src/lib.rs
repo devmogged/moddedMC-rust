@@ -123,6 +123,14 @@ fn stack_after_damage(
 ) -> Option<Vec<u8>> {
     use fastnbt::Value;
     let mut data = fastnbt::from_bytes::<HashMap<String, Value>>(&stack.read()?).ok()?;
+    if !wear_stack(&mut data, durability)? {
+        return Some(Vec::new());
+    }
+    fastnbt::to_bytes(&data).ok()
+}
+
+fn wear_stack(data: &mut HashMap<String, fastnbt::Value>, durability: i32) -> Option<bool> {
+    use fastnbt::Value;
     let Value::Compound(components) = data
         .entry("components".into())
         .or_insert_with(|| Value::Compound(HashMap::new()))
@@ -134,11 +142,11 @@ fn stack_after_damage(
         _ => 1,
     };
     if damage >= durability {
-        return Some(Vec::new());
+        return Some(false);
     }
     components.insert("minecraft:max_damage".into(), Value::Int(durability));
     components.insert("minecraft:damage".into(), Value::Int(damage));
-    fastnbt::to_bytes(&data).ok()
+    Some(true)
 }
 
 struct Create;

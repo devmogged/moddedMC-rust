@@ -1,0 +1,73 @@
+# Red Sand Paper polishes one Rose Quartz per stroke and keeps durability through restart.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 2600.5 100 2598.5 0 25
+wait 5
+cmd fill 2596 99 2596 2606 99 2607 minecraft:stone
+cmd fill 2596 100 2596 2606 108 2607 minecraft:air
+cmd setblock 2599 102 2600 create:creative_motor[facing=east]
+cmd setblock 2600 102 2600 create:deployer
+cmd setblock 2600 100 2600 create:depot
+wait 0.5
+cmd kinetics 2599 102 2600 128
+cmd item replace entity tester weapon.mainhand with create:red_sand_paper[minecraft:damage=6]
+wait 0.5
+bot use 2600 102 2600 down
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:rose_quartz
+wait 0.5
+bot use 2600 100 2600
+wait 1.5
+cmd data get block 2600 100 2600 HeldItem.Item.id
+wait 0.5
+expect create:polished_rose_quartz"
+cmd data get block 2600 102 2600 Deployer.HeldItem.components."minecraft:damage"
+wait 0.5
+expect block data: 7$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2600 102 2600 Deployer.HeldItem.components."minecraft:damage"
+wait 0.5
+expect block data: 7$
+bot use 2600 100 2600
+wait 0.5
+cmd clear tester create:polished_rose_quartz 0
+wait 0.5
+expect Found 1 matching item
+bot hotbar 1
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:rose_quartz
+wait 0.5
+bot use 2600 100 2600
+wait 1.5
+cmd data get block 2600 100 2600 HeldItem.Item.id
+wait 0.5
+expect create:polished_rose_quartz"
+cmd data get block 2600 102 2600 Deployer.HeldItem
+wait 0.5
+expect Found no elements matching Deployer
+bot use 2600 100 2600
+wait 0.5
+cmd clear tester create:polished_rose_quartz 0
+wait 0.5
+expect Found 2 matching item
+cmd item replace entity tester weapon.mainhand with create:rose_quartz
+wait 0.5
+bot use 2600 100 2600
+wait 1.5
+cmd data get block 2600 100 2600 HeldItem.Item.id
+wait 0.5
+expect "create:rose_quartz"$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
