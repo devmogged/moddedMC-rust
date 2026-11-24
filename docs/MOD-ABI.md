@@ -167,6 +167,10 @@ A `.mmc` is a zip with
 | | `destroy_speed(world, position, out)` | Vanilla `BlockState.getDestroySpeed`: the loaded state's hardness, negative when unbreakable. False when unloaded. |
 | | `can_survive(world, position, state)` | Vanilla `BlockState.canSurvive` for `state` as if at `position`, without changing the world (crops include their light check). 1, 0, or -1 for an unknown state or unloaded position. |
 | | `block_item(state, out)` | Vanilla `Block.asItem()` as a namespaced id, `minecraft:air` when the block has none. False for an unknown state. |
+| `moddedmc:fluid_world` v1 | `inspect(world, position, cell, fluid)` | Read a loaded block's runtime state and source, replaceability and waterlogging flags. The sink receives the still-fluid id when the actual fluid state contains fluid. Loaded dry cells succeed without calling the sink. |
+| | `schedule_tick(world, position, fluid, delay)` | Schedule a normal-priority vanilla fluid tick at a loaded position. Accepts a registered non-empty fluid id and a delay of at most 255 ticks, or `DEFAULT_FLUID_TICK_DELAY` for the fluid's usual delay in that dimension. |
+| | `would_regenerate_source(world, position, fluid)` | Predict source conversion for a hypothetical flowing liquid at the position. Uses the world's gamerules, horizontal collision faces and the supporting block. Returns 1 or 0, or -1 if the required state is unavailable. |
+| | `water_evaporates(world, position)` | Read the world's 26.3 water evaporation setting for a loaded position. |
 | `moddedmc:entities` v1 | `on_entity_inside(reg, callback)` | Stage one callback per mod, called like vanilla `Block.entityInside` for entities touching one of the mod's blocks. It gets the world, position, state and a borrowed entity, all valid only during the call. |
 | | `view(entity, out)` | Fill kind bits (player, living, item), on-ground flag, position, motion, yaw, pitch, head yaw and body yaw. |
 | | `type_id(entity)` | The entity type's resource name. |

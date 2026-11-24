@@ -8,6 +8,7 @@ use super::{
     item_drain,
     network::{FluidHandler, transfer_tick},
     network_graph::{BlockFace, FluidNetworkGraph, NetworkTopology, Source},
+    open_end_runtime::{OpenEnd, open_cell},
     pipe_connection::{FluidStack, PipeConnection},
     smart_tank, spout,
     tank::TankInventory,
@@ -92,35 +93,41 @@ impl FlowRuntime {
         world: World<'_>,
         endpoint_states: &HashMap<u32, EndpointKind>,
         connectivity: &Connectivity,
+        is_transport: impl Fn(u32) -> bool,
     ) {
         if self.pipes.is_empty() {
             return;
         }
         let mut tanks = HashMap::new();
         let mut owners = HashMap::new();
-        let mut checked = HashSet::new();
+        let mut checked = HashMap::new();
+        let mut open = HashSet::new();
         let mut provided = Vec::with_capacity(self.pipes.len());
         for (&pos, pipe) in &self.pipes {
             provided.push((
                 pos,
                 std::array::from_fn(|side| {
-                    pipe.connections[side].as_ref()?;
-                    let adjacent = BlockFace {
+                    let connection = pipe.connections[side].as_ref()?;
+                    let face = BlockFace {
                         pos,
                         side: side as u8,
-                    }
-                    .opposite();
+                    };
+                    let adjacent = face.opposite();
                     if let Some(other) = self.pipes.get(&adjacent.pos) {
                         return other.connections[usize::from(adjacent.side)]
                             .as_ref()?
                             .provide_outbound_flow()
                             .cloned();
                     }
-                    if checked.insert(adjacent.pos) {
+                    if let std::collections::hash_map::Entry::Vacant(entry) =
+                        checked.entry(adjacent.pos)
+                    {
                         let mut state = [0];
-                        if world.read(&[adjacent.pos], &mut state)
-                            && let Some(&kind) = endpoint_states.get(&state[0])
-                        {
+                        if !world.read(&[adjacent.pos], &mut state) {
+                            state[0] = moddedmc_api::content::UNLOADED_STATE;
+                        }
+                        entry.insert(state[0]);
+                        if let Some(&kind) = endpoint_states.get(&state[0]) {
                             let (owner, tag) = if kind == EndpointKind::Tank {
                                 let tag = tank_runtime::read_tag(world, adjacent.pos)?;
                                 let owner = tank_runtime::controller_from_tag(&tag, adjacent.pos)?;
@@ -146,10 +153,24 @@ impl FlowRuntime {
                             }
                         }
                     }
-                    let (kind, tank) = tanks.get(owners.get(&adjacent.pos)?)?;
-                    kind.accessible(adjacent.side)
-                        .then(|| tank.fluid().cloned())
-                        .flatten()
+                    if let Some((kind, tank)) =
+                        owners.get(&adjacent.pos).and_then(|owner| tanks.get(owner))
+                    {
+                        return kind
+                            .accessible(adjacent.side)
+                            .then(|| tank.fluid().cloned())
+                            .flatten();
+                    }
+                    let state = checked[&adjacent.pos];
+                    if endpoint_states.contains_key(&state) || is_transport(state) {
+                        return None;
+                    }
+                    let cell = open_cell(world, face)?;
+                    open.insert(face);
+                    if connection.compare_pressure() >= 0.0 {
+                        return None;
+                    }
+                    OpenEnd::source(world, face, &cell)?.1.fluid().cloned()
                 }),
             ));
         }
@@ -164,6 +185,7 @@ impl FlowRuntime {
             pipes: &self.pipes,
             tanks: &tanks,
             owners: &owners,
+            open: &open,
         };
         for (&pos, pipe) in &self.pipes {
             for connection in pipe.connections.iter().flatten() {
@@ -190,7 +212,7 @@ impl FlowRuntime {
         for face in starts {
             let graph = &self.networks[&face];
             if let Some(fluid) = &graph.fluid {
-                move_tank_fluid(world, &mut tanks, &owners, graph, fluid);
+                move_fluid(world, &mut tanks, &owners, &open, graph, fluid);
             }
         }
     }
@@ -204,6 +226,7 @@ struct Topology<'a> {
     pipes: &'a HashMap<Pos, Transport>,
     tanks: &'a Endpoints,
     owners: &'a EndpointOwners,
+    open: &'a HashSet<BlockFace>,
 }
 
 impl NetworkTopology for Topology<'_> {
@@ -217,11 +240,12 @@ impl NetworkTopology for Topology<'_> {
 
     fn source(&self, face: BlockFace) -> Source {
         let adjacent = face.opposite();
-        if self
-            .owners
-            .get(&adjacent.pos)
-            .and_then(|owner| self.tanks.get(owner))
-            .is_some_and(|(kind, _)| kind.accessible(adjacent.side))
+        if self.open.contains(&face)
+            || self
+                .owners
+                .get(&adjacent.pos)
+                .and_then(|owner| self.tanks.get(owner))
+                .is_some_and(|(kind, _)| kind.accessible(adjacent.side))
         {
             Source::Endpoint
         } else if self
@@ -236,33 +260,88 @@ impl NetworkTopology for Topology<'_> {
     }
 }
 
-fn move_tank_fluid(
+enum Storage {
+    Tank(Pos, EndpointKind),
+    Open(OpenEnd),
+}
+
+impl Storage {
+    fn save(&self, world: World<'_>, tank: &TankInventory) -> bool {
+        match self {
+            Self::Tank(pos, kind) => kind.save(world, *pos, tank),
+            Self::Open(end) => end.save(world, tank),
+        }
+    }
+
+    fn refund(&self, world: World<'_>, tank: &TankInventory) -> bool {
+        match self {
+            Self::Tank(pos, kind) => kind.save(world, *pos, tank),
+            Self::Open(end) => end.refund(world, tank),
+        }
+    }
+
+    fn update_cache(self, tanks: &mut Endpoints, tank: TankInventory) {
+        if let Self::Tank(pos, kind) = self {
+            tanks.insert(pos, (kind, tank));
+        }
+    }
+}
+
+fn move_fluid(
     world: World<'_>,
     tanks: &mut Endpoints,
     owners: &EndpointOwners,
+    open: &HashSet<BlockFace>,
     graph: &FluidNetworkGraph,
     fluid: &FluidStack,
 ) {
-    let Some(&source) = owners.get(&graph.start.connected_pos()) else {
+    let mut seen_tanks = HashSet::new();
+    let (source, mut updated_source) = if let Some(&owner) =
+        owners.get(&graph.start.connected_pos())
+        && let Some((kind, tank)) = tanks.get(&owner)
+    {
+        seen_tanks.insert(owner);
+        (Storage::Tank(owner, *kind), tank.clone())
+    } else if open.contains(&graph.start)
+        && let Some(cell) = open_cell(world, graph.start)
+        && let Some((end, tank)) = OpenEnd::source(world, graph.start, &cell)
+    {
+        (Storage::Open(end), tank)
+    } else {
         return;
     };
-    let Some((source_kind, mut updated_source)) = tanks.get(&source).cloned() else {
+    if !updated_source
+        .fluid()
+        .is_some_and(|current| current.same_fluid_same_components(fluid))
+    {
         return;
-    };
-    let mut targets: Vec<_> = graph
-        .targets
-        .iter()
-        .filter_map(|face| owners.get(&face.connected_pos()).copied())
-        .collect();
-    targets.sort_unstable_by_key(|pos| (pos.x, pos.y, pos.z));
+    }
+    let mut targets = graph.targets.clone();
+    targets.sort_unstable_by_key(|face| {
+        let pos = face.connected_pos();
+        let pos = owners.get(&pos).copied().unwrap_or(pos);
+        (pos.x, pos.y, pos.z, face_order(face))
+    });
     targets.dedup();
     let mut targets: Vec<_> = targets
         .into_iter()
-        .filter(|&pos| pos != source)
-        // The item drain exposes extraction only.
-        .filter_map(|pos| {
-            let (kind, tank) = tanks.get(&pos)?;
-            (*kind != EndpointKind::ItemDrain).then(|| (pos, *kind, tank.clone()))
+        .filter(|&face| face != graph.start)
+        .filter_map(|face| {
+            let (storage, tank) = if let Some(&owner) = owners.get(&face.connected_pos()) {
+                let (kind, tank) = tanks.get(&owner)?;
+                // The item drain exposes extraction only.
+                if *kind == EndpointKind::ItemDrain || !seen_tanks.insert(owner) {
+                    return None;
+                }
+                (Storage::Tank(owner, *kind), tank.clone())
+            } else if open.contains(&face) {
+                let cell = open_cell(world, face)?;
+                let (end, tank) = OpenEnd::target(world, face, &cell, fluid)?;
+                (Storage::Open(end), tank)
+            } else {
+                return None;
+            };
+            Some((storage, tank.amount(), tank))
         })
         .collect();
     let mut handlers: Vec<&mut dyn FluidHandler> = targets
@@ -275,17 +354,17 @@ fn move_tank_fluid(
         fluid,
         graph.transfer_speed as f32 * 2.0,
     );
-    if moved == 0 || !source_kind.save(world, source, &updated_source) {
+    if moved == 0 || !source.save(world, &updated_source) {
         return;
     }
 
     // The tick is synchronous. If a target's entity write fails, return its share.
     let mut returned = 0;
-    for (pos, kind, tank) in targets {
-        let received = tank.amount() - tanks[&pos].1.amount();
+    for (storage, before, tank) in targets {
+        let received = tank.amount() - before;
         if received > 0 {
-            if kind.save(world, pos, &tank) {
-                tanks.insert(pos, (kind, tank));
+            if storage.save(world, &tank) {
+                storage.update_cache(tanks, tank);
             } else {
                 returned += received;
             }
@@ -295,9 +374,9 @@ fn move_tank_fluid(
         let mut refund = fluid.clone();
         refund.amount = returned;
         updated_source.fill(&refund, false);
-        if !source_kind.save(world, source, &updated_source) {
+        if !source.refund(world, &updated_source) {
             return;
         }
     }
-    tanks.insert(source, (source_kind, updated_source));
+    source.update_cache(tanks, updated_source);
 }

@@ -27,6 +27,7 @@ pub mod containers;
 pub mod content;
 pub mod effects;
 pub mod entities;
+pub mod fluid_world;
 pub mod interaction;
 pub mod items;
 pub mod lifecycle;

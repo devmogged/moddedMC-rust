@@ -448,6 +448,7 @@ mod layout {
 }
 pub const CONTENT: &str = "moddedmc:content";
 pub const BLOCK_WORLD: &str = "moddedmc:block_world";
+pub const FLUID_WORLD: &str = "moddedmc:fluid_world";
 pub const ITEMS: &str = "moddedmc:items";
 pub const UNLOADED_STATE: u32 = u32::MAX;
 pub const MAX_WORLD_BATCH: usize = 4096;
@@ -657,6 +658,35 @@ pub struct DayTime {
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
 pub const BLOCK_WORLD_V1_BASE_SIZE: usize = std::mem::offset_of!(BlockWorldV1, has_neighbor_signal);
+
+pub const FLUID_SOURCE: u32 = 1;
+pub const FLUID_REPLACEABLE: u32 = 2;
+pub const FLUID_HAS_WATERLOGGED: u32 = 4;
+pub const FLUID_WATERLOGGED: u32 = 8;
+/// Request the fluid's normal delay for the dimension.
+pub const DEFAULT_FLUID_TICK_DELAY: u32 = u32::MAX;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FluidCell {
+    pub state: u32,
+    pub flags: u32,
+}
+
+#[repr(C)]
+pub struct FluidWorldV1 {
+    pub size: usize,
+    /// Return the loaded cell's block state and flags. The sink gets the still-fluid registry id
+    /// once when there is fluid. An empty loaded cell succeeds without calling the sink.
+    pub inspect:
+        unsafe extern "C" fn(world: WorldRef, pos: Pos, cell: *mut FluidCell, fluid: Sink) -> bool,
+    pub schedule_tick:
+        unsafe extern "C" fn(world: WorldRef, pos: Pos, fluid: Str, delay: u32) -> bool,
+    /// Source conversion for a hypothetical flowing block. Returns -1 if unavailable.
+    pub would_regenerate_source: unsafe extern "C" fn(world: WorldRef, pos: Pos, fluid: Str) -> i32,
+    /// Vanilla 26.3 WATER_EVAPORATES environment attribute.
+    pub water_evaporates: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
+}
 
 pub const ENTITIES: &str = "moddedmc:entities";
 

@@ -15,6 +15,8 @@ use super::{
     blocks::PipeState,
     flow_runtime::{EndpointKind, FlowRuntime},
     item_drain,
+    network_graph::BlockFace,
+    open_end_runtime::open_cell,
     pipe_states::{OpenFaces, update_block_state},
     pump_graph::{PumpTopology, distribute_pressure},
     spout, tank_runtime,
@@ -42,8 +44,6 @@ struct StateIndex {
     pump: [[Option<u32>; 2]; 6],
     water: HashSet<u32>,
     endpoints: HashMap<u32, EndpointKind>,
-    /// Known vanilla open-end states. Unknown world blocks fail closed until WS-2-02.
-    known_open_ends: HashSet<u32>,
 }
 
 static IDS: OnceLock<StateIndex> = OnceLock::new();
@@ -71,7 +71,6 @@ impl StateIndex {
                 )
                 .chain(content.state(spout::ID).map(|id| (id, EndpointKind::Spout)))
                 .collect(),
-            known_open_ends: HashSet::new(),
         };
         for mask in 0..64u8 {
             for wet in [false, true] {
@@ -140,32 +139,6 @@ impl StateIndex {
         }
         if let Some(id) = content.state("minecraft:water") {
             result.water.insert(id);
-        }
-        result.known_open_ends.extend(result.water.iter().copied());
-        for name in [
-            "air",
-            "cave_air",
-            "void_air",
-            "lava",
-            "cauldron",
-            "lava_cauldron",
-            "short_grass",
-            "fern",
-            "dead_bush",
-        ] {
-            if let Some(id) = content.state(&format!("minecraft:{name}")) {
-                result.known_open_ends.insert(id);
-            }
-        }
-        for level in 0..=15 {
-            if let Some(id) = content.state(&format!("minecraft:lava[level={level}]")) {
-                result.known_open_ends.insert(id);
-            }
-        }
-        for level in 1..=3 {
-            if let Some(id) = content.state(&format!("minecraft:water_cauldron[level={level}]")) {
-                result.known_open_ends.insert(id);
-            }
         }
         result
     }
@@ -465,8 +438,6 @@ struct WorldPressure {
 static PRESSURES: Mutex<Option<HashMap<usize, WorldPressure>>> = Mutex::new(None);
 
 /// Read-only block topology from the currently loaded server world.
-/// The unknown vanilla and cross-mod endpoint cases deliberately fail
-/// closed until WS-2-01/02; no chunk is loaded by this adapter.
 struct LoadedTopology<'a> {
     world: World<'a>,
     states: &'static StateIndex,
@@ -475,7 +446,7 @@ struct LoadedTopology<'a> {
 impl LoadedTopology<'_> {
     fn read(&self, pos: Pos) -> Option<(u32, Option<Kind>)> {
         let mut current = [content::UNLOADED_STATE];
-        if !self.world.read(&[pos], &mut current) {
+        if !self.world.read(&[pos], &mut current) || current[0] == content::UNLOADED_STATE {
             return None;
         }
         Some((current[0], self.states.kinds.get(&current[0]).copied()))
@@ -526,15 +497,18 @@ impl PumpTopology for LoadedTopology<'_> {
             Some(_) => return false,
             None => {}
         }
-        // The complete Java isOpenEnd rule needs replaceability,
-        // face sturdiness, block tags and sided fluid capabilities.
-        // This proven subset accepts only explicitly resolved vanilla
-        // replaceable blocks / cauldrons, never arbitrary unknown blocks.
-        self.states
-            .endpoints
-            .get(&state)
-            .is_some_and(|kind| kind.accessible(face ^ 1))
-            || self.states.known_open_ends.contains(&state)
+        if let Some(kind) = self.states.endpoints.get(&state) {
+            kind.accessible(face ^ 1)
+        } else {
+            open_cell(
+                self.world,
+                BlockFace {
+                    pos: pipe,
+                    side: face,
+                },
+            )
+            .is_some()
+        }
     }
 }
 
@@ -636,7 +610,9 @@ pub fn pressure_tick(
     }
     pressure
         .flow
-        .tick(world, &states.endpoints, &kinetics.fluid_tanks);
+        .tick(world, &states.endpoints, &kinetics.fluid_tanks, |state| {
+            states.kinds.contains_key(&state)
+        });
 }
 
 pub fn tick_valves(world: World<'_>, kinetics: &mut Kinetics) -> bool {

@@ -8,6 +8,7 @@ pub(crate) mod item_drain;
 pub mod network;
 pub mod network_graph;
 pub mod open_end;
+pub(crate) mod open_end_runtime;
 pub mod pipe_connection;
 pub mod pipe_states;
 pub mod pump_graph;

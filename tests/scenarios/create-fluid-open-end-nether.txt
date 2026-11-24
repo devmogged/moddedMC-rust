@@ -1,0 +1,35 @@
+# Pump one bucket of water into a dry pocket in the Nether.
+mods target\mods\create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd execute in minecraft:the_nether run tp tester 1027.5 102 1023.5 0 0
+wait 6
+cmd execute in minecraft:the_nether run fill 1020 100 1018 1032 109 1031 minecraft:air
+cmd execute in minecraft:the_nether run fill 1020 99 1018 1032 99 1031 minecraft:stone
+cmd execute in minecraft:the_nether run setblock 1025 100 1025 create:creative_motor[facing=up]
+cmd execute in minecraft:the_nether run setblock 1025 101 1025 create:shaft[axis=y,waterlogged=false]
+cmd execute in minecraft:the_nether run setblock 1025 102 1025 create:large_cogwheel[axis=y,waterlogged=false]
+cmd execute in minecraft:the_nether run setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+cmd execute in minecraft:the_nether run kinetics 1025 100 1025 0
+cmd execute in minecraft:the_nether run setblock 1027 101 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd execute in minecraft:the_nether run setblock 1027 102 1026 create:mechanical_pump[facing=down,waterlogged=false]
+cmd execute in minecraft:the_nether run setblock 1027 103 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd execute in minecraft:the_nether run setblock 1027 104 1026 create:fluid_tank
+cmd execute in minecraft:the_nether run data merge block 1027 104 1026 {Size:1,Height:1,Window:1b,TankContent:{Fluid:{id:"minecraft:water",amount:1000}}}
+cmd execute in minecraft:the_nether run fluidpipe 1027 104 1026
+wait 0.5
+expect Tank\(minecraft:water 1000/8000 mB\)
+cmd execute in minecraft:the_nether run kinetics 1025 100 1025 64
+wait 5
+cmd execute in minecraft:the_nether run fluidpipe 1027 104 1026
+wait 0.5
+expect Tank\(empty 0/8000 mB\)
+cmd execute in minecraft:the_nether run execute if block 1027 100 1026 minecraft:air
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|\[bot\] error
+bot quit
+stop

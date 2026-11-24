@@ -14,6 +14,7 @@ mod content;
 mod content_pack;
 mod effects;
 mod entities;
+mod fluid_world;
 mod interaction;
 mod interfaces;
 mod live_stats;

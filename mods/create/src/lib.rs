@@ -112,6 +112,7 @@ impl Mod for Create {
         let content = content::require()?;
         content.require_replaced()?;
         fluids::tank_connectivity::require()?;
+        fluids::open_end_runtime::require()?;
         content.require_extension(WorldExtension::NeighborSignal)?;
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;

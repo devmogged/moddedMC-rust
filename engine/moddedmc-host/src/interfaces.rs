@@ -61,6 +61,7 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
             ptr::from_ref(&crate::content::ITEMS).cast()
         }
         (abi::BLOCK_WORLD, 1) => ptr::from_ref(&crate::content::WORLD).cast(),
+        (abi::FLUID_WORLD, 1) => ptr::from_ref(&crate::fluid_world::FLUID_WORLD).cast(),
         (abi::ENTITIES, 1) => ptr::from_ref(&crate::content::ENTITIES).cast(),
         (abi::ITEM_STACKS, 1) => ptr::from_ref(&crate::stacks::ITEM_STACKS).cast(),
         (abi::DISPLAYS, 1) => ptr::from_ref(&crate::stacks::DISPLAYS_TABLE).cast(),
