@@ -218,7 +218,7 @@ impl Mod for Create {
         }
         // WS-3: official Create 6.0.10 track blockstates and placement.
         trains::register(content, registry)?;
-        trains::register_saved(registry)?;
+        trains::register_saved(*content, registry)?;
         belt::register(content, registry)?;
         depot::register(*content, registry)?;
         chute::register(*content, registry)?;
@@ -342,6 +342,11 @@ impl Mod for Create {
                 "Build and save a Create railway at a rail position",
                 4,
             ),
+            (
+                "station",
+                "Inspect a Create train station and its track connection",
+                5,
+            ),
         ] {
             COMMANDS
                 .get()
@@ -385,6 +390,14 @@ impl Mod for Create {
                 None => command.reply("There is no loaded Create fluid block at that position"),
             }
             return 1;
+        }
+        if tag == 5 {
+            if let Some(description) = trains::station::describe(world, *content, pos) {
+                command.reply(&description);
+                return 1;
+            }
+            command.reply("There is no loaded Create train station at that position");
+            return 0;
         }
         if tag == 3 || tag == 4 {
             let result = if tag == 3 {
@@ -1634,6 +1647,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         kinetics.tick(&mut level);
         if let Some(&content) = CONTENT.get() {
             kinetics.rail_updates.tick(world, content, time, events);
+            trains::station::tick(world, content, events);
         }
         kinetics.fluid_tanks.tick(world, time, events);
         // WS-2: distribute pump RPM as directional pipe pressures.
@@ -1686,6 +1700,12 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     // TrackBlockItem's two-click rail placement.
     if context.item == "create:track" {
         return trains::use_on_block(context);
+    }
+    if context.item == trains::station::ID {
+        let Some(&content) = CONTENT.get() else {
+            return UseResult::Fail;
+        };
+        return trains::station::use_on_block(context, content);
     }
     let application = manual_application::use_on_block(context);
     if application != UseResult::Pass {

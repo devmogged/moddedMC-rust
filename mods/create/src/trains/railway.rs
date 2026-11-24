@@ -31,10 +31,14 @@ pub(crate) fn require() -> Result<(), InterfaceUnavailable> {
     Ok(())
 }
 
-pub(crate) fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
+pub(crate) fn register(
+    content: Content,
+    registry: &mut Registry<'_>,
+) -> Result<(), RegistrationError> {
     let saved = *TABLE.get().ok_or(RegistrationError::InvalidDefinition)?;
     let key = saved.register(registry, "create_tracks")?;
-    KEY.set(key).map_err(|_| RegistrationError::DuplicateId)
+    KEY.set(key).map_err(|_| RegistrationError::DuplicateId)?;
+    super::station::register(content, registry, saved)
 }
 
 fn table() -> Result<(SavedData, Key), String> {
@@ -44,7 +48,7 @@ fn table() -> Result<(SavedData, Key), String> {
     ))
 }
 
-fn read(world: &World<'_>) -> Result<RailwayData, String> {
+pub(super) fn read(world: &World<'_>) -> Result<RailwayData, String> {
     let (save, key) = table()?;
     match save.read(world, key) {
         None => Ok(RailwayData::default()),

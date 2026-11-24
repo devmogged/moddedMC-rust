@@ -12,6 +12,7 @@ mod railway;
 mod reconcile;
 mod runtime;
 mod save;
+pub(crate) mod station;
 mod track;
 mod visual;
 mod world_graph;

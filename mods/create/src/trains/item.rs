@@ -198,7 +198,7 @@ pub(super) fn straight(
 }
 
 /// Vanilla Direction offsets, with overflow-safe world coordinates.
-fn relative(pos: Pos, face: u8) -> Option<Pos> {
+pub(super) fn relative(pos: Pos, face: u8) -> Option<Pos> {
     let [dx, dy, dz] = match face {
         0 => [0, -1, 0],
         1 => [0, 1, 0],
