@@ -39,7 +39,8 @@ pub(crate) fn register(
     let key = saved.register(registry, "create_tracks")?;
     KEY.set(key).map_err(|_| RegistrationError::DuplicateId)?;
     super::station::register(content, registry, saved)?;
-    super::signal::register(content, registry, saved)
+    super::signal::register(content, registry, saved)?;
+    super::bogey::register(content, registry)
 }
 
 fn table() -> Result<(SavedData, Key), String> {

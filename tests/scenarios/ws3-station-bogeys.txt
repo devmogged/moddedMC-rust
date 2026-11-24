@@ -1,0 +1,125 @@
+# Train Station assembly mode and the first two bogey anchors.
+mods target\mods\create.mmc
+start
+expect registered content block create:large_bogey \(4 states\)
+expect registered content block create:small_bogey \(4 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2451.5 102 2447.5 90 35
+wait 6
+cmd fill 2445 100 2445 2458 108 2455 minecraft:air
+cmd fill 2445 99 2445 2458 99 2455 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:track
+wait 0.5
+bot use 2448 99 2449
+wait 0.5
+bot use 2455 99 2449
+wait 0.5
+bot use 2448 100 2449
+wait 0.5
+bot use 2455 100 2449
+wait 1
+
+cmd gamemode survival tester
+cmd item replace entity tester weapon.mainhand with create:track_station 1
+wait 0.5
+bot use 2449 100 2449
+wait 0.5
+bot use 2451 99 2450
+wait 0.5
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected at 6.50/8.00$
+bot use 2451 100 2450
+wait 0.5
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Assembling$
+bot expect entity minecraft:item_display near 2451.5 100.5 2450.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2451.5 100.5 2450.5
+
+cmd item replace entity tester weapon.mainhand with create:railway_casing 3
+wait 0.5
+# The first bogey must be immediately after the station.
+bot use 2453 100 2449
+wait 0.5
+cmd execute if block 2453 101 2449 minecraft:air
+wait 0.5
+expect Test passed
+cmd clear tester create:railway_casing 0
+wait 0.5
+expect Found 3 matching item
+
+# Bedrock prevents placement. An ordinary block above the rail is replaced.
+cmd setblock 2450 101 2449 minecraft:bedrock
+bot use 2450 100 2449 east
+wait 0.5
+cmd execute if block 2450 101 2449 minecraft:bedrock
+wait 0.5
+expect Test passed
+cmd clear tester create:railway_casing 0
+wait 0.5
+expect Found 3 matching item
+cmd setblock 2450 101 2449 minecraft:stone
+bot use 2450 100 2449 east
+wait 0.5
+cmd execute if block 2450 101 2449 create:small_bogey
+wait 0.5
+expect Test passed
+cmd clear tester create:railway_casing 0
+wait 0.5
+expect Found 2 matching item
+
+# Reusing the rail beneath the first bogey changes its size without a new item.
+bot use 2450 100 2449
+wait 0.5
+cmd execute if block 2450 101 2449 create:large_bogey
+wait 0.5
+expect Test passed
+cmd clear tester create:railway_casing 0
+wait 0.5
+expect Found 2 matching item
+
+# Exactly three blocks after the first bogey is a valid second anchor.
+bot use 2453 100 2449
+wait 0.5
+cmd execute if block 2453 101 2449 create:small_bogey
+wait 0.5
+expect Test passed
+cmd clear tester create:railway_casing 0
+wait 0.5
+expect Found 1 matching item
+reject (?i)panicked|trapped|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Assembling$
+cmd execute if block 2450 101 2449 create:large_bogey if block 2453 101 2449 create:small_bogey
+wait 0.5
+expect Test passed
+bot expect entity minecraft:item_display near 2450.5 101.5 2449.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2450.5 101.5 2449.5
+cmd loot spawn 2450 102 2449 mine 2450 101 2449
+wait 0.5
+expect Dropped 1 .*Train Casing
+cmd item replace entity tester weapon.mainhand with minecraft:air
+wait 0.5
+bot use 2451 100 2450
+wait 0.5
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected at 6.50/8.00$
+reject (?i)panicked|trapped|\[bot\] error
+bot quit
+stop

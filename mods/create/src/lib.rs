@@ -1757,6 +1757,14 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
         };
         return trains::signal::use_on_block(context, content);
     }
+    if context.item == RAILWAY_CASING
+        && let Some(&content) = CONTENT.get()
+    {
+        let result = trains::station::use_casing(context, content);
+        if result != UseResult::Pass {
+            return result;
+        }
+    }
     let application = manual_application::use_on_block(context);
     if application != UseResult::Pass {
         return application;
@@ -1770,6 +1778,14 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
 
 /// `useItemOn` for the mod's blocks.
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
+    if let Some(&content) = CONTENT.get() {
+        if let Some(result) = trains::station::use_station(context, content) {
+            return result;
+        }
+        if let Some(result) = trains::station::use_assembly_track(context, content) {
+            return result;
+        }
+    }
     if !context.with_item {
         return BlockUseResult::Pass;
     }

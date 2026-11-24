@@ -1,5 +1,6 @@
 //! Create train tracks, graph geometry and persisted global railway state.
 mod bezier;
+mod bogey;
 mod curve;
 mod graph;
 mod item;
