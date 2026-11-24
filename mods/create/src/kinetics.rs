@@ -99,6 +99,7 @@ pub enum Kind {
     EncasedShaft(u8),
     Turntable,
     Press(u8),
+    Mixer,
     /// Mechanical pump axis derived from FACING, powered by small-cog meshing.
     Pump(u8),
     HosePulley(u8),
@@ -252,7 +253,7 @@ impl Kind {
             | Self::Drill(facing)
             | Self::Clockwork(facing) => face_axis(facing),
             Self::Elevator(facing) => crate::elevator::shaft_axis(facing),
-            Self::Turntable | Self::Millstone => 1,
+            Self::Turntable | Self::Millstone | Self::Mixer => 1,
             Self::Piston(block) => block.shaft_axis(),
             Self::GantryShaft(shaft) => face_axis(shaft.facing),
             Self::GantryCarriage(carriage) => carriage.axis(),
@@ -270,7 +271,7 @@ impl Kind {
     pub const fn has_shaft_towards(self, face: u8) -> bool {
         match self {
             Self::Motor(facing) => facing == face,
-            Self::Pump(_) => false, // PumpBlock does not expose shaft connections
+            Self::Pump(_) | Self::Mixer => false,
             Self::HosePulley(facing) => crate::fluids::hose_pulley::shaft_side(facing) == face,
             Self::Fan(facing)
             | Self::Bearing(facing)
@@ -285,7 +286,10 @@ impl Kind {
     }
 
     const fn small_cog(self) -> bool {
-        matches!(self, Self::Small(_) | Self::Pump(_) | Self::Millstone)
+        matches!(
+            self,
+            Self::Small(_) | Self::Pump(_) | Self::Millstone | Self::Mixer
+        )
     }
 
     const fn large_cog(self) -> bool {
@@ -305,6 +309,7 @@ impl Kind {
         match self {
             Self::Pump(_)
             | Self::HosePulley(_)
+            | Self::Mixer
             | Self::Turntable
             | Self::Millstone
             | Self::Bearing(_)
@@ -448,6 +453,7 @@ pub struct Be {
     /// A belt controller's items, created when the first one arrives.
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
+    pub mixer: Option<Box<crate::mixer::Mixer>>,
     pub valve: Option<crate::fluids::valve::Pointer>,
     pub fan: Option<Box<crate::fan::AirCurrent>>,
     pub bearing: Option<Box<crate::bearing::MechanicalBearing>>,
@@ -498,6 +504,7 @@ impl Be {
             pulley: None,
             millstone: None,
             valve: None,
+            mixer: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
                     crate::press::PressingData::EMPTY,

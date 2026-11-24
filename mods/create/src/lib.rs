@@ -26,6 +26,7 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
+mod basin;
 pub mod basin_inventory;
 mod bearing;
 mod belt;
@@ -49,6 +50,7 @@ mod harvester;
 mod kinetics;
 mod manual_application;
 mod millstone;
+mod mixer;
 mod piston;
 mod press;
 mod processing_recipes;
@@ -177,11 +179,13 @@ impl Mod for Create {
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
         press::register(*content, registry)?;
+        basin::register(*content, registry)?;
+        mixer::register(*content, registry)?;
         // WS-2 Create fluids
         fluids::blocks::register(*content, registry)?;
         fluids::tank_runtime::register(*content, registry)?;
         fluids::tank_connectivity::register(registry)?;
-        content.on_replaced(registry, fluids::tank_connectivity::replaced)?;
+        content.on_replaced(registry, content_replaced)?;
         fluids::item_drain::register(*content, registry)?;
         fluids::spout::register(*content, registry)?;
         fluids::valve::register(*content, registry)?;
@@ -879,6 +883,8 @@ fn states() -> Option<&'static StateIds> {
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
+        basin::add_states(content, &mut ids);
+        ids.add(content, mixer::ID, "", Some(Kind::Mixer));
         fan::add_states(content, &mut ids);
         bearing::add_states(content, &mut ids);
         seat::add_states(content, &mut ids);
@@ -1141,7 +1147,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             format!("{}[waterlogged={}]", depot::ID, states.wet(ids[6]))
         }
         Some(Kind::Turntable | Kind::Belt(_) | Kind::Press(_) | Kind::Pump(_) | Kind::Valve(_))
-        | Some(Kind::Millstone)
+        | Some(Kind::Millstone | Kind::Mixer)
         | None => {
             return Some(args.state);
         }
@@ -1186,6 +1192,8 @@ struct KineticData {
     pointer: Option<fluids::valve::Pointer>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     press: Option<press::PressingData>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    mixer: Option<mixer::MixerData>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     millstone: Option<millstone::MillstoneData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1256,6 +1264,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if let Some(press) = &mut be.press {
         press.data = data.press.unwrap_or_default();
     }
+    if kind == Kind::Mixer {
+        be.mixer = data.mixer.map(mixer::Mixer::load).map(Box::new);
+    }
     if kind == Kind::Millstone {
         be.millstone = data.millstone.map(millstone::Millstone::load).map(Box::new);
     }
@@ -1325,6 +1336,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         speed: be.speed,
         pointer: be.valve,
         press: be.press.as_ref().map(|press| press.data),
+        mixer: be.mixer.as_ref().map(|mixer| mixer.data.clone()),
         millstone: be.millstone.as_ref().map(|millstone| millstone.save()),
         bearing: be.bearing.as_ref().map(|bearing| bearing.data.clone()),
         piston: be.piston.as_ref().map(|piston| piston.data.clone()),
@@ -1453,6 +1465,12 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            if before == Some(Kind::Mixer)
+                && after != before
+                && let Some(mixer) = kinetics.get_mut(pos).and_then(|be| be.mixer.as_mut())
+            {
+                mixer.clear(world);
+            }
             gantry_changed |= matches!(before, Some(Kind::GantryShaft(_)))
                 || matches!(after, Some(Kind::GantryShaft(_)));
             match event.reason {
@@ -1527,6 +1545,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
         press::tick(world, kinetics);
+        mixer::tick(world, time, states, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
         piston::tick(world, &states.contraption_blocks, kinetics);
         gantry::tick(world, &states.contraption_blocks, kinetics);
@@ -1546,6 +1565,11 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         crusher::tick(world, states, kinetics);
         flush(world, kinetics);
     });
+}
+
+fn content_replaced(world: World<'_>, event: &ContentEvent) {
+    fluids::tank_connectivity::replaced(world, event);
+    basin::replaced(world, event);
 }
 
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
@@ -1606,6 +1630,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
             depot::use_item_on(&mut kinetics.depots, context)
         });
     }
+    if basin::is_basin(states, context.state) {
+        return basin::use_item_on(context);
+    }
     match states.kind(context.state) {
         Some(Kind::Belt(_)) => with_world(context.world, |kinetics| {
             belt_inventory::use_item_on(kinetics, context)
@@ -1641,6 +1668,10 @@ fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
         return;
     }
     let Some(states) = states() else { return };
+    if basin::is_basin(states, state) {
+        basin::on_landed(world, pos, entity);
+        return;
+    }
     if states
         .by_id
         .get(&state)

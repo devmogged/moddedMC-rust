@@ -10,6 +10,7 @@ use serde_json::Value as Json;
 
 use crate::{
     RESOURCES, STACKS, TAGS,
+    basin::Basin,
     belt_inventory::{TransportedItemStack, count, next_int, with_count},
     kinetics::Kinetics,
     press,
@@ -70,6 +71,7 @@ impl Process {
 #[derive(Default)]
 pub struct RecipeBook {
     by_item: HashMap<(Process, String), Vec<Recipe>>,
+    mixing: Vec<MixingRecipe>,
 }
 
 #[derive(Deserialize)]
@@ -84,6 +86,7 @@ struct RawRecipe {
     result: Option<ResultStack>,
     #[serde(default, rename = "processing_time")]
     duration: i32,
+    heat_requirement: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -110,6 +113,20 @@ pub struct Recipe {
     outputs: Vec<Value>,
     chances: Vec<f32>,
     pub duration: i32,
+}
+
+struct MixingRecipe {
+    id: String,
+    inputs: Vec<HashSet<String>>,
+    recipe: Recipe,
+}
+
+impl MixingRecipe {
+    fn consume(&self, basin: &mut Basin) -> bool {
+        self.inputs
+            .iter()
+            .all(|items| basin.consume(|item| items.contains(item)))
+    }
 }
 
 static BOOK: Mutex<Option<(u64, Arc<RecipeBook>)>> = Mutex::new(None);
@@ -147,12 +164,19 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
         let Ok(raw) = serde_json::from_slice::<RawRecipe>(&bytes) else {
             continue;
         };
-        book.add(raw, |tag| {
+        let mut values = |tag: &str| {
             tags.entry(tag.to_owned())
                 .or_insert_with(|| tag_api.values("item", tag).unwrap_or_default())
                 .clone()
-        });
+        };
+        if raw.recipe_type == "create:mixing" {
+            book.add_mixing(path, raw, &mut values);
+        } else {
+            book.add(raw, values);
+        }
     }
+    book.mixing
+        .sort_by_key(|recipe| std::cmp::Reverse(recipe.inputs.len()));
     Some(book)
 }
 
@@ -192,6 +216,90 @@ impl RecipeBook {
                 .or_default()
                 .push(recipe.clone());
         }
+    }
+
+    fn add_mixing(
+        &mut self,
+        id: String,
+        raw: RawRecipe,
+        tags: &mut impl FnMut(&str) -> Vec<String>,
+    ) {
+        if raw
+            .heat_requirement
+            .as_deref()
+            .is_some_and(|heat| heat != "none")
+            || !(1..=9).contains(&raw.ingredients.len())
+            || raw.results.is_empty()
+        {
+            return;
+        }
+        let inputs: Vec<_> = raw
+            .ingredients
+            .iter()
+            .map(|ingredient| {
+                let mut items = HashSet::new();
+                read_ingredient(ingredient, tags, &mut items);
+                items
+            })
+            .collect();
+        if inputs.iter().any(HashSet::is_empty) {
+            return;
+        }
+        let chances = raw.results.iter().map(|result| result.chance).collect();
+        let Some(outputs) = raw.results.into_iter().map(ResultStack::into_nbt).collect() else {
+            return;
+        };
+        self.mixing.push(MixingRecipe {
+            id,
+            inputs,
+            recipe: Recipe {
+                outputs,
+                chances,
+                duration: raw.duration,
+            },
+        });
+    }
+
+    pub fn matching_mixing(&self, basin: &Basin) -> Option<&str> {
+        self.mixing
+            .iter()
+            .find_map(|recipe| Self::can_mix(recipe, basin).then_some(recipe.id.as_str()))
+    }
+
+    fn can_mix(recipe: &MixingRecipe, basin: &Basin) -> bool {
+        let mut staged = basin.clone();
+        recipe.consume(&mut staged)
+            && recipe
+                .recipe
+                .outputs
+                .iter()
+                .all(|item| staged.put_result(item))
+    }
+
+    pub fn mixing_duration(&self, id: &str) -> Option<i32> {
+        self.mixing
+            .iter()
+            .find(|recipe| recipe.id == id)
+            .map(|recipe| recipe.recipe.duration)
+    }
+
+    pub fn can_continue_mixing(&self, id: &str, basin: &Basin) -> bool {
+        self.mixing
+            .iter()
+            .find(|recipe| recipe.id == id)
+            .is_some_and(|recipe| Self::can_mix(recipe, basin))
+    }
+
+    pub fn apply_mixing(&self, id: &str, basin: &Basin) -> Option<Basin> {
+        let recipe = self.mixing.iter().find(|recipe| recipe.id == id)?;
+        let mut staged = basin.clone();
+        (recipe.consume(&mut staged)
+            && recipe
+                .recipe
+                .roll_results(1)
+                .iter()
+                .all(|item| staged.put_result(item)))
+        .then_some(staged)
     }
 
     pub fn find(&self, process: Process, item: &Value) -> Option<&Recipe> {

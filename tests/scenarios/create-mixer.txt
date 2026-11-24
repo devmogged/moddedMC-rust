@@ -1,0 +1,66 @@
+# Drop ingredients into a basin, restart at 16 RPM, then mix two batches at 64 RPM.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_mixer
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1029.5 100 1026.5 90 45
+wait 5
+cmd fill 1021 99 1021 1033 99 1032 minecraft:stone
+cmd fill 1021 100 1021 1033 106 1032 minecraft:air
+cmd setblock 1027 100 1026 create:basin
+cmd setblock 1027 102 1026 create:mechanical_mixer
+cmd setblock 1026 101 1026 create:creative_motor[facing=up]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+wait 0.5
+cmd kinetics 1026 101 1026 16
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"minecraft:andesite",count:3},PickupDelay:32767s}
+cmd summon minecraft:item 1027.5 101.6 1026.5 {Item:{id:"minecraft:iron_nugget",count:2},PickupDelay:32767s}
+wait 5
+cmd data get block 1027 100 1026 InputItems.Items[0].count
+wait 0.5
+expect block data: [23]
+cmd data get block 1027 100 1026 OutputItems.Items[0]
+wait 0.5
+expect Found no elements matching OutputItems
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd data get block 1027 100 1026 InputItems.Items[1].count
+wait 0.5
+expect block data: [23]
+bot expect entity minecraft:block_display near 1027.5 102.5 1026.5 within 0.05 count 2
+wait 0.5
+expect \[bot\] expect entity ok minecraft:block_display
+cmd kinetics 1026 101 1026 64
+wait 8
+cmd data get block 1027 100 1026 OutputItems.Items[0].count
+wait 0.5
+expect block data: 2
+cmd data get block 1027 100 1026 InputItems.Items[0].count
+wait 0.5
+expect block data: 1
+bot use 1027 100 1026
+wait 0.5
+cmd clear tester minecraft:andesite 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester create:andesite_alloy 0
+wait 0.5
+expect Found 2 matching item
+cmd data get block 1027 100 1026 OutputItems.Items[0]
+wait 0.5
+expect Found no elements matching OutputItems
+cmd setblock 1027 102 1026 minecraft:air
+wait 0.5
+bot expect entity minecraft:block_display near 1027.5 102.5 1026.5 within 0.05 count 0
+wait 0.5
+expect \[bot\] expect entity ok minecraft:block_display
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
