@@ -1,0 +1,26 @@
+mods target\mods\saints-dragons-eggs\saints-dragons.mmc
+start
+expect registered content block saintsdragons:varasuchus_egg
+botstart tester
+wait 2
+cmd gamemode creative tester
+cmd execute in minecraft:the_end run tp tester 1025.5 105 1025.5
+wait 3
+cmd execute in minecraft:the_end run fill 1024 104 1024 1030 104 1030 minecraft:stone
+cmd execute in minecraft:the_end run setblock 1025 105 1027 saintsdragons:varasuchus_egg
+cmd execute in minecraft:the_end run data merge block 1025 105 1027 {HatchProgress:0.99999d,BabyGender:1b}
+wait 1
+cmd execute in minecraft:the_end run tag @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] add void_probe
+cmd execute in minecraft:the_end run data get entity @e[tag=void_probe,limit=1] data."saintsdragons:growth".void_kissed_on_maturity
+wait 0.5
+expect has the following entity data: 1b
+cmd execute in minecraft:the_end run data get entity @e[tag=void_probe,limit=1] data."saintsdragons:appearance".variant
+wait 0.5
+expect has the following entity data: 0b
+cmd execute in minecraft:the_end run data modify entity @e[tag=void_probe,limit=1] data."saintsdragons:growth".remaining set value 10
+wait 1
+cmd execute in minecraft:the_end run data get entity @e[tag=void_probe,limit=1] data."saintsdragons:appearance".variant
+wait 0.5
+expect has the following entity data: 1b
+bot quit
+stop

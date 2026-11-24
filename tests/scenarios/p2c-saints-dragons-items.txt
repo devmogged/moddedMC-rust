@@ -1,0 +1,31 @@
+# Stock Java players can browse the implemented items and obtain them via vanilla /give.
+mods target\mods\saints-dragons-preview\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+wait 0.5
+bot cmd saintsdragons items
+wait 0.5
+expect \[bot\] dialog: .*Saint.s Dragons Items
+bot click saintsdragons:item/cindervane_spawn_egg
+wait 0.5
+expect \[bot\] chat: .*/give @s saintsdragons:cindervane_spawn_egg
+cmd give tester saintsdragons:cindervane_spawn_egg
+wait 0.5
+expect Gave 1 \[Cindervane Spawn Egg\]
+cmd gamemode creative tester
+cmd forceload add 21 21 28 28
+cmd tp tester 24.5 105 24.5
+wait 3
+cmd fill 21 104 21 28 104 28 minecraft:stone
+cmd fill 21 105 21 28 110 28 minecraft:air
+cmd time set midnight
+cmd saintsdragons spawn cindervane 24 105 26
+wait 0.5
+expect saintsdragons:cindervane: spawned
+cmd damage @e[type=minecraft:ravager,limit=1] 2 minecraft:generic
+wait 0.5
+expect \[bot\] sound: entity.ender_dragon.hurt
+bot quit
+stop

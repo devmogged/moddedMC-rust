@@ -1,0 +1,43 @@
+# The stock client receives the released sound event from the asset-bearing preview.
+mods target\mods\saints-dragons-incubator\saints-dragons.mmc
+start
+expect moddedmc: loaded saints-dragons
+botstart tester
+wait 2
+expect \[bot\] fetched content resource pack
+cmd gamemode creative tester
+cmd forceload add 21 21 28 28
+cmd tp tester 24.5 105 24.5
+wait 3
+cmd fill 21 104 21 28 104 28 minecraft:stone
+cmd fill 21 105 21 28 110 28 minecraft:air
+cmd time set midnight
+cmd saintsdragons spawn cindervane 24 105 26
+wait 0.5
+expect saintsdragons:cindervane: spawned
+cmd damage @e[type=minecraft:ravager,limit=1] 2 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:cindervane_hurt
+cmd damage @e[type=minecraft:ravager,limit=1] 1000 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:cindervane_die
+cmd saintsdragons spawn raevyx 24 105 26
+wait 0.5
+expect saintsdragons:raevyx: spawned
+cmd damage @e[type=minecraft:ravager,x=24,y=105,z=26,distance=..6,limit=1] 2 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:raevyx_hurt
+cmd damage @e[type=minecraft:ravager,x=24,y=105,z=26,distance=..6,limit=1] 1000 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:raevyx_die
+cmd saintsdragons spawn mossback 24 105 26
+wait 0.5
+expect saintsdragons:mossback: spawned
+cmd damage @e[type=minecraft:wolf,x=24,y=105,z=26,distance=..6,limit=1] 1 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:mossback_hurt
+cmd damage @e[type=minecraft:wolf,x=24,y=105,z=26,distance=..6,limit=1] 1000 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:mossback_die
+bot quit
+stop

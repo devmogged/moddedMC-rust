@@ -1,0 +1,69 @@
+# A survival player inserts each custom disc, and ejects the saved Mossback disc after reboot.
+mods target\mods\saints-dragons-discs\saints-dragons.mmc
+start
+expect registered content item saintsdragons:bleeding_bolt_music_disc
+expect registered content item saintsdragons:mossback_music_music_disc
+botstart tester
+wait 2
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 104 1024 1028 104 1028 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1028 minecraft:air
+cmd setblock 1025 105 1027 minecraft:jukebox
+cmd setblock 1025 105 1028 minecraft:comparator[facing=north]
+cmd recipe give tester saintsdragons:mossback_music_music_disc
+wait 0.5
+expect Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with saintsdragons:bleeding_bolt_music_disc
+wait 0.5
+bot use 1025 105 1027 north
+wait 1
+cmd data get block 1025 105 1027 RecordItem.id
+wait 0.5
+expect has the following block data: "saintsdragons:bleeding_bolt_music_disc"
+cmd data get block 1025 105 1028 OutputSignal
+wait 0.5
+expect has the following block data: 1
+cmd execute if block 1025 105 1027 minecraft:jukebox[has_record=true]
+wait 0.5
+expect Test passed
+bot use 1025 105 1027 north
+wait 0.7
+cmd execute if block 1025 105 1027 minecraft:jukebox[has_record=false]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with saintsdragons:mossback_music_music_disc
+wait 0.5
+bot use 1025 105 1027 north
+wait 0.7
+cmd data get block 1025 105 1027 RecordItem.id
+wait 0.5
+expect has the following block data: "saintsdragons:mossback_music_music_disc"
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd data get block 1025 105 1027 RecordItem.id
+wait 0.5
+expect has the following block data: "saintsdragons:mossback_music_music_disc"
+bot use 1025 105 1027 north
+wait 0.7
+cmd execute if block 1025 105 1027 minecraft:jukebox[has_record=false]
+wait 0.5
+expect Test passed
+
+# Ordinary discs still use their vanilla song and signal.
+cmd item replace entity tester hotbar.0 with minecraft:music_disc_cat
+wait 0.5
+bot use 1025 105 1027 north
+wait 0.7
+cmd data get block 1025 105 1027 RecordItem.id
+wait 0.5
+expect has the following block data: "minecraft:music_disc_cat"
+cmd data get block 1025 105 1028 OutputSignal
+wait 0.5
+expect has the following block data: 2$
+bot quit
+stop

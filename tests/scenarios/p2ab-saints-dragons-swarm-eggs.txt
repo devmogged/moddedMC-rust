@@ -1,0 +1,102 @@
+# The individual eggs spawn their own creatures. The group egg attempts all three.
+mods target\mods\saints-dragons-swarm\saints-dragons.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack
+cmd op tester
+wait 0.5
+bot cmd saintsdragons items
+wait 0.5
+expect \[bot\] dialog: .*Saint.s Dragons Items
+bot click saintsdragons:item/draconian_swarm_spawn_egg
+wait 0.5
+expect \[bot\] chat: .*/give @s saintsdragons:draconian_swarm_spawn_egg
+bot click saintsdragons:item/cindervane_binder
+wait 0.5
+expect \[bot\] chat: .*/give @s saintsdragons:cindervane_binder
+cmd tp tester 1026.5 200 1026.5
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 199 1024 1032 199 1033 minecraft:stone
+cmd fill 1024 200 1024 1032 207 1033 minecraft:air
+cmd time set midnight
+cmd gamerule minecraft:spawn_mobs false
+cmd gamemode survival tester
+cmd tick freeze
+
+cmd item replace entity tester hotbar.0 with saintsdragons:latcher_spawn_egg
+wait 0.5
+bot use 1024 199 1026 up
+wait 1.2
+cmd data get entity @e[type=minecraft:spider,x=1024.5,y=200,z=1026.5,distance=..2,limit=1,sort=nearest] Health
+wait 0.5
+expect following entity data: 12f$
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+
+cmd item replace entity tester hotbar.0 with saintsdragons:winged_spawn_egg
+wait 0.5
+bot use 1026 199 1026 up
+wait 1.2
+cmd data get entity @e[type=minecraft:ravager,x=1026.5,y=200,z=1026.5,distance=..2,limit=1,sort=nearest] Health
+wait 0.5
+expect following entity data: 6f$
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+
+cmd item replace entity tester hotbar.0 with saintsdragons:whettled_spawn_egg
+wait 0.5
+bot use 1028 199 1026 up
+wait 1.2
+cmd data get entity @e[type=minecraft:ravager,x=1028.5,y=200,z=1026.5,distance=..2,limit=1,sort=nearest] Health
+wait 0.5
+expect following entity data: 16f$
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+
+cmd item replace entity tester hotbar.0 with saintsdragons:draconian_swarm_spawn_egg 2
+wait 0.5
+bot use 1026 199 1029 up
+wait 1.2
+cmd data get entity tester Inventory[{Slot:0b}].count
+wait 0.5
+expect tester has the following entity data: 1$
+cmd data get entity @e[type=minecraft:spider,x=1024.5,y=200,z=1029.5,distance=..1.5,limit=1,sort=nearest] data.moddedmc.mob
+wait 0.5
+expect following entity data: "saintsdragons:latcher"
+cmd data get entity @e[type=minecraft:ravager,x=1026.5,y=200,z=1029.5,distance=..1.5,limit=1,sort=nearest] data.moddedmc.mob
+wait 0.5
+expect following entity data: "saintsdragons:winged"
+cmd data get entity @e[type=minecraft:ravager,x=1028.5,y=200,z=1029.5,distance=..1.5,limit=1,sort=nearest] data.moddedmc.mob
+wait 0.5
+expect following entity data: "saintsdragons:whettled"
+
+cmd data get entity @e[type=minecraft:ravager,x=1026.5,y=200,z=1029.5,distance=..1.5,limit=1,sort=nearest] NoGravity
+wait 0.5
+expect following entity data: 1b$
+cmd tick unfreeze
+wait 2
+bot expect entity item_display near 1026.5 200 1026.5 within 48 count 6
+wait 0.5
+expect \[bot\] expect entity ok item_display.*\(6 visible\)
+bot quit
+stop
+start
+botstart tester
+wait 4
+reject saintsdragons:draconian_swarm_death
+bot expect entity item_display near 1026.5 200 1026.5 within 48 count 6
+wait 0.5
+expect \[bot\] expect entity ok item_display.*\(6 visible\)
+cmd damage @e[type=minecraft:spider,x=1026.5,y=200,z=1026.5,distance=..48,limit=1,sort=nearest] 1 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:draconian_swarm_hurt
+cmd damage @e[type=minecraft:spider,x=1026.5,y=200,z=1026.5,distance=..48,limit=1,sort=nearest] 100 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:draconian_swarm_death
+bot quit
+stop

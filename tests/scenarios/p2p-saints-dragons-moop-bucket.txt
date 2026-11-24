@@ -1,0 +1,80 @@
+# Capture a named Moop, reboot with it in the hotbar, then release it into a pool.
+mods target\mods\saints-dragons-moop\saints-dragons.mmc
+start
+expect registered content item saintsdragons:bucket_of_moop
+botstart tester
+wait 2
+cmd op tester
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1028 104 1029 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1029 minecraft:air
+cmd setblock 1024 105 1027 minecraft:stone
+cmd setblock 1026 105 1027 minecraft:stone
+cmd setblock 1025 105 1026 minecraft:stone
+cmd setblock 1025 105 1028 minecraft:stone
+cmd setblock 1025 105 1027 minecraft:water
+cmd saintsdragons spawn moop 1025 105 1027
+wait 0.5
+expect saintsdragons:moop: spawned \d+
+cmd data merge entity @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..2,limit=1] {NoAI:1b,Health:2.0f,CustomName:{text:"Pond Moop"}}
+cmd item replace entity tester hotbar.0 with minecraft:water_bucket
+wait 0.5
+bot use-entity cod 1025.5 105 1027.5 main
+wait 1
+expect \[bot\] sound: item\.bucket\.fill_fish
+cmd data get entity tester Inventory[{Slot:0b}].id
+wait 0.5
+expect has the following entity data: "saintsdragons:bucket_of_moop"
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:bucket_entity_data".Health
+wait 0.5
+expect has the following entity data: 2f
+cmd execute unless entity @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..2]
+wait 0.5
+expect Test passed
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd data get entity tester Inventory[{Slot:0b}].id
+wait 0.5
+expect has the following entity data: "saintsdragons:bucket_of_moop"
+cmd setblock 1025 105 1027 minecraft:air
+cmd setblock 1025 105 1026 minecraft:air
+bot look 0 40
+wait 0.5
+bot use-item main
+wait 1
+expect \[bot\] sound: item\.bucket\.empty_fish
+cmd data get entity tester Inventory[{Slot:0b}].id
+wait 0.5
+expect has the following entity data: "minecraft:bucket"
+cmd data get entity @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..2,limit=1] data.moddedmc.mob
+wait 0.5
+expect has the following entity data: "saintsdragons:moop"
+cmd data get entity @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..2,limit=1] CustomName
+wait 0.5
+expect has the following entity data:.*Pond Moop
+cmd data get entity @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..2,limit=1] Health
+wait 0.5
+expect has the following entity data: 2f
+cmd data get entity @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..2,limit=1] FromBucket
+wait 0.5
+expect has the following entity data: 1b
+cmd execute if block 1025 105 1027 minecraft:water
+wait 0.5
+expect Test passed
+# A separate pool keeps vanilla cod selection independent of the released Moop.
+cmd setblock 1027 105 1025 minecraft:water
+cmd summon minecraft:cod 1027.5 105 1025.5 {NoAI:1b}
+cmd item replace entity tester hotbar.0 with minecraft:water_bucket
+wait 0.5
+bot use-entity cod 1027.5 105 1025.5 main
+wait 0.5
+cmd data get entity tester Inventory[{Slot:0b}].id
+wait 0.5
+expect has the following entity data: "minecraft:cod_bucket"
+bot quit
+stop

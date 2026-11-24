@@ -1,6 +1,6 @@
 //! Cindervane's ground AI from `CindervaneBrain`: `DragonIdleLookBehaviour(8)` and
-//! `DragonGroundWanderBehaviour(GROUND_WANDER_SPEED, 160)`. Targeting, combat, following and
-//! flight need damage, owners and flight (P2-DRAGONS.md steps 3-5).
+//! `DragonGroundWanderBehaviour(GROUND_WANDER_SPEED, 160)`; combat and owner behavior have
+//! their own goals.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -20,6 +20,7 @@ use crate::{ENTITIES, MOB_AI};
 
 pub const IDLE_LOOK: u64 = 1;
 pub const GROUND_WANDER: u64 = 2;
+pub const AMBIENT: u64 = 8;
 
 /// `DragonIdleLookBehaviour` player range.
 const LOOK_RANGE: f64 = 8.0;
@@ -58,13 +59,16 @@ pub fn seen(id: i32) -> bool {
 }
 
 /// A random number below `bound` (xorshift; the dragon's own `RandomSource` in Java).
-fn random(bound: u64) -> u64 {
-    let mut x = SEED.load(Ordering::Relaxed);
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    SEED.store(x, Ordering::Relaxed);
-    x % bound.max(1)
+pub fn random(bound: u64) -> u64 {
+    let mut next = 0;
+    let _ = SEED.try_update(Ordering::Relaxed, Ordering::Relaxed, |mut x| {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        next = x;
+        Some(x)
+    });
+    next % bound.max(1)
 }
 
 fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
@@ -75,6 +79,36 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
     match key {
         IDLE_LOOK => idle_look(phase, world, mob),
         GROUND_WANDER => ground_wander(phase, mob),
+        crate::combat::TARGETING => crate::combat::targeting(phase, world, mob),
+        crate::combat::GROUND_COMBAT => crate::combat::ground_combat(phase, world, mob),
+        crate::taming::RIDE_OR_SIT => crate::taming::ride_or_sit(phase, world, mob),
+        crate::taming::FOLLOW => crate::taming::follow(phase, world, mob),
+        crate::flight::GOAL => crate::flight::goal(phase, world, mob),
+        crate::swarm::WANDER => crate::swarm::wander(phase, world, mob),
+        crate::roster::AMBIENT => crate::roster::ambient(phase, world, mob),
+        AMBIENT => match phase {
+            goal_phase::CAN_START | goal_phase::CONTINUE => true,
+            goal_phase::TICK => {
+                if crate::eggs::grow(mob, "cindervane") {
+                    if let Some(view) = mob.view() {
+                        let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
+                        crate::visuals::tick_species(
+                            world,
+                            mob,
+                            "baby_cindervane",
+                            view,
+                            if moving { "walk" } else { "idle" },
+                        );
+                    }
+                    return false;
+                }
+                crate::taming::regrow(mob);
+                crate::combat::ambient(world, mob);
+                crate::visuals::tick(world, mob);
+                false
+            }
+            _ => false,
+        },
         _ => false,
     }
 }

@@ -1,0 +1,276 @@
+# Saint's Dragons 0.9.88 parity checklist
+
+The reference is the official Minecraft 1.20.1 Fabric JAR from [Modrinth](https://modrinth.com/mod/saints-dragons/versions), SHA-256 `1093be9e314248646162bf8362e30cee63f6c6ed57d1f6590ce784cc69aee532`. REA archive evidence `ev_dbd7214a5094dcb802068d8f9430b4c66b34d51a471a6633edef19c6136ff959` identifies the package and enumerates its members. The matching MIT source revision is `13aeb2eb2c820fbd89b519946d4c3a7f563b7ad4`. The user confirmed Leon Saint's permission for this port to use the upstream assets.
+
+The JAR contains 3,781 files, including 1,712 compiled classes. The full member inventory and 254 sound event IDs are in the worktree's `target/saints-dragons-parity/`. Static inventory establishes the files and release definitions. Behavior needs source or bytecode tracing and a scenario on both releases.
+
+## Gameplay
+
+| Area | Current P2 coverage | Remaining parity work |
+| --- | --- | --- |
+| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together | Ivy's trading, companion inventory and combat, swarm combat and pathfinding around obstacles, and exact spawn restrictions, attributes and collision |
+| Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection | Per-species brains, navigation, growth, breeding and natural spawning, plus natural gender and variant assignment |
+| Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
+| Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species | Species-specific taming, grooming animations, sleep reactions, codex updates and hunger; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
+| Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips | Armor set abilities, Dragonlord armor fire and blast resistance, Blood Tempest and Dragonlord sword active abilities and on-hit effects, worn armor models, and remaining equipment components |
+| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock-client interaction and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, and the End Nucleus structure | Egg trampling and hatch advancements, original Crucible GUI and animations, remaining custom crafting, advancement predicates, other structures and biome generation, and Pellucida hardness, sound and swarm-specific collision |
+| Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, and hurt and death cues for the roster except Moop. A connected bot verified Cindervane, Raevyx and Mossback. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Remaining per-species playback, animation keyframe cues, footsteps, takeoff and landing, and moving or looping sources |
+| Presentation | Adult rig path with Creative gender and skin changes in the Fabric companion, and stock display fallbacks | Juvenile rigs, overlays, particles, special renderers, equipment visuals, screens and translations |
+| Integration | Stock 26.3 client fallback and versioned mod interfaces | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
+
+The Crucible implements the released fuel tiers, nine-slot recipe matching, processing times, and pending output persisted with the block. The 14 upstream processing definitions are present. The Crucible also reads ordinary smelting recipes from the merged datapacks. Original screen, two-block shape, animation, sounds, and automation still need parity.
+
+The Ignivorus Egg advances through three crack stages while on the Ignivorus
+Incubator. Progress persists across restarts. The hatchling starts with 90 health,
+uses the original juvenile rig in the companion, and grows over 24,000 loaded
+mob ticks. The test seeds progress near stage boundaries. Hatch advancement and
+natural acquisition in the Ignivorus roost remain pending.
+
+Stegonaut, Varasuchus, and Atroxiia eggs use the same saved progression with
+their released 30,000, 24,000, and 24,000 tick timers and respective starting
+health of 50, 80, and 30. The original juvenile rigs are included in the asset
+build. Varasuchus hatched in the End matures into the Void-Kissed variant.
+
+The Volitans Egg requires waterlogging for its 18,000-tick incubation. It
+preserves progress while dry, retains water when it hatches, and produces a
+juvenile with 60 starting health.
+
+A Cindervane clutch can hold up to three eggs, advances through three
+crack stages in 12,000 loaded ticks, and produces one 40-health hatchling
+per egg. The original clutch and juvenile models are included. Piebald appearance is rolled at hatch and applied at maturity. Trampling remains pending.
+
+The Raevyx Egg incubates in 18,000 ticks normally and at the 9,600-tick
+rate during thunder. Lightning within the release's three-block expanded
+collision box hatches it immediately. The server scenario verified thunder
+and summoned lightning. All seven egg blocks report the hatch stage (0 to 2)
+to comparators. The Volitans scenario covers adjacent comparators and comparators
+reading through a solid block. Trampling and the hatch advancements remain
+pending.
+
+The Arrow of Venom uses the released recipe and item model. Bows and crossbows
+launch it at 1.35 times normal speed with no water drag. A damaging hit clears
+the target's hurt cooldown and applies Poison II for 30 seconds and Blindness
+for 5 seconds. The server scenario checks water motion, both weapons, and
+picking up the spent arrow after a restart. The flight and impact renderer,
+Ivy's friendly-hit rules, and Volitans venom suppression remain part of the
+projectile and creature parity work.
+[Arrow of Venom scenario](../tests/scenarios/p2z-saints-dragons-venom-arrow.txt)
+
+The eight binders capture an owned dragon and release it with the same UUID,
+health, name, and saved mod state. The stock-client ground checks cover all
+eight species, blocked release, wild capture denial, and a restart with a
+filled binder. Raevyx, Cindervane, Ignivorus, and Volitans also have a five-block
+air release, also verified with a stock-protocol client. They descend using
+the port's shared flight goal. Capture requires the dragon to be free of
+passengers and vehicles. The original tamed flight AI,
+Pocket Dragon advancement, and Codex tracking when a binder is destroyed remain
+pending.
+[Binder scenario](../tests/scenarios/p2aa-saints-dragons-binders.txt)
+
+The three swarm spawn eggs use the released creature identities and starting
+health of 12, 6, and 16. The group egg spawns all three in order along the
+x-axis at two-block intervals and consumes one item in survival. The
+companion pack includes all three original rigs and animation sets. A stock
+client receives display fallbacks. The scenario verified the four eggs,
+persistence, spawning without gravity, and original hurt and death audio.
+Suspended wandering uses the released movement speeds and takes clear, straight
+routes. Pathfinding around obstacles, coordinated attacks, the encounter's
+spawn and death animations, and exact hitboxes remain pending. The stock
+`/saintsdragons items` packet includes all eight binders and all four swarm
+eggs. In a local 24-creature smoke check, the final tick query read 4.72 ms
+with ground movement and 3.94 ms with suspended wandering on the same engine
+build. This is a short run with different world seeds and an engine test build
+in the background.
+[Swarm spawn egg scenario](../tests/scenarios/p2ab-saints-dragons-swarm-eggs.txt)
+
+A player-placed Draconian Nucleus records its owner. The Controller toggles
+owned encounters within 64 blocks, removes the active swarm when it stops an
+encounter, and observes the 1,200-tick reactivation delay. An unowned Nucleus
+activates for a nearby survival player. The server scenario verified all three
+waves (6, 9 and 12 creatures), non-owner denial, persistence, both Controller
+use paths, and the summon cue. Release parity still needs encounter music, boss
+bars, advancement awards, exact spawn collision, and source combat. Controller summons keep an empty death loot
+table after restart. The live scenario killed a reloaded summon and found no
+item drops, then confirmed that a naturally summoned Latcher retained its
+released loot table.
+[Nucleus and Controller scenario](../tests/scenarios/p2ac-saints-dragons-nucleus.txt)
+
+The original Nucleus template and its jigsaw placement generate in End Barrens.
+On a fresh seeded world, the scenario located the structure, read the original
+dormant NBT, and confirmed a nearby survival player heard the summon cue and
+started the first wave.
+[Nucleus world generation scenario](../tests/scenarios/p2af-saints-dragons-nucleus-worldgen.txt)
+
+Deepslate Worldroot Ore generates below ground in the Overworld. Dragonheart Ore
+generates on the underside of End islands in Barrens, Midlands, and Highlands.
+The port uses the release's feature definitions in the 26.3 registry directories
+and biome modifiers for the release's Fabric feature registrations. The seeded
+scenario found nine Worldroot blocks and two Dragonheart blocks in newly
+generated chunks.
+[Ore world generation scenario](../tests/scenarios/p2ag-saints-dragons-ore-worldgen.txt)
+
+The Draconic Codex opens a stock-client dialog from either hand or when used
+on a dragon. It reads owner-specific records from the save, updates loaded
+dragons, and tracks taming, death, and binder transfers. The restart scenario
+covers a named, injured dragon and an unrelated visitor. The original
+companion tabs and renderer, entry removal, hunger and biome data, and
+destroyed-binder handling remain pending.
+[Codex scenario](../tests/scenarios/p2ad-saints-dragons-codex.txt)
+
+Ivy's spawn egg creates the saved `saintsdragons:ivy_oleander` entity. The
+asset pack includes her original rig. The server reads the 25 released
+dialogue definitions and presents their English text and choices in stock
+dialogs. The Cindervane quest can recruit Ivy, the owner can cycle her
+follow, stay and wander orders, and the recruited dialogue offers a plushie
+bound to Ivy and her owner. The plushie recalls loaded Ivy in the same
+dimension and sends the teleport sound and particles. The stock-client
+scenario followed the recruitment dialogue, earned the plushie, verified
+its UUID after recall on a restarted server, and rejected a different player.
+The original trade
+and companion inventory screens, custom name input, cross-dimension recall,
+natural placement, merchant combat, and client dialogue animations remain
+pending.
+[Ivy recruitment scenario](../tests/scenarios/p2ae-saints-dragons-ivy.txt)
+
+## Released creative tab
+
+Checked entries have an item registration in P2. Each still needs its original behavior and appearance checked.
+
+- [x] `ModItems.RAEVYX_BINDER`
+- [x] `ModItems.CINDERVANE_BINDER`
+- [x] `ModItems.STEGONAUT_BINDER`
+- [x] `ModItems.VARASUCHUS_BINDER`
+- [x] `ModItems.IGNIVORUS_BINDER`
+- [x] `ModItems.VOLITANS_BINDER`
+- [x] `ModItems.NULLJAW_BINDER`
+- [x] `ModItems.ATROXIIA_BINDER`
+- [x] `ModItems.DRACONIAN_CONTROLLER`
+- [x] `ModItems.DRACONIC_CODEX`
+- [x] `ModItems.DRAGON_BRUSH`
+- [x] `ModItems.GOLDEN_DRAGON_BRUSH`
+- [x] `ModItems.SCALE_PLUCKER`
+- [x] `ModItems.HEARTY_DRAGON_MEAL`
+- [x] `ModItems.CREATIVE_DRAGON_TAME_MEAL`
+- [x] `ModItems.CREATIVE_DRAGON_GENDER_WAND`
+- [x] `ModItems.CREATIVE_DRAGON_VARIANT_BRUSH`
+- [x] `ModItems.RAW_MOOP`
+- [x] `ModItems.COOKED_MOOP`
+- [x] `ModItems.BUCKET_OF_MOOP`
+- [x] `ModItems.RAW_MOSSBACK`
+- [x] `ModItems.COOKED_MOSSBACK`
+- [x] `ModItems.RAEVYX_SCALE`
+- [x] `ModItems.RAEVYX_WING_HIDE`
+- [x] `ModItems.RAEVYX_WINGTALON`
+- [x] `ModItems.CINDERVANE_SCALE`
+- [x] `ModItems.STEGONAUT_SCALE`
+- [x] `ModItems.VARASUCHUS_SCALE`
+- [x] `ModItems.IGNIVORUS_SCALE`
+- [x] `ModItems.IGNIVORUS_TOOTH`
+- [x] `ModItems.IGNIVORUS_WING_HIDE`
+- [x] `ModItems.IGNIVORUS_HEART`
+- [x] `ModItems.VOLITANS_SCALE`
+- [x] `ModItems.VOLITANS_SPINE`
+- [x] `ModItems.ATROXIIA_SCALE`
+- [x] `ModItems.DRACONIAN_FLESH`
+- [x] `ModItems.RAEVYX_EGG`
+- [x] `ModItems.CINDERVANE_EGG`
+- [x] `ModItems.STEGONAUT_EGG`
+- [x] `ModItems.VARASUCHUS_EGG`
+- [x] `ModItems.IGNIVORUS_EGG`
+- [x] `ModItems.VOLITANS_EGG`
+- [x] `ModItems.ATROXIIA_EGG`
+- [x] `ModItems.IVY_OCTOPUS_PLUSHIE`
+- [x] `ModItems.SEARING_COAL`
+- [x] `ModItems.ANCIENT_DRAGONITE_FRAGMENT`
+- [x] `ModItems.DRAGON_SEAL_STONE`
+- [x] `ModItems.DRAGON_BINDER_CORE`
+- [x] `ModItems.RAW_WORLDROOT`
+- [x] `ModItems.WORLDROOT_INGOT`
+- [x] `ModItems.WORLDROOT_SWORD`
+- [x] `ModItems.WORLDROOT_PICKAXE`
+- [x] `ModItems.WORLDROOT_AXE`
+- [x] `ModItems.WORLDROOT_SHOVEL`
+- [x] `ModItems.WORLDROOT_HOE`
+- [x] `ModItems.DRAGONHEART_CHUNK`
+- [x] `ModItems.DRAGONHEART_ALLOY`
+- [x] `ModItems.ARROW_OF_VENOM`
+- [x] `ModArmors.DRACONIAN_HELMET`
+- [x] `ModArmors.DRACONIAN_CHESTPLATE`
+- [x] `ModArmors.DRACONIAN_LEGGINGS`
+- [x] `ModArmors.DRACONIAN_BOOTS`
+- [x] `ModArmors.BLOOD_TEMPEST_HELMET`
+- [x] `ModArmors.BLOOD_TEMPEST_CHESTPLATE`
+- [x] `ModArmors.BLOOD_TEMPEST_LEGGINGS`
+- [x] `ModArmors.BLOOD_TEMPEST_BOOTS`
+- [x] `ModItems.BLOOD_TEMPEST_KATANA`
+- [x] `ModArmors.DRAGONLORD_HELMET`
+- [x] `ModArmors.DRAGONLORD_CHESTPLATE`
+- [x] `ModArmors.DRAGONLORD_LEGGINGS`
+- [x] `ModArmors.DRAGONLORD_BOOTS`
+- [x] `ModItems.DRAGONLORD_SWORD`
+- [x] `ModPotionItems.POTION_OF_TIDEGUARD`
+- [x] `ModPotionItems.POTION_OF_SEARING`
+- [x] `ModItems.BLEEDING_BOLT_MUSIC_DISC`
+- [x] `ModItems.MOSSBACK_MUSIC_MUSIC_DISC`
+- [x] `ModItems.IGNIVORUS_INCUBATOR_BLOCK`
+- [x] `ModItems.DRAGONHEART_ORE`
+- [x] `ModItems.DRAGONHEART_ALLOY_BLOCK`
+- [x] `ModItems.DRAGONHEART_BLOCK`
+- [x] `ModItems.DEEPSLATE_WORLDROOT_ORE`
+- [x] `ModItems.WORLDROOT_BLOCK`
+- [x] `ModItems.RAW_WORLDROOT_BLOCK`
+- [x] `ModItems.DRACONIAN_PELLUCIDA`
+- [x] `ModItems.DRACONIAN_NUCLEUS`
+- [x] `ModItems.DRACONIC_CRUCIBLE`
+- [x] `ModItems.RAEVYX_SPAWN_EGG`
+- [x] `ModItems.CINDERVANE_SPAWN_EGG`
+- [x] `ModItems.STEGONAUT_SPAWN_EGG`
+- [x] `ModItems.VARASUCHUS_SPAWN_EGG`
+- [x] `ModItems.IGNIVORUS_SPAWN_EGG`
+- [x] `ModItems.VOLITANS_SPAWN_EGG`
+- [x] `ModItems.NULLJAW_SPAWN_EGG`
+- [x] `ModItems.ATROXIIA_SPAWN_EGG`
+- [x] `ModItems.MOSSBACK_SPAWN_EGG`
+- [x] `ModItems.LATCHER_SPAWN_EGG`
+- [x] `ModItems.WINGED_SPAWN_EGG`
+- [x] `ModItems.WHETTLED_SPAWN_EGG`
+- [x] `ModItems.DRACONIAN_SWARM_SPAWN_EGG`
+- [x] `ModItems.MOOP_SPAWN_EGG`
+- [x] `ModItems.IVY_THE_MERCHANT_SPAWN_EGG`
+
+## JAR data folders
+
+| Folder | Files |
+| --- | ---: |
+| `advancements` | 84 |
+| `damage_type` | 1 |
+| `dialogues` | 25 |
+| `draconic_crucible` | 1 |
+| `dragon_attributes` | 8 |
+| `dragon_chest_loot` | 3 |
+| `dragon_variants` | 8 |
+| `ivy_chatter` | 9 |
+| `ivy_trades` | 1 |
+| `loot_tables` | 45 |
+| `recipes` | 55 |
+| `starcatcher` | 1 |
+| `structures` | 7 |
+| `tags` | 65 |
+| `worldgen` | 19 |
+
+## JAR resource folders
+
+| Folder | Files |
+| --- | ---: |
+| `animations` | 35 |
+| `blockstates` | 17 |
+| `codex` | 16 |
+| `geo` | 51 |
+| `lang` | 2 |
+| `models` | 146 |
+| `particles` | 116 |
+| `saintsdragons.png` | 1 |
+| `shaders` | 3 |
+| `sounds` | 259 |
+| `sounds.json` | 1 |
+| `textures` | 1046 |

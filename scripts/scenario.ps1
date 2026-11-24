@@ -1,5 +1,5 @@
 # Runs a console scenario against the built server and checks the log.
-#   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh] [-Keep] [-Port 25565]
+#   scripts\scenario.ps1 -Scenario tests\scenarios\m1-counter.txt [-RunDir run\m1] [-Fresh] [-Keep] [-Port 25565] [-Seed <long>]
 # Parallel runs need their own -Port and -RunDir.
 # A passing run deletes its run dir, because worlds add up fast. -Keep leaves it; a failing run is always kept.
 # Scenario lines (blank lines and # comments ignored):
@@ -19,6 +19,7 @@ param(
     [switch]$Fresh,
     [switch]$Keep,
     [int]$Port = 25565,
+    [long]$Seed,
     [string]$Exe = 'engine\target\pack\pack-dev.exe',
     [string]$BotExe = 'engine\target\pack\moddedmc-bot.exe',
     [string]$ExeArgs = ''   # e.g. the Fabric oracle: -Exe <java> -ExeArgs '-jar fabric-server-launch.jar nogui'
@@ -74,8 +75,9 @@ function Start-Server {
 # Offline mode without encryption/compression lets moddedmc-bot join; telemetry stays off.
 $config = Join-Path $RunDir 'pumpkin.toml'
 if (-not (Test-Path $config)) {
+    $seedSetting = if ($PSBoundParameters.ContainsKey('Seed')) { "seed = `"$Seed`"`n" } else { '' }
     [IO.File]::WriteAllText($config, @"
-[telemetry]
+${seedSetting}[telemetry]
 enabled = false
 
 [networking.java]

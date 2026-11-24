@@ -1,0 +1,8 @@
+{
+  "sound_event": {
+    "sound_id": "saintsdragons:mossback_music"
+  },
+  "description": "Mossback Music",
+  "length_in_seconds": 42,
+  "comparator_output": 1
+}

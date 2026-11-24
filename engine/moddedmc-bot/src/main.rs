@@ -24,7 +24,11 @@ use std::sync::Arc;
 
 use pumpkin_data::{
     BlockDirection,
-    packet::{CURRENT_MC_VERSION, clientbound::play::CHUNK_BATCH_FINISHED},
+    packet::{
+        CURRENT_MC_VERSION,
+        clientbound::play::{CHUNK_BATCH_FINISHED, SOUND},
+    },
+    sound::Sound,
 };
 use pumpkin_protocol::{
     ServerPacket,
@@ -104,9 +108,8 @@ async fn main() -> Result<(), String> {
                 )
                 .await
             }
-            "look" | "hotbar" | "attack" | "interact" | "inventory-click" | "inventory-close" => {
-                actions::perform(&actions, &player, &writer, verb, rest).await
-            }
+            "look" | "hotbar" | "attack" | "interact" | "use-entity" | "inventory-click"
+            | "inventory-close" => actions::perform(&actions, &player, &writer, verb, rest).await,
             "move" if harness => actions::perform(&actions, &player, &writer, verb, rest).await,
             "physics" if harness && rest == "on" => {
                 Err("use physics manual in a frozen harness scenario".into())
@@ -237,6 +240,26 @@ async fn pump(
             println!("[bot] chat: {}", printable_text(&packet.payload));
         } else if packet.id == show_dialog {
             println!("[bot] dialog: {}", printable_text(&packet.payload));
+        } else if packet.id == SOUND.0 {
+            use pumpkin_protocol::ser::NetworkReadExt as _;
+            if let Ok(id) = payload.get_var_int() {
+                let name = if id.0 == 0 {
+                    payload
+                        .get_var_int()
+                        .ok()
+                        .and_then(|len| usize::try_from(len.0).ok())
+                        .and_then(|len| payload.get(..len))
+                        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                } else {
+                    usize::try_from(id.0)
+                        .ok()
+                        .and_then(|id| id.checked_sub(1))
+                        .and_then(|id| Sound::NAMES.get(id).copied())
+                };
+                if let Some(name) = name {
+                    println!("[bot] sound: {name}");
+                }
+            }
         } else if trace {
             println!(
                 "[bot] packet {:#x} ({} bytes)",

@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:brewing",
+  "input": {
+    "item": "minecraft:potion",
+    "potion_contents": {
+      "potion": "minecraft:awkward"
+    }
+  },
+  "reagent": {
+    "item": "saintsdragons:ignivorus_tooth"
+  },
+  "output": {
+    "id": "saintsdragons:potion_of_searing"
+  }
+}

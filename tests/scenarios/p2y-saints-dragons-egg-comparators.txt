@@ -1,0 +1,42 @@
+# A dry Volitans egg stays paused while setblock selects each hatch stage.
+mods target\mods\saints-dragons-eggs\saints-dragons.mmc
+start
+expect registered content block saintsdragons:volitans_egg
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1030 104 1030 minecraft:stone
+cmd fill 1024 105 1024 1030 108 1030 minecraft:air
+cmd setblock 1025 105 1026 saintsdragons:volitans_egg[hatch=0,waterlogged=false]
+cmd setblock 1025 105 1027 minecraft:comparator[facing=north]
+cmd setblock 1026 105 1026 saintsdragons:volitans_egg[hatch=0,waterlogged=false]
+cmd setblock 1026 105 1027 minecraft:stone
+cmd setblock 1026 105 1028 minecraft:comparator[facing=north]
+wait 0.5
+cmd data get block 1025 105 1027 OutputSignal
+wait 0.5
+expect 1025, 105, 1027 has the following block data: 0$
+cmd setblock 1025 105 1026 saintsdragons:volitans_egg[hatch=1,waterlogged=false]
+cmd setblock 1026 105 1026 saintsdragons:volitans_egg[hatch=1,waterlogged=false]
+wait 0.5
+cmd data get block 1025 105 1027 OutputSignal
+cmd data get block 1026 105 1028 OutputSignal
+wait 0.5
+expect 1025, 105, 1027 has the following block data: 1$
+expect 1026, 105, 1028 has the following block data: 1$
+cmd setblock 1025 105 1026 saintsdragons:volitans_egg[hatch=2,waterlogged=false]
+cmd setblock 1026 105 1026 saintsdragons:volitans_egg[hatch=2,waterlogged=false]
+wait 0.5
+cmd data get block 1025 105 1027 OutputSignal
+cmd data get block 1026 105 1028 OutputSignal
+wait 0.5
+expect 1025, 105, 1027 has the following block data: 2$
+expect 1026, 105, 1028 has the following block data: 2$
+cmd setblock 1025 105 1026 minecraft:air
+cmd setblock 1026 105 1026 minecraft:air
+wait 0.5
+cmd data get block 1025 105 1027 OutputSignal
+cmd data get block 1026 105 1028 OutputSignal
+wait 0.5
+expect 1025, 105, 1027 has the following block data: 0$
+expect 1026, 105, 1028 has the following block data: 0$
+stop

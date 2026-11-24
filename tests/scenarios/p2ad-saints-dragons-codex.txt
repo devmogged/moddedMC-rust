@@ -1,0 +1,69 @@
+# Stock Codex UI shows only the owner's live or bound dragons and survives restart.
+mods target\mods\saints-dragons-codex\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 200 1027.5 0 0
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 199 1024 1032 199 1034 minecraft:stone
+cmd fill 1024 200 1024 1032 207 1034 minecraft:air
+cmd time set midnight
+cmd recipe give tester saintsdragons:draconic_codex
+wait 0.5
+expect Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with saintsdragons:draconic_codex
+wait 0.5
+bot use-item main
+wait 0.5
+expect \[bot\] dialog: (?=.*Draconic Codex)(?=.*You have no recorded dragons)
+cmd cindervane spawn 1025 200 1025
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=200,z=1025,distance=..2,limit=1] {Tags:["codex_probe"],CustomName:"Ember",Health:63f}
+cmd item replace entity tester hotbar.0 with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 200 1025.5 main
+wait 0.5
+expect Dragon tamed
+cmd item replace entity tester hotbar.0 with saintsdragons:draconic_codex
+wait 0.5
+bot use-entity ravager 1025.5 200 1025.5 main
+wait 0.5
+expect \[bot\] dialog: (?=.*Draconic Codex)(?=.*Ember)(?=.*Health 63/)
+cmd item replace entity tester hotbar.0 with saintsdragons:cindervane_binder
+wait 0.5
+bot use-entity ravager 1025.5 200 1025.5 main
+wait 0.5
+expect Bound Ember in the binder
+bot quit
+stop
+start
+botstart visitor
+wait 3
+cmd item replace entity visitor hotbar.0 with saintsdragons:draconic_codex
+wait 0.5
+bot use-item main
+wait 0.5
+expect \[bot\] dialog: (?=.*Draconic Codex)(?=.*You have no recorded dragons)
+bot quit
+botstart tester
+wait 4
+cmd item replace entity tester weapon.offhand with saintsdragons:draconic_codex
+wait 0.5
+bot use-item off
+wait 0.5
+expect \[bot\] dialog: (?=.*Draconic Codex)(?=.*Ember)(?=.*In binder)
+bot use 1025 199 1029 up
+wait 0.5
+expect Released Ember from the binder
+bot use-item off
+wait 0.5
+expect \[bot\] dialog: (?=.*Draconic Codex)(?=.*Ember)(?=.*Adult)
+cmd kill @e[tag=codex_probe]
+wait 0.5
+bot use-item off
+wait 0.5
+expect \[bot\] dialog: (?=.*Draconic Codex)(?=.*You have no recorded dragons)
+bot quit
+stop

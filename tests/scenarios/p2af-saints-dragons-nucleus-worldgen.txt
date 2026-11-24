@@ -1,0 +1,25 @@
+# Run in a new directory with -Seed 1796137205646843071.
+mods target\mods\saints-dragons-worldgen\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd execute in minecraft:the_end run tp tester 711 68 1063
+wait 8
+cmd execute in minecraft:the_end positioned 1200 105 1200 run locate structure saintsdragons:draconian_nucleus
+wait 1
+expect nearest saintsdragons:draconian_nucleus is at \[704,
+cmd execute in minecraft:the_end if block 712 67 1063 saintsdragons:draconian_nucleus
+wait 0.5
+expect Test passed
+cmd execute in minecraft:the_end run data get block 712 67 1063 EncounterState
+wait 0.5
+expect following block data: "DORMANT"
+cmd gamemode survival tester
+wait 2.5
+expect \[bot\] sound: saintsdragons:draconian_nucleus_summon
+cmd execute in minecraft:the_end run data get block 712 67 1063 wave
+wait 0.5
+expect following block data: 1b$
+bot quit
+stop

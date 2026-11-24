@@ -1,0 +1,18 @@
+# Run in a new directory with -Seed 1796137205646843071.
+mods target\mods\saints-dragons-worldgen\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd tp tester 34 95 34
+wait 5
+cmd execute in minecraft:overworld run clone 32 -60 32 63 -29 63 32 120 32 filtered saintsdragons:deepslate_worldroot_ore
+wait 1
+expect Successfully cloned [1-9][0-9]* block
+cmd execute in minecraft:the_end run tp tester 1200 110 1200
+wait 8
+cmd execute in minecraft:the_end run clone 1184 40 1184 1215 71 1215 1184 130 1184 filtered saintsdragons:dragonheart_ore
+wait 1
+expect Successfully cloned [1-9][0-9]* block
+bot quit
+stop

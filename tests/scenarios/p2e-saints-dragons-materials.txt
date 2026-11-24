@@ -1,0 +1,33 @@
+# Plain progression items use the original identifiers and recipes.
+mods target\mods\saints-dragons-audio\saints-dragons.mmc
+start
+expect Loaded built-in datapack 'mod/saints-dragons': 22 recipe\(s\)
+botstart tester
+wait 2
+expect \[bot\] fetched content resource pack
+cmd give tester saintsdragons:cindervane_scale 8
+wait 0.5
+expect Gave 8 \[Cindervane Scale\]
+cmd recipe give tester saintsdragons:searing_coal
+wait 0.5
+expect (Unlocked|Granted|Given).*1 recipe
+cmd give tester saintsdragons:worldroot_block
+wait 0.5
+expect Gave 1 \[Worldroot Block\]
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1028 104 1028 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1028 minecraft:air
+cmd item replace entity tester hotbar.0 with saintsdragons:worldroot_block
+wait 0.5
+bot look 0 45
+bot place 1025 104 1027 up
+wait 0.5
+bot expect block 1025 105 1027 minecraft:note_block
+wait 0.5
+expect \[bot\] expect block ok 1025 105 1027 note_block
+bot quit
+stop

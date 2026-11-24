@@ -1,0 +1,119 @@
+# Release food recipes, Moop drops and actual Survival consumption.
+mods target\mods\saints-dragons-incubator\saints-dragons.mmc
+start
+expect registered content item saintsdragons:potion_of_searing
+botstart tester
+wait 2
+expect \[bot\] fetched content resource pack
+cmd gamemode survival tester
+cmd recipe give tester saintsdragons:cooked_moop_from_smoking
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester saintsdragons:cooked_mossback_from_campfire_cooking
+wait 0.5
+expect Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with saintsdragons:potion_of_tideguard
+wait 0.5
+bot use-item main
+wait 2.5
+cmd data get entity tester active_effects
+wait 0.5
+expect tester has the following entity data: (?=.*minecraft:water_breathing)(?=.*minecraft:dolphins_grace)
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36 air 0
+cmd effect clear tester
+cmd item replace entity tester hotbar.0 with saintsdragons:potion_of_searing
+wait 0.5
+bot use-item main
+wait 2.5
+cmd data get entity tester active_effects
+wait 0.5
+expect tester has the following entity data: (?=.*minecraft:fire_resistance)(?=.*minecraft:strength)
+cmd attribute tester minecraft:attack_damage get
+wait 0.5
+expect Attack Damage for entity tester is 10
+cmd effect clear tester
+cmd effect give tester minecraft:hunger 3 255 true
+wait 3.5
+cmd item replace entity tester hotbar.0 with saintsdragons:raw_mossback
+wait 0.5
+bot use-item main
+wait 2.5
+cmd data get entity tester active_effects
+wait 0.5
+expect tester has the following entity data: (?=.*minecraft:poison)(?=.*minecraft:blindness)(?=.*minecraft:nausea)
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36 air 0
+cmd effect clear tester
+cmd tp tester 1025.5 105 1025.5
+wait 3
+cmd fill 1024 104 1024 1028 104 1028 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1028 minecraft:air
+cmd saintsdragons spawn moop 1025 105 1027
+wait 0.5
+expect saintsdragons:moop: spawned \d+
+cmd damage @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..3,limit=1] 100 minecraft:generic
+wait 2
+cmd data get entity @e[type=minecraft:item,x=1025,y=105,z=1027,distance=..3,sort=nearest,limit=1] Item.id
+wait 0.5
+expect has the following entity data: "saintsdragons:raw_moop"
+cmd kill @e[type=minecraft:item,x=1025,y=105,z=1027,distance=..3]
+cmd saintsdragons spawn moop 1025 105 1027
+wait 0.5
+cmd data merge entity @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..3,sort=nearest,limit=1] {NoAI:1b,Fire:139s}
+cmd data get entity @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..3,sort=nearest,limit=1] Fire
+wait 0.5
+expect has the following entity data: 1[0123][0-9]s
+cmd damage @e[type=minecraft:cod,x=1025,y=105,z=1027,distance=..3,sort=nearest,limit=1] 100 minecraft:generic
+wait 2
+cmd data get entity @e[type=minecraft:item,x=1025,y=105,z=1027,distance=..3,sort=nearest,limit=1] Item.id
+wait 0.5
+expect has the following entity data: "saintsdragons:cooked_moop"
+cmd kill @e[type=minecraft:item,x=1025,y=105,z=1027,distance=..3]
+cmd setblock 1027 105 1027 minecraft:smoker
+cmd item replace block 1027 105 1027 container.0 with saintsdragons:raw_mossback
+cmd item replace block 1027 105 1027 container.1 with minecraft:coal
+cmd setblock 1026 105 1025 minecraft:furnace
+cmd item replace block 1026 105 1025 container.0 with saintsdragons:raw_moop
+cmd item replace block 1026 105 1025 container.1 with minecraft:coal
+cmd setblock 1027 105 1025 minecraft:campfire[lit=true]
+cmd item replace entity tester hotbar.0 with saintsdragons:raw_moop
+wait 0.5
+bot use 1027 105 1025 up
+wait 0.5
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36 air 0
+cmd data get block 1027 105 1025 Items[0].id
+wait 0.5
+expect has the following block data: "saintsdragons:raw_moop"
+cmd setblock 1026 105 1027 minecraft:brewing_stand
+cmd setblock 1024 105 1027 minecraft:brewing_stand
+cmd item replace block 1026 105 1027 container.0 with minecraft:potion[minecraft:potion_contents={potion:"minecraft:awkward"}]
+cmd item replace block 1024 105 1027 container.0 with minecraft:potion[minecraft:potion_contents={potion:"minecraft:awkward"}]
+cmd item replace block 1026 105 1027 container.3 with saintsdragons:varasuchus_scale
+cmd item replace block 1024 105 1027 container.3 with saintsdragons:ignivorus_tooth
+cmd item replace block 1026 105 1027 container.4 with minecraft:blaze_powder
+cmd item replace block 1024 105 1027 container.4 with minecraft:blaze_powder
+cmd tick sprint 700t
+wait 10
+cmd data get block 1027 105 1027 Items[{Slot:2b}].id
+wait 0.5
+expect has the following block data: "saintsdragons:cooked_mossback"
+cmd data get block 1026 105 1025 Items[{Slot:2b}].id
+wait 0.5
+expect has the following block data: "saintsdragons:cooked_moop"
+cmd data get entity @e[type=minecraft:item,x=1027,y=105,z=1025,distance=..2,sort=nearest,limit=1] Item.id
+wait 0.5
+expect has the following entity data: "saintsdragons:cooked_moop"
+cmd data get block 1026 105 1027 Items[{Slot:0b}]
+wait 0.5
+expect has the following block data: (?=.*saintsdragons:potion_of_tideguard)(?=.*components: \{\})
+cmd data get block 1024 105 1027 Items[{Slot:0b}]
+wait 0.5
+expect has the following block data: (?=.*saintsdragons:potion_of_searing)(?=.*components: \{\})
+reject (?i)panic|panicked
+bot quit
+stop

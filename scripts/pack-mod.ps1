@@ -1,5 +1,5 @@
 # Builds a Rust mod and packs it as <OutDir>\<crate>.mmc, the file server owners drop into mods/.
-#   scripts\pack-mod.ps1 -Crate wayshrine [-OutDir target\mods] [-Dependencies create,other]
+#   scripts\pack-mod.ps1 -Crate wayshrine [-OutDir target\mods] [-Dependencies create,other] [-AssetPack path.zip]
 # A .mmc is a zip: mod.json (id, version, abi, optional dependencies) plus one library per platform, named
 # <os>-<arch>.<ext> (windows-x86_64.dll, linux-x86_64.so, macos-aarch64.dylib), plus the crate's
 # resources\data\ and resources\assets\ as data\ and assets\. This script adds the library for the machine it runs on; add other
@@ -7,7 +7,10 @@
 param(
     [Parameter(Mandatory)] [string] $Crate,
     [string] $OutDir,  # default: target\mods
-    [string[]] $Dependencies = @()
+    [string[]] $Dependencies = @(),
+    [string] $AssetPack,
+    [switch] $IncludeStructureTemplates,
+    [string[]] $Features = @()
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -16,7 +19,9 @@ $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 
 Push-Location $root
 try {
-    cargo build --release -p $Crate
+    $buildArgs = @('build', '--release', '-p', $Crate)
+    if ($Features.Count) { $buildArgs += @('--features', ($Features -join ',')) }
+    cargo @buildArgs
     if ($LASTEXITCODE) { throw "cargo failed ($LASTEXITCODE)" }
     $version = ((cargo pkgid -p $Crate) -split '[@#]')[-1]
 } finally { Pop-Location }
@@ -43,8 +48,9 @@ $metadataJson = $metadata | ConvertTo-Json -Compress
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $out = Join-Path (Resolve-Path $OutDir) "$Crate.mmc"
-Remove-Item $out -ErrorAction SilentlyContinue
-$zip = [IO.Compression.ZipFile]::Open($out, 'Create')
+$scratch = "$out.$([Guid]::NewGuid()).tmp"
+$names = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$zip = [IO.Compression.ZipFile]::Open($scratch, 'Create')
 try {
     $manifest = $zip.CreateEntry('mod.json').Open()
     $bytes = [Text.Encoding]::UTF8.GetBytes($metadataJson)
@@ -57,12 +63,44 @@ try {
         if (-not (Test-Path -LiteralPath $dir)) { continue }
         Get-ChildItem -LiteralPath $dir -Recurse -File | ForEach-Object {
             $name = "$folder/" + $_.FullName.Substring($dir.Length + 1).Replace('\', '/')
+            [void]$names.Add($name)
             [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $name) | Out-Null
         }
+    }
+    if ($AssetPack) {
+        $assets = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $AssetPack).Path)
+        try {
+            foreach ($entry in $assets.Entries) {
+                $name = $entry.FullName
+                $isAsset = $name.StartsWith('assets/', [StringComparison]::Ordinal)
+                $isTemplate = $IncludeStructureTemplates -and $name -cmatch '^data/[a-z0-9_.-]+/structure/([a-z0-9_.-]+/)*[a-z0-9_.-]+\.nbt$'
+                if ((!$isAsset -and !$isTemplate) -or !$entry.Name) { continue }
+                if (($isAsset -and $name -cnotmatch '^assets/[a-z0-9_.-]+(/[a-z0-9_.-]+)+$') -or
+                    ($name -split '/') -contains '..' -or ($name -split '/') -contains '.') {
+                    throw "Invalid resource path in AssetPack: $name"
+                }
+                if (!$names.Add($name)) { throw "Duplicate resource path: $name" }
+                if ($entry.Length -gt 8MB) { throw "Resource exceeds the host's asset limit: $name" }
+                $reader = $entry.Open()
+                try {
+                    $writer = $zip.CreateEntry($name).Open()
+                    try { $reader.CopyTo($writer) } finally { $writer.Dispose() }
+                } finally { $reader.Dispose() }
+            }
+        } finally { $assets.Dispose() }
     }
     $license = Join-Path $root "mods\$Crate\LICENSE.md"
     if (Test-Path -LiteralPath $license) {
         [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $license, 'LICENSE.md') | Out-Null
     }
-} finally { $zip.Dispose() }
+    $zip.Dispose()
+    if ([IO.File]::Exists($out)) {
+        [IO.File]::Replace($scratch, $out, [NullString]::Value)
+    } else {
+        [IO.File]::Move($scratch, $out)
+    }
+} finally {
+    $zip.Dispose()
+    if ([IO.File]::Exists($scratch)) { [IO.File]::Delete($scratch) }
+}
 Write-Host "packed $out ($((Get-Item $out).Length) bytes)"

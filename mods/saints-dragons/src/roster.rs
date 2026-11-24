@@ -1,0 +1,565 @@
+//! The other 0.9.88 dragon entities and their baseline movement.
+
+use moddedmc_api::{
+    Pos, RegistrationError, Registry,
+    commands::{Argument, Node},
+    content::World,
+    entities::{Entity, EntityView},
+    interaction::{UseOnBlock, UseResult},
+    items::Item,
+    mob_ai::{Goal, goal_control, goal_phase},
+    mobs::Mob,
+};
+
+use crate::{
+    COMMANDS, ENTITIES, INTERACTION, ITEMS, MOB_AI, MOBS, ai, flight, swarm, taming, visuals,
+};
+
+pub const AMBIENT: u64 = 9;
+const SPAWN_TAG: u64 = 100;
+
+struct Species {
+    name: &'static str,
+    display: &'static str,
+    carrier: &'static str,
+    health: f64,
+    speed: f64,
+    walk: &'static str,
+    flight: Option<(&'static str, &'static str)>,
+    swim: Option<&'static str>,
+    aquatic: bool,
+}
+
+// Adult health and ground movement speed come from the release's stat profiles.
+const SPECIES: [Species; 13] = [
+    Species {
+        name: "raevyx",
+        display: "Raevyx",
+        carrier: "ravager",
+        health: 180.0,
+        speed: 0.30,
+        walk: "walk",
+        flight: Some(("flap", "fly_glide")),
+        swim: None,
+        aquatic: false,
+    },
+    Species {
+        name: "stegonaut",
+        display: "Stegonaut",
+        carrier: "ravager",
+        health: 100.0,
+        speed: 0.28,
+        walk: "walk",
+        flight: None,
+        swim: None,
+        aquatic: false,
+    },
+    Species {
+        name: "varasuchus",
+        display: "Varasuchus",
+        carrier: "ravager",
+        health: 200.0,
+        speed: 0.33,
+        walk: "walk",
+        flight: None,
+        swim: Some("swim_move"),
+        aquatic: false,
+    },
+    Species {
+        name: "ignivorus",
+        display: "Ignivorus",
+        carrier: "ravager",
+        health: 450.0,
+        speed: 0.30,
+        walk: "walk",
+        flight: Some(("flap", "glide")),
+        swim: None,
+        aquatic: false,
+    },
+    Species {
+        name: "volitans",
+        display: "Volitans",
+        carrier: "ravager",
+        health: 160.0,
+        speed: 0.30,
+        walk: "walk",
+        flight: Some(("flap", "fly_glide")),
+        swim: Some("swim"),
+        aquatic: false,
+    },
+    Species {
+        name: "nulljaw",
+        display: "Nulljaw",
+        carrier: "spider",
+        health: 70.0,
+        speed: 0.20,
+        walk: "hover",
+        flight: Some(("hover", "hover")),
+        swim: None,
+        aquatic: false,
+    },
+    Species {
+        name: "atroxiia",
+        display: "Atroxiia",
+        carrier: "ravager",
+        health: 200.0,
+        speed: 0.33,
+        walk: "walk",
+        flight: None,
+        swim: Some("swim"),
+        aquatic: false,
+    },
+    Species {
+        name: "moop",
+        display: "Moop",
+        carrier: "cod",
+        health: 3.0,
+        speed: 0.8,
+        walk: "on_land",
+        flight: None,
+        swim: Some("swim"),
+        aquatic: true,
+    },
+    Species {
+        name: "mossback",
+        display: "Mossback",
+        carrier: "wolf",
+        health: 10.0,
+        speed: 0.15,
+        walk: "walk",
+        flight: None,
+        swim: None,
+        aquatic: false,
+    },
+    Species {
+        name: "latcher",
+        display: "Latcher",
+        carrier: "spider",
+        health: 12.0,
+        speed: 0.25,
+        walk: "move",
+        flight: None,
+        swim: None,
+        aquatic: false,
+    },
+    Species {
+        name: "winged",
+        display: "Winged",
+        carrier: "ravager",
+        health: 6.0,
+        speed: 0.50,
+        walk: "move",
+        flight: None,
+        swim: None,
+        aquatic: false,
+    },
+    Species {
+        name: "whettled",
+        display: "Whettled",
+        carrier: "ravager",
+        health: 16.0,
+        speed: 0.30,
+        walk: "idleandslowmove",
+        flight: None,
+        swim: None,
+        aquatic: false,
+    },
+    Species {
+        name: crate::ivy::SPECIES,
+        display: crate::ivy::NAME,
+        carrier: "villager",
+        health: 20.0,
+        speed: 0.35,
+        walk: "walk",
+        flight: None,
+        swim: None,
+        aquatic: false,
+    },
+];
+
+pub const SWARM_EGG: &str = "draconian_swarm";
+
+impl Species {
+    fn clip(&self, view: EntityView, wet: bool) -> &'static str {
+        match self.name {
+            "latcher" | "winged" => {
+                return if flight::length_squared(view.motion) > 0.003 {
+                    self.walk
+                } else {
+                    "idle"
+                };
+            }
+            "whettled" => return self.walk,
+            _ => {}
+        }
+        if self.aquatic {
+            if !wet {
+                return self.walk;
+            }
+            let speed_squared = view.motion[0].powi(2) + view.motion[2].powi(2);
+            return if speed_squared > 0.01 {
+                "swim_fast"
+            } else if speed_squared > 0.0004 {
+                "swim"
+            } else {
+                "idle"
+            };
+        }
+        if wet && let Some(swim) = self.swim {
+            return swim;
+        }
+        let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
+        if !view.on_ground
+            && let Some((flap, cruise)) = self.flight
+        {
+            return if view.motion[1] > 0.1 { flap } else { cruise };
+        }
+        if moving { self.walk } else { "idle" }
+    }
+}
+
+pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
+    let missing = RegistrationError::InvalidDefinition;
+    let (mobs, items, ai, commands) = (
+        MOBS.get().ok_or(missing)?,
+        ITEMS.get().ok_or(missing)?,
+        MOB_AI.get().ok_or(missing)?,
+        COMMANDS.get().ok_or(missing)?,
+    );
+    for species in &SPECIES {
+        let kind = format!("saintsdragons:{}", species.name);
+        let swarm_damage = swarm::damage(species.name);
+        let mut attributes = vec![
+            ("minecraft:max_health", species.health),
+            ("minecraft:movement_speed", species.speed),
+        ];
+        if species.name == crate::ivy::SPECIES {
+            attributes.extend([
+                ("minecraft:attack_damage", 4.0),
+                ("minecraft:follow_range", 32.0),
+            ]);
+        }
+        if let Some(damage) = swarm_damage {
+            attributes.extend([
+                ("minecraft:attack_damage", damage),
+                ("minecraft:follow_range", 64.0),
+                ("minecraft:armor", 0.0),
+            ]);
+        }
+        mobs.add_mob(
+            registry,
+            &Mob {
+                id: &kind,
+                carrier: &format!("minecraft:{}", species.carrier),
+                attributes: &attributes,
+            },
+        )?;
+        mobs.on_death(registry, &kind, taming::death)?;
+        if swarm_damage.is_some() || (species.name != "moop" && cfg!(feature = "original-assets")) {
+            ai.on_hurt(registry, &kind, crate::combat::hurt)?;
+        }
+        if swarm_damage.is_none() && !matches!(species.name, "moop" | "mossback") {
+            INTERACTION
+                .get()
+                .ok_or(missing)?
+                .on_use_mob(registry, &kind, taming::interact)?;
+            ai.add_goal(
+                registry,
+                &Goal {
+                    kind: &kind,
+                    key: taming::FOLLOW,
+                    priority: 2,
+                    controls: goal_control::MOVE,
+                },
+            )?;
+        }
+        items.add_item(
+            registry,
+            &Item {
+                id: &format!("{kind}_display"),
+                display_name: species.display,
+                carrier: "minecraft:paper",
+                model: if species.aquatic {
+                    "minecraft:item/cod"
+                } else if species.name == crate::ivy::SPECIES {
+                    "minecraft:item/villager_spawn_egg"
+                } else {
+                    "minecraft:item/dragon_head"
+                },
+            },
+        )?;
+        if !species.aquatic {
+            ai.replace_goals(registry, &kind)?;
+            for (key, priority, controls) in [
+                (ai::IDLE_LOOK, 3, goal_control::LOOK),
+                (
+                    if swarm_damage.is_some() {
+                        swarm::WANDER
+                    } else {
+                        ai::GROUND_WANDER
+                    },
+                    if swarm_damage.is_some() { 7 } else { 4 },
+                    goal_control::MOVE,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
+                        controls,
+                    },
+                )?;
+            }
+        }
+        if species.flight.is_some() {
+            ai.add_goal(
+                registry,
+                &Goal {
+                    kind: &kind,
+                    key: flight::GOAL,
+                    priority: 2,
+                    controls: goal_control::MOVE | goal_control::LOOK,
+                },
+            )?;
+        }
+        ai.add_goal(
+            registry,
+            &Goal {
+                kind: &kind,
+                key: AMBIENT,
+                priority: 0,
+                controls: 0,
+            },
+        )?;
+    }
+    INTERACTION
+        .get()
+        .ok_or(missing)?
+        .on_use_on_block(registry, use_egg)?;
+    let mut nodes = vec![
+        crate::literal("spawn"),
+        Node {
+            tag: Some(crate::catalog::OPEN),
+            ..crate::literal("items")
+        },
+    ];
+    for (index, (name, _)) in names().enumerate() {
+        let base = nodes.len() as u32;
+        nodes.push(Node {
+            parent: Some(0),
+            name,
+            argument: Argument::Literal,
+            tag: None,
+        });
+        nodes.extend([
+            crate::number(Some(base), "x", None),
+            crate::number(Some(base + 1), "y", None),
+            crate::number(Some(base + 2), "z", Some(SPAWN_TAG + index as u64)),
+        ]);
+    }
+    commands.add(
+        registry,
+        "saintsdragons",
+        "Browse Saint's Dragons items or spawn creatures",
+        2,
+        &nodes,
+    )
+}
+
+pub fn names() -> impl Iterator<Item = (&'static str, &'static str)> {
+    std::iter::once(("cindervane", "Cindervane")).chain(
+        SPECIES
+            .iter()
+            .map(|species| (species.name, species.display)),
+    )
+}
+
+pub fn egg_names() -> impl Iterator<Item = (&'static str, &'static str)> {
+    names()
+        .map(|(species, label)| {
+            (
+                if species == crate::ivy::SPECIES {
+                    crate::ivy::EGG
+                } else {
+                    species
+                },
+                label,
+            )
+        })
+        .chain([(SWARM_EGG, "Draconian Swarm")])
+}
+
+pub fn spawn_kind(tag: u64) -> Option<String> {
+    let index = usize::try_from(tag.checked_sub(SPAWN_TAG)?).ok()?;
+    if index == 0 {
+        return Some(crate::CINDERVANE.to_owned());
+    }
+    Some(format!("saintsdragons:{}", SPECIES.get(index - 1)?.name))
+}
+
+pub fn spawn(world: World<'_>, kind: &str, at: [f64; 3]) -> Option<i32> {
+    let mobs = MOBS.get()?;
+    let id = mobs.spawn(world, kind, at)?;
+    if let Some(entities) = ENTITIES.get() {
+        entities.with_entity(world, id, |mob| {
+            mobs.set_state(mob, b"wild");
+            if kind
+                .strip_prefix("saintsdragons:")
+                .and_then(swarm::damage)
+                .is_some()
+            {
+                mobs.set_no_gravity(mob, true);
+            }
+        });
+    }
+    Some(id)
+}
+
+fn use_egg(context: &mut UseOnBlock<'_>) -> UseResult {
+    if let Some(result) = crate::nucleus::use_on_block(context) {
+        return result;
+    }
+    if let Some(result) = crate::binders::use_on_block(context) {
+        return result;
+    }
+    let Some(kind) = context.item.strip_suffix("_spawn_egg") else {
+        return UseResult::Pass;
+    };
+    let Some(name) = kind.strip_prefix("saintsdragons:") else {
+        return UseResult::Pass;
+    };
+    if !egg_names().any(|(known, _)| name == known) || context.stack.count() == 0 {
+        return UseResult::Pass;
+    }
+    let Some(&[dx, dy, dz]) = [
+        [0, -1, 0],
+        [0, 1, 0],
+        [0, 0, -1],
+        [0, 0, 1],
+        [-1, 0, 0],
+        [1, 0, 0],
+    ]
+    .get(usize::from(context.face)) else {
+        return UseResult::Fail;
+    };
+    let world = context.world;
+    let clicked = context.position;
+    let adjacent = Pos {
+        x: clicked.x + dx,
+        y: clicked.y + dy,
+        z: clicked.z + dz,
+    };
+    let empty = |pos| {
+        world
+            .collision_shape(pos)
+            .is_some_and(|shape| shape.is_empty())
+    };
+    let pos = if empty(clicked) {
+        clicked
+    } else if empty(adjacent) {
+        adjacent
+    } else {
+        return UseResult::Fail;
+    };
+    let at = [
+        f64::from(pos.x) + 0.5,
+        f64::from(pos.y),
+        f64::from(pos.z) + 0.5,
+    ];
+    let spawned = if name == SWARM_EGG {
+        // The group egg attempts all three members even if one spawn fails.
+        let mut spawned = false;
+        for ((member, _), offset) in swarm::MEMBERS.into_iter().zip([-2.0, 0.0, 2.0]) {
+            let position = [at[0] + offset, at[1], at[2]];
+            spawned |= spawn(world, &format!("saintsdragons:{member}"), position).is_some();
+        }
+        spawned
+    } else {
+        let kind = if name == crate::ivy::EGG {
+            crate::ivy::KIND
+        } else {
+            kind
+        };
+        spawn(world, kind, at).is_some()
+    };
+    if !spawned {
+        return UseResult::Fail;
+    }
+    if !context.creative {
+        context.stack.shrink(1);
+    }
+    UseResult::Success
+}
+
+pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
+    if phase != goal_phase::TICK {
+        return matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE);
+    }
+    let (Some(kind), Some(view)) = (MOBS.get().and_then(|mobs| mobs.kind(mob)), mob.view()) else {
+        return false;
+    };
+    let Some(name) = kind.strip_prefix("saintsdragons:") else {
+        return false;
+    };
+    let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
+        return false;
+    };
+    if crate::eggs::grow(mob, name) {
+        let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
+        visuals::tick_species(
+            world,
+            mob,
+            &format!("baby_{name}"),
+            view,
+            if moving { "walk" } else { "idle" },
+        );
+        return false;
+    }
+    let wet = species.swim.is_some()
+        && matches!(
+            world.fluid_id(flight::cell(view.position)).as_deref(),
+            Some("minecraft:water" | "minecraft:flowing_water")
+        );
+    if swarm::damage(name).is_some() {
+        if crate::nucleus::clean_up(world, mob) {
+            return false;
+        }
+        swarm::hover(mob, view.motion);
+    } else {
+        taming::regrow(mob);
+    }
+    visuals::tick_species(world, mob, name, view, species.clip(view, wet));
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn moop_uses_the_released_swim_speeds_and_land_clip() {
+        let moop = SPECIES
+            .iter()
+            .find(|species| species.name == "moop")
+            .unwrap();
+        for (motion, wet, clip) in [
+            ([0.2, 0.0, 0.0], false, "on_land"),
+            ([0.0, 0.2, 0.0], true, "idle"),
+            ([0.03, 0.0, 0.0], true, "swim"),
+            ([0.08, 0.0, 0.08], true, "swim_fast"),
+        ] {
+            assert_eq!(
+                moop.clip(
+                    EntityView {
+                        motion,
+                        ..EntityView::default()
+                    },
+                    wet
+                ),
+                clip
+            );
+        }
+    }
+}

@@ -1,0 +1,137 @@
+# Owner-linked placement, controller use and all three encounter waves.
+mods target\mods\saints-dragons-nucleus\saints-dragons.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1026.5 200 1025.5
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 199 1024 1032 199 1033 minecraft:stone
+cmd fill 1024 200 1024 1032 211 1033 minecraft:air
+cmd recipe give tester saintsdragons:draconian_controller
+wait 0.5
+expect Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with saintsdragons:draconian_nucleus
+wait 0.5
+bot use 1026 199 1027 up
+wait 0.5
+cmd execute if block 1026 200 1027 saintsdragons:draconian_nucleus
+wait 0.5
+expect Test passed
+cmd data get block 1026 200 1027 owner
+wait 0.5
+expect following block data:
+cmd item replace entity tester hotbar.0 with saintsdragons:draconian_controller
+wait 0.5
+bot use-item main
+wait 0.5
+expect \[bot\] sound: saintsdragons:draconian_nucleus_summon
+cmd data get block 1026 200 1027 wave
+wait 0.5
+expect following block data: 1b$
+cmd tick sprint 280t
+wait 4
+cmd data get block 1026 200 1027 spawned
+wait 0.5
+expect following block data: 6b$
+bot quit
+stop
+start
+botstart tester
+wait 4
+cmd data get block 1026 200 1027 spawned
+wait 0.5
+expect following block data: 6b$
+cmd execute positioned 1026 200 1027 run data get entity @e[type=minecraft:spider,distance=..60,limit=1] DeathLootTable
+wait 0.5
+expect following entity data: "minecraft:empty"
+cmd execute positioned 1026 200 1027 run damage @e[type=minecraft:spider,distance=..60,limit=1] 100 minecraft:generic
+wait 1.5
+cmd execute positioned 1026 200 1027 unless entity @e[type=minecraft:item,distance=..60]
+wait 0.5
+expect Test passed
+bot quit
+botstart visitor
+wait 3
+cmd gamemode creative visitor
+cmd tp visitor 1026.5 200 1025.5
+cmd item replace entity visitor hotbar.0 with saintsdragons:draconian_controller
+wait 0.5
+bot use-item main
+wait 0.5
+cmd data get block 1026 200 1027 wave
+wait 0.5
+expect following block data: 1b$
+bot quit
+botstart tester
+wait 3
+bot use 1026 199 1025 up
+wait 0.5
+cmd execute if block 1026 200 1027 saintsdragons:draconian_nucleus
+wait 0.5
+expect Test passed
+cmd data get block 1026 200 1027 wave
+wait 0.5
+expect following block data: 0b$
+cmd execute positioned 1026 200 1027 unless entity @e[type=minecraft:ravager,distance=..60]
+wait 0.5
+expect Test passed
+wait 2.1
+bot use-item main
+wait 0.5
+cmd data get block 1026 200 1027 wave
+wait 0.5
+expect following block data: 0b$
+cmd tick sprint 1240t
+wait 8
+bot use-item main
+wait 0.5
+expect \[bot\] sound: saintsdragons:draconian_nucleus_summon
+cmd tick sprint 280t
+wait 4
+cmd execute positioned 1026 200 1027 run kill @e[type=minecraft:spider,distance=..100]
+cmd execute positioned 1026 200 1027 run kill @e[type=minecraft:ravager,distance=..100]
+cmd tick sprint 145t
+wait 4
+cmd data get block 1026 200 1027 wave
+wait 0.5
+expect following block data: 2b$
+cmd data get block 1026 200 1027 spawned
+wait 0.5
+expect following block data: 9b$
+cmd execute positioned 1026 200 1027 run kill @e[type=minecraft:spider,distance=..100]
+cmd execute positioned 1026 200 1027 run kill @e[type=minecraft:ravager,distance=..100]
+cmd tick sprint 170t
+wait 4
+cmd data get block 1026 200 1027 wave
+wait 0.5
+expect following block data: 3b$
+cmd data get block 1026 200 1027 spawned
+wait 0.5
+expect following block data: 12b$
+cmd execute positioned 1026 200 1027 run kill @e[type=minecraft:spider,distance=..100]
+cmd execute positioned 1026 200 1027 run kill @e[type=minecraft:ravager,distance=..100]
+wait 2
+cmd data get block 1026 200 1027 complete
+wait 0.5
+expect following block data: 1b$
+cmd setblock 1028 200 1027 saintsdragons:draconian_nucleus
+wait 1.2
+cmd data get block 1028 200 1027 wave
+wait 0.5
+reject following block data: 1b$
+cmd gamemode survival tester
+wait 2
+cmd data get block 1028 200 1027 wave
+wait 0.5
+expect following block data: 1b$
+cmd tick sprint 265t
+wait 4
+cmd execute positioned 1028 200 1027 run data get entity @e[type=minecraft:spider,distance=..60,limit=1] DeathLootTable
+wait 0.5
+expect following entity data: "saintsdragons:entities/latcher"
+bot quit
+stop

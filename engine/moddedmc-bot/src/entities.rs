@@ -301,6 +301,19 @@ impl Entities {
         Ok(VarInt(id))
     }
 
+    pub fn nearby_target(&self, name: &str, position: Vector3<f64>) -> Result<VarInt, String> {
+        let kind =
+            EntityType::from_name(name).ok_or_else(|| format!("unknown entity type {name}"))?;
+        self.tracked
+            .iter()
+            .filter(|(_, entity)| entity.kind.id == kind.id)
+            .map(|(&id, entity)| (id, (entity.position - position).length_squared()))
+            .filter(|(_, distance)| *distance <= 25.0)
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(id, _)| VarInt(id))
+            .ok_or_else(|| format!("no visible {name} within 5 blocks of {position:?}"))
+    }
+
     pub fn tick(&mut self) {
         for entity in self.tracked.values_mut() {
             entity.peek += (entity.peek_target - entity.peek).clamp(-0.05, 0.05);

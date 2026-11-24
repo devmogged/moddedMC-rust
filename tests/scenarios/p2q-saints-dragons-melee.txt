@@ -1,0 +1,98 @@
+# Verify fully charged direct hits with the released weapon bonuses and two non-dragon controls. Accept grounded or critical damage because the bot may still report airborne.
+mods target\mods\saints-dragons-melee\saints-dragons.mmc
+start
+expect moddedmc: loaded saints-dragons
+botstart tester
+wait 2
+cmd gamemode creative tester
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1030 104 1030 minecraft:stone
+cmd fill 1024 105 1024 1030 110 1030 minecraft:air
+bot look 0 0
+
+cmd saintsdragons spawn stegonaut 1025 105 1027
+wait 0.3
+cmd execute positioned 1025.5 105 1025.5 run data merge entity @e[type=minecraft:ravager,distance=..4,limit=1] {NoAI:1b,Health:100.0f}
+cmd execute positioned 1025.5 105 1025.5 run attribute @e[type=minecraft:ravager,distance=..4,limit=1] minecraft:armor base set 0
+cmd item replace entity tester hotbar.0 with saintsdragons:worldroot_sword
+wait 1
+bot attack ravager 1025.5 105 1027.5
+wait 0.5
+cmd execute positioned 1025.5 105 1025.5 run data get entity @e[type=minecraft:ravager,distance=..4,limit=1] Health
+wait 0.5
+expect has the following entity data: (?:88\.3[0-9]*|82\.45[0-9]*)f
+cmd execute positioned 1025.5 105 1025.5 run kill @e[type=minecraft:ravager,distance=..4,limit=1]
+wait 1.1
+
+cmd saintsdragons spawn raevyx 1025 105 1027
+wait 0.3
+cmd execute positioned 1025.5 105 1025.5 run data merge entity @e[type=minecraft:ravager,distance=..4,limit=1] {NoAI:1b,Health:180.0f}
+cmd execute positioned 1025.5 105 1025.5 run attribute @e[type=minecraft:ravager,distance=..4,limit=1] minecraft:armor base set 0
+cmd item replace entity tester hotbar.0 with saintsdragons:blood_tempest_katana
+wait 1
+bot attack ravager 1025.5 105 1027.5
+wait 0.5
+cmd execute positioned 1025.5 105 1025.5 run data get entity @e[type=minecraft:ravager,distance=..4,limit=1] Health
+wait 0.5
+expect has the following entity data: (?:153(\.0)?|139\.5)f
+cmd execute positioned 1025.5 105 1025.5 run kill @e[type=minecraft:ravager,distance=..4,limit=1]
+wait 1.1
+
+cmd saintsdragons spawn ignivorus 1025 105 1027
+wait 0.3
+cmd execute positioned 1025.5 105 1025.5 run data merge entity @e[type=minecraft:ravager,distance=..4,limit=1] {NoAI:1b,Health:450.0f}
+cmd execute positioned 1025.5 105 1025.5 run attribute @e[type=minecraft:ravager,distance=..4,limit=1] minecraft:armor base set 0
+cmd item replace entity tester hotbar.0 with saintsdragons:dragonlord_sword
+wait 1
+bot attack ravager 1025.5 105 1027.5
+wait 0.5
+cmd execute positioned 1025.5 105 1025.5 run data get entity @e[type=minecraft:ravager,distance=..4,limit=1] Health
+wait 0.5
+expect has the following entity data: (?:385(\.0)?|352\.5)f
+cmd execute positioned 1025.5 105 1025.5 run kill @e[type=minecraft:ravager,distance=..4,limit=1]
+wait 1.1
+
+cmd saintsdragons spawn raevyx 1025 105 1027
+wait 0.3
+cmd execute positioned 1025.5 105 1025.5 run data merge entity @e[type=minecraft:ravager,distance=..4,limit=1] {NoAI:1b,Health:180.0f}
+cmd execute positioned 1025.5 105 1025.5 run attribute @e[type=minecraft:ravager,distance=..4,limit=1] minecraft:armor base set 0
+cmd item replace entity tester hotbar.0 with saintsdragons:dragonlord_sword
+wait 1
+bot attack ravager 1025.5 105 1027.5
+wait 0.5
+cmd execute positioned 1025.5 105 1025.5 run data get entity @e[type=minecraft:ravager,distance=..4,limit=1] Health
+wait 0.5
+expect has the following entity data: (?:167(\.0)?|160\.5)f
+cmd execute positioned 1025.5 105 1025.5 run kill @e[type=minecraft:ravager,distance=..4,limit=1]
+wait 1.1
+
+cmd summon minecraft:ravager 1025.5 105 1027.5 {NoAI:1b}
+wait 0.3
+cmd execute positioned 1025.5 105 1025.5 run data merge entity @e[type=minecraft:ravager,distance=..4,limit=1] {NoAI:1b,Health:100.0f}
+cmd execute positioned 1025.5 105 1025.5 run attribute @e[type=minecraft:ravager,distance=..4,limit=1] minecraft:armor base set 0
+cmd item replace entity tester hotbar.0 with saintsdragons:worldroot_sword
+wait 1
+bot attack ravager 1025.5 105 1027.5
+wait 0.5
+cmd execute positioned 1025.5 105 1025.5 run data get entity @e[type=minecraft:ravager,distance=..4,limit=1] Health
+wait 0.5
+expect has the following entity data: (?:92\.2[0-9]*|88\.3[0-9]*)f
+cmd execute positioned 1025.5 105 1025.5 run kill @e[type=minecraft:ravager,distance=..4,limit=1]
+wait 1.1
+
+cmd saintsdragons spawn mossback 1025 105 1027
+wait 0.3
+cmd execute positioned 1025.5 105 1025.5 run attribute @e[type=minecraft:wolf,distance=..4,limit=1] minecraft:max_health base set 30
+cmd execute positioned 1025.5 105 1025.5 run data merge entity @e[type=minecraft:wolf,distance=..4,limit=1] {NoAI:1b,Health:30.0f}
+cmd execute positioned 1025.5 105 1025.5 run attribute @e[type=minecraft:wolf,distance=..4,limit=1] minecraft:armor base set 0
+wait 1
+bot attack wolf 1025.5 105 1027.5
+wait 0.5
+cmd execute positioned 1025.5 105 1025.5 run data get entity @e[type=minecraft:wolf,distance=..4,limit=1] Health
+wait 0.5
+expect has the following entity data: (?:22\.2[0-9]*|18\.3[0-9]*)f
+
+bot quit
+stop

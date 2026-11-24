@@ -1,0 +1,92 @@
+# Released recipe, survival bow hit, and the same spent arrow after a restart.
+mods target\mods\saints-dragons-venom\saints-dragons.mmc
+start
+expect registered content item saintsdragons:arrow_of_venom
+botstart tester
+wait 2
+expect \[bot\] fetched content resource pack
+cmd tp tester 1025.5 105 1025.5 0 0
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 104 1024 1028 104 1033 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1033 minecraft:air
+cmd fill 1024 105 1032 1028 108 1032 minecraft:stone
+cmd fill 1024 109 1024 1030 116 1029 minecraft:glass hollow
+cmd fill 1025 110 1025 1029 115 1028 minecraft:water
+# Sample the arrow in flight before it reaches the glass or the bottom.
+cmd tick rate 2
+cmd summon minecraft:arrow 1025.5 115 1026.5 {Motion:[0.2d,0.0d,0.0d],item:{id:"saintsdragons:arrow_of_venom",count:1},Tags:["venom_water"]}
+wait 1.2
+cmd data get entity @e[tag=venom_water,limit=1] Motion[0]
+cmd data get entity @e[tag=venom_water,limit=1] HasBeenShot
+wait 0.7
+expect following entity data: 0\.2d$
+expect following entity data: 1b$
+cmd kill @e[tag=venom_water]
+cmd tick rate 20
+cmd fill 1024 109 1024 1030 116 1029 minecraft:air
+cmd gamemode survival tester
+cmd clear tester
+cmd recipe give tester saintsdragons:arrow_of_venom
+wait 0.5
+expect Unlocked 1 recipe
+cmd summon minecraft:villager 1025.5 105 1030.5 {NoAI:1b,Silent:1b,Tags:["venom_target"]}
+cmd item replace entity tester hotbar.0 with minecraft:bow
+cmd item replace entity tester hotbar.1 with saintsdragons:arrow_of_venom 2
+wait 0.5
+bot look 0 0
+bot use-item main
+wait 1.3
+bot release-item
+wait 0.6
+cmd data get entity @e[tag=venom_target,limit=1] active_effects
+wait 0.5
+expect following entity data: (?=.*minecraft:poison)(?=.*amplifier: 1)(?=.*minecraft:blindness)
+cmd data get entity tester Inventory[{Slot:1b}].count
+wait 0.5
+expect tester has the following entity data: 1$
+cmd kill @e[tag=venom_target]
+bot use-item main
+wait 1.3
+bot release-item
+wait 0.6
+cmd tag @e[type=minecraft:arrow,x=1025,y=105,z=1032,distance=..4,limit=1] add venom_pickup
+cmd data get entity @e[tag=venom_pickup,limit=1] item.id
+wait 0.5
+expect following entity data: "saintsdragons:arrow_of_venom"
+bot quit
+stop
+start
+botstart tester
+wait 2
+cmd data get entity @e[tag=venom_pickup,limit=1] item.id
+wait 0.5
+expect following entity data: "saintsdragons:arrow_of_venom"
+cmd execute at @e[tag=venom_pickup,limit=1] run tp tester ~ ~-1 ~-0.2
+wait 1
+cmd data get entity tester Inventory[{id:"saintsdragons:arrow_of_venom"}].count
+wait 0.5
+expect tester has the following entity data: 1$
+cmd execute unless entity @e[tag=venom_pickup]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with minecraft:crossbow
+cmd item replace entity tester hotbar.1 with saintsdragons:arrow_of_venom
+wait 0.5
+bot use-item main
+wait 2
+bot release-item
+wait 0.5
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:charged_projectiles"
+wait 0.5
+expect following entity data: .*saintsdragons:arrow_of_venom
+cmd tp tester 1025.5 105 1025.5 0 0
+cmd summon minecraft:villager 1025.5 105 1030.5 {NoAI:1b,Silent:1b,Tags:["crossbow_target"]}
+wait 0.5
+bot use-item main
+wait 0.6
+cmd data get entity @e[tag=crossbow_target,limit=1] active_effects
+wait 0.5
+expect following entity data: (?=.*minecraft:poison)(?=.*amplifier: 1)(?=.*minecraft:blindness)
+bot quit
+stop

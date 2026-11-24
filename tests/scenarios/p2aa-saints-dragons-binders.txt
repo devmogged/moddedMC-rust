@@ -1,0 +1,110 @@
+# Bind a named, injured Cindervane and restore the same UUID after restart.
+mods target\mods\saints-dragons-binders\saints-dragons.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack
+cmd recipe give tester saintsdragons:raevyx_binder
+cmd recipe give tester saintsdragons:cindervane_binder
+cmd recipe give tester saintsdragons:stegonaut_binder
+cmd recipe give tester saintsdragons:varasuchus_binder
+cmd recipe give tester saintsdragons:ignivorus_binder
+cmd recipe give tester saintsdragons:volitans_binder
+cmd recipe give tester saintsdragons:nulljaw_binder
+cmd recipe give tester saintsdragons:atroxiia_binder
+wait 0.5
+expect Unlocked 1 recipe
+expect Unlocked 1 recipe
+expect Unlocked 1 recipe
+expect Unlocked 1 recipe
+expect Unlocked 1 recipe
+expect Unlocked 1 recipe
+expect Unlocked 1 recipe
+expect Unlocked 1 recipe
+cmd tp tester 1025.5 105 1027.5 0 0
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 104 1024 1032 104 1036 minecraft:stone
+cmd fill 1024 105 1024 1032 111 1036 minecraft:air
+cmd time set midnight
+cmd cindervane spawn 1025 105 1025
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=105,z=1025,distance=..2,limit=1] {Tags:["binder_probe"],CustomName:"Ember",Health:63f}
+cmd item replace entity tester hotbar.0 with saintsdragons:cindervane_binder
+wait 0.5
+bot use-entity ravager 1025.5 105 1025.5 main
+wait 0.5
+expect You don.t own this dragon
+cmd gamemode creative tester
+cmd item replace entity tester hotbar.0 with saintsdragons:creative_dragon_tame_meal
+wait 0.4
+bot use-entity ravager 1025.5 105 1025.5 main
+wait 0.5
+expect Dragon tamed
+cmd gamemode survival tester
+cmd data get entity @e[tag=binder_probe,limit=1] UUID
+wait 0.5
+expect Ember has the following entity data: \[I;
+cmd item replace entity tester hotbar.0 with saintsdragons:cindervane_binder
+wait 0.5
+bot use-entity ravager 1025.5 105 1025.5 main
+bot use-item main
+wait 0.5
+expect Bound Ember in the binder
+cmd execute unless entity @e[tag=binder_probe]
+wait 0.5
+expect Test passed
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:custom_data".IsBound
+wait 0.5
+expect following entity data: 1b$
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:enchantment_glint_override"
+wait 0.5
+expect following entity data: 1b$
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd item replace entity tester weapon.offhand with saintsdragons:cindervane_binder[minecraft:custom_data={IsBound:1b,BoundOwnerUUID:[I;1,2,3,4]}]
+wait 0.5
+bot use-item off
+wait 0.5
+expect You can only release dragons you own
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd fill 1024 105 1029 1028 108 1031 minecraft:stone
+wait 0.5
+bot use 1025 105 1029 north
+bot use-item main
+wait 0.5
+expect Could not release Ember here
+cmd data get entity tester Inventory[{Slot:0b}].components."minecraft:custom_data".IsBound
+wait 0.5
+expect following entity data: 1b$
+cmd fill 1024 105 1029 1028 108 1031 minecraft:air
+wait 0.5
+bot use 1025 104 1029 up
+wait 0.5
+expect Released Ember from the binder
+cmd data get entity @e[tag=binder_probe,limit=1] Health
+wait 0.5
+expect following entity data: 63f$
+cmd data get entity @e[tag=binder_probe,limit=1] CustomName
+wait 0.5
+expect following entity data: "Ember"
+cmd data get entity @e[tag=binder_probe,limit=1] UUID
+wait 0.5
+expect Ember has the following entity data: \[I;
+bot use-entity ravager 1025.5 105 1029.5 main
+wait 0.5
+expect Bound Ember in the binder
+bot look 0 -30
+bot use-item main
+wait 0.5
+expect Released Ember from the binder
+cmd execute if entity @e[tag=binder_probe,x=1025,y=105,z=1031,distance=..4]
+wait 0.5
+expect Test passed
+cmd data get entity @e[tag=binder_probe,limit=1] UUID
+wait 0.5
+expect Ember has the following entity data: \[I;
+bot quit
+stop

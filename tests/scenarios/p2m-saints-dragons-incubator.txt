@@ -1,0 +1,36 @@
+# The released level-three Crucible recipe produces a placeable Incubator.
+mods target\mods\saints-dragons-incubator\saints-dragons.mmc
+start
+expect registered content block saintsdragons:ignivorus_incubator_block
+botstart tester
+wait 2
+expect \[bot\] fetched content resource pack
+cmd gamerule doMobSpawning false
+cmd tp tester 1025.5 105 1025.5
+wait 3
+cmd fill 1024 104 1024 1028 104 1028 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1028 minecraft:air
+cmd setblock 1025 105 1027 saintsdragons:draconic_crucible
+cmd data merge block 1025 105 1027 {charge:17,input:[{id:"minecraft:basalt",count:1},{id:"minecraft:magma_block",count:1},{id:"minecraft:basalt",count:1},{id:"minecraft:magma_block",count:1},{id:"saintsdragons:ignivorus_heart",count:1},{id:"minecraft:magma_block",count:1},{id:"minecraft:basalt",count:1},{id:"minecraft:magma_block",count:1},{id:"minecraft:basalt",count:1}]}
+wait 0.5
+bot use 1025 105 1027 north
+wait 0.5
+expect Draconic Crucible: 1800 ticks remaining, 17 charge
+cmd tick sprint 1850t
+wait 15
+cmd data get block 1025 105 1027 output.id
+wait 0.5
+expect has the following block data: "saintsdragons:ignivorus_incubator_block"
+bot use 1025 105 1027 north
+wait 0.5
+cmd data get entity tester Inventory[{Slot:0b}].id
+wait 0.5
+expect tester has the following entity data: "saintsdragons:ignivorus_incubator_block"
+bot place 1026 104 1026 up
+wait 0.5
+cmd execute if block 1026 105 1026 saintsdragons:ignivorus_incubator_block
+wait 0.5
+expect Test passed
+reject (?i)panic|panicked
+bot quit
+stop

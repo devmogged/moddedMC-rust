@@ -1,0 +1,37 @@
+# Worldroot defaults apply to server attributes and survive the stock client wire conversion.
+mods target\mods\saints-dragons-audio\saints-dragons.mmc
+start
+expect registered content item saintsdragons:worldroot_pickaxe
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack
+cmd recipe give tester saintsdragons:worldroot_pickaxe
+wait 0.5
+expect Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with saintsdragons:worldroot_pickaxe
+wait 1
+cmd attribute tester minecraft:attack_damage get
+wait 0.5
+expect 5\.8
+cmd attribute tester minecraft:attack_speed get
+wait 0.5
+expect 1\.2
+bot expect slot 36 minecraft:diamond_pickaxe 1
+wait 0.5
+expect \[bot\] expect inventory ok slot 36 diamond_pickaxe 1
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1030 104 1030 minecraft:stone
+cmd fill 1024 105 1024 1030 108 1030 minecraft:air
+cmd summon minecraft:cow 1025.5 105 1027.5 {NoAI:1b}
+cmd item replace entity tester hotbar.0 with saintsdragons:worldroot_sword[minecraft:damage=1949]
+wait 1
+bot look 0 0
+bot attack cow 1025.5 105 1027.5
+wait 0.5
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36 air 0
+bot quit
+stop

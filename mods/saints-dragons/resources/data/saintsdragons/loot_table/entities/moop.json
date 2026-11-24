@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:alternatives",
+          "children": [
+            {
+              "type": "minecraft:item",
+              "name": "saintsdragons:cooked_moop",
+              "conditions": [
+                {
+                  "condition": "minecraft:entity_properties",
+                  "entity": "this",
+                  "predicate": { "flags": { "is_on_fire": true } }
+                }
+              ]
+            },
+            { "type": "minecraft:item", "name": "saintsdragons:raw_moop" }
+          ]
+        }
+      ]
+    }
+  ]
+}

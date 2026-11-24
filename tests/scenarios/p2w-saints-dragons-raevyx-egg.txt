@@ -1,0 +1,54 @@
+mods target\mods\saints-dragons-eggs\saints-dragons.mmc
+start
+expect registered content block saintsdragons:raevyx_egg
+botstart tester
+wait 2
+cmd time set midnight
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1028 104 1030 minecraft:stone
+cmd fill 1024 105 1026 1028 108 1030 minecraft:air
+cmd weather clear
+cmd setblock 1025 105 1026 minecraft:comparator[facing=south]
+cmd setblock 1025 105 1027 saintsdragons:raevyx_egg
+cmd data merge block 1025 105 1027 {HatchProgress:0.996d}
+wait 1
+cmd execute if block 1025 105 1027 saintsdragons:raevyx_egg[hatch=2]
+wait 0.5
+expect Test passed
+cmd data get block 1025 105 1026 OutputSignal
+wait 0.5
+expect 1025, 105, 1026 has the following block data: 2$
+# The sprint takes about 48 thunder ticks to hatch this egg. At 1 TPS the
+# wall-clock wait cannot supply enough extra ticks to hatch it at the clear rate.
+cmd tick rate 1
+cmd weather thunder
+cmd data merge block 1025 105 1027 {HatchProgress:0.995d}
+cmd tick sprint 55t
+wait 5
+expect \[bot\] chat: .*commands.tick.sprint.report
+cmd tick rate 20
+cmd execute if block 1025 105 1027 minecraft:air
+wait 0.5
+expect Test passed
+cmd data get block 1025 105 1026 OutputSignal
+wait 0.5
+expect 1025, 105, 1026 has the following block data: 0$
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] Health
+wait 0.5
+expect has the following entity data: 60f
+cmd kill @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1]
+wait 1.5
+cmd weather clear
+cmd setblock 1025 105 1027 saintsdragons:raevyx_egg
+cmd summon minecraft:lightning_bolt 1025.5 105 1029.5
+wait 1
+cmd execute if block 1025 105 1027 minecraft:air
+wait 0.5
+expect Test passed
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] data.moddedmc.mob
+wait 0.5
+expect has the following entity data: "saintsdragons:raevyx"
+bot quit
+stop

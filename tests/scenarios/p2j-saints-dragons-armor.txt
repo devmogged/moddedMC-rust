@@ -1,0 +1,51 @@
+# Released armor defaults stack by equipped slot.
+mods target\mods\saints-dragons-audio\saints-dragons.mmc
+start
+expect registered content item saintsdragons:dragonlord_boots
+botstart tester
+wait 2
+expect \[bot\] fetched content resource pack
+cmd recipe give tester saintsdragons:draconian_helmet
+wait 0.5
+expect Unlocked 1 recipe
+cmd item replace entity tester armor.head with saintsdragons:draconian_helmet
+cmd item replace entity tester armor.chest with saintsdragons:draconian_chestplate
+cmd item replace entity tester armor.legs with saintsdragons:draconian_leggings
+cmd item replace entity tester armor.feet with saintsdragons:draconian_boots
+wait 0.5
+cmd attribute tester minecraft:armor get
+wait 0.5
+expect Armor for entity tester is 18
+cmd attribute tester minecraft:armor_toughness get
+wait 0.5
+expect Armor Toughness for entity tester is 4
+cmd item replace entity tester armor.head with saintsdragons:blood_tempest_helmet
+cmd item replace entity tester armor.chest with saintsdragons:blood_tempest_chestplate
+cmd item replace entity tester armor.legs with saintsdragons:blood_tempest_leggings
+cmd item replace entity tester armor.feet with saintsdragons:blood_tempest_boots
+wait 0.5
+cmd attribute tester minecraft:armor get
+wait 0.5
+expect Armor for entity tester is 24
+cmd attribute tester minecraft:armor_toughness get
+wait 0.5
+expect Armor Toughness for entity tester is 16
+cmd item replace entity tester armor.head with saintsdragons:dragonlord_helmet
+cmd item replace entity tester armor.chest with saintsdragons:dragonlord_chestplate
+cmd item replace entity tester armor.legs with saintsdragons:dragonlord_leggings
+cmd item replace entity tester armor.feet with saintsdragons:dragonlord_boots
+wait 0.5
+cmd attribute tester minecraft:armor get
+wait 0.5
+expect Armor for entity tester is 28
+cmd attribute tester minecraft:armor_toughness get
+wait 0.5
+expect Armor Toughness for entity tester is 20
+cmd attribute tester minecraft:max_health get
+wait 0.5
+expect Max Health for entity tester is 30
+cmd attribute tester minecraft:knockback_resistance get
+wait 0.5
+expect Knockback Resistance for entity tester is 1
+bot quit
+stop

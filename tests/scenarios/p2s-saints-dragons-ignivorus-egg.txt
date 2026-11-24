@@ -1,0 +1,92 @@
+# Seed progress near each boundary to exercise the released 36000-tick timer in a short test.
+mods target\mods\saints-dragons-eggs\saints-dragons.mmc
+start
+expect registered content block saintsdragons:ignivorus_egg
+botstart tester
+wait 2
+cmd time set midnight
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1030 104 1030 minecraft:stone
+cmd fill 1024 105 1024 1030 108 1030 minecraft:air
+cmd item replace entity tester hotbar.0 with saintsdragons:ignivorus_egg
+wait 0.5
+bot place 1025 104 1027 up
+wait 0.5
+cmd execute if block 1025 105 1027 saintsdragons:ignivorus_egg[hatch=0]
+wait 0.5
+expect Test passed
+cmd data merge block 1025 105 1027 {HatchProgress:0.3333d}
+wait 0.5
+cmd data get block 1025 105 1027 HatchProgress
+wait 0.5
+expect has the following block data: 0.3333d
+cmd setblock 1025 104 1027 saintsdragons:ignivorus_incubator_block
+wait 1
+cmd execute if block 1025 105 1027 saintsdragons:ignivorus_egg[hatch=1]
+wait 0.5
+expect Test passed
+cmd data merge block 1025 105 1027 {HatchProgress:0.66664d}
+wait 0.5
+cmd execute if block 1025 105 1027 saintsdragons:ignivorus_egg[hatch=2]
+wait 0.5
+expect Test passed
+cmd setblock 1025 104 1027 minecraft:stone
+cmd data merge block 1025 105 1027 {HatchProgress:0.9999d,BabyGender:1b}
+wait 0.5
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd data get block 1025 105 1027 HatchProgress
+wait 0.5
+expect has the following block data: 0.9999d
+cmd setblock 1025 104 1027 saintsdragons:ignivorus_incubator_block
+wait 1
+expect \[bot\] sound: entity.turtle.egg_hatch
+cmd execute if block 1025 105 1027 minecraft:air
+wait 0.5
+expect Test passed
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] data.moddedmc.mob
+wait 0.5
+expect has the following entity data: "saintsdragons:ignivorus"
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] Health
+wait 0.5
+expect has the following entity data: 90f
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] data."saintsdragons:growth".remaining
+wait 0.5
+expect has the following entity data: 239[0-9][0-9]
+cmd tag @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] add p2s_hatchling
+cmd data modify entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] data."saintsdragons:growth".remaining set value 200
+wait 0.5
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] data."saintsdragons:growth".remaining
+wait 0.5
+expect has the following entity data: (1[0-9][0-9]|200)
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..5,limit=1] data.moddedmc.mob
+wait 0.5
+expect has the following entity data: "saintsdragons:ignivorus"
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd data get entity @e[type=minecraft:ravager,tag=p2s_hatchling,limit=1] data."saintsdragons:growth".remaining
+cmd time set midnight
+cmd tick sprint 210t
+wait 14
+cmd data get entity @e[type=minecraft:ravager,tag=p2s_hatchling,limit=1] data."saintsdragons:growth".remaining
+cmd attribute @e[type=minecraft:ravager,tag=p2s_hatchling,limit=1] minecraft:max_health base get
+wait 0.5
+expect is 450
+
+cmd setblock 1027 105 1026 saintsdragons:ignivorus_egg
+cmd loot give tester mine 1027 105 1026 minecraft:diamond_pickaxe
+wait 0.5
+expect Dropped 0 items
+cmd loot give tester mine 1027 105 1026 minecraft:diamond_pickaxe[minecraft:enchantments={"minecraft:silk_touch":1}]
+wait 0.5
+expect Dropped 1 \[Ignivorus Egg\]
+bot quit
+stop

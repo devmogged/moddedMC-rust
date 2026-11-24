@@ -1,19 +1,46 @@
 //! Saint's Dragons, ported from Saint's Dragons 0.9.88 (commit 13aeb2eb2c). See docs/P2-DRAGONS.md.
 //!
-//! P2a: Cindervane is a registered mob carried by a vanilla mob, with its own saved state and
-//! ground AI (`ai`).
+//! Cindervane uses a vanilla carrier with its own saved state, AI, combat and rider controls.
 
+mod abilities;
 mod ai;
+mod appearance;
+mod armor;
+mod audio;
+mod binders;
+mod blocks;
+mod catalog;
+mod codex;
+mod combat;
+mod consumables;
+mod crucible;
+mod discs;
+mod eggs;
+mod flight;
+mod ivy;
+mod nucleus;
+mod roster;
+mod swarm;
+mod taming;
+mod venom_arrow;
+mod visuals;
+mod worldroot;
 
 use std::sync::OnceLock;
 
 use moddedmc_api::{
     Command, InterfaceUnavailable, Mod, RegistrationError, Registry,
     commands::{self, Argument, Commands, Node},
-    content::{self, Content},
+    content::{self, Content, WorldExtension},
+    effects::{self, Effects},
     entities::{self, Entities, EntitiesExtension},
-    mob_ai::{self, Goal, MobAi, goal_control},
-    mobs::{self, Mob, Mobs},
+    interaction::{self, Interaction, InteractionExtension},
+    items::{self, Items},
+    mob_ai::{self, Goal, MobAi, MobAiExtension, goal_control},
+    mobs::{self, Mob, Mobs, MobsExtension},
+    resources::{self, Resources},
+    stacks::{self, ItemStacks},
+    tags::{self, Tags},
 };
 
 const CINDERVANE: &str = "saintsdragons:cindervane";
@@ -34,27 +61,108 @@ const FIND: u64 = 2;
 const FIND_RADIUS: f64 = 16.0;
 
 static CONTENT: OnceLock<Content> = OnceLock::new();
+static EFFECTS: OnceLock<Effects> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
+static FISH_BUCKETS: OnceLock<mobs::FishBuckets> = OnceLock::new();
+static MOB_HEALTH: OnceLock<mobs::MobHealth> = OnceLock::new();
 static MOBS: OnceLock<Mobs> = OnceLock::new();
 static MOB_AI: OnceLock<MobAi> = OnceLock::new();
+static INTERACTION: OnceLock<Interaction> = OnceLock::new();
+static ITEM_DEFAULTS: OnceLock<items::ItemDefaults> = OnceLock::new();
+static ITEMS: OnceLock<Items> = OnceLock::new();
+static RESOURCES: OnceLock<Resources> = OnceLock::new();
+static STACKS: OnceLock<ItemStacks> = OnceLock::new();
+static TAGS: OnceLock<Tags> = OnceLock::new();
 
 struct SaintsDragons;
 
 impl Mod for SaintsDragons {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
-        let _ = CONTENT.set(content::require()?);
+        let content = content::require()?;
+        content.require_extension(WorldExtension::Survival)?;
+        content.require_extension(WorldExtension::CollisionShape)?;
+        content.require_extension(WorldExtension::FluidId)?;
+        content.require_extension(WorldExtension::Weather)?;
+        content.require_extension(WorldExtension::DimensionId)?;
+        content.require_comparator_output()?;
+        let _ = CONTENT.set(content);
+        let _ = EFFECTS.set(effects::require()?);
         let _ = COMMANDS.set(commands::require()?);
         let entities = entities::require()?;
-        entities.require_extension(EntitiesExtension::Movement)?;
+        entities.require_extension(EntitiesExtension::Carriers)?;
+        entities.require_extension(EntitiesExtension::Data)?;
+        entities.require_extension(EntitiesExtension::Player)?;
         let _ = ENTITIES.set(entities);
-        let _ = MOBS.set(mobs::require()?);
-        let _ = MOB_AI.set(mob_ai::require()?);
+        let _ = FISH_BUCKETS.set(mobs::require_fish_buckets()?);
+        let health = mobs::require_health()?;
+        health.require_attributes()?;
+        let _ = MOB_HEALTH.set(health);
+        let mobs = mobs::require()?;
+        mobs.require_extension(MobsExtension::Taming)?;
+        let _ = MOBS.set(mobs);
+        let ai = mob_ai::require()?;
+        ai.require_extension(MobAiExtension::Combat)?;
+        let _ = MOB_AI.set(ai);
+        let interaction = interaction::require()?;
+        interaction.require_extension(InteractionExtension::MobUse)?;
+        interaction.require_extension(InteractionExtension::MeleeDamage)?;
+        interaction.require_extension(InteractionExtension::BlockUse)?;
+        interaction.require_extension(InteractionExtension::ItemUse)?;
+        interaction.require_extension(InteractionExtension::PlayerPlaced)?;
+        codex::require()?;
+        ivy::require()?;
+        nucleus::require()?;
+        interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
+        let _ = INTERACTION.set(interaction);
+        let _ = ITEMS.set(items::require()?);
+        let _ = ITEM_DEFAULTS.set(items::require_defaults()?);
+        let _ = RESOURCES.set(resources::require()?);
+        let _ = STACKS.set(stacks::require()?);
+        let _ = TAGS.set(tags::require()?);
+        visuals::start()?;
+        venom_arrow::start()?;
+        binders::start()?;
         Ok(())
     }
 
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let missing = RegistrationError::InvalidDefinition;
+        CONTENT.get().ok_or(missing)?.on_tick(registry, tick)?;
+        let interaction = INTERACTION.get().ok_or(missing)?;
+        interaction.on_use_block(registry, |click| {
+            let result = eggs::stack_clutch(click);
+            if matches!(result, interaction::BlockUseResult::Pass) {
+                crucible::use_block(click)
+            } else {
+                result
+            }
+        })?;
+        interaction.on_player_will_destroy(registry, crucible::break_block)?;
+        visuals::register(*ITEMS.get().ok_or(missing)?, registry)?;
+        let defaults = *ITEM_DEFAULTS.get().ok_or(missing)?;
+        catalog::register(*ITEMS.get().ok_or(missing)?, defaults, registry)?;
+        venom_arrow::register(registry)?;
+        binders::register(defaults, registry)?;
+        interaction.on_use_item(registry, |click| match click.item {
+            codex::ID => codex::use_item(click),
+            ivy::PLUSHIE => ivy::use_item(click),
+            nucleus::CONTROLLER => nucleus::use_item(click),
+            _ => binders::use_in_air(click),
+        })?;
+        codex::register(defaults, registry)?;
+        ivy::register(defaults, registry)?;
+        interaction.on_player_placed(registry, nucleus::placed)?;
+        worldroot::register(defaults, registry)?;
+        interaction.on_melee_damage(registry, worldroot::melee_damage)?;
+        armor::register(defaults, registry)?;
+        consumables::register(defaults, registry)?;
+        discs::register(defaults, registry)?;
+        let content = *CONTENT.get().ok_or(missing)?;
+        blocks::register(content, registry)?;
+        nucleus::register(content, defaults, registry)?;
+        eggs::register(content, *ITEMS.get().ok_or(missing)?, registry)?;
+        crucible::register(content, registry)?;
         MOBS.get().ok_or(missing)?.add_mob(
             registry,
             &Mob {
@@ -66,9 +174,31 @@ impl Mod for SaintsDragons {
         let ai = MOB_AI.get().ok_or(missing)?;
         ai.on_goal(ai::HANDLER)?;
         ai.replace_goals(registry, CINDERVANE)?;
+        ai.on_hurt(registry, CINDERVANE, combat::hurt)?;
+        MOBS.get()
+            .ok_or(missing)?
+            .on_death(registry, CINDERVANE, taming::death)?;
+        INTERACTION
+            .get()
+            .ok_or(missing)?
+            .on_use_mob(registry, CINDERVANE, taming::interact)?;
         for (key, priority, controls) in [
-            (ai::IDLE_LOOK, 1, goal_control::LOOK),
-            (ai::GROUND_WANDER, 2, goal_control::MOVE),
+            (
+                taming::RIDE_OR_SIT,
+                0,
+                goal_control::MOVE | goal_control::LOOK | goal_control::JUMP,
+            ),
+            (
+                combat::GROUND_COMBAT,
+                1,
+                goal_control::MOVE | goal_control::LOOK,
+            ),
+            (taming::FOLLOW, 2, goal_control::MOVE),
+            (flight::GOAL, 2, goal_control::MOVE | goal_control::LOOK),
+            (ai::IDLE_LOOK, 3, goal_control::LOOK),
+            (ai::GROUND_WANDER, 4, goal_control::MOVE),
+            (combat::TARGETING, 1, goal_control::TARGET),
+            (ai::AMBIENT, 0, 0),
         ] {
             ai.add_goal(
                 registry,
@@ -97,13 +227,32 @@ impl Mod for SaintsDragons {
             "Spawn or find Cindervanes",
             2,
             &nodes,
+        )?;
+        roster::register(registry)?;
+        FISH_BUCKETS.get().ok_or(missing)?.bind(
+            registry,
+            catalog::MOOP_BUCKET,
+            "saintsdragons:moop",
         )
     }
 
+    fn menu_click(&self, player: moddedmc_api::Player<'_>, action: &str) {
+        if !ivy::click(&player, action) {
+            catalog::click(&player, action);
+        }
+    }
+
     fn command(&self, tag: u64, command: Command<'_>) -> i32 {
-        let (Some(content), Some(commands), Some(entities), Some(mobs)) =
-            (CONTENT.get(), COMMANDS.get(), ENTITIES.get(), MOBS.get())
-        else {
+        if tag == catalog::OPEN {
+            return catalog::open(command);
+        }
+        let (Some(content), Some(commands), Some(entities), Some(mobs), Some(ai)) = (
+            CONTENT.get(),
+            COMMANDS.get(),
+            ENTITIES.get(),
+            MOBS.get(),
+            MOB_AI.get(),
+        ) else {
             return 0;
         };
         let (Some(x), Some(y), Some(z), Some(world)) = (
@@ -115,6 +264,14 @@ impl Mod for SaintsDragons {
             return 0;
         };
         let at = [f64::from(x) + 0.5, f64::from(y), f64::from(z) + 0.5];
+        if let Some(kind) = roster::spawn_kind(tag) {
+            let Some(id) = roster::spawn(world, &kind, at) else {
+                command.reply(&format!("{kind}: could not spawn"));
+                return 0;
+            };
+            command.reply(&format!("{kind}: spawned {id}"));
+            return 1;
+        }
         match tag {
             SPAWN => {
                 let Some(id) = mobs.spawn(world, CINDERVANE, at) else {
@@ -130,32 +287,56 @@ impl Mod for SaintsDragons {
             FIND => {
                 let min = at.map(|c| c - FIND_RADIUS);
                 let max = at.map(|c| c + FIND_RADIUS);
+                let mut around = Vec::new();
                 let found: Vec<String> = entities
                     .entities_in(world, min, max, -1)
                     .into_iter()
                     .filter_map(|id| {
                         entities.with_entity(world, id, |mob| {
-                            let kind = mobs.kind(mob)?;
+                            let Some(kind) = mobs.kind(mob).filter(|kind| *kind == CINDERVANE) else {
+                                if !visuals::is_display(id) {
+                                    around.push(mob.type_id().to_owned());
+                                }
+                                return None;
+                            };
                             let state = mobs.state(mob)?;
+                            let target = ai.target(mob).and_then(|t| {
+                                entities.with_entity(world, t, |e| e.type_id().to_owned())
+                            });
+                            let health = mobs.health(mob).map_or(0.0, |(current, _)| current);
                             Some(format!(
-                                "{kind} {} state={} ai={}",
+                                "{kind} {} state={} ai={} health={health:.1} flight={} attack={} fire={} target={}",
                                 mob.type_id(),
-                                String::from_utf8_lossy(&state),
-                                if ai::seen(id) { "on" } else { "off" }
+                                taming::describe(&state),
+                                if ai::seen(id) { "on" } else { "off" },
+                                if flight::active(id) { "active" } else { "idle" },
+                                combat::last(mob).unwrap_or("none"),
+                                if combat::fire_active(mob) { "active" } else { "idle" },
+                                target.as_deref().unwrap_or("none")
                             ))
                         })?
                     })
                     .collect();
+                around.sort();
+                around.dedup();
                 command.reply(&format!(
-                    "cindervane: found {}: {}",
+                    "cindervane: found {}: {}; around: {}",
                     found.len(),
-                    found.join(", ")
+                    found.join(", "),
+                    around.join(",")
                 ));
                 i32::try_from(found.len()).unwrap_or(i32::MAX)
             }
             _ => 0,
         }
     }
+}
+
+fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
+    crucible::tick(world, events);
+    nucleus::tick(world, time, events);
+    eggs::tick(world, events);
+    visuals::sweep(world, time, events);
 }
 
 const fn literal(name: &str) -> Node<'_> {

@@ -1,0 +1,37 @@
+# Place the released Pellucida model through the server pack, then verify its survival drop.
+mods target\mods\saints-dragons-pellucida\saints-dragons.mmc
+start
+expect registered content block saintsdragons:draconian_pellucida
+botstart tester
+wait 2
+expect \[bot\] fetched content resource pack
+cmd op tester
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1028 104 1028 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1028 minecraft:air
+cmd give tester saintsdragons:draconian_pellucida
+wait 0.5
+expect Gave 1 \[Draconian Pellucida\]
+cmd item replace entity tester hotbar.0 with saintsdragons:draconian_pellucida
+wait 0.5
+bot look 0 45
+bot place 1025 104 1027 up
+wait 0.5
+bot expect block 1025 105 1027 minecraft:note_block
+wait 0.5
+expect \[bot\] expect block ok 1025 105 1027 note_block
+cmd execute if block 1025 105 1027 saintsdragons:draconian_pellucida
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot dig start 1025 105 1027 up
+wait 2
+bot dig finish
+wait 1
+cmd data get entity @e[type=minecraft:item,x=1025,y=105,z=1027,distance=..3,limit=1] Item.id
+wait 0.5
+expect has the following entity data:.*saintsdragons:draconian_pellucida
+bot quit
+stop

@@ -1,0 +1,51 @@
+# Creative-only appearance tools publish the selected released skin and persist it across a restart.
+mods target\mods\saints-dragons-appearance\saints-dragons.mmc
+start
+expect registered content item saintsdragons:creative_dragon_gender_wand
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack
+cmd tp tester 1025.5 100 1027.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 99 1024 1032 99 1032 minecraft:stone
+cmd fill 1024 100 1024 1032 105 1032 minecraft:air
+cmd time set midnight
+cmd cindervane spawn 1025 100 1025
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_gender_wand
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect requires Creative mode
+cmd gamemode creative tester
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon gender set to female
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_variant_brush
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon variant set to albino
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon variant set to piebald
+bot expect entity item_display near 1025.5 100 1025.5 within 6 count 5
+wait 0.5
+expect \[bot\] expect entity ok item_display.*\(5 visible\)
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..5,limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect has the following entity data: (?=.*female: 1b)(?=.*variant: 2b)
+bot expect entity item_display near 1025.5 100 1025.5 within 6 count 5
+wait 0.5
+expect \[bot\] expect entity ok item_display.*\(5 visible\)
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon variant set to default
+bot quit
+stop

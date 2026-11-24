@@ -164,24 +164,15 @@ pub async fn perform(
             let entity_id = player.lock().await.entities.target(name, anchor)?;
             send(writer, &SAttack { entity_id }).await
         }
-        ("interact", [name, x, y, z, hand]) => {
+        ("interact" | "use-entity", [name, x, y, z, hand]) => {
             let anchor = vector(&[x, y, z])?;
-            let (entity_id, sneaking) = {
-                let player = player.lock().await;
-                (
-                    player.entities.target(name, anchor)?,
-                    player.controls.shift_pressed(),
-                )
-            };
-            send(
+            use_entity(
+                player,
                 writer,
-                &SInteract {
-                    entity_id,
-                    r#type: VarInt(ActionType::InteractAt as i32),
-                    target_position: Some(Vector3::default()),
-                    hand: Some(crate::hand(hand)?),
-                    sneaking,
-                },
+                name,
+                anchor,
+                crate::hand(hand)?,
+                verb == "use-entity",
             )
             .await
         }
@@ -211,6 +202,36 @@ pub async fn perform(
         }
         _ => Err(format!("invalid {verb} arguments")),
     }
+}
+
+async fn use_entity(
+    player: &Mutex<Player>,
+    writer: &Writer,
+    name: &str,
+    anchor: Vector3<f64>,
+    hand: VarInt,
+    nearby: bool,
+) -> Result<(), String> {
+    let (entity_id, sneaking) = {
+        let player = player.lock().await;
+        let id = if nearby {
+            player.entities.nearby_target(name, anchor)?
+        } else {
+            player.entities.target(name, anchor)?
+        };
+        (id, player.controls.shift_pressed())
+    };
+    send(
+        writer,
+        &SInteract {
+            entity_id,
+            r#type: VarInt(ActionType::InteractAt as i32),
+            target_position: Some(Vector3::default()),
+            hand: Some(hand),
+            sneaking,
+        },
+    )
+    .await
 }
 
 fn hotbar_slot(value: &str) -> Result<i16, String> {

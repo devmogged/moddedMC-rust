@@ -1,0 +1,53 @@
+# Source water enables hatching. A bucket can drain and refill the egg without erasing progress.
+mods target\mods\saints-dragons-eggs\saints-dragons.mmc
+start
+expect registered content block saintsdragons:volitans_egg
+botstart tester
+wait 2
+cmd time set midnight
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1028 104 1028 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1028 minecraft:air
+cmd setblock 1024 105 1027 minecraft:stone
+cmd setblock 1026 105 1027 minecraft:stone
+cmd setblock 1025 105 1028 minecraft:stone
+cmd setblock 1025 105 1027 minecraft:water
+cmd item replace entity tester hotbar.0 with saintsdragons:volitans_egg
+wait 0.5
+bot place 1025 104 1027 up
+wait 0.5
+cmd execute if block 1025 105 1027 saintsdragons:volitans_egg[hatch=0,waterlogged=true]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with minecraft:bucket
+wait 0.5
+bot look 0 40
+bot use-item main
+wait 0.5
+cmd execute if block 1025 105 1027 saintsdragons:volitans_egg[hatch=0,waterlogged=false]
+wait 0.5
+expect Test passed
+cmd data merge block 1025 105 1027 {HatchProgress:0.9999d}
+wait 0.8
+cmd data get block 1025 105 1027 HatchProgress
+wait 0.5
+expect has the following block data: 0.9999d
+cmd item replace entity tester hotbar.0 with minecraft:water_bucket
+wait 0.5
+bot look 0 40
+bot use-item main
+wait 0.8
+expect \[bot\] sound: entity.turtle.egg_hatch
+cmd execute if block 1025 105 1027 minecraft:water
+wait 0.5
+expect Test passed
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..4,limit=1] data.moddedmc.mob
+wait 0.5
+expect has the following entity data: "saintsdragons:volitans"
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=105,z=1027,distance=..4,limit=1] Health
+wait 0.5
+expect has the following entity data: 60f
+bot quit
+stop
