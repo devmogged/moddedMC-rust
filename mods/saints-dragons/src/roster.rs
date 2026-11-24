@@ -482,7 +482,16 @@ fn use_egg(context: &mut UseOnBlock<'_>) -> UseResult {
         } else {
             kind
         };
-        spawn(world, kind, at).is_some()
+        let Some(id) = spawn(world, kind, at) else {
+            return UseResult::Fail;
+        };
+        if let Some(entities) = ENTITIES.get() {
+            let in_end = world.dimension_id() == Some("minecraft:the_end");
+            entities.with_entity(world, id, |mob| {
+                crate::appearance::spawned_from_egg(mob, name, in_end);
+            });
+        }
+        true
     };
     if !spawned {
         return UseResult::Fail;

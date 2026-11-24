@@ -1,4 +1,4 @@
-//! Creative controls for the adult dragons' saved appearance.
+//! Saved dragon appearance, spawn-egg variants and Creative appearance tools.
 
 use moddedmc_api::{
     entities::Entity,
@@ -6,7 +6,7 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{MOBS, visuals};
+use crate::{MOBS, ai::random, visuals};
 
 pub const GENDER_WAND: &str = "saintsdragons:creative_dragon_gender_wand";
 pub const VARIANT_BRUSH: &str = "saintsdragons:creative_dragon_variant_brush";
@@ -31,6 +31,29 @@ fn variants(species: &str) -> Option<&'static [&'static str]> {
     })
 }
 
+fn spawn_variant(species: &str, in_end: bool, roll: u64) -> u8 {
+    u8::from(match species {
+        "cindervane" | "volitans" => roll >= 85,
+        "raevyx" => roll >= 90,
+        "ignivorus" => roll >= 95,
+        "varasuchus" => in_end,
+        _ => false,
+    })
+}
+
+pub fn spawned_from_egg(mob: Entity<'_>, species: &str, in_end: bool) {
+    if variants(species).is_none() {
+        return;
+    }
+    let appearance = Appearance {
+        female: random(2) == 1,
+        variant: spawn_variant(species, in_end, random(100)),
+    };
+    if appearance.save(mob) {
+        visuals::invalidate_appearance(mob.id());
+    }
+}
+
 impl Appearance {
     pub fn load(mob: Entity<'_>) -> Self {
         mob.data(DATA)
@@ -38,20 +61,22 @@ impl Appearance {
             .unwrap_or_default()
     }
 
+    fn save(self, mob: Entity<'_>) -> bool {
+        fastnbt::to_bytes(&self).is_ok_and(|nbt| mob.set_data(DATA, &nbt))
+    }
+
     pub fn set_female(female: bool, mob: Entity<'_>) {
         let appearance = Self {
             female,
             ..Self::default()
         };
-        if let Ok(nbt) = fastnbt::to_bytes(&appearance) {
-            mob.set_data(DATA, &nbt);
-        }
+        appearance.save(mob);
     }
 
     pub fn mature_with_variant(mob: Entity<'_>, variant: u8) -> bool {
         let mut appearance = Self::load(mob);
         appearance.variant = variant;
-        let saved = fastnbt::to_bytes(&appearance).is_ok_and(|nbt| mob.set_data(DATA, &nbt));
+        let saved = appearance.save(mob);
         if saved {
             visuals::invalidate_appearance(mob.id());
         }
@@ -104,13 +129,32 @@ pub fn use_tool(click: &UseMob<'_>, item: &str) -> UseResult {
             variants[next].replace('_', " ")
         )
     };
-    let Ok(nbt) = fastnbt::to_bytes(&appearance) else {
-        return UseResult::Fail;
-    };
-    if !mob.set_data(DATA, &nbt) {
+    if !appearance.save(mob) {
         return UseResult::Fail;
     }
     visuals::invalidate_appearance(mob.id());
     mobs.message(player, &message, true);
     UseResult::Success
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spawn_variant;
+
+    #[test]
+    fn spawn_egg_variants_follow_the_released_weights() {
+        for (species, rare_threshold) in [
+            ("cindervane", 85),
+            ("volitans", 85),
+            ("raevyx", 90),
+            ("ignivorus", 95),
+        ] {
+            assert_eq!(spawn_variant(species, false, rare_threshold - 1), 0);
+            assert_eq!(spawn_variant(species, false, rare_threshold), 1);
+            assert_eq!(spawn_variant(species, false, 99), 1);
+        }
+        assert_eq!(spawn_variant("varasuchus", false, 99), 0);
+        assert_eq!(spawn_variant("varasuchus", true, 0), 1);
+        assert_eq!(spawn_variant("stegonaut", true, 99), 0);
+    }
 }

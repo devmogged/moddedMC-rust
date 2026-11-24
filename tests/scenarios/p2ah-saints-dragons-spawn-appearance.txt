@@ -1,0 +1,36 @@
+# The released Varasuchus spawn egg selects Void-Kissed in the End and saves its gender.
+mods target\mods\saints-dragons-spawn-appearance\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 201 1025.5
+wait 3
+cmd fill 1023 200 1023 1031 200 1031 minecraft:stone
+cmd fill 1023 201 1023 1031 205 1031 minecraft:air
+cmd item replace entity tester hotbar.0 with saintsdragons:varasuchus_spawn_egg
+wait 0.5
+bot use 1025 200 1027 up
+wait 1
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=201,z=1027,distance=..6,limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect has the following entity data: (?=.*female: [01]b)(?=.*variant: 0b)
+cmd execute in minecraft:the_end run tp tester 1025.5 201 1025.5
+wait 4
+cmd execute in minecraft:the_end run fill 1023 200 1023 1031 200 1031 minecraft:stone
+bot use 1025 200 1027 up
+wait 1
+cmd execute in minecraft:the_end run data get entity @e[type=minecraft:ravager,x=1025,y=201,z=1027,distance=..6,limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect has the following entity data: (?=.*female: [01]b)(?=.*variant: 1b)
+bot quit
+stop
+start
+botstart tester
+wait 4
+cmd execute in minecraft:the_end run data get entity @e[type=minecraft:ravager,x=1025,y=201,z=1027,distance=..10,limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect has the following entity data: (?=.*female: [01]b)(?=.*variant: 1b)
+bot quit
+stop

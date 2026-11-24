@@ -9,7 +9,7 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
 | Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together | Ivy's trading, companion inventory and combat, swarm combat and pathfinding around obstacles, and exact spawn restrictions, attributes and collision |
-| Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection | Per-species brains, navigation, growth, breeding and natural spawning, plus natural gender and variant assignment |
+| Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, plus released gender and skin selection for adult spawn eggs | Per-species brains, navigation, growth, breeding and natural spawning, plus natural gender and variant assignment |
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species | Species-specific taming, grooming animations, sleep reactions, codex updates and hunger; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
 | Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips | Armor set abilities, Dragonlord armor fire and blast resistance, Blood Tempest and Dragonlord sword active abilities and on-hit effects, worn armor models, and remaining equipment components |
@@ -108,6 +108,13 @@ and biome modifiers for the release's Fabric feature registrations. The seeded
 scenario found nine Worldroot blocks and two Dragonheart blocks in newly
 generated chunks.
 [Ore world generation scenario](../tests/scenarios/p2ag-saints-dragons-ore-worldgen.txt)
+
+Adult spawn eggs save gender and roll the released skin weights. Cindervane and
+Volitans each have a 15% chance of their alternate skin, Raevyx 10%, and
+Ignivorus 5%. A Varasuchus spawn egg selects Void-Kissed in the End. The live
+scenario verified the Overworld and End variants and retained the End
+Varasuchus's appearance through a restart.
+[Spawn egg appearance scenario](../tests/scenarios/p2ah-saints-dragons-spawn-appearance.txt)
 
 The Draconic Codex opens a stock-client dialog from either hand or when used
 on a dragon. It reads owner-specific records from the save, updates loaded
