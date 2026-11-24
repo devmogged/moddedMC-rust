@@ -6,12 +6,14 @@ mod item;
 mod math;
 #[cfg(test)]
 mod observer;
+mod placement;
 mod propagate;
 mod railway;
 mod reconcile;
 mod runtime;
 mod save;
 mod track;
+mod visual;
 mod world_graph;
 
 pub(crate) use item::use_on_block;

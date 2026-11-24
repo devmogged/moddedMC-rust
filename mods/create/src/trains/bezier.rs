@@ -19,7 +19,7 @@ pub(super) struct BezierGeometry {
     step_lut: Vec<f32>,
 }
 
-// Pending: M3 trains use per-segment positions, lengths and traversal rate
+// The carriage runtime will use the cached handles and traversal rate.
 #[cfg_attr(not(test), allow(dead_code))]
 impl BezierGeometry {
     pub fn new(starts: [Vec3; 2], axes: [Vec3; 2], primary: bool, girder: bool) -> Option<Self> {
@@ -43,9 +43,9 @@ impl BezierGeometry {
             previous = current;
         }
 
-        // TrackPlacement excludes degenerate curves; reject corrupted geometry.
+        // Create caps endpoint separation at 128 blocks even with its placement config raised.
         let segments = (length * 2.0) as usize;
-        if !length.is_finite() || segments == 0 || segments > 1_000_000 {
+        if !length.is_finite() || segments == 0 || segments > 512 {
             return None;
         }
 

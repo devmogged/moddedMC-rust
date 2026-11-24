@@ -56,8 +56,9 @@ fn model(shape: TrackShape) -> (&'static str, i16) {
     use TrackShape as T;
     match shape {
         T::None => ("minecraft:block/air", 0),
-        T::ZOrtho => ("create:block/track/z_ortho", 0),
-        T::XOrtho => ("create:block/track/x_ortho", 0),
+        // The straight JSON models are elongated along the opposite named axis.
+        T::ZOrtho => ("create:block/track/x_ortho", 0),
+        T::XOrtho => ("create:block/track/z_ortho", 0),
         T::PositiveDiagonal => ("create:block/track/diag", 0),
         T::NegativeDiagonal => ("create:block/track/diag_2", 0),
         T::AscendingNorth => ("create:block/track/ascending", 180),
@@ -136,10 +137,7 @@ pub(crate) fn register(
         &Block {
             id: ID,
             display_name: "Train Track",
-            // Java creates a block entity only for turn=true; the current
-            // generic content API attaches one to every state or none.
-            // TODO(abi): per-state block entities for curved tracks (WS-3-02).
-            entity: "",
+            entity: ID,
             item_model: "create:item/track",
             states: &states,
         },
@@ -157,14 +155,23 @@ pub(super) fn track_state(content: Content, state: u32) -> Option<(TrackShape, b
 
 /// A track state whose blockstate properties have already been registered.
 pub(super) fn rail_state(content: Content, shape: TrackShape, wet: bool) -> Option<u32> {
+    rail_state_with_turn(content, shape, wet, false)
+}
+
+pub(super) fn rail_state_with_turn(
+    content: Content,
+    shape: TrackShape,
+    wet: bool,
+    has_be: bool,
+) -> Option<u32> {
     states(content)
         .by_properties
-        .get(&TrackState {
-            shape,
-            has_be: false,
-            wet,
-        })
+        .get(&TrackState { shape, has_be, wet })
         .copied()
+}
+
+pub(super) fn track_waterlogged(content: Content, state: u32) -> bool {
+    states(content).by_id.get(&state).is_some_and(|row| row.wet)
 }
 
 /// TrackBlockItem.getPlacementState for an item used on non-track terrain.
@@ -312,7 +319,7 @@ mod tests {
             model(TrackShape::CrossNegativeZ),
             ("create:block/track/cross_d2_zo", 0)
         );
-        assert_eq!(model(TrackShape::XOrtho), ("create:block/track/x_ortho", 0));
+        assert_eq!(model(TrackShape::XOrtho), ("create:block/track/z_ortho", 0));
         assert_eq!(model(TrackShape::None), ("minecraft:block/air", 0));
         assert_eq!(SHAPE_FLAT[0].max, [16, 2, 16]);
         assert!(SHAPE_SLOPE.is_empty());

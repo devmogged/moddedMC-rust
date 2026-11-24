@@ -3,6 +3,7 @@
 
 use super::{bezier::BezierGeometry, math::Vec3};
 use fastnbt::Value;
+use moddedmc_api::{Pos, content::World};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -107,6 +108,58 @@ impl CurveRecord {
         }
         Ok(curve)
     }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct Connections {
+    #[serde(rename = "Connections", default)]
+    curves: Vec<HashMap<String, Value>>,
+}
+
+pub(super) fn read(world: World<'_>, pos: Pos) -> Option<Vec<CurveRecord>> {
+    let data = world.entity(pos)?;
+    let saved: Connections = fastnbt::from_bytes(&data).ok()?;
+    saved
+        .curves
+        .iter()
+        .map(|fields| {
+            let curve = CurveRecord::from_nbt_fields(fields).ok()?;
+            (curve.block_positions[0] == [pos.x, pos.y, pos.z]).then_some(curve)
+        })
+        .collect()
+}
+
+pub(super) fn encode_connections(curves: &[CurveRecord]) -> Option<Vec<u8>> {
+    let curves = curves
+        .iter()
+        .map(CurveRecord::to_nbt_fields)
+        .collect::<Result<_, _>>()
+        .ok()?;
+    fastnbt::to_bytes(&Connections { curves }).ok()
+}
+
+pub(super) fn add_connection(
+    previous: &[CurveRecord],
+    mut connection: CurveRecord,
+) -> Option<Vec<u8>> {
+    let mut curves = previous.to_vec();
+    if let Some(old) = curves
+        .iter_mut()
+        .find(|c| c.block_positions[1] == connection.block_positions[1])
+    {
+        // TrackBlockEntity keeps the original material and primary end when the geometry matches.
+        let primary = connection.primary;
+        let material = std::mem::replace(&mut connection.material, old.material.clone());
+        connection.primary = old.primary;
+        if *old != connection {
+            connection.primary = primary;
+            connection.material = material;
+            *old = connection;
+        }
+    } else {
+        curves.push(connection);
+    }
+    encode_connections(&curves)
 }
 
 fn pair<T, U>(values: Vec<T>, convert: impl Fn(T) -> U) -> Result<[U; 2], String> {

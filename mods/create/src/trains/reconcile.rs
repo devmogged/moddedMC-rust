@@ -22,10 +22,8 @@ fn block_touches_edge(pos: Pos, edge: &TrackEdge, dim: &str) -> bool {
     if edge.from.dimension != dim || edge.to.dimension != dim {
         return false;
     }
-    // A curve needs the proper closest-point solver and loaded curve BE. Never
-    // use a straight-line approximation to silently replace a saved curve.
-    if edge.turn.is_some() {
-        return false;
+    if let Some(turn) = &edge.turn {
+        return turn.record.block_positions.contains(&[pos.x, pos.y, pos.z]);
     }
     let a = edge.from.world();
     let b = edge.to.world();
@@ -99,7 +97,9 @@ where
                 };
                 let pos = Pos { x, y, z };
                 match world.cell(pos) {
-                    RailCell::Rail(_) => candidate_positions.push(pos),
+                    RailCell::Rail(..) => {
+                        candidate_positions.push(pos);
+                    }
                     RailCell::Other => {}
                     RailCell::Unloaded => return Err(ReconcileError::Unloaded),
                     RailCell::Unsupported => return Err(ReconcileError::Unsupported),
@@ -108,6 +108,26 @@ where
         }
     }
 
+    // Removing an endpoint can split a graph beyond the local rail neighborhood.
+    for saved in &data.graphs {
+        for edge in saved
+            .graph
+            .connections
+            .values()
+            .flat_map(|edges| edges.values())
+        {
+            if let Some(turn) = &edge.turn
+                && edge.from.dimension == world.dimension
+                && turn.record.block_positions[0] == [changed.x, changed.y, changed.z]
+            {
+                let [x, y, z] = turn.record.block_positions[1];
+                let peer = Pos { x, y, z };
+                if !candidate_positions.contains(&peer) {
+                    candidate_positions.push(peer);
+                }
+            }
+        }
+    }
     let mut rebuilt = Vec::<TrackGraph>::new();
     for pos in candidate_positions {
         let graph = match world.graph_at(pos) {
@@ -135,7 +155,7 @@ where
         .map(|(index, _)| index)
         .collect();
 
-    let changed_is_rail = matches!(world.cell(changed), RailCell::Rail(_));
+    let changed_is_rail = matches!(world.cell(changed), RailCell::Rail(..));
     rebuilt.retain(|graph| {
         (changed_is_rail && graph_touches_change(graph, world.dimension, changed))
             || touched_old
@@ -199,7 +219,7 @@ mod tests {
     fn reader(data: &HashMap<[i32; 3], TrackShape>, pos: Pos) -> RailCell {
         data.get(&[pos.x, pos.y, pos.z])
             .copied()
-            .map_or(RailCell::Other, RailCell::Rail)
+            .map_or(RailCell::Other, |shape| RailCell::Rail(shape, Vec::new()))
     }
 
     #[test]

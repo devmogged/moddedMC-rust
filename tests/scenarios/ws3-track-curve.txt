@@ -1,0 +1,93 @@
+# Create TrackPlacement: 90 degree turn across a chunk boundary and restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:track \(76 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2414.5 102 2413.5 -90 35
+wait 6
+cmd fill 2408 100 2408 2430 106 2430 minecraft:air
+cmd fill 2408 99 2408 2430 99 2430 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:track 32
+wait 1
+bot use 2413 99 2414
+wait 0.5
+cmd tp tester 2422.5 102 2422.5 0 30
+wait 1
+bot use 2421 99 2422
+wait 0.5
+cmd track 2413 100 2414
+wait 0.5
+expect create:track\[shape=xo,turn=false,waterlogged=false\] at 2413 100 2414
+cmd track 2421 100 2422
+wait 0.5
+expect create:track\[shape=zo,turn=false,waterlogged=false\] at 2421 100 2422
+
+cmd gamemode survival tester
+cmd tp tester 2414.5 101 2413.5 -90 35
+wait 1
+bot use 2413 100 2414
+wait 0.5
+cmd tp tester 2422.5 101 2422.5 0 35
+wait 1
+bot use 2421 100 2422
+wait 1
+cmd track 2413 100 2414
+wait 0.5
+expect create:track\[shape=xo,turn=true,waterlogged=false\] at 2413 100 2414
+cmd track 2421 100 2422
+wait 0.5
+expect create:track\[shape=zo,turn=true,waterlogged=false\] at 2421 100 2422
+cmd railway 2421 100 2422
+wait 0.5
+expect Create railway: Graphs=1 Nodes=4 DirectedEdges=6 Curves=1
+cmd clear tester create:track 0
+wait 0.5
+expect Found 20 matching item
+bot expect entity minecraft:block_display near 2413.5 100 2414.5 within 0.05 count 12
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2413.5 100 2414.5
+
+reject (?i)panicked|trapped|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd railwaybuild 2421 100 2422
+wait 0.5
+expect Create railway: Graphs=1 Nodes=4 DirectedEdges=6 Curves=1
+bot expect entity minecraft:block_display near 2413.5 100 2414.5 within 0.05 count 12
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2413.5 100 2414.5
+# The pair of saved endpoint records is reused when the player repeats the connection.
+cmd tp tester 2414.5 101 2413.5 -90 35
+wait 1
+bot use 2413 100 2414
+wait 0.5
+cmd tp tester 2422.5 101 2422.5 0 35
+wait 1
+bot use 2421 100 2422
+wait 1
+cmd clear tester create:track 0
+wait 0.5
+expect Found 20 matching item
+cmd setblock 2413 100 2414 minecraft:air
+wait 1
+cmd railway 2421 100 2422
+wait 0.5
+expect Create railway: Graphs=1 Nodes=2 DirectedEdges=2 Curves=0
+cmd track 2421 100 2422
+wait 0.5
+expect create:track\[shape=zo,turn=false,waterlogged=false\] at 2421 100 2422
+bot expect entity minecraft:block_display near 2413.5 100 2414.5 within 0.05 count 0
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2413.5 100 2414.5
+reject (?i)panicked|trapped|\[bot\] error
+bot quit
+stop

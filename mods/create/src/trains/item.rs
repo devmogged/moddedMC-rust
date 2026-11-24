@@ -1,9 +1,17 @@
-//! The track item's first-click selection and the straight-placement branch
-//! of TrackPlacement.tryConnect. Curve/slope turns are deliberately not made
-//! into straight rails; they are delegated to the Bezier implementation.
+//! TrackBlockItem.useOn: selection and placement of track connections.
 
-use super::{math::Vec3, track::TrackShape};
+use super::{
+    curve,
+    math::Vec3,
+    placement::{curve_placement, offset_position},
+    runtime,
+    track::{self, TrackShape},
+};
 use moddedmc_api::Pos;
+use moddedmc_api::{
+    content::{self, BlockUpdate, Content},
+    interaction::{UseOnBlock, UseResult},
+};
 use serde::{Deserialize, Serialize};
 
 /// Match TrackPlacement.ConnectingFrom: start block, selected axis, normal,
@@ -149,6 +157,10 @@ pub(super) fn straight(
         TrackShape::ZOrtho if second_shape == first_shape => [0, 0, 1],
         TrackShape::PositiveDiagonal if second_shape == first_shape => [1, 0, 1],
         TrackShape::NegativeDiagonal if second_shape == first_shape => [-1, 0, 1],
+        TrackShape::AscendingNorth if second_shape == first_shape => [0, 1, -1],
+        TrackShape::AscendingSouth if second_shape == first_shape => [0, 1, 1],
+        TrackShape::AscendingEast if second_shape == first_shape => [1, 1, 0],
+        TrackShape::AscendingWest if second_shape == first_shape => [-1, 1, 0],
         _ => return Err(Reject::NotStraight),
     };
     let count = (0..3)
@@ -203,18 +215,7 @@ fn relative(pos: Pos, face: u8) -> Option<Pos> {
     })
 }
 
-/// Partial TrackBlockItem.useOn: selecting the first track, clearing it while
-/// sneaking, and placing an aligned straight run between two existing rails.
-/// Curves, slope transitions, and offhand material gathering still require the
-/// full TrackPlacement and host block-entity support.
-pub(crate) fn use_on_block(
-    context: &mut moddedmc_api::interaction::UseOnBlock<'_>,
-) -> moddedmc_api::interaction::UseResult {
-    use moddedmc_api::{
-        content::{self, BlockUpdate},
-        interaction::UseResult,
-    };
-
+pub(crate) fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     let Some(content) = crate::CONTENT.get().copied() else {
         return UseResult::Fail;
     };
@@ -243,16 +244,15 @@ pub(crate) fn use_on_block(
         z: f64::from(cos_yaw * cos_pitch),
     };
 
-    // TrackBlockItem.useOn: click an existing second rail, or click terrain
-    // to place the new end rail immediately before connecting the straight run.
+    // TrackBlockItem accepts an existing rail or a new endpoint placed on terrain.
     let mut current = [content::UNLOADED_STATE];
     if !context.world.read(&[context.position], &mut current) {
         return UseResult::Fail;
     }
     let mut new_endpoint = None;
-    let (target, clicked_shape, clicked_turn) =
-        if let Some((shape, turn)) = super::runtime::track_state(content, current[0]) {
-            (context.position, shape, turn)
+    let (target, clicked_shape) =
+        if let Some((shape, _)) = runtime::track_state(content, current[0]) {
+            (context.position, shape)
         } else {
             if saved.is_none() {
                 // No selection: normal BlockItem placement, as in Java.
@@ -285,15 +285,14 @@ pub(crate) fn use_on_block(
             ) else {
                 return UseResult::Fail;
             };
-            let Some((shape, turn)) = super::runtime::track_state(content, state) else {
+            let Some((shape, _)) = runtime::track_state(content, state) else {
                 return UseResult::Fail;
             };
             new_endpoint = Some(state);
-            (target, shape, turn)
+            (target, shape)
         };
-    if clicked_shape.axes().len() != 1 || clicked_turn {
-        // Java blocks a junction or tilted first point. Curve/junction end
-        // placements need TrackPlacement's later Bezier path.
+    if clicked_shape.axes().len() != 1 {
+        // A junction cannot serve as the selected track axis.
         return if saved.is_some() {
             UseResult::Fail
         } else {
@@ -311,21 +310,34 @@ pub(crate) fn use_on_block(
         if !context.world.read(&[first], &mut source) {
             return UseResult::Fail;
         }
-        let Some((source_shape, source_turn)) = super::runtime::track_state(content, source[0])
-        else {
+        let Some((source_shape, _)) = runtime::track_state(content, source[0]) else {
             return UseResult::Fail;
         };
-        if source_turn {
+        let [x, y, z] = start.axis;
+        let Some(start) = select(first, source_shape, Vec3 { x, y, z }) else {
             return UseResult::Fail;
-        }
+        };
         let world = context.world;
         let result = straight(start, target, source_shape, clicked_shape, 32, |pos| {
             let mut state = [content::UNLOADED_STATE];
             world.read(&[pos], &mut state)
                 && crate::states().is_some_and(|states| states.replaceable.contains(&state[0]))
         });
-        let Ok(plan) = result else {
-            return UseResult::Fail;
+        let plan = match result {
+            Ok(plan) => plan,
+            Err(Reject::NotStraight) => {
+                let Some(second) = select(target, clicked_shape, look.scale(-1.0)) else {
+                    return UseResult::Fail;
+                };
+                return place_curve(
+                    context,
+                    content,
+                    start,
+                    second,
+                    [source_shape, clicked_shape],
+                );
+            }
+            Err(_) => return UseResult::Fail,
         };
         // A click on terrain also creates the second endpoint block.
         let total_cost = plan.cost + u32::from(new_endpoint.is_some());
@@ -385,6 +397,131 @@ pub(crate) fn use_on_block(
     } else {
         UseResult::Fail
     }
+}
+
+fn place_curve(
+    context: &mut UseOnBlock<'_>,
+    content: Content,
+    first: ConnectingFrom,
+    second: ConnectingFrom,
+    shapes: [TrackShape; 2],
+) -> UseResult {
+    let Some(plan) = curve_placement(first, second) else {
+        return UseResult::Fail;
+    };
+    let world = context.world;
+    let (Some(states), Some(geometry)) = (crate::states(), plan.curve.geometry()) else {
+        return UseResult::Fail;
+    };
+    let mut cost = 0;
+    let mut updates = Vec::new();
+    let mut rollback = Vec::new();
+    let mut endpoints = Vec::new();
+
+    for (i, connection) in [first, second].into_iter().enumerate() {
+        let endpoint = plan.extents[i];
+        for step in 0..=endpoint {
+            let Some([x, y, z]) =
+                offset_position(connection.pos, plan.axes[i].scale(f64::from(step)))
+            else {
+                return UseResult::Fail;
+            };
+            let position = Pos { x, y, z };
+            let mut current = [content::UNLOADED_STATE];
+            if !world.read(&[position], &mut current) {
+                return UseResult::Fail;
+            }
+            let old = current[0];
+            let turn = step == endpoint;
+            let (shape, wet, had_turn) =
+                if let Some((shape, had_turn)) = runtime::track_state(content, old) {
+                    (
+                        track::overlay(shape, shapes[i]),
+                        runtime::track_waterlogged(content, old),
+                        had_turn,
+                    )
+                } else if states.replaceable.contains(&old) {
+                    cost += 1;
+                    (
+                        shapes[i],
+                        world.fluid_id(position).as_deref() == Some("minecraft:water"),
+                        false,
+                    )
+                } else {
+                    return UseResult::Fail;
+                };
+            let Some(state) = runtime::rail_state_with_turn(content, shape, wet, turn || had_turn)
+            else {
+                return UseResult::Fail;
+            };
+            if state != old {
+                updates.push(BlockUpdate {
+                    position,
+                    state,
+                    flags: content::UPDATE_ALL,
+                });
+                rollback.push(BlockUpdate {
+                    position,
+                    state: old,
+                    flags: content::UPDATE_ALL,
+                });
+            }
+            if turn {
+                let previous = if had_turn {
+                    let Some(previous) = curve::read(world, position) else {
+                        return UseResult::Fail;
+                    };
+                    previous
+                } else {
+                    Vec::new()
+                };
+                let record = if i == 0 {
+                    plan.curve.clone()
+                } else {
+                    plan.curve.secondary()
+                };
+                let duplicate = previous
+                    .iter()
+                    .any(|value| value.block_positions[1] == record.block_positions[1]);
+                if i == 0 && !duplicate {
+                    cost += geometry.track_item_cost() as u32;
+                }
+                let Some(bytes) = curve::add_connection(&previous, record) else {
+                    return UseResult::Fail;
+                };
+                endpoints.push((position, previous, bytes));
+            }
+        }
+    }
+
+    if !context.creative && cost > context.stack.count() {
+        return UseResult::Fail;
+    }
+    if world.write(&updates) != updates.len() {
+        return UseResult::Fail;
+    }
+    if !endpoints
+        .iter()
+        .all(|(pos, _, bytes)| world.set_entity(*pos, bytes))
+        || !context.stack.set_data(&[])
+    {
+        for (pos, previous, _) in endpoints {
+            if let Some(bytes) = curve::encode_connections(&previous) {
+                world.set_entity(pos, &bytes);
+            }
+        }
+        world.write(&rollback);
+        return UseResult::Fail;
+    }
+    if !context.creative {
+        context.stack.shrink(cost);
+    }
+    crate::with_world(world, |kinetics| {
+        for (pos, _, _) in endpoints {
+            kinetics.rail_updates.connection_changed(pos);
+        }
+    });
+    UseResult::Success
 }
 
 #[cfg(test)]

@@ -230,7 +230,6 @@ pub(super) fn select_placement_shape(
 }
 
 /// TrackBlock.overlay combines independently oriented rails at a junction.
-#[cfg(test)]
 pub(super) fn overlay(existing: TrackShape, placed: TrackShape) -> TrackShape {
     use TrackShape as T;
     match (existing, placed) {

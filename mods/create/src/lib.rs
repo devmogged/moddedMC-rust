@@ -1683,7 +1683,7 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == glue::ID {
         return glue::use_on_block(context);
     }
-    // WS-3: TrackBlockItem's item-on-rail selection and straight connections.
+    // TrackBlockItem's two-click rail placement.
     if context.item == "create:track" {
         return trains::use_on_block(context);
     }

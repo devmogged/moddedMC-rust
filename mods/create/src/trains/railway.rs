@@ -1,8 +1,10 @@
 //! Save-global Create RailwaySavedData and live rail updates.
 use super::{
+    curve,
     graph::TrackNodeLocation,
     reconcile::{ReconcileError, graph_touches_change, reconcile},
     save::{RailwayData, RailwayGraph},
+    visual,
     world_graph::{RailCell, RailWorld},
 };
 use moddedmc_api::{
@@ -54,10 +56,16 @@ fn read(world: &World<'_>) -> Result<RailwayData, String> {
 pub(crate) fn summary(world: &World<'_>) -> Result<String, String> {
     let data = read(world)?;
     Ok(format!(
-        "Create railway: Graphs={} Nodes={} DirectedEdges={}",
+        "Create railway: Graphs={} Nodes={} DirectedEdges={} Curves={}",
         data.graphs.len(),
         data.total_nodes(),
-        data.total_directed_edges()
+        data.total_directed_edges(),
+        data.graphs
+            .iter()
+            .flat_map(|saved| saved.graph.connections.values())
+            .flat_map(HashMap::values)
+            .filter(|edge| edge.turn.as_ref().is_some_and(|turn| turn.record.primary))
+            .count()
     ))
 }
 
@@ -117,11 +125,46 @@ fn rail_cell(world: World<'_>, content: Content, pos: Pos) -> RailCell {
     if !world.read(&[pos], &mut state) || state[0] == content::UNLOADED_STATE {
         return RailCell::Unloaded;
     }
-    match super::runtime::track_state(content, state[0]) {
-        Some((shape, false)) => RailCell::Rail(shape),
-        Some((_, true)) => RailCell::Unsupported,
-        _ => RailCell::Other,
+    let Some((shape, turn)) = super::runtime::track_state(content, state[0]) else {
+        return RailCell::Other;
+    };
+    if !turn {
+        return RailCell::Rail(shape, Vec::new());
     }
+    match checked_curves(world, content, pos) {
+        Some((_, curves, false)) => RailCell::Rail(shape, curves),
+        Some((_, _, true)) => RailCell::Unloaded,
+        None => RailCell::Unsupported,
+    }
+}
+
+/// Compare the two saved endpoint records. Retain unknown endpoints until their chunks load.
+fn checked_curves(
+    world: World<'_>,
+    content: Content,
+    pos: Pos,
+) -> Option<(Vec<curve::CurveRecord>, Vec<curve::CurveRecord>, bool)> {
+    let records = curve::read(world, pos)?;
+    let mut retained = Vec::new();
+    let mut verified = Vec::new();
+    let mut unloaded = false;
+    for record in records {
+        let [x, y, z] = record.block_positions[1];
+        let peer = Pos { x, y, z };
+        let mut state = [content::UNLOADED_STATE];
+        if !world.read(&[peer], &mut state) || state[0] == content::UNLOADED_STATE {
+            unloaded = true;
+        } else {
+            if !super::runtime::track_state(content, state[0]).is_some_and(|(_, turn)| turn)
+                || !curve::read(world, peer)?.contains(&record.secondary())
+            {
+                continue;
+            }
+            verified.push(record.clone());
+        }
+        retained.push(record);
+    }
+    Some((retained, verified, unloaded))
 }
 
 #[derive(Default)]
@@ -129,9 +172,49 @@ pub(crate) struct RailUpdates {
     pending: HashMap<Pos, bool>,
     order: VecDeque<Pos>,
     retry_at: u64,
+    displays: HashMap<Pos, CurveDisplays>,
+}
+
+struct CurveDisplays {
+    curves: Vec<curve::CurveRecord>,
+    ids: Vec<i32>,
 }
 
 impl RailUpdates {
+    fn clear_display(&mut self, world: World<'_>, pos: Pos) {
+        if let Some(display) = self.displays.remove(&pos) {
+            visual::clear(world, display.ids);
+        }
+    }
+
+    fn show_curves(
+        &mut self,
+        world: World<'_>,
+        content: Content,
+        pos: Pos,
+        mut curves: Vec<curve::CurveRecord>,
+    ) {
+        curves.retain(|curve| curve.primary);
+        if self
+            .displays
+            .get(&pos)
+            .is_some_and(|display| display.curves == curves)
+        {
+            return;
+        }
+        self.clear_display(world, pos);
+        if !curves.is_empty() {
+            let mut ids = Vec::new();
+            visual::show(world, content, pos, &curves, &mut ids);
+            self.displays.insert(pos, CurveDisplays { curves, ids });
+        }
+    }
+
+    pub(super) fn connection_changed(&mut self, pos: Pos) {
+        self.enqueue(pos, false);
+        self.retry_at = 0;
+    }
+
     fn enqueue(&mut self, pos: Pos, loaded: bool) {
         self.pending
             .entry(pos)
@@ -154,6 +237,7 @@ impl RailUpdates {
         let mut changed = false;
         for event in events {
             match event.reason {
+                content::UNLOADED => self.clear_display(world, event.position),
                 content::LOADED if super::runtime::track_state(content, event.state).is_some() => {
                     self.enqueue(event.position, true);
                     changed = true;
@@ -188,7 +272,53 @@ impl RailUpdates {
             let Some(loaded) = self.pending.remove(&pos) else {
                 continue;
             };
+            let mut state = [content::UNLOADED_STATE];
+            if !world.read(&[pos], &mut state) || state[0] == content::UNLOADED_STATE {
+                retry.push((pos, loaded));
+                continue;
+            }
+            let track = super::runtime::track_state(content, state[0]);
+            if let Some((shape, true)) = track {
+                let Some((retained, verified, _)) = checked_curves(world, content, pos) else {
+                    continue;
+                };
+                self.show_curves(world, content, pos, verified);
+                if retained.is_empty() {
+                    let wet = super::runtime::track_waterlogged(content, state[0]);
+                    if let Some(state) = super::runtime::rail_state(content, shape, wet) {
+                        world.write(&[content::BlockUpdate {
+                            position: pos,
+                            state,
+                            flags: content::UPDATE_ALL,
+                        }]);
+                    }
+                }
+                if let Some(bytes) = curve::encode_connections(&retained)
+                    && curve::read(world, pos).is_some_and(|old| old != retained)
+                {
+                    world.set_entity(pos, &bytes);
+                }
+            } else if !loaded && track.is_none() {
+                for edge in data
+                    .graphs
+                    .iter()
+                    .flat_map(|saved| saved.graph.connections.values())
+                    .flat_map(HashMap::values)
+                {
+                    if edge.from.dimension == dimension
+                        && let Some(turn) = &edge.turn
+                        && turn.record.block_positions[0] == [pos.x, pos.y, pos.z]
+                    {
+                        let [x, y, z] = turn.record.block_positions[1];
+                        self.enqueue(Pos { x, y, z }, false);
+                    }
+                }
+            }
+            if !matches!(track, Some((_, true))) {
+                self.clear_display(world, pos);
+            }
             if loaded
+                && !matches!(track, Some((_, true)))
                 && data
                     .graphs
                     .iter()

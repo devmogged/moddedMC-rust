@@ -1,6 +1,7 @@
 //! ITrackBlock.walkConnectedTracks and TrackBlock.getConnected from Create 6.0.10.
 //! RailCell distinguishes an ordinary block from unloaded world data.
 use super::{
+    curve::CurveRecord,
     graph::{DiscoveredLocation, TrackGraph, TrackNodeLocation},
     math::Vec3,
     propagate::{self, PropagationError, TrackWorld},
@@ -9,9 +10,9 @@ use super::{
 use moddedmc_api::Pos;
 use std::cell::Cell;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum RailCell {
-    Rail(TrackShape),
+    Rail(TrackShape, Vec<CurveRecord>),
     Other,
     Unloaded,
     Unsupported,
@@ -49,6 +50,7 @@ where
         &self,
         pos: Pos,
         shape: TrackShape,
+        curves: Vec<CurveRecord>,
         from: Option<&TrackNodeLocation>,
     ) -> Vec<DiscoveredLocation> {
         // Portals and turn-bearing endpoints need BE and dimension resolution.
@@ -95,6 +97,33 @@ where
                 Some(_) => {}
             }
         }
+        for curve in curves {
+            let [a, b] = curve
+                .starts
+                .map(|start| TrackNodeLocation::from_world(self.dimension, start, 0));
+            if from.is_none() || from == Some(&a) {
+                result.push(DiscoveredLocation {
+                    location: b,
+                    direction: None,
+                    normal: curve.normals[1],
+                    material_a: curve.material.clone(),
+                    material_b: curve.material.clone(),
+                    forced: true,
+                    turn: Some(curve.clone()),
+                });
+            }
+            if from.is_none() {
+                result.push(DiscoveredLocation {
+                    location: a,
+                    direction: None,
+                    normal: curve.normals[0],
+                    material_a: curve.material.clone(),
+                    material_b: curve.material.clone(),
+                    forced: true,
+                    turn: Some(curve.secondary()),
+                });
+            }
+        }
         result
     }
 
@@ -104,8 +133,8 @@ where
 
     pub fn initial_ends(&self, pos: Pos) -> Result<Vec<DiscoveredLocation>, GraphReadError> {
         match (self.read)(pos) {
-            RailCell::Rail(shape) => {
-                let ends = self.connected_from_block(pos, shape, None);
+            RailCell::Rail(shape, curves) => {
+                let ends = self.connected_from_block(pos, shape, curves, None);
                 if self.unsupported.get() {
                     Err(GraphReadError::UnsupportedTurnOrPortal)
                 } else {
@@ -148,8 +177,8 @@ where
         for [x, y, z] in from.adjacent_blocks() {
             let pos = Pos { x, y, z };
             match (self.read)(pos) {
-                RailCell::Rail(shape) => {
-                    result.extend(self.connected_from_block(pos, shape, Some(from)))
+                RailCell::Rail(shape, curves) => {
+                    result.extend(self.connected_from_block(pos, shape, curves, Some(from)))
                 }
                 RailCell::Unloaded => self.unknown.set(true),
                 RailCell::Unsupported => self.unsupported.set(true),
@@ -186,7 +215,7 @@ mod tests {
             if self.unloaded.contains(&key) {
                 RailCell::Unloaded
             } else if let Some(shape) = self.tracks.get(&key) {
-                RailCell::Rail(*shape)
+                RailCell::Rail(*shape, Vec::new())
             } else {
                 RailCell::Other
             }
