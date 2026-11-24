@@ -14,7 +14,7 @@ use crate::{
     DIRECTIONS, EFFECTS, ENTITIES, ITEMS, STACKS, STONE, StateIds, basin,
     belt_inventory::{TransportedItemStack, count, next_int, with_count},
     kinetics::{FACES, Kind, Kinetics, face_axis, offset},
-    processing_recipes::{BasinProcess, Process, ProcessingResult, RecipeBook},
+    processing_recipes::{BasinProcess, ProcessingResult, RecipeBook},
 };
 
 pub const ID: &str = "create:mechanical_press";
@@ -238,15 +238,13 @@ pub fn process_item(
             return ProcessingResult::Hold;
         }
         return recipes
-            .find(Process::Pressing, &item.item)
-            .map_or(ProcessingResult::Pass, |recipe| {
-                ProcessingResult::Convert(recipe.outputs())
-            });
+            .press(&item.item)
+            .map_or(ProcessingResult::Pass, ProcessingResult::Convert);
     }
     if press.data.running {
         return ProcessingResult::Hold;
     }
-    if recipes.find(Process::Pressing, &item.item).is_none() {
+    if !recipes.can_press(&item.item) {
         return ProcessingResult::Pass;
     }
     press.start(BELT);
@@ -445,16 +443,15 @@ fn try_process_in_world(
     else {
         return false;
     };
-    let Some(recipe) = recipes.find(Process::Pressing, &item) else {
-        return false;
-    };
     if simulate {
-        return true;
+        return recipes.can_press(&item);
     }
     let Some(view) = entity.view() else {
         return false;
     };
-    let outputs = recipe.outputs();
+    let Some(outputs) = recipes.press(&item) else {
+        return false;
+    };
     let mut outputs = outputs
         .iter()
         .filter_map(|item| fastnbt::to_bytes(item).ok());

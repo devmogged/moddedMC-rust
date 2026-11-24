@@ -18,6 +18,24 @@ use crate::{
     press,
 };
 
+#[path = "sequenced_assembly.rs"]
+mod sequenced_assembly;
+use sequenced_assembly::{Advance, Assembly, Step};
+
+pub enum FillingResult<'a> {
+    Item(Value),
+    Assembly(Advance<'a>),
+}
+
+impl FillingResult<'_> {
+    pub fn finish(self) -> Value {
+        match self {
+            Self::Item(item) => item,
+            Self::Assembly(step) => step.finish(),
+        }
+    }
+}
+
 pub enum ProcessingResult {
     Pass,
     Hold,
@@ -75,6 +93,7 @@ pub struct RecipeBook {
     by_item: HashMap<(Process, String), Vec<Recipe>>,
     basin: Vec<BasinRecipe>,
     filling: Vec<FillingRecipe>,
+    assemblies: Vec<Assembly>,
 }
 
 #[derive(Deserialize)]
@@ -210,6 +229,10 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
                 book.add_basin(path, BasinProcess::Compacting, raw, &mut values, tag_api)
             }
             "create:filling" => book.add_filling(raw, &mut values, tag_api),
+            "create:sequenced_assembly" => {
+                book.assemblies
+                    .extend(Assembly::parse(&path, &bytes, &mut values, tag_api));
+            }
             _ => book.add(raw, values),
         }
     }
@@ -407,17 +430,47 @@ impl RecipeBook {
         }
     }
 
-    pub fn can_fill(&self, item: &str) -> bool {
-        self.filling
+    pub fn can_fill(&self, item: &Value) -> bool {
+        self.assemblies
             .iter()
-            .any(|recipe| recipe.items.contains(item))
+            .any(|assembly| matches!(assembly.next(item), Some((Step::Fill { .. }, _))))
+            || item_id(item)
+                .is_some_and(|id| self.filling.iter().any(|recipe| recipe.items.contains(id)))
     }
 
-    pub fn fill(&self, item: &str, fluid: &FluidStack) -> Option<(u32, Value)> {
+    pub fn fill(&self, item: &Value, fluid: &FluidStack) -> Option<(u32, FillingResult<'_>)> {
+        for assembly in &self.assemblies {
+            if let Some((Step::Fill { fluids, amount }, advance)) = assembly.next(item)
+                && fluids.contains(&fluid.id)
+            {
+                return Some((*amount, FillingResult::Assembly(advance)));
+            }
+        }
+        let id = item_id(item)?;
         self.filling.iter().find_map(|recipe| {
-            (recipe.items.contains(item) && recipe.fluids.contains(&fluid.id))
-                .then(|| (recipe.amount, recipe.output.clone()))
+            (recipe.items.contains(id) && recipe.fluids.contains(&fluid.id))
+                .then(|| (recipe.amount, FillingResult::Item(recipe.output.clone())))
         })
+    }
+
+    fn assembly_press(&self, item: &Value) -> Option<Advance<'_>> {
+        self.assemblies
+            .iter()
+            .find_map(|assembly| match assembly.next(item) {
+                Some((Step::Press, step)) => Some(step),
+                _ => None,
+            })
+    }
+
+    pub fn can_press(&self, item: &Value) -> bool {
+        self.assembly_press(item).is_some() || self.find(Process::Pressing, item).is_some()
+    }
+
+    pub fn press(&self, item: &Value) -> Option<Vec<Value>> {
+        if let Some(step) = self.assembly_press(item) {
+            return Some(vec![step.finish()]);
+        }
+        self.find(Process::Pressing, item).map(Recipe::outputs)
     }
 
     pub fn find(&self, process: Process, item: &Value) -> Option<&Recipe> {

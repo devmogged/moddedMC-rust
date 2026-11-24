@@ -91,7 +91,9 @@ impl Spout {
         };
         let recipes = crate::processing_recipes::current();
         if !matches!(id, "minecraft:bucket" | "minecraft:glass_bottle")
-            && !recipes.as_ref().is_some_and(|recipes| recipes.can_fill(id))
+            && !recipes
+                .as_ref()
+                .is_some_and(|recipes| recipes.can_fill(&item.item))
         {
             return Pass;
         }
@@ -106,8 +108,15 @@ impl Spout {
         };
         let Some((amount, output)) = recipes
             .as_ref()
-            .and_then(|recipes| recipes.fill(id, fluid))
-            .or_else(|| filled_container(id, fluid))
+            .and_then(|recipes| recipes.fill(&item.item, fluid))
+            .or_else(|| {
+                filled_container(id, fluid).map(|(amount, output)| {
+                    (
+                        amount,
+                        crate::processing_recipes::FillingResult::Item(output),
+                    )
+                })
+            })
         else {
             return Pass;
         };
@@ -130,7 +139,7 @@ impl Spout {
             return Hold;
         }
         self.filled_this_tick = true;
-        Convert(vec![output])
+        Convert(vec![output.finish()])
     }
 }
 

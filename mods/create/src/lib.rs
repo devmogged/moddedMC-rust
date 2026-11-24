@@ -197,6 +197,23 @@ impl Mod for Create {
         register_motor(content, registry)?;
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
+        for (path, name) in [
+            ("sturdy_sheet", "Sturdy Sheet"),
+            ("unprocessed_obsidian_sheet", "Unprocessed Obsidian Sheet"),
+        ] {
+            ITEMS
+                .get()
+                .ok_or(RegistrationError::InvalidDefinition)?
+                .add_item(
+                    registry,
+                    &Item {
+                        id: &format!("create:{path}"),
+                        display_name: name,
+                        carrier: "minecraft:paper",
+                        model: &format!("create:item/{path}"),
+                    },
+                )?;
+        }
         // WS-3: official Create 6.0.10 track blockstates and placement.
         trains::register(content, registry)?;
         trains::register_saved(registry)?;
