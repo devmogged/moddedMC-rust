@@ -413,7 +413,12 @@ impl UseBlock<'_> {
             >= std::mem::offset_of!(abi::InteractionV1, action_bar) + size_of::<usize>()
         {
             // SAFETY: the function is present and both arguments are borrowed for this call.
-            unsafe { ((&raw const (*self.api.ptr).action_bar).read())(self.raw_player, abi::Str::from(text)) };
+            unsafe {
+                ((&raw const (*self.api.ptr).action_bar).read())(
+                    self.raw_player,
+                    abi::Str::from(text),
+                )
+            };
         }
     }
 
@@ -428,7 +433,13 @@ impl UseBlock<'_> {
         // SAFETY: the size check covers the appended function and the player is borrowed.
         self.api.size
             >= std::mem::offset_of!(abi::InteractionV1, place_held_block) + size_of::<usize>()
-            && unsafe { ((&raw const (*self.api.ptr).place_held_block).read())(self.raw_player, clicked, face) }
+            && unsafe {
+                ((&raw const (*self.api.ptr).place_held_block).read())(
+                    self.raw_player,
+                    clicked,
+                    face,
+                )
+            }
     }
 }
 
@@ -697,7 +708,9 @@ impl Interaction {
             .set(callback)
             .map_err(|_| RegistrationError::DuplicateId)?;
         // SAFETY: the table size was checked and the registrar is live.
-        RegistrationError::from_code(unsafe { ((&raw const (*self.0.ptr).on_item_use).read())(reg.reg, item_use) })
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).on_item_use).read())(reg.reg, item_use)
+        })
     }
 
     /// Present a timed hand-use animation to the stock client for a registered item.
@@ -773,7 +786,10 @@ impl Interaction {
         }
         // SAFETY: the extension was required, registration is live and the trampoline is static.
         RegistrationError::from_code(unsafe {
-            ((&raw const (*self.0.ptr).on_vanilla_use_on_block).read())(reg.reg, vanilla_use_on_block)
+            ((&raw const (*self.0.ptr).on_vanilla_use_on_block).read())(
+                reg.reg,
+                vanilla_use_on_block,
+            )
         })
     }
 }

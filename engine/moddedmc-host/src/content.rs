@@ -513,8 +513,13 @@ unsafe extern "C" fn item_durability(reg: Reg, item: Str, max_damage: u16) -> i3
         return code::INVALID_DEFINITION;
     };
     if definition.max_damage.is_some()
-        || definition.components.iter().any(|(id, _)| matches!(id,
-            DataComponent::MaxStackSize | DataComponent::MaxDamage | DataComponent::Damage)) {
+        || definition.components.iter().any(|(id, _)| {
+            matches!(
+                id,
+                DataComponent::MaxStackSize | DataComponent::MaxDamage | DataComponent::Damage
+            )
+        })
+    {
         return code::DUPLICATE_ID;
     }
     definition.max_damage = Some(max_damage);
@@ -813,18 +818,18 @@ fn split_items(
                         let mut components = item.components;
                         if let Some(max_damage) = item.max_damage {
                             components.extend([
-                            (
-                                DataComponent::MaxStackSize,
-                                Box::new(MaxStackSizeImpl { size: 1 })
-                                    as Box<dyn DataComponentImpl>,
-                            ),
-                            (
-                                DataComponent::MaxDamage,
-                                Box::new(MaxDamageImpl {
-                                    max_damage: i32::from(max_damage),
-                                }),
-                            ),
-                            (DataComponent::Damage, Box::new(DamageImpl { damage: 0 })),
+                                (
+                                    DataComponent::MaxStackSize,
+                                    Box::new(MaxStackSizeImpl { size: 1 })
+                                        as Box<dyn DataComponentImpl>,
+                                ),
+                                (
+                                    DataComponent::MaxDamage,
+                                    Box::new(MaxDamageImpl {
+                                        max_damage: i32::from(max_damage),
+                                    }),
+                                ),
+                                (DataComponent::Damage, Box::new(DamageImpl { damage: 0 })),
                             ]);
                         }
                         components

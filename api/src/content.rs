@@ -2,8 +2,7 @@
 use std::{ffi::c_void, marker::PhantomData, sync::OnceLock};
 
 use crate::{
-    Command, InterfacePrefix, InterfaceUnavailable, Pos, RegistrationError, Registry, abi, guard,
-    s,
+    Command, InterfacePrefix, InterfaceUnavailable, Pos, RegistrationError, Registry, abi, guard, s,
 };
 
 pub use abi::{
@@ -13,7 +12,10 @@ pub use abi::{
 };
 
 #[derive(Clone, Copy)]
-pub struct Content(InterfacePrefix<abi::ContentV1>, InterfacePrefix<abi::BlockWorldV1>);
+pub struct Content(
+    InterfacePrefix<abi::ContentV1>,
+    InterfacePrefix<abi::BlockWorldV1>,
+);
 
 #[derive(Clone, Copy)]
 pub struct World<'a> {
@@ -318,7 +320,9 @@ impl Content {
             .set(callback)
             .map_err(|_| RegistrationError::DuplicateId)?;
         // SAFETY: the size check covers the appended function and registration is live.
-        RegistrationError::from_code(unsafe { ((&raw const (*self.0.ptr).on_replaced).read())(reg.reg, replaced) })
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).on_replaced).read())(reg.reg, replaced)
+        })
     }
 
     pub fn state(self, selector: &str) -> Option<u32> {
@@ -335,7 +339,8 @@ impl Content {
         }
         let mut out = Vec::new();
         // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
-        let found = unsafe { ((&raw const (*self.1.ptr).describe_state).read())(state, sink(&mut out)) };
+        let found =
+            unsafe { ((&raw const (*self.1.ptr).describe_state).read())(state, sink(&mut out)) };
         found.then(|| String::from_utf8(out).ok()).flatten()
     }
 
@@ -347,7 +352,8 @@ impl Content {
         }
         let mut out = Vec::new();
         // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
-        let found = unsafe { ((&raw const (*self.1.ptr).block_item).read())(state, sink(&mut out)) };
+        let found =
+            unsafe { ((&raw const (*self.1.ptr).block_item).read())(state, sink(&mut out)) };
         found.then(|| String::from_utf8(out).ok()).flatten()
     }
 
@@ -420,7 +426,9 @@ impl World<'_> {
 
     pub fn write(self, updates: &[BlockUpdate]) -> usize {
         // SAFETY: the slice and world handle are live.
-        unsafe { ((&raw const (*self.api.ptr).write).read())(self.raw, updates.as_ptr(), updates.len()) }
+        unsafe {
+            ((&raw const (*self.api.ptr).write).read())(self.raw, updates.as_ptr(), updates.len())
+        }
     }
 
     pub fn entity(self, pos: Pos) -> Option<Vec<u8>> {
@@ -430,12 +438,15 @@ impl World<'_> {
             put: bytes,
         };
         // SAFETY: the sink collects bytes synchronously into the live Vec.
-        unsafe { ((&raw const (*self.api.ptr).read_entity).read())(self.raw, pos, sink) }.then_some(data)
+        unsafe { ((&raw const (*self.api.ptr).read_entity).read())(self.raw, pos, sink) }
+            .then_some(data)
     }
 
     pub fn set_entity(self, pos: Pos, nbt: &[u8]) -> bool {
         // SAFETY: World and the bytes are borrowed for this call.
-        unsafe { ((&raw const (*self.api.ptr).write_entity).read())(self.raw, pos, abi::Str::new(nbt)) }
+        unsafe {
+            ((&raw const (*self.api.ptr).write_entity).read())(self.raw, pos, abi::Str::new(nbt))
+        }
     }
 
     pub fn rotate(self, pos: Pos, axis: u8, rpm: f32) -> bool {
@@ -476,7 +487,12 @@ impl World<'_> {
             // SAFETY: the size check covers the appended field; `boxes` has room for its
             // capacity and the world is borrowed for this call.
             let count = unsafe {
-                ((&raw const (*self.api.ptr).collision_shape).read())(self.raw, pos, boxes.as_mut_ptr(), boxes.capacity())
+                ((&raw const (*self.api.ptr).collision_shape).read())(
+                    self.raw,
+                    pos,
+                    boxes.as_mut_ptr(),
+                    boxes.capacity(),
+                )
             };
             let count = usize::try_from(count).ok()?;
             if count <= boxes.capacity() {
@@ -496,7 +512,9 @@ impl World<'_> {
         }
         let mut out = Vec::new();
         // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
-        let found = unsafe { ((&raw const (*self.api.ptr).fluid_id).read())(self.raw, pos, sink(&mut out)) };
+        let found = unsafe {
+            ((&raw const (*self.api.ptr).fluid_id).read())(self.raw, pos, sink(&mut out))
+        };
         found.then(|| String::from_utf8(out).ok()).flatten()
     }
 
@@ -508,7 +526,10 @@ impl World<'_> {
         }
         let mut out = Vec::new();
         // SAFETY: the size check covers the appended field; the sink fills `out` for this call.
-        unsafe { ((&raw const (*self.api.ptr).read_block_entity).read())(self.raw, pos, sink(&mut out)) }.then_some(out)
+        unsafe {
+            ((&raw const (*self.api.ptr).read_block_entity).read())(self.raw, pos, sink(&mut out))
+        }
+        .then_some(out)
     }
 
     /// Replaces the block entity at `pos` with NBT from [`World::block_entity`], after the
@@ -516,7 +537,13 @@ impl World<'_> {
     pub fn restore_block_entity(self, pos: Pos, nbt: &[u8]) -> bool {
         // SAFETY: the size check covers the appended field; the NBT is borrowed for this call.
         WorldExtension::BlockEntities.available(self.api)
-            && unsafe { ((&raw const (*self.api.ptr).restore_block_entity).read())(self.raw, pos, abi::Str::new(nbt)) }
+            && unsafe {
+                ((&raw const (*self.api.ptr).restore_block_entity).read())(
+                    self.raw,
+                    pos,
+                    abi::Str::new(nbt),
+                )
+            }
     }
 
     /// Vanilla `Block.getDrops` with `tool` (`None` for an empty hand), as saved stacks, without
@@ -532,7 +559,8 @@ impl World<'_> {
         };
         let tool = abi::Str::new(tool.unwrap_or_default());
         // SAFETY: the size check covers the appended field; the sink fills `stacks` for the call.
-        unsafe { ((&raw const (*self.api.ptr).block_drops).read())(self.raw, pos, tool, sink) }.then_some(stacks)
+        unsafe { ((&raw const (*self.api.ptr).block_drops).read())(self.raw, pos, tool, sink) }
+            .then_some(stacks)
     }
 
     /// The overworld clock's ticks and whether this dimension has a fixed time. See
@@ -543,7 +571,8 @@ impl World<'_> {
         }
         let mut out = abi::DayTime::default();
         // SAFETY: the size check covers the appended field; `out` is live for the call.
-        unsafe { ((&raw const (*self.api.ptr).day_time).read())(self.raw, &raw mut out) }.then_some(out)
+        unsafe { ((&raw const (*self.api.ptr).day_time).read())(self.raw, &raw mut out) }
+            .then_some(out)
     }
 
     /// Vanilla `getDestroySpeed`: the block's hardness, negative when unbreakable. `None` when
@@ -554,7 +583,8 @@ impl World<'_> {
         }
         let mut out = 0.0;
         // SAFETY: the size check covers the appended field; `out` is live for the call.
-        unsafe { ((&raw const (*self.api.ptr).destroy_speed).read())(self.raw, pos, &raw mut out) }.then_some(out)
+        unsafe { ((&raw const (*self.api.ptr).destroy_speed).read())(self.raw, pos, &raw mut out) }
+            .then_some(out)
     }
 
     /// Vanilla `canSurvive` for `state` placed at `pos`, without placing it. `None` for an unknown
@@ -573,7 +603,8 @@ impl World<'_> {
 
     pub fn is_thundering(self) -> bool {
         // SAFETY: the optional field is size-checked and the world is borrowed.
-        WorldExtension::Weather.available(self.api) && unsafe { ((&raw const (*self.api.ptr).is_thundering).read())(self.raw) }
+        WorldExtension::Weather.available(self.api)
+            && unsafe { ((&raw const (*self.api.ptr).is_thundering).read())(self.raw) }
     }
 
     pub fn id(self) -> usize {

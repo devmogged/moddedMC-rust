@@ -84,7 +84,7 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::CollisionShape)?;
         content.require_extension(WorldExtension::FluidId)?;
         content.require_extension(WorldExtension::Weather)?;
-        content.require_extension(WorldExtension::DimensionId)?;
+        content.require_extension(WorldExtension::Dimension)?;
         content.require_comparator_output()?;
         let _ = CONTENT.set(content);
         let _ = EFFECTS.set(effects::require()?);
@@ -108,7 +108,7 @@ impl Mod for SaintsDragons {
         interaction.require_extension(InteractionExtension::MobUse)?;
         interaction.require_extension(InteractionExtension::MeleeDamage)?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
-        interaction.require_extension(InteractionExtension::ItemUse)?;
+        interaction.require_extension(InteractionExtension::ImmediateItemUse)?;
         interaction.require_extension(InteractionExtension::PlayerPlaced)?;
         codex::require()?;
         ivy::require()?;

@@ -433,6 +433,10 @@ mod layout {
         assert_eq!(offset_of!(BlockWorldV1, rotate), 48);
         assert_eq!(offset_of!(BlockWorldV1, dimension_id), 160);
         assert_eq!(offset_of!(BlockWorldV1, is_thundering), 168);
+        assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
+        assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
+        assert_eq!(offset_of!(InteractionV1, action_bar), 136);
+        assert_eq!(offset_of!(InteractionV1, on_use_mob), 144);
         assert_eq!(size_of::<ShapeBox>(), 12);
 
         assert_eq!(offset_of!(CommandNode, name), 0);
