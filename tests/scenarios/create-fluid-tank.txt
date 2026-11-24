@@ -16,7 +16,10 @@ cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
 cmd setblock 1027 101 1026 create:fluid_pipe
 cmd setblock 1027 103 1026 create:fluid_pipe
 cmd setblock 1027 102 1026 create:mechanical_pump[facing=up,waterlogged=false]
+wait 0.5
 cmd kinetics 1025 100 1025 0
+wait 0.5
+expect create:creative_motor.*at 1025 100 1025 Speed=0\b
 cmd setblock 1027 99 1026 minecraft:stone
 cmd item replace entity tester weapon.mainhand with create:fluid_tank
 wait 0.5
@@ -84,6 +87,6 @@ expect Tank\(empty 0/8000 mB\)
 cmd fluidpipe 1027 104 1026
 wait 0.5
 expect Tank\(minecraft:lava 1000/8000 mB\)
-reject (?i)panicked|trapped|failed to register|\[bot\] error
+reject (?i)panicked|trapped|failed to register|Kinetic block entity is unavailable|\[bot\] error
 bot quit
 stop

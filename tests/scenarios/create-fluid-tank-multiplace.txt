@@ -24,7 +24,7 @@ wait 0.5
 cmd clear tester create:fluid_tank 0
 wait 0.5
 expect Found 8 matching item
-cmd execute if block 3100 99 3100 minecraft:air if block 3101 99 3101 minecraft:air
+cmd execute if block 3100 99 3100 minecraft:air if block 3100 99 3101 minecraft:air if block 3101 99 3100 minecraft:air if block 3101 99 3101 minecraft:air
 wait 0.5
 expect Test passed
 cmd tp tester 3102.5 99 3099.5 0 40
