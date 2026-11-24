@@ -38,7 +38,8 @@ pub(crate) fn register(
     let saved = *TABLE.get().ok_or(RegistrationError::InvalidDefinition)?;
     let key = saved.register(registry, "create_tracks")?;
     KEY.set(key).map_err(|_| RegistrationError::DuplicateId)?;
-    super::station::register(content, registry, saved)
+    super::station::register(content, registry, saved)?;
+    super::signal::register(content, registry, saved)
 }
 
 fn table() -> Result<(SavedData, Key), String> {
@@ -235,7 +236,7 @@ impl RailUpdates {
         content: Content,
         time: u64,
         events: &[ContentEvent],
-    ) {
+    ) -> bool {
         const MAX_UPDATES_PER_TICK: usize = 8;
         const RETRY_TICKS: u64 = 20;
         let mut changed = false;
@@ -257,14 +258,14 @@ impl RailUpdates {
             }
         }
         if self.order.is_empty() || (!changed && time < self.retry_at) {
-            return;
+            return false;
         }
         let Some(dimension) = world.dimension_id() else {
-            return;
+            return false;
         };
         let Ok(mut data) = read(&world) else {
             self.retry_at = time.saturating_add(RETRY_TICKS);
-            return;
+            return false;
         };
         let rails = RailWorld::new(dimension, |pos| rail_cell(world, content, pos));
         let mut retry = Vec::new();
@@ -341,12 +342,15 @@ impl RailUpdates {
         } else {
             time
         };
-        if !applied.is_empty() && !write(&world, &data) {
+        let changed = !applied.is_empty();
+        let saved = changed && write(&world, &data);
+        if changed && !saved {
             retry.extend(applied);
         }
         for (pos, loaded) in retry {
             self.enqueue(pos, loaded);
         }
+        saved
     }
 }
 

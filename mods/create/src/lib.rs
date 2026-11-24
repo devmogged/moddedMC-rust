@@ -347,6 +347,11 @@ impl Mod for Create {
                 "Inspect a Create train station and its track connection",
                 5,
             ),
+            (
+                "trainsignal",
+                "Inspect a Create train signal and its aspect",
+                6,
+            ),
         ] {
             COMMANDS
                 .get()
@@ -397,6 +402,14 @@ impl Mod for Create {
                 return 1;
             }
             command.reply("There is no loaded Create train station at that position");
+            return 0;
+        }
+        if tag == 6 {
+            if let Some(description) = trains::signal::describe(world, *content, pos) {
+                command.reply(&description);
+                return 1;
+            }
+            command.reply("There is no loaded Create train signal at that position");
             return 0;
         }
         if tag == 3 || tag == 4 {
@@ -1646,7 +1659,10 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         }
         kinetics.tick(&mut level);
         if let Some(&content) = CONTENT.get() {
-            kinetics.rail_updates.tick(world, content, time, events);
+            let rails_changed = kinetics.rail_updates.tick(world, content, time, events);
+            kinetics
+                .signal_updates
+                .tick(world, content, time, events, rails_changed);
             trains::station::tick(world, content, events);
         }
         kinetics.fluid_tanks.tick(world, time, events);
@@ -1707,6 +1723,12 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
         };
         return trains::station::use_on_block(context, content);
     }
+    if context.item == trains::signal::ID {
+        let Some(&content) = CONTENT.get() else {
+            return UseResult::Fail;
+        };
+        return trains::signal::use_on_block(context, content);
+    }
     let application = manual_application::use_on_block(context);
     if application != UseResult::Pass {
         return application;
@@ -1722,6 +1744,20 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if !context.with_item {
         return BlockUseResult::Pass;
+    }
+    if !context.sneaking
+        && let Some(&content) = CONTENT.get()
+        && trains::signal::has_state(content, context.state)
+        && context
+            .stack
+            .read()
+            .and_then(|bytes| fastnbt::from_bytes::<fastnbt::Value>(&bytes).ok())
+            .as_ref()
+            .and_then(processing_recipes::item_id)
+            == Some(WRENCH)
+        && trains::signal::wrench(context.world, content, context.position)
+    {
+        return BlockUseResult::Success;
     }
     if let Some(result) = fluids::runtime::use_item_on(context) {
         return result;
