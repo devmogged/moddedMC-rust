@@ -1,0 +1,67 @@
+# Find naturally generated zinc and deepslate zinc, then verify ore drops in Survival after restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:zinc_ore
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1040.5 110 1040.5
+wait 6
+cmd fill 1024 0 1024 1055 31 1055 minecraft:air replace create:zinc_ore
+wait 1
+expect Successfully filled [1-9][0-9]* block
+cmd fill 1024 -48 1024 1055 -17 1055 minecraft:air replace create:deepslate_zinc_ore
+wait 1
+expect Successfully filled [1-9][0-9]* block
+cmd fill 1035 100 1035 1043 100 1043 minecraft:stone
+cmd fill 1035 101 1035 1043 105 1043 minecraft:air
+cmd setblock 1039 101 1040 create:zinc_ore
+cmd setblock 1040 101 1041 create:deepslate_zinc_ore
+cmd tp tester 1040.5 101 1040.5
+cmd gamemode survival tester
+wait 0.5
+bot quit
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 1039 101 1040 create:zinc_ore
+wait 0.5
+expect Test passed
+cmd execute if block 1040 101 1041 create:deepslate_zinc_ore
+wait 0.5
+expect Test passed
+cmd item replace entity tester weapon.mainhand with minecraft:iron_pickaxe
+wait 0.5
+bot dig start 1039 101 1040 east
+wait 5
+bot dig finish
+wait 0.5
+cmd execute if block 1039 101 1040 minecraft:air
+wait 0.5
+expect Test passed
+cmd tp tester 1039.5 101 1040.5
+wait 2.5
+cmd clear tester create:raw_zinc 0
+wait 0.5
+expect Found 1 matching item
+cmd tp tester 1040.5 101 1040.5
+cmd enchant tester minecraft:silk_touch 1
+wait 0.5
+bot dig start 1040 101 1041 north
+wait 5
+bot dig finish
+wait 0.5
+cmd execute if block 1040 101 1041 minecraft:air
+wait 0.5
+expect Test passed
+cmd tp tester 1040.5 101 1041.5
+wait 2.5
+cmd clear tester create:deepslate_zinc_ore 0
+wait 0.5
+expect Found 1 matching item
+reject (?i)panicked|trapped|failed to register|Skipping.*zinc|\[bot\] error
+bot quit
+stop

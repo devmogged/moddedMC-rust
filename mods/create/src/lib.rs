@@ -59,6 +59,7 @@ mod pulley;
 mod seat;
 mod sticker;
 mod trains;
+mod zinc;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
 const AXES: [&str; 3] = ["x", "y", "z"];
@@ -193,6 +194,7 @@ impl Mod for Create {
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         register_casings(content, registry)?;
+        zinc::register(*content, registry)?;
         // WS-3: official Create 6.0.10 track blockstates and placement.
         trains::register(content, registry)?;
         trains::register_saved(registry)?;

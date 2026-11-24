@@ -139,6 +139,8 @@ A `.mmc` is a zip with
 
 `scripts/pack-mod.ps1` writes the manifest and the build for the current machine. Builds for other platforms (from CI or cross-compiling) go into the same zip under their names.
 
+Built-in mod datapacks can also add world generation features through `data/<namespace>/neoforge/biome_modifier/*.json`. The `neoforge:add_features` modifier takes biome IDs or a biome tag, placed feature IDs, and a generation step. It appends features to the selected biomes at world startup. Create uses this to generate its registered zinc ores in new Overworld chunks.
+
 ### Real content tables
 
 | Interface | Function | Contract |
