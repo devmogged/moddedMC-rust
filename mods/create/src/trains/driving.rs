@@ -15,12 +15,13 @@ use moddedmc_api::{
 
 use super::{
     carriage::Train,
-    graph::TrackGraph,
+    graph::{TrackEdge, TrackGraph},
     railway,
     save::RailwayData,
+    signal::SignalPlan,
     station,
     targeting::{Selection, directed_edge, state_at},
-    travelling_point::select_edge,
+    travelling_point::{TravellingPoint, select_edge},
 };
 use crate::{DISPLAYS, ENTITIES, contraption::ContraptionDisplays, offset};
 
@@ -29,6 +30,7 @@ const ACCELERATION: f64 = 3.0 / 400.0;
 const TOP_SPEED: f64 = 28.0 / 20.0 * 0.75;
 const TURN_SPEED: f64 = 14.0 / 20.0;
 const ARRIVAL_EPSILON: f64 = 1.0e-6;
+const SIGNAL_CLEARANCE: f64 = 1.0 / 8.0;
 static INPUT: OnceLock<Mobs> = OnceLock::new();
 
 pub(super) fn require() -> Result<(), InterfaceUnavailable> {
@@ -187,11 +189,11 @@ impl TrainRuntime {
         content: Content,
         time: u64,
         events: &[ContentEvent],
-    ) {
+    ) -> bool {
         let reload = self.trains.is_none();
         if reload {
             let (Some(dimension), Some(data)) = (world.dimension_id(), station::read(world)) else {
-                return;
+                return false;
             };
             self.trains = Some(
                 data.trains
@@ -201,9 +203,10 @@ impl TrainRuntime {
             );
         }
         let Some(trains) = self.trains.as_mut() else {
-            return;
+            return false;
         };
         let mut moved = Vec::new();
+        let mut occupancy_changed = reload;
         if !self.drivers.is_empty() {
             let revision = railway::revision();
             if self
@@ -214,6 +217,10 @@ impl TrainRuntime {
                 self.network = railway::read(&world).ok().map(|data| (revision, data));
             }
             let mut stations = None;
+            let mut signals = self
+                .network
+                .as_ref()
+                .map(|(_, network)| SignalPlan::load(world, content, network, trains));
             self.drivers.retain(|id, driver| {
                 let Some(train) = trains.iter_mut().find(|train| train.id == *id) else {
                     driver.stop_driving(world);
@@ -223,7 +230,7 @@ impl TrainRuntime {
                 if keys.is_none() {
                     driver.stop_driving(world);
                 }
-                if let Some((_, network)) = &self.network
+                if let (Some((_, network)), Some(signals)) = (&self.network, &mut signals)
                     && tick_driver(
                         world,
                         content,
@@ -232,8 +239,10 @@ impl TrainRuntime {
                         driver,
                         keys.unwrap_or(0),
                         &mut stations,
+                        signals,
                     )
                 {
+                    occupancy_changed |= signals.update_train(train);
                     moved.push(*id);
                 }
                 driver.seat != 0 || driver.speed != 0.0
@@ -252,7 +261,7 @@ impl TrainRuntime {
                 driver.stop_driving(world);
             }
             self.drivers.clear();
-            return;
+            return false;
         }
         let refresh = reload
             || time.is_multiple_of(20)
@@ -282,9 +291,11 @@ impl TrainRuntime {
                 displays.update(world, driver.seat, &seat(carriage.driver_position()));
             }
         }
+        occupancy_changed
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tick_driver(
     world: World<'_>,
     content: Content,
@@ -293,6 +304,7 @@ fn tick_driver(
     driver: &mut Driver,
     keys: i32,
     stations: &mut Option<Vec<Selection>>,
+    signals: &SignalPlan<'_>,
 ) -> bool {
     let throttle = f64::from(
         i32::from(keys & PLAYER_INPUT_FORWARD != 0) - i32::from(keys & PLAYER_INPUT_BACKWARD != 0),
@@ -348,7 +360,27 @@ fn tick_driver(
     } else {
         None
     };
-    let target = if jump {
+    let red_ahead = |forward| {
+        let wheel = train.end_wheel(forward)?;
+        let red: Vec<_> = signals
+            .blocking(graph, train.id, forward)
+            .into_iter()
+            .map(|(edge, offset)| ((), edge, offset))
+            .collect();
+        scan_ahead(
+            graph,
+            wheel,
+            forward,
+            steer,
+            braking_distance.max(TOP_SPEED) + SIGNAL_CLEARANCE,
+            &red,
+        )
+        .map(|(_, distance)| (distance - SIGNAL_CLEARANCE).max(0.0))
+    };
+    let red = red_ahead(forward);
+    let target = if red.is_some_and(|distance| distance <= braking_distance) {
+        0.0
+    } else if jump {
         if stop
             .as_ref()
             .is_some_and(|(_, distance)| *distance > braking_distance)
@@ -366,6 +398,22 @@ fn tick_driver(
         && (distance.abs() >= *to_stop || (distance == 0.0 && *to_stop <= ACCELERATION))
     {
         distance = if forward { *to_stop } else { -*to_stop };
+    }
+    let intended_forward = if distance == 0.0 {
+        forward
+    } else {
+        distance > 0.0
+    };
+    let limit = if intended_forward == forward {
+        red
+    } else {
+        red_ahead(intended_forward)
+    };
+    if let Some(limit) = limit
+        && distance.abs() >= limit
+    {
+        distance = if intended_forward { limit } else { -limit };
+        driver.speed = 0.0;
     }
     if distance == 0.0 {
         return false;
@@ -408,9 +456,6 @@ fn approaching_station(
     max_distance: f64,
 ) -> Option<(Selection, f64)> {
     let wheel = train.end_wheel(forward)?;
-    let mut edge = wheel.edge(graph)?;
-    let mut start = wheel.offset();
-    let mut travelled = 0.0;
     let stops: Vec<_> = stops
         .iter()
         .filter_map(|station| {
@@ -427,20 +472,38 @@ fn approaching_station(
         })
         .collect();
     // shortcut: look ahead along the path selected by the driver's steering. Scheduled trains use routed destinations.
+    let (station, distance) = scan_ahead(graph, wheel, forward, steer, max_distance, &stops)?;
+    Some((station.clone(), distance))
+}
+
+fn scan_ahead<T: Copy>(
+    graph: &TrackGraph,
+    wheel: &TravellingPoint,
+    forward: bool,
+    steer: f64,
+    max_distance: f64,
+    points: &[(T, &TrackEdge, f64)],
+) -> Option<(T, f64)> {
+    if points.is_empty() {
+        return None;
+    }
+    let mut edge = wheel.edge(graph)?;
+    let mut start = wheel.offset();
+    let mut travelled = 0.0;
     while travelled <= max_distance {
-        let next = stops
+        let next = points
             .iter()
-            .filter_map(|&(station, target, offset)| {
+            .filter_map(|&(point, target, offset)| {
                 if !std::ptr::eq(edge, target) {
                     return None;
                 }
                 let distance = (offset - start) * if forward { 1.0 } else { -1.0 };
-                (distance >= ARRIVAL_EPSILON && travelled + distance <= max_distance)
-                    .then_some((station, travelled + distance))
+                (distance >= 0.0 && travelled + distance <= max_distance)
+                    .then_some((point, travelled + distance))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1));
-        if let Some((station, distance)) = next {
-            return Some((station.clone(), distance));
+        if let Some(next) = next {
+            return Some(next);
         }
         travelled += if forward {
             edge.length() - start

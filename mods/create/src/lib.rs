@@ -1709,7 +1709,9 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             kinetics
                 .signal_updates
                 .tick(world, content, time, events, rails_changed);
-            trains::station::tick(world, content, events, time, &mut kinetics.train_runtime);
+            if trains::station::tick(world, content, events, time, &mut kinetics.train_runtime) {
+                kinetics.signal_updates.trains_changed();
+            }
         }
         kinetics.fluid_tanks.tick(world, time, events);
         // WS-2: distribute pump RPM as directional pipe pressures.

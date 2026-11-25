@@ -1,0 +1,222 @@
+# Two trains share a railway. The rear train waits until the whole front train leaves its section.
+mods target\mods\create.mmc
+start
+expect registered content block create:track_station
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2451.5 102 2447.5 90 35
+wait 6
+cmd fill 2434 100 2445 2459 108 2455 minecraft:air
+cmd fill 2434 99 2445 2459 99 2455 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:track 32
+cmd tp tester 2454.5 101 2447.5 90 35
+wait 1
+bot use 2456 99 2449 up
+wait 0.5
+cmd tp tester 2437.5 101 2447.5 90 35
+wait 1
+bot use 2436 99 2449 up
+wait 0.5
+bot use 2436 100 2449
+wait 0.5
+cmd tp tester 2454.5 101 2447.5 90 35
+wait 1
+bot use 2456 100 2449
+wait 1
+cmd railway 2448 100 2449
+wait 0.5
+expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
+
+
+cmd tp tester 2447.5 101 2447.5 90 35
+cmd item replace entity tester weapon.mainhand with create:track_signal
+wait 0.75
+bot use 2447 100 2449
+wait 0.5
+bot use 2447 99 2450
+wait 0.5
+cmd trainsignal 2447 100 2450
+wait 0.5
+expect Train Signal targets 2447 100 2449 Entry Green Powered=false
+
+cmd tp tester 2441.5 101 2447.5 90 35
+cmd item replace entity tester weapon.mainhand with create:track_signal
+wait 0.75
+bot use 2441 100 2449
+wait 0.5
+bot use 2441 99 2450
+wait 0.5
+cmd trainsignal 2441 100 2450
+wait 0.5
+expect Train Signal targets 2441 100 2449 Entry Green Powered=false
+
+cmd tp tester 2439.5 101 2447.5 90 35
+cmd item replace entity tester weapon.mainhand with create:track_station
+wait 0.75
+bot use 2438 100 2449
+wait 0.5
+bot use 2439 99 2450
+wait 0.5
+cmd station 2439 100 2450
+wait 0.5
+expect Track Station targets 2438 100 2449 Connected
+
+cmd tp tester 2445.5 101 2447.5 90 35
+cmd item replace entity tester weapon.mainhand with create:track_station
+wait 0.75
+bot use 2444 100 2449
+wait 0.5
+bot use 2445 99 2450
+wait 0.5
+cmd station 2445 100 2450
+wait 0.5
+expect Track Station targets 2444 100 2449 Connected
+cmd item replace entity tester weapon.mainhand with minecraft:air
+wait 0.5
+bot use 2445 100 2450
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:railway_casing
+wait 0.5
+bot use 2445 100 2449
+wait 0.5
+cmd setblock 2445 102 2449 create:controls[facing=east,open=false,waterlogged=false]
+cmd item replace entity tester weapon.mainhand with create:super_glue
+wait 0.5
+bot use 2445 101 2449 south
+wait 0.5
+bot use 2445 102 2449 south
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:air
+bot input sneak
+wait 0.5
+bot use 2445 100 2450
+wait 0.5
+cmd station 2445 100 2450
+wait 0.5
+expect Track Station targets 2444 100 2449 Connected .* Docked Carriages=1 WheelPoints=2$
+bot input none
+wait 0.5
+
+cmd tp tester 2451.5 101 2447.5 90 35
+cmd item replace entity tester weapon.mainhand with create:track_station
+wait 0.75
+bot use 2449 100 2449
+wait 0.5
+bot use 2451 99 2450
+wait 0.5
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected
+cmd item replace entity tester weapon.mainhand with minecraft:air
+wait 0.5
+bot use 2451 100 2450
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:railway_casing
+wait 0.5
+bot use 2450 100 2449
+wait 0.5
+cmd setblock 2450 102 2449 create:controls[facing=east,open=false,waterlogged=false]
+cmd item replace entity tester weapon.mainhand with create:super_glue
+wait 0.5
+bot use 2450 101 2449 south
+wait 0.5
+bot use 2450 102 2449 south
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:air
+bot input sneak
+wait 0.5
+bot use 2451 100 2450
+wait 0.5
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected .* Docked Carriages=1 WheelPoints=2$
+bot input none
+wait 0.5
+
+cmd trainsignal 2447 100 2450
+wait 0.5
+expect Train Signal targets 2447 100 2449 Entry Red Powered=false
+cmd trainsignal 2441 100 2450
+wait 0.5
+expect Train Signal targets 2441 100 2449 Entry Green Powered=false
+bot use 2451 100 2450
+wait 0.5
+bot expect riding minecraft:item_display
+wait 0.5
+expect ^\[bot\] expect riding ok minecraft:item_display
+bot input forward
+wait 3
+bot expect entity minecraft:block_display near 2448.625 101.5 2449.5 within 0.06 count 2
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2448.625 101.5 2449.5
+bot input none
+reject (?i)panicked|trapped|could not save|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd trainsignal 2447 100 2450
+wait 0.5
+expect Train Signal targets 2447 100 2449 Entry Red Powered=false
+bot expect entity minecraft:block_display near 2448.625 101.5 2449.5 within 0.06 count 2
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2448.625 101.5 2449.5
+
+# The front car enters the next section. The entrance clears only after its rear wheel passes.
+cmd tp tester 2445.5 101 2451.5 180 35
+wait 0.75
+bot use 2445 100 2450
+wait 0.5
+bot expect riding minecraft:item_display
+wait 0.5
+expect ^\[bot\] expect riding ok minecraft:item_display
+bot input forward
+wait 0.75
+bot input jump
+wait 4
+expect Train arrived at the station
+bot input sneak
+wait 0.5
+bot expect riding none
+wait 0.5
+expect ^\[bot\] expect riding ok none
+cmd station 2439 100 2450
+wait 0.5
+expect Track Station targets 2438 100 2449 Connected .* Docked Carriages=1 WheelPoints=2$
+cmd trainsignal 2447 100 2450
+wait 0.5
+expect Train Signal targets 2447 100 2449 Entry Green Powered=false
+cmd trainsignal 2441 100 2450
+wait 0.5
+expect Train Signal targets 2441 100 2449 Entry Red Powered=false
+
+# Reboard the waiting train at the rail and continue into the section.
+cmd tp tester 2448.5 101 2447.5 90 35
+wait 0.75
+bot input none
+bot use 2448 100 2449
+wait 0.5
+bot expect riding minecraft:item_display
+wait 0.5
+expect ^\[bot\] expect riding ok minecraft:item_display
+bot input forward
+wait 0.5
+bot input jump
+wait 4
+expect Train arrived at the station
+bot input none
+cmd station 2445 100 2450
+wait 0.5
+expect Track Station targets 2444 100 2449 Connected .* Docked Carriages=1 WheelPoints=2$
+cmd trainsignal 2447 100 2450
+wait 0.5
+expect Train Signal targets 2447 100 2449 Entry Red Powered=false
+reject (?i)panicked|trapped|could not save|\[bot\] error
+bot quit
+stop

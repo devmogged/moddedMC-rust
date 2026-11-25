@@ -504,9 +504,9 @@ pub(crate) fn tick(
     content: Content,
     events: &[ContentEvent],
     time: u64,
-    displays: &mut TrainRuntime,
-) {
-    displays.tick(world, content, time, events);
+    trains: &mut TrainRuntime,
+) -> bool {
+    let moved = trains.tick(world, content, time, events);
     let removed: Vec<_> = events
         .iter()
         .filter_map(|event| {
@@ -519,10 +519,10 @@ pub(crate) fn tick(
         .filter(|&pos| state_at(world, pos).is_some_and(|state| !is_station(content, state)))
         .collect();
     if removed.is_empty() {
-        return;
+        return moved;
     }
     let (Some(dimension), Some(mut stations)) = (world.dimension_id(), read(world)) else {
-        return;
+        return moved;
     };
     let count = stations.stations.len();
     stations.stations.retain(|station| {
@@ -531,6 +531,7 @@ pub(crate) fn tick(
     if stations.stations.len() != count && !write(world, &stations) {
         moddedmc_api::warn("Could not save the updated train stations");
     }
+    moved
 }
 
 pub(crate) fn describe(world: World<'_>, content: Content, position: Pos) -> Option<String> {
