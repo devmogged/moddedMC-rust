@@ -9,7 +9,7 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub(super) struct Selection {
     pub dimension: String,
     pub target: [i32; 3],

@@ -16,6 +16,7 @@ mod railway;
 mod reconcile;
 mod runtime;
 mod save;
+pub(super) mod schedule;
 mod sections;
 pub(crate) mod signal;
 pub(crate) mod station;

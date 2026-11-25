@@ -46,7 +46,8 @@ pub(crate) fn register(
     super::station::register(content, registry, saved)?;
     super::signal::register(content, registry, saved)?;
     super::bogey::register(content, registry)?;
-    super::controls::register(content, registry)
+    super::controls::register(content, registry)?;
+    super::schedule::register(registry)
 }
 
 fn table() -> Result<(SavedData, Key), String> {

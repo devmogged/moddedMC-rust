@@ -13,7 +13,7 @@ static NODE_NET_IDS: AtomicI32 = AtomicI32::new(0);
 
 /// Create packs horizontal positions in half-blocks and vertical positions in
 /// whole blocks; a second field carries the vertical smoothing in pixels.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub(super) struct TrackNodeLocation {
     pub dimension: String,
     pub x: i32,

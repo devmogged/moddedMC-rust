@@ -18,6 +18,7 @@ use super::{
     graph::{TrackEdge, TrackGraph},
     railway,
     save::RailwayData,
+    schedule::ScheduleRunner,
     signal::SignalPlan,
     station,
     targeting::{Selection, directed_edge, state_at},
@@ -26,11 +27,12 @@ use super::{
 use crate::{DISPLAYS, ENTITIES, contraption::ContraptionDisplays, offset};
 
 // CTrains defaults, converted from metres per second (and per second squared) to blocks per tick.
-const ACCELERATION: f64 = 3.0 / 400.0;
-const TOP_SPEED: f64 = 28.0 / 20.0 * 0.75;
-const TURN_SPEED: f64 = 14.0 / 20.0;
+pub(super) const ACCELERATION: f64 = 3.0 / 400.0;
+pub(super) const TOP_SPEED: f64 = 28.0 / 20.0;
+pub(super) const TURN_SPEED: f64 = 14.0 / 20.0;
+const MANUAL_TOP_SPEED: f64 = TOP_SPEED * 0.75;
 const ARRIVAL_EPSILON: f64 = 1.0e-6;
-const SIGNAL_CLEARANCE: f64 = 1.0 / 8.0;
+pub(super) const SIGNAL_CLEARANCE: f64 = 1.0 / 8.0;
 static INPUT: OnceLock<Mobs> = OnceLock::new();
 
 pub(super) fn require() -> Result<(), InterfaceUnavailable> {
@@ -40,11 +42,18 @@ pub(super) fn require() -> Result<(), InterfaceUnavailable> {
     Ok(())
 }
 
+pub(super) fn message(player: Entity<'_>, text: &str) {
+    if let Some(input) = INPUT.get() {
+        input.message(player, text, true);
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct TrainRuntime {
     trains: Option<Vec<Train>>,
     shown: HashMap<i32, Vec<ContraptionDisplays>>,
     drivers: HashMap<i32, Driver>,
+    schedules: HashMap<i32, ScheduleRunner>,
     network: Option<(u64, RailwayData)>,
 }
 
@@ -104,6 +113,11 @@ impl TrainRuntime {
     pub(super) fn refresh(&mut self, world: World<'_>) {
         self.trains = None;
         if let Some(data) = station::read(world) {
+            self.schedules.retain(|id, _| {
+                data.trains
+                    .iter()
+                    .any(|train| train.id == *id && train.schedule.is_some())
+            });
             self.shown.retain(|id, shown| {
                 let exists = data.trains.iter().any(|train| train.id == *id);
                 if !exists {
@@ -148,6 +162,13 @@ impl TrainRuntime {
             .drivers
             .get(&train.id)
             .is_some_and(|driver| driver.speed != 0.0 || driver.keys(world).is_some())
+        {
+            return false;
+        }
+        if self
+            .schedules
+            .get(&train.id)
+            .is_some_and(ScheduleRunner::moving)
         {
             return false;
         }
@@ -206,8 +227,15 @@ impl TrainRuntime {
             return false;
         };
         let mut moved = Vec::new();
+        let mut dirty = Vec::new();
         let mut occupancy_changed = reload;
-        if !self.drivers.is_empty() {
+        let scheduled = trains.iter().any(|train| {
+            train
+                .schedule
+                .as_ref()
+                .is_some_and(|schedule| schedule.destination().is_some())
+        });
+        if scheduled || !self.drivers.is_empty() {
             let revision = railway::revision();
             if self
                 .network
@@ -244,14 +272,53 @@ impl TrainRuntime {
                 {
                     occupancy_changed |= signals.update_train(train);
                     moved.push(*id);
+                    dirty.push(*id);
                 }
                 driver.seat != 0 || driver.speed != 0.0
             });
+            if scheduled && let (Some((_, network)), Some(signals)) = (&self.network, &mut signals)
+            {
+                let mut docks: HashMap<_, _> = trains
+                    .iter()
+                    .filter_map(|train| train.dock().map(|dock| (dock.clone(), train.id)))
+                    .collect();
+                for train in trains.iter_mut() {
+                    if self.drivers.contains_key(&train.id) {
+                        self.schedules.remove(&train.id);
+                        continue;
+                    }
+                    let Some(destination) = train
+                        .schedule
+                        .as_ref()
+                        .and_then(|schedule| schedule.destination())
+                    else {
+                        continue;
+                    };
+                    let available = docks.get(destination).is_none_or(|&id| id == train.id);
+                    let before = train.dock().cloned();
+                    let runner = self.schedules.entry(train.id).or_default();
+                    let (changed, travelled) =
+                        runner.tick(world, content, time, network, signals, train, available);
+                    if changed {
+                        dirty.push(train.id);
+                        if let Some(before) = before {
+                            docks.remove(&before);
+                        }
+                        if let Some(dock) = train.dock() {
+                            docks.insert(dock.clone(), train.id);
+                        }
+                    }
+                    if travelled {
+                        moved.push(train.id);
+                        occupancy_changed |= signals.update_train(train);
+                    }
+                }
+            }
         }
-        if !moved.is_empty()
+        if !dirty.is_empty()
             && !station::save_positions(
                 world,
-                trains.iter().filter(|train| moved.contains(&train.id)),
+                trains.iter().filter(|train| dirty.contains(&train.id)),
             )
         {
             moddedmc_api::warn("Could not save train wheel positions");
@@ -261,6 +328,7 @@ impl TrainRuntime {
                 driver.stop_driving(world);
             }
             self.drivers.clear();
+            self.schedules.clear();
             return false;
         }
         let refresh = reload
@@ -338,7 +406,11 @@ fn tick_driver(
         .into_iter()
         .flatten()
         .any(|point| point.edge(graph).is_some_and(|edge| edge.turn.is_some()));
-    let mut top_speed = if on_turn { TURN_SPEED } else { TOP_SPEED };
+    let mut top_speed = if on_turn {
+        TURN_SPEED
+    } else {
+        MANUAL_TOP_SPEED
+    };
     if throttle < 0.0 {
         top_speed *= 0.25;
     }
@@ -418,7 +490,9 @@ fn tick_driver(
     if distance == 0.0 {
         return false;
     }
-    let Some(moved) = train.advance(world, graph, distance, steer) else {
+    let Some(moved) = train.advance(Some(world), graph, distance, steer, |edge, forward| {
+        select_edge(graph, edge, forward, steer, None)
+    }) else {
         driver.speed = 0.0;
         return false;
     };

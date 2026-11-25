@@ -3,7 +3,7 @@ use super::{
     bogey::{AssemblyTrack, Placement as BogeyPlacement},
     carriage::Train,
     driving::TrainRuntime,
-    railway, runtime, signal,
+    railway, runtime, schedule, signal,
     targeting::{
         Selection, TargetUse, coords, directed_edge, place_block, placement, pos, sound, state_at,
         use_target,
@@ -217,6 +217,101 @@ pub(super) fn claimed(world: World<'_>, selection: &Selection) -> bool {
     read(world).is_none_or(|stations| occupied(&stations, selection))
 }
 
+pub(crate) fn use_schedule(context: &mut UseOnBlock<'_>, content: Content) -> UseResult {
+    let world = context.world;
+    let (Some(player), Some(dimension)) = (context.player, world.dimension_id()) else {
+        return UseResult::Pass;
+    };
+    if !state_at(world, context.position).is_some_and(|state| is_station(content, state)) {
+        return UseResult::Pass;
+    }
+    if !player.may_build() {
+        return UseResult::Fail;
+    }
+    crate::with_world(world, |kinetics| {
+        let Some(mut data) = read(world) else {
+            return UseResult::Fail;
+        };
+        let Some(station) = data.at(dimension, context.position) else {
+            return UseResult::Fail;
+        };
+        let selection = station.selection();
+        if let Some(train) = data
+            .trains
+            .iter_mut()
+            .find(|train| train.dock() == Some(&selection))
+        {
+            if train.schedule.is_some() {
+                super::driving::message(
+                    player,
+                    "Sneak-use with an empty hand to reclaim the installed schedule",
+                );
+                return UseResult::Fail;
+            }
+            let Some(destination) = context
+                .stack
+                .data()
+                .and_then(|bytes| fastnbt::from_bytes::<Selection>(&bytes).ok())
+                .filter(|destination| {
+                    destination.dimension == dimension && *destination != selection
+                })
+            else {
+                super::driving::message(
+                    player,
+                    "Use the schedule on the destination station first",
+                );
+                return UseResult::Fail;
+            };
+            if !can_schedule(world, content, &destination) {
+                super::driving::message(player, "The destination station is unavailable");
+                return UseResult::Fail;
+            }
+            let Some(schedule) =
+                schedule::Schedule::new(world, content, train, selection, destination)
+            else {
+                super::driving::message(player, "The train has no route to that station");
+                return UseResult::Fail;
+            };
+            let status = schedule.status();
+            train.schedule = Some(schedule);
+            if !write(world, &data) {
+                return UseResult::Fail;
+            }
+            kinetics.train_runtime.refresh(world);
+            if !context.creative {
+                context.stack.shrink(1);
+            }
+            super::driving::message(player, status);
+            UseResult::Success
+        } else {
+            let Ok(bytes) = fastnbt::to_bytes(&selection) else {
+                return UseResult::Fail;
+            };
+            if !context.stack.set_data(&bytes) {
+                return UseResult::Fail;
+            }
+            super::driving::message(
+                player,
+                "Destination selected. Use the schedule on a docked train's station",
+            );
+            UseResult::Success
+        }
+    })
+}
+
+pub(super) fn can_schedule(world: World<'_>, content: Content, destination: &Selection) -> bool {
+    let Some(data) = read(world) else {
+        return false;
+    };
+    data.stations
+        .iter()
+        .find(|station| station.selection() == *destination)
+        .is_some_and(|station| {
+            state_at(world, pos(station.position))
+                .is_none_or(|state| station_states(content)[..2].contains(&Some(state)))
+        })
+}
+
 pub(crate) fn use_station(context: &UseBlock<'_>, content: Content) -> Option<BlockUseResult> {
     let row = station_states(content)
         .iter()
@@ -325,6 +420,36 @@ fn use_assembly(
             .has_driver(world, data.trains[index].id)
         {
             return Err("The driver must leave the train before disassembly");
+        }
+        if let Some(schedule) = data.trains[index].schedule.take() {
+            let bytes = fastnbt::to_bytes(schedule.second_stop())
+                .map_err(|_| "Could not encode the Train Schedule")?;
+            let stack = fastnbt::nbt!({
+                "id": schedule::ID,
+                "count": 1i32,
+                "components": { "minecraft:custom_data": { "moddedmc:data": fastnbt::ByteArray::new(bytes.into_iter().map(|byte| byte as i8).collect()) } }
+            });
+            let stack =
+                fastnbt::to_bytes(&stack).map_err(|_| "Could not encode the Train Schedule")?;
+            if !write(world, &data) {
+                return Err("Could not save the train");
+            }
+            let drop = crate::STACKS.get().and_then(|stacks| {
+                let [x, y, z] = coords(context.position).map(f64::from);
+                stacks.spawn(world, [x + 0.5, y + 1.0, z + 0.5], [0.0, 0.1, 0.0], &stack)
+            });
+            if drop.is_none() {
+                data.trains[index].schedule = Some(schedule);
+                if !write(world, &data) {
+                    moddedmc_api::warn(
+                        "Could not restore train save after reclaiming its schedule failed",
+                    );
+                }
+                return Err("Could not reclaim the Train Schedule");
+            }
+            kinetics.train_runtime.refresh(world);
+            context.action_bar("Reclaimed the Train Schedule");
+            return Ok(BlockUseResult::Success);
         }
         let train = data.trains.remove(index);
         if !write(world, &data) {
@@ -558,11 +683,16 @@ pub(crate) fn describe(world: World<'_>, content: Content, position: Pos) -> Opt
         .iter()
         .find(|train| train.dock() == Some(&selection))
     {
-        format!(
+        let mut message = format!(
             " Docked Carriages={} WheelPoints={}",
             train.count(),
             train.wheel_count()
-        )
+        );
+        if let Some(schedule) = &train.schedule {
+            message.push(' ');
+            message.push_str(schedule.status());
+        }
+        message
     } else {
         String::new()
     };

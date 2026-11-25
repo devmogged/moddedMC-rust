@@ -14,6 +14,7 @@ use super::{
     math::Vec3,
     railway,
     save::RailwayData,
+    schedule::Schedule,
     targeting::{Selection, coords, directed_edge, pos},
     travelling_point::{TravellingPoint, select_edge},
 };
@@ -35,6 +36,8 @@ pub(super) struct Train {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) stopped_at: Option<Selection>,
     pub(super) carriages: Vec<Carriage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) schedule: Option<Schedule>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -179,6 +182,7 @@ impl Train {
             id: 0,
             stopped_at: None,
             carriages,
+            schedule: None,
         })
     }
 
@@ -219,6 +223,7 @@ impl Train {
 
     pub(super) fn copy_position(&mut self, source: &Self) {
         self.stopped_at.clone_from(&source.stopped_at);
+        self.schedule.clone_from(&source.schedule);
         for (carriage, moved) in self.carriages.iter_mut().zip(&source.carriages) {
             carriage.wheels.clone_from(&moved.wheels);
             carriage.frame = moved.frame;
@@ -295,12 +300,13 @@ impl Train {
     }
 
     /// Move the leading wheel first, then follow its route with the rest of the train.
-    pub(super) fn advance(
+    pub(super) fn advance<'a>(
         &mut self,
-        world: World<'_>,
-        graph: &TrackGraph,
+        world: Option<World<'_>>,
+        graph: &'a TrackGraph,
         distance: f64,
         steer: f64,
+        select: impl Fn(&'a super::graph::TrackEdge, bool) -> Option<&'a super::graph::TrackEdge>,
     ) -> Option<f64> {
         let mut wheels: Vec<_> = self
             .carriages
@@ -315,7 +321,11 @@ impl Train {
         }
         for wheel in &mut wheels {
             let moved = wheel.travel(graph, travelled, |edge, forward| {
-                select_edge(graph, edge, forward, steer, follow)
+                if follow.is_some() {
+                    select_edge(graph, edge, forward, steer, follow)
+                } else {
+                    select(edge, forward)
+                }
             })?;
             if follow.is_some() && (moved - travelled).abs() > 1.0e-6 {
                 return None;
@@ -341,7 +351,9 @@ impl Train {
                     .collect::<Vec<_>>();
                 let frame = carriage.wheel_frame(graph, &wheels)?;
                 let [x, y, z] = frame.center.map(|v| v.floor() as i32);
-                super::targeting::state_at(world, Pos { x, y, z })?;
+                if let Some(world) = world {
+                    super::targeting::state_at(world, Pos { x, y, z })?;
+                }
                 Some((wheels, frame))
             })
             .collect::<Option<Vec<_>>>()?;

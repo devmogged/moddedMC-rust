@@ -1766,6 +1766,11 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == "create:track" {
         return trains::use_on_block(context);
     }
+    if context.item == trains::schedule::ID
+        && let Some(&content) = CONTENT.get()
+    {
+        return trains::station::use_schedule(context, content);
+    }
     if context.item == trains::station::ID {
         let Some(&content) = CONTENT.get() else {
             return UseResult::Fail;
