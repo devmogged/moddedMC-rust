@@ -5,9 +5,9 @@
   "version": "0.1.0",
   "identifier": "gg.devmogged.moddedmc",
   "build": {
-    "beforeDevCommand": "npm run companion && npm run dev",
+    "beforeDevCommand": "npm run companion && npm run playit && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run companion && npm run build",
+    "beforeBuildCommand": "npm run companion && npm run playit && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -33,7 +33,9 @@
       "nsis"
     ],
     "resources": {
-      "../../companion/build/libs/moddedmc-companion-0.1.0.jar": "moddedmc-companion.jar"
+      "../../companion/build/libs/moddedmc-companion-0.1.0.jar": "moddedmc-companion.jar",
+      "vendor/playitd.exe": "playitd.exe",
+      "vendor/playit-LICENSE.txt": "playit-LICENSE.txt"
     },
     "icon": [
       "icons/32x32.png",

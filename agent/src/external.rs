@@ -129,16 +129,17 @@ fn candidates() -> HashMap<u32, (String, String, Option<PathBuf>)> {
 }
 
 /// Listening TCP ports by pid, from the OS socket table.
-async fn listening_ports() -> HashMap<u32, Vec<u16>> {
+pub async fn listening_ports() -> HashMap<u32, Vec<u16>> {
     let mut out: HashMap<u32, Vec<u16>> = HashMap::new();
     if cfg!(windows) {
-        let Some(text) = run("netstat", &["-ano", "-p", "TCP"]).await else {
+        let Some(text) = run("netstat", &["-ano"]).await else {
             return out;
         };
         // "  TCP    0.0.0.0:25565    0.0.0.0:0    LISTENING    1234"
         for line in text.lines() {
             let fields: Vec<&str> = line.split_whitespace().collect();
             if fields.len() == 5
+                && fields[0] == "TCP"
                 && fields[3] == "LISTENING"
                 && let (Some(port), Ok(pid)) = (port_of(fields[1]), fields[4].parse())
             {

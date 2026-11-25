@@ -35,6 +35,7 @@ export interface ServerInfo {
   pid: number | null;
   uptime_secs: number | null;
   exit_code: number | null;
+  start_error?: string | null;
   health: Health | null;
   /** Running on the device, but not started by its agent: shown, not controlled. */
   external: boolean;
@@ -158,7 +159,7 @@ export type BackupSchedule = { every_minutes: number; keep: number };
 /** Where friends can join a server (agent `/addresses`). */
 export interface Addresses {
   addresses: { kind: "playit" | "tailscale" | "lan"; address: string }[];
-  playit: "signed-out" | "no-tunnel" | "stopped" | "running" | "unknown";
+  playit: "signed-out" | "reconnect" | "no-tunnel" | "stopped" | "running" | "unknown";
 }
 
 /** The `pumpkin.toml` settings the app edits (agent `/config`); they apply on the next start. */
@@ -198,6 +199,10 @@ export const api = {
   servers: (device: string) => agent<ServerInfo[]>(device, "GET", "/v1/servers"),
   createServer: (device: string, server: { name: string; exe: string; port?: number }) =>
     agent<void>(device, "POST", "/v1/servers", server),
+  setServerPort: (device: string, server: string, port: number) =>
+    agent<void>(device, "PUT", `/v1/servers/${encodeURIComponent(server)}/port`, { port }),
+  deleteServer: (device: string, server: string) =>
+    agent<void>(device, "DELETE", `/v1/servers/${encodeURIComponent(server)}`),
   action: (device: string, server: string, action: "start" | "stop" | "restart") =>
     agent<void>(device, "POST", `/v1/servers/${encodeURIComponent(server)}/${action}`),
   stats: (device: string, server: string) =>

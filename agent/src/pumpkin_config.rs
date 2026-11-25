@@ -1,10 +1,9 @@
 //! The few `pumpkin.toml` settings the agent owns: the Java port (from `server.json`) and the
 //! defaults a new managed server starts with. Everything else stays the owner's to edit.
 
-use std::path::Path;
+use std::{io, net::SocketAddr, path::Path};
 
 use toml::{Table, Value};
-use tracing::warn;
 
 pub const FILE: &str = "pumpkin.toml";
 
@@ -22,34 +21,45 @@ pub async fn seed(dir: &Path, port: Option<u16>) -> std::io::Result<()> {
     write(dir, &table).await
 }
 
-/// Makes the Java listener use `port` before a start. Leaves a file it can't read alone.
-pub async fn apply_port(dir: &Path, port: u16) {
-    let path = dir.join(FILE);
-    let mut table = match tokio::fs::read_to_string(&path).await {
-        Ok(text) => match text.parse::<Table>() {
-            Ok(table) => table,
-            Err(err) => {
-                warn!(
-                    "not setting the port: can't parse {}: {err}",
-                    path.display()
-                );
-                return;
-            }
-        },
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Table::new(),
-        Err(err) => {
-            warn!("not setting the port: can't read {}: {err}", path.display());
-            return;
-        }
-    };
-    let wanted = address(port);
-    let java = section(&mut table, &["networking", "java"]);
-    if java.get("address").and_then(Value::as_str) == Some(wanted.as_str()) {
-        return;
+pub async fn read(dir: &Path) -> io::Result<Table> {
+    match tokio::fs::read_to_string(dir.join(FILE)).await {
+        Ok(text) => text
+            .parse()
+            .map_err(|err| io::Error::other(format!("can't parse {FILE}: {err}"))),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Table::new()),
+        Err(err) => Err(err),
     }
-    java.insert("address".into(), Value::String(wanted));
-    if let Err(err) = write(dir, &table).await {
-        warn!("can't write {}: {err}", path.display());
+}
+
+pub fn java_address(table: &Table) -> io::Result<SocketAddr> {
+    table
+        .get("networking")
+        .and_then(|value| value.get("java"))
+        .and_then(|value| value.get("address"))
+        .map_or(Ok(SocketAddr::from(([0, 0, 0, 0], 25565))), |value| {
+            value
+                .as_str()
+                .and_then(|address| address.parse().ok())
+                .ok_or_else(|| io::Error::other(format!("invalid Java address in {FILE}")))
+        })
+}
+
+/// Applies the managed port and returns the address Pumpkin will bind, if Java is enabled.
+pub async fn prepare_java(dir: &Path, port: Option<u16>) -> io::Result<Option<SocketAddr>> {
+    let mut table = read(dir).await?;
+    let java = section(&mut table, &["networking", "java"]);
+    let enabled = java.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+    if let Some(port) = port {
+        let wanted = address(port);
+        if java.get("address").and_then(Value::as_str) != Some(wanted.as_str()) {
+            java.insert("address".into(), Value::String(wanted));
+            write(dir, &table).await?;
+        }
+    }
+    if enabled {
+        java_address(&table).map(Some)
+    } else {
+        Ok(None)
     }
 }
 

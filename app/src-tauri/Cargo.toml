@@ -22,6 +22,7 @@ serde_json = "1"
 toml = "0.9"
 toml_edit = "0.25"
 zip = { version = "9.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
@@ -33,6 +34,7 @@ tokio-tungstenite = "0.27"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 fastnbt = "2.6"
 sha2 = "0.10"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 tempfile = "3"
 
 [profile.release]

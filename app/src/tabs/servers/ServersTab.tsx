@@ -29,6 +29,8 @@ export function ServersTab() {
   const [servers, setServers] = useState<Record<string, { list: ServerInfo[] | null; error: string | null }>>(
     {},
   );
+  const [revision, setRevision] = useState(0);
+  const refresh = () => setRevision((current) => current + 1);
   const [selected, setSelected] = useState<Selected | null>(loadSelected);
   const [creating, setCreating] = useState(false);
   const [addingFriend, setAddingFriend] = useState(false);
@@ -37,7 +39,7 @@ export function ServersTab() {
   const deviceIds = (devices.value ?? []).map((d) => d.id).join(",");
   useEffect(() => {
     let alive = true;
-    const timers: number[] = [];
+    const timers = new Map<string, number>();
     for (const device of devices.value ?? []) {
       const run = async () => {
         try {
@@ -50,7 +52,7 @@ export function ServersTab() {
               [device.id]: { list: s[device.id]?.list ?? null, error: String(err) },
             }));
         }
-        if (alive) timers.push(window.setTimeout(run, 3000));
+        if (alive) timers.set(device.id, window.setTimeout(run, 3000));
       };
       run();
     }
@@ -59,16 +61,15 @@ export function ServersTab() {
       timers.forEach(window.clearTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceIds]);
+  }, [deviceIds, revision]);
 
-  const select = (next: Selected) => {
-    setSelected(next);
+  useEffect(() => {
     try {
-      localStorage.setItem(SELECTED_KEY, JSON.stringify(next));
+      localStorage.setItem(SELECTED_KEY, JSON.stringify(selected));
     } catch {
       // Remembering the selection is a convenience only.
     }
-  };
+  }, [selected]);
 
   const all = (devices.value ?? []).flatMap((d) =>
     (servers[d.id]?.list ?? []).map((s) => ({ device: d, server: s })),
@@ -96,13 +97,13 @@ export function ServersTab() {
               device={device}
               state={servers[device.id]}
               selected={selected}
-              onSelect={(server) => select({ kind: "server", device: device.id, server })}
+              onSelect={(server) => setSelected({ kind: "server", device: device.id, server })}
             />
           ))}
           <FriendGroup
             friends={friends.value ?? []}
             selected={selected}
-            onSelect={(id) => select({ kind: "friend", id })}
+            onSelect={(id) => setSelected({ kind: "friend", id })}
           />
         </div>
         <div className="border-t p-2">
@@ -122,6 +123,35 @@ export function ServersTab() {
             key={`${current.device.id}/${current.server.name}`}
             device={current.device}
             server={current.server}
+            onChanged={refresh}
+            onPortSaved={(port) => {
+              const { id } = current.device;
+              setServers((data) => ({
+                ...data,
+                [id]: {
+                  ...data[id],
+                  list:
+                    data[id].list?.map((server) =>
+                      server.name === current.server.name ? { ...server, port, start_error: null } : server,
+                    ) ?? null,
+                },
+              }));
+              refresh();
+            }}
+            onDeleted={() => {
+              const { id } = current.device;
+              const { name } = current.server;
+              setServers((data) => ({
+                ...data,
+                [id]: { ...data[id], list: data[id].list?.filter((server) => server.name !== name) ?? null },
+              }));
+              setSelected((selection) =>
+                selection?.kind === "server" && selection.device === id && selection.server === name
+                  ? null
+                  : selection,
+              );
+              refresh();
+            }}
           />
         ) : friend ? (
           <FriendView key={friend.id} friend={friend} onRemoved={() => friends.refresh()} />
@@ -153,13 +183,16 @@ export function ServersTab() {
         onOpenChange={setAddingFriend}
         onAdded={(id) => {
           friends.refresh();
-          select({ kind: "friend", id });
+          setSelected({ kind: "friend", id });
         }}
       />
       <NewServerDialog
         open={creating}
         onOpenChange={setCreating}
-        onCreated={(device, server) => select({ kind: "server", device, server })}
+        onCreated={(device, server) => {
+          setSelected({ kind: "server", device, server });
+          refresh();
+        }}
       />
     </div>
   );

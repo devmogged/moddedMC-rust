@@ -48,14 +48,33 @@ pub async fn agent(
     let url = format!("http://{endpoint}{path}");
     let request = match method.as_str() {
         "GET" => HTTP.get(&url),
-        "POST" => HTTP.post(&url).json(&body.unwrap_or(Value::Null)),
+        "POST" => {
+            let request = HTTP.post(&url).json(&body.unwrap_or(Value::Null));
+            if path.starts_with("/v1/servers/") && path.ends_with("/playit") {
+                request.timeout(Duration::from_secs(120))
+            } else {
+                request
+            }
+        }
         "PUT" => HTTP.put(&url).json(&body.unwrap_or(Value::Null)),
-        "DELETE" => HTTP.delete(&url),
+        "DELETE" => {
+            let request = HTTP.delete(&url);
+            if path
+                .strip_prefix("/v1/servers/")
+                .is_some_and(|name| !name.contains('/'))
+            {
+                request.timeout(Duration::from_secs(300))
+            } else {
+                request
+            }
+        }
         _ => return Err("bad agent method".into()),
     };
     let response = request.send().await.map_err(|err| {
-        if err.is_connect() || err.is_timeout() {
+        if err.is_connect() {
             format!("Can't reach {name}. Is the agent running there?")
+        } else if err.is_timeout() {
+            format!("{name} took too long to respond.")
         } else {
             err.to_string()
         }

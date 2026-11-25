@@ -15,7 +15,7 @@ use toml::{Table, Value};
 
 use crate::{
     App,
-    pumpkin_config::{FILE, section, write},
+    pumpkin_config::{self, section, write},
     servers::{bad_name, error},
 };
 
@@ -65,15 +65,16 @@ pub async fn put(
     if let Some(response) = bad_name(&name) {
         return response;
     }
-    let Some(dir) = app.servers.folder(&name).await else {
-        return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
-    };
     if let Err(message) = validate(&settings) {
         return error(StatusCode::BAD_REQUEST, message);
     }
-    match save(&dir, &settings).await {
+    match app
+        .servers
+        .with_folder(&name, async |dir| save(dir, &settings).await)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(err) => error(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+        Err((status, message)) => error(status, message),
     }
 }
 
@@ -106,18 +107,8 @@ fn text(table: &Table, path: &[&str], default: &str) -> String {
         .to_owned()
 }
 
-async fn read_table(dir: &Path) -> std::io::Result<Table> {
-    match tokio::fs::read_to_string(dir.join(FILE)).await {
-        Ok(text) => text
-            .parse::<Table>()
-            .map_err(|err| std::io::Error::other(format!("can't parse {FILE}: {err}"))),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Table::new()),
-        Err(err) => Err(err),
-    }
-}
-
 pub async fn read(dir: &Path) -> std::io::Result<Settings> {
-    let t = read_table(dir).await?;
+    let t = pumpkin_config::read(dir).await?;
     let icon = match tokio::fs::read(dir.join(ICON)).await {
         Ok(bytes) => Some(bytes),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
@@ -169,7 +160,7 @@ pub fn validate(s: &Settings) -> Result<(), String> {
 }
 
 pub async fn save(dir: &Path, s: &Settings) -> std::io::Result<()> {
-    let mut t = read_table(dir).await?;
+    let mut t = pumpkin_config::read(dir).await?;
     let java = section(&mut t, &["networking", "java"]);
     java.insert("enabled".into(), Value::Boolean(s.java));
     java.insert("online_mode".into(), Value::Boolean(s.online_mode));
@@ -223,6 +214,7 @@ pub async fn save(dir: &Path, s: &Settings) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pumpkin_config::FILE;
 
     #[tokio::test]
     async fn round_trip_keeps_other_keys() {

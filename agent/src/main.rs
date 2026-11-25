@@ -20,7 +20,7 @@ use axum::{
     Router,
     extract::DefaultBodyLimit,
     middleware,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
@@ -56,6 +56,8 @@ async fn main() {
     let router = Router::new()
         .route("/v1/device", get(device::get))
         .route("/v1/servers", get(servers::list).post(servers::create))
+        .route("/v1/servers/{name}", delete(servers::delete))
+        .route("/v1/servers/{name}/port", put(servers::set_port))
         .route("/v1/servers/{name}/start", post(servers::start))
         .route("/v1/servers/{name}/stop", post(servers::stop))
         .route("/v1/servers/{name}/restart", post(servers::restart))

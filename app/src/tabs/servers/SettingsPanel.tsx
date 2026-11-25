@@ -2,6 +2,14 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ImagePlus, Trash2 } from "lucide-react";
 import { api, type Device, type ServerConfig, type ServerInfo } from "~/api";
 import { Button } from "~/components/ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
@@ -12,7 +20,152 @@ import { toast } from "~/lib/toast";
 const DIFFICULTIES: ServerConfig["difficulty"][] = ["Peaceful", "Easy", "Normal", "Hard"];
 const GAMEMODES: ServerConfig["gamemode"][] = ["Survival", "Creative", "Adventure", "Spectator"];
 
-export function SettingsPanel({ device, server }: { device: Device; server: ServerInfo }) {
+export function SettingsPanel({
+  device,
+  server,
+  lifecycleBusy,
+  onPortSaved,
+  onDeleted,
+}: {
+  device: Device;
+  server: ServerInfo;
+  lifecycleBusy: boolean;
+  onPortSaved: (port: number) => void;
+  onDeleted: () => void;
+}) {
+  const port = server.port ?? 25565;
+  const [editedPort, setDraftPort] = useState<string | null>(null);
+  const draftPort = editedPort ?? String(port);
+  const [savingPort, setSavingPort] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const stopped = server.state === "stopped" || server.state === "crashed";
+  const locked = !stopped || lifecycleBusy;
+  const nextPort = Number(draftPort);
+  const validPort = /^\d+$/.test(draftPort) && nextPort >= 1 && nextPort <= 65535;
+
+  const savePort = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (locked || savingPort || !validPort || nextPort === port) return;
+    setSavingPort(true);
+    try {
+      await api.setServerPort(device.id, server.name, nextPort);
+      onPortSaved(nextPort);
+      setDraftPort(null);
+      toast("Java port saved.");
+    } catch (err) {
+      toast(errorText(err), "error");
+    } finally {
+      setSavingPort(false);
+    }
+  };
+
+  const deleteServer = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteServer(device.id, server.name);
+      toast(`Deleted ${server.name}.`);
+      onDeleted();
+    } catch (err) {
+      setDeleteError(errorText(err));
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-6 p-6 pb-24">
+      <Group title="Connection">
+        <form onSubmit={savePort}>
+          <Row
+            label="Java port"
+            hint={
+              locked
+                ? "Stop the server to change its port."
+                : "The server uses this port the next time it starts. The default is 25565."
+            }
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label="Java port"
+                type="number"
+                min={1}
+                max={65535}
+                step={1}
+                className="w-24 text-right tabular-nums"
+                value={draftPort}
+                disabled={locked || savingPort}
+                onChange={(event) => setDraftPort(event.target.value)}
+              />
+              <Button
+                size="sm"
+                type="submit"
+                disabled={locked || savingPort || !validPort || nextPort === port}
+              >
+                {savingPort ? "Saving..." : "Save port"}
+              </Button>
+            </div>
+          </Row>
+        </form>
+      </Group>
+
+      <GeneralSettings device={device} server={server} />
+
+      <Group title="Danger zone" danger>
+        <Row
+          label="Delete server"
+          hint={
+            locked
+              ? "Stop the server before deleting it."
+              : "Permanently delete this server, its worlds, mods, settings, and backups."
+          }
+        >
+          <Button
+            variant="destructive-outline"
+            disabled={locked || savingPort}
+            onClick={() => {
+              setDeleteError(null);
+              setConfirming(true);
+            }}
+          >
+            <Trash2 /> Delete server
+          </Button>
+        </Row>
+      </Group>
+      <Dialog open={confirming} onOpenChange={(open) => !deleting && setConfirming(open)}>
+        <DialogPopup showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete {server.name}?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes all files and backups for this server, including its worlds.
+            </DialogDescription>
+            {deleteError && (
+              <p role="alert" className="text-destructive-foreground text-sm">
+                {deleteError}
+              </p>
+            )}
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              data-slot="dialog-action"
+              disabled={deleting}
+              onClick={() => setConfirming(false)}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={deleting || locked} onClick={deleteServer}>
+              {deleting ? "Deleting..." : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </div>
+  );
+}
+
+function GeneralSettings({ device, server }: { device: Device; server: ServerInfo }) {
   const [saved, setSaved] = useState<ServerConfig | null>(null);
   const [draft, setDraft] = useState<ServerConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +182,7 @@ export function SettingsPanel({ device, server }: { device: Device; server: Serv
     );
   }, [device.id, server.name]);
 
-  if (error) return <p className="p-6 text-destructive-foreground text-sm">{error}</p>;
+  if (error) return <p className="text-destructive-foreground text-sm">{error}</p>;
   if (!draft || !saved)
     return (
       <div className="flex justify-center p-10">
@@ -65,7 +218,7 @@ export function SettingsPanel({ device, server }: { device: Device; server: Serv
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6 pb-24">
+    <>
       <Group title="Who can join">
         <Row label="Java Edition" hint="Players on PC with the normal Minecraft launcher.">
           <Switch checked={draft.java} onCheckedChange={(v) => set("java", v)} />
@@ -200,15 +353,23 @@ export function SettingsPanel({ device, server }: { device: Device; server: Serv
           </Button>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+function Group({ title, children, danger }: { title: string; children: ReactNode; danger?: boolean }) {
   return (
     <section className="flex flex-col gap-2">
       <h2 className="px-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">{title}</h2>
-      <div className="divide-y rounded-xl border bg-card">{children}</div>
+      <div
+        className={
+          danger
+            ? "divide-y rounded-xl border border-destructive/40 bg-card"
+            : "divide-y rounded-xl border bg-card"
+        }
+      >
+        {children}
+      </div>
     </section>
   );
 }

@@ -67,6 +67,11 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
 
 pub fn run() {
     let result = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            // Windows delivers this callback inside a synchronous native message.
+            let handle = app.clone();
+            tauri::async_runtime::spawn(async move { show_main(&handle) });
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

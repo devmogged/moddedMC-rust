@@ -39,7 +39,9 @@ The app's **Join** action reads the friend server's manifest location from its M
 | GET | `/v1/device` | Name, OS, arch, CPU count and load (`cpu_percent`, since the previous request), RAM, disk free and total (the disk holding the servers), agent version, Tailscale name. |
 | GET | `/v1/servers` | Every server folder: name, pack, state (`stopped`, `starting`, `running`, `stopping`, `crashed`), PID, port, players online. Also lists Minecraft servers running on the machine that the agent didn't start: a Java (`*.jar` or `nogui`) or Pumpkin process with a listening TCP port that answers the status ping, marked `external: true` with `program` and `folder`. Scanned at most every 10 s. Stopped external servers are listed too: folders an external server was seen running in (kept in `external.json`), and subfolders with a `server.properties` in the `find_in` folders of `agent.toml`. |
 | POST | `/v1/servers` | Create a server: `{name, exe, port, pack}`. A new folder gets a `pumpkin.toml` with that port, offline mode, telemetry off and no Bedrock listener. |
-| POST | `/v1/servers/<name>/start`, `/stop`, `/restart` | Lifecycle. `stop` sends `stop` on the console and waits; kill only after a timeout. |
+| PUT | `/v1/servers/<name>/port` | `{"port": 25570}` sets the Java port for the next start. Stop the server before changing it. |
+| DELETE | `/v1/servers/<name>` | Permanently removes a stopped managed server's folder, backups and backup schedule. Shared builds and other servers' backups are retained. |
+| POST | `/v1/servers/<name>/start`, `/stop`, `/restart` | Starting on an occupied Java port returns 409. The message appears as `start_error` on the stopped server. `stop` sends `stop` on the console and waits; kill only after a timeout. |
 | GET | `/v1/servers/<name>/stats` | Now: state, RSS, CPU, uptime, and `health` (MSPT mean and max over the last 100 ticks, TPS, tick rate, players) for pack servers. Planned: `?window=60` time series with p95/p99, chunks loaded, network bytes. |
 | WS | `/v1/servers/<name>/console` | Log lines out (with the last 500 on connect), console commands in. |
 | POST | `/v1/builds/<pack>-<key>` | Upload a pack build: a zip of a `moddedmc-pack` output folder (up to 1 GiB). An id that is already there returns 200 at once. |
@@ -61,7 +63,7 @@ Stats come from the server itself: pack servers started with `MODDEDMC_STATS=1` 
 
 The app installs the agent:
 
-- Local: it runs the bundled binary as a user service.
+- Local: the desktop app starts its installed moddedMC agent. The Windows installer includes the signed Playit daemon, which starts when needed for a tunnel. Playit still requires the user's sign-in and approval.
 - Over SSH (`app/src-tauri/src/install.rs`, offered when Add device can't reach an agent): it reads `uname -sm`, copies the agent built for that target (`aarch64-unknown-linux-gnu` on the Pi; from `MODDEDMC_AGENT_DIR/<triple>/` or the checkout's `target/<triple>/release/`), writes `agent.toml` with the owner set to the app user's Tailscale login unless one exists, runs `loginctl enable-linger` so it runs without a login session, and enables the `moddedmc-agent` systemd user service. Linux only. The script was run under WSL with systemd stubbed; it hasn't run against a real Pi yet.
 
 Nothing else is installed on the device. Pack builds are made on the laptop and pushed.
