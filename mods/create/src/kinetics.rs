@@ -108,6 +108,7 @@ pub enum Kind {
     Gearshift(u8, bool),
     EncasedShaft(u8),
     Turntable,
+    Arm(bool),
     Press(u8),
     Deployer {
         facing: u8,
@@ -277,7 +278,7 @@ impl Kind {
             | Self::Drill(facing)
             | Self::Clockwork(facing) => face_axis(facing),
             Self::Elevator(facing) => crate::elevator::shaft_axis(facing),
-            Self::Turntable | Self::Millstone | Self::Mixer => 1,
+            Self::Turntable | Self::Millstone | Self::Mixer | Self::Arm(_) => 1,
             Self::Piston(block) => block.shaft_axis(),
             Self::GantryShaft(shaft) => face_axis(shaft.facing),
             Self::GantryCarriage(carriage) => carriage.axis(),
@@ -295,7 +296,7 @@ impl Kind {
     pub const fn has_shaft_towards(self, face: u8) -> bool {
         match self {
             Self::Motor(facing) => facing == face,
-            Self::Pump(_) | Self::Mixer | Self::Crafter(_) => false,
+            Self::Pump(_) | Self::Mixer | Self::Crafter(_) | Self::Arm(_) => false,
             Self::HosePulley(facing) => crate::fluids::hose_pulley::shaft_side(facing) == face,
             Self::HandCrank(facing)
             | Self::Fan(facing)
@@ -313,7 +314,12 @@ impl Kind {
     const fn small_cog(self) -> bool {
         matches!(
             self,
-            Self::Small(_) | Self::Pump(_) | Self::Millstone | Self::Mixer | Self::Crafter(_)
+            Self::Small(_)
+                | Self::Pump(_)
+                | Self::Millstone
+                | Self::Mixer
+                | Self::Crafter(_)
+                | Self::Arm(_)
         )
     }
 
@@ -345,7 +351,7 @@ impl Kind {
             | Self::Pulley(_)
             | Self::Elevator(_) => 4.0,
             Self::Press(_) | Self::Wheel(_) => 8.0,
-            Self::Fan(_) | Self::Crafter(_) => 2.0,
+            Self::Fan(_) | Self::Crafter(_) | Self::Arm(_) => 2.0,
             _ => 0.0,
         }
     }
@@ -499,6 +505,7 @@ pub struct Be {
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
     pub deployer: Option<Box<crate::deployer::Deployer>>,
+    pub(crate) arm: Option<Box<crate::arm::Arm>>,
     pub(crate) crafter: Option<Box<crate::crafter::Crafter>>,
     pub mixer: Option<Box<crate::mixer::Mixer>>,
     pub valve: Option<crate::fluids::valve::Pointer>,
@@ -549,6 +556,7 @@ impl Be {
             belt_index: 0,
             belt_casing: crate::belt_casing::Casing::None,
             inventory: None,
+            arm: None,
             passengers: None,
             fan: None,
             bearing: None,
@@ -719,6 +727,10 @@ pub struct Kinetics {
     pub(crate) deployer_displays: HashMap<Pos, crate::deployer::HandDisplays>,
     pub(crate) belt_casing_displays: HashMap<Pos, crate::belt_casing::CasingDisplay>,
     pub dropped_deployers: Vec<(Pos, fastnbt::Value)>,
+    pub(crate) dropped_arms: Vec<(Pos, fastnbt::Value)>,
+    pub(crate) arm_displays: HashMap<Pos, crate::arm_display::ArmDisplay>,
+    pub(crate) pending_arm_points: HashMap<(i32, Pos), Vec<crate::arm::Selection>>,
+    pub(crate) placed_arm_points: Vec<(Pos, Vec<crate::arm::Selection>)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
     pub dropped_gantries: Vec<crate::gantry::GantryContraption>,
     pub dropped_pulleys: Vec<(Pos, Box<crate::pulley::RopePulley>)>,
@@ -812,6 +824,9 @@ impl Kinetics {
 
     /// A block entity created by placement or loaded with its saved fields.
     pub fn insert(&mut self, pos: Pos, mut be: Be) {
+        if matches!(be.kind, Kind::Arm(_)) && be.arm.is_none() {
+            be.arm = Some(Box::default());
+        }
         if matches!(be.kind, Kind::Deployer { .. }) && be.deployer.is_none() {
             be.deployer = Some(Box::default());
         }
@@ -841,6 +856,9 @@ impl Kinetics {
     }
 
     fn drop_inventory(&mut self, pos: Pos, mut be: Be, eject: bool) {
+        if eject && let Some(item) = be.arm.take().and_then(|arm| arm.take_held()) {
+            self.dropped_arms.push((pos, item));
+        }
         if eject && let Some(item) = be.deployer.take().and_then(|deployer| deployer.held_item) {
             self.dropped_deployers.push((pos, item));
         }

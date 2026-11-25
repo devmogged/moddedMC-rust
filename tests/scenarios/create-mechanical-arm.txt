@@ -1,0 +1,89 @@
+# Configure a Mechanical Arm in Survival, hold under redstone, and restart with a carried stack.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_arm \(2 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2052.5 105 2012.5
+wait 3
+cmd fill 2045 100 2005 2056 109 2020 minecraft:air
+cmd fill 2045 99 2005 2056 99 2020 minecraft:stone
+cmd tp tester 2052.5 100 2012.5
+cmd gamemode survival tester
+cmd recipe give tester create:crafting/kinetics/mechanical_arm
+wait 0.5
+expect Unlocked 1 recipe
+cmd setblock 2049 99 2012 create:creative_motor[facing=up]
+cmd setblock 2049 100 2012 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2049 100 2013 create:depot
+cmd setblock 2051 100 2013 create:depot
+cmd setblock 2050 100 2011 minecraft:redstone_block
+cmd item replace entity tester hotbar.0 with create:mechanical_arm
+wait 0.5
+bot use 2049 100 2013 up
+wait 0.5
+expect Take items here
+bot use 2051 100 2013 up
+wait 0.5
+expect Take items here
+bot use 2051 100 2013 up
+wait 0.5
+expect Deposit items here
+bot use 2050 99 2012 up
+wait 0.75
+cmd kinetics 2050 100 2012
+cmd data get block 2050 100 2012 Arm.InteractionPoints
+wait 0.5
+expect-all create:mechanical_arm\[ceiling=false\].*Speed=-16 && block data: .*depot.*depot
+cmd execute if entity @e[type=minecraft:item_display,x=2050.5,y=101,z=2012.5,distance=..2,nbt={item:{components:{"minecraft:item_model":"create:moddedmc/parts/arm/claw_base"}}}]
+wait 0.5
+expect Test passed\. Count: 1
+
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot 6
+wait 0.5
+bot use 2049 100 2013 up
+wait 1.5
+cmd data get block 2049 100 2013 HeldItem.Item.count
+wait 0.5
+expect 2049, 100, 2013 has the following block data: 6$
+cmd setblock 2050 100 2011 minecraft:air
+wait 10
+cmd data get block 2051 100 2013 HeldItem.Item
+wait 0.5
+expect 2051, 100, 2013 has the following block data: .*count: 6.*minecraft:iron_ingot
+
+bot use 2051 100 2013 up
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 6
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd item replace entity tester hotbar.0 with minecraft:copper_ingot 4
+wait 0.5
+bot use 2049 100 2013 up
+wait 3.7
+cmd kinetics 2049 99 2012 0
+wait 0.5
+cmd data get block 2050 100 2012 Arm.HeldItem
+wait 0.5
+expect 2050, 100, 2012 has the following block data: .*count: 4.*minecraft:copper_ingot
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2050 100 2012 Arm.HeldItem
+wait 0.5
+expect 2050, 100, 2012 has the following block data: .*count: 4.*minecraft:copper_ingot
+cmd kinetics 2049 99 2012 16
+wait 6
+cmd data get block 2051 100 2013 HeldItem.Item
+wait 0.5
+expect 2051, 100, 2013 has the following block data: .*count: 4.*minecraft:copper_ingot
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

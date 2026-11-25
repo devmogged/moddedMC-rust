@@ -877,6 +877,11 @@ unsafe fn dispatch_use(
 }
 
 impl UseOnBlock<'_> {
+    /// Show a status message to this player. Older hosts omit the message.
+    pub fn action_bar(&self, text: &str) {
+        action_bar(self.api, self.raw_player, text);
+    }
+
     /// Add a saved stack to the player's inventory, dropping any remainder.
     pub fn give(&self, stack: &[u8]) -> bool {
         if self.api.size < std::mem::offset_of!(abi::InteractionV1, give) + size_of::<usize>() {

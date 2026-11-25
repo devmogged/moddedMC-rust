@@ -71,6 +71,10 @@ impl FunnelState {
         self.shape.is_none() && !self.extracting && self.facing == UP
     }
 
+    pub(crate) const fn is_arm_point(self) -> bool {
+        !self.extracting && !matches!(self.shape, Some(Shape::Pushing))
+    }
+
     pub(crate) const fn covers_belt(self) -> bool {
         self.facing == UP
     }
@@ -920,6 +924,25 @@ pub fn direct_input_present(funnels: &Funnels, pos: Pos) -> bool {
         .entries
         .get(&pos)
         .is_some_and(|funnel| funnel.state.shape.is_none())
+}
+
+pub(crate) fn insert_from_arm(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    item: &TransportedItemStack,
+    simulate: bool,
+) -> i32 {
+    let Some(state) = kinetics
+        .funnels
+        .entries
+        .get(&pos)
+        .map(|funnel| funnel.state)
+        .filter(|state| state.is_arm_point())
+    else {
+        return 0;
+    };
+    try_insert(world, kinetics, pos, state, item, false, simulate)
 }
 
 pub fn insert_from_belt_end(

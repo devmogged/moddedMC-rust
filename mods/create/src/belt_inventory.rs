@@ -801,6 +801,26 @@ pub fn insert_into_segment(
     accepted
 }
 
+pub(crate) fn lock_segment(kinetics: &mut Kinetics, pos: Pos) {
+    let Some(segment) = kinetics.get(pos) else {
+        return;
+    };
+    let Some(controller) = segment.controller else {
+        return;
+    };
+    let start = segment.belt_index as f32;
+    if let Some(inventory) = kinetics
+        .get_mut(controller)
+        .and_then(|be| be.inventory.as_mut())
+        && let Some(stack) = inventory
+            .items
+            .iter_mut()
+            .find(|stack| !stack.is_empty() && stack.pos > start && stack.pos <= start + 1.0)
+    {
+        stack.locked_externally = true;
+    }
+}
+
 /// `ItemHandlerBeltSegment.extractItem` uses the first stack within (offset, offset + 1].
 pub fn extract_from_segment(
     world: World<'_>,

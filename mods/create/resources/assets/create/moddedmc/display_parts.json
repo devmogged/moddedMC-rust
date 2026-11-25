@@ -1,4 +1,10 @@
 {
+  "arm/base": "create:block/mechanical_arm/base",
+  "arm/lower_body": "create:block/mechanical_arm/lower_body",
+  "arm/upper_body": "create:block/mechanical_arm/upper_body",
+  "arm/claw_base": "create:block/mechanical_arm/claw_base",
+  "arm/upper_claw_grip": "create:block/mechanical_arm/upper_claw_grip",
+  "arm/lower_claw_grip": "create:block/mechanical_arm/lower_claw_grip",
   "bogey/small": "create:block/track/bogey/bogey_frame",
   "bogey/large": "create:block/track/bogey/bogey_drive",
   "deployer/pole": "create:block/deployer/pole",

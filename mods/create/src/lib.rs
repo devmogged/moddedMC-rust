@@ -29,6 +29,8 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
+mod arm;
+mod arm_display;
 mod attribute_filter;
 mod basin;
 pub mod basin_inventory;
@@ -299,6 +301,7 @@ impl Mod for Create {
         trains::register_saved(*content, registry)?;
         belt::register(content, registry)?;
         belt_tunnel::register(*content, registry)?;
+        arm::register(*content, registry)?;
         ITEM_INPUT
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -375,7 +378,7 @@ impl Mod for Create {
         interaction.on_use_block(registry, use_block)?;
         interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
         interaction.on_player_will_destroy(registry, player_will_destroy)?;
-        interaction.on_player_placed(registry, belt_tunnel::player_placed)?;
+        interaction.on_player_placed(registry, player_placed)?;
         content.on_tick(registry, tick)?;
         ENTITIES
             .get()
@@ -1088,6 +1091,7 @@ fn states() -> Option<&'static StateIds> {
         }
         belt::add_states(&mut ids, content);
         belt_tunnel::add_states(content, &mut ids);
+        arm::add_states(content, &mut ids);
         ids.add(content, fluids::item_drain::ID, "", None);
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
@@ -1231,6 +1235,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::Arm(_)) => return arm::placed(args, states),
         Some(Kind::Crafter(_)) => {
             return crafter::placed(
                 states,
@@ -1502,6 +1507,8 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     deployer: Option<deployer::Deployer>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    arm: Option<arm::Arm>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     crafter: Option<crafter::CrafterData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     basin_recipe: Option<String>,
@@ -1603,6 +1610,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if matches!(kind, Kind::Deployer { .. }) {
         be.deployer = Some(Box::new(data.deployer.unwrap_or_default()));
     }
+    if matches!(kind, Kind::Arm(_)) {
+        be.arm = Some(Box::new(data.arm.unwrap_or_default()));
+    }
     if let Some(crafter) = &mut be.crafter {
         crafter.data = data.crafter.unwrap_or_default();
     }
@@ -1683,6 +1693,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         pointer: be.valve,
         press: be.press.as_ref().map(|press| press.data),
         deployer: be.deployer.as_deref().cloned(),
+        arm: be.arm.as_deref().cloned(),
         crafter: be.crafter.as_ref().map(|crafter| crafter.data.clone()),
         basin_recipe: be
             .press
@@ -1873,6 +1884,12 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                 continue;
             }
             if (event.reason == content::UNLOADED
+                || (matches!(before, Some(Kind::Arm(_))) && !matches!(after, Some(Kind::Arm(_)))))
+                && let Some(mut display) = kinetics.arm_displays.remove(&pos)
+            {
+                display.clear(world);
+            }
+            if (event.reason == content::UNLOADED
                 || (matches!(before, Some(Kind::Deployer { .. }))
                     && !matches!(after, Some(Kind::Deployer { .. }))))
                 && let Some(mut displays) = kinetics.deployer_displays.remove(&pos)
@@ -1947,7 +1964,13 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                             }
                         }
                         if let Some(kind) = after {
-                            let mut be = Be::new(kind);
+                            let mut be = if matches!(kind, Kind::Arm(_))
+                                && event.reason == content::MOVED_STATE_CHANGED
+                            {
+                                load(world, pos, kind)
+                            } else {
+                                Be::new(kind)
+                            };
                             if let Kind::Belt(belt) = kind {
                                 let cased = states
                                     .by_id
@@ -2001,6 +2024,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         }
         millstone::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);
+        arm::tick(world, states, kinetics, time);
         belt_inventory::tick(world, kinetics);
         brass_tunnel::tick(world, states, kinetics);
         fluids::item_drain::tick(world, kinetics);
@@ -2012,6 +2036,14 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         crusher::tick(world, states, kinetics);
         flush(world, kinetics);
     });
+}
+
+fn player_placed(world: World<'_>, player: Entity<'_>, pos: Pos, state: u32) {
+    if states().is_some_and(|states| matches!(states.kind(state), Some(Kind::Arm(_)))) {
+        arm::player_placed(world, player, pos);
+    } else {
+        belt_tunnel::player_placed(world, player, pos, state);
+    }
 }
 
 fn content_replaced(world: World<'_>, event: &ContentEvent) {
@@ -2082,6 +2114,9 @@ fn item_use(context: &mut ItemUse<'_>) -> ItemUseResult {
 }
 
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    if context.item == arm::ID {
+        return states().map_or(UseResult::Fail, |states| arm::select(context, states));
+    }
     if context.item == blaze_burner::EMPTY {
         return blaze_burner::capture(context);
     }
@@ -2154,6 +2189,14 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
 
 /// `useItemOn` for the mod's blocks.
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
+    if let Some(states) = states() {
+        if let Some(result) = arm::select_custom(context, states) {
+            return result;
+        }
+        if matches!(states.kind(context.state), Some(Kind::Arm(_))) {
+            return with_world(context.world, |kinetics| arm::use_block(context, kinetics));
+        }
+    }
     if let Some(result) = states().and_then(|states| belt_tunnel::use_block(context, states)) {
         return result;
     }

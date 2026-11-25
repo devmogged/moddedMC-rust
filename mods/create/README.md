@@ -155,6 +155,14 @@ Use a Wrench on top to cycle Split, Forced Split, Round Robin, Forced Round Robi
 
 In stock Java 26.3, put two tunnels beside each other over parallel belts and watch Round Robin alternate between the two outputs. Install a filter and check that the sample sits on the mouth you clicked. Stop the server while Forced Split is blocked, restart, then empty the blocked output and watch the held stack leave. The [split and filter scenario](../../tests/scenarios/create-brass-tunnel.txt) and [connected group scenario](../../tests/scenarios/create-brass-tunnel-group.txt) cover these paths.
 
+### Mechanical Arm
+
+Hold the Mechanical Arm and right-click a depot, belt segment without a tunnel, chute or processing block to mark a pickup. Click again to change it to a drop-off. A deposit-only point starts as a drop-off. Sneak-use a selected point to remove it. Place the arm within five blocks of its points and drive it with a vertical-axis cog beside its base. The arm checks that a destination has room before taking a stack. Redstone pauses new pickups. Use a Wrench to cycle Round Robin, Forced Round Robin and Prefer First.
+
+The [Mechanical Arm scenario](../../tests/scenarios/create-mechanical-arm.txt) configures two depots in Survival, holds a source under redstone, and restarts with four ingots in the claw. In stock Java 26.3, check that the selection status appears, the joints move together and the stack stays inside the claw while it swings. Try a ceiling mount and check that the arms and gear face down.
+
+Blaze Burner fueling, the vanilla special-purpose endpoints and movement of a configured arm on a contraption still need gameplay checks and ports.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
