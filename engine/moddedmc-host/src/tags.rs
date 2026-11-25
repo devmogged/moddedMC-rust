@@ -24,7 +24,7 @@ fn full_id(id: &str) -> String {
 /// tags expanded. A pack's `replace` drops the generated entries.
 fn collect(
     manager: &DatapackManager,
-    (key, registry): (RegistryKey, &str),
+    (key, registry): (Option<RegistryKey>, &str),
     tag: &str,
     depth: u8,
     out: &mut BTreeSet<String>,
@@ -33,7 +33,7 @@ fn collect(
         return false;
     }
     let loaded = manager.get_tag(registry, tag);
-    let generated = get_tag_values(key, tag);
+    let generated = key.and_then(|key| get_tag_values(key, tag));
     if let Some(values) = generated
         && !loaded.as_ref().is_some_and(|entry| entry.replace)
     {
@@ -56,11 +56,26 @@ fn collect(
 fn resolve(registry: Str, tag: Str) -> Option<BTreeSet<String>> {
     // SAFETY: the caller borrows both strings for this call.
     let (registry, tag) = unsafe { (registry.str(), tag.str()) };
-    let key = RegistryKey::from_string(registry.strip_prefix("minecraft:").unwrap_or(registry))?;
+    let registry = registry.strip_prefix("minecraft:").unwrap_or(registry);
+    let key = RegistryKey::from_string(registry);
+    if key.is_none() && registry != "recipe_serializer" {
+        return None;
+    }
     let manager = &SERVER.get()?.datapack_manager;
     let tag = full_id(tag.strip_prefix('#').unwrap_or(tag));
     let mut out = BTreeSet::new();
-    collect(manager, (key, key.identifier_string()), &tag, 0, &mut out).then_some(out)
+    collect(
+        manager,
+        (
+            key,
+            key.as_ref()
+                .map_or(registry, RegistryKey::identifier_string),
+        ),
+        &tag,
+        0,
+        &mut out,
+    )
+    .then_some(out)
 }
 
 unsafe extern "C" fn values(registry: Str, tag: Str, out: Sink) -> bool {
@@ -116,7 +131,13 @@ mod tests {
 
         let flatten = |tag| {
             let mut out = BTreeSet::new();
-            collect(&manager, (RegistryKey::Block, "block"), tag, 0, &mut out);
+            collect(
+                &manager,
+                (Some(RegistryKey::Block), "block"),
+                tag,
+                0,
+                &mut out,
+            );
             out
         };
         assert_eq!(

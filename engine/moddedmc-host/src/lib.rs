@@ -12,6 +12,7 @@ mod console;
 mod containers;
 mod content;
 mod content_pack;
+mod crafting;
 mod effects;
 mod entities;
 mod fluid_world;

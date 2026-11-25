@@ -25,6 +25,7 @@ pub mod chunks;
 pub mod commands;
 pub mod containers;
 pub mod content;
+pub mod crafting;
 pub mod effects;
 pub mod entities;
 pub mod fluid_world;

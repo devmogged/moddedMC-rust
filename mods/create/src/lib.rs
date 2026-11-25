@@ -12,6 +12,7 @@ use moddedmc_api::{
         self, Block, BlockUpdate, Content, ContentEvent, Placement, ShapeBox, State, World,
         WorldExtension,
     },
+    crafting::{self, Crafting},
     effects::{self, Effects},
     entities::{
         self, ENTITY_LIVING, ENTITY_PLAYER, Entities, EntitiesExtension, Entity, EntityChange,
@@ -102,6 +103,7 @@ static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static INTERACTION: OnceLock<Interaction> = OnceLock::new();
+static CRAFTING: OnceLock<Crafting> = OnceLock::new();
 static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static DISPLAYS: OnceLock<Displays> = OnceLock::new();
 static BLOCK_DISPLAYS: OnceLock<BlockDisplays> = OnceLock::new();
@@ -199,6 +201,7 @@ impl Mod for Create {
         item_stacks.require_extension(stacks::StacksExtension::Component)?;
         item_stacks.require_extension(stacks::StacksExtension::Fuel)?;
         let _ = STACKS.set(item_stacks);
+        let _ = CRAFTING.set(crafting::require()?);
         let _ = DISPLAYS.set(stacks::require_displays()?);
         let _ = BLOCK_DISPLAYS.set(block_displays::require()?);
         let _ = CONTAINERS.set(containers::require()?);

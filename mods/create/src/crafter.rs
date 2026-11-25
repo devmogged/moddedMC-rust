@@ -15,7 +15,7 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CONTAINERS, DIRECTIONS, DISPLAYS, Kinetics, STACKS, StateIds, WRENCH,
+    CONTAINERS, CRAFTING, DIRECTIONS, DISPLAYS, Kinetics, STACKS, StateIds, TAGS, WRENCH,
     belt_inventory::{TransportedItemStack, count, with_count},
     kinetics::{FACES, Kind, face_axis, positive},
     offset, processing_recipes,
@@ -527,7 +527,10 @@ const EXPORT_TIME: i32 = 1000;
 const CRAFT_TIME: i32 = 2000;
 const INSERT_INTERVAL: u64 = 10;
 
-fn result(items: &[GridItem]) -> Option<Value> {
+// Create's CRecipes.maxFireworkIngredientsInCrafter default.
+const MAX_FIREWORK_INGREDIENTS: usize = 9;
+
+fn result(world: World<'_>, items: &[GridItem]) -> Option<Vec<Value>> {
     let [mut left, mut bottom] = items.first()?.position;
     let (mut right, mut top) = (left, bottom);
     for item in items {
@@ -543,21 +546,68 @@ fn result(items: &[GridItem]) -> Option<Value> {
     {
         return None;
     }
-    let mut grid = vec![vec![None; width]; height];
+    let mut grid = vec![None; width * height];
     for item in items {
         let [x, y] = item.position;
-        let cell = &mut grid[usize::try_from(top - y).ok()?][usize::try_from(x - left).ok()?];
-        if cell.is_some() {
+        let cell =
+            &mut grid[usize::try_from(top - y).ok()? * width + usize::try_from(x - left).ok()?];
+        if cell.replace(&item.stack).is_some() {
             return None;
         }
-        *cell = Some(processing_recipes::item_id(&item.stack)?);
     }
-    let product = processing_recipes::current()?
-        .mechanical_craft(&grid)?
-        .clone();
-    let encoded = fastnbt::to_bytes(&product).ok()?;
-    STACKS.get()?.info(&encoded)?;
-    Some(product)
+    let input = grid
+        .iter()
+        .map(|stack| stack.map_or_else(|| Ok(Vec::new()), fastnbt::to_bytes))
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let crafting = *CRAFTING.get()?;
+    let ordinary = crafting
+        .match_recipe(
+            world,
+            u8::try_from(width).ok()?,
+            u8::try_from(height).ok()?,
+            &input,
+        )
+        .filter(|recipe| {
+            !recipe
+                .id
+                .as_ref()
+                .is_some_and(|id| id.ends_with("_manual_only"))
+                && (recipe.serializer != "minecraft:crafting_special_firework_rocket"
+                    || items.len() <= MAX_FIREWORK_INGREDIENTS)
+                && !TAGS.get().is_some_and(|tags| {
+                    tags.contains(
+                        "recipe_serializer",
+                        "create:automation_ignore",
+                        &recipe.serializer,
+                    )
+                })
+        });
+    let product = if let Some(recipe) = ordinary {
+        fastnbt::from_bytes(&recipe.result).ok()?
+    } else {
+        let ids: Vec<_> = grid
+            .chunks_exact(width)
+            .map(|row| {
+                row.iter()
+                    .map(|slot| slot.and_then(processing_recipes::item_id))
+                    .collect()
+            })
+            .collect();
+        let product = processing_recipes::current()?
+            .mechanical_craft(&ids)?
+            .clone();
+        STACKS.get()?.info(&fastnbt::to_bytes(&product).ok()?)?;
+        product
+    };
+    let remainders = input
+        .iter()
+        .filter(|slot| !slot.is_empty())
+        .filter_map(|slot| {
+            let bytes = crafting.remainder(slot)?;
+            fastnbt::from_bytes(&bytes).ok()
+        });
+    Some(std::iter::once(product).chain(remainders).collect())
 }
 
 impl Layout {
@@ -697,17 +747,21 @@ impl Layout {
                     });
                 }
                 Phase::Assembling => {
-                    let Some(stack) = result(&snapshot.grouped_items) else {
+                    let Some(products) = result(world, &snapshot.grouped_items) else {
                         self.eject(world, kinetics);
                         break;
                     };
                     edit(kinetics, pos, |data| {
                         data.phase = Phase::Crafting;
                         data.countdown = CRAFT_TIME;
-                        data.grouped_items = vec![GridItem {
-                            position: block.grid_position(pos),
-                            stack,
-                        }];
+                        let [x, y] = block.grid_position(pos);
+                        data.grouped_items = (x..)
+                            .zip(products)
+                            .map(|(x, stack)| GridItem {
+                                position: [x, y],
+                                stack,
+                            })
+                            .collect();
                     });
                 }
                 Phase::Exporting => {

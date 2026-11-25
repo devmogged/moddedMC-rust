@@ -1246,6 +1246,27 @@ pub struct DisplaysV1 {
     pub remove: unsafe extern "C" fn(world: WorldRef, id: i32),
 }
 
+pub const CRAFTING: &str = "moddedmc:crafting";
+pub const MAX_CRAFTING_SIDE: u8 = 9;
+
+/// The engine's crafting matcher and effective crafting remainders.
+#[repr(C)]
+pub struct CraftingV1 {
+    pub size: usize,
+    /// The grid is width * height saved-stack slices in row order. Empty slices mean empty slots.
+    /// Each side is 1..=MAX_CRAFTING_SIDE. On success the sink receives the saved result (key 0),
+    /// a recipe id if known (key 1), and a serializer id (key 2).
+    pub match_recipe: unsafe extern "C" fn(
+        world: WorldRef,
+        width: u8,
+        height: u8,
+        grid: *const Str,
+        out: Sink,
+    ) -> bool,
+    /// The ingredient's default crafting remainder as saved stack NBT, if any.
+    pub remainder: unsafe extern "C" fn(stack: Str, out: Sink) -> bool,
+}
+
 pub const RESOURCES: &str = "moddedmc:resources";
 
 /// The largest datapack file `ResourcesV1::read` returns.
