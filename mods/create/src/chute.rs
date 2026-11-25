@@ -517,6 +517,7 @@ pub fn direct_insert(
     chutes: &mut Chutes,
     pos: Pos,
     item: &TransportedItemStack,
+    simulate: bool,
 ) -> i32 {
     let Some(chute) = chutes.entries.get_mut(&pos) else {
         return 0;
@@ -524,7 +525,7 @@ pub fn direct_insert(
     if !can_directly_insert(world, states, pos, chute.state) {
         return 0;
     }
-    chute.insert(item, 1.0, false)
+    chute.insert(item, 1.0, simulate)
 }
 
 pub(crate) fn supports_direct_input(
@@ -696,9 +697,13 @@ fn handle_downward_output(
     if !state.active() {
         return 0;
     }
-    let below = crate::belt_tunnel::item_target(kinetics, shift(pos, DOWN));
+    let below = shift(pos, DOWN);
     let amount = count(&item.item);
-    let via_inventory = if matches!(kinetics.kind(below), Some(Kind::Belt(_))) {
+    let via_inventory = if kinetics.tunnels.contains_key(&below) {
+        Some(crate::belt_tunnel::insert(
+            world, kinetics, below, item, simulate,
+        ))
+    } else if matches!(kinetics.kind(below), Some(Kind::Belt(_))) {
         Some(belt_inventory::insert_into_segment(
             kinetics, below, item, simulate,
         ))

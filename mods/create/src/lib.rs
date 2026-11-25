@@ -39,6 +39,7 @@ mod belt_inventory;
 mod belt_movement;
 mod belt_tunnel;
 mod blaze_burner;
+mod brass_tunnel;
 mod chain_drive;
 mod chassis;
 mod chute;
@@ -301,7 +302,11 @@ impl Mod for Create {
         ITEM_INPUT
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
-            .register(registry, &[crafter::ID, belt_tunnel::ID], receive_item)?;
+            .register(
+                registry,
+                &[crafter::ID, belt_tunnel::ID, belt_tunnel::BRASS],
+                receive_item,
+            )?;
         depot::register(*content, registry)?;
         deployer::register(*content, registry)?;
         chute::register(*content, registry)?;
@@ -1997,6 +2002,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         millstone::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);
         belt_inventory::tick(world, kinetics);
+        brass_tunnel::tick(world, states, kinetics);
         fluids::item_drain::tick(world, kinetics);
         chute::tick(world, states, kinetics);
         funnel::tick(world, kinetics);
@@ -2099,7 +2105,11 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     }
     if matches!(
         context.item,
-        water_wheel::ID | large_water_wheel::ID | hand_crank::ID | belt_tunnel::ID
+        water_wheel::ID
+            | large_water_wheel::ID
+            | hand_crank::ID
+            | belt_tunnel::ID
+            | belt_tunnel::BRASS
     ) {
         return validate_kinetic_placement(context);
     }

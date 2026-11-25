@@ -421,10 +421,24 @@ pub fn try_inserting_from_side(
     item: &TransportedItemStack,
     side: u8,
 ) -> i32 {
+    offer_from_side(world, pos, depot, item, side, false)
+}
+
+pub(crate) fn offer_from_side(
+    world: World<'_>,
+    pos: Pos,
+    depot: &mut DepotBehaviour,
+    item: &TransportedItemStack,
+    side: u8,
+    simulate: bool,
+) -> i32 {
     if depot.is_occupied() {
         return 0;
     }
     let max = item.max_count();
+    if simulate {
+        return count(&item.item).min(max);
+    }
     let inserted = depot.insert_from_side(item, side, max);
     if inserted > 0 {
         play_insert(world, pos, side);

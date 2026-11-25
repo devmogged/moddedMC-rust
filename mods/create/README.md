@@ -147,6 +147,14 @@ Put a Depot on each side of the tunnel at belt height and send five ingots throu
 
 The [Andesite Tunnel scenario](../../tests/scenarios/create-andesite-tunnel.txt) checks crafting, support, automatic casing, wrenching, dropper input, a three-way split and a jam cleared after restart. In stock Java 26.3, check that the junction openings face the side outputs and the window changes when wrenched.
 
+### Brass Tunnel
+
+Craft two with an Electron Tube in the top left of a crafting grid, two Brass Ingots below it, and two Dried Kelp in the last row. A Brass Tunnel cases a bare horizontal belt in brass. Adjacent tunnels on parallel belts share their outputs and mode. Put a sample item, List Filter or Attribute Filter on the upper center of an open side to filter that mouth. Matching filtered outputs are tried before unfiltered ones. Sneak-use with an empty hand to clear the filter.
+
+Use a Wrench on top to cycle Split, Forced Split, Round Robin, Forced Round Robin, Prefer Nearest, Randomize and Synchronize. Sneak-use the Wrench to cycle backwards. The action bar shows the selected mode. Forced Split waits for its outlets to be available. Synchronize holds each parallel input until the whole group has a stack.
+
+In stock Java 26.3, put two tunnels beside each other over parallel belts and watch Round Robin alternate between the two outputs. Install a filter and check that the sample sits on the mouth you clicked. Stop the server while Forced Split is blocked, restart, then empty the blocked output and watch the held stack leave. The [split and filter scenario](../../tests/scenarios/create-brass-tunnel.txt) and [connected group scenario](../../tests/scenarios/create-brass-tunnel-group.txt) cover these paths.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

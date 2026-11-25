@@ -276,6 +276,7 @@ impl Controller {
             {
                 let accepted = if matches!(kinetics.kind(target), Some(Kind::Belt(_))) {
                     if belt_inventory::try_inserting_from_side(
+                        world,
                         kinetics,
                         None,
                         target,

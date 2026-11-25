@@ -141,6 +141,10 @@ impl ItemDrain {
     }
 
     pub fn insert(&mut self, item: &TransportedItemStack, side: u8) -> i32 {
+        self.offer(item, side, false)
+    }
+
+    pub(crate) fn offer(&mut self, item: &TransportedItemStack, side: u8, simulate: bool) -> i32 {
         if self.held.is_some() {
             return 0;
         }
@@ -150,8 +154,8 @@ impl ItemDrain {
             item.max_count()
         };
         let accepted = count(&item.item).min(limit);
-        if accepted <= 0 {
-            return 0;
+        if accepted <= 0 || simulate {
+            return accepted.max(0);
         }
         let mut held = item.copy_with_item(with_count(&item.item, accepted));
         held.in_direction = i32::from(side);
@@ -302,7 +306,7 @@ fn export(
     }
     if matches!(kinetics.kind(next), Some(Kind::Belt(_))) {
         return if belt_inventory::try_inserting_from_side(
-            kinetics, None, next, &forwarded, side, false,
+            world, kinetics, None, next, &forwarded, side, false,
         ) {
             count(&item.item)
         } else {

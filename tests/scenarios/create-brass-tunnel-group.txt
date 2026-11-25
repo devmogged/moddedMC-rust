@@ -1,0 +1,117 @@
+# Connect two parallel Brass Tunnels, resume Round Robin after restart, then synchronize both inputs.
+mods target\mods\create.mmc
+start
+expect registered content block create:brass_tunnel
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2052.5 105 2012.5
+wait 3
+cmd fill 2045 100 2005 2056 109 2020 minecraft:air
+cmd fill 2045 99 2005 2056 99 2020 minecraft:stone
+cmd tp tester 2052.5 100 2012.5
+cmd gamemode survival tester
+cmd setblock 2049 100 2010 create:creative_motor[facing=east]
+cmd setblock 2050 100 2010 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2050 100 2014 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2051 100 2010 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2051 100 2014 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.0 with create:belt_connector 2
+wait 0.5
+bot use 2050 100 2010 east
+wait 0.5
+bot use 2050 100 2014 east
+wait 0.5
+bot use 2051 100 2010 east
+wait 0.5
+bot use 2051 100 2014 east
+wait 1.5
+cmd kinetics 2050 100 2012
+cmd kinetics 2051 100 2012
+wait 0.5
+expect-all 2050 100 2012 Speed=16 && 2051 100 2012 Speed=16
+
+cmd item replace entity tester hotbar.0 with create:brass_tunnel 2
+wait 0.5
+bot use 2050 100 2012 up
+wait 0.5
+bot use 2051 100 2012 up
+wait 0.5
+cmd setblock 2050 100 2015 create:depot
+cmd setblock 2051 100 2015 create:depot
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 2050 101 2012 up
+wait 0.5
+expect \[bot\] chat: Forced Split
+bot use 2050 101 2012 up
+wait 0.5
+expect \[bot\] chat: Round Robin
+cmd data get block 2051 101 2012 Mode
+wait 0.5
+expect 2051, 101, 2012 has the following block data: "RoundRobin"
+
+cmd summon minecraft:item 2050.5 101.1 2010.5 {Item:{id:"minecraft:iron_ingot",count:4},PickupDelay:32767s}
+wait 8
+cmd data get block 2050 100 2015 HeldItem.Item
+cmd data get block 2050 101 2012 PreviousIndex
+wait 0.5
+expect-all 2050, 100, 2015 has the following block data: .*count: 4.*minecraft:iron_ingot && 2050, 101, 2012 has the following block data: 1$
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2050 101 2012 PreviousIndex
+cmd data get block 2051 101 2012 Mode
+wait 0.5
+expect-all 2050, 101, 2012 has the following block data: 1$ && 2051, 101, 2012 has the following block data: "RoundRobin"
+cmd summon minecraft:item 2050.5 101.1 2010.5 {Item:{id:"minecraft:copper_ingot",count:5},PickupDelay:32767s}
+wait 8
+cmd data get block 2051 100 2015 HeldItem.Item
+wait 0.5
+expect 2051, 100, 2015 has the following block data: .*count: 5.*minecraft:copper_ingot
+
+bot use 2050 101 2012 up
+wait 0.25
+expect \[bot\] chat: Forced Round Robin
+bot use 2050 101 2012 up
+wait 0.25
+expect \[bot\] chat: Prefer Nearest
+bot use 2050 101 2012 up
+wait 0.25
+expect \[bot\] chat: Randomize
+bot use 2050 101 2012 up
+wait 0.25
+expect \[bot\] chat: Synchronize
+cmd item replace entity tester hotbar.0 with minecraft:air
+wait 0.5
+bot use 2050 100 2015 up
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 4
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd item replace entity tester hotbar.0 with minecraft:air
+wait 0.5
+bot use 2051 100 2015 up
+wait 0.5
+bot expect slot 36 minecraft:copper_ingot 5
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd summon minecraft:item 2050.5 101.1 2010.5 {Item:{id:"minecraft:gold_ingot",count:3},PickupDelay:32767s}
+wait 7
+cmd data get block 2050 101 2012 StackToDistribute
+wait 0.5
+expect 2050, 101, 2012 has the following block data: .*count: 3.*minecraft:gold_ingot
+cmd summon minecraft:item 2051.5 101.1 2010.5 {Item:{id:"minecraft:andesite",count:2},PickupDelay:32767s}
+wait 8
+cmd data get block 2050 100 2015 HeldItem.Item
+cmd data get block 2051 100 2015 HeldItem.Item
+wait 0.5
+expect-all 2050, 100, 2015 has the following block data: .*count: 3.*minecraft:gold_ingot && 2051, 100, 2015 has the following block data: .*count: 2.*minecraft:andesite
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

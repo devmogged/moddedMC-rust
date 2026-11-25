@@ -215,7 +215,7 @@ pub struct Chain {
 }
 
 impl Chain {
-    fn of(kinetics: &Kinetics, pos: Pos) -> Option<Self> {
+    pub(crate) fn of(kinetics: &Kinetics, pos: Pos) -> Option<Self> {
         let be = kinetics.get(pos)?;
         let Kind::Belt(belt) = be.kind else {
             return None;
@@ -521,11 +521,24 @@ impl BeltInventory {
             }
 
             if horizontal {
-                let (blocked, split) =
-                    crate::belt_tunnel::split(world, kinetics, chain, item, item.pos + limited);
+                use crate::belt_tunnel::{Crossing, handle_crossing};
+                let (action, split) =
+                    handle_crossing(world, kinetics, chain, item, item.pos + limited);
                 changed |= split;
-                if blocked {
-                    continue;
+                match action {
+                    Crossing::Pass => {}
+                    Crossing::Held => {
+                        changed |= item.pos != current_pos;
+                        current = Some(item.pos);
+                        continue;
+                    }
+                    Crossing::Buffered => {
+                        remove_display(world, item);
+                        self.items.remove(index - 1);
+                        index -= 1;
+                        changed = true;
+                        continue;
+                    }
                 }
             }
             item.pos += limited;
@@ -551,6 +564,7 @@ impl BeltInventory {
                                     &mut kinetics.chutes,
                                     next,
                                     item,
+                                    false,
                                 )
                             }),
                             false,
@@ -570,7 +584,7 @@ impl BeltInventory {
                         )
                     } else if crate::funnel::direct_input_present(&kinetics.funnels, next) {
                         (
-                            crate::funnel::insert_from_belt_end(world, kinetics, next, item),
+                            crate::funnel::insert_from_belt_end(world, kinetics, next, item, false),
                             false,
                         )
                     } else if kinetics.kind(next) == Some(Kind::Millstone) {
@@ -584,6 +598,7 @@ impl BeltInventory {
                             false,
                         )
                     } else if try_inserting_from_side(
+                        world,
                         kinetics,
                         Some(chain.pos),
                         next,
@@ -825,6 +840,7 @@ pub fn extract_from_segment(
 /// `BeltBlockEntity.tryInsertingFromSide` on the segment at `pos`, for a stack arriving through
 /// `side`. True when it was taken.
 pub fn try_inserting_from_side(
+    world: World<'_>,
     kinetics: &mut Kinetics,
     ticking: Option<Pos>,
     pos: Pos,
@@ -853,6 +869,16 @@ pub fn try_inserting_from_side(
     let Some(chain) = Chain::of(kinetics, controller) else {
         return false;
     };
+    if let Some(accepted) = crate::brass_tunnel::offer_from(
+        world,
+        kinetics,
+        step_pos(pos, UP),
+        stack,
+        Some(opposite(side)),
+        simulate,
+    ) {
+        return accepted > 0;
+    }
     let previous_is_belt = matches!(
         kinetics.kind(step_pos(pos, opposite(facing))),
         Some(Kind::Belt(_))
@@ -924,9 +950,9 @@ fn step_pos(pos: Pos, face: u8) -> Pos {
 }
 
 /// `BeltInventory.eject`.
-fn eject(world: World<'_>, chain: Chain, item: &TransportedItemStack) {
+pub(crate) fn eject(world: World<'_>, chain: Chain, item: &TransportedItemStack) -> bool {
     let (Some(&stacks), Some(bytes)) = (STACKS.get(), item.bytes()) else {
-        return;
+        return false;
     };
     let out = chain.vector_for_offset(item.pos);
     let speed = f64::from(chain.movement_speed().abs().max(1.0 / 8.0));
@@ -938,7 +964,7 @@ fn eject(world: World<'_>, chain: Chain, item: &TransportedItemStack) {
         out[1] + nudge[1] + f64::from(6.0_f32 / 16.0),
         out[2] + nudge[2],
     ];
-    let _ = stacks.spawn(world, position, motion, &bytes);
+    stacks.spawn(world, position, motion, &bytes).is_some()
 }
 
 /// `BeltBlockEntity.destroy` on a controller: `ejectAll`.

@@ -63,6 +63,10 @@ impl FunnelState {
         matches!(self.shape, Some(Shape::Extended)) && self.facing == facing
     }
 
+    pub(crate) const fn pulls_towards(self, facing: u8) -> bool {
+        matches!(self.shape, Some(Shape::Pulling)) && self.facing == facing
+    }
+
     pub(crate) const fn supports_direct_input(self) -> bool {
         self.shape.is_none() && !self.extracting && self.facing == UP
     }
@@ -460,7 +464,9 @@ pub fn insert(
     item: &TransportedItemStack,
     simulate: bool,
 ) -> i32 {
-    let pos = crate::belt_tunnel::item_target(kinetics, pos);
+    if kinetics.tunnels.contains_key(&pos) {
+        return crate::belt_tunnel::insert(world, kinetics, pos, item, simulate);
+    }
     if let Some(depot) = kinetics.depots.get_mut(&pos) {
         return depot.insert_item(world, pos, item, simulate);
     }
@@ -743,7 +749,7 @@ fn insert_below(
         }
         return crate::depot::try_inserting_from_side(world, below, depot, item, face);
     }
-    if belt_inventory::try_inserting_from_side(kinetics, None, below, item, face, simulate) {
+    if belt_inventory::try_inserting_from_side(world, kinetics, None, below, item, face, simulate) {
         count(&item.item)
     } else {
         0
@@ -862,6 +868,7 @@ fn try_insert(
     state: FunnelState,
     item: &TransportedItemStack,
     from_belt: bool,
+    simulate: bool,
 ) -> i32 {
     if state.powered {
         return 0;
@@ -894,11 +901,15 @@ fn try_insert(
         if insert(world, kinetics, target, state.facing, batch, true) != count(&batch.item) {
             return 0;
         }
-        insert(world, kinetics, target, state.facing, batch, false)
+        if simulate {
+            count(&batch.item)
+        } else {
+            insert(world, kinetics, target, state.facing, batch, false)
+        }
     } else {
-        insert(world, kinetics, target, state.facing, item, false)
+        insert(world, kinetics, target, state.facing, item, simulate)
     };
-    if amount > 0 {
+    if amount > 0 && !simulate {
         flap(world, pos, state);
     }
     amount
@@ -916,6 +927,7 @@ pub fn insert_from_belt_end(
     kinetics: &mut Kinetics,
     pos: Pos,
     item: &TransportedItemStack,
+    simulate: bool,
 ) -> i32 {
     let Some(state) = kinetics
         .funnels
@@ -928,7 +940,7 @@ pub fn insert_from_belt_end(
     if !state.supports_direct_input() {
         return 0;
     }
-    try_insert(world, kinetics, pos, state, item, false)
+    try_insert(world, kinetics, pos, state, item, false, simulate)
 }
 
 pub fn blocks_chute(funnels: &Funnels, pos: Pos) -> bool {
@@ -985,7 +997,7 @@ pub fn check_for_funnels(
             changed |= item.pos != entry;
             item.pos = entry;
         }
-        let accepted = try_insert(world, kinetics, pos, state, item, true);
+        let accepted = try_insert(world, kinetics, pos, state, item, true, false);
         if accepted > 0 {
             item.resize(world, count(&item.item) - accepted);
             changed = true;
@@ -1025,7 +1037,7 @@ pub fn pull_from_depots(world: World<'_>, kinetics: &mut Kinetics) {
             continue;
         };
         depot.export_to_funnel(world, |item| {
-            try_insert(world, kinetics, pos, state, item, false)
+            try_insert(world, kinetics, pos, state, item, false, false)
         });
         kinetics.depots.insert(below, depot);
     }
@@ -1099,7 +1111,7 @@ pub fn use_item_on(
         return BlockUseResult::TryEmptyHand;
     }
     let item = TransportedItemStack::new(item);
-    let accepted = try_insert(world, kinetics, pos, state, &item, false);
+    let accepted = try_insert(world, kinetics, pos, state, &item, false, false);
     if accepted > 0 {
         context.stack.shrink(accepted as u32);
     }
@@ -1136,7 +1148,7 @@ pub fn entity_inside(
         return;
     };
     let mut item = TransportedItemStack::new(item);
-    let accepted = try_insert(world, kinetics, pos, state, &item, false);
+    let accepted = try_insert(world, kinetics, pos, state, &item, false, false);
     if accepted > 0 {
         let rest = count(&item.item) - accepted;
         if rest == 0 {
