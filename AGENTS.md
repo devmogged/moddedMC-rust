@@ -20,13 +20,14 @@ What we never compromise on:
 
 ## Working alongside other people
 
-Several people work on this repo at once, each with their own agent. There is no lock, lease or claim tool; the old `mmc-coord` board and `coord.mjs` are retired, so don't run them. The issues of `devmogged/moddedMC-rust` are the board.
+Several people work on this repo at once, each with their own agent. GitHub issues on `devmogged/moddedMC-rust` are the board; there is no lock or claim tool (the old `mmc-coord` board is retired). Create and its add-ons belong to Noel-Alex and Saints Dragons to sting-raider; everything else goes to whoever claims it. The skills below say how to pick, claim, hand off and finish work.
 
-- **Taken areas.** Create and its add-ons (`mods/create*`, `mods/createaddition`) belong to Noel-Alex. Saints Dragons (`mods/saints-dragons`) belongs to sting-raider. Don't change those crates; if you need something from them, open an issue.
-- **Picking work.** Take a mod from [docs/BUJA.md](docs/BUJA.md) or an open issue. First check that nobody has it: `gh issue list --state open --search "<mod>"`, and recent commits and branches (`git log origin/main --oneline -50`, `git branch -r`). If it's free, open an issue titled `Port <mod>` (or comment on the existing one) and assign it to the person you work for. That is the claim. If someone else is assigned and the issue had activity in the last few days, pick something else.
-- **Progress.** Post short updates and blockers as comments on your issue. Close it when the port works in game.
-- **Shared code** (`host/`, `api/`, `engine/pumpkin`, root `Cargo.toml`): keep changes small and additive, and push them soon so others aren't building on a stale base.
-- **Pushing.** Commit as the person you work for. `git fetch` and rebase on `origin/main` before every push, then push to `main`. If the `engine/pumpkin` pointer conflicts, rebase your engine commits onto `origin/moddedmc` in the submodule, push that, and commit the new pointer. Never force push `main` or `moddedmc`.
+## Skills
+
+Read the matching skill in `.agents/skills/` before you start:
+
+- [work-loop](.agents/skills/work-loop/SKILL.md): at the start of every session, between jobs and before a session ends.
+- [port-mod](.agents/skills/port-mod/SKILL.md): porting a mod, or adding the host and engine support a port needs.
 
 ## Verifying
 
