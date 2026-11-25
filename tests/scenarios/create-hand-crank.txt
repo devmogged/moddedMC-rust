@@ -6,11 +6,13 @@ cmd difficulty peaceful
 botstart tester
 wait 3
 expect \[bot\] joined as tester
-cmd gamemode survival tester
+cmd gamemode creative tester
 cmd tp tester 2449.5 102 2445.5 0 25
 wait 4
 cmd fill 2444 102 2444 2453 109 2453 minecraft:air
 cmd fill 2444 101 2444 2453 101 2453 minecraft:stone
+cmd tp tester 2449.5 102 2445.5 0 25
+cmd gamemode survival tester
 cmd setblock 2449 102 2446 minecraft:crafting_table
 cmd item replace entity tester hotbar.0 with minecraft:spruce_planks 3
 cmd item replace entity tester hotbar.1 with create:andesite_alloy 1
