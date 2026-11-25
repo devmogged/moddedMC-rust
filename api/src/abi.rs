@@ -1393,6 +1393,13 @@ pub struct TagsV1 {
     pub contains: unsafe extern "C" fn(registry: Str, tag: Str, id: Str) -> bool,
 }
 
+#[repr(C)]
+pub struct TagsV1Memberships {
+    pub base: TagsV1,
+    /// Every tag containing an entry, sorted by resource location.
+    pub memberships: unsafe extern "C" fn(registry: Str, id: Str, out: Sink) -> bool,
+}
+
 pub const BLOCK_DISPLAYS: &str = "moddedmc:block_displays";
 
 /// Where and how a block display is drawn. The client draws the block's model from its corner at

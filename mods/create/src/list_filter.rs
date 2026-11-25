@@ -1,7 +1,5 @@
 //! The List Filter's ghost samples, allow/deny modes, and component matching.
 
-use std::collections::HashMap;
-
 use fastnbt::Value;
 use moddedmc_api::{
     RegistrationError, Registry,
@@ -10,19 +8,19 @@ use moddedmc_api::{
     items::Item,
 };
 
-use crate::{ITEMS, belt_inventory::with_count, processing_recipes::item_id};
+use crate::{
+    ITEMS,
+    belt_inventory::with_count,
+    filtering::{Compound, matches_sample, same_item, settings, settings_mut},
+    processing_recipes::item_id,
+};
 
 pub(crate) const ID: &str = "create:filter";
-const COMPONENTS: &str = "components";
-const CUSTOM_DATA: &str = "minecraft:custom_data";
 const SETTINGS: &str = "create:list_filter";
 const ITEMS_TAG: &str = "Items";
 const DENY: &str = "Deny";
 const RESPECT_COMPONENTS: &str = "RespectComponents";
 const MAX_ENTRIES: usize = 18;
-const MAX_DEPTH: u8 = 16;
-
-type Compound = HashMap<String, Value>;
 
 pub(crate) fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
     ITEMS
@@ -39,26 +37,6 @@ pub(crate) fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationEr
         )
 }
 
-fn compound(value: &Value) -> Option<&Compound> {
-    if let Value::Compound(fields) = value {
-        Some(fields)
-    } else {
-        None
-    }
-}
-
-fn named_compound<'a>(fields: &'a Compound, key: &str) -> Option<&'a Compound> {
-    compound(fields.get(key)?)
-}
-
-fn components(item: &Value) -> Option<&Compound> {
-    named_compound(compound(item)?, COMPONENTS).filter(|parts| !parts.is_empty())
-}
-
-fn settings(item: &Value) -> Option<&Compound> {
-    named_compound(named_compound(components(item)?, CUSTOM_DATA)?, SETTINGS)
-}
-
 fn flag(settings: &Compound, key: &str) -> bool {
     matches!(settings.get(key), Some(Value::Byte(value)) if *value != 0)
 }
@@ -70,50 +48,13 @@ fn entries(settings: &Compound) -> &[Value] {
     }
 }
 
-fn same_item(sample: &Value, stack: &Value, exact: bool) -> bool {
-    item_id(sample).is_some_and(|id| item_id(stack) == Some(id))
-        && (!exact || components(sample) == components(stack))
-}
-
-pub(crate) fn matches(sample: &Value, stack: &Value) -> bool {
-    test(sample, stack, false, MAX_DEPTH)
-}
-
-fn test(sample: &Value, stack: &Value, exact: bool, depth: u8) -> bool {
-    if depth == 0 {
-        return false;
-    }
-    if item_id(sample) == Some(ID)
-        && let Some(settings) = settings(sample)
-    {
-        let respect = flag(settings, RESPECT_COMPONENTS);
-        let listed = entries(settings)
-            .iter()
-            .any(|entry| test(entry, stack, respect, depth - 1));
-        return listed != flag(settings, DENY);
-    }
-    same_item(sample, stack, exact)
-}
-
-fn ensure_compound<'a>(fields: &'a mut Compound, key: &str) -> Option<&'a mut Compound> {
-    if let Value::Compound(inner) = fields
-        .entry(key.into())
-        .or_insert_with(|| Value::Compound(HashMap::new()))
-    {
-        Some(inner)
-    } else {
-        None
-    }
-}
-
-fn settings_mut(item: &mut Value) -> Option<&mut Compound> {
-    let Value::Compound(fields) = item else {
-        return None;
-    };
-    ensure_compound(
-        ensure_compound(ensure_compound(fields, COMPONENTS)?, CUSTOM_DATA)?,
-        SETTINGS,
-    )
+pub(crate) fn matches(sample: &Value, stack: &Value, remaining: u8) -> Option<bool> {
+    let settings = settings(sample, SETTINGS)?;
+    let respect = flag(settings, RESPECT_COMPONENTS);
+    let listed = entries(settings)
+        .iter()
+        .any(|entry| matches_sample(entry, stack, respect, remaining));
+    Some(listed != flag(settings, DENY))
 }
 
 fn describe(settings: &Compound) -> String {
@@ -161,12 +102,12 @@ pub(crate) fn use_item(context: &mut ItemUse<'_>) -> ItemUseResult {
         .and_then(|bytes| fastnbt::from_bytes::<Value>(&bytes).ok())
         .filter(|sample| item_id(sample).is_some());
     if !sneak && other.is_none() {
-        let message =
-            settings(&item).map_or_else(|| "Allow list 0/18 - Match item type".into(), describe);
+        let message = settings(&item, SETTINGS)
+            .map_or_else(|| "Allow list 0/18 - Match item type".into(), describe);
         context.action_bar(&message);
         return ItemUseResult::Handled;
     }
-    let Some(settings) = settings_mut(&mut item) else {
+    let Some(settings) = settings_mut(&mut item, SETTINGS) else {
         return ItemUseResult::Handled;
     };
     if sneak {

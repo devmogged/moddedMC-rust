@@ -1,17 +1,83 @@
 //! Create's filter settings and the stock-client value plate interaction.
 
+use std::collections::HashMap;
+
 use fastnbt::Value;
 use moddedmc_api::{Pos, content::World, interaction::UseBlock, stacks::ItemDisplay};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DISPLAYS, STACKS, WRENCH,
+    DISPLAYS, STACKS, WRENCH, attribute_filter,
     belt_inventory::{TransportedItemStack, remove_display, render_stack, with_count},
     list_filter,
     processing_recipes::item_id,
 };
 
 const MAX_FILTER_AMOUNT: i32 = 64;
+const MAX_NESTED_FILTERS: u8 = 16;
+const COMPONENTS: &str = "components";
+const CUSTOM_DATA: &str = "minecraft:custom_data";
+
+pub(crate) type Compound = HashMap<String, Value>;
+
+pub(crate) fn compound(value: &Value) -> Option<&Compound> {
+    if let Value::Compound(fields) = value {
+        Some(fields)
+    } else {
+        None
+    }
+}
+
+fn components(item: &Value) -> Option<&Compound> {
+    compound(compound(item)?.get(COMPONENTS)?).filter(|parts| !parts.is_empty())
+}
+
+pub(crate) fn settings<'a>(item: &'a Value, key: &str) -> Option<&'a Compound> {
+    let data = compound(components(item)?.get(CUSTOM_DATA)?)?;
+    compound(data.get(key)?)
+}
+
+fn ensure_compound<'a>(fields: &'a mut Compound, key: &str) -> Option<&'a mut Compound> {
+    if let Value::Compound(inner) = fields
+        .entry(key.into())
+        .or_insert_with(|| Value::Compound(HashMap::new()))
+    {
+        Some(inner)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn settings_mut<'a>(item: &'a mut Value, key: &str) -> Option<&'a mut Compound> {
+    let Value::Compound(fields) = item else {
+        return None;
+    };
+    ensure_compound(
+        ensure_compound(ensure_compound(fields, COMPONENTS)?, CUSTOM_DATA)?,
+        key,
+    )
+}
+
+pub(crate) fn same_item(sample: &Value, stack: &Value, exact: bool) -> bool {
+    item_id(sample).is_some_and(|id| item_id(stack) == Some(id))
+        && (!exact || components(sample) == components(stack))
+}
+
+fn is_filter_item(id: &str) -> bool {
+    matches!(id, list_filter::ID | attribute_filter::ID)
+}
+
+pub(crate) fn matches_sample(sample: &Value, stack: &Value, exact: bool, depth: u8) -> bool {
+    if depth == 0 {
+        return false;
+    }
+    let matched = match item_id(sample) {
+        Some(list_filter::ID) => list_filter::matches(sample, stack, depth - 1),
+        Some(attribute_filter::ID) => attribute_filter::matches(sample, stack),
+        _ => None,
+    };
+    matched.unwrap_or_else(|| same_item(sample, stack, exact))
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
@@ -83,16 +149,16 @@ impl Filter {
     }
 
     pub(crate) fn matches(&self, stack: &Value) -> bool {
-        self.stack
-            .as_ref()
-            .is_none_or(|sample| item_id(sample).is_none() || list_filter::matches(sample, stack))
+        self.stack.as_ref().is_none_or(|sample| {
+            item_id(sample).is_none() || matches_sample(sample, stack, false, MAX_NESTED_FILTERS)
+        })
     }
 
     fn installed_item(&self) -> Option<Vec<u8>> {
         let stack = self
             .stack
             .as_ref()
-            .filter(|stack| item_id(stack) == Some(list_filter::ID))?;
+            .filter(|stack| item_id(stack).is_some_and(is_filter_item))?;
         fastnbt::to_bytes(stack).ok()
     }
 
@@ -138,7 +204,7 @@ impl Filter {
             }
             self.stack = item.map(|stack| with_count(stack, 1));
             if let Some(item) = item {
-                if !context.creative && item_id(item) == Some(list_filter::ID) {
+                if !context.creative && item_id(item).is_some_and(is_filter_item) {
                     context.stack.shrink(1);
                 }
                 if self.exact() {

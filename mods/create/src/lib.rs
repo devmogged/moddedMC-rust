@@ -29,6 +29,7 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
+mod attribute_filter;
 mod basin;
 pub mod basin_inventory;
 mod bearing;
@@ -250,6 +251,18 @@ impl Mod for Create {
                     },
                 )?;
         }
+        ITEMS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add_item(
+                registry,
+                &Item {
+                    id: "create:brass_nugget",
+                    display_name: "Brass Nugget",
+                    carrier: "minecraft:iron_nugget",
+                    model: "create:item/brass_nugget",
+                },
+            )?;
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         crafter::register(*content, registry)?;
@@ -348,6 +361,7 @@ impl Mod for Create {
         interaction.on_item_use(registry, item_use)?;
         sandpaper::register(registry)?;
         list_filter::register(registry)?;
+        attribute_filter::register(registry)?;
         interaction.on_vanilla_use_on_block(registry, manual_application::use_on_block)?;
         interaction.on_use_block(registry, use_block)?;
         interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
@@ -2016,6 +2030,7 @@ fn validate_kinetic_placement(context: &UseOnBlock<'_>) -> UseResult {
 fn item_use(context: &mut ItemUse<'_>) -> ItemUseResult {
     match context.item {
         list_filter::ID => list_filter::use_item(context),
+        attribute_filter::ID => attribute_filter::use_item(context),
         _ => sandpaper::item_use(context),
     }
 }

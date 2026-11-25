@@ -119,6 +119,12 @@ Click the filter plate on a Brass Funnel or Smart Chute with the configured List
 
 The [List Filter scenario](../../tests/scenarios/create-list-filter.txt) crafts and edits a filter, installs it in a Smart Chute, and verifies both modes, exact component matching, and recovery after restart. In stock Java 26.3, check the action bar while editing the list, the installed filter on the side plate, and that a recovered filter shows the same settings.
 
+### Attribute Filter
+
+Craft a Brass Ingot into nine Brass Nuggets. Put wool between two Brass Nuggets to craft an Attribute Filter. Hold the filter in your main hand and a sample in your offhand. Sneak-use in the air to cycle through the sample's item tags (`#minecraft:coals`, for example) and mod source (`@create`). Release sneak and use again to add the selected rule. Repeat to invert it, then repeat again to remove it. With an empty offhand, sneak-use to cycle between **Allow any**, **Allow all**, and **Deny any**. Use without sneaking to read the current rules.
+
+Install and recover it on a filter plate as you would a List Filter. The [Attribute Filter scenario](../../tests/scenarios/create-attribute-filter.txt) applies coal's tag to charcoal and matches a second item by its source, including after restart. In stock Java 26.3, cycle the coal sample between its tags and confirm the action bar shows the selected rule, then install it and try a coal, charcoal and gold mix.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

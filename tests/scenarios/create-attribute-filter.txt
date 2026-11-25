@@ -1,0 +1,181 @@
+# Craft brass nuggets and an Attribute Filter, then sort by item tag and source.
+mods target\mods\create.mmc
+start
+expect registered content item create:attribute_filter
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2601.5 105 2600.5 0 0
+wait 3
+cmd fill 2597 101 2597 2606 109 2606 minecraft:air
+cmd fill 2597 100 2597 2606 100 2606 minecraft:stone
+cmd tp tester 2601.5 101 2600.5 0 0
+cmd gamemode survival tester
+cmd setblock 2602 101 2600 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:brass_ingot
+cmd item replace entity tester hotbar.1 with minecraft:white_wool
+wait 0.5
+bot use 2602 101 2600 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 2 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:brass_nugget 0
+wait 0.5
+expect Found 7 matching item
+cmd clear tester create:attribute_filter 0
+wait 0.5
+expect Found 1 matching item
+bot hotbar 1
+cmd item replace entity tester weapon.offhand with minecraft:coal 4
+wait 0.5
+bot use-item main
+wait 0.5
+expect Added #minecraft:coals - Allow any - 1 rules
+cmd data get entity tester Inventory[{Slot:-106b}].count
+wait 0.5
+expect entity data: 4$
+cmd item replace entity tester weapon.offhand with create:filter
+wait 0.5
+bot use-item main
+wait 0.5
+expect Added @create - Allow any - 2 rules
+cmd item replace entity tester weapon.offhand with minecraft:air
+
+cmd setblock 2601 100 2602 minecraft:barrel
+cmd setblock 2602 101 2602 minecraft:redstone_block
+cmd setblock 2601 101 2602 create:smart_chute[powered=true]
+cmd setblock 2601 102 2602 minecraft:chest
+wait 0.5
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:attribute_filter - Up to 64
+cmd clear tester create:attribute_filter 0
+wait 0.5
+expect No items were found
+cmd item replace block 2601 102 2602 container.0 with minecraft:gold_ingot 4
+cmd item replace block 2601 102 2602 container.1 with minecraft:charcoal 3
+cmd item replace block 2601 102 2602 container.2 with create:andesite_alloy 2
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+bot hotbar 1
+cmd data get block 2601 101 2602 Filter.id
+wait 0.5
+expect block data: "create:attribute_filter"
+cmd setblock 2602 101 2602 minecraft:air
+wait 3
+cmd data get block 2601 100 2602 Items[{Slot:0b}].id
+wait 0.5
+expect block data: "minecraft:charcoal"
+cmd data get block 2601 100 2602 Items[{Slot:1b}].id
+wait 0.5
+expect block data: "create:andesite_alloy"
+cmd data get block 2601 102 2602 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 4$
+
+cmd setblock 2602 101 2602 minecraft:redstone_block
+bot input sneak
+wait 0.25
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect any item - Up to 64
+bot use-item main
+wait 0.5
+expect Allow all - 2 rules
+bot input none
+wait 0.25
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:attribute_filter - Up to 64
+cmd item replace block 2601 102 2602 container.1 with minecraft:charcoal
+cmd item replace block 2601 102 2602 container.2 with create:andesite_alloy
+cmd setblock 2602 101 2602 minecraft:air
+wait 2
+cmd data get block 2601 102 2602 Items[{Slot:1b}].id
+wait 0.5
+expect block data: "minecraft:charcoal"
+cmd data get block 2601 102 2602 Items[{Slot:2b}].id
+wait 0.5
+expect block data: "create:andesite_alloy"
+
+cmd setblock 2602 101 2602 minecraft:redstone_block
+bot input sneak
+wait 0.25
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect any item - Up to 64
+bot input none
+cmd item replace entity tester weapon.offhand with create:filter
+wait 0.5
+bot use-item main
+wait 0.5
+expect Inverted @create - Allow all - 2 rules
+cmd item replace entity tester weapon.offhand with minecraft:air
+wait 0.5
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:attribute_filter - Up to 64
+cmd setblock 2602 101 2602 minecraft:air
+wait 2
+cmd data get block 2601 100 2602 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 4$
+cmd data get block 2601 102 2602 Items[{Slot:2b}].id
+wait 0.5
+expect block data: "create:andesite_alloy"
+
+cmd setblock 2602 101 2602 minecraft:redstone_block
+bot input sneak
+wait 0.25
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect any item - Up to 64
+bot use-item main
+wait 0.5
+expect Deny any - 2 rules
+bot input none
+wait 0.25
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:attribute_filter - Up to 64
+cmd setblock 2602 101 2602 minecraft:air
+wait 2
+cmd data get block 2601 100 2602 Items[{Slot:1b}].count
+wait 0.5
+expect block data: 3$
+cmd data get block 2601 102 2602 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 4$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
