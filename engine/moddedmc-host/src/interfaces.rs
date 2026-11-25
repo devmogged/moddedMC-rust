@@ -84,6 +84,10 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         (abi::MOB_AI, 1) => ptr::from_ref(&crate::mob_ai::MOB_AI).cast(),
         (abi::RESOURCES, 1) => ptr::from_ref(&crate::resources::RESOURCES).cast(),
         (abi::SAVED_DATA, 1) => ptr::from_ref(&crate::saved_data::SAVED_DATA).cast(),
+        (abi::PLAYER_DEATH, 1) => {
+            native::request_pre_world();
+            ptr::from_ref(&crate::player_death::PLAYER_DEATH).cast()
+        }
         (abi::SERVICES, 1) => ptr::from_ref(&crate::services::SERVICES).cast(),
         (abi::CONTAINERS, 1) => ptr::from_ref(&crate::containers::CONTAINERS).cast(),
         (abi::ITEM_INPUT, 1) => ptr::from_ref(&crate::content::ITEM_INPUT).cast(),

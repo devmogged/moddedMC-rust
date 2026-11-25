@@ -204,17 +204,37 @@ unsafe extern "C" fn read(raw: WorldRef, handle: u64, out: Sink) -> bool {
 }
 
 unsafe extern "C" fn write(raw: WorldRef, handle: u64, value: Str) -> bool {
+    // SAFETY: the ABI borrows the value for this call.
+    unsafe { write_value(raw, handle, value, None) }
+}
+
+pub unsafe fn commit_claim(raw: WorldRef, owner: &str, handle: u64, value: Str) -> bool {
+    // SAFETY: the caller keeps the world and value live during the claim.
+    unsafe { write_value(raw, handle, value, Some(owner)) }
+}
+
+unsafe fn write_value(raw: WorldRef, handle: u64, value: Str, owner: Option<&str>) -> bool {
     if value.len > abi::MAX_SAVED_DATA_BYTES {
         return false;
     }
     let Some(key) = keys().get(&handle).cloned() else {
         return false;
     };
+    if let Some(owner) = owner
+        && !key
+            .stored
+            .split_once(':')
+            .is_some_and(|(registered, _)| registered == owner)
+    {
+        return false;
+    }
     let Some(path) = data_path(raw) else {
         return false;
     };
-    // SAFETY: the mod-owned data are borrowed only for the call.
-    let data = unsafe { value.bytes() }.to_vec();
+    // SAFETY: the supplied bytes live through this synchronous write.
+    let value = unsafe { value.bytes() };
+    let committed = owner.is_some();
+    let _flush = committed.then(|| FLUSH.lock().unwrap_or_else(PoisonError::into_inner));
     let mut all = saves();
     let Loaded::Ready(save) = get_or_load(&mut all, &path) else {
         return false;
@@ -229,13 +249,37 @@ unsafe extern "C" fn write(raw: WorldRef, handle: u64, value: Str) -> bool {
         key.stored.len() + 7 // tag ID + name length + array length
     };
     // Match the actual on-disk NBT byte bound, including metadata and root framing.
-    if encoded_size(&save.values) - current + data.len() + new_entry_overhead > MAX_TOTAL_BYTES {
+    if encoded_size(&save.values) - current + value.len() + new_entry_overhead > MAX_TOTAL_BYTES {
         return false;
     }
-    save.values.insert(key.stored, data);
-    save.dirty = true;
+    if committed {
+        if let Err(error) = replace_committed(&mut save.values, &path, key.stored, value.to_vec()) {
+            tracing::error!("moddedmc: cannot commit {}: {error}", path.display());
+            return false;
+        }
+    } else {
+        save.values.insert(key.stored, value.to_vec());
+    }
+    save.dirty = !committed;
     save.revision = save.revision.wrapping_add(1);
     true
+}
+
+fn replace_committed(
+    values: &mut HashMap<String, Vec<u8>>,
+    path: &Path,
+    key: String,
+    bytes: Vec<u8>,
+) -> std::io::Result<()> {
+    let previous = values.insert(key.clone(), bytes);
+    if let Err(error) = persist(path, values) {
+        match previous {
+            Some(previous) => values.insert(key, previous),
+            None => values.remove(&key),
+        };
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn encoded_size(values: &HashMap<String, Vec<u8>>) -> usize {
@@ -306,7 +350,7 @@ pub fn flush_all() {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, encode, encoded_size, valid_name};
+    use super::{decode, encode, encoded_size, replace_committed, valid_name};
     use std::collections::HashMap;
 
     #[test]
@@ -338,5 +382,23 @@ mod tests {
         let mut trailing = encoded;
         trailing.push(1);
         assert!(decode(&trailing).is_err());
+    }
+
+    #[test]
+    fn failed_disk_commit_restores_the_previous_value() {
+        let blocker =
+            std::env::temp_dir().join(format!("moddedmc-save-blocker-{}", uuid::Uuid::new_v4()));
+        std::fs::File::create_new(&blocker).expect("create a file that blocks the save directory");
+        let original = HashMap::from([("fixture:claim".to_owned(), vec![1, 2])]);
+        let mut values = original.clone();
+        let result = replace_committed(
+            &mut values,
+            &blocker.join("data.nbt"),
+            "fixture:claim".to_owned(),
+            vec![3],
+        );
+        std::fs::remove_file(blocker).expect("remove the temporary blocking file");
+        assert!(result.is_err());
+        assert_eq!(values, original);
     }
 }

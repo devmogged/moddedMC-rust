@@ -35,6 +35,7 @@ pub mod items;
 pub mod lifecycle;
 pub mod mob_ai;
 pub mod mobs;
+pub mod player_death;
 pub mod resources;
 pub mod saved_data;
 pub mod services;

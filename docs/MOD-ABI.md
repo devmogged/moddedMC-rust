@@ -386,6 +386,33 @@ Create content-tick callback). Do not read a world in `Mod::start`; do not persi
 handles across restarts. Use SDK `saved_data::{require, SavedData, Key}`. A server lacking
 the named table fails the mod's `start` requirement without changing ABI major 1.
 
+## Player death drops (`moddedmc:player_death` v1)
+
+`on_drops(reg, callback)` stages one callback per mod. Call it through
+`player_death::require()` in `Mod::start` and
+`PlayerDeaths::on_drops` in `Mod::register`. The callback borrows the player,
+world, UUID, death position and a batch of saved ItemStack NBT. Slots
+0–8 are the hotbar, 9–35 are storage, 36 is feet, 37 is legs, 38 is chest,
+39 is head and 40 is the offhand. Use the world to query the death dimension.
+
+The host invokes the callback after removing the inventory stacks and
+releasing the inventory locks. Empty batches, retained inventories and
+items destroyed by Curse of Vanishing do not enter the callback. Call
+`Death::claim(key, record)` to save a record of the entire batch under
+one of the mod's saved-data keys. The host replaces the save file before
+committing the claim. A failed write restores the previous value and leaves
+the batch available. The first successful claim suppresses world drops and
+stops dispatch, even if the callback fails after it committed. If no mod
+claims the batch, the engine drops each stack normally. Callbacks for
+different players can overlap.
+
+The claim covers one live death event and its committed data can be read
+after a normal restart. Pumpkin saves player inventory and mod-owned data
+in separate files, so cross-file crash recovery requires a joint journal.
+
+`tests/scenarios/abi-player-death.txt` exercises accepted and declined
+claims, a failed write, keepInventory and saved data after a restart.
+
 ## Inter-mod services (`moddedmc:services` v1)
 
 Mods can publish immutable, process-lifetime `#[repr(C)]` function tables to other native

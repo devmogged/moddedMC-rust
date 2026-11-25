@@ -85,3 +85,15 @@ Source: `ServerConfig.java`. Check world-specific min-Y and Corelib storage befo
 - Commit hashes and request issue numbers are recorded in the coordination-board handoff.
 - **Not verified:** NeoForge original-server oracle, actual death capture, item transfers, menus, packets, entity spawning, save/reload on a real world, visuals, multiplayer permissions, world startup scenarios.
 - Next session: confirm the pending ABI request and its implementation, audit Corelib `Death` storage format and original jar against the Rust data model; then implement one death-to-corpse mechanic and a bot death/restart scenario. Do not claim M2/M3 parity from these policy tests.
+
+## Death-drop interface
+
+`moddedmc:player_death` now provides the saved inventory stacks by slot for
+one death. The host saves a successful claim before suppressing those drops.
+The fixture in `tests/scenarios/abi-player-death.txt` checks acceptance,
+decline, duplicate attempts, a rejected write, Curse of Vanishing,
+keepInventory, and both the player inventory and claimed record after restart.
+
+The gameplay port still uses its policy-only registration. The inventory menu
+and persistent entity are tracked in GitHub issues [#22](https://github.com/devmogged/moddedMC-rust/issues/22)
+and [#23](https://github.com/devmogged/moddedMC-rust/issues/23).

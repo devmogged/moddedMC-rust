@@ -1755,6 +1755,51 @@ mod saved_data_layout {
     }
 }
 
+/// A claim on the pending inventory drops from one player death.
+pub const PLAYER_DEATH: &str = "moddedmc:player_death";
+
+#[repr(C)]
+pub struct PlayerDeathStack {
+    pub slot: u32,
+    pub stack: Str,
+}
+
+#[repr(C)]
+pub struct PlayerDeathContext {
+    pub world: WorldRef,
+    pub player: PlayerRef,
+    pub player_uuid: [u8; 16],
+    pub position: [f64; 3],
+    pub drops: *const PlayerDeathStack,
+    pub count: usize,
+    /// Opaque handle for the current callback only.
+    pub transaction: *mut c_void,
+    /// Commit one value under a registered key owned by this mod and claim the pending drops.
+    pub claim: unsafe extern "C" fn(transaction: *mut c_void, key: u64, value: Str) -> bool,
+}
+
+pub type PlayerDeathCallback = unsafe extern "C" fn(context: *const PlayerDeathContext);
+
+#[repr(C)]
+pub struct PlayerDeathV1 {
+    pub size: usize,
+    /// One callback per mod. A committed claim stops dispatch.
+    pub on_drops: unsafe extern "C" fn(reg: Reg, callback: PlayerDeathCallback) -> i32,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+#[test]
+fn player_death_v1_layout() {
+    use std::mem::offset_of;
+
+    assert_eq!(size_of::<PlayerDeathV1>(), 16);
+    assert_eq!(size_of::<PlayerDeathStack>(), 24);
+    assert_eq!(offset_of!(PlayerDeathContext, position), 32);
+    assert_eq!(offset_of!(PlayerDeathContext, drops), 56);
+    assert_eq!(offset_of!(PlayerDeathContext, claim), 80);
+    assert_eq!(size_of::<PlayerDeathContext>(), 88);
+}
+
 /// Register process-lifetime, independently versioned C interface tables supplied by mods.
 pub const SERVICES: &str = "moddedmc:services";
 

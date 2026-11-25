@@ -109,7 +109,9 @@ async fn main() -> Result<(), String> {
                 .await
             }
             "look" | "hotbar" | "attack" | "interact" | "use-entity" | "inventory-click"
-            | "inventory-close" => actions::perform(&actions, &player, &writer, verb, rest).await,
+            | "inventory-close" | "respawn" => {
+                actions::perform(&actions, &player, &writer, verb, rest).await
+            }
             "move" if harness => actions::perform(&actions, &player, &writer, verb, rest).await,
             "physics" if harness && rest == "on" => {
                 Err("use physics manual in a frozen harness scenario".into())

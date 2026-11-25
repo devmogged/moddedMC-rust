@@ -23,6 +23,7 @@ mod load_order;
 mod mob_ai;
 mod mobs;
 mod native;
+mod player_death;
 mod resources;
 mod saved_data;
 mod services;
@@ -133,6 +134,7 @@ pub struct Staging<'a> {
     mobs: Vec<mobs::Registration>,
     mob_ai: std::collections::BTreeMap<String, mob_ai::TypeAi>,
     saved_keys: Vec<(u64, String)>,
+    player_death: Option<abi::PlayerDeathCallback>,
     services: Vec<services::Registration>,
 }
 
@@ -427,6 +429,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         mobs,
         ai,
         saved_keys,
+        player_death_callback,
         services,
     ) = {
         let registry = read(&HOST.registry);
@@ -444,6 +447,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             mobs: Vec::new(),
             mob_ai: std::collections::BTreeMap::new(),
             saved_keys: Vec::new(),
+            player_death: None,
             services: Vec::new(),
         };
         let result = module.register(&mut staging);
@@ -460,6 +464,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.mobs,
             staging.mob_ai,
             staging.saved_keys,
+            staging.player_death,
             staging.services,
         )
     };
@@ -496,6 +501,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     mobs::register(mobs);
     mob_ai::register(ai);
     saved_data::register(module.id, saved_keys);
+    player_death::register(module.id, player_death_callback);
     services::commit(services);
     lock(&HOST.commands).push(PendingCommands {
         module,
