@@ -388,6 +388,9 @@ pub fn event(world: World<'_>, funnels: &mut Funnels, states: &StateIds, event: 
             funnels.order.push(pos);
         }
     } else if let Some(funnel) = funnels.entries.remove(&pos) {
+        if event.reason == content::STATE_CHANGED {
+            funnel.data.filter.drop_item(world, pos);
+        }
         if let Some(display) = funnel.filter_display {
             belt_inventory::remove_display(world, &display);
         }

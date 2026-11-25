@@ -422,17 +422,7 @@ impl UseBlock<'_> {
 
     /// Show a status message to this player. Older hosts omit the message.
     pub fn action_bar(&self, text: &str) {
-        if self.api.size
-            >= std::mem::offset_of!(abi::InteractionV1, action_bar) + size_of::<usize>()
-        {
-            // SAFETY: the function is present and both arguments are borrowed for this call.
-            unsafe {
-                ((&raw const (*self.api.ptr).action_bar).read())(
-                    self.raw_player,
-                    abi::Str::from(text),
-                )
-            };
-        }
+        action_bar(self.api, self.raw_player, text);
     }
 
     /// Vanilla `Inventory.placeItemBackInInventory` with a saved stack; what doesn't fit drops.
@@ -486,9 +476,21 @@ pub struct ItemUse<'a> {
 }
 
 impl ItemUse<'_> {
+    /// Show a status message to this player. Older hosts omit the message.
+    pub fn action_bar(&self, text: &str) {
+        action_bar(self.api, self.raw_player, text);
+    }
+
     pub fn give(&self, stack: &[u8]) -> bool {
         // SAFETY: requiring ItemUse covers the earlier give field. The player and bytes are live.
         unsafe { ((&raw const (*self.api.ptr).give).read())(self.raw_player, abi::Str::new(stack)) }
+    }
+}
+
+fn action_bar(api: InterfacePrefix<abi::InteractionV1>, player: abi::EntityRef, text: &str) {
+    if api.size >= std::mem::offset_of!(abi::InteractionV1, action_bar) + size_of::<usize>() {
+        // SAFETY: the function is present and both arguments are borrowed for this call.
+        unsafe { ((&raw const (*api.ptr).action_bar).read())(player, abi::Str::from(text)) };
     }
 }
 

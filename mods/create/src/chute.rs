@@ -486,6 +486,9 @@ pub fn event(world: World<'_>, chutes: &mut Chutes, states: &StateIds, event: &C
     }
     if event.reason == content::UNLOADED || after.is_none() {
         if let Some(old) = chutes.entries.remove(&pos) {
+            if event.reason == content::STATE_CHANGED {
+                old.filter.drop_item(world, pos);
+            }
             old.remove(world, pos, event.reason != content::UNLOADED);
             chutes.order.retain(|other| *other != pos);
         }

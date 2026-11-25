@@ -18,7 +18,8 @@ use moddedmc_api::{
         self, ENTITY_LIVING, ENTITY_PLAYER, Entities, EntitiesExtension, Entity, EntityChange,
     },
     interaction::{
-        self, BlockUseResult, Interaction, InteractionExtension, UseBlock, UseOnBlock, UseResult,
+        self, BlockUseResult, Interaction, InteractionExtension, ItemUse, ItemUseResult, UseBlock,
+        UseOnBlock, UseResult,
     },
     item_input::{self, ItemInput},
     items::{self, Item, Items},
@@ -58,6 +59,7 @@ mod hand_crank;
 mod harvester;
 mod kinetics;
 mod large_water_wheel;
+mod list_filter;
 mod manual_application;
 mod millstone;
 mod mixer;
@@ -343,8 +345,9 @@ impl Mod for Create {
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?;
         interaction.on_use_on_block(registry, use_on_block)?;
-        interaction.on_item_use(registry, sandpaper::item_use)?;
+        interaction.on_item_use(registry, item_use)?;
         sandpaper::register(registry)?;
+        list_filter::register(registry)?;
         interaction.on_vanilla_use_on_block(registry, manual_application::use_on_block)?;
         interaction.on_use_block(registry, use_block)?;
         interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
@@ -2007,6 +2010,13 @@ fn validate_kinetic_placement(context: &UseOnBlock<'_>) -> UseResult {
         UseResult::Pass
     } else {
         UseResult::Fail
+    }
+}
+
+fn item_use(context: &mut ItemUse<'_>) -> ItemUseResult {
+    match context.item {
+        list_filter::ID => list_filter::use_item(context),
+        _ => sandpaper::item_use(context),
     }
 }
 

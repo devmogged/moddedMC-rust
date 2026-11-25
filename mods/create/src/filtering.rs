@@ -1,12 +1,13 @@
-//! Create's single-item filter settings and the stock-client value plate interaction.
+//! Create's filter settings and the stock-client value plate interaction.
 
 use fastnbt::Value;
-use moddedmc_api::{content::World, interaction::UseBlock, stacks::ItemDisplay};
+use moddedmc_api::{Pos, content::World, interaction::UseBlock, stacks::ItemDisplay};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     DISPLAYS, STACKS, WRENCH,
     belt_inventory::{TransportedItemStack, remove_display, render_stack, with_count},
+    list_filter,
     processing_recipes::item_id,
 };
 
@@ -84,8 +85,22 @@ impl Filter {
     pub(crate) fn matches(&self, stack: &Value) -> bool {
         self.stack
             .as_ref()
-            .and_then(item_id)
-            .is_none_or(|id| item_id(stack) == Some(id))
+            .is_none_or(|sample| item_id(sample).is_none() || list_filter::matches(sample, stack))
+    }
+
+    fn installed_item(&self) -> Option<Vec<u8>> {
+        let stack = self
+            .stack
+            .as_ref()
+            .filter(|stack| item_id(stack) == Some(list_filter::ID))?;
+        fastnbt::to_bytes(stack).ok()
+    }
+
+    pub(crate) fn drop_item(&self, world: World<'_>, pos: Pos) {
+        if let (Some(&stacks), Some(bytes)) = (STACKS.get(), self.installed_item()) {
+            let center = [pos.x as f64 + 0.5, pos.y as f64 + 0.5, pos.z as f64 + 0.5];
+            stacks.spawn(world, center, [0.0; 3], &bytes);
+        }
     }
 
     fn max_amount(&self) -> i32 {
@@ -101,7 +116,7 @@ impl Filter {
 
     pub(crate) fn configure(
         &mut self,
-        context: &UseBlock<'_>,
+        context: &mut UseBlock<'_>,
         item: Option<&Value>,
         side: f32,
         count_visible: bool,
@@ -115,13 +130,21 @@ impl Filter {
         if (2..=5).contains(&context.face) {
             self.face = Some(context.face);
         }
-        if let Some(item) = item {
-            self.stack = Some(with_count(item, 1));
-            if self.exact() {
-                self.filter_amount = self.amount().min(self.max_amount());
+        if item.is_some() || context.sneaking || !count_visible {
+            if let Some(bytes) = self.installed_item()
+                && !context.give(&bytes)
+            {
+                return true;
             }
-        } else if context.sneaking || !count_visible {
-            self.stack = None;
+            self.stack = item.map(|stack| with_count(stack, 1));
+            if let Some(item) = item {
+                if !context.creative && item_id(item) == Some(list_filter::ID) {
+                    context.stack.shrink(1);
+                }
+                if self.exact() {
+                    self.filter_amount = self.amount().min(self.max_amount());
+                }
+            }
         } else if side.abs() < 0.05 {
             self.up_to = i8::from(self.up_to == 0);
             self.filter_amount = self.amount().min(self.max_amount());

@@ -111,6 +111,14 @@ Stack a Brass Sheet, Chute and Electron Tube to craft a Smart Chute. Mount it ve
 
 The [Smart Chute scenario](../../tests/scenarios/create-smart-chute.txt) crafts the chute, waits for exactly three iron ingots, and restarts with the batch held under redstone. Removing power releases the three ingots and leaves the gold behind. In stock Java 26.3, check that the sample is visible on the side you clicked, that the chute changes appearance under redstone, and that reopening it releases one batch after restart.
 
+### List Filter
+
+Put wool between two iron nuggets in a crafting grid to make a List Filter. Hold it in the main hand and right-click in the air with a sample in the offhand to add or remove that sample. The sample stays in the offhand. Sneak-use with a sample to toggle component matching, such as requiring the same tool damage. Sneak-use with the offhand empty to switch between an allow list and a deny list. Use with both the offhand empty and sneak released to read the current mode and a summary of the samples. Craft the filter by itself to reset it.
+
+Click the filter plate on a Brass Funnel or Smart Chute with the configured List Filter to install it. Sneak-click the plate with empty hands to take it back. A replaced filter goes back into your inventory, and breaking the machine drops its installed filter with its settings intact.
+
+The [List Filter scenario](../../tests/scenarios/create-list-filter.txt) crafts and edits a filter, installs it in a Smart Chute, and verifies both modes, exact component matching, and recovery after restart. In stock Java 26.3, check the action bar while editing the list, the installed filter on the side plate, and that a recovered filter shows the same settings.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
@@ -129,7 +137,7 @@ The [Depot bot scenario](../../tests/scenarios/create-depot.txt) checks placemen
 3. Put one chute over a running belt and one at the outlet, with a Depot below the outlet chute. Watch a stack travel from the top chute onto the belt and reappear on the Depot.
 4. Place a chute against the side of an existing chute. It should attach diagonally one level up and feed the chute you clicked. Capture the diagonal placement and the belt handoff.
 
-The [Chute bot scenario](../../tests/scenarios/create-chute.txt) exercises these paths. Chute fan airflow, smart chutes, encasing and the original advancement effects are pending.
+The [Chute bot scenario](../../tests/scenarios/create-chute.txt) exercises these paths. Chute fan airflow, encasing and the original advancement effects are pending.
 
 ### Andesite funnels
 
@@ -138,7 +146,7 @@ The [Chute bot scenario](../../tests/scenarios/create-chute.txt) exercises these
 3. Power the sending funnel with redstone. Transfers should pause and then resume when power is removed. On a normal upward collector, insert a stack by hand and check the container below it.
 4. Feed a Depot from a blocked chute through a belt funnel. Capture the belt-to-barrel transfer and pause in a recording.
 
-The [funnel bot scenario](../../tests/scenarios/create-funnel.txt) checks these transfers and the chest, barrel, furnace and hopper inventory paths. Brass filters, package handling and the animated flap are deferred. The transfer sounds play through the stock client.
+The [funnel bot scenario](../../tests/scenarios/create-funnel.txt) checks these transfers and the chest, barrel, furnace and hopper inventory paths. Package handling and the animated flap are pending. The transfer sounds play through the stock client.
 
 ### Mechanical Press
 
