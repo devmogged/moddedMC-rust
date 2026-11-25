@@ -129,6 +129,8 @@ Coal also offers `furnace_fuel`, which matches sticks. Wet sponge offers `smelta
 
 Enchanted books can select a specific enchantment, including when the enchantment is on a tool. Written books can select their author or copy generation. Shulker Boxes offer their current fill level. Check that an Efficiency book's rule accepts a tool with Efficiency and that a partly filled shulker's rule accepts a partly filled box of another color. The [contents scenario](../../tests/scenarios/create-attribute-filter-contents.txt) also checks book authors and copies after restart.
 
+A sample renamed at an anvil offers its exact custom name. A dyed item or firework offers its color, including a firework's fade color. Try a red rule with wool, dye and a firework, then use two different items renamed to the same text to check name matching. The [name and color scenario](../../tests/scenarios/create-attribute-filter-style.txt) checks both rules after restart.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

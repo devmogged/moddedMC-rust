@@ -14,6 +14,28 @@ const HAS_ENCHANT: &str = "has_enchant";
 const BOOK_AUTHOR: &str = "book_author";
 const BOOK_COPY: &str = "book_copy";
 const SHULKER_FILL: &str = "shulker_fill";
+const HAS_NAME: &str = "has_name";
+const COLOR: &str = "color";
+
+// Vanilla DyeColor names and their firework colors.
+const DYE_COLORS: [(&str, i32); 16] = [
+    ("white", 15_790_320),
+    ("orange", 15_435_844),
+    ("magenta", 12_801_229),
+    ("light_blue", 6_719_955),
+    ("yellow", 14_602_026),
+    ("lime", 4_312_372),
+    ("pink", 14_188_952),
+    ("gray", 4_408_131),
+    ("light_gray", 11_250_603),
+    ("cyan", 2_651_799),
+    ("purple", 8_073_150),
+    ("blue", 2_437_522),
+    ("brown", 5_320_730),
+    ("green", 3_887_386),
+    ("red", 11_743_532),
+    ("black", 1_973_019),
+];
 
 type Test = fn(&Stack<'_>) -> bool;
 
@@ -147,6 +169,60 @@ impl<'a> Stack<'a> {
         Some((author, generation))
     }
 
+    fn name(&self) -> Option<String> {
+        let Value::String(name) = self.component("minecraft:custom_name")? else {
+            return None;
+        };
+        (!name.is_empty()).then_some(name)
+    }
+
+    fn colors(&self) -> Vec<&'static str> {
+        let Some(id) = item_id(self.item) else {
+            return Vec::new();
+        };
+        if let Some(tags) = TAGS.get()
+            && tags.contains("item", "c:dyes", id)
+            && let Some(dye) = DYE_COLORS
+                .iter()
+                .map(|&(name, _)| name)
+                .find(|name| tags.contains("item", &format!("c:dyes/{name}"), id))
+        {
+            return vec![dye];
+        }
+        let path = id.split_once(':').map_or(id, |(_, path)| path);
+        let mut colors: Vec<_> = DYE_COLORS
+            .iter()
+            .map(|&(name, _)| name)
+            .filter(|name| {
+                path.strip_prefix(name)
+                    .is_some_and(|suffix| suffix.starts_with('_'))
+            })
+            .collect();
+        if !matches!(id, "minecraft:firework_rocket" | "minecraft:firework_star") {
+            return colors;
+        }
+        let fireworks = self.component("minecraft:fireworks");
+        let Some(Value::List(explosions)) = fireworks
+            .as_ref()
+            .and_then(compound)
+            .and_then(|fields| fields.get("explosions"))
+        else {
+            return colors;
+        };
+        for explosion in explosions.iter().filter_map(compound) {
+            for key in ["colors", "fade_colors"] {
+                if let Some(Value::IntArray(rgb)) = explosion.get(key) {
+                    for (dye, value) in DYE_COLORS {
+                        if rgb.contains(&value) && !colors.contains(&dye) {
+                            colors.push(dye);
+                        }
+                    }
+                }
+            }
+        }
+        colors
+    }
+
     fn shulker_fill(&self) -> Option<&'static str> {
         let id = item_id(self.item)?;
         if !TAGS.get()?.contains("item", "minecraft:shulker_boxes", id) {
@@ -202,6 +278,8 @@ impl<'a> Stack<'a> {
                     .book()
                     .is_some_and(|(_, generation)| expected.parse::<i32>() == Ok(generation)),
                 SHULKER_FILL => self.shulker_fill() == Some(expected),
+                HAS_NAME => self.name().is_some_and(|name| name == expected),
+                COLOR => self.colors().contains(&expected),
                 _ => false,
             };
         }
@@ -232,5 +310,13 @@ impl<'a> Stack<'a> {
         if let Some(level) = self.shulker_fill() {
             options.push(format!("{SHULKER_FILL}={level}"));
         }
+        if let Some(name) = self.name() {
+            options.push(format!("{HAS_NAME}={name}"));
+        }
+        options.extend(
+            self.colors()
+                .into_iter()
+                .map(|color| format!("{COLOR}={color}")),
+        );
     }
 }

@@ -8,6 +8,7 @@
 #   cmd <console line>       send a console line
 #   wait <seconds>
 #   expect <regex>           fail unless a log line since the previous expect/start matches
+#   expect-all <regex> && <regex>  require each pattern in the same log window, in any order
 #   reject <regex>           fail if any log line since the previous expect/start matches
 #   stop                     send stop and wait for exit
 #   botstart <name>          join with moddedmc-bot (its output goes into the log)
@@ -134,13 +135,23 @@ foreach ($raw in Get-Content $Scenario) {
             Write-Host "  $line"
         }
         'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000)) }
-        'expect' {
-            # Consume up to the first match only, so the next expect can match later lines.
+        { $_ -in 'expect', 'expect-all' } {
+            $patterns = if ($_ -eq 'expect-all') { $arg -split ' && ' } else { $arg }
             $new = @(Get-NewLines)
-            $i = 0
-            while ($i -lt $new.Count -and $new[$i] -notmatch $arg) { $i++ }
-            if ($i -lt $new.Count) { Write-Host "  ok: $($new[$i])" -ForegroundColor Green; $script:cursor += $i + 1 }
-            else { Write-Host "  FAIL: no line matches /$arg/" -ForegroundColor Red; $failures++ }
+            $consumed = 0
+            foreach ($pattern in $patterns) {
+                $i = 0
+                while ($i -lt $new.Count -and $new[$i] -notmatch $pattern) { $i++ }
+                if ($i -lt $new.Count) {
+                    Write-Host "  ok: $($new[$i])" -ForegroundColor Green
+                    $consumed = [Math]::Max($consumed, $i + 1)
+                } else {
+                    Write-Host "  FAIL: no line matches /$pattern/" -ForegroundColor Red
+                    $failures++
+                }
+            }
+            # Keep later log lines for the next check.
+            $script:cursor += $consumed
         }
         'reject' {
             $hits = @(Get-NewLines | Where-Object { $_ -match $arg })

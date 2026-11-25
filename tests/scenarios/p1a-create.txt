@@ -6,8 +6,7 @@ expect registered content block create:shaft
 expect serving resource pack on port
 botstart tester
 wait 3
-expect \[bot\] fetched content resource pack SHA-1 [0-9a-f]{40}
-expect \[bot\] joined as tester
+expect-all \[bot\] fetched content resource pack SHA-1 [0-9a-f]{40} && \[bot\] joined as tester
 cmd op tester
 cmd gamemode creative tester
 cmd tp tester 1025.5 101 1023.5 0 90
@@ -66,8 +65,7 @@ stop
 start
 botstart tester
 wait 3
-expect \[bot\] fetched content resource pack SHA-1 [0-9a-f]{40}
-expect \[bot\] joined as tester
+expect-all \[bot\] fetched content resource pack SHA-1 [0-9a-f]{40} && \[bot\] joined as tester
 cmd tp tester 1025.5 101 1023.5 0 90
 wait 3
 cmd kinetics 1025 100 1025

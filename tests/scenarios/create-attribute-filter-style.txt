@@ -1,0 +1,89 @@
+# A custom name can match a different item, and a firework color can match a dye or block.
+mods target\mods\create.mmc
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2601.5 105 2600.5 0 0
+wait 3
+cmd fill 2597 101 2597 2606 109 2606 minecraft:air
+cmd fill 2597 100 2597 2606 100 2606 minecraft:stone
+cmd tp tester 2601.5 101 2600.5 0 0
+cmd gamemode survival tester
+cmd item replace entity tester weapon.mainhand with create:attribute_filter
+cmd item replace entity tester weapon.offhand with minecraft:paper[minecraft:custom_name="Sorting Token"]
+bot input sneak
+wait 0.5
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+expect Attribute [0-9]+/[0-9]+ - has_name=Sorting Token
+bot input none
+wait 0.25
+bot use-item main
+wait 0.5
+expect Added has_name=Sorting Token - Allow any - 1 rules
+
+cmd item replace entity tester weapon.offhand with minecraft:firework_rocket[minecraft:fireworks={explosions:[{shape:"small_ball",colors:[I;11743532]}]}]
+bot input sneak
+wait 0.5
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+expect Attribute [0-9]+/[0-9]+ - color=red
+bot input none
+wait 0.25
+bot use-item main
+wait 0.5
+expect Added color=red - Allow any - 2 rules
+cmd item replace entity tester weapon.offhand with minecraft:air
+
+cmd setblock 2601 100 2602 minecraft:barrel
+cmd setblock 2602 101 2602 minecraft:redstone_block
+cmd setblock 2601 101 2602 create:smart_chute[powered=true]
+cmd setblock 2601 102 2602 minecraft:chest
+wait 0.5
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:attribute_filter - Up to 64
+cmd item replace block 2601 102 2602 container.0 with minecraft:blue_dye
+cmd item replace block 2601 102 2602 container.1 with minecraft:paper[minecraft:custom_name="sorting token"]
+cmd item replace block 2601 102 2602 container.2 with minecraft:ender_pearl[minecraft:custom_name="Sorting Token"]
+cmd item replace block 2601 102 2602 container.3 with minecraft:red_wool
+cmd item replace block 2601 102 2602 container.4 with minecraft:red_dye
+cmd item replace block 2601 102 2602 container.5 with minecraft:firework_rocket[minecraft:fireworks={explosions:[{shape:"small_ball",colors:[I;2437522],fade_colors:[I;11743532]}]}]
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd setblock 2602 101 2602 minecraft:air
+wait 4
+cmd data get block 2601 100 2602 Items[{Slot:0b}].id
+wait 0.5
+expect block data: "minecraft:ender_pearl"
+cmd data get block 2601 100 2602 Items[{Slot:1b}].id
+wait 0.5
+expect block data: "minecraft:red_wool"
+cmd data get block 2601 100 2602 Items[{Slot:2b}].id
+wait 0.5
+expect block data: "minecraft:red_dye"
+cmd data get block 2601 100 2602 Items[{Slot:3b}].id
+wait 0.5
+expect block data: "minecraft:firework_rocket"
+cmd data get block 2601 102 2602 Items[{Slot:0b}].id
+wait 0.5
+expect block data: "minecraft:blue_dye"
+cmd data get block 2601 102 2602 Items[{Slot:1b}].id
+wait 0.5
+expect block data: "minecraft:paper"
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
