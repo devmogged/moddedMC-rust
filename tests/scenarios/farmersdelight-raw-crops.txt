@@ -1,0 +1,96 @@
+# Farmer's Delight 1.3.4 raw crop consumption and crate crafting.
+mods target\mods\farmersdelight.mmc
+start
+expect registered content item farmersdelight:cabbage
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5 0 90
+wait 3
+cmd fill 1020 100 1018 1030 105 1030 minecraft:air
+cmd fill 1020 99 1018 1030 99 1030 minecraft:stone
+cmd setblock 1025 100 1025 minecraft:crafting_table
+cmd recipe give tester farmersdelight:tomato_crate
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester farmersdelight:onion_crate
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester farmersdelight:rice_bag
+wait 0.5
+expect Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with farmersdelight:cabbage 9
+wait 0.5
+bot use 1025 100 1025
+wait 0.5
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 4 right
+wait 0.25
+bot inventory-click 5 right
+wait 0.25
+bot inventory-click 6 right
+wait 0.25
+bot inventory-click 7 right
+wait 0.25
+bot inventory-click 8 right
+wait 0.25
+bot inventory-click 9 right
+wait 0.25
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester farmersdelight:cabbage_crate 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester farmersdelight:cabbage 0
+wait 0.5
+expect No items were found
+# Unpack the crate back into the same nine cabbage items.
+cmd clear tester farmersdelight:cabbage_crate 1
+wait 0.5
+expect Removed 1
+cmd item replace entity tester hotbar.0 with farmersdelight:cabbage_crate
+wait 0.5
+bot use 1025 100 1025
+wait 0.5
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 left
+wait 0.5
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester farmersdelight:cabbage 9
+wait 0.5
+expect Removed 9
+cmd clear tester farmersdelight:cabbage_crate 0
+wait 0.5
+expect No items were found
+cmd effect give tester minecraft:hunger 5 255 true
+wait 5.5
+cmd item replace entity tester hotbar.0 with farmersdelight:cabbage
+wait 0.5
+bot use-item main
+wait 2.5
+cmd data get entity tester foodLevel
+wait 0.5
+expect tester has the following entity data: 2$
+cmd data get entity tester foodSaturationLevel
+wait 0.5
+expect tester has the following entity data: 1\.6f$
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36 air 0
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

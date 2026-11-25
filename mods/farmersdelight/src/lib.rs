@@ -1,20 +1,22 @@
-//! Farmer's Delight 1.3.4 basic ingredients and storage crates.
+//! Farmer's Delight 1.3.4 raw food, ingredients and storage crates.
 //! Source: ModBlocks and ModItems in vectorwing/FarmersDelight branch 1.21.
-//! The four ingredients are basic items; the crates are oak-plank physical blocks.
 
 pub mod cutting;
 pub mod food_values;
 
-use std::sync::OnceLock;
+use std::{collections::HashMap, sync::OnceLock};
+
+use fastnbt::Value;
 
 use moddedmc_api::{
     InterfaceUnavailable, Mod, RegistrationError, Registry,
     content::{self, Block, Content, State},
-    items::{self, Item, Items},
+    items::{self, Item, ItemDefaults, Items},
 };
 
 static CONTENT: OnceLock<Content> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
+static ITEM_DEFAULTS: OnceLock<ItemDefaults> = OnceLock::new();
 
 const STORAGE_BLOCKS: [(&str, &str, &str); 7] = [
     ("carrot_crate", "Carrot Crate", "minecraft:oak_planks"),
@@ -26,12 +28,67 @@ const STORAGE_BLOCKS: [(&str, &str, &str); 7] = [
     ("rice_bag", "Rice Bag", "minecraft:white_wool"),
 ];
 
-const INGREDIENTS: [(&str, &str); 4] = [
+const INGREDIENTS: [(&str, &str); 5] = [
     ("straw", "Straw"),
     ("canvas", "Canvas"),
     ("tree_bark", "Tree Bark"),
     ("rice_panicle", "Rice Panicle"),
+    // shortcut: rice planting needs the rice crop block.
+    ("rice", "Rice"),
 ];
+
+fn register_raw_food(
+    defaults: ItemDefaults,
+    registry: &mut Registry<'_>,
+    name: &str,
+    display_name: &str,
+    profile_name: &str,
+) -> Result<(), RegistrationError> {
+    let profile = food_values::profile(profile_name).ok_or(RegistrationError::InvalidDefinition)?;
+    let nutrition = profile
+        .nutrition
+        .ok_or(RegistrationError::InvalidDefinition)?;
+    let modifier = profile
+        .saturation_modifier
+        .ok_or(RegistrationError::InvalidDefinition)?;
+    // The 1.21.1 builder stores saturation as twice nutrition times its modifier.
+    let food = Value::Compound(HashMap::from([
+        ("nutrition".into(), Value::Int(nutrition)),
+        (
+            "saturation".into(),
+            Value::Float(nutrition as f32 * modifier * 2.0),
+        ),
+    ]));
+    let carrier = "minecraft:paper";
+    let stack = Value::Compound(HashMap::from([
+        ("id".into(), Value::String(carrier.into())),
+        (
+            "components".into(),
+            Value::Compound(HashMap::from([
+                ("minecraft:food".into(), food),
+                (
+                    "minecraft:consumable".into(),
+                    Value::Compound(HashMap::from([
+                        ("consume_seconds".into(), Value::Float(1.6)),
+                        ("animation".into(), Value::String("eat".into())),
+                        ("has_consume_particles".into(), Value::Byte(1)),
+                    ])),
+                ),
+            ])),
+        ),
+    ]));
+    let nbt = fastnbt::to_bytes(&stack).map_err(|_| RegistrationError::InvalidDefinition)?;
+    defaults.add_item(
+        registry,
+        &Item {
+            id: &format!("farmersdelight:{name}"),
+            display_name,
+            carrier,
+            model: &format!("farmersdelight:item/{name}"),
+        },
+        &nbt,
+    )
+}
 
 struct FarmersDelight;
 
@@ -39,6 +96,7 @@ impl Mod for FarmersDelight {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let _ = CONTENT.set(content::require()?);
         let _ = ITEMS.set(items::require()?);
+        let _ = ITEM_DEFAULTS.set(items::require_defaults()?);
         Ok(())
     }
 
@@ -57,6 +115,17 @@ impl Mod for FarmersDelight {
                     model: &model,
                 },
             )?;
+        }
+        let defaults = *ITEM_DEFAULTS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        for (name, display_name, profile) in [
+            ("cabbage", "Cabbage", "CABBAGE"),
+            ("tomato", "Tomato", "TOMATO"),
+            // shortcut: onion planting needs the onion crop block.
+            ("onion", "Onion", "ONION"),
+        ] {
+            register_raw_food(defaults, registry, name, display_name, profile)?;
         }
         for (name, display_name, physical) in STORAGE_BLOCKS {
             let id = format!("farmersdelight:{name}");

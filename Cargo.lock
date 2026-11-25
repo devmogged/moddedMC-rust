@@ -372,6 +372,7 @@ dependencies = [
 name = "farmersdelight"
 version = "1.3.4"
 dependencies = [
+ "fastnbt",
  "moddedmc-api",
  "serde",
  "serde_json",

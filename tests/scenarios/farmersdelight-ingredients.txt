@@ -3,7 +3,7 @@
 mods target\mods\farmersdelight.mmc
 start
 expect registered content item farmersdelight:(straw|canvas|tree_bark|rice_panicle)
-expect Loaded built-in datapack 'mod/farmersdelight': 13 recipe\(s\), 7 loot table\(s\), 1 tag\(s\)
+expect Loaded built-in datapack 'mod/farmersdelight': 22 recipe\(s\), 7 loot table\(s\), 1 tag\(s\)
 botstart tester
 wait 3
 expect \[bot\] fetched content resource pack SHA-1 [0-9a-f]{40}
