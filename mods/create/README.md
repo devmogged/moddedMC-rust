@@ -131,6 +131,8 @@ Enchanted books can select a specific enchantment, including when the enchantmen
 
 A sample renamed at an anvil offers its exact custom name. A dyed item or firework offers its color, including a firework's fade color. Try a red rule with wool, dye and a firework, then use two different items renamed to the same text to check name matching. The [name and color scenario](../../tests/scenarios/create-attribute-filter-style.txt) checks both rules after restart.
 
+Gear with an applied enchantment at its maximum level offers `max_enchanted`. Buckets offer `fluid_container` and their fluid. Select the water rule and send water and lava buckets through a chute. Only the water bucket should transfer. The [max enchantment and fluid scenario](../../tests/scenarios/create-attribute-filter-max-and-fluid.txt) checks these rules across restart with Efficiency IV, Efficiency V and Mending.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

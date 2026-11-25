@@ -6,6 +6,7 @@ use moddedmc_api::stacks::StackInfo;
 use crate::{
     STACKS, TAGS,
     filtering::{Compound, compound},
+    fluids::item_drain::bucket_fluid,
     processing_recipes::{self, Process, item_id},
 };
 
@@ -16,6 +17,7 @@ const BOOK_COPY: &str = "book_copy";
 const SHULKER_FILL: &str = "shulker_fill";
 const HAS_NAME: &str = "has_name";
 const COLOR: &str = "color";
+const HAS_FLUID: &str = "has_fluid";
 
 // Vanilla DyeColor names and their firework colors.
 const DYE_COLORS: [(&str, i32); 16] = [
@@ -44,12 +46,19 @@ const PROPERTIES: &[(&str, Test)] = &[
         stack.info().is_some_and(|info| info.block)
     }),
     ("consumable", |stack| stack.has("minecraft:food")),
+    ("fluid_container", |stack| stack.fluid().is_some()),
     ("enchanted", |stack| {
         stack
             .component("minecraft:enchantments")
             .as_ref()
             .and_then(compound)
             .is_some_and(|enchantments| !enchantments.is_empty())
+    }),
+    ("max_enchanted", |stack| {
+        STACKS
+            .get()
+            .zip(stack.bytes())
+            .is_some_and(|(stacks, bytes)| stacks.has_maxed_enchantment(bytes))
     }),
     ("renamed", |stack| stack.has("minecraft:custom_name")),
     ("damaged", |stack| stack.damage().is_some()),
@@ -176,6 +185,10 @@ impl<'a> Stack<'a> {
         (!name.is_empty()).then_some(name)
     }
 
+    fn fluid(&self) -> Option<&'static str> {
+        item_id(self.item).and_then(bucket_fluid)
+    }
+
     fn colors(&self) -> Vec<&'static str> {
         let Some(id) = item_id(self.item) else {
             return Vec::new();
@@ -280,6 +293,7 @@ impl<'a> Stack<'a> {
                 SHULKER_FILL => self.shulker_fill() == Some(expected),
                 HAS_NAME => self.name().is_some_and(|name| name == expected),
                 COLOR => self.colors().contains(&expected),
+                HAS_FLUID => self.fluid() == Some(expected),
                 _ => false,
             };
         }
@@ -312,6 +326,9 @@ impl<'a> Stack<'a> {
         }
         if let Some(name) = self.name() {
             options.push(format!("{HAS_NAME}={name}"));
+        }
+        if let Some(fluid) = self.fluid() {
+            options.push(format!("{HAS_FLUID}={fluid}"));
         }
         options.extend(
             self.colors()

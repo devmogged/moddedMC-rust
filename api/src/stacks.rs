@@ -11,15 +11,22 @@ pub use abi::{ItemDisplay, MAX_STACK_BYTES, StackInfo};
 pub struct ItemStacks(
     &'static abi::ItemStacksV1,
     Option<&'static abi::ItemStacksV1Fuel>,
+    Option<&'static abi::ItemStacksV1MaxEnchantment>,
 );
 
 pub fn require() -> Result<ItemStacks, InterfaceUnavailable> {
     // SAFETY: this is the extended table type for moddedmc:item_stacks v1.
+    if let Ok(table) =
+        unsafe { require_interface::<abi::ItemStacksV1MaxEnchantment>(abi::ITEM_STACKS, 1) }
+    {
+        return Ok(ItemStacks(&table.base.base, Some(&table.base), Some(table)));
+    }
+    // SAFETY: this is the extended table type for moddedmc:item_stacks v1.
     if let Ok(table) = unsafe { require_interface::<abi::ItemStacksV1Fuel>(abi::ITEM_STACKS, 1) } {
-        return Ok(ItemStacks(&table.base, Some(table)));
+        return Ok(ItemStacks(&table.base, Some(table), None));
     }
     // SAFETY: this is the published table type for moddedmc:item_stacks v1.
-    unsafe { require_interface(abi::ITEM_STACKS, 1) }.map(|table| ItemStacks(table, None))
+    unsafe { require_interface(abi::ITEM_STACKS, 1) }.map(|table| ItemStacks(table, None, None))
 }
 
 impl ItemStacks {
@@ -121,6 +128,14 @@ impl ItemStacks {
         // SAFETY: the saved stack and sink are valid for this synchronous callback.
         let ticks = unsafe { (table.fuel)(abi::Str::new(stack), sink) };
         (ticks > 0).then_some((ticks, data))
+    }
+
+    /// Whether a stack has an applied enchantment at or above its defined maximum.
+    /// Returns false when the host lacks the appended operation.
+    pub fn has_maxed_enchantment(self, stack: &[u8]) -> bool {
+        // SAFETY: the saved stack is valid for the duration of the synchronous callback.
+        self.2
+            .is_some_and(|table| unsafe { (table.has_maxed_enchantment)(abi::Str::new(stack)) })
     }
 }
 

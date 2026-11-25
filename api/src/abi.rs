@@ -1215,6 +1215,13 @@ pub struct ItemStacksV1Fuel {
 }
 
 #[repr(C)]
+pub struct ItemStacksV1MaxEnchantment {
+    pub base: ItemStacksV1Fuel,
+    /// Whether an applied enchantment reaches its defined maximum level.
+    pub has_maxed_enchantment: unsafe extern "C" fn(stack: Str) -> bool,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StackInfo {
     pub count: u32,

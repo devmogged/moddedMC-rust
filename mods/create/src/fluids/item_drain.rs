@@ -61,15 +61,25 @@ pub fn load(world: World<'_>, pos: Pos) -> Option<TankInventory> {
     smart_tank::load(&smart_tank::read(world, pos)?, CAPACITY)
 }
 
+pub(crate) fn bucket_fluid(item: &str) -> Option<&'static str> {
+    match item {
+        "minecraft:bucket" => Some("minecraft:empty"),
+        "minecraft:water_bucket" => Some("minecraft:water"),
+        "minecraft:lava_bucket" => Some("minecraft:lava"),
+        "minecraft:milk_bucket" => Some("minecraft:milk"),
+        _ => None,
+    }
+}
+
 pub(super) fn emptying(item: &Value) -> Option<(FluidStack, Value)> {
-    let (fluid, amount, container) = match item_id(item)? {
-        "minecraft:water_bucket" => ("minecraft:water", 1_000, "minecraft:bucket"),
-        "minecraft:lava_bucket" => ("minecraft:lava", 1_000, "minecraft:bucket"),
-        "minecraft:milk_bucket" => ("minecraft:milk", 1_000, "minecraft:bucket"),
-        "minecraft:potion" if is_plain_water(item) => {
+    let id = item_id(item)?;
+    let (fluid, amount, container) = match bucket_fluid(id) {
+        Some("minecraft:empty") => return None,
+        Some(fluid) => (fluid, 1_000, "minecraft:bucket"),
+        None if id == "minecraft:potion" && is_plain_water(item) => {
             ("minecraft:water", 250, "minecraft:glass_bottle")
         }
-        _ => return None,
+        None => return None,
     };
     Some((
         FluidStack {

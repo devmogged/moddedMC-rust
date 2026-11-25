@@ -1,8 +1,7 @@
 # Craft and use Brass Funnels to transfer one exact batch down a belt across restart.
 mods target\mods\create.mmc
 start
-expect registered content block create:brass_belt_funnel \(64 states\)
-expect registered content block create:brass_funnel \(48 states\)
+expect-all registered content block create:brass_belt_funnel \(64 states\) && registered content block create:brass_funnel \(48 states\)
 cmd difficulty peaceful
 botstart tester
 wait 3
