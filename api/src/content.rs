@@ -66,6 +66,8 @@ pub enum WorldExtension {
     /// `World::dimension_id`.
     Dimension,
     Weather,
+    /// `in_biome`, `surface_height` and `can_see_sky`.
+    Surface,
 }
 
 impl WorldExtension {
@@ -110,6 +112,10 @@ impl WorldExtension {
             Self::Survival => (
                 std::mem::offset_of!(abi::BlockWorldV1, block_item),
                 "moddedmc:block_world.block_item",
+            ),
+            Self::Surface => (
+                std::mem::offset_of!(abi::BlockWorldV1, can_see_sky),
+                "moddedmc:block_world.surface",
             ),
             Self::Dimension => (
                 std::mem::offset_of!(abi::BlockWorldV1, dimension_id),
@@ -605,6 +611,41 @@ impl World<'_> {
         // SAFETY: the optional field is size-checked and the world is borrowed.
         WorldExtension::Weather.available(self.api)
             && unsafe { ((&raw const (*self.api.ptr).is_thundering).read())(self.raw) }
+    }
+
+    /// Whether the biome at `pos` is `biomes`, a biome id or a `#tag`; `None` when unloaded.
+    pub fn in_biome(self, pos: Pos, biomes: &str) -> Option<bool> {
+        if !WorldExtension::Surface.available(self.api) {
+            return None;
+        }
+        // SAFETY: the optional field is size-checked and the world is borrowed.
+        let found = unsafe {
+            ((&raw const (*self.api.ptr).in_biome).read())(self.raw, pos, crate::s(biomes))
+        };
+        match found {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+
+    /// Vanilla `Level.getHeight` for an [`abi::heightmap`] type; `None` when unloaded.
+    pub fn surface_height(self, x: i32, z: i32, heightmap: u8) -> Option<i32> {
+        if !WorldExtension::Surface.available(self.api) {
+            return None;
+        }
+        // SAFETY: the optional field is size-checked and the world is borrowed.
+        let y = unsafe {
+            ((&raw const (*self.api.ptr).surface_height).read())(self.raw, x, z, heightmap)
+        };
+        (y != i32::MIN).then_some(y)
+    }
+
+    /// Vanilla `Level.canSeeSky`.
+    pub fn can_see_sky(self, pos: Pos) -> bool {
+        // SAFETY: the optional field is size-checked and the world is borrowed.
+        WorldExtension::Surface.available(self.api)
+            && unsafe { ((&raw const (*self.api.ptr).can_see_sky).read())(self.raw, pos) }
     }
 
     pub fn id(self) -> usize {

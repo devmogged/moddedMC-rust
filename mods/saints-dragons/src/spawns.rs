@@ -1,6 +1,6 @@
 //! Natural spawns from 0.9.88: the `DragonSpawnRegistry` entries the biome spawner uses with
 //! their config defaults, Moop and Mossback, and each species' `canSpawnHere`. Raevyx, Stegonaut
-//! and Volitans default to the release's custom spawners instead (weight 0 here).
+//! and Volitans use the release's custom spawners instead (`spawners`).
 
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
@@ -69,7 +69,7 @@ const SPAWNS: &[Spawn<'static>] = &[
 ];
 
 /// `DragonEntity` subclasses, for the density limit.
-const DRAGONS: &[&str] = &[
+pub const DRAGONS: &[&str] = &[
     "saintsdragons:raevyx",
     "saintsdragons:stegonaut",
     "saintsdragons:cindervane",
@@ -105,9 +105,11 @@ fn check(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
             spawn.biome != "minecraft:snowy_slopes"
                 && spawn.vanilla_weight >= MIN_COMPETING_CREATURE_WEIGHT
                 && dry_ground(world, spawn.position)
-                && density(world, spawn)
+                && natural_density(world, spawn)
         }
-        "saintsdragons:atroxiia" => dry_ground(world, spawn.position) && density(world, spawn),
+        "saintsdragons:atroxiia" => {
+            dry_ground(world, spawn.position) && natural_density(world, spawn)
+        }
         "saintsdragons:nulljaw" => {
             let above = up(spawn.position);
             spawn.biome == "minecraft:end_barrens"
@@ -145,7 +147,7 @@ fn open(world: World<'_>, pos: Pos) -> bool {
 }
 
 /// `DragonSpawnRules.hasDryGroundSpawnSpace`.
-fn dry_ground(world: World<'_>, pos: Pos) -> bool {
+pub fn dry_ground(world: World<'_>, pos: Pos) -> bool {
     let below = down(pos);
     dry(world, pos)
         && dry(world, below)
@@ -154,14 +156,15 @@ fn dry_ground(world: World<'_>, pos: Pos) -> bool {
         && open(world, up(pos))
 }
 
-/// `DragonSpawnRules.passesNearbyDragonDensityCheck`: wild dragons of the same species, and
-/// wild dragons of any species, in cubes around it. Java skips it off the server thread, which
-/// is where chunk generation spawns run.
-fn density(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
-    if spawn.chunk_generation {
-        return true;
-    }
-    let (kind, pos) = (spawn.kind, spawn.position);
+/// Java skips the density limit off the server thread, which is where chunk generation spawns
+/// run.
+fn natural_density(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
+    spawn.chunk_generation || density(world, spawn.kind, spawn.position)
+}
+
+/// `DragonSpawnRules.passesNearbyDragonDensityCheck` for a natural spawn: wild dragons of the
+/// same species, and wild dragons of any species, in cubes around it.
+pub fn density(world: World<'_>, kind: &str, pos: Pos) -> bool {
     let cindervane = kind == "saintsdragons:cindervane";
     let (same_radius, any_radius, same_limit, total_limit) = if cindervane {
         (
@@ -179,31 +182,7 @@ fn density(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
         )
     };
     let center = [pos.x, pos.y, pos.z].map(|c| f64::from(c) + 0.5);
-    // (kind, tamed) of every live dragon within the larger cube.
-    let near = |radius: f64| -> Vec<(&'static str, bool, [f64; 3])> {
-        let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
-            return Vec::new();
-        };
-        entities
-            .entities_in(
-                world,
-                center.map(|c| c - radius),
-                center.map(|c| c + radius),
-                -1,
-            )
-            .into_iter()
-            .filter_map(|id| {
-                entities.with_entity(world, id, |e| {
-                    let kind = mobs.kind(e).filter(|k| DRAGONS.contains(k))?;
-                    if e.flags() & ENTITY_ALIVE == 0 {
-                        return None;
-                    }
-                    Some((kind, taming::is_tamed(e), e.view()?.position))
-                })?
-            })
-            .collect()
-    };
-    let all = near(same_radius.max(any_radius));
+    let all = dragons_near(world, pos, same_radius.max(any_radius));
     let within = |p: [f64; 3], radius: f64| (0..3).all(|i| (p[i] - center[i]).abs() <= radius);
     // Java counts tamed ones of the same species too, except for Cindervane.
     let same = all
@@ -218,4 +197,35 @@ fn density(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
         .filter(|(_, tamed, p)| !tamed && within(*p, any_radius))
         .count();
     wild < total_limit
+}
+
+/// (kind, tamed, position) of every live dragon in the cube of `radius` around the block's
+/// center.
+pub fn dragons_near(
+    world: World<'_>,
+    pos: Pos,
+    radius: f64,
+) -> Vec<(&'static str, bool, [f64; 3])> {
+    let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
+        return Vec::new();
+    };
+    let center = [pos.x, pos.y, pos.z].map(|c| f64::from(c) + 0.5);
+    entities
+        .entities_in(
+            world,
+            center.map(|c| c - radius),
+            center.map(|c| c + radius),
+            -1,
+        )
+        .into_iter()
+        .filter_map(|id| {
+            entities.with_entity(world, id, |e| {
+                let kind = mobs.kind(e).filter(|k| DRAGONS.contains(k))?;
+                if e.flags() & ENTITY_ALIVE == 0 {
+                    return None;
+                }
+                Some((kind, taming::is_tamed(e), e.view()?.position))
+            })?
+        })
+        .collect()
 }

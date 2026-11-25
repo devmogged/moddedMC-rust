@@ -18,9 +18,11 @@ mod discs;
 mod eggs;
 mod flight;
 mod ivy;
+mod ivy_trades;
 mod nucleus;
 mod roost;
 mod roster;
+mod spawners;
 mod spawns;
 mod swarm;
 mod taming;
@@ -88,6 +90,7 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::FluidId)?;
         content.require_extension(WorldExtension::Weather)?;
         content.require_extension(WorldExtension::Dimension)?;
+        content.require_extension(WorldExtension::Surface)?;
         content.require_comparator_output()?;
         let _ = CONTENT.set(content);
         let _ = EFFECTS.set(effects::require()?);
@@ -96,6 +99,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Carriers)?;
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
+        entities.require_extension(EntitiesExtension::Players)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -110,6 +114,7 @@ impl Mod for SaintsDragons {
         let mobs = mobs::require()?;
         mobs.require_extension(MobsExtension::Taming)?;
         mobs.require_extension(MobsExtension::NaturalSpawns)?;
+        mobs.require_extension(MobsExtension::Trading)?;
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;
@@ -355,6 +360,8 @@ fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) 
     crucible::tick(world, events);
     nucleus::tick(world, time, events);
     eggs::tick(world, events);
+    eggs::trample(world);
+    spawners::tick(world);
     visuals::sweep(world, time, events);
     if cfg!(feature = "original-assets") {
         roost::sweep();

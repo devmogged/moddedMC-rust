@@ -30,6 +30,8 @@ pub enum EntitiesExtension {
     Player,
     /// `Entity::has_scoreboard_tag`.
     ScoreboardTags,
+    /// `Entities::players`.
+    Players,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -107,6 +109,10 @@ impl Entities {
                 std::mem::offset_of!(abi::EntitiesV1, has_scoreboard_tag),
                 "moddedmc:entities.scoreboard_tags",
             ),
+            EntitiesExtension::Players => (
+                std::mem::offset_of!(abi::EntitiesV1, players),
+                "moddedmc:entities.players",
+            ),
             EntitiesExtension::Carriers => (
                 std::mem::offset_of!(abi::EntitiesV1, entities_matching),
                 "moddedmc:entities.carriers",
@@ -182,6 +188,21 @@ impl Entities {
         };
         ids.truncate(count.min(MAX_QUERY));
         ids
+    }
+
+    /// Ids of the world's players, spectators and dead ones included. Needs
+    /// `EntitiesExtension::Players`.
+    pub fn players(self, world: World<'_>) -> Vec<i32> {
+        let mut ids = vec![0; 64];
+        loop {
+            // SAFETY: the extension was required and `ids` has the capacity passed.
+            let count = unsafe { (self.0.players)(world.raw(), ids.as_mut_ptr(), ids.len()) };
+            if count <= ids.len() {
+                ids.truncate(count);
+                return ids;
+            }
+            ids.resize(count, 0);
+        }
     }
 
     /// Every entity whose box intersects `min..max`, except `except` and those with any

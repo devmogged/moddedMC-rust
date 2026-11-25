@@ -433,6 +433,12 @@ mod layout {
         assert_eq!(offset_of!(BlockWorldV1, rotate), 48);
         assert_eq!(offset_of!(BlockWorldV1, dimension_id), 160);
         assert_eq!(offset_of!(BlockWorldV1, is_thundering), 168);
+        assert_eq!(offset_of!(BlockWorldV1, in_biome), 176);
+        assert_eq!(offset_of!(BlockWorldV1, can_see_sky), 192);
+        assert_eq!(
+            offset_of!(EntitiesV1, players),
+            offset_of!(EntitiesV1, has_scoreboard_tag) + 8
+        );
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -677,6 +683,21 @@ pub struct BlockWorldV1 {
     /// The world's canonical dimension registry id. Static, or empty for an invalid handle.
     pub dimension_id: unsafe extern "C" fn(world: WorldRef) -> Str,
     pub is_thundering: unsafe extern "C" fn(world: WorldRef) -> bool,
+    /// Whether the loaded biome at `pos` is `biomes`, a biome id or a `#tag`: 1 or 0, or -1
+    /// when the chunk isn't loaded.
+    pub in_biome: unsafe extern "C" fn(world: WorldRef, pos: Pos, biomes: Str) -> i32,
+    /// Vanilla `Level.getHeight(heightmap, x, z)`: the y above the column's top block for a
+    /// [`heightmap`] type. `i32::MIN` for an unknown type or an unloaded chunk.
+    pub surface_height: unsafe extern "C" fn(world: WorldRef, x: i32, z: i32, heightmap: u8) -> i32,
+    /// Vanilla `Level.canSeeSky(pos)`: full sky light inside the build height.
+    pub can_see_sky: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
+}
+
+/// `BlockWorldV1::surface_height` types: the vanilla `Heightmap.Types` the server keeps live.
+pub mod heightmap {
+    pub const WORLD_SURFACE: u8 = 0;
+    pub const MOTION_BLOCKING: u8 = 1;
+    pub const MOTION_BLOCKING_NO_LEAVES: u8 = 2;
 }
 
 #[repr(C)]
@@ -896,6 +917,9 @@ pub struct EntitiesV1 {
     ) -> bool,
     /// Whether the entity has this vanilla scoreboard tag.
     pub has_scoreboard_tag: unsafe extern "C" fn(entity: EntityRef, tag: Str) -> bool,
+    /// Ids of the world's players, spectators and dead ones included. Returns how many there
+    /// are, which can exceed `capacity`.
+    pub players: unsafe extern "C" fn(world: WorldRef, out: *mut i32, capacity: usize) -> usize,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.
@@ -1453,6 +1477,11 @@ pub struct MobsV1 {
     /// its spawn rule (vanilla `SpawnPlacements`), asked for each position tried.
     pub add_spawn:
         unsafe extern "C" fn(reg: Reg, def: *const SpawnDefinition, check: SpawnCheckFn) -> i32,
+    /// Vanilla `Merchant.openTradingScreen` for a villager carrier and a player. A non-empty
+    /// `offers` first replaces the carrier's offers: vanilla's saved `Offers` compound as NBT.
+    /// The carrier then counts uses and saves them. False when `mob` isn't a villager or `player`
+    /// isn't a player.
+    pub open_trades: unsafe extern "C" fn(mob: EntityRef, player: EntityRef, offers: Str) -> bool,
 }
 
 /// A mod mob dying; the entity is still in the world.
@@ -1599,7 +1628,8 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, message), 144);
         assert_eq!(offset_of!(MobsV1, make_persistent), 152);
         assert_eq!(offset_of!(MobsV1, add_spawn), 160);
-        assert_eq!(size_of::<MobsV1>(), 168);
+        assert_eq!(offset_of!(MobsV1, open_trades), 168);
+        assert_eq!(size_of::<MobsV1>(), 176);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

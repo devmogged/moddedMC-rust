@@ -183,6 +183,8 @@ pub enum MobsExtension {
     Taming,
     /// `add_spawn`: biome spawn pool entries.
     NaturalSpawns,
+    /// `Mobs::open_trades`.
+    Trading,
 }
 
 /// Where a spawn entry's mob can appear (vanilla `SpawnPlacementTypes`).
@@ -306,6 +308,10 @@ impl Mobs {
                 std::mem::offset_of!(abi::MobsV1, add_spawn),
                 "moddedmc:mobs.natural_spawns",
             ),
+            MobsExtension::Trading => (
+                std::mem::offset_of!(abi::MobsV1, open_trades),
+                "moddedmc:mobs.trading",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -350,6 +356,22 @@ impl Mobs {
         RegistrationError::from_code(unsafe {
             ((&raw const (*self.0.ptr).add_spawn).read())(reg.reg, &raw const def, spawn_rule)
         })
+    }
+
+    /// Open a villager carrier's trading screen for `player`. Non-empty `offers` (vanilla's saved
+    /// `Offers` compound as NBT) replace its offers first. Needs `MobsExtension::Trading`.
+    pub fn open_trades(self, mob: Entity<'_>, player: Entity<'_>, offers: &[u8]) -> bool {
+        if self.require_extension(MobsExtension::Trading).is_err() {
+            return false;
+        }
+        // SAFETY: the size is checked; both entities and the bytes are live for the call.
+        unsafe {
+            ((&raw const (*self.0.ptr).open_trades).read())(
+                mob.raw(),
+                player.raw(),
+                abi::Str::new(offers),
+            )
+        }
     }
 
     /// Hear mobs of `kind` die. A mod has one handler: the first one passed serves every kind.

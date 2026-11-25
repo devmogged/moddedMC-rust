@@ -1,0 +1,309 @@
+# Run in a new directory with -Seed 1796137205646843071.
+# CindervaneEggBlock.stepOn and RaevyxEggBlock.stepOn: a player moving on the egg without
+# sneaking breaks it one time in ten. A Cindervane clutch loses one egg at a time; a Raevyx egg
+# breaks outright. The bot shuffles across each egg by small teleports with physics on, so it
+# lands on the egg every time. Sixty moves leave a full clutch intact by 0.9^60.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 4
+cmd gamemode survival tester
+cmd tp tester 0.5 230 0.5
+wait 5
+cmd fill -4 200 -4 8 200 4 minecraft:stone
+cmd setblock 0 201 0 saintsdragons:cindervane_egg[eggs=3,hatch=0]
+cmd setblock 4 201 0 saintsdragons:raevyx_egg[hatch=0]
+cmd tp tester 0.5 202 0.5
+bot physics on
+wait 1
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd tp tester 0.55 202 0.5
+wait 0.15
+cmd tp tester 0.45 202 0.5
+wait 0.15
+cmd execute if block 0 201 0 saintsdragons:cindervane_egg[eggs=3]
+wait 0.5
+expect Test failed
+cmd tp tester 4.5 202 0.5
+wait 1
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd tp tester 4.55 202 0.5
+wait 0.15
+cmd tp tester 4.45 202 0.5
+wait 0.15
+cmd execute if block 4 201 0 minecraft:air
+wait 0.5
+expect Test passed
+bot physics off
+bot quit
+stop

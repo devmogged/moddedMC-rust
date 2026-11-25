@@ -106,6 +106,9 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     block_item,
     dimension_id,
     is_thundering,
+    in_biome,
+    surface_height,
+    can_see_sky,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -118,6 +121,49 @@ unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
 unsafe extern "C" fn is_thundering(raw: WorldRef) -> bool {
     // SAFETY: the world is borrowed for this call.
     unsafe { world(raw) }.is_some_and(World::is_thundering)
+}
+
+unsafe extern "C" fn in_biome(raw: WorldRef, pos: Pos, biomes: Str) -> i32 {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    // SAFETY: the string is borrowed for this call.
+    let biomes = unsafe { biomes.str() };
+    let pos = block_pos(pos);
+    if !world
+        .level
+        .loaded_chunks
+        .contains_key(&pos.chunk_position())
+    {
+        return -1;
+    }
+    i32::from(crate::mobs::in_biomes(biomes, world.get_biome(&pos)))
+}
+
+unsafe extern "C" fn surface_height(raw: WorldRef, x: i32, z: i32, heightmap: u8) -> i32 {
+    use pumpkin_world::chunk::ChunkHeightmapType;
+    let kind = match heightmap {
+        abi::heightmap::WORLD_SURFACE => ChunkHeightmapType::WorldSurface,
+        abi::heightmap::MOTION_BLOCKING => ChunkHeightmapType::MotionBlocking,
+        abi::heightmap::MOTION_BLOCKING_NO_LEAVES => ChunkHeightmapType::MotionBlockingNoLeaves,
+        _ => return i32::MIN,
+    };
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return i32::MIN;
+    };
+    let chunk = BlockPos::new(x, 0, z).chunk_position();
+    if !world.level.loaded_chunks.contains_key(&chunk) {
+        return i32::MIN;
+    }
+    // Pumpkin keeps the top block's y; vanilla answers the free y above it.
+    world.get_heightmap_height(kind, x, z) + 1
+}
+
+unsafe extern "C" fn can_see_sky(raw: WorldRef, pos: Pos) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    unsafe { world(raw) }.is_some_and(|world| world.can_see_sky(&block_pos(pos)))
 }
 
 const MAX_BATCH: usize = 4096;
@@ -1903,6 +1949,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     as_player: crate::entities::as_player,
     with_player_context: crate::entities::with_player_context,
     has_scoreboard_tag: crate::entities::has_scoreboard_tag,
+    players: crate::entities::players,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {

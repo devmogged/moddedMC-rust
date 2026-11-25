@@ -113,6 +113,8 @@ struct Session {
     nonce: u64,
     expires: u64,
     actions: Vec<Action>,
+    /// An `open_trade` node: a choice opens Ivy's trades.
+    trade: bool,
 }
 
 static SESSIONS: LazyLock<Mutex<HashMap<[u8; 16], Session>>> = LazyLock::new(Mutex::default);
@@ -407,6 +409,7 @@ fn show(
             actions,
             dimension: world.dimension_id()?.to_owned(),
             expires: tick + 1200,
+            trade: node.kind == "open_trade",
         },
     );
     drop(sessions);
@@ -507,6 +510,12 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
             {
                 memory.flags.insert("known_work_done".into());
             }
+            if session.trade {
+                // shortcut: Java resumes the dialogue at `next` when the trade screen closes.
+                save_memory(world, viewer, &memory);
+                open_trades(viewer, ivy);
+                return;
+            }
             let (path, node) = action
                 .next
                 .strip_prefix("saintsdragons:ivy/")
@@ -516,6 +525,26 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
         });
     });
     true
+}
+
+const TRADES_ROLLED: &str = "saintsdragons:ivy_trades_rolled";
+
+/// `IvyTheDragonMerchant.getOffers`: rolled the first time, then kept by her villager carrier.
+fn open_trades(viewer: Entity<'_>, ivy: Entity<'_>) {
+    let Some(mobs) = MOBS.get() else {
+        return;
+    };
+    let offers = if ivy.data(TRADES_ROLLED).is_some() {
+        Vec::new()
+    } else {
+        crate::ivy_trades::roll().unwrap_or_default()
+    };
+    if mobs.open_trades(ivy, viewer, &offers)
+        && !offers.is_empty()
+        && let Ok(flag) = fastnbt::to_bytes(&Value::Compound(Compound::new()))
+    {
+        ivy.set_data(TRADES_ROLLED, &flag);
+    }
 }
 
 fn custom_data(stack: &mut Compound) -> Option<&mut Compound> {

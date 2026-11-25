@@ -59,6 +59,7 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     message,
     make_persistent,
     add_spawn,
+    open_trades,
 };
 
 pub static MOB_LOOT: abi::MobLootV1 = abi::MobLootV1 {
@@ -449,7 +450,7 @@ fn spawn_entries(
     })
 }
 
-fn in_biomes(biomes: &str, biome: &Biome) -> bool {
+pub fn in_biomes(biomes: &str, biome: &Biome) -> bool {
     biomes.strip_prefix('#').map_or_else(
         || full_id(biomes) == full_id(biome.registry_id),
         |tag| biome_tag(tag).is_some_and(|ids| ids.contains(&u16::from(biome.id))),
@@ -781,6 +782,33 @@ unsafe extern "C" fn message(raw: EntityRef, text: Str, action_bar: bool) -> boo
         &pumpkin_util::text::TextComponent::text(text.to_owned()),
         action_bar,
     );
+    true
+}
+
+unsafe extern "C" fn open_trades(mob: EntityRef, player: EntityRef, offers: Str) -> bool {
+    use pumpkin_core::entity::passive::villager::VillagerEntity;
+    // SAFETY: both entities are live and the bytes borrowed for the call.
+    let (Some(mob), Some(player), offers) = (
+        unsafe { entity(mob) }.and_then(EntityBase::get_mob),
+        unsafe { entity(player) }.and_then(EntityBase::get_player),
+        unsafe { offers.bytes() },
+    ) else {
+        return false;
+    };
+    let Some(villager) = mob.cast_any().downcast_ref::<VillagerEntity>() else {
+        return false;
+    };
+    let Some(player) = player.world().get_player_by_uuid(player.gameprofile.id) else {
+        return false;
+    };
+    if !offers.is_empty() {
+        let mut reader = Cursor::new(offers);
+        let Ok(saved) = Nbt::read(&mut NbtReadHelperJava::new(&mut reader)) else {
+            return false;
+        };
+        villager.set_offers_from_nbt(&saved.root_tag);
+    }
+    villager.open_trading_screen(&player);
     true
 }
 

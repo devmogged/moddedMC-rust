@@ -280,6 +280,21 @@ pub unsafe extern "C" fn entities_in(
     count
 }
 
+pub unsafe extern "C" fn players(raw: WorldRef, out: *mut i32, capacity: usize) -> usize {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return 0;
+    };
+    let players = world.players.load();
+    if !out.is_null() {
+        for (index, player) in players.iter().take(capacity).enumerate() {
+            // SAFETY: index is below the capacity of the caller's array.
+            unsafe { out.add(index).write(player.entity_id()) };
+        }
+    }
+    players.len()
+}
+
 pub unsafe extern "C" fn entities_matching(
     raw: WorldRef,
     min: abi::Vec3,

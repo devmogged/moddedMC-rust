@@ -178,6 +178,7 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | | `clear_ticks(world, position)` | Clear pending fluid ticks at a loaded position. The appended entry also indicates that block-world writes accept `UPDATE_KNOWN_SHAPE`, which skips neighbor shape updates independently of neighbor and client notifications. Require both with `fluid_world::require_tick_control()`. |
 | | `water_evaporates(world, position)` | Read the world's 26.3 water evaporation setting for a loaded position. |
 | `moddedmc:entities` v1 | `has_scoreboard_tag(entity, tag)` | Appended scoreboard tag membership check. Require `EntitiesExtension::ScoreboardTags` before relying on the result. |
+| `moddedmc:entities` v1 | `players(world, out, capacity)` | Appended. The ids of the world's players, spectators and dead ones included; returns the total, which can exceed `capacity`. Require `EntitiesExtension::Players`. |
 | `moddedmc:entities` v1 | `on_entity_inside(reg, callback)` | Stage one callback per mod, called like vanilla `Block.entityInside` for entities touching one of the mod's blocks. It gets the world, position, state and a borrowed entity, all valid only during the call. |
 | | `view(entity, out)` | Fill kind bits (player, living, item), on-ground flag, position, motion, yaw, pitch, head yaw and body yaw. |
 | | `type_id(entity)` | The entity type's resource name. |
@@ -244,6 +245,7 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | | `player_input`, `game_mode`, `message` | Read a player's latest movement key bits or game mode, or send plain text to chat or the action bar. |
 | | `make_persistent` | Prevent a mob from naturally despawning. Pumpkin saves the flag with the mob. |
 | | `add_spawn(reg, definition, check)` | Appended. Require `MobsExtension::NaturalSpawns`. Add a mob type the mod registered to the biome spawn pools (vanilla `MobSpawnSettings`) for a biome id or `#tag`: a `MobCategory` name, weight, group size and `spawn_location`. The natural spawner and chunk generation pick from vanilla and mod entries by weight; the mod mob uses its carrier's size, mob cap and despawn rules, optionally its carrier's spawn rules too, then `check` (vanilla `SpawnPlacements`) with the position, biome, the summed weight of the pool's vanilla entries and whether it is chunk generation. |
+| | `open_trades(mob, player, offers)` | Appended. Require `MobsExtension::Trading`. Open a villager carrier's vanilla trading screen for a player. Non-empty `offers`, vanilla's saved `Offers` compound as NBT, first replace the carrier's offers; the carrier then counts uses and saves them. False when the mob isn't a villager. |
 | `moddedmc:mob_ai` v1 | `add_goal(reg, definition)` | Stage a goal for a registered mod mob type: a key, a vanilla priority, `goal_control` bits (`MOVE`, `LOOK`, `JUMP`, `TARGET`) and a callback. Every mob of the type gets it as it joins a world, spawned or loaded. The callback is asked each tick with a `goal_phase` (`CAN_START`, `CONTINUE`, `START`, `STOP`, `TICK`), the world and the mob; only the answer to `CAN_START` and `CONTINUE` counts. Goals with `TARGET` run in the target selector. |
 | | `replace_goals(reg, kind)` | Mobs of the type drop their carrier's own goals and targets before getting the mod's. |
 | | `walk_to(mob, target, speed)`, `stop(mob)`, `navigating(mob)` | Path to a position at a multiple of the movement speed, drop the path, or ask whether one is being followed. |
@@ -279,6 +281,13 @@ The appended `moddedmc:block_world` v1 field `is_thundering(world)` reads the
 world's thunder state. Require `WorldExtension::Weather` before using it.
 `dimension_id(world)` returns the loaded world's static dimension identifier.
 Require `WorldExtension::DimensionId` before using it.
+
+The appended `moddedmc:block_world` v1 fields `in_biome(world, pos, biomes)`,
+`surface_height(world, x, z, heightmap)` and `can_see_sky(world, pos)` answer
+spawn placement questions: whether the loaded biome is a biome id or `#tag`
+(1, 0, or -1 when unloaded), vanilla `Level.getHeight` for a `heightmap` type
+(`i32::MIN` when unloaded or unknown), and vanilla `Level.canSeeSky`. Require
+`WorldExtension::Surface` before using them.
 
 ## Mob storage (`moddedmc:mob_storage` v1)
 

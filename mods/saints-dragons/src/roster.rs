@@ -513,12 +513,22 @@ fn use_egg(context: &mut UseOnBlock<'_>) -> UseResult {
     UseResult::Success
 }
 
-/// `DragonEntity.finalizeSpawn` for an adult that joined without an appearance.
+/// Runs when a dragon's AI starts. `DragonEntity.finalizeSpawn` for an adult that joined without
+/// an appearance.
 pub fn finalize_spawn(world: World<'_>, mob: Entity<'_>) {
-    if let Some(name) = MOBS
-        .get()
-        .and_then(|mobs| mobs.kind(mob))
-        .and_then(|kind| kind.strip_prefix("saintsdragons:"))
+    let kind = MOBS.get().and_then(|mobs| mobs.kind(mob));
+    // Dragons are `TamableAnimal`s, which never despawn far from players; their ravager and
+    // spider carriers would.
+    if let (Some(mobs), Some(kind)) = (MOBS.get(), kind)
+        && crate::spawns::DRAGONS.contains(&kind)
+    {
+        mobs.make_persistent(mob);
+    }
+    // `Volitans.canBreatheUnderwater`: its ravager carrier would drown.
+    if kind == Some("saintsdragons:volitans") {
+        mob.add_effect("minecraft:water_breathing", -1, 0, true, false);
+    }
+    if let Some(name) = kind.and_then(|kind| kind.strip_prefix("saintsdragons:"))
         && !crate::eggs::is_juvenile(mob)
     {
         let in_end = world.dimension_id() == Some("minecraft:the_end");

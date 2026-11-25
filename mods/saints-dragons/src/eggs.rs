@@ -8,16 +8,19 @@ use moddedmc_api::{
     Pos, RegistrationError, Registry,
     content::{
         Block, BlockUpdate, Content, ContentEvent, Placement, ShapeBox, State, UNLOADED,
-        UPDATE_ALL, World,
+        UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS, World,
     },
     effects::SOUND_BLOCKS,
-    entities::Entity,
+    entities::{ENTITY_SNEAKING, Entity},
     interaction::{BlockUseResult, UseBlock},
     items::{Item, Items},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{CONTENT, EFFECTS, ENTITIES, MOB_HEALTH, MOBS, appearance::Appearance, roster, taming};
+use crate::{
+    CONTENT, EFFECTS, ENTITIES, MOB_HEALTH, MOBS, ai::random, appearance::Appearance, roster,
+    taming,
+};
 
 const GROW_TICKS: i32 = 24_000;
 const AGE: &str = "saintsdragons:growth";
@@ -490,6 +493,84 @@ pub fn stack_clutch(click: &mut UseBlock<'_>) -> BlockUseResult {
     }
     sound(click.world, click.position, "minecraft:block.metal.place");
     BlockUseResult::Success
+}
+
+/// Each world's player positions last tick, to tell who moved.
+type Positions = HashMap<i32, [f64; 3]>;
+static MOVED: Mutex<Option<HashMap<usize, Positions>>> = Mutex::new(None);
+
+/// `CindervaneEggBlock.stepOn` and `RaevyxEggBlock.stepOn`: a player who moves on the egg without
+/// sneaking breaks it one time in ten, a Cindervane clutch one egg at a time. Vanilla calls
+/// `stepOn` from `Entity.move`, which a standing player doesn't run.
+pub fn trample(world: World<'_>) {
+    let (Some(entities), Some(mobs), Some(ids)) = (ENTITIES.get(), MOBS.get(), ids()) else {
+        return;
+    };
+    let index = |name| SPECIES.iter().position(|species| species.name == name);
+    let (Some(cindervane), Some(raevyx)) = (index("cindervane"), index("raevyx")) else {
+        return;
+    };
+    let mut stepped = Vec::new();
+    {
+        let mut moved = MOVED.lock().unwrap_or_else(PoisonError::into_inner);
+        let worlds = moved.get_or_insert_default();
+        let last = worlds.remove(&world.id()).unwrap_or_default();
+        let mut now = Positions::new();
+        for id in entities.players(world) {
+            entities.with_entity(world, id, |player| {
+                let view = player.view()?;
+                now.insert(id, view.position);
+                if last.get(&id).is_some_and(|last| *last != view.position)
+                    && view.on_ground
+                    && player.flags() & ENTITY_SNEAKING == 0
+                    && mobs.game_mode(player) != Some(3)
+                {
+                    // `Entity.getOnPosLegacy`.
+                    let [x, y, z] = view.position;
+                    stepped.push(Pos {
+                        x: x.floor() as i32,
+                        y: (y - 0.2).floor() as i32,
+                        z: z.floor() as i32,
+                    });
+                }
+                Some(())
+            });
+        }
+        worlds.insert(world.id(), now);
+    }
+    for pos in stepped {
+        let mut state = [UNLOADED_STATE];
+        if !world.read(&[pos], &mut state) {
+            continue;
+        }
+        let clutch = ids.stages[cindervane].iter().position(|&s| s == state[0]);
+        if (clutch.is_none() && !ids.stages[raevyx].contains(&state[0])) || random(10) != 0 {
+            continue;
+        }
+        if let Some(effects) = EFFECTS.get() {
+            let pitch = 0.9 + random(1000) as f32 / 5000.0;
+            effects.play_sound(
+                world,
+                center(pos, 0.5),
+                "minecraft:entity.turtle.egg_break",
+                SOUND_BLOCKS,
+                0.7,
+                pitch,
+            );
+        }
+        match clutch {
+            Some(index) if index >= STATES.len() => {
+                world.write(&[BlockUpdate {
+                    position: pos,
+                    state: ids.stages[cindervane][index - STATES.len()],
+                    flags: UPDATE_CLIENTS,
+                }]);
+            }
+            _ => {
+                world.destroy(pos, false);
+            }
+        }
+    }
 }
 
 pub fn is_juvenile(mob: Entity<'_>) -> bool {

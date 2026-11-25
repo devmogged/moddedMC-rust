@@ -1,0 +1,52 @@
+# Run in a new directory with -Seed 1796137205646843071.
+# The 0.9.88 custom spawners: Raevyx on open ground in its biomes during thunder, Stegonaut
+# under cover in lush caves away from players, and Volitans on the floor of deep water in
+# oceans. The bot builds each habitat with fill and fillbiome, stands in it, and the server
+# runs fast until the spawner picks it. Wild dragons don't despawn, so the bot clears earlier
+# ones first: the density limit allows fewer than three within 160 blocks. Each wild spawn
+# rolls its released appearance.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 4
+cmd gamemode creative tester
+cmd tick rate 1000
+cmd tp tester 0 230 0
+wait 5
+cmd fill -20 200 -20 19 200 19 minecraft:grass_block
+cmd fillbiome -20 196 -20 19 215 19 minecraft:meadow
+cmd kill @e[type=minecraft:ravager]
+cmd tp tester 0 201.5 0
+cmd weather thunder
+wait 40
+cmd data get entity @e[nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect Ravager has the following entity data: \{female: [01]b, variant: [01]b\}
+cmd weather clear
+cmd tp tester 300 170 0
+wait 5
+cmd fill 270 148 -30 330 154 30 minecraft:stone
+cmd fill 271 149 -29 329 152 29 minecraft:air
+cmd fillbiome 270 148 -30 330 154 30 minecraft:lush_caves
+cmd kill @e[type=minecraft:ravager]
+cmd tp tester 300 149.5 0
+cmd time query gametime
+wait 90
+cmd time query gametime
+cmd data get entity @e[nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect Ravager has the following entity data: \{female: [01]b, variant: 0b\}
+cmd tp tester 600 170 0
+wait 5
+cmd fill 580 140 -20 620 150 20 minecraft:glass
+cmd fill 581 141 -19 619 149 19 minecraft:water
+cmd fillbiome 580 140 -20 620 154 20 minecraft:ocean
+cmd kill @e[type=minecraft:ravager]
+cmd tp tester 600 151.5 0
+wait 120
+cmd time query gametime
+cmd data get entity @e[nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect Ravager has the following entity data: \{female: [01]b, variant: [01]b\}
+bot quit
+stop
