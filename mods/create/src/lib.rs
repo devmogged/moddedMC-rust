@@ -37,6 +37,7 @@ mod belt;
 mod belt_casing;
 mod belt_inventory;
 mod belt_movement;
+mod belt_tunnel;
 mod blaze_burner;
 mod chain_drive;
 mod chassis;
@@ -205,6 +206,7 @@ impl Mod for Create {
         interaction.require_extension(InteractionExtension::Exhaustion)?;
         interaction.require_extension(InteractionExtension::Redstone)?;
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
+        interaction.require_extension(InteractionExtension::PlayerPlaced)?;
         let _ = INTERACTION.set(interaction);
         let _ = EFFECTS.set(effects::require()?);
         let item_stacks = stacks::require()?;
@@ -267,10 +269,6 @@ impl Mod for Create {
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         crafter::register(*content, registry)?;
-        ITEM_INPUT
-            .get()
-            .ok_or(RegistrationError::InvalidDefinition)?
-            .register(registry, &[crafter::ID], crafter::receive_item)?;
         water_wheel::register(*content, registry)?;
         large_water_wheel::register(*content, registry)?;
         hand_crank::register(*content, registry)?;
@@ -299,6 +297,11 @@ impl Mod for Create {
         trains::register(content, registry)?;
         trains::register_saved(*content, registry)?;
         belt::register(content, registry)?;
+        belt_tunnel::register(*content, registry)?;
+        ITEM_INPUT
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .register(registry, &[crafter::ID, belt_tunnel::ID], receive_item)?;
         depot::register(*content, registry)?;
         deployer::register(*content, registry)?;
         chute::register(*content, registry)?;
@@ -367,6 +370,7 @@ impl Mod for Create {
         interaction.on_use_block(registry, use_block)?;
         interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
         interaction.on_player_will_destroy(registry, player_will_destroy)?;
+        interaction.on_player_placed(registry, belt_tunnel::player_placed)?;
         content.on_tick(registry, tick)?;
         ENTITIES
             .get()
@@ -921,6 +925,7 @@ struct StateIds {
     contraption_blocks: contraption::BlockMovementChecks,
     chutes: HashMap<u32, chute::ChuteState>,
     funnels: HashMap<u32, funnel::FunnelState>,
+    tunnels: HashMap<u32, belt_tunnel::Tunnel>,
     contacts: HashMap<u32, elevator::Contact>,
     crusher_controllers: HashMap<u32, (u8, bool)>,
     by_id: HashMap<u32, KnownState>,
@@ -1077,6 +1082,8 @@ fn states() -> Option<&'static StateIds> {
             ids.add(content, depot::ID, properties, None);
         }
         belt::add_states(&mut ids, content);
+        belt_tunnel::add_states(content, &mut ids);
+        ids.add(content, fluids::item_drain::ID, "", None);
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
         crafter::add_states(content, &mut ids);
@@ -1167,6 +1174,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return Some(track);
     }
     let states = states()?;
+    if states.tunnels.contains_key(&args.state) {
+        return belt_tunnel::placed_state(args);
+    }
     if states.chutes.contains_key(&args.state) {
         return chute::placed_state(args, states);
     }
@@ -1971,6 +1981,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         fluids::runtime::pressure_tick(world, kinetics, events, valve_changed);
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
+        belt_tunnel::update(world, states, kinetics, events);
         press::tick(world, states, kinetics);
         deployer::tick(world, time, kinetics);
         crafter::tick(world, kinetics, time);
@@ -2048,6 +2059,14 @@ fn validate_kinetic_placement(context: &UseOnBlock<'_>) -> UseResult {
     }
 }
 
+fn receive_item(offer: item_input::Offer<'_>) -> u32 {
+    if states().is_some_and(|states| states.tunnels.contains_key(&offer.state)) {
+        belt_tunnel::receive_item(offer)
+    } else {
+        crafter::receive_item(offer)
+    }
+}
+
 fn item_use(context: &mut ItemUse<'_>) -> ItemUseResult {
     match context.item {
         list_filter::ID => list_filter::use_item(context),
@@ -2080,7 +2099,7 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     }
     if matches!(
         context.item,
-        water_wheel::ID | large_water_wheel::ID | hand_crank::ID
+        water_wheel::ID | large_water_wheel::ID | hand_crank::ID | belt_tunnel::ID
     ) {
         return validate_kinetic_placement(context);
     }
@@ -2125,6 +2144,9 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
 
 /// `useItemOn` for the mod's blocks.
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
+    if let Some(result) = states().and_then(|states| belt_tunnel::use_block(context, states)) {
+        return result;
+    }
     if let Some(&content) = CONTENT.get() {
         if let Some(result) = trains::station::use_station(context, content) {
             return result;

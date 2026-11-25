@@ -59,6 +59,14 @@ pub struct FunnelState {
 }
 
 impl FunnelState {
+    pub(crate) const fn extends_towards(self, facing: u8) -> bool {
+        matches!(self.shape, Some(Shape::Extended)) && self.facing == facing
+    }
+
+    pub(crate) const fn supports_direct_input(self) -> bool {
+        self.shape.is_none() && !self.extracting && self.facing == UP
+    }
+
     pub(crate) const fn covers_belt(self) -> bool {
         self.facing == UP
     }
@@ -452,6 +460,7 @@ pub fn insert(
     item: &TransportedItemStack,
     simulate: bool,
 ) -> i32 {
+    let pos = crate::belt_tunnel::item_target(kinetics, pos);
     if let Some(depot) = kinetics.depots.get_mut(&pos) {
         return depot.insert_item(world, pos, item, simulate);
     }
@@ -495,6 +504,7 @@ fn extract_custom(
     simulate: bool,
     accepts: Option<&dyn Fn(&Value) -> bool>,
 ) -> Option<Value> {
+    let pos = crate::belt_tunnel::item_target(kinetics, pos);
     if let Some(depot) = kinetics.depots.get_mut(&pos) {
         return depot.extract_items(world, amount, simulate, accepts);
     }
@@ -915,7 +925,7 @@ pub fn insert_from_belt_end(
     else {
         return 0;
     };
-    if state.shape.is_some() || state.extracting || state.facing != UP {
+    if !state.supports_direct_input() {
         return 0;
     }
     try_insert(world, kinetics, pos, state, item, false)

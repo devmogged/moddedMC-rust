@@ -139,6 +139,14 @@ Right-click a Mechanical Belt with an Andesite or Brass Casing to change its mat
 
 On stock Java 26.3, apply both materials to a running belt and check that the bodies sit under the belt surface. Try a sloped segment and check that its casing follows the slope. Place and remove a block above a horizontal segment, then restart with the cover in place. Both materials and the cover should come back. The [belt casing scenario](../../tests/scenarios/create-belt-casing.txt) checks the right-click, wrench, covers, speed, and restart.
 
+### Andesite Tunnel
+
+Craft two tunnels from two Andesite Alloy above two Dried Kelp. Place a tunnel on a horizontal belt to add Andesite Casing wherever the belt is bare. Three tunnels in a row give the middle one a window. Use a Wrench to close or reopen it.
+
+Put a Depot on each side of the tunnel at belt height and send five ingots through. Each side gets one and the main belt carries three. A full side outlet stalls the incoming stack. Stop the belt to clear both outlets, then power it again to release the stack. A Hopper or Dropper feeding the tunnel sends items into the belt below. Removing the supporting belt drops the tunnel.
+
+The [Andesite Tunnel scenario](../../tests/scenarios/create-andesite-tunnel.txt) checks crafting, support, automatic casing, wrenching, dropper input, a three-way split and a jam cleared after restart. In stock Java 26.3, check that the junction openings face the side outputs and the window changes when wrenched.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

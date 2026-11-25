@@ -1,0 +1,181 @@
+# Craft and place an Andesite Tunnel, feed a three-way split, then clear a jam after restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:andesite_tunnel \(12 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2052.5 105 2012.5
+wait 3
+cmd fill 2045 100 2005 2056 109 2020 minecraft:air
+cmd fill 2045 99 2005 2056 99 2020 minecraft:stone
+cmd tp tester 2052.5 100 2012.5
+cmd gamemode survival tester
+cmd setblock 2053 100 2012 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:andesite_alloy
+cmd item replace entity tester hotbar.1 with create:andesite_alloy
+cmd item replace entity tester hotbar.2 with minecraft:dried_kelp
+cmd item replace entity tester hotbar.3 with minecraft:dried_kelp
+wait 0.5
+bot use 2053 100 2012 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 2 left
+wait 0.25
+bot inventory-click 39 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.25
+bot inventory-click 40 left
+wait 0.25
+bot inventory-click 5 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:andesite_tunnel 0
+wait 0.5
+expect Found 2 matching item\(s\)
+bot use 2052 99 2011 up
+wait 0.5
+cmd execute if block 2052 100 2011 minecraft:air
+cmd clear tester create:andesite_tunnel 0
+wait 0.5
+expect-all Test passed && Found 2 matching item\(s\)
+
+cmd setblock 2049 100 2010 create:creative_motor[facing=east]
+cmd setblock 2050 100 2010 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2050 100 2014 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.4 with create:belt_connector
+wait 0.5
+bot hotbar 4
+bot use 2050 100 2010 east
+wait 0.5
+bot use 2050 100 2014 east
+wait 1.5
+cmd kinetics 2050 100 2012
+wait 0.5
+expect create:belt\[facing=south,part=middle,slope=horizontal,waterlogged=false\].*Speed=16
+bot hotbar 0
+bot use 2050 100 2012 up
+wait 0.5
+cmd execute if block 2050 101 2012 create:andesite_tunnel[axis=z,shape=straight]
+cmd data get block 2050 100 2012 Casing
+cmd data get block 2050 100 2012 Covered
+wait 0.5
+expect-all Test passed && block data: "ANDESITE" && block data: 0b
+bot use 2050 100 2011 up
+wait 0.5
+cmd item replace entity tester hotbar.0 with create:andesite_tunnel
+wait 0.5
+bot use 2050 100 2013 up
+wait 0.5
+cmd execute if block 2050 101 2012 create:andesite_tunnel[axis=z,shape=window]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 2050 101 2012 east
+wait 0.5
+cmd execute if block 2050 101 2012 create:andesite_tunnel[axis=z,shape=closed]
+wait 0.5
+expect Test passed
+
+cmd setblock 2049 100 2013 create:depot
+cmd setblock 2051 100 2013 create:depot
+cmd setblock 2050 100 2015 create:depot
+cmd setblock 2050 102 2011 minecraft:dropper[facing=down]
+cmd item replace block 2050 102 2011 container.0 with minecraft:gold_ingot
+cmd setblock 2050 103 2011 minecraft:redstone_block
+wait 6
+cmd execute if block 2050 101 2013 create:andesite_tunnel[axis=z,shape=cross]
+cmd data get block 2050 100 2015 HeldItem.Item.id
+wait 0.5
+expect-all Test passed && block data: "minecraft:gold_ingot"
+cmd item replace entity tester hotbar.0 with minecraft:air
+wait 0.5
+bot use 2050 100 2015 up
+wait 0.5
+bot expect slot 36 minecraft:gold_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd item replace entity tester hotbar.0 with minecraft:air
+cmd summon minecraft:item 2050.5 101.1 2010.5 {Item:{id:"minecraft:iron_ingot",count:5},PickupDelay:32767s}
+wait 8
+cmd data get block 2049 100 2013 HeldItem.Item.count
+cmd data get block 2050 100 2015 HeldItem.Item.count
+wait 0.5
+expect-all 2049, 100, 2013 has the following block data: 1 && 2050, 100, 2015 has the following block data: 3
+cmd data get block 2051 100 2013 HeldItem.Item.count
+wait 0.5
+expect block data: 1$
+
+# Leave both side outlets occupied. Clear the main depot and send a new stack.
+bot use 2050 100 2015 up
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 3
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd item replace entity tester hotbar.0 with minecraft:air
+cmd summon minecraft:item 2050.5 101.1 2010.5 {Item:{id:"minecraft:copper_ingot",count:4},PickupDelay:32767s}
+wait 8
+cmd data get block 2050 100 2010 Inventory
+wait 0.5
+expect minecraft:copper_ingot
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd execute if block 2050 101 2012 create:andesite_tunnel[axis=z,shape=closed]
+cmd data get block 2050 100 2010 Inventory
+wait 0.5
+expect-all Test passed && minecraft:copper_ingot
+# Stop the belt so the first outlet cannot refill while the second is still being emptied.
+cmd kinetics 2049 100 2010 0
+wait 0.5
+expect at 2049 100 2010 Speed=0
+cmd tp tester 2050.5 100 2016.5
+wait 0.5
+bot use 2049 100 2013 up
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd item replace entity tester hotbar.0 with minecraft:air
+wait 0.5
+bot use 2051 100 2013 up
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd kinetics 2049 100 2010 16
+wait 5
+cmd data get block 2050 100 2015 HeldItem.Item.id
+cmd data get block 2050 100 2015 HeldItem.Item.count
+wait 0.5
+expect-all block data: "minecraft:copper_ingot" && block data: 2$
+cmd data get block 2049 100 2013 HeldItem.Item
+cmd data get block 2051 100 2013 HeldItem.Item
+wait 0.5
+expect-all 2049, 100, 2013 has the following block data: .*count: 1.*minecraft:copper_ingot && 2051, 100, 2013 has the following block data: .*count: 1.*minecraft:copper_ingot
+cmd setblock 2050 100 2013 minecraft:air
+wait 0.5
+cmd execute if block 2050 101 2013 minecraft:air
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

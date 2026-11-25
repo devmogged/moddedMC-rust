@@ -234,7 +234,7 @@ impl Chain {
     }
 
     /// `getDirectionAwareBeltMovementSpeed`.
-    fn direction_aware_speed(self) -> f32 {
+    pub(crate) fn direction_aware_speed(self) -> f32 {
         let mut offset = if positive(self.belt.facing) {
             1.0
         } else {
@@ -520,6 +520,14 @@ impl BeltInventory {
                 continue;
             }
 
+            if horizontal {
+                let (blocked, split) =
+                    crate::belt_tunnel::split(world, kinetics, chain, item, item.pos + limited);
+                changed |= split;
+                if blocked {
+                    continue;
+                }
+            }
             item.pos += limited;
             let diff_to_middle = target_side_offset(item.angle) - item.offset;
             item.offset += (diff_to_middle * limited.abs() * 6.0)
@@ -830,12 +838,11 @@ pub fn try_inserting_from_side(
     let Kind::Belt(belt) = segment.kind else {
         return false;
     };
-    let (speed, index) = (segment.get_speed(), segment.belt_index);
-    let facing = movement_facing(belt, speed);
-    // DirectBeltInputBehaviour.canInsertFromSide: BeltBlockEntity.canInsertFrom.
-    if speed == 0.0 || !can_transport_objects(belt) || facing == opposite(side) {
+    if !can_insert_from(segment, belt, side) {
         return false;
     }
+    let (speed, index) = (segment.get_speed(), segment.belt_index);
+    let facing = movement_facing(belt, speed);
     // A chain's own inventory is out of its block entity while it ticks.
     let Some(controller) = segment
         .controller
@@ -895,6 +902,12 @@ pub fn try_inserting_from_side(
     inventory.to_insert.push(stack);
     be.dirty = true;
     true
+}
+
+/// BeltBlockEntity.canInsertFrom, without the occupancy test.
+pub(crate) fn can_insert_from(segment: &crate::kinetics::Be, belt: Belt, side: u8) -> bool {
+    let speed = segment.get_speed();
+    speed != 0.0 && can_transport_objects(belt) && movement_facing(belt, speed) != opposite(side)
 }
 
 pub fn facing_at(kinetics: &Kinetics, pos: Pos) -> Option<u8> {

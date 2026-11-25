@@ -527,6 +527,18 @@ pub fn direct_insert(
     chute.insert(item, 1.0, false)
 }
 
+pub(crate) fn supports_direct_input(
+    world: World<'_>,
+    states: &StateIds,
+    pos: Pos,
+    state: u32,
+) -> bool {
+    states
+        .chutes
+        .get(&state)
+        .is_some_and(|&chute| can_directly_insert(world, states, pos, chute))
+}
+
 fn can_directly_insert(world: World<'_>, states: &StateIds, pos: Pos, state: ChuteState) -> bool {
     state.active()
         && state.is_open()
@@ -684,7 +696,7 @@ fn handle_downward_output(
     if !state.active() {
         return 0;
     }
-    let below = shift(pos, DOWN);
+    let below = crate::belt_tunnel::item_target(kinetics, shift(pos, DOWN));
     let amount = count(&item.item);
     let via_inventory = if matches!(kinetics.kind(below), Some(Kind::Belt(_))) {
         Some(belt_inventory::insert_into_segment(

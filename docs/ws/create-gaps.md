@@ -4,7 +4,7 @@ Compared with Create 6.0.10 (`mc1.21.1-6.0.10`), ordered by when a player using 
 
 | Order | What a survival player hits |
 | --- | --- |
-| 1 | **Sorting and transfer.** Andesite Funnels and plain Chutes work. Brass Funnels and Smart Chutes support batch sizes, single-item samples, List Filters and Attribute Filters. Attribute rules cover tags, mod source, items and recipes, enchantments, books, shulker fill, names, colors and bucket fluids. The creative tab rule needs item membership data. Brass Tunnels, the Mechanical Arm, the Threshold Switch and the Content Observer are missing. |
+| 1 | **Sorting and transfer.** Andesite Funnels and plain Chutes work. Andesite Tunnels craft and place on horizontal belts, split to side outputs and retain blocked stacks across restart. Brass Funnels and Smart Chutes support batch sizes, single-item samples, List Filters and Attribute Filters. Attribute rules cover tags, mod source, items and recipes, enchantments, books, shulker fill, names, colors and bucket fluids. The creative tab rule needs item membership data. Brass Tunnels, the Mechanical Arm, the Threshold Switch and the Content Observer are missing. |
 | 2 | **Farm and tree automation.** Mounted drills and harvesters work in the tested setups. Stationary drill mining, Mechanical Saws, Ploughs, mounted Deployers, and Portable Storage Interfaces are missing or incomplete. |
 | 3 | **Belts and bulk processing.** Andesite and brass casing application, covers, wrench removal and restart work. Belt slicing and dye interactions remain. Sloped belts cannot carry stock players up. Bulk blasting and smoking do not have the full vanilla recipe set. |
 | 4 | **Factory power and fluids.** Pipes, pumps, tanks, valves, drains and basic spout filling work. Steam Engines and boilers, Portable Fluid Interfaces, and custom spout-filling recipes are missing. |
@@ -20,3 +20,5 @@ Visual and invisible parity includes exact particles and sounds, advancement tri
 The Rotation Speed Controller cog bracket is tracked in [issue #20](https://github.com/devmogged/moddedMC-rust/issues/20).
 
 The chain casing mining hardness is tracked in [issue #21](https://github.com/devmogged/moddedMC-rust/issues/21).
+
+Andesite Tunnel flap animation is tracked in [issue #25](https://github.com/devmogged/moddedMC-rust/issues/25).

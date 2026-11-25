@@ -99,24 +99,40 @@ pub(crate) fn apply(
     if be.belt_casing == casing {
         return Some(BlockUseResult::Success);
     }
-    let properties =
-        belt::casing_properties(belt, states.wet(context.state), casing != Casing::None);
-    let state = states.lookup(&format!("{}[{properties}]", belt::BELT))?;
-    if state != context.state
-        && context.world.write(&[BlockUpdate {
+    if !set_casing(context.world, pos, context.state, states, belt, be, casing) {
+        return Some(BlockUseResult::Fail);
+    }
+    if let Some(effects) = EFFECTS.get() {
+        effects.play_sound(context.world, center(pos), sound, SOUND_BLOCKS, 1.0, 0.8);
+    }
+    Some(BlockUseResult::Success)
+}
+
+pub(crate) fn set_casing(
+    world: World<'_>,
+    pos: Pos,
+    current: u32,
+    states: &StateIds,
+    belt: Belt,
+    be: &mut Be,
+    casing: Casing,
+) -> bool {
+    let properties = belt::casing_properties(belt, states.wet(current), casing != Casing::None);
+    let Some(state) = states.lookup(&format!("{}[{properties}]", belt::BELT)) else {
+        return false;
+    };
+    if state != current
+        && world.write(&[BlockUpdate {
             position: pos,
             state,
             flags: content::UPDATE_ALL,
         }]) != 1
     {
-        return Some(BlockUseResult::Fail);
+        return false;
     }
     be.belt_casing = casing;
     be.dirty = true;
-    if let Some(effects) = EFFECTS.get() {
-        effects.play_sound(context.world, center(pos), sound, SOUND_BLOCKS, 1.0, 0.8);
-    }
-    Some(BlockUseResult::Success)
+    true
 }
 
 fn center(pos: Pos) -> [f64; 3] {
@@ -222,6 +238,7 @@ fn covered(world: World<'_>, pos: Pos, states: &StateIds) -> bool {
     let mut state = [content::UNLOADED_STATE];
     if !world.read(&[above], &mut state)
         || states.crusher_controllers.contains_key(&state[0])
+        || states.tunnels.contains_key(&state[0])
         || states
             .funnels
             .get(&state[0])
