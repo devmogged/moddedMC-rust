@@ -1,4 +1,4 @@
-//! Attribute Filter rules selected from a sample's item tags and registry namespace.
+//! Attribute Filter rules selected from a sample's tags, source, and properties.
 
 use fastnbt::Value;
 use moddedmc_api::{
@@ -13,6 +13,8 @@ use crate::{
     filtering::{Compound, compound, settings, settings_mut},
     processing_recipes::item_id,
 };
+
+mod properties;
 
 pub(crate) const ID: &str = "create:attribute_filter";
 const MODE: &str = "Mode";
@@ -88,24 +90,25 @@ fn rule(value: &Value) -> Option<(&str, bool)> {
     ))
 }
 
-fn applies(attribute: &str, item: &str) -> bool {
+fn applies(attribute: &str, id: &str, stack: &properties::Stack<'_>) -> bool {
     if let Some(tag) = attribute.strip_prefix('#') {
         TAGS.get()
-            .is_some_and(|tags| tags.contains("item", tag, item))
+            .is_some_and(|tags| tags.contains("item", tag, id))
+    } else if let Some(source) = attribute.strip_prefix('@') {
+        id.split_once(':')
+            .is_some_and(|(namespace, _)| namespace == source)
     } else {
-        attribute.strip_prefix('@').is_some_and(|source| {
-            item.split_once(':')
-                .is_some_and(|(namespace, _)| namespace == source)
-        })
+        stack.applies(attribute)
     }
 }
 
 pub(crate) fn matches(filter: &Value, stack: &Value) -> Option<bool> {
     let settings = settings(filter, ID)?;
-    let item = item_id(stack)?;
+    let id = item_id(stack)?;
     let mut rules = rules(settings).iter().filter_map(rule).peekable();
     rules.peek()?;
-    let applies = |(attribute, inverted)| applies(attribute, item) != inverted;
+    let stack = properties::Stack::new(stack);
+    let applies = |(attribute, inverted)| applies(attribute, id, &stack) != inverted;
     Some(match Mode::from_settings(settings) {
         Mode::Any => rules.any(applies),
         Mode::All => rules.all(applies),
@@ -113,17 +116,22 @@ pub(crate) fn matches(filter: &Value, stack: &Value) -> Option<bool> {
     })
 }
 
-fn options(sample: &str) -> Vec<String> {
+fn options(sample: &Value, id: &str) -> Vec<String> {
     let mut options: Vec<_> = TAGS
         .get()
-        .and_then(|tags| tags.memberships("item", sample))
+        .and_then(|tags| tags.memberships("item", id))
         .into_iter()
         .flatten()
         .map(|tag| format!("#{tag}"))
         .collect();
-    if let Some((namespace, _)) = sample.split_once(':') {
+    if let Some((namespace, _)) = id.split_once(':') {
         options.push(format!("@{namespace}"));
     }
+    options.extend(
+        properties::Stack::new(sample)
+            .selections()
+            .map(str::to_owned),
+    );
     options
 }
 
@@ -184,7 +192,9 @@ pub(crate) fn use_item(context: &mut ItemUse<'_>) -> ItemUseResult {
         .other_hand
         .read()
         .and_then(|bytes| fastnbt::from_bytes::<Value>(&bytes).ok());
-    let sample = sample.as_ref().and_then(item_id);
+    let sample = sample
+        .as_ref()
+        .and_then(|item| Some((item, item_id(item)?)));
     if !sneak && sample.is_none() {
         let message = settings(&item, ID).map_or_else(|| "Allow any - 0 rules".into(), describe);
         context.action_bar(&message);
@@ -193,8 +203,8 @@ pub(crate) fn use_item(context: &mut ItemUse<'_>) -> ItemUseResult {
     let Some(settings) = settings_mut(&mut item, ID) else {
         return ItemUseResult::Handled;
     };
-    let message = if let Some(sample) = sample {
-        let options = options(sample);
+    let message = if let Some((sample, id)) = sample {
+        let options = options(sample, id);
         if options.is_empty() {
             context.action_bar("No attributes for this sample");
             return ItemUseResult::Handled;

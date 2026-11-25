@@ -121,9 +121,11 @@ The [List Filter scenario](../../tests/scenarios/create-list-filter.txt) crafts 
 
 ### Attribute Filter
 
-Craft a Brass Ingot into nine Brass Nuggets. Put wool between two Brass Nuggets to craft an Attribute Filter. Hold the filter in your main hand and a sample in your offhand. Sneak-use in the air to cycle through the sample's item tags (`#minecraft:coals`, for example) and mod source (`@create`). Release sneak and use again to add the selected rule. Repeat to invert it, then repeat again to remove it. With an empty offhand, sneak-use to cycle between **Allow any**, **Allow all**, and **Deny any**. Use without sneaking to read the current rules.
+Craft a Brass Ingot into nine Brass Nuggets. Put wool between two Brass Nuggets to craft an Attribute Filter. Hold the filter in your main hand and a sample in your offhand. Sneak-use in the air to cycle through the sample's item tags, mod source and properties. Release sneak and use again to add the selected rule. Repeat to invert it, then repeat again to remove it. With an empty offhand, sneak-use to cycle between **Allow any**, **Allow all**, and **Deny any**. Use without sneaking to read the current rules.
 
 Install and recover it on a filter plate as you would a List Filter. The [Attribute Filter scenario](../../tests/scenarios/create-attribute-filter.txt) applies coal's tag to charcoal and matches a second item by its source, including after restart. In stock Java 26.3, cycle the coal sample between its tags and confirm the action bar shows the selected rule, then install it and try a coal, charcoal and gold mix.
+
+Coal also offers `furnace_fuel`, which matches sticks. Wet sponge offers `smeltable`, which matches raw ore. Worn tools offer `damaged`. Check these three rules on one filter by sending sticks, raw iron, damaged shears and fresh shears through a chute in **Allow any** mode. The fresh shears should stay in the source. The [property scenario](../../tests/scenarios/create-attribute-filter-properties.txt) checks this through a restart.
 
 ### Depot
 

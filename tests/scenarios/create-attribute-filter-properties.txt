@@ -1,0 +1,122 @@
+# Sort fuel, smeltable items and damaged tools with three rules on one Attribute Filter.
+mods target\mods\create.mmc
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2601.5 105 2600.5 0 0
+wait 3
+cmd fill 2597 101 2597 2606 109 2606 minecraft:air
+cmd fill 2597 100 2597 2606 100 2606 minecraft:stone
+cmd tp tester 2601.5 101 2600.5 0 0
+cmd gamemode survival tester
+cmd item replace entity tester weapon.mainhand with create:attribute_filter
+cmd item replace entity tester weapon.offhand with minecraft:coal
+bot input sneak
+wait 0.5
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+expect Attribute [0-9]+/[0-9]+ - furnace_fuel
+bot input none
+wait 0.25
+bot use-item main
+wait 0.5
+expect Added furnace_fuel - Allow any - 1 rules
+
+cmd item replace entity tester weapon.offhand with minecraft:wet_sponge
+bot input sneak
+wait 0.5
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+expect Attribute [0-9]+/[0-9]+ - smeltable
+bot input none
+wait 0.25
+bot use-item main
+wait 0.5
+expect Added smeltable - Allow any - 2 rules
+
+cmd item replace entity tester weapon.offhand with minecraft:shears[minecraft:damage=7]
+bot input sneak
+wait 0.5
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+bot use-item main
+wait 0.25
+expect Attribute [0-9]+/[0-9]+ - damaged
+bot input none
+wait 0.25
+bot use-item main
+wait 0.5
+expect Added damaged - Allow any - 3 rules
+cmd data get entity tester Inventory[{Slot:-106b}].components."minecraft:damage"
+wait 0.5
+expect entity data: 7$
+cmd item replace entity tester weapon.offhand with minecraft:air
+
+cmd setblock 2601 100 2602 minecraft:barrel
+cmd setblock 2602 101 2602 minecraft:redstone_block
+cmd setblock 2601 101 2602 create:smart_chute[powered=true]
+cmd setblock 2601 102 2602 minecraft:chest
+wait 0.5
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:attribute_filter - Up to 64
+cmd item replace block 2601 102 2602 container.0 with minecraft:gold_ingot
+cmd item replace block 2601 102 2602 container.1 with minecraft:shears
+cmd item replace block 2601 102 2602 container.2 with minecraft:stick 4
+cmd item replace block 2601 102 2602 container.3 with minecraft:raw_iron 3
+cmd item replace block 2601 102 2602 container.4 with minecraft:shears[minecraft:damage=5]
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd setblock 2602 101 2602 minecraft:air
+wait 4
+cmd data get block 2601 100 2602 Items[{Slot:0b}].id
+wait 0.5
+expect block data: "minecraft:stick"
+cmd data get block 2601 100 2602 Items[{Slot:1b}].id
+wait 0.5
+expect block data: "minecraft:raw_iron"
+cmd data get block 2601 100 2602 Items[{Slot:2b}].components."minecraft:damage"
+wait 0.5
+expect block data: 5$
+cmd data get block 2601 102 2602 Items[{Slot:0b}].id
+wait 0.5
+expect block data: "minecraft:gold_ingot"
+cmd data get block 2601 102 2602 Items[{Slot:1b}].id
+wait 0.5
+expect block data: "minecraft:shears"
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
