@@ -155,7 +155,11 @@ impl BlockMovementChecks {
         }
         if matches!(
             entry.name.as_str(),
-            "create:track" | "create:track_station" | "create:track_signal"
+            "create:track"
+                | "create:track_station"
+                | "create:track_signal"
+                | crate::large_water_wheel::ID
+                | crate::large_water_wheel::STRUCTURE
         ) {
             return Some(BlockMovement::Immovable);
         }

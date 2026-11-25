@@ -2,7 +2,7 @@
 //! `KineticBlockEntity` and `GeneratingKineticBlockEntity`, ported method by method so the same
 //! placements give the same speeds, sources, networks and broken blocks.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use moddedmc_api::Pos;
 
@@ -93,6 +93,7 @@ pub enum Kind {
     /// Facing.
     Motor(u8),
     WaterWheel(u8),
+    LargeWaterWheel(u8),
     HandCrank(u8),
     Gearbox(u8),
     /// Axis and `powered`.
@@ -247,6 +248,7 @@ impl Kind {
             | Self::Gearshift(axis, _)
             | Self::EncasedShaft(axis)
             | Self::Wheel(axis)
+            | Self::LargeWaterWheel(axis)
             | Self::Pulley(axis)
             | Self::Press(axis)
             | Self::Valve(axis) => axis,
@@ -343,6 +345,7 @@ impl Kind {
         match self {
             Self::Motor(_) => 16384.0,
             Self::WaterWheel(_) => 32.0,
+            Self::LargeWaterWheel(_) => 128.0,
             Self::HandCrank(_) => 8.0,
             Self::Windmill(_) => 512.0,
             _ => 0.0,
@@ -350,10 +353,15 @@ impl Kind {
     }
 
     const fn generator(self) -> bool {
-        matches!(
-            self,
-            Self::Motor(_) | Self::WaterWheel(_) | Self::HandCrank(_) | Self::Windmill(_)
-        )
+        self.fluid_wheel()
+            || matches!(
+                self,
+                Self::Motor(_) | Self::HandCrank(_) | Self::Windmill(_)
+            )
+    }
+
+    pub const fn fluid_wheel(self) -> bool {
+        matches!(self, Self::WaterWheel(_) | Self::LargeWaterWheel(_))
     }
 
     pub const fn is_bearing(self) -> bool {
@@ -499,10 +507,9 @@ impl Be {
             overstressed: false,
             last_stress_applied: 0.0,
             last_capacity_provided: 0.0,
-            generated: if matches!(
-                kind,
-                Kind::WaterWheel(_) | Kind::HandCrank(_) | Kind::Windmill(_)
-            ) {
+            generated: if kind.fluid_wheel()
+                || matches!(kind, Kind::HandCrank(_) | Kind::Windmill(_))
+            {
                 0
             } else {
                 DEFAULT_SPEED
@@ -555,6 +562,9 @@ impl Be {
                 (self.generated.signum() * direction * crate::hand_crank::SPEED) as f32
             }
             Kind::WaterWheel(_) => (self.generated.signum() * crate::water_wheel::SPEED) as f32,
+            Kind::LargeWaterWheel(_) => {
+                (self.generated.signum() * crate::large_water_wheel::SPEED) as f32
+            }
             _ => 0.0,
         }
     }
@@ -656,6 +666,7 @@ pub struct Kinetics {
     pub(crate) rail_updates: crate::trains::RailUpdates,
     pub(crate) signal_updates: crate::trains::signal::SignalUpdates,
     pub(crate) train_runtime: crate::trains::TrainRuntime,
+    pub(crate) pending_wheel_parts: HashSet<Pos>,
     pub blaze_burners: HashMap<Pos, crate::blaze_burner::Burner>,
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub item_drains: HashMap<Pos, crate::fluids::item_drain::ItemDrain>,

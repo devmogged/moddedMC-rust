@@ -1,0 +1,11 @@
+{
+  "parent": "create:block/large_water_wheel/stock_rotor",
+  "display": {
+    "gui": {"rotation": [60, 30, 0], "scale": [0.32, 0.32, 0.32]},
+    "ground": {"translation": [0, 2, 0], "scale": [0.24, 0.24, 0.24]},
+    "firstperson_righthand": {"rotation": [40, 20, 0], "scale": [0.3, 0.3, 0.3]},
+    "firstperson_lefthand": {"rotation": [40, -20, 0], "scale": [0.3, 0.3, 0.3]},
+    "thirdperson_righthand": {"rotation": [40, 20, 0], "scale": [0.28, 0.28, 0.28]},
+    "thirdperson_lefthand": {"rotation": [40, -20, 0], "scale": [0.28, 0.28, 0.28]}
+  }
+}

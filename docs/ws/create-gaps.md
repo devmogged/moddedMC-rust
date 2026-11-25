@@ -4,7 +4,7 @@ Snapshot at `875330c` against Create 6.0.10 (`mc1.21.1-6.0.10`), ranked by when 
 
 | Order | What a survival player hits |
 | --- | --- |
-| 1 | **First power.** The small Water Wheel and Hand Crank now work for starter power. The Large Water Wheel, Windmill sails and windmill direction control are still missing. |
+| 1 | **First power.** The small and Large Water Wheels and Hand Crank now work for starter power. Windmill sails and windmill direction control are still missing. |
 | 2 | **Brass progression.** Mechanical Crafters are missing. Crushing Wheels place and run when supplied, but the released mechanical crafting recipe cannot be made in survival. The Rotation Speed Controller and Adjustable Chain Gearshift are missing for tuning larger lines. |
 | 3 | **Sorting and transfer.** Andesite Funnels and plain Chutes work. Brass Funnels, Smart Chutes, filters, Brass Tunnels, the Mechanical Arm, and inventory/redstone controls such as the Threshold Switch and Content Observer are missing. |
 | 4 | **Farm and tree automation.** Mounted drills and harvesters work in the tested setups. Stationary drill mining, Mechanical Saws, Ploughs, mounted Deployers, and Portable Storage Interfaces are missing or incomplete. |

@@ -52,6 +52,7 @@ mod glue;
 mod hand_crank;
 mod harvester;
 mod kinetics;
+mod large_water_wheel;
 mod manual_application;
 mod millstone;
 mod mixer;
@@ -238,6 +239,7 @@ impl Mod for Create {
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         water_wheel::register(*content, registry)?;
+        large_water_wheel::register(*content, registry)?;
         hand_crank::register(*content, registry)?;
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
@@ -326,7 +328,7 @@ impl Mod for Create {
         interaction.on_vanilla_use_on_block(registry, manual_application::use_on_block)?;
         interaction.on_use_block(registry, use_block)?;
         interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
-        interaction.on_player_will_destroy(registry, piston::player_will_destroy)?;
+        interaction.on_player_will_destroy(registry, player_will_destroy)?;
         content.on_tick(registry, tick)?;
         ENTITIES
             .get()
@@ -887,6 +889,8 @@ struct StateIds {
     by_selector: HashMap<String, u32>,
     /// Vanilla blocks a belt may run through (`canBeReplaced`).
     replaceable: HashSet<u32>,
+    wheel_replaceable: HashSet<u32>,
+    wheel_parts: [Option<u32>; 6],
     /// Vanilla blocks with `getDestroySpeed == -1`.
     unbreakable: HashSet<u32>,
     /// States holding water: water itself and waterlogged content states.
@@ -1038,6 +1042,7 @@ fn states() -> Option<&'static StateIds> {
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
         water_wheel::add_states(content, &mut ids);
+        large_water_wheel::add_states(content, &mut ids);
         hand_crank::add_states(content, &mut ids);
         deployer::add_states(content, &mut ids);
         basin::add_states(content, &mut ids);
@@ -1080,6 +1085,14 @@ fn states() -> Option<&'static StateIds> {
                 ids.unbreakable.insert(id);
             }
         }
+        ids.wheel_replaceable.extend(
+            ["water", "lava"]
+                .into_iter()
+                .flat_map(|fluid| {
+                    (0..16).map(move |level| format!("minecraft:{fluid}[level={level}]"))
+                })
+                .filter_map(|selector| content.state(&selector)),
+        );
         ids.water = ids
             .by_id
             .iter()
@@ -1160,6 +1173,15 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::LargeWaterWheel(_)) => {
+            return large_water_wheel::placed(
+                args.world,
+                states,
+                args.position,
+                ids[large_water_wheel::negative(pillar_axis)],
+                pillar_axis,
+            );
+        }
         Some(Kind::HandCrank(_)) => {
             let face = if args.sneak || preferred.is_none() {
                 args.face
@@ -1457,7 +1479,7 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     else {
         return be;
     };
-    if matches!(kind, Kind::WaterWheel(_)) {
+    if kind.fluid_wheel() {
         be.generated = data.flow_score.unwrap_or(0);
     }
     if matches!(kind, Kind::HandCrank(_)) {
@@ -1572,7 +1594,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
             added_capacity: be.last_capacity_provided,
         }),
         scroll_value: matches!(be.kind, Kind::Motor(_)).then_some(be.generated),
-        flow_score: matches!(be.kind, Kind::WaterWheel(_)).then_some(be.generated),
+        flow_score: be.kind.fluid_wheel().then_some(be.generated),
         in_use: matches!(be.kind, Kind::HandCrank(_)).then_some(be.generated.abs()),
         backwards: matches!(be.kind, Kind::HandCrank(_)).then_some(be.generated < 0),
         ..belt_data(pos, be)
@@ -1663,6 +1685,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         let mut level = WorldLevel { world, states };
         let mut gantry_changed = false;
         for event in events {
+            large_water_wheel::event(world, states, &mut kinetics.pending_wheel_parts, event);
             // WS-2: recalculate fluid pipe faces when adjacent blocks change.
             fluids::runtime::event(world, event);
             fluids::item_drain::event(world, &mut kinetics.item_drains, event);
@@ -1773,7 +1796,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             gantry::refresh_lines(world, &mut level, kinetics);
         }
         kinetics.tick(&mut level);
-        water_wheel::tick(world, time, events, kinetics, &mut level);
+        water_wheel::tick(world, time, events, states, kinetics, &mut level);
         if let Some(&content) = CONTENT.get() {
             let rails_changed = kinetics.rail_updates.tick(world, content, time, events);
             kinetics
@@ -1818,6 +1841,11 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
 fn content_replaced(world: World<'_>, event: &ContentEvent) {
     fluids::tank_connectivity::replaced(world, event);
     basin::replaced(world, event);
+}
+
+fn player_will_destroy(context: &moddedmc_api::interaction::PlayerWillDestroy<'_>) {
+    piston::player_will_destroy(context);
+    large_water_wheel::player_will_destroy(context);
 }
 
 fn validate_kinetic_placement(context: &UseOnBlock<'_>) -> UseResult {
@@ -1876,8 +1904,14 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == "create:track" {
         return trains::use_on_block(context);
     }
-    if matches!(context.item, water_wheel::ID | hand_crank::ID) {
+    if matches!(
+        context.item,
+        water_wheel::ID | large_water_wheel::ID | hand_crank::ID
+    ) {
         return validate_kinetic_placement(context);
+    }
+    if context.item == large_water_wheel::STRUCTURE {
+        return UseResult::Fail;
     }
     if context.item == trains::schedule::ID
         && let Some(&content) = CONTENT.get()

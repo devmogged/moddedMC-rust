@@ -63,6 +63,12 @@ Craft a Hand Crank with a row of three planks and an Andesite Alloy below the ri
 
 The [Hand Crank scenario](../../tests/scenarios/create-hand-crank.txt) crafts it in Survival, checks both directions, checks exhaustion and restart, and removes its support. In stock Java 26.3, hold use and watch the handle and shaft turn together. Release to stop, then sneak-use to check the reverse direction.
 
+### Large Water Wheel
+
+Surround a small Water Wheel with eight planks in the crafting grid. Place the Large Water Wheel onto a shaft with a clear 3×3 plane perpendicular to the axle. Falling water two blocks out turns the wheel at 4 RPM and supplies 512 SU. Mining a corner removes the whole wheel and drops one item.
+
+The [Large Water Wheel scenario](../../tests/scenarios/create-large-water-wheel.txt) checks crafting, blocked placement, axle extensions, flow, restart and mining across a chunk boundary. In stock Java 26.3, watch the three-block wheel and the shaft turn together, then mine an outside paddle and collect the single wheel.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
