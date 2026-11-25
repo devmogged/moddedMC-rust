@@ -48,6 +48,7 @@ mod display_model;
 mod drill;
 mod elevator;
 mod fan;
+mod filtering;
 mod funnel;
 // WS-2 Create fluids
 pub mod fluids;
@@ -2104,6 +2105,11 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     {
         return speed_controller::use_block(context, states, axis);
     }
+    if states().is_some_and(|states| states.chutes.contains_key(&context.state)) {
+        return with_world(context.world, |kinetics| {
+            chute::use_item_on(context.world, &mut kinetics.chutes, context)
+        });
+    }
     if !context.with_item {
         if let Some(states) = states()
             && states
@@ -2161,11 +2167,6 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         .is_some_and(|state| chassis::is_chassis(state.block))
     {
         return chassis::use_item_on(context);
-    }
-    if states.chutes.contains_key(&context.state) {
-        return with_world(context.world, |kinetics| {
-            chute::use_item_on(context.world, &mut kinetics.chutes, context)
-        });
     }
     if states.funnels.contains_key(&context.state) {
         return with_world(context.world, |kinetics| {

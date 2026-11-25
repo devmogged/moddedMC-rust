@@ -13,10 +13,11 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CONTAINERS, DIRECTIONS, DISPLAYS, EFFECTS, ENTITIES, STACKS, STONE, StateIds, WRENCH,
+    CONTAINERS, DIRECTIONS, EFFECTS, ENTITIES, STACKS, STONE, StateIds, WRENCH,
     belt_inventory::{self, Chain, TransportedItemStack, count, with_count},
     belt_movement::can_transport_objects,
     chute,
+    filtering::{self, Extraction, Filter},
     kinetics::{FACES, Kind, Kinetics, Slope, face_axis, offset},
 };
 
@@ -24,7 +25,6 @@ pub const ID: &str = "create:andesite_funnel";
 pub const BELT_ID: &str = "create:andesite_belt_funnel";
 const BRASS_ID: &str = "create:brass_funnel";
 const BRASS_BELT_ID: &str = "create:brass_belt_funnel";
-const MAX_FILTER_AMOUNT: i32 = 64;
 const DOWN: u8 = 0;
 const UP: u8 = 1;
 const DEFAULT_EXTRACTION_TIMER: u32 = 8;
@@ -179,13 +179,7 @@ impl FunnelState {
             return None;
         }
         let side = if face == UP { self.facing } else { face };
-        let lateral = match side {
-            2 => 0.5 - hit[0],
-            3 => hit[0] - 0.5,
-            4 => hit[2] - 0.5,
-            _ => 0.5 - hit[2],
-        };
-        (lateral.abs() <= 0.19).then_some(lateral)
+        filtering::slot_column(side, hit)
     }
 }
 
@@ -355,57 +349,12 @@ pub struct Funnels {
     order: Vec<Pos>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "PascalCase")]
 struct FunnelData {
     transfer_cooldown: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    filter: Option<Value>,
-    filter_amount: i32,
-    up_to: bool,
-}
-
-impl Default for FunnelData {
-    fn default() -> Self {
-        Self {
-            transfer_cooldown: 0,
-            filter: None,
-            filter_amount: MAX_FILTER_AMOUNT,
-            up_to: true,
-        }
-    }
-}
-
-impl FunnelData {
-    fn amount(&self) -> i32 {
-        if self.filter_amount <= 0 {
-            MAX_FILTER_AMOUNT
-        } else {
-            self.filter_amount.min(MAX_FILTER_AMOUNT)
-        }
-    }
-
-    fn exact(&self) -> bool {
-        self.filter_amount > 0 && !self.up_to
-    }
-
-    fn matches(&self, stack: &Value) -> bool {
-        self.filter
-            .as_ref()
-            .and_then(crate::processing_recipes::item_id)
-            .is_none_or(|id| crate::processing_recipes::item_id(stack) == Some(id))
-    }
-
-    fn max_amount(&self) -> i32 {
-        self.filter
-            .as_ref()
-            .and_then(|item| fastnbt::to_bytes(item).ok())
-            .and_then(|bytes| STACKS.get()?.info(&bytes))
-            .map_or(MAX_FILTER_AMOUNT, |info| {
-                info.max_count.min(MAX_FILTER_AMOUNT as u32) as i32
-            })
-            .max(1)
-    }
+    #[serde(flatten)]
+    filter: Filter,
 }
 
 struct FunnelBlockEntity {
@@ -581,22 +530,45 @@ fn extract(
     simulate: bool,
 ) -> Option<Value> {
     let state = funnel.state;
-    let source = state.storage(pos);
-    let data = &funnel.data;
-    let amount = if state.brass { data.amount() } else { 1 };
+    let extraction = if state.brass {
+        funnel.data.filter.extraction(true)
+    } else {
+        Extraction::up_to(1)
+    };
+    extract_at(
+        world,
+        kinetics,
+        state.storage(pos),
+        state.facing,
+        extraction,
+        simulate,
+    )
+}
+
+pub(crate) fn extract_at(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    source: Pos,
+    face: u8,
+    extraction: Extraction<'_>,
+    simulate: bool,
+) -> Option<Value> {
+    let amount = extraction.amount;
     let mut take = |simulate, accepts: Option<&dyn Fn(&Value) -> bool>| {
         extract_custom(world, kinetics, source, amount, simulate, accepts).or_else(|| {
-            let container = CONTAINERS.get()?.at(world, source, state.facing)?;
+            let container = CONTAINERS.get()?.at(world, source, face)?;
             chute::extract_container_when(container, amount as u32, simulate, |item| {
                 accepts.is_none_or(|test| test(item))
             })
         })
     };
-    let matches = |item: &Value| data.matches(item);
-    if !state.brass || !data.exact() {
+    let matches = |item: &Value| extraction.filter.is_none_or(|filter| filter.matches(item));
+    if !extraction.exact {
         return take(
             simulate,
-            (state.brass && data.filter.is_some()).then_some(&matches),
+            extraction
+                .filter
+                .map(|_| &matches as &dyn Fn(&Value) -> bool),
         );
     }
     // Dry-run exact batches before taking anything. Try the next item identity if the
@@ -828,21 +800,21 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
 }
 
 fn render_filter(world: World<'_>, pos: Pos, funnel: &mut FunnelBlockEntity) {
-    let Some(&displays) = DISPLAYS.get() else {
+    let active = funnel
+        .data
+        .filter
+        .stack
+        .as_ref()
+        .filter(|_| funnel.state.brass);
+    if active.is_none() && funnel.filter_display.is_none() {
         return;
-    };
-    let active = funnel.data.filter.as_ref().filter(|_| funnel.state.brass);
-    if active != funnel.filter_display.as_ref().map(|shown| &shown.item) {
-        if let Some(display) = funnel.filter_display.take() {
-            belt_inventory::remove_display(world, &display);
-        }
-        funnel.filter_display = active.cloned().map(TransportedItemStack::new);
     }
-    let Some(item) = &mut funnel.filter_display else {
-        return;
-    };
     let state = funnel.state;
-    let side = if state.facing < 2 { 2 } else { state.facing };
+    let side = if state.facing < 2 {
+        funnel.data.filter.side(2)
+    } else {
+        state.facing
+    };
     let [x, _, z] = FACES[usize::from(side)].map(f64::from);
     let (height, distance) = if state.facing < 2 {
         (if state.facing == DOWN { 0.875 } else { 0.125 }, 0.49)
@@ -853,23 +825,17 @@ fn render_filter(world: World<'_>, pos: Pos, funnel: &mut FunnelBlockEntity) {
             _ => (0.765, 0.07),
         }
     };
-    let angle = match side {
-        2 => 180,
-        4 => -90,
-        5 => 90,
-        _ => 0,
-    };
     let mut shown = belt_inventory::item_display(
         [
             f64::from(pos.x) + 0.5 + x * distance,
             f64::from(pos.y) + height,
             f64::from(pos.z) + 0.5 + z * distance,
         ],
-        angle,
+        filtering::preview_angle(side),
         state.shape != Some(Shape::Extended),
     );
     shown.scale = 0.24;
-    belt_inventory::render_stack(world, displays, item, shown);
+    filtering::render(world, active, &mut funnel.filter_display, shown);
 }
 
 fn try_insert(
@@ -889,7 +855,7 @@ fn try_insert(
             .funnels
             .entries
             .get(&pos)
-            .map(|funnel| &funnel.data)
+            .map(|funnel| &funnel.data.filter)
         else {
             return 0;
         };
@@ -1065,42 +1031,15 @@ pub fn use_item_on(
     if state.brass
         && context.main_hand
         && let Some(side) = state.filter_side(context.face, context.hit)
-        && item.as_ref().and_then(crate::processing_recipes::item_id) != Some(WRENCH)
-        && context.player.is_some_and(|player| player.may_build())
         && let Some(funnel) = kinetics.funnels.entries.get_mut(&pos)
+        && funnel.data.filter.configure(
+            context,
+            item.as_ref(),
+            side,
+            state.shape.is_some() || state.extracting,
+        )
     {
-        let data = &mut funnel.data;
-        if let Some(item) = &item {
-            data.filter = Some(with_count(item, 1));
-            if data.exact() {
-                data.filter_amount = data.amount().min(data.max_amount());
-            }
-        } else if context.sneaking {
-            data.filter = None;
-        } else if state.shape.is_some() || state.extracting {
-            if side.abs() < 0.05 {
-                data.up_to = !data.up_to;
-                data.filter_amount = data.amount().min(data.max_amount());
-            } else {
-                let step = if side.abs() >= 0.13 { 16 } else { 1 };
-                let delta = if side > 0.0 { step } else { -step };
-                data.filter_amount = (data.amount() + delta).clamp(1, data.max_amount());
-            }
-        } else {
-            data.filter = None;
-        }
         funnel.dirty = true;
-        let filter = data
-            .filter
-            .as_ref()
-            .and_then(crate::processing_recipes::item_id)
-            .unwrap_or("any item");
-        let mode = if data.exact() { "Exactly" } else { "Up to" };
-        if state.shape.is_some() || state.extracting {
-            context.action_bar(&format!("{filter} - {mode} {}", data.amount()));
-        } else {
-            context.action_bar(&format!("Filter: {filter}"));
-        }
         return BlockUseResult::Success;
     }
     let Some(item) = item else {
@@ -1197,6 +1136,34 @@ pub fn entity_inside(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrapped_filter_loads_the_existing_flat_funnel_tags() {
+        let saved = HashMap::from([
+            ("TransferCooldown".into(), Value::Int(7)),
+            ("FilterAmount".into(), Value::Int(3)),
+            ("UpTo".into(), Value::Byte(0)),
+            (
+                "Filter".into(),
+                Value::Compound(HashMap::from([
+                    ("id".into(), Value::String("minecraft:iron_ingot".into())),
+                    ("count".into(), Value::Int(1)),
+                ])),
+            ),
+        ]);
+        let bytes = fastnbt::to_bytes(&Value::Compound(saved)).expect("legacy funnel");
+        let data: FunnelData = fastnbt::from_bytes(&bytes).expect("load filter");
+        assert!(data.filter.exact());
+        assert_eq!(data.filter.amount(), 3);
+        assert_eq!(data.transfer_cooldown, 7);
+        assert_eq!(
+            data.filter
+                .stack
+                .as_ref()
+                .and_then(crate::processing_recipes::item_id),
+            Some("minecraft:iron_ingot")
+        );
+    }
 
     #[test]
     fn entry_is_on_the_approach_side_of_an_extended_funnel() {

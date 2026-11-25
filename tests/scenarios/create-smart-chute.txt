@@ -1,0 +1,140 @@
+# Craft a Smart Chute, hold an exact filtered batch under redstone across restart, then release it.
+mods target\mods\create.mmc
+start
+expect registered content block create:smart_chute \(2 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2601.5 105 2600.5 0 0
+wait 3
+cmd fill 2597 101 2597 2606 109 2606 minecraft:air
+cmd fill 2597 100 2597 2606 100 2606 minecraft:stone
+cmd tp tester 2601.5 101 2600.5 0 0
+cmd gamemode survival tester
+cmd setblock 2602 101 2600 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:brass_sheet
+cmd item replace entity tester hotbar.1 with create:chute
+cmd item replace entity tester hotbar.2 with create:electron_tube
+wait 0.5
+bot use 2602 101 2600 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.25
+bot inventory-click 39 left
+wait 0.25
+bot inventory-click 7 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:smart_chute 0
+wait 0.5
+expect Found 1 matching item
+
+cmd setblock 2601 100 2602 minecraft:barrel
+cmd setblock 2602 101 2602 minecraft:redstone_block
+wait 0.5
+bot input sneak
+wait 0.25
+bot place 2601 100 2602 up
+wait 0.25
+bot input none
+cmd setblock 2601 102 2602 minecraft:chest
+wait 0.5
+cmd execute if block 2601 101 2602 create:smart_chute[powered=true]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot
+wait 0.5
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect minecraft:iron_ingot - Up to 64
+cmd clear tester minecraft:iron_ingot 0
+wait 0.5
+expect Found 1 matching item
+cmd item replace entity tester hotbar.0 with minecraft:air
+wait 0.5
+bot use 2601 101 2602 north main 0.67 0.6875 0
+wait 0.25
+bot use 2601 101 2602 north main 0.67 0.6875 0
+wait 0.25
+bot use 2601 101 2602 north main 0.67 0.6875 0
+wait 0.25
+bot use 2601 101 2602 north main 0.67 0.6875 0
+wait 0.25
+bot use 2601 101 2602 north main 0.42 0.6875 0
+wait 0.25
+bot use 2601 101 2602 north main 0.42 0.6875 0
+wait 0.25
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect minecraft:iron_ingot - Exactly 3
+
+cmd item replace block 2601 102 2602 container.0 with minecraft:gold_ingot 4
+cmd item replace block 2601 102 2602 container.1 with minecraft:iron_ingot 2
+cmd setblock 2602 101 2602 minecraft:air
+wait 1
+cmd execute if block 2601 101 2602 create:smart_chute[powered=false]
+wait 0.5
+expect Test passed
+cmd data get block 2601 102 2602 Items[{Slot:1b}].count
+wait 0.5
+expect block data: 2$
+
+# Block the outlet and add the third matching ingot. The chute keeps the whole batch inside.
+cmd setblock 2601 100 2602 minecraft:stone
+cmd item replace block 2601 102 2602 container.2 with minecraft:iron_ingot
+wait 1
+cmd data get block 2601 101 2602 Item.count
+wait 0.5
+expect block data: 3$
+cmd setblock 2602 101 2602 minecraft:redstone_block
+wait 0.5
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2601 101 2602 Filter.id
+wait 0.5
+expect block data: "minecraft:iron_ingot"
+cmd data get block 2601 101 2602 FilterAmount
+wait 0.5
+expect block data: 3$
+cmd data get block 2601 101 2602 UpTo
+wait 0.5
+expect block data: 0b$
+bot expect entity minecraft:item_display near 2601.5 101.6875 2602.015625 within 0.08 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd setblock 2601 100 2602 minecraft:barrel
+wait 1
+cmd data get block 2601 101 2602 Item.count
+wait 0.5
+expect block data: 3$
+cmd setblock 2602 101 2602 minecraft:air
+wait 1
+cmd data get block 2601 100 2602 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 3$
+cmd data get block 2601 100 2602 Items[{Slot:0b}].id
+wait 0.5
+expect block data: "minecraft:iron_ingot"
+cmd data get block 2601 102 2602 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 4$
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

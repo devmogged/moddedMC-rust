@@ -105,6 +105,12 @@ Right-click the filter plate with a sample item to show it on the funnel and all
 
 The [Brass Funnel scenario](../../tests/scenarios/create-brass-funnel.txt) crafts two funnels in Survival and sets the extractor to exactly three iron ingots. It waits with only two in stock, then moves three after restart and leaves four gold ingots in the source. It also checks that breaking the belt preserves the filter and that a powered upward funnel rejects insertion. In stock Java 26.3, check that the sample sits on the filter plate, click each control and read the action bar, and watch a batch travel down the belt into the receiving funnel.
 
+### Smart Chute
+
+Stack a Brass Sheet, Chute and Electron Tube to craft a Smart Chute. Mount it vertically between a source inventory and an outlet. Apply a sample to a side plate to select the item type. The stock client uses the same empty-hand plate controls as the Brass Funnel when the chute is over an outlet. Redstone closes the chute, including when a batch is already inside it.
+
+The [Smart Chute scenario](../../tests/scenarios/create-smart-chute.txt) crafts the chute, waits for exactly three iron ingots, and restarts with the batch held under redstone. Removing power releases the three ingots and leaves the gold behind. In stock Java 26.3, check that the sample is visible on the side you clicked, that the chute changes appearance under redstone, and that reopening it releases one batch after restart.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
