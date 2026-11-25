@@ -1199,6 +1199,9 @@ impl StructureTransform {
         if entry.name == sticker::ID {
             return sticker::apply_rotation(entry, self).unwrap_or(rotated);
         }
+        if let Some(chain) = crate::chain_drive::transform(entry, self) {
+            return chain;
+        }
         if entry.name == BELT {
             return crate::belt::transform(rotated, self, turns).unwrap_or_else(|| entry.clone());
         }

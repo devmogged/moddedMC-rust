@@ -89,6 +89,14 @@ Craft a Rotation Speed Controller with a Precision Mechanism above a Brass Casin
 
 The [controller scenario](../../tests/scenarios/create-speed-controller.txt) checks Survival crafting, blocked cog placement, cog consumption, 15, 16, 0 and ?16 RPM output from a ?32 RPM input, the saved ?16 RPM setting, and driving the cog from a powered side shaft. On stock Java 26.3, check that both side plates are clickable, the shaft stops at 0 and reverses at ?16 while the cog keeps turning, and the output still turns backwards after reconnecting to the restarted server.
 
+### Encased Chain Drive and Adjustable Chain Gearshift
+
+Craft an Encased Chain Drive from an Andesite Casing and three iron or zinc nuggets. Add an Electron Tube to craft an Adjustable Chain Gearshift. Place the casings next to one another across their shaft axes. Their end caps join into a straight chain that transmits rotation sideways. A Wrench turns the axle, and sneak-use removes the casing into your inventory.
+
+Power the Adjustable Chain Gearshift through its shaft and send redstone into its casing. The chain receives the same speed at signal 0, 1.5 times the speed at signal 7, and twice the speed at signal 15. Power the chain from the other end to get the inverse ratio on the Gearshift's shaft.
+
+The [chain drive scenario](../../tests/scenarios/create-chain-drive.txt) checks Survival crafting, the three speeds, a restart with signal 7, a repeater aimed into the adjacent casing, and Wrench rotation and pickup. In stock Java 26.3, check that all three casings look like a connected chain, that the Gearshift changes color and the far axle speeds up under redstone, and that removing the middle block leaves two separate end blocks.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

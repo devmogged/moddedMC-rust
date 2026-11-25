@@ -66,6 +66,7 @@ pub enum WorldExtension {
     /// `World::dimension_id`.
     Dimension,
     Weather,
+    BestNeighborSignal,
 }
 
 impl WorldExtension {
@@ -102,6 +103,10 @@ impl WorldExtension {
             Self::BlockEntities => (
                 std::mem::offset_of!(abi::BlockWorldV1, restore_block_entity),
                 "moddedmc:block_world.restore_block_entity",
+            ),
+            Self::BestNeighborSignal => (
+                std::mem::offset_of!(abi::BlockWorldV1, best_neighbor_signal),
+                "moddedmc:block_world.best_neighbor_signal",
             ),
             Self::Weather => (
                 std::mem::offset_of!(abi::BlockWorldV1, is_thundering),
@@ -459,6 +464,15 @@ impl World<'_> {
         // SAFETY: the size check covers the appended field; world is borrowed for this call.
         WorldExtension::NeighborSignal.available(self.api)
             && unsafe { ((&raw const (*self.api.ptr).has_neighbor_signal).read())(self.raw, pos) }
+    }
+
+    /// Vanilla `Level.getBestNeighborSignal`, from 0 to 15. Gives 0 when unloaded or unavailable.
+    pub fn best_neighbor_signal(self, pos: Pos) -> u8 {
+        if !WorldExtension::BestNeighborSignal.available(self.api) {
+            return 0;
+        }
+        // SAFETY: the size check covers the appended field; world is borrowed for this call.
+        unsafe { ((&raw const (*self.api.ptr).best_neighbor_signal).read())(self.raw, pos) }
     }
 
     /// Vanilla `Level.destroyBlock(pos, drop)`. False when nothing broke or the server lacks it.

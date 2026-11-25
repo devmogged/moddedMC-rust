@@ -6,7 +6,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use moddedmc_api::Pos;
 
-use crate::belt_inventory::{BeltInventory, Chain};
+use crate::{
+    belt_inventory::{BeltInventory, Chain},
+    chain_drive::{self, Drive},
+};
 
 /// `Direction.values()`: down, up, north, south, west, east.
 pub const FACES: [[i32; 3]; 6] = [
@@ -24,6 +27,7 @@ const NORTH: u8 = 2;
 pub const MAX_ROTATION_SPEED: f32 = 256.0;
 /// `CKinetics.kineticValidationFrequency` default.
 const KINETIC_VALIDATION_FREQUENCY: i32 = 60;
+const CHAIN_GEARSHIFT_LAZY_TICK_RATE: u8 = 40;
 /// `RotationPropagator.MAX_FLICKER_SCORE`.
 const MAX_FLICKER_SCORE: i32 = 128;
 /// The `limit` Create's belt chain walks use.
@@ -98,6 +102,7 @@ pub enum Kind {
     Crafter(crate::crafter::CrafterBlock),
     Gearbox(u8),
     SpeedController(u8),
+    ChainDrive(Drive),
     /// Axis and `powered`.
     Clutch(u8, bool),
     Gearshift(u8, bool),
@@ -255,6 +260,7 @@ impl Kind {
             | Self::Pulley(axis)
             | Self::Press(axis)
             | Self::Valve(axis) => axis,
+            Self::ChainDrive(drive) => drive.axis,
             Self::Deployer {
                 facing,
                 along_first,
@@ -375,8 +381,13 @@ impl Kind {
         )
     }
 
-    fn same_block(self, other: Self) -> bool {
-        std::mem::discriminant(&self) == std::mem::discriminant(&other)
+    pub(crate) fn same_block(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::ChainDrive(a), Self::ChainDrive(b)) => {
+                a.powered.is_some() == b.powered.is_some()
+            }
+            _ => std::mem::discriminant(&self) == std::mem::discriminant(&other),
+        }
     }
 
     /// `KineticBlock.areStatesKineticallyEquivalent`; belts also keep their `PART`.
@@ -467,6 +478,8 @@ pub struct Be {
     pub last_capacity_provided: f32,
     /// The generator's input, such as a motor's scroll value or a wheel's flow score.
     pub generated: i32,
+    pub(crate) chain_signal: u8,
+    chain_signal_ticks: u8,
     flicker_tally: i32,
     update_speed: bool,
     validation_countdown: i32,
@@ -521,6 +534,8 @@ impl Be {
             } else {
                 DEFAULT_SPEED
             },
+            chain_signal: 0,
+            chain_signal_ticks: 0,
             flicker_tally: 0,
             update_speed: true,
             validation_countdown: 0,
@@ -659,6 +674,7 @@ pub trait Level {
     /// `Level.destroyBlock(pos, true)`.
     fn destroy(&mut self, pos: Pos);
     fn has_neighbor_signal(&self, pos: Pos) -> bool;
+    fn best_neighbor_signal(&self, pos: Pos) -> u8;
     fn is_loaded(&self, pos: Pos) -> bool;
     /// Replace the block state with `kind` without neighbor updates (clutch and gearshift
     /// `POWERED` toggles).
@@ -909,6 +925,12 @@ impl Kinetics {
         let (axis, powered, clutch) = match kind {
             Kind::Clutch(axis, powered) => (axis, powered, true),
             Kind::Gearshift(axis, powered) => (axis, powered, false),
+            Kind::ChainDrive(drive) if drive.powered.is_some() => {
+                if let Some(be) = self.bes.get_mut(&pos) {
+                    be.chain_signal_ticks = 0;
+                }
+                return;
+            }
             _ => return,
         };
         if powered == level.has_neighbor_signal(pos) {
@@ -968,6 +990,40 @@ impl Kinetics {
         self.handle_added(level, pos);
     }
 
+    pub(crate) fn reconfigure_chain(&mut self, level: &mut dyn Level, pos: Pos, drive: Drive) {
+        let Some(previous) = chain_drive::from_kind(self.kind(pos)) else {
+            return;
+        };
+        if !previous.same_topology(drive) {
+            self.detach_kinetics(level, pos);
+            self.remove_source(pos);
+            if let Some(be) = self.bes.get_mut(&pos) {
+                be.update_speed = true;
+            }
+        }
+        self.set_kind(pos, Kind::ChainDrive(drive));
+    }
+
+    /// ChainGearshiftBlockEntity.analogSignalChanged.
+    fn update_chain_signal(&mut self, level: &mut dyn Level, pos: Pos, mut drive: Drive) {
+        let signal = level.best_neighbor_signal(pos);
+        let powered = Some(signal != 0);
+        if drive.powered != powered {
+            drive.powered = powered;
+            level.set_kind(pos, Kind::ChainDrive(drive));
+            self.set_kind(pos, Kind::ChainDrive(drive));
+        }
+        if self.bes[&pos].chain_signal != signal {
+            self.detach_kinetics(level, pos);
+            self.remove_source(pos);
+            if let Some(be) = self.bes.get_mut(&pos) {
+                be.chain_signal = signal;
+                be.dirty = true;
+                be.update_speed = true;
+            }
+        }
+    }
+
     /// One server tick: due block ticks, then every block entity's `tick` in ticker order.
     pub fn tick(&mut self, level: &mut dyn Level) {
         for pos in std::mem::take(&mut self.scheduled) {
@@ -999,6 +1055,20 @@ impl Kinetics {
             self.init_belt(level, pos);
             if !self.alive(pos, serial) {
                 return;
+            }
+        }
+        if let Some(be) = self.bes.get_mut(&pos)
+            && let Kind::ChainDrive(drive) = be.kind
+            && drive.powered.is_some()
+        {
+            if be.chain_signal_ticks == 0 {
+                be.chain_signal_ticks = CHAIN_GEARSHIFT_LAZY_TICK_RATE - 1;
+                self.update_chain_signal(level, pos, drive);
+                if !self.alive(pos, serial) {
+                    return;
+                }
+            } else {
+                be.chain_signal_ticks -= 1;
             }
         }
         // KineticBlockEntity.tick
@@ -1158,6 +1228,15 @@ impl Kinetics {
                 return crate::gantry::pinion_modifier(shaft, carriage);
             }
             _ => {}
+        }
+
+        if let (Kind::ChainDrive(a), Kind::ChainDrive(b)) = (state_from, state_to) {
+            return if a.connects(b, direction) {
+                chain_drive::modifier(from_be.chain_signal)
+                    / chain_drive::modifier(to_be.chain_signal)
+            } else {
+                0.0
+            };
         }
 
         if large_to_large(state_from, state_to, diff) {
@@ -1925,6 +2004,9 @@ mod tests {
         }
         fn has_neighbor_signal(&self, pos: Pos) -> bool {
             self.signal.contains(&pos)
+        }
+        fn best_neighbor_signal(&self, pos: Pos) -> u8 {
+            if self.has_neighbor_signal(pos) { 15 } else { 0 }
         }
         fn is_loaded(&self, _pos: Pos) -> bool {
             true

@@ -35,6 +35,7 @@ mod belt;
 mod belt_inventory;
 mod belt_movement;
 mod blaze_burner;
+mod chain_drive;
 mod chassis;
 mod chute;
 mod collider;
@@ -170,6 +171,7 @@ impl Mod for Create {
         fluids::open_end_runtime::require()?;
         water_wheel::require()?;
         content.require_extension(WorldExtension::NeighborSignal)?;
+        content.require_extension(WorldExtension::BestNeighborSignal)?;
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
         content.require_extension(WorldExtension::CollisionShape)?;
@@ -256,6 +258,7 @@ impl Mod for Create {
         large_water_wheel::register(*content, registry)?;
         hand_crank::register(*content, registry)?;
         speed_controller::register(*content, registry)?;
+        chain_drive::register(*content, registry)?;
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
         for (path, name) in [
@@ -952,11 +955,12 @@ impl StateIds {
         self.water.contains(&state)
     }
 
-    /// The state for a clutch or gearshift `POWERED` toggle.
+    /// The state for a relay reconfiguration.
     fn state_of(&self, kind: Kind) -> Option<u32> {
         let (block, axis, powered) = match kind {
             Kind::Clutch(axis, powered) => (CLUTCH, axis, powered),
             Kind::Gearshift(axis, powered) => (GEARSHIFT, axis, powered),
+            Kind::ChainDrive(drive) => return self.lookup(&drive.selector()),
             _ => return None,
         };
         self.by_selector
@@ -1062,6 +1066,7 @@ fn states() -> Option<&'static StateIds> {
         large_water_wheel::add_states(content, &mut ids);
         hand_crank::add_states(content, &mut ids);
         speed_controller::add_states(content, &mut ids);
+        chain_drive::add_states(content, &mut ids);
         deployer::add_states(content, &mut ids);
         basin::add_states(content, &mut ids);
         ids.add(content, mixer::ID, "", Some(Kind::Mixer));
@@ -1263,6 +1268,10 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             return elevator::placed_contact(&args, look, states);
         }
         Some(Kind::Elevator(_)) => return elevator::placed_pulley(args.yaw),
+        Some(Kind::ChainDrive(drive)) => {
+            let axis = if args.sneak { None } else { preferred }.unwrap_or(face_axis(look));
+            return chain_drive::placed(args.world, states, args.position, drive, axis, &ids[..6]);
+        }
         Some(Kind::SpeedController(_)) | Some(Kind::Pulley(_)) => {
             let horizontal = connected
                 .filter(|&direction| face_axis(direction) != 1)
@@ -1486,6 +1495,8 @@ struct KineticData {
     backwards: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     scroll_value: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signal: Option<i32>,
     // BeltBlockEntity.write and read.
     #[serde(skip_serializing_if = "Option::is_none")]
     controller: Option<fastnbt::IntArray>,
@@ -1547,6 +1558,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         };
     }
     be.speed = data.speed;
+    if chain_drive::from_kind(Some(kind)).is_some_and(|drive| drive.powered.is_some()) {
+        be.chain_signal = data.signal.unwrap_or(0).clamp(0, 15) as u8;
+    }
     be.valve = data.pointer;
     if let Some(press) = &mut be.press {
         press.data = data.press.unwrap_or_default();
@@ -1656,6 +1670,9 @@ fn save(pos: Pos, be: &Be) -> KineticData {
             added_stress: be.last_stress_applied,
             added_capacity: be.last_capacity_provided,
         }),
+        signal: chain_drive::from_kind(Some(be.kind))
+            .and_then(|drive| drive.powered)
+            .map(|_| i32::from(be.chain_signal)),
         scroll_value: match be.kind {
             Kind::Motor(_) | Kind::SpeedController(_) => Some(be.generated),
             Kind::Windmill(_) => be
@@ -1719,6 +1736,10 @@ impl Level for WorldLevel<'_> {
         self.world.has_neighbor_signal(pos)
     }
 
+    fn best_neighbor_signal(&self, pos: Pos) -> u8 {
+        self.world.best_neighbor_signal(pos)
+    }
+
     fn is_loaded(&self, pos: Pos) -> bool {
         let mut state = [content::UNLOADED_STATE];
         self.world.read(&[pos], &mut state) && state[0] != content::UNLOADED_STATE
@@ -1780,6 +1801,22 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            if matches!(
+                event.reason,
+                content::STATE_CHANGED | content::MOVED_STATE_CHANGED | content::LOADED
+            ) {
+                let (previous, current) = (
+                    chain_drive::from_kind(before),
+                    chain_drive::from_kind(after),
+                );
+                if match (previous, current) {
+                    (Some(previous), Some(current)) => !previous.same_topology(current),
+                    (None, None) => false,
+                    _ => true,
+                } {
+                    chain_drive::refresh(world, states, pos);
+                }
+            }
             if matches!(event.reason, content::STATE_CHANGED)
                 && let Some(Kind::Crafter(block)) = before
                 && !matches!(after, Some(Kind::Crafter(_)))
@@ -1843,12 +1880,15 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                     kinetics.neighbor_changed(&mut level, pos);
                 }
                 _ => match (before, after) {
+                    (Some(before), Some(Kind::ChainDrive(drive)))
+                        if before.same_block(Kind::ChainDrive(drive)) =>
+                    {
+                        kinetics.reconfigure_chain(&mut level, pos, drive);
+                    }
                     (Some(before), Some(after)) if before.equivalent(after) => {
                         kinetics.set_kind(pos, after);
                     }
-                    (Some(before), Some(after))
-                        if std::mem::discriminant(&before) == std::mem::discriminant(&after) =>
-                    {
+                    (Some(before), Some(after)) if before.same_block(after) => {
                         kinetics.reset(pos, after);
                     }
                     _ => {
@@ -1975,6 +2015,12 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     }
     if matches!(context.item, CASING | BRASS_CASING | WRENCH)
         && let Some(result) = shaft_casing::use_on_shaft(context)
+    {
+        return result;
+    }
+    if context.item == WRENCH
+        && let Some(states) = states()
+        && let Some(result) = chain_drive::wrench(context, states)
     {
         return result;
     }

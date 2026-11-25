@@ -677,6 +677,8 @@ pub struct BlockWorldV1 {
     /// The world's canonical dimension registry id. Static, or empty for an invalid handle.
     pub dimension_id: unsafe extern "C" fn(world: WorldRef) -> Str,
     pub is_thundering: unsafe extern "C" fn(world: WorldRef) -> bool,
+    /// Vanilla `Level.getBestNeighborSignal`. Gives 0 for unloaded positions.
+    pub best_neighbor_signal: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> u8,
 }
 
 #[repr(C)]

@@ -16,7 +16,7 @@ use pumpkin_core::{
         GetRedstonePowerArgs, ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs,
         OnNeighborUpdateArgs, OnPlaceArgs, PlayerPlacedArgs, PlayerWillDestroyArgs,
         UseWithItemArgs,
-        blocks::redstone::block_receives_redstone_power,
+        blocks::redstone::{block_receives_redstone_power, get_redstone_power},
         entities::{
             BlockEntity,
             content::{self as engine, Change, ContentBlockEntity},
@@ -107,6 +107,7 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     block_item,
     dimension_id,
     is_thundering,
+    best_neighbor_signal,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -1716,6 +1717,29 @@ unsafe extern "C" fn has_neighbor_signal(raw: WorldRef, pos: Pos) -> bool {
     };
     let pos = block_pos(pos);
     world.get_block_state_id_if_loaded(&pos).is_some() && block_receives_redstone_power(world, &pos)
+}
+
+unsafe extern "C" fn best_neighbor_signal(raw: WorldRef, pos: Pos) -> u8 {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return 0;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return 0;
+    }
+    let mut best = 0;
+    for direction in BlockDirection::all() {
+        let neighbor = pos.offset(direction.to_offset());
+        let (block, state) = world.get_block_and_state(&neighbor);
+        best = best.max(get_redstone_power(
+            block, state, world, &neighbor, direction,
+        ));
+        if best >= 15 {
+            return 15;
+        }
+    }
+    best
 }
 
 unsafe extern "C" fn destroy(raw: WorldRef, pos: Pos, drop: bool) -> bool {
