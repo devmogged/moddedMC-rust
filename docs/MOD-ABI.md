@@ -425,3 +425,21 @@ trait objects. The table is synchronous and its callbacks must not unwind across
 Tests: `tests/fixtures/abi-services` packs two independent native DLLs;
 `tests/scenarios/abi-services.txt` verifies startup ordering and round trips, and
 `tests/scenarios/abi-services-missing.txt` verifies a missing provider is skipped.
+
+`moddedmc:content` v1 appends `on_random_tick(reg, block, callback)`.
+Bind one callback per block already staged by the calling mod. The SDK uses
+one Rust callback for the list of block IDs passed to `Content::on_random_tick`.
+Pumpkin selects positions from ticking chunk sections using the world's random
+tick speed. It dispatches custom samples in dimension order on the server
+tick thread after the parallel world workers have joined. It skips samples
+whose state has changed or whose chunk is no longer loaded.
+Require the field with `Content::require_random_tick()` in `Mod::start`.
+
+`moddedmc:block_world` v1 appends `raw_brightness(world, pos, sky_darken)`.
+It returns the greater of block light and sky light minus the supplied darkening,
+or -1 outside loaded positions. This query never loads a chunk. Require
+`WorldExtension::RawBrightness` and call `World::raw_brightness`.
+
+The fixture in `tests/fixtures/abi-random-tick` and scenario
+`tests/scenarios/abi-random-tick.txt` check disabled ticking, a callback that
+replaces its sampled block, and raw light in both loaded and unloaded chunks.

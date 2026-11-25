@@ -36,6 +36,8 @@ pub struct Placement<'a> {
 
 pub type Place = fn(Placement<'_>) -> Option<u32>;
 pub type Tick = fn(World<'_>, u64, &[ContentEvent]);
+pub type RandomTick = fn(World<'_>, Pos, u32);
+
 pub type Replaced = fn(World<'_>, &ContentEvent);
 
 pub struct State<'a> {
@@ -67,6 +69,7 @@ pub enum WorldExtension {
     Dimension,
     Weather,
     BestNeighborSignal,
+    RawBrightness,
 }
 
 impl WorldExtension {
@@ -108,6 +111,10 @@ impl WorldExtension {
                 std::mem::offset_of!(abi::BlockWorldV1, best_neighbor_signal),
                 "moddedmc:block_world.best_neighbor_signal",
             ),
+            Self::RawBrightness => (
+                std::mem::offset_of!(abi::BlockWorldV1, raw_brightness),
+                "moddedmc:block_world.raw_brightness",
+            ),
             Self::Weather => (
                 std::mem::offset_of!(abi::BlockWorldV1, is_thundering),
                 "moddedmc:block_world.is_thundering",
@@ -138,6 +145,7 @@ pub struct Block<'a> {
 
 static WORLD_TABLE: OnceLock<InterfacePrefix<abi::BlockWorldV1>> = OnceLock::new();
 static TICK: OnceLock<Tick> = OnceLock::new();
+static RANDOM_TICK: OnceLock<RandomTick> = OnceLock::new();
 static REPLACED: OnceLock<Replaced> = OnceLock::new();
 static PLACE: OnceLock<Place> = OnceLock::new();
 
@@ -175,6 +183,22 @@ unsafe extern "C" fn place(args: *const abi::Placement) -> u32 {
         })
         .unwrap_or(UNLOADED_STATE)
     })
+}
+
+unsafe extern "C" fn random_tick(raw: abi::WorldRef, pos: Pos, state: u32) {
+    guard("content random tick", (), || {
+        if let Some((&api, callback)) = WORLD_TABLE.get().zip(RANDOM_TICK.get()) {
+            callback(
+                World {
+                    raw,
+                    api,
+                    scope: PhantomData,
+                },
+                pos,
+                state,
+            );
+        }
+    });
 }
 
 unsafe extern "C" fn replaced(world: abi::WorldRef, event: *const ContentEvent) {
@@ -300,6 +324,38 @@ impl Content {
         RegistrationError::from_code(unsafe {
             ((&raw const (*self.0.ptr).on_tick).read())(reg.reg, tick)
         })
+    }
+
+    pub fn require_random_tick(self) -> Result<(), InterfaceUnavailable> {
+        if self.0.size < std::mem::offset_of!(abi::ContentV1, on_random_tick) + size_of::<usize>() {
+            return Err(InterfaceUnavailable {
+                name: "moddedmc:content.on_random_tick",
+                version: 1,
+            });
+        }
+        Ok(())
+    }
+
+    /// Enable scheduler-selected random ticks for these blocks already staged by this mod.
+    /// Random ticks are delivered in order after world workers have joined.
+    pub fn on_random_tick(
+        self,
+        reg: &mut Registry<'_>,
+        blocks: &[&str],
+        callback: RandomTick,
+    ) -> Result<(), RegistrationError> {
+        self.require_random_tick()
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        RANDOM_TICK
+            .set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        for block in blocks {
+            // SAFETY: this field is size-checked and the registration and name are borrowed.
+            RegistrationError::from_code(unsafe {
+                ((&raw const (*self.0.ptr).on_random_tick).read())(reg.reg, s(block), random_tick)
+            })?;
+        }
+        Ok(())
     }
 
     pub fn require_replaced(self) -> Result<(), InterfaceUnavailable> {
@@ -613,6 +669,18 @@ impl World<'_> {
             1 => Some(true),
             _ => None,
         }
+    }
+
+    /// Returns vanilla raw brightness at a loaded position.
+    pub fn raw_brightness(self, pos: Pos, sky_darken: u8) -> Option<u8> {
+        if !WorldExtension::RawBrightness.available(self.api) {
+            return None;
+        }
+        // SAFETY: the size check covers the appended field and the world is borrowed.
+        let light = unsafe {
+            ((&raw const (*self.api.ptr).raw_brightness).read())(self.raw, pos, sky_darken)
+        };
+        u8::try_from(light).ok()
     }
 
     pub fn is_thundering(self) -> bool {

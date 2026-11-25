@@ -14,7 +14,7 @@ use pumpkin_core::{
     block::{
         BlockBehaviour, BlockHitResult, EmitsRedstonePowerArgs, GetComparatorOutputArgs,
         GetRedstonePowerArgs, ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs,
-        OnNeighborUpdateArgs, OnPlaceArgs, PlayerPlacedArgs, PlayerWillDestroyArgs,
+        OnNeighborUpdateArgs, OnPlaceArgs, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
         UseWithItemArgs,
         blocks::redstone::{block_receives_redstone_power, get_redstone_power},
         entities::{
@@ -66,6 +66,7 @@ pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     on_tick,
     on_replaced,
     set_comparator_output,
+    on_random_tick,
 };
 pub static ITEMS: abi::ItemsV1 = abi::ItemsV1 {
     size: size_of::<abi::ItemsV1>(),
@@ -108,6 +109,7 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     dimension_id,
     is_thundering,
     best_neighbor_signal,
+    raw_brightness,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -122,6 +124,18 @@ unsafe extern "C" fn is_thundering(raw: WorldRef) -> bool {
     unsafe { world(raw) }.is_some_and(World::is_thundering)
 }
 
+unsafe extern "C" fn raw_brightness(raw: WorldRef, position: Pos, sky_darken: u8) -> i32 {
+    // SAFETY: the host owns the borrowed world for the duration of the callback.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    let pos = block_pos(position);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return -1;
+    }
+    i32::from(world.get_raw_brightness(&pos, sky_darken))
+}
+
 const MAX_BATCH: usize = 4096;
 
 pub struct Registration {
@@ -132,6 +146,7 @@ pub struct Registration {
     states: Vec<RegisteredState>,
     placement: Option<abi::ContentPlacement>,
     item_input: Option<abi::ItemInputFn>,
+    random_tick: Option<abi::ContentRandomTick>,
 }
 
 pub struct ItemRegistration {
@@ -163,6 +178,7 @@ struct RegisteredState {
 struct RuntimeBlock {
     owner: usize,
     placement: Option<abi::ContentPlacement>,
+    random_tick: Option<abi::ContentRandomTick>,
     item_input: Option<abi::ItemInputFn>,
 }
 
@@ -421,6 +437,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         item_model: item_model.into(),
         states: registered,
         placement: def.on_place,
+        random_tick: None,
         item_input: None,
     });
     code::OK
@@ -446,6 +463,22 @@ pub static ITEM_INPUT: abi::ItemInputV1 = abi::ItemInputV1 {
     size: size_of::<abi::ItemInputV1>(),
     add: add_item_input,
 };
+
+unsafe extern "C" fn on_random_tick(reg: Reg, block: Str, callback: abi::ContentRandomTick) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the staging handle and names are borrowed for registration.
+    let (staging, name) = unsafe { (native::staging(reg), block.str()) };
+    let Some(block) = staging.content.iter_mut().find(|block| block.id == name) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.random_tick.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.random_tick = Some(callback);
+    code::OK
+}
 
 unsafe extern "C" fn set_comparator_output(reg: Reg, id: Str, strength: u8) -> i32 {
     if strength > 15 || RUNTIME.get().is_some() {
@@ -938,7 +971,7 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
             states.push(StateDefinition {
                 properties: state.properties.clone(),
                 physical: state.physical,
-                random_ticks: false,
+                random_ticks: block.random_tick.is_some(),
                 carrier,
                 carrier_replacement: Some(replacement),
                 shape: state.shape.clone(),
@@ -1048,6 +1081,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
             RuntimeBlock {
                 owner,
                 placement: block.placement,
+                random_tick: block.random_tick,
                 item_input: block.item_input,
             },
         );
@@ -1098,6 +1132,24 @@ fn item_input(block: &Block) -> Option<abi::ItemInputFn> {
 }
 
 impl BlockBehaviour for Behaviour {
+    fn random_tick_sampled(&self, args: RandomTickArgs<'_>, state: BlockStateId) {
+        let Some(callback) = RUNTIME
+            .get()
+            .and_then(|runtime| runtime.blocks.get(&args.block.id.as_u16()))
+            .and_then(|block| block.random_tick)
+        else {
+            return;
+        };
+        // SAFETY: the world is borrowed and the library stays loaded during ordered dispatch.
+        unsafe {
+            callback(
+                ptr::from_ref(args.world.as_ref()).cast(),
+                abi_pos(*args.position),
+                u32::from(state.as_u16()),
+            );
+        }
+    }
+
     fn has_item_input(&self, block: &Block) -> bool {
         item_input(block).is_some()
     }

@@ -417,6 +417,8 @@ mod layout {
         assert_eq!(offset_of!(ContentV1, on_tick), 24);
         assert_eq!(offset_of!(ContentV1, on_replaced), 32);
         assert_eq!(offset_of!(ContentV1, set_comparator_output), 40);
+        assert_eq!(offset_of!(ContentV1, on_random_tick), 48);
+        assert_eq!(offset_of!(BlockWorldV1, raw_brightness), 184);
         assert_eq!(offset_of!(ItemsV1, size), 0);
         assert_eq!(offset_of!(ItemsV1, add_item), 8);
         assert_eq!(offset_of!(ContentItemDefinition, carrier), 32);
@@ -573,6 +575,8 @@ pub struct ContentEvent {
 pub type ContentTick =
     unsafe extern "C" fn(world: WorldRef, tick: u64, events: *const ContentEvent, count: usize);
 
+pub type ContentRandomTick = unsafe extern "C" fn(world: WorldRef, pos: Pos, state: u32);
+
 pub type ContentReplaced = unsafe extern "C" fn(world: WorldRef, event: *const ContentEvent);
 
 #[repr(C)]
@@ -586,6 +590,8 @@ pub struct ContentV1 {
     pub on_replaced: unsafe extern "C" fn(reg: Reg, callback: ContentReplaced) -> i32,
     /// Sets the comparator output of a state already staged by this mod.
     pub set_comparator_output: unsafe extern "C" fn(reg: Reg, selector: Str, strength: u8) -> i32,
+    pub on_random_tick:
+        unsafe extern "C" fn(reg: Reg, block: Str, callback: ContentRandomTick) -> i32,
 }
 
 pub const CONTENT_V1_BASE_SIZE: usize = std::mem::offset_of!(ContentV1, on_replaced);
@@ -679,6 +685,8 @@ pub struct BlockWorldV1 {
     pub is_thundering: unsafe extern "C" fn(world: WorldRef) -> bool,
     /// Vanilla `Level.getBestNeighborSignal`. Gives 0 for unloaded positions.
     pub best_neighbor_signal: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> u8,
+    /// Vanilla raw brightness with explicit sky darkening; -1 when unloaded.
+    pub raw_brightness: unsafe extern "C" fn(world: WorldRef, pos: Pos, sky_darken: u8) -> i32,
 }
 
 #[repr(C)]
