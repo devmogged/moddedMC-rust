@@ -1,4 +1,7 @@
 {
   "bogey/small": "create:block/track/bogey/bogey_frame",
-  "bogey/large": "create:block/track/bogey/bogey_drive"
+  "bogey/large": "create:block/track/bogey/bogey_drive",
+  "deployer/pole": "create:block/deployer/pole",
+  "deployer/pointing": "create:block/deployer/hand_pointing",
+  "deployer/holding": "create:block/deployer/hand_holding"
 }

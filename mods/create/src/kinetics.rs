@@ -658,6 +658,7 @@ pub struct Kinetics {
     /// Belt inventories whose controller left since the last tick.
     dropped: Vec<Dropped>,
     pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
+    pub(crate) deployer_displays: HashMap<Pos, crate::deployer::HandDisplays>,
     pub dropped_deployers: Vec<(Pos, fastnbt::Value)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
     pub dropped_gantries: Vec<crate::gantry::GantryContraption>,

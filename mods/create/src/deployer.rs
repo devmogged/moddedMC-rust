@@ -6,12 +6,14 @@ use moddedmc_api::{
     effects::SOUND_BLOCKS,
     interaction::{BlockUseResult, UseBlock},
     items::Item,
+    stacks::ItemDisplay,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     DIRECTIONS, ITEMS, Kinetics, STACKS, StateIds, WRENCH,
     belt_inventory::{TransportedItemStack, count, with_count},
+    display_model::ModelDisplay,
     kinetics::{FACES, Kind, directional_shaft_axis, face_axis, positive},
     manual_application, offset,
     processing_recipes::{self, Deployment, ProcessingResult, item_id},
@@ -21,6 +23,11 @@ pub const ID: &str = "create:deployer";
 const EXTEND: i32 = 1000;
 const RETRACT: i32 = 1000;
 const COOLDOWN: i32 = 500;
+const MAX_REACH: f32 = 1.25;
+const MAX_HAND_OFFSET: f32 = 21.0 / 16.0;
+const POLE_MODEL: &str = "create:moddedmc/parts/deployer/pole";
+const POINTING_MODEL: &str = "create:moddedmc/parts/deployer/pointing";
+const HOLDING_MODEL: &str = "create:moddedmc/parts/deployer/holding";
 
 fn variants() -> impl Iterator<Item = (u8, bool, String)> {
     [true, false].into_iter().flat_map(|along_first| {
@@ -158,6 +165,8 @@ pub struct Deployer {
     phase: Phase,
     timer: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reach: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub held_item: Option<Value>,
 }
 
@@ -170,12 +179,120 @@ impl Deployer {
     }
 }
 
-fn start(deployer: &mut Deployer) {
+fn start(deployer: &mut Deployer, world: World<'_>, target: Pos, facing: u8) {
     deployer.phase = Phase::Expanding;
     deployer.timer = EXTEND;
+    let axis = usize::from(face_axis(facing));
+    // Sample along the center of the target block, matching the Deployer's axial reach ray.
+    let nearest = world
+        .collision_shape(target)
+        .into_iter()
+        .flatten()
+        .filter(|shape| {
+            (0..3)
+                .filter(|&i| i != axis)
+                .all(|i| (shape.min[i]..=shape.max[i]).contains(&0.5))
+        })
+        .map(|shape| {
+            if positive(facing) {
+                shape.min[axis]
+            } else {
+                1.0 - shape.max[axis]
+            }
+        })
+        .fold(0.75, f64::min);
+    deployer.reach = Some(0.5 + nearest.clamp(0.0, 0.75) as f32);
 }
 
-pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
+#[derive(Clone, Copy, PartialEq)]
+struct HandPose {
+    facing: u8,
+    along_first: bool,
+    holding: bool,
+    distance: f32,
+}
+
+impl Deployer {
+    fn hand_pose(&self, facing: u8, along_first: bool) -> HandPose {
+        let progress = match self.phase {
+            Phase::Waiting => 0.0,
+            Phase::Expanding => 1.0 - self.timer as f32 / EXTEND as f32,
+            Phase::Retracting => self.timer as f32 / RETRACT as f32,
+        }
+        .clamp(0.0, 1.0);
+        let holding = self.held_item.is_some();
+        let hand_length = if holding { 4.0 / 16.0 } else { 0.0 };
+        let distance =
+            (progress * (self.reach.unwrap_or(MAX_REACH) + hand_length)).min(MAX_HAND_OFFSET);
+        HandPose {
+            facing,
+            along_first,
+            holding,
+            distance,
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct HandDisplays {
+    hand: ModelDisplay,
+    pole: ModelDisplay,
+    pose: Option<HandPose>,
+}
+
+impl HandDisplays {
+    fn show(&mut self, world: World<'_>, pos: Pos, time: u64, pose: HandPose) {
+        if self.pose == Some(pose) && !time.is_multiple_of(20) {
+            return;
+        }
+        let facing = usize::from(pose.facing);
+        let [x, y] = [
+            [90.0f32, 0.0],
+            [270.0, 0.0],
+            [0.0, 180.0],
+            [0.0, 0.0],
+            [0.0, 270.0],
+            [0.0, 90.0],
+        ][facing];
+        let (sx, cx) = (x.to_radians() * 0.5).sin_cos();
+        let (sy, cy) = (y.to_radians() * 0.5).sin_cos();
+        let [x, y, z, w] = [sx * cy, cx * sy, -sx * sy, cx * cy];
+        let position = [pos.x, pos.y, pos.z].map(f64::from);
+        let mut display = ItemDisplay {
+            position: std::array::from_fn(|i| {
+                position[i] + 0.5 + f64::from(FACES[facing][i]) * f64::from(pose.distance)
+            }),
+            rotation: [x, y, z, w],
+            scale: 1.0,
+            context: 0,
+            interpolation: 1,
+        };
+        let hand_model = if pose.holding {
+            HOLDING_MODEL
+        } else {
+            POINTING_MODEL
+        };
+        self.hand.show(world, hand_model, &display);
+        if pose.along_first ^ (face_axis(pose.facing) == 2) {
+            let half = std::f32::consts::FRAC_1_SQRT_2;
+            display.rotation = [
+                (x + y) * half,
+                (y - x) * half,
+                (z + w) * half,
+                (w - z) * half,
+            ];
+        }
+        self.pole.show(world, POLE_MODEL, &display);
+        self.pose = Some(pose);
+    }
+
+    pub(crate) fn clear(&mut self, world: World<'_>) {
+        self.hand.clear(world);
+        self.pole.clear(world);
+    }
+}
+
+pub fn tick(world: World<'_>, time: u64, kinetics: &mut Kinetics) {
     for (pos, item) in kinetics.dropped_deployers.drain(..) {
         if let (Some(&stacks), Ok(bytes)) = (STACKS.get(), fastnbt::to_bytes(&item)) {
             stacks.spawn(
@@ -192,7 +309,7 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
     }
     let recipes = processing_recipes::current();
     kinetics.recipes.clone_from(&recipes);
-    for pos in positions {
+    for &pos in &positions {
         let Some(Kind::Deployer { facing, .. }) = kinetics.kind(pos) else {
             continue;
         };
@@ -226,7 +343,7 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
                     if application().is_none() || world.has_neighbor_signal(pos) {
                         continue;
                     }
-                    start(deployer);
+                    start(deployer, world, target, facing);
                 }
                 Phase::Expanding => {
                     if let Some(recipe) = application()
@@ -245,6 +362,25 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
             }
         }
         be.dirty = true;
+    }
+    for pos in positions {
+        let pose = kinetics.get(pos).and_then(|be| {
+            let Kind::Deployer {
+                facing,
+                along_first,
+            } = be.kind
+            else {
+                return None;
+            };
+            Some(be.deployer.as_ref()?.hand_pose(facing, along_first))
+        });
+        if let Some(pose) = pose {
+            kinetics
+                .deployer_displays
+                .entry(pos)
+                .or_default()
+                .show(world, pos, time, pose);
+        }
     }
 }
 
@@ -284,7 +420,7 @@ pub fn process(
         if powered {
             return Pass;
         }
-        start(deployer);
+        start(deployer, world, offset(pos, [0, -2, 0]), 0);
         be.dirty = true;
         return Hold;
     }

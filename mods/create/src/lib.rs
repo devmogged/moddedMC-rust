@@ -1633,6 +1633,13 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            if (event.reason == content::UNLOADED
+                || (matches!(before, Some(Kind::Deployer { .. }))
+                    && !matches!(after, Some(Kind::Deployer { .. }))))
+                && let Some(mut displays) = kinetics.deployer_displays.remove(&pos)
+            {
+                displays.clear(world);
+            }
             if before == Some(Kind::Mixer)
                 && after != before
                 && let Some(mixer) = kinetics.get_mut(pos).and_then(|be| be.mixer.as_mut())
@@ -1722,7 +1729,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
         press::tick(world, states, kinetics);
-        deployer::tick(world, kinetics);
+        deployer::tick(world, time, kinetics);
         blaze_burner::tick(world, &mut kinetics.blaze_burners);
         mixer::tick(world, time, states, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
