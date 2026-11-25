@@ -1,6 +1,7 @@
 # Red Sand Paper polishes one Rose Quartz per stroke and keeps durability through restart.
 mods target\mods\create.mmc
 start
+cmd difficulty peaceful
 botstart tester
 wait 3
 expect \[bot\] joined as tester
@@ -33,6 +34,7 @@ bot quit
 stop
 
 start
+cmd difficulty peaceful
 botstart tester
 wait 4
 expect \[bot\] joined as tester
