@@ -593,6 +593,8 @@ fn handle_downward_output(
         Some(crate::millstone::insert(
             kinetics, below, &item.item, simulate,
         ))
+    } else if let Some(accepted) = crate::crafter::insert(kinetics, below, &item.item, simulate) {
+        Some(accepted)
     } else if let Some(accepted) = crate::deployer::insert(kinetics, below, item, simulate) {
         Some(accepted)
     } else if crate::crusher::is_controller(kinetics, below, DOWN) {

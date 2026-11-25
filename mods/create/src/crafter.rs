@@ -1,4 +1,5 @@
 //! The Mechanical Crafter's block state and directed item grid.
+mod connected_input;
 use std::{
     collections::{HashSet, VecDeque},
     sync::LazyLock,
@@ -233,6 +234,8 @@ pub(crate) struct CrafterData {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     grouped_items: Vec<GridItem>,
     was_powered: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input: Option<connected_input::ConnectedInput>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -404,6 +407,7 @@ fn eject(world: World<'_>, pos: Pos, block: CrafterBlock, data: &mut CrafterData
 }
 
 pub(crate) fn remove(world: World<'_>, kinetics: &mut Kinetics, pos: Pos, block: CrafterBlock) {
+    connected_input::on_remove(kinetics, pos, block);
     if let Some(layout) = Layout::discover(world, kinetics, pos, block) {
         layout.eject(world, kinetics);
     } else {
@@ -425,7 +429,7 @@ pub(crate) fn use_item_on(
     block: CrafterBlock,
     context: &mut UseBlock<'_>,
 ) -> BlockUseResult {
-    if context.face != block.facing || context.sneaking || !context.main_hand {
+    if context.sneaking || !context.main_hand {
         return BlockUseResult::TryEmptyHand;
     }
     let pos = context.position;
@@ -435,6 +439,14 @@ pub(crate) fn use_item_on(
         .read()
         .and_then(|stack| fastnbt::from_bytes::<Value>(&stack).ok());
     let id = item.as_ref().and_then(processing_recipes::item_id);
+    if context.face != block.facing {
+        if id == Some(WRENCH)
+            && connected_input::wrench_edge(world, kinetics, pos, block, context.face, context.hit)
+        {
+            return BlockUseResult::Success;
+        }
+        return BlockUseResult::TryEmptyHand;
+    }
     let Some(data) = data(kinetics, pos) else {
         return BlockUseResult::Pass;
     };
@@ -513,14 +525,27 @@ pub(crate) fn insert(
     item: &Value,
     simulate: bool,
 ) -> Option<i32> {
-    let data = data(kinetics, pos)?;
-    if data.phase != Phase::Idle || data.covered || data.slot.is_some() || count(item) == 0 {
-        return Some(0);
+    let Kind::Crafter(block) = kinetics.kind(pos)? else {
+        return None;
+    };
+    let slots = connected_input::inventory(kinetics, pos, block).unwrap_or_default();
+    let mut accepted = 0;
+    let amount = count(item);
+    for slot in slots {
+        if accepted == amount {
+            break;
+        }
+        if !data(kinetics, slot)
+            .is_some_and(|data| data.phase == Phase::Idle && !data.covered && data.slot.is_none())
+        {
+            continue;
+        }
+        if !simulate {
+            edit(kinetics, slot, |data| data.slot = Some(with_count(item, 1)));
+        }
+        accepted += 1;
     }
-    if !simulate {
-        edit(kinetics, pos, |data| data.slot = Some(with_count(item, 1)));
-    }
-    Some(1)
+    Some(accepted)
 }
 
 const EXPORT_TIME: i32 = 1000;

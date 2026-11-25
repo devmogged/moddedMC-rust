@@ -413,13 +413,23 @@ fn use_item_on(args: &str, sequence: i32) -> Result<SUseItemOn, String> {
         return Err("use requires x y z with optional face and hand".into());
     };
     let position = parse_block(&[x, y, z])?;
-    let (face, hand) = match options {
-        [] => ("up", "main"),
-        [face] => (*face, "main"),
-        [face, hand] => (*face, *hand),
-        _ => return Err("use requires x y z with optional face and hand".into()),
+    let (face, hand, hit) = match options {
+        [] => ("up", "main", None),
+        [face] => (*face, "main", None),
+        [face, hand] => (*face, *hand, None),
+        [face, hand, x, y, z] => (*face, *hand, Some([*x, *y, *z])),
+        _ => return Err("use requires x y z [face [hand [hit-x hit-y hit-z]]]".into()),
     };
-    let (face, cursor_pos) = face_hit(face)?;
+    let (face, mut cursor_pos) = face_hit(face)?;
+    if let Some(hit) = hit {
+        let [Ok(x), Ok(y), Ok(z)] = hit.map(str::parse::<f32>) else {
+            return Err("use hit coordinates must be numbers between 0 and 1".into());
+        };
+        if ![x, y, z].iter().all(|part| (0.0..=1.0).contains(part)) {
+            return Err("use hit coordinates must be numbers between 0 and 1".into());
+        }
+        cursor_pos = Vector3::new(x, y, z);
+    }
     Ok(SUseItemOn {
         hand: self::hand(hand)?,
         position,
