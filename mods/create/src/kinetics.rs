@@ -97,6 +97,7 @@ pub enum Kind {
     HandCrank(u8),
     Crafter(crate::crafter::CrafterBlock),
     Gearbox(u8),
+    SpeedController(u8),
     /// Axis and `powered`.
     Clutch(u8, bool),
     Gearshift(u8, bool),
@@ -245,6 +246,7 @@ impl Kind {
             | Self::Small(axis)
             | Self::Large(axis)
             | Self::Gearbox(axis)
+            | Self::SpeedController(axis)
             | Self::Clutch(axis, _)
             | Self::Gearshift(axis, _)
             | Self::EncasedShaft(axis)
@@ -514,6 +516,8 @@ impl Be {
                 || matches!(kind, Kind::HandCrank(_) | Kind::Windmill(_))
             {
                 0
+            } else if matches!(kind, Kind::SpeedController(_)) {
+                crate::speed_controller::DEFAULT_SPEED
             } else {
                 DEFAULT_SPEED
             },
@@ -948,6 +952,22 @@ impl Kinetics {
         self.update_generated_rotation(level, pos);
     }
 
+    pub(crate) fn set_controller_speed(&mut self, level: &mut dyn Level, pos: Pos, rpm: i32) {
+        let Some(be) = self.bes.get_mut(&pos) else {
+            return;
+        };
+        if be.generated == rpm {
+            return;
+        }
+        let previous = be.clone();
+        be.generated = rpm;
+        be.dirty = true;
+        self.set_network(pos, None);
+        self.handle_removed(level, pos, &previous);
+        self.remove_source(pos);
+        self.handle_added(level, pos);
+    }
+
     /// One server tick: due block ticks, then every block entity's `tick` in ticker order.
     pub fn tick(&mut self, level: &mut dyn Level) {
         for pos in std::mem::take(&mut self.scheduled) {
@@ -1209,11 +1229,20 @@ impl Kinetics {
 
     /// `getConveyedSpeed`.
     fn conveyed_speed(&self, from: Pos, to: Pos) -> f32 {
-        self.bes[&from].speed * self.rotation_speed_modifier(from, to)
+        let source = &self.bes[&from];
+        let target = &self.bes[&to];
+        if crate::speed_controller::is_pair(from, source.kind, to, target.kind) {
+            crate::speed_controller::conveyed(from, source, target, true)
+        } else if crate::speed_controller::is_pair(to, target.kind, from, source.kind) {
+            crate::speed_controller::conveyed(to, target, source, false)
+        } else {
+            source.speed * self.rotation_speed_modifier(from, to)
+        }
     }
 
     fn is_connected(&self, from: Pos, to: Pos) -> bool {
-        self.rotation_speed_modifier(from, to) != 0.0
+        crate::speed_controller::is_pair(from, self.bes[&from].kind, to, self.bes[&to].kind)
+            || self.rotation_speed_modifier(from, to) != 0.0
     }
 
     /// `getPotentialNeighbourLocations` for a block of `kind` at `pos`.

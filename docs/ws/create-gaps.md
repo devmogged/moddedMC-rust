@@ -4,7 +4,7 @@ Compared with Create 6.0.10 (`mc1.21.1-6.0.10`), ordered by when a player using 
 
 | Order | What a survival player hits |
 | --- | --- |
-| 1 | **Brass progression.** Mechanical Crafters make Crushing Wheels and ordinary crafting recipes, including returning empty buckets from a cake. Linked crafter inputs work with Create Funnels and Chutes and vanilla Hoppers and Droppers. The Rotation Speed Controller and Adjustable Chain Gearshift are missing for tuning larger lines. |
+| 1 | **Brass progression.** Mechanical Crafters make Crushing Wheels and ordinary crafting recipes, including returning empty buckets from a cake. Linked crafter inputs work with Create Funnels and Chutes and vanilla Hoppers and Droppers. The Rotation Speed Controller sets and saves a signed output RPM. Encased Chain Drives and the Adjustable Chain Gearshift are missing for tuning larger lines. |
 | 2 | **Sorting and transfer.** Andesite Funnels and plain Chutes work. Brass Funnels, Smart Chutes, filters, Brass Tunnels, the Mechanical Arm, and inventory/redstone controls such as the Threshold Switch and Content Observer are missing. |
 | 3 | **Farm and tree automation.** Mounted drills and harvesters work in the tested setups. Stationary drill mining, Mechanical Saws, Ploughs, mounted Deployers, and Portable Storage Interfaces are missing or incomplete. |
 | 4 | **Belts and bulk processing.** Belts lack common wrench, casing and dye interactions. Sloped belts cannot carry stock players up. Bulk blasting and smoking do not have the full vanilla recipe set. |
@@ -17,3 +17,5 @@ Compared with Create 6.0.10 (`mc1.21.1-6.0.10`), ordered by when a player using 
 ## Deferred
 
 Visual and invisible parity includes exact particles and sounds, advancement triggers, original animation timing and stock carrier outlines. Track timing, stress flicker edge cases and detailed item-display offsets sit behind the survival gaps above. Sail dyes are tracked in [issue #14](https://github.com/devmogged/moddedMC-rust/issues/14). Linked Crafter casing textures are tracked in [issue #15](https://github.com/devmogged/moddedMC-rust/issues/15).
+
+The Rotation Speed Controller cog bracket is tracked in [issue #20](https://github.com/devmogged/moddedMC-rust/issues/20).

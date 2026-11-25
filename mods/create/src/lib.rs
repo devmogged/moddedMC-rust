@@ -67,6 +67,7 @@ mod sail;
 mod sandpaper;
 mod seat;
 mod shaft_casing;
+mod speed_controller;
 mod sticker;
 mod trains;
 mod water_wheel;
@@ -254,6 +255,7 @@ impl Mod for Create {
         water_wheel::register(*content, registry)?;
         large_water_wheel::register(*content, registry)?;
         hand_crank::register(*content, registry)?;
+        speed_controller::register(*content, registry)?;
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
         for (path, name) in [
@@ -1059,6 +1061,7 @@ fn states() -> Option<&'static StateIds> {
         water_wheel::add_states(content, &mut ids);
         large_water_wheel::add_states(content, &mut ids);
         hand_crank::add_states(content, &mut ids);
+        speed_controller::add_states(content, &mut ids);
         deployer::add_states(content, &mut ids);
         basin::add_states(content, &mut ids);
         ids.add(content, mixer::ID, "", Some(Kind::Mixer));
@@ -1260,7 +1263,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             return elevator::placed_contact(&args, look, states);
         }
         Some(Kind::Elevator(_)) => return elevator::placed_pulley(args.yaw),
-        Some(Kind::Pulley(_)) => {
+        Some(Kind::SpeedController(_)) | Some(Kind::Pulley(_)) => {
             let horizontal = connected
                 .filter(|&direction| face_axis(direction) != 1)
                 .map(face_axis);
@@ -1269,7 +1272,11 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                 .next()
                 .filter(|first| horizontal.clone().all(|axis| *first == axis));
             let look_axis = face_axis(nearest_looking_direction(args.yaw, 0.0));
-            return pulley::placed_state(preferred.unwrap_or(look_axis ^ 2));
+            let axis = preferred.unwrap_or(look_axis ^ 2);
+            if matches!(placed.kind, Some(Kind::SpeedController(_))) {
+                return speed_controller::placed(states, ids[1], axis);
+            }
+            return pulley::placed_state(axis);
         }
         Some(Kind::GantryShaft(_)) => return gantry::place_shaft(args, states, &ids, look),
         Some(Kind::GantryCarriage(_)) => {
@@ -1348,6 +1355,15 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             AXES[usize::from(pillar_axis)]
         ),
         Some(Kind::Small(_) | Kind::Large(_)) => {
+            if placed.block == LARGE
+                && !args.sneak
+                && let Some(Kind::SpeedController(axis)) = states.kind(ids[0])
+            {
+                return states.lookup(&format!(
+                    "{LARGE}[axis={},waterlogged={wet}]",
+                    AXES[usize::from(axis ^ 2)]
+                ));
+            }
             // CogWheelBlock.getAxisForPlacement
             let against = states.kind(ids[usize::from(args.face ^ 1)]);
             let axis = if args.sneak {
@@ -1641,7 +1657,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
             added_capacity: be.last_capacity_provided,
         }),
         scroll_value: match be.kind {
-            Kind::Motor(_) => Some(be.generated),
+            Kind::Motor(_) | Kind::SpeedController(_) => Some(be.generated),
             Kind::Windmill(_) => be
                 .bearing
                 .as_ref()
@@ -2036,6 +2052,11 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         return with_world(context.world, |kinetics| {
             deployer::use_block(kinetics, context, facing)
         });
+    }
+    if let Some(states) = states()
+        && let Some(Kind::SpeedController(axis)) = states.kind(context.state)
+    {
+        return speed_controller::use_block(context, states, axis);
     }
     if !context.with_item {
         return BlockUseResult::Pass;

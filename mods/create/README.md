@@ -83,6 +83,12 @@ The [Mechanical Crafter scenario](../../tests/scenarios/create-mechanical-crafte
 
 Use a Wrench on the back seam between two crafters with the same orientation to share their input. After linking, one Andesite Funnel, Chute, Hopper or Dropper can fill the group's open slots in order, starting at the top left as seen from the front. Click the seam again to separate the inputs. The [connected-input scenario](../../tests/scenarios/create-crafter-connected-input.txt) checks linking, restart, insertion through one funnel, crafting and unlinking. The [hopper and dropper scenario](../../tests/scenarios/create-crafter-hopper-input.txt) also checks that a full group leaves the extra items in the sender.
 
+### Rotation Speed Controller
+
+Craft a Rotation Speed Controller with a Precision Mechanism above a Brass Casing. Use a Large Cogwheel on the controller to mount it on top across the controller's shaft axis. Power the cogwheel and connect a shaft to either end of the controller. The shaft starts at 16 RPM. On stock Java 26.3, click the left or right half of a side plate with an empty hand to lower or raise the speed by 1 RPM. Sneak-click to adjust by 16. The action bar shows the selected RPM.
+
+The [controller scenario](../../tests/scenarios/create-speed-controller.txt) checks Survival crafting, blocked cog placement, cog consumption, 15, 16, 0 and ?16 RPM output from a ?32 RPM input, the saved ?16 RPM setting, and driving the cog from a powered side shaft. On stock Java 26.3, check that both side plates are clickable, the shaft stops at 0 and reverses at ?16 while the cog keeps turning, and the output still turns backwards after reconnecting to the restarted server.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
