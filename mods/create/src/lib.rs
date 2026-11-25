@@ -40,6 +40,7 @@ mod contraption;
 mod crusher;
 mod deployer;
 mod depot;
+mod display_model;
 mod drill;
 mod elevator;
 mod fan;

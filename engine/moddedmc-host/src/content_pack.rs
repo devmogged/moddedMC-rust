@@ -349,6 +349,7 @@ impl Pack {
         let mut seen = HashSet::new();
         for namespace in namespaces {
             self.sounds(namespace);
+            self.display_parts(namespace)?;
             let path = format!("assets/{namespace}/moddedmc/creative.json");
             let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file))
             else {
@@ -409,6 +410,27 @@ impl Pack {
             }
         }
         self.files.insert(path, bytes);
+    }
+
+    fn display_parts(&mut self, namespace: &str) -> io::Result<()> {
+        let path = format!("assets/{namespace}/moddedmc/display_parts.json");
+        let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file)) else {
+            return Ok(());
+        };
+        let Ok(parts) = serde_json::from_slice::<BTreeMap<String, String>>(&bytes) else {
+            tracing::warn!("moddedmc: invalid display parts in {path}");
+            return Ok(());
+        };
+        for (name, model) in parts {
+            let id = format!("{namespace}:moddedmc/parts/{name}");
+            if valid_model(&id) && !model.is_empty() && valid_model(&model) {
+                self.item(
+                    &format!("assets/{namespace}/items/moddedmc/parts/{name}.json"),
+                    &model,
+                )?;
+            }
+        }
+        Ok(())
     }
 
     fn standalone_items(&mut self, items: &[ItemAssets]) -> io::Result<()> {

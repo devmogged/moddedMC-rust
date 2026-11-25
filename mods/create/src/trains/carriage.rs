@@ -4,6 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use moddedmc_api::{
     Pos,
     content::{BlockUpdate, Content, World},
+    stacks::ItemDisplay,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +21,10 @@ use super::{
 };
 use crate::{
     DIRECTIONS, Kinetics,
-    contraption::{BlockMovement, BlockMovementChecks, Blocks, StructureTransform},
+    contraption::{
+        BlockMovement, BlockMovementChecks, Blocks, ContraptionDisplays, StructureTransform,
+    },
+    display_model::ModelDisplay,
     kinetics::{FACES, face_axis},
     offset,
 };
@@ -518,5 +522,70 @@ impl Carriage {
         let offset = [x * cos + z * sin, y - 7.0 / 16.0, z * cos - x * sin];
         let anchor = coords(transform.anchor);
         std::array::from_fn(|i| f64::from(anchor[i]) + 0.5 + f64::from(shift[i]) + offset[i])
+    }
+}
+
+#[derive(Default)]
+pub(super) struct CarriageDisplays {
+    blocks: ContraptionDisplays,
+    bogeys: Option<Vec<BogeyDisplay>>,
+}
+
+struct BogeyDisplay {
+    local: ItemDisplay,
+    model: &'static str,
+    shown: ModelDisplay,
+}
+
+impl CarriageDisplays {
+    pub(super) fn show(&mut self, world: World<'_>, carriage: &Carriage) {
+        let (frame, translation) = carriage.transform();
+        self.blocks
+            .show_moving(world, &carriage.blocks, frame, translation);
+        let bogeys = self.bogeys.get_or_insert_with(|| {
+            carriage
+                .blocks
+                .block_list
+                .iter()
+                .filter_map(|block| {
+                    let entry = carriage.blocks.palette.get(block.palette_index())?;
+                    let model = match entry.name.as_str() {
+                        "create:small_bogey" => "create:moddedmc/parts/bogey/small",
+                        "create:large_bogey" => "create:moddedmc/parts/bogey/large",
+                        _ => return None,
+                    };
+                    let rotation = if entry.properties.get("axis").is_some_and(|axis| axis == "x") {
+                        let half = std::f32::consts::FRAC_1_SQRT_2;
+                        [0.0, half, 0.0, half]
+                    } else {
+                        [0.0, 0.0, 0.0, 1.0]
+                    };
+                    Some(BogeyDisplay {
+                        local: ItemDisplay {
+                            position: block.local_pos().map(|axis| f64::from(axis) + 0.5),
+                            rotation,
+                            scale: 1.0,
+                            context: 0,
+                            interpolation: 1,
+                        },
+                        model,
+                        shown: ModelDisplay::default(),
+                    })
+                })
+                .collect()
+        });
+        for bogey in bogeys {
+            let transform = frame.item_display(bogey.local, translation);
+            bogey.shown.show(world, bogey.model, &transform);
+        }
+    }
+
+    pub(super) fn clear(&mut self, world: World<'_>) {
+        self.blocks.clear(world);
+        if let Some(bogeys) = &mut self.bogeys {
+            for bogey in bogeys {
+                bogey.shown.clear(world);
+            }
+        }
     }
 }

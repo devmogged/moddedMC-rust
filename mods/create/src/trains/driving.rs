@@ -14,7 +14,7 @@ use moddedmc_api::{
 };
 
 use super::{
-    carriage::Train,
+    carriage::{CarriageDisplays, Train},
     graph::{TrackEdge, TrackGraph},
     railway,
     save::RailwayData,
@@ -24,7 +24,7 @@ use super::{
     targeting::{Selection, directed_edge, state_at},
     travelling_point::{TravellingPoint, select_edge},
 };
-use crate::{DISPLAYS, ENTITIES, contraption::ContraptionDisplays, offset};
+use crate::{DISPLAYS, ENTITIES, offset};
 
 // CTrains defaults, converted from metres per second (and per second squared) to blocks per tick.
 pub(super) const ACCELERATION: f64 = 3.0 / 400.0;
@@ -51,7 +51,7 @@ pub(super) fn message(player: Entity<'_>, text: &str) {
 #[derive(Default)]
 pub(crate) struct TrainRuntime {
     trains: Option<Vec<Train>>,
-    shown: HashMap<i32, Vec<ContraptionDisplays>>,
+    shown: HashMap<i32, Vec<CarriageDisplays>>,
     drivers: HashMap<i32, Driver>,
     schedules: HashMap<i32, ScheduleRunner>,
     network: Option<(u64, RailwayData)>,
@@ -340,11 +340,11 @@ impl TrainRuntime {
             let moving = moved.contains(&train.id);
             if refresh || moving {
                 let shown = self.shown.entry(train.id).or_default();
-                shown.resize_with(train.carriages.len(), ContraptionDisplays::default);
+                shown.resize_with(train.carriages.len(), CarriageDisplays::default);
                 for (carriage, display) in train.carriages.iter().zip(shown) {
-                    let (frame, translation) = carriage.transform();
+                    let (frame, _) = carriage.transform();
                     if state_at(world, offset(frame.anchor, [0, -1, 0])).is_some() {
-                        display.show_moving(world, &carriage.blocks, frame, translation);
+                        display.show(world, carriage);
                     } else {
                         display.clear(world);
                     }

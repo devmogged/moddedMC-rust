@@ -1,0 +1,4 @@
+{
+  "bogey/small": "create:block/track/bogey/bogey_frame",
+  "bogey/large": "create:block/track/bogey/bogey_drive"
+}

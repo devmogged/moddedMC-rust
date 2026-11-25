@@ -1130,7 +1130,7 @@ pub struct StructureTransform {
 }
 
 impl StructureTransform {
-    fn item_display(self, mut shown: ItemDisplay, translation: [f32; 3]) -> ItemDisplay {
+    pub(crate) fn item_display(self, mut shown: ItemDisplay, translation: [f32; 3]) -> ItemDisplay {
         let axis = usize::from(self.axis);
         let u = (axis + 1) % 3;
         let v = (axis + 2) % 3;
