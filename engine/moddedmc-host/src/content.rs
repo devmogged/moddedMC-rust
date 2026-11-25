@@ -1007,6 +1007,10 @@ fn open_registry(
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "install the registry, callbacks, and pack together"
+)]
 pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result<()> {
     load_mods();
     let Pending {
