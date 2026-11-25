@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "playit": "node scripts/prepare-playit.mjs",
-    "companion": "node scripts/build-companion.mjs",
     "tauri": "tauri",
     "format": "prettier --write src",
     "check": "tsc --noEmit && prettier --check src"

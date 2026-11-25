@@ -14,8 +14,6 @@ Only the owner controls servers. The agent decides who the caller is from how th
 
 The agent listens on loopback and on its tailnet address only, never on `0.0.0.0`, so a plain LAN can't reach it. LAN-only machines (no Tailscale) are reached over SSH.
 
-The app's **Join** action reads the friend server's manifest location from its Minecraft status response and downloads assets from the public pack listener. It does not call the owner-only agent API. See [Client companion](COMPANION.md).
-
 ## Layout on a device
 
 ```

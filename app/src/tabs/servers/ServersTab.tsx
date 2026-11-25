@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
-import { Plus, Server as ServerIcon, UserPlus, Users } from "lucide-react";
-import { api, type Device, type Friend, type ServerInfo } from "~/api";
+import { Plus, Server as ServerIcon } from "lucide-react";
+import { api, type Device, type ServerInfo } from "~/api";
 import { Button } from "~/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
 import { Spinner } from "~/components/ui/spinner";
 import { usePoll } from "~/lib/hooks";
 import { cn } from "~/lib/utils";
-import { AddFriendDialog, FriendView } from "./FriendView";
 import { NewServerDialog } from "./NewServerDialog";
 import { ServerView } from "./ServerView";
 import { StateDot } from "./StateDot";
 
-export type Selected = { kind: "server"; device: string; server: string } | { kind: "friend"; id: string };
+export type Selected = { kind: "server"; device: string; server: string };
 
 const SELECTED_KEY = "moddedmc.server";
 
@@ -25,7 +24,6 @@ function loadSelected(): Selected | null {
 
 export function ServersTab() {
   const devices = usePoll(api.devices, 30_000, []);
-  const friends = usePoll(api.friends, 60_000, []);
   const [servers, setServers] = useState<Record<string, { list: ServerInfo[] | null; error: string | null }>>(
     {},
   );
@@ -33,7 +31,6 @@ export function ServersTab() {
   const refresh = () => setRevision((current) => current + 1);
   const [selected, setSelected] = useState<Selected | null>(loadSelected);
   const [creating, setCreating] = useState(false);
-  const [addingFriend, setAddingFriend] = useState(false);
 
   // Each device's servers, every few seconds, so states and player counts stay live.
   const deviceIds = (devices.value ?? []).map((d) => d.id).join(",");
@@ -78,7 +75,6 @@ export function ServersTab() {
     selected?.kind === "server"
       ? all.find((x) => x.device.id === selected.device && x.server.name === selected.server)
       : undefined;
-  const friend = selected?.kind === "friend" ? friends.value?.find((f) => f.id === selected.id) : undefined;
   const loading = !devices.value || (devices.value.length > 0 && Object.keys(servers).length === 0);
 
   return (
@@ -100,21 +96,6 @@ export function ServersTab() {
               onSelect={(server) => setSelected({ kind: "server", device: device.id, server })}
             />
           ))}
-          <FriendGroup
-            friends={friends.value ?? []}
-            selected={selected}
-            onSelect={(id) => setSelected({ kind: "friend", id })}
-          />
-        </div>
-        <div className="border-t p-2">
-          <Button
-            variant="ghost-muted"
-            size="sm"
-            className="w-full justify-start"
-            onClick={() => setAddingFriend(true)}
-          >
-            <UserPlus /> Join a friend's server
-          </Button>
         </div>
       </aside>
       <section className="min-w-0 flex-1">
@@ -153,8 +134,6 @@ export function ServersTab() {
               refresh();
             }}
           />
-        ) : friend ? (
-          <FriendView key={friend.id} friend={friend} onRemoved={() => friends.refresh()} />
         ) : loading ? (
           <div className="flex h-full items-center justify-center">
             <Spinner />
@@ -178,14 +157,6 @@ export function ServersTab() {
           </Empty>
         )}
       </section>
-      <AddFriendDialog
-        open={addingFriend}
-        onOpenChange={setAddingFriend}
-        onAdded={(id) => {
-          friends.refresh();
-          setSelected({ kind: "friend", id });
-        }}
-      />
       <NewServerDialog
         open={creating}
         onOpenChange={setCreating}
@@ -242,39 +213,6 @@ function DeviceGroup({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function FriendGroup({
-  friends,
-  selected,
-  onSelect,
-}: {
-  friends: Friend[];
-  selected: Selected | null;
-  onSelect: (id: string) => void;
-}) {
-  if (!friends.length) return null;
-  return (
-    <div className="mt-4">
-      <div className="flex items-center gap-2 px-2 py-1 font-medium text-muted-foreground text-xs">
-        <Users className="size-3.5" /> Friends' servers
-      </div>
-      {friends.map((f) => (
-        <button
-          key={f.id}
-          onClick={() => onSelect(f.id)}
-          className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-            selected?.kind === "friend" && selected.id === f.id
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-          )}
-        >
-          <span className="flex-1 truncate">{f.name}</span>
-        </button>
-      ))}
     </div>
   );
 }

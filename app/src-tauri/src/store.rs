@@ -1,4 +1,4 @@
-//! Devices and friends' servers, kept as one JSON file in the app data dir.
+//! Devices and packs, kept as one JSON file in the app data dir.
 
 use std::{path::PathBuf, sync::Mutex};
 
@@ -28,19 +28,10 @@ pub fn agent_port() -> u16 {
     25599
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Friend {
-    pub id: String,
-    pub name: String,
-    pub address: String,
-}
-
 #[derive(Serialize, Deserialize, Default)]
 struct Data {
     #[serde(default)]
     devices: Vec<Device>,
-    #[serde(default)]
-    friends: Vec<Friend>,
     /// `pack.toml` paths.
     #[serde(default)]
     packs: Vec<String>,
@@ -105,23 +96,6 @@ impl Store {
     pub fn remove_device(&self, id: &str) -> Result<(), String> {
         let mut data = self.data();
         data.devices.retain(|d| d.id != id);
-        self.save(&data)
-    }
-
-    pub fn friends(&self) -> Vec<Friend> {
-        self.data().friends.clone()
-    }
-
-    pub fn add_friend(&self, friend: Friend) -> Result<(), String> {
-        let mut data = self.data();
-        data.friends.retain(|f| f.id != friend.id);
-        data.friends.push(friend);
-        self.save(&data)
-    }
-
-    pub fn remove_friend(&self, id: &str) -> Result<(), String> {
-        let mut data = self.data();
-        data.friends.retain(|f| f.id != id);
         self.save(&data)
     }
 

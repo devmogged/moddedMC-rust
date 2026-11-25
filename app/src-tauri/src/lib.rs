@@ -1,15 +1,13 @@
-//! The desktop app's backend: device list, agent proxy, console streams, SSH tunnels and
-//! server-list pings for friend mode. The UI talks only to these commands.
+//! The desktop app's backend: device list, agent proxy, console streams and SSH tunnels. The UI
+//! talks only to these commands.
 
 mod agent;
 mod console;
 mod deploy;
 mod devices;
 mod install;
-mod join;
 mod mods;
 mod packs;
-mod ping;
 mod runtime;
 mod store;
 
@@ -85,7 +83,6 @@ pub fn run() {
             app.manage(store::Store::load(dir));
             app.manage(devices::Tunnels::default());
             app.manage(console::Consoles::default());
-            app.manage(join::JoinLock::default());
             tray(app)?;
             Ok(())
         })
@@ -103,11 +100,6 @@ pub fn run() {
             console::console_open,
             console::console_send,
             console::console_close,
-            ping::friends_list,
-            ping::friend_add,
-            ping::friend_remove,
-            join::friend_join,
-            ping::ping,
             runtime::runtime_status,
             runtime::runtime_install,
             runtime::runtime_server_exe,

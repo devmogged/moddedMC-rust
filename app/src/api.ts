@@ -61,21 +61,6 @@ export interface Stats {
   health: Health | null;
 }
 
-export interface Friend {
-  id: string;
-  name: string;
-  address: string;
-}
-
-export interface Status {
-  latency_ms: number;
-  motd: string;
-  version: string | null;
-  players_online: number | null;
-  players_max: number | null;
-  favicon: string | null;
-}
-
 export interface Build {
   id: string;
   pack: string;
@@ -216,11 +201,6 @@ export const api = {
       ? Promise.resolve(mock.mockListen(handler))
       : listen<{ id: number; line: string | null }>("console", (e) => handler(e.payload)),
 
-  friends: () => call<Friend[]>("friends_list"),
-  addFriend: (friend: { name: string; address: string }) => call<Friend>("friend_add", { friend }),
-  removeFriend: (id: string) => call<void>("friend_remove", { id }),
-  joinFriend: (id: string) => call<string>("friend_join", { id }),
-  ping: (address: string) => call<Status>("ping", { address }),
 
   mods: () => call<ModEntry[]>("mods_index"),
   installMod: (device: string, server: string, id: string) =>

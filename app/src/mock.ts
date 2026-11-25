@@ -385,38 +385,6 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
     }
     case "console_close":
       return null;
-    case "friends_list":
-      return [
-        { id: "sting", name: "sting's world", address: "sting.example.net" },
-        { id: "old", name: "Old SMP", address: "smp.example.org:25570" },
-      ];
-    case "friend_join":
-      await new Promise((resolve) => setTimeout(resolve, 450));
-      if (args.id === "old") throw "Can't reach smp.example.org:25570.";
-      return scenario === "join-zip"
-        ? "Import moddedMC-sting.zip from Downloads in Prism or MultiMC, then press Play."
-        : "Select the moddedMC installation in Minecraft Launcher and press Play.";
-    case "ping": {
-      const address = String(args.address);
-      if (address.startsWith("smp.")) throw `${address} is offline.`;
-      if (address.startsWith("127.") || address === "pi")
-        return {
-          latency_ms: 4,
-          motd: "",
-          version: "26.3",
-          players_online: 3,
-          players_max: 20,
-          favicon: scenario === "icon" && address === "pi" ? sampleIcon() : null,
-        };
-      return {
-        latency_ms: 87,
-        motd: "Create, dragons and too many bosses",
-        version: "26.3",
-        players_online: 2,
-        players_max: 10,
-        favicon: null,
-      };
-    }
     case "packs_list":
     case "pack_add":
     case "pack_add_mod":
@@ -489,18 +457,4 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
 export function mockListen(handler: Handler): () => void {
   listeners.add(handler);
   return () => listeners.delete(handler);
-}
-
-function sampleIcon() {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 8;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.fillStyle = "oklch(0.48 0.14 220)";
-  ctx.fillRect(0, 0, 8, 8);
-  ctx.fillStyle = "oklch(0.72 0.12 209)";
-  ctx.fillRect(1, 2, 5, 2);
-  ctx.fillStyle = "oklch(0.84 0.10 192)";
-  ctx.fillRect(4, 4, 3, 2);
-  return canvas.toDataURL();
 }
