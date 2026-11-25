@@ -1,0 +1,124 @@
+# Craft and place the small Water Wheel in survival, then use a reversible water flume.
+mods target\mods\create.mmc
+start
+expect registered content block create:water_wheel \(6 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 2447.5 102 2445.5 -90 25
+wait 4
+cmd fill 2443 102 2443 2453 110 2453 minecraft:air
+cmd fill 2443 101 2443 2453 101 2453 minecraft:stone
+cmd setblock 2447 102 2446 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with minecraft:spruce_planks 8
+cmd item replace entity tester hotbar.1 with create:shaft 1
+wait 0.5
+bot use 2447 102 2446 north
+wait 0.75
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 4 right
+wait 0.25
+bot inventory-click 6 right
+wait 0.25
+bot inventory-click 7 right
+wait 0.25
+bot inventory-click 8 right
+wait 0.25
+bot inventory-click 9 right
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 5 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:water_wheel 0
+wait 0.5
+expect Found 1 matching item
+cmd setblock 2449 103 2448 create:shaft[axis=x,waterlogged=false]
+wait 0.5
+bot place 2449 103 2448 west
+wait 0.5
+cmd clear tester create:water_wheel 0
+wait 0.5
+expect No items were found
+cmd kinetics 2448 103 2448
+wait 0.5
+expect create:water_wheel\[facing=west\] at 2448 103 2448 Speed=0
+bot expect entity minecraft:item_display near 2448.5 103.5 2448.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2448.5 103.5 2448.5
+
+# An adjacent wheel is illegal beside the paddles and stays in the player's hand.
+cmd item replace entity tester weapon.mainhand with create:water_wheel
+wait 0.5
+bot place 2448 103 2448 north
+wait 0.5
+cmd clear tester create:water_wheel 0
+wait 0.5
+expect Found 1 matching item
+cmd execute if block 2448 103 2447 minecraft:air
+wait 0.5
+expect Test passed
+cmd clear tester create:water_wheel
+
+# Keep the columns in their channels and keep water off the top of the wheel.
+cmd fill 2447 102 2447 2447 105 2449 minecraft:stone
+cmd fill 2449 102 2447 2449 105 2447 minecraft:stone
+cmd fill 2449 102 2449 2449 105 2449 minecraft:stone
+cmd fill 2448 102 2446 2448 105 2446 minecraft:stone
+cmd fill 2448 102 2450 2448 105 2450 minecraft:stone
+cmd fill 2448 104 2448 2448 105 2448 minecraft:stone
+cmd setblock 2448 102 2448 minecraft:stone
+cmd setblock 2448 105 2449 minecraft:water
+wait 3.5
+cmd kinetics 2449 103 2448
+wait 0.5
+expect at 2449 103 2448 Speed=8 Stress=0 Capacity=256
+cmd data get block 2448 103 2448 FlowScore
+wait 0.5
+expect block data: 1$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+
+start
+cmd difficulty peaceful
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd kinetics 2449 103 2448
+wait 0.5
+expect at 2449 103 2448 Speed=8 Stress=0 Capacity=256
+cmd data get block 2448 103 2448 FlowScore
+wait 0.5
+expect block data: 1$
+cmd fill 2448 102 2449 2448 105 2449 minecraft:air
+wait 3.5
+cmd kinetics 2449 103 2448
+wait 0.5
+expect at 2449 103 2448 Speed=0
+cmd setblock 2448 105 2447 minecraft:water
+wait 3.5
+cmd kinetics 2449 103 2448
+wait 0.5
+expect at 2449 103 2448 Speed=-8 Stress=0 Capacity=256
+cmd loot spawn 2445 102 2445 mine 2448 103 2448 minecraft:iron_axe
+wait 0.5
+expect Dropped 1 .*Water Wheel
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

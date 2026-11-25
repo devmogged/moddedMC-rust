@@ -16,16 +16,40 @@ use crate::content::{block_pos, world};
 /// `Shapes.EPSILON`.
 const EPSILON: f64 = 1.0e-7;
 
-pub static FLUID_WORLD: abi::FluidWorldV1TickControl = abi::FluidWorldV1TickControl {
-    base: abi::FluidWorldV1 {
-        size: size_of::<abi::FluidWorldV1TickControl>(),
-        inspect,
-        schedule_tick,
-        would_regenerate_source,
-        water_evaporates,
+pub static FLUID_WORLD: abi::FluidWorldV1Flow = abi::FluidWorldV1Flow {
+    base: abi::FluidWorldV1TickControl {
+        base: abi::FluidWorldV1 {
+            size: size_of::<abi::FluidWorldV1Flow>(),
+            inspect,
+            schedule_tick,
+            would_regenerate_source,
+            water_evaporates,
+        },
+        clear_ticks,
     },
-    clear_ticks,
+    velocity,
 };
+
+unsafe extern "C" fn velocity(raw: WorldRef, pos: Pos, out: *mut abi::Vec3) -> bool {
+    // SAFETY: the world is borrowed for the call.
+    let (Some(world), false) = (unsafe { world(raw) }, out.is_null()) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return false;
+    }
+    let (fluid, state) = world.get_fluid_and_fluid_state(&pos);
+    let flow = if state.is_empty {
+        [0.0; 3]
+    } else {
+        let flow = world.get_fluid_velocity(pos, fluid, &state);
+        [flow.x, flow.y, flow.z]
+    };
+    // SAFETY: the caller supplies a live, aligned output pointer.
+    unsafe { out.write(abi::Vec3(flow)) };
+    true
+}
 
 unsafe extern "C" fn clear_ticks(raw: WorldRef, pos: Pos) -> bool {
     // SAFETY: the world is borrowed for the call.

@@ -63,6 +63,7 @@ mod seat;
 mod shaft_casing;
 mod sticker;
 mod trains;
+mod water_wheel;
 mod zinc;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
@@ -158,6 +159,7 @@ impl Mod for Create {
         content.require_replaced()?;
         fluids::tank_connectivity::require()?;
         fluids::open_end_runtime::require()?;
+        water_wheel::require()?;
         content.require_extension(WorldExtension::NeighborSignal)?;
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
@@ -233,6 +235,7 @@ impl Mod for Create {
         }
         register_relays(content, registry)?;
         register_motor(content, registry)?;
+        water_wheel::register(*content, registry)?;
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
         for (path, name) in [
@@ -1031,6 +1034,7 @@ fn states() -> Option<&'static StateIds> {
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
+        water_wheel::add_states(content, &mut ids);
         deployer::add_states(content, &mut ids);
         basin::add_states(content, &mut ids);
         ids.add(content, mixer::ID, "", Some(Kind::Mixer));
@@ -1230,7 +1234,13 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             };
             format!("{}[facing={}]", fan::ID, DIRECTIONS[usize::from(face)])
         }
-        Some(Kind::Bearing(_) | Kind::Windmill(_) | Kind::Drill(_) | Kind::Clockwork(_)) => {
+        Some(
+            Kind::Bearing(_)
+            | Kind::Windmill(_)
+            | Kind::Drill(_)
+            | Kind::Clockwork(_)
+            | Kind::WaterWheel(_),
+        ) => {
             let face = if args.sneak {
                 look
             } else {
@@ -1241,6 +1251,11 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                     .unwrap_or(look)
                     ^ 1
             };
+            if placed.block == water_wheel::ID
+                && !water_wheel::can_place(states, &ids, face_axis(face))
+            {
+                return None;
+            }
             let direction = DIRECTIONS[usize::from(face)];
             if placed.block == drill::ID {
                 format!("{}[facing={direction},waterlogged={wet}]", placed.block)
@@ -1367,6 +1382,8 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<NetworkData>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    flow_score: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     scroll_value: Option<i32>,
     // BeltBlockEntity.write and read.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1417,6 +1434,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     else {
         return be;
     };
+    if matches!(kind, Kind::WaterWheel(_)) {
+        be.generated = data.flow_score.unwrap_or(0);
+    }
     be.speed = data.speed;
     be.valve = data.pointer;
     if let Some(press) = &mut be.press {
@@ -1521,6 +1541,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
             added_capacity: be.last_capacity_provided,
         }),
         scroll_value: matches!(be.kind, Kind::Motor(_)).then_some(be.generated),
+        flow_score: matches!(be.kind, Kind::WaterWheel(_)).then_some(be.generated),
         ..belt_data(pos, be)
     }
 }
@@ -1712,6 +1733,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             gantry::refresh_lines(world, &mut level, kinetics);
         }
         kinetics.tick(&mut level);
+        water_wheel::tick(world, time, events, kinetics, &mut level);
         if let Some(&content) = CONTENT.get() {
             let rails_changed = kinetics.rail_updates.tick(world, content, time, events);
             kinetics
@@ -1773,6 +1795,9 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     // TrackBlockItem's two-click rail placement.
     if context.item == "create:track" {
         return trains::use_on_block(context);
+    }
+    if context.item == water_wheel::ID {
+        return water_wheel::use_on_block(context);
     }
     if context.item == trains::schedule::ID
         && let Some(&content) = CONTENT.get()

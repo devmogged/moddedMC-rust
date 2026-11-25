@@ -92,6 +92,7 @@ pub enum Kind {
     Large(u8),
     /// Facing.
     Motor(u8),
+    WaterWheel(u8),
     Gearbox(u8),
     /// Axis and `powered`.
     Clutch(u8, bool),
@@ -255,6 +256,7 @@ impl Kind {
             Self::Pump(facing) => face_axis(facing),
             Self::HosePulley(facing) => face_axis(crate::fluids::hose_pulley::shaft_side(facing)),
             Self::Motor(facing)
+            | Self::WaterWheel(facing)
             | Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
@@ -337,13 +339,17 @@ impl Kind {
     pub const fn capacity(self) -> f32 {
         match self {
             Self::Motor(_) => 16384.0,
+            Self::WaterWheel(_) => 32.0,
             Self::Windmill(_) => 512.0,
             _ => 0.0,
         }
     }
 
     const fn generator(self) -> bool {
-        matches!(self, Self::Motor(_) | Self::Windmill(_))
+        matches!(
+            self,
+            Self::Motor(_) | Self::WaterWheel(_) | Self::Windmill(_)
+        )
     }
 
     pub const fn is_bearing(self) -> bool {
@@ -443,7 +449,7 @@ pub struct Be {
     pub overstressed: bool,
     pub last_stress_applied: f32,
     pub last_capacity_provided: f32,
-    /// The creative motor's scroll value.
+    /// The generator's input, such as a motor's scroll value or a wheel's flow score.
     pub generated: i32,
     flicker_tally: i32,
     update_speed: bool,
@@ -489,7 +495,7 @@ impl Be {
             overstressed: false,
             last_stress_applied: 0.0,
             last_capacity_provided: 0.0,
-            generated: if matches!(kind, Kind::Windmill(_)) {
+            generated: if matches!(kind, Kind::WaterWheel(_) | Kind::Windmill(_)) {
                 0
             } else {
                 DEFAULT_SPEED
@@ -537,6 +543,7 @@ impl Be {
             Kind::Motor(facing) if positive(facing) => self.generated as f32,
             Kind::Motor(_) => -(self.generated as f32),
             Kind::Windmill(_) => self.generated as f32,
+            Kind::WaterWheel(_) => (self.generated.signum() * crate::water_wheel::SPEED) as f32,
             _ => 0.0,
         }
     }

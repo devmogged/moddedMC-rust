@@ -729,6 +729,13 @@ pub struct FluidWorldV1TickControl {
     pub clear_ticks: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
 }
 
+#[repr(C)]
+pub struct FluidWorldV1Flow {
+    pub base: FluidWorldV1TickControl,
+    /// Read the flow vector of a loaded cell. Loaded dry cells return a zero vector.
+    pub velocity: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: *mut Vec3) -> bool,
+}
+
 pub const ENTITIES: &str = "moddedmc:entities";
 
 /// An entity borrowed for one callback.

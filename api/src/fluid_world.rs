@@ -8,6 +8,23 @@ pub struct FluidWorld {
     tick_control: Option<&'static abi::FluidWorldV1TickControl>,
 }
 
+#[derive(Clone, Copy)]
+pub struct FluidFlow(&'static abi::FluidWorldV1Flow);
+
+pub fn require_flow() -> Result<FluidFlow, InterfaceUnavailable> {
+    // SAFETY: this is the appended flow table type for moddedmc:fluid_world v1.
+    unsafe { require_interface::<abi::FluidWorldV1Flow>(abi::FLUID_WORLD, 1) }.map(FluidFlow)
+}
+
+impl FluidFlow {
+    /// The loaded fluid cell's flow vector, or zero for a dry cell.
+    pub fn velocity(self, world: World<'_>, pos: Pos) -> Option<[f64; 3]> {
+        let mut out = abi::Vec3([0.0; 3]);
+        // SAFETY: the world and output are borrowed for the call.
+        unsafe { (self.0.velocity)(world.raw(), pos, &raw mut out) }.then_some(out.0)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FluidCell {
     pub state: u32,

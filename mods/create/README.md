@@ -51,6 +51,12 @@ Players are carried differently from Create, which moves them on its own client:
 
 Items on belts (`src/belt_inventory.rs`, from `BeltInventory`, `TransportedItemStack` and `ItemHandlerBeltSegment`) are saved in the controller's `Inventory` like Create. They are drawn with item displays: the port can't tell which items Create draws upright (fluid containers and the `create:upright_on_belt` tag), so all of them lie flat or, for block items, stand; stacks aren't drawn as piles, and items don't tilt on slopes.
 
+### Water Wheel
+
+Craft a Water Wheel with eight planks around a Shaft. Mount it on an axle with space for the paddles, then run water down one side. It drives the shaft at 8 RPM and provides 256 SU. Take the water away to stop it, or put the water on the other side to reverse rotation. The stock pack uses a spruce rotor built from vanilla textures.
+
+The [Water Wheel scenario](../../tests/scenarios/create-water-wheel.txt) crafts and places the wheel in Survival, rejects an adjacent wheel in the paddle plane, checks speed and stress capacity, restarts, then shuts off and reverses the flow. In stock Java 26.3, check that the paddles follow the axle and turn with the water, and that the wheel item shows in the inventory.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
