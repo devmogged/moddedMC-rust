@@ -23,8 +23,7 @@ const CONNECTOR_COOLDOWN: u32 = 5;
 /// `Iterate.horizontalDirections` order for registration: south, west, north, east.
 const HORIZONTAL: [u8; 4] = [3, 4, 2, 5];
 
-/// Every `HORIZONTAL_FACING`, `SLOPE`, `PART` and `WATERLOGGED` combination. `CASING` is left
-/// out until casing application is ported, which saves 160 carrier states.
+/// Every `HORIZONTAL_FACING`, `SLOPE`, `PART` and `WATERLOGGED` combination.
 fn all_states() -> impl Iterator<Item = (Belt, bool)> {
     HORIZONTAL.into_iter().flat_map(|facing| {
         Slope::ALL.into_iter().flat_map(move |slope| {
@@ -51,6 +50,22 @@ pub fn properties(belt: Belt, wet: bool) -> String {
         belt.part.name(),
         belt.slope.name()
     )
+}
+
+pub(crate) fn casing_properties(belt: Belt, wet: bool, cased: bool) -> String {
+    let properties = properties(belt, wet);
+    if cased {
+        format!("casing=true,{properties}")
+    } else {
+        properties
+    }
+}
+
+fn casing_states() -> impl Iterator<Item = (Belt, bool, bool)> {
+    // Existing worlds use the original property keys for bare belts.
+    all_states()
+        .map(|(belt, wet)| (belt, wet, false))
+        .chain(all_states().map(|(belt, wet)| (belt, wet, true)))
 }
 
 /// `BeltBlock.transform`. The endpoint swap belongs to yaw rotation only.
@@ -143,7 +158,7 @@ fn transform_inner(mut belt: Belt, rotation_axis: u8, turns: i32) -> Belt {
 }
 
 /// `AngleHelper.horizontalAngle`.
-const fn horizontal_angle(facing: u8) -> i16 {
+pub(crate) const fn horizontal_angle(facing: u8) -> i16 {
     match facing {
         2 => 180,
         4 => 270,
@@ -210,22 +225,26 @@ fn shape(belt: Belt) -> ShapeBox {
 }
 
 pub fn register(content: &Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
-    let rows: Vec<_> = all_states()
-        .map(|(belt, wet)| {
+    let rows: Vec<_> = casing_states()
+        .map(|(belt, wet, cased)| {
             let (model, x, y) = model(belt);
             let rotating = if belt.has_pulley() {
                 "create:block/belt_pulley"
             } else {
                 ""
             };
+            let mut outline = vec![shape(belt)];
+            if cased && let Some(casing) = crate::belt_casing::shape(belt) {
+                outline.push(casing);
+            }
             (
-                properties(belt, wet),
+                casing_properties(belt, wet, cased),
                 model,
                 x,
                 y,
                 rotating,
                 belt,
-                [shape(belt)],
+                outline,
             )
         })
         .collect();
@@ -256,11 +275,11 @@ pub fn register(content: &Content, registry: &mut Registry<'_>) -> Result<(), Re
 }
 
 pub fn add_states(ids: &mut StateIds, content: Content) {
-    for (belt, wet) in all_states() {
+    for (belt, wet, cased) in casing_states() {
         ids.add(
             content,
             BELT,
-            &properties(belt, wet),
+            &casing_properties(belt, wet, cased),
             Some(Kind::Belt(belt)),
         );
     }

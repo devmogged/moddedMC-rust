@@ -59,6 +59,8 @@ use uuid::Uuid;
 
 use crate::{MAX_STATE_BYTES, content_pack, interaction, load_mods, lock, native};
 
+const MAX_STATES_PER_BLOCK: usize = 1_024;
+
 pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     size: size_of::<abi::ContentV1>(),
     add_block,
@@ -357,7 +359,10 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
     let (staging, Some(def)) = (unsafe { (native::staging(reg), def.as_ref()) }) else {
         return code::INVALID_DEFINITION;
     };
-    if RUNTIME.get().is_some() || def.states.is_null() || !(1..=256).contains(&def.count) {
+    if RUNTIME.get().is_some()
+        || def.states.is_null()
+        || !(1..=MAX_STATES_PER_BLOCK).contains(&def.count)
+    {
         return code::INVALID_DEFINITION;
     }
     // SAFETY: the definition and its state array are live for the call.

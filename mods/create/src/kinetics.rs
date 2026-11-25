@@ -492,6 +492,7 @@ pub struct Be {
     pub controller: Option<Pos>,
     pub belt_length: i32,
     pub belt_index: i32,
+    pub(crate) belt_casing: crate::belt_casing::Casing,
     /// A belt controller's entities by id, created on its first moving tick.
     pub passengers: Option<HashMap<i32, Passenger>>,
     /// A belt controller's items, created when the first one arrives.
@@ -546,6 +547,7 @@ impl Be {
             controller: None,
             belt_length: 0,
             belt_index: 0,
+            belt_casing: crate::belt_casing::Casing::None,
             inventory: None,
             passengers: None,
             fan: None,
@@ -712,6 +714,7 @@ pub struct Kinetics {
     dropped: Vec<Dropped>,
     pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
     pub(crate) deployer_displays: HashMap<Pos, crate::deployer::HandDisplays>,
+    pub(crate) belt_casing_displays: HashMap<Pos, crate::belt_casing::CasingDisplay>,
     pub dropped_deployers: Vec<(Pos, fastnbt::Value)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
     pub dropped_gantries: Vec<crate::gantry::GantryContraption>,

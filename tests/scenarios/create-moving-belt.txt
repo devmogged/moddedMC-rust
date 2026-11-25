@@ -1,4 +1,4 @@
-# A bearing captures the whole belt and preserves its stack through a restart.
+# A bearing captures the whole belt and preserves its stack and casing through restart.
 mods target\mods\create.mmc
 start
 botstart tester
@@ -22,6 +22,13 @@ bot use 2560 101 2560
 wait 0.5
 bot use 2560 101 2562
 wait 0.5
+cmd item replace entity tester hotbar.0 with create:andesite_casing
+wait 0.5
+bot use 2560 101 2562 up
+wait 0.5
+cmd data get block 2560 101 2562 Casing
+wait 0.5
+expect block data: "ANDESITE"
 cmd summon minecraft:item 2560.5 102 2561.5 {Item:{id:"minecraft:iron_ingot",count:3},PickupDelay:32767s}
 wait 0.5
 cmd kinetics 2559 101 2560 0
@@ -60,6 +67,12 @@ wait 0.5
 expect ^\[bot\] expect entity ok minecraft:item near 2561
 expect ^\[bot\] expect entity ok minecraft:item_display
 expect ^\[bot\] expect block ok 2562 101 2560
+cmd data get block 2562 101 2560 Casing
+wait 0.5
+expect block data: "ANDESITE"
+cmd execute if entity @e[type=minecraft:item_display,x=2562.5,y=101.5,z=2560.5,distance=..0.03,nbt={item:{components:{"minecraft:item_model":"create:moddedmc/parts/belt_casing/andesite/horizontal_end"}}}]
+wait 0.5
+expect Test passed
 
 cmd clear tester
 wait 0.5
@@ -72,6 +85,6 @@ cmd setblock 2560 101 2559 create:creative_motor[facing=south]
 wait 0.5
 cmd kinetics 2562 101 2560
 wait 0.5
-expect create:belt\[facing=east,part=end,slope=horizontal,waterlogged=false\] at 2562 101 2560 Speed=16
+expect create:belt\[casing=true,facing=east,part=end,slope=horizontal,waterlogged=false\] at 2562 101 2560 Speed=16
 reject (?i)panicked|trapped|\[bot\] error
 stop

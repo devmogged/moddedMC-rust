@@ -59,6 +59,10 @@ pub struct FunnelState {
 }
 
 impl FunnelState {
+    pub(crate) const fn covers_belt(self) -> bool {
+        self.facing == UP
+    }
+
     fn all(belt: bool, brass: bool) -> Vec<Self> {
         let mut states = Vec::new();
         for facing in [2, 3, 4, 5, UP, DOWN] {

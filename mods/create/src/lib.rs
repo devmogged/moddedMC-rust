@@ -34,6 +34,7 @@ mod basin;
 pub mod basin_inventory;
 mod bearing;
 mod belt;
+mod belt_casing;
 mod belt_inventory;
 mod belt_movement;
 mod blaze_burner;
@@ -1643,6 +1644,7 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         be.generated = value.clamp(-MAX_SPEED, MAX_SPEED);
     }
     if matches!(kind, Kind::Belt(_)) {
+        be.belt_casing = belt_casing::Casing::load(data.casing.as_deref());
         be.controller = if data.is_controller == Some(true) {
             Some(pos)
         } else {
@@ -1717,7 +1719,7 @@ fn belt_data(pos: Pos, be: &Be) -> KineticData {
         is_controller: Some(be.controller == Some(pos)),
         length: Some(be.belt_length),
         index: Some(be.belt_index),
-        casing: Some("NONE".to_owned()),
+        casing: Some(be.belt_casing.saved().to_owned()),
         covered: Some(false),
         inventory: (be.controller == Some(pos)).then(|| {
             be.inventory
@@ -1734,6 +1736,7 @@ fn restore_moved_belt(world: World<'_>, pos: Pos, saved: &[u8]) -> bool {
     };
     let data = KineticData {
         is_controller: saved.is_controller,
+        casing: saved.casing,
         inventory: saved.inventory,
         ..KineticData::default()
     };
@@ -1819,6 +1822,12 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            if (after.is_none_or(|kind| !matches!(kind, Kind::Belt(_)))
+                || event.reason == content::UNLOADED)
+                && let Some(mut displays) = kinetics.belt_casing_displays.remove(&pos)
+            {
+                displays.clear(world);
+            }
             if matches!(
                 event.reason,
                 content::STATE_CHANGED | content::MOVED_STATE_CHANGED | content::LOADED
@@ -1895,6 +1904,11 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                     {
                         be.fan = None;
                     }
+                    if let Some(be) = kinetics.get_mut(pos)
+                        && be.belt_casing != belt_casing::Casing::None
+                    {
+                        be.dirty = true;
+                    }
                     kinetics.neighbor_changed(&mut level, pos);
                 }
                 _ => match (before, after) {
@@ -1919,9 +1933,16 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                         }
                         if let Some(kind) = after {
                             let mut be = Be::new(kind);
-                            if matches!(kind, Kind::Belt(belt) if belt.part == kinetics::Part::Start)
-                            {
-                                be.inventory = load(world, pos, kind).inventory;
+                            if let Kind::Belt(belt) = kind {
+                                let cased = states
+                                    .by_id
+                                    .get(&event.state)
+                                    .is_some_and(|state| state.selector.contains("casing=true"));
+                                if cased || belt.part == kinetics::Part::Start {
+                                    let saved = load(world, pos, kind);
+                                    be.belt_casing = saved.belt_casing;
+                                    be.inventory = saved.inventory;
+                                }
                             }
                             kinetics.insert(pos, be);
                         }
@@ -2207,8 +2228,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         return basin::use_item_on(context);
     }
     match states.kind(context.state) {
-        Some(Kind::Belt(_)) => with_world(context.world, |kinetics| {
-            belt_inventory::use_item_on(kinetics, context)
+        Some(Kind::Belt(belt)) => with_world(context.world, |kinetics| {
+            belt_casing::apply(context, kinetics, states, belt)
+                .unwrap_or_else(|| belt_inventory::use_item_on(kinetics, context))
         }),
         Some(Kind::Millstone) => with_world(context.world, |kinetics| {
             millstone::use_item_on(kinetics, context)
@@ -2324,7 +2346,12 @@ fn turntable_entity_inside(world: World<'_>, pos: Pos, entity: Entity<'_>) {
 /// Save changed block entities and show their speed (`getSpeed`, zero when overstressed).
 fn flush(world: World<'_>, kinetics: &mut Kinetics) {
     for (pos, be) in kinetics.drain_dirty() {
-        let data = save(pos, &be);
+        let mut data = save(pos, &be);
+        if matches!(be.kind, Kind::Belt(_))
+            && let Some(states) = states()
+        {
+            data.covered = Some(belt_casing::display(world, pos, &be, kinetics, states));
+        }
         if matches!(be.kind, Kind::HosePulley(_)) {
             fluids::hose_pulley::save_kinetics(world, pos, &data);
         } else if let Ok(bytes) = fastnbt::to_bytes(&data) {

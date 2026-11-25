@@ -6,11 +6,11 @@ use crate::DISPLAYS;
 #[derive(Default)]
 pub(crate) struct ModelDisplay {
     entity: Option<i32>,
-    model: &'static str,
+    model: String,
 }
 
 impl ModelDisplay {
-    pub(crate) fn show(&mut self, world: World<'_>, model: &'static str, transform: &ItemDisplay) {
+    pub(crate) fn show(&mut self, world: World<'_>, model: &str, transform: &ItemDisplay) {
         let Some(displays) = DISPLAYS.get() else {
             return;
         };
@@ -30,11 +30,11 @@ impl ModelDisplay {
         };
         if let Some(entity) = live {
             if displays.set_item(world, entity, &stack) {
-                self.model = model;
+                model.clone_into(&mut self.model);
             }
         } else {
             self.entity = displays.spawn_item(world, &stack, transform);
-            self.model = model;
+            model.clone_into(&mut self.model);
         }
     }
 

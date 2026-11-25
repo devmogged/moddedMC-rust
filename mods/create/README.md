@@ -133,6 +133,12 @@ A sample renamed at an anvil offers its exact custom name. A dyed item or firewo
 
 Gear with an applied enchantment at its maximum level offers `max_enchanted`. Buckets offer `fluid_container` and their fluid. Select the water rule and send water and lava buckets through a chute. Only the water bucket should transfer. The [max enchantment and fluid scenario](../../tests/scenarios/create-attribute-filter-max-and-fluid.txt) checks these rules across restart with Efficiency IV, Efficiency V and Mending.
 
+### Belt casings
+
+Right-click a Mechanical Belt with an Andesite or Brass Casing to change its material. The casing item stays in your hand. A Wrench removes the casing. A solid block above a horizontal cased belt adds a matching cover.
+
+On stock Java 26.3, apply both materials to a running belt and check that the bodies sit under the belt surface. Try a sloped segment and check that its casing follows the slope. Place and remove a block above a horizontal segment, then restart with the cover in place. Both materials and the cover should come back. The [belt casing scenario](../../tests/scenarios/create-belt-casing.txt) checks the right-click, wrench, covers, speed, and restart.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
