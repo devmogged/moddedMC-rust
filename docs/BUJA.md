@@ -175,7 +175,7 @@ Each line names the original JAR used for the `Bundled` column. These are metada
 
 Priority is based on players' visible gameplay, the size of a correct port, and the generic host interfaces it depends on. A high priority does not authorize a fake substitute while an ABI dependency is missing.
 
-Before starting any substream, read docs/PARALLEL-PLAN.md sections 2-4, docs/PORTS.md, docs/MOD-ABI.md, the current main branch and the latest official source identified in the inventory. Each has its own branch/worktree and mod directory. The owner opens exactly one chat per substream; no substream should share WS-1's working directory or port 26010-26019. The integrator must allocate disjoint ports if multiple WS-1 substreams run simultaneously. First milestone for each is source and license verification, including the target release and its full Java call chain. Report generic host gaps to WS-0 using the request format in section 4.3.
+Before starting a port, read docs/PORTS.md, docs/MOD-ABI.md, the current main branch and the latest official source identified in the inventory, and claim it as described in AGENTS.md ("Working alongside other people"). First milestone for each is source and license verification, including the target release and its full Java call chain. Report generic host gaps as issues on `devmogged/moddedMC-rust`.
 
 | Priority | Brief | Why | Current dependency |
 | --- | --- | --- | --- |

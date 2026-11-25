@@ -1,5 +1,7 @@
 # Parallel workstreams
 
+> **Retired 2026-11-25.** The claim and lease system below (`mmc-coord`, `coord.mjs`, `beat`, `release`) is no longer used. Don't run it. How to pick work now is in [AGENTS.md](../AGENTS.md), "Working alongside other people". The per-mod plans below are kept for reference.
+
 How many agents port the whole buja pack at once without getting in each other's way. Each
 agent owns one workstream on its own branch and git worktree, checks its work against vanilla
 26.3 and the original mod, and leaves a log the integrator reviews and merges later.
