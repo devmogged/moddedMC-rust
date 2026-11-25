@@ -24,6 +24,7 @@ mod roost;
 mod roster;
 mod spawners;
 mod spawns;
+mod stun;
 mod swarm;
 mod taming;
 mod venom_arrow;

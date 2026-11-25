@@ -60,6 +60,9 @@ fn with_combat<T>(mob: Entity<'_>, f: impl FnOnce(&mut Combat) -> T) -> T {
 }
 
 pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -> bool {
+    if !crate::stun::hurt(world, mob, damage_type, amount) {
+        return false;
+    }
     let Some(kind) = MOBS.get().and_then(|mobs| mobs.kind(mob)) else {
         return true;
     };

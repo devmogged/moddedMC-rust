@@ -511,6 +511,9 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if matches!(item, BRUSH | GOLDEN_BRUSH) {
         return brush(click, item == GOLDEN_BRUSH);
     }
+    if let Some(result) = crate::stun::feed(click, item) {
+        return result;
+    }
     if mobs.kind(mob) != Some(crate::CINDERVANE) {
         return UseResult::Pass;
     }
@@ -548,25 +551,7 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
                 "minecraft:chicken" => 333_333,
                 _ => 250_000,
             };
-            let success = random(1_000_000) < chance
-                && mobs.set_state(
-                    mob,
-                    &Tamed {
-                        owner: uuid,
-                        order: Order::Sit,
-                        saddle: false,
-                        regrowth: 0,
-                        happiness: 100,
-                        plucked: false,
-                    }
-                    .encode(),
-                );
-            if success {
-                mobs.make_persistent(mob);
-                ai.stop(mob);
-                ai.set_target(click.world, mob, None);
-                crate::codex::remember(click.world, mob, None);
-            }
+            let success = random(1_000_000) < chance && tame(click.world, mob, uuid);
             feed_particles(click.world, mob, success);
         }
         return UseResult::Success;
@@ -642,7 +627,30 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     UseResult::Success
 }
 
-fn feed_particles(world: World<'_>, mob: Entity<'_>, happy: bool) {
+/// A successful taming feed: owned, sitting, persistent and calm.
+pub fn tame(world: World<'_>, mob: Entity<'_>, owner: [u8; 16]) -> bool {
+    let (Some(mobs), Some(ai)) = (MOBS.get(), MOB_AI.get()) else {
+        return false;
+    };
+    let state = Tamed {
+        owner,
+        order: Order::Sit,
+        saddle: false,
+        regrowth: 0,
+        happiness: 100,
+        plucked: false,
+    };
+    if !mobs.set_state(mob, &state.encode()) {
+        return false;
+    }
+    mobs.make_persistent(mob);
+    ai.stop(mob);
+    ai.set_target(world, mob, None);
+    crate::codex::remember(world, mob, None);
+    true
+}
+
+pub fn feed_particles(world: World<'_>, mob: Entity<'_>, happy: bool) {
     let (Some(effects), Some(view)) = (EFFECTS.get(), mob.view()) else {
         return;
     };
@@ -662,6 +670,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::codex::remove(world, mob);
     crate::flight::forget(mob.id());
     crate::swarm::forget(mob.id());
+    crate::stun::forget(mob.id());
     crate::visuals::death(world, mob);
     {
         let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);

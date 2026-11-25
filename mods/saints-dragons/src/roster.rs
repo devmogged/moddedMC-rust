@@ -255,23 +255,47 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             },
         )?;
         mobs.on_death(registry, &kind, taming::death)?;
-        if swarm_damage.is_some() || (species.name != "moop" && cfg!(feature = "original-assets")) {
+        let stun = crate::stun::uses_stun(species.name);
+        if swarm_damage.is_some()
+            || stun
+            || (species.name != "moop" && cfg!(feature = "original-assets"))
+        {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
+        }
+        if stun {
+            ai.add_goal(
+                registry,
+                &Goal {
+                    kind: &kind,
+                    key: crate::stun::GOAL,
+                    priority: 0,
+                    controls: goal_control::MOVE | goal_control::LOOK | goal_control::JUMP,
+                },
+            )?;
         }
         if swarm_damage.is_none() && !matches!(species.name, "moop" | "mossback") {
             INTERACTION
                 .get()
                 .ok_or(missing)?
                 .on_use_mob(registry, &kind, taming::interact)?;
-            ai.add_goal(
-                registry,
-                &Goal {
-                    kind: &kind,
-                    key: taming::FOLLOW,
-                    priority: 2,
-                    controls: goal_control::MOVE,
-                },
-            )?;
+            for (key, priority, controls) in [
+                (
+                    taming::RIDE_OR_SIT,
+                    0,
+                    goal_control::MOVE | goal_control::LOOK | goal_control::JUMP,
+                ),
+                (taming::FOLLOW, 2, goal_control::MOVE),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
+                        controls,
+                    },
+                )?;
+            }
         }
         items.add_item(
             registry,
