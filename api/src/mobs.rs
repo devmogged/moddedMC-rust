@@ -181,6 +181,97 @@ pub enum MobsExtension {
     /// Death, UUIDs, health, passengers, gravity, fire, the hurt cooldown and the player calls
     /// taming and riding need.
     Taming,
+    /// `add_spawn`: biome spawn pool entries.
+    NaturalSpawns,
+}
+
+/// Where a spawn entry's mob can appear (vanilla `SpawnPlacementTypes`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpawnLocation {
+    Unrestricted,
+    OnGround,
+    InWater,
+    InLava,
+}
+
+/// A vanilla `MobCategory`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpawnCategory {
+    Monster,
+    Creature,
+    Ambient,
+    Axolotls,
+    UndergroundWaterCreature,
+    WaterCreature,
+    WaterAmbient,
+}
+
+impl SpawnCategory {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Monster => "monster",
+            Self::Creature => "creature",
+            Self::Ambient => "ambient",
+            Self::Axolotls => "axolotls",
+            Self::UndergroundWaterCreature => "underground_water_creature",
+            Self::WaterCreature => "water_creature",
+            Self::WaterAmbient => "water_ambient",
+        }
+    }
+}
+
+/// A biome spawn pool entry for a mob type this mod registered.
+pub struct Spawn<'a> {
+    pub kind: &'a str,
+    /// A biome id, or `#` and a biome tag.
+    pub biomes: &'a str,
+    pub category: SpawnCategory,
+    pub weight: i32,
+    pub min_count: i32,
+    pub max_count: i32,
+    pub location: SpawnLocation,
+    /// Also apply the carrier's vanilla spawn rules before the mod's check.
+    pub carrier_rules: bool,
+}
+
+/// A position the spawner is trying.
+pub struct SpawnCheck<'a> {
+    pub kind: &'a str,
+    pub position: crate::Pos,
+    pub biome: &'a str,
+    /// Summed weight of the vanilla entries in the same category's pool there.
+    pub vanilla_weight: i32,
+    pub chunk_generation: bool,
+}
+
+/// A mod mob's spawn rule. One per mod: the first one passed serves every spawn.
+pub type SpawnRule = fn(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool;
+
+static SPAWN_RULE: OnceLock<SpawnRule> = OnceLock::new();
+
+unsafe extern "C" fn spawn_rule(world: abi::WorldRef, check: *const abi::SpawnCheck) -> bool {
+    guard("spawn rule", false, || {
+        // SAFETY: the host passes a live check for this call.
+        let (Some(rule), Some(world), Some(check)) =
+            (SPAWN_RULE.get(), World::borrowed(world), unsafe {
+                check.as_ref()
+            })
+        else {
+            return false;
+        };
+        // SAFETY: the check's strings are live for the call.
+        let (kind, biome) = unsafe { (check.kind.str(), check.biome.str()) };
+        rule(
+            world,
+            &SpawnCheck {
+                kind,
+                position: check.position,
+                biome,
+                vanilla_weight: check.vanilla_weight,
+                chunk_generation: check.chunk_generation,
+            },
+        )
+    })
 }
 
 /// Hears a mod mob die, before its loot drops.
@@ -211,6 +302,10 @@ impl Mobs {
                 std::mem::offset_of!(abi::MobsV1, make_persistent),
                 "moddedmc:mobs.taming",
             ),
+            MobsExtension::NaturalSpawns => (
+                std::mem::offset_of!(abi::MobsV1, add_spawn),
+                "moddedmc:mobs.natural_spawns",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -220,6 +315,42 @@ impl Mobs {
     }
 
     // `on_death` to `make_persistent` need `MobsExtension::Taming`.
+
+    /// Add `spawn` to the biome spawn pools, with `rule` deciding each position. Needs
+    /// `MobsExtension::NaturalSpawns`.
+    pub fn add_spawn(
+        self,
+        reg: &mut Registry<'_>,
+        spawn: &Spawn<'_>,
+        rule: SpawnRule,
+    ) -> Result<(), RegistrationError> {
+        if self
+            .require_extension(MobsExtension::NaturalSpawns)
+            .is_err()
+        {
+            return Err(RegistrationError::InvalidDefinition);
+        }
+        let _ = SPAWN_RULE.set(rule);
+        let def = abi::SpawnDefinition {
+            kind: s(spawn.kind),
+            biomes: s(spawn.biomes),
+            category: s(spawn.category.name()),
+            weight: spawn.weight,
+            min_count: spawn.min_count,
+            max_count: spawn.max_count,
+            location: match spawn.location {
+                SpawnLocation::Unrestricted => abi::spawn_location::UNRESTRICTED,
+                SpawnLocation::OnGround => abi::spawn_location::ON_GROUND,
+                SpawnLocation::InWater => abi::spawn_location::IN_WATER,
+                SpawnLocation::InLava => abi::spawn_location::IN_LAVA,
+            },
+            carrier_rules: spawn.carrier_rules,
+        };
+        // SAFETY: the size is checked; registration and the definition are live for the call.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*self.0.ptr).add_spawn).read())(reg.reg, &raw const def, spawn_rule)
+        })
+    }
 
     /// Hear mobs of `kind` die. A mod has one handler: the first one passed serves every kind.
     pub fn on_death(

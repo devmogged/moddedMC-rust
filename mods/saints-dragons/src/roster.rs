@@ -313,6 +313,17 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 )?;
             }
         }
+        if cfg!(feature = "original-assets") && matches!(species.name, "ignivorus" | "varasuchus") {
+            ai.add_goal(
+                registry,
+                &Goal {
+                    kind: &kind,
+                    key: crate::roost::GOAL,
+                    priority: 1,
+                    controls: goal_control::MOVE | goal_control::LOOK,
+                },
+            )?;
+        }
         if species.flight.is_some() {
             ai.add_goal(
                 registry,
@@ -502,6 +513,19 @@ fn use_egg(context: &mut UseOnBlock<'_>) -> UseResult {
     UseResult::Success
 }
 
+/// `DragonEntity.finalizeSpawn` for an adult that joined without an appearance.
+pub fn finalize_spawn(world: World<'_>, mob: Entity<'_>) {
+    if let Some(name) = MOBS
+        .get()
+        .and_then(|mobs| mobs.kind(mob))
+        .and_then(|kind| kind.strip_prefix("saintsdragons:"))
+        && !crate::eggs::is_juvenile(mob)
+    {
+        let in_end = world.dimension_id() == Some("minecraft:the_end");
+        crate::appearance::ensure(mob, name, in_end);
+    }
+}
+
 pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     if phase != goal_phase::TICK {
         return matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE);
@@ -539,7 +563,13 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     } else {
         taming::regrow(mob);
     }
-    visuals::tick_species(world, mob, name, view, species.clip(view, wet));
+    let clip = if cfg!(feature = "original-assets") && matches!(name, "ignivorus" | "varasuchus") {
+        crate::roost::sleep_clip(mob.id())
+    } else {
+        None
+    };
+    let clip = clip.unwrap_or_else(|| species.clip(view, wet));
+    visuals::tick_species(world, mob, name, view, clip);
     false
 }
 

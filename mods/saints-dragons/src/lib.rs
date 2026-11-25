@@ -19,7 +19,9 @@ mod eggs;
 mod flight;
 mod ivy;
 mod nucleus;
+mod roost;
 mod roster;
+mod spawns;
 mod swarm;
 mod taming;
 mod venom_arrow;
@@ -94,6 +96,9 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Carriers)?;
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
+        if cfg!(feature = "original-assets") {
+            entities.require_extension(EntitiesExtension::ScoreboardTags)?;
+        }
         let _ = ENTITIES.set(entities);
         let _ = FISH_BUCKETS.set(mobs::require_fish_buckets()?);
         if cfg!(feature = "original-assets") {
@@ -104,6 +109,7 @@ impl Mod for SaintsDragons {
         let _ = MOB_HEALTH.set(health);
         let mobs = mobs::require()?;
         mobs.require_extension(MobsExtension::Taming)?;
+        mobs.require_extension(MobsExtension::NaturalSpawns)?;
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;
@@ -233,6 +239,10 @@ impl Mod for SaintsDragons {
             &nodes,
         )?;
         roster::register(registry)?;
+        spawns::register(
+            registry,
+            *MOBS.get().ok_or(RegistrationError::InvalidDefinition)?,
+        )?;
         if let Some(structures) = STRUCTURE_MOBS.get() {
             for species in ["saintsdragons:ignivorus", "saintsdragons:varasuchus"] {
                 structures.on_load(registry, species, appearance::spawned_from_template)?;
@@ -346,6 +356,9 @@ fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) 
     nucleus::tick(world, time, events);
     eggs::tick(world, events);
     visuals::sweep(world, time, events);
+    if cfg!(feature = "original-assets") {
+        roost::sweep();
+    }
 }
 
 const fn literal(name: &str) -> Node<'_> {

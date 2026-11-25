@@ -54,6 +54,14 @@ pub fn spawned_from_egg(mob: Entity<'_>, species: &str, in_end: bool) {
     }
 }
 
+/// `DragonEntity.finalizeSpawn` for an adult that joined without an appearance: a natural or
+/// chunk generation spawn.
+pub fn ensure(mob: Entity<'_>, species: &str, in_end: bool) {
+    if mob.data(DATA).is_none() {
+        spawned_from_egg(mob, species, in_end);
+    }
+}
+
 #[derive(Deserialize)]
 struct TemplateAppearance<'a> {
     id: &'a str,
@@ -61,12 +69,15 @@ struct TemplateAppearance<'a> {
     female: bool,
     #[serde(rename = "TextureVariantId", default)]
     variant: Option<&'a str>,
+    #[serde(rename = "Pos")]
+    position: [f64; 3],
 }
 
 pub fn spawned_from_template(mob: Entity<'_>, nbt: &[u8]) {
     let Ok(data) = fastnbt::from_bytes::<TemplateAppearance<'_>>(nbt) else {
         return;
     };
+    crate::roost::set_home(mob, data.position);
     let Some(variants) = data.id.strip_prefix("saintsdragons:").and_then(variants) else {
         return;
     };

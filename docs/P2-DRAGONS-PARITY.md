@@ -9,11 +9,11 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
 | Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together | Ivy's trading, companion inventory and combat, swarm combat and pathfinding around obstacles, and exact spawn restrictions, attributes and collision |
-| Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, plus released gender and skin selection for adult spawn eggs | Per-species brains, navigation, growth, breeding and natural spawning, plus natural gender and variant assignment |
+| Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback | Per-species brains, navigation, growth and breeding; the custom Raevyx, Stegonaut and Volitans spawners |
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species | Species-specific taming, grooming animations, sleep reactions, codex updates and hunger; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
 | Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips | Armor set abilities, Dragonlord armor fire and blast resistance, Blood Tempest and Dragonlord sword active abilities and on-hit effects, worn armor models, and remaining equipment components |
-| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock-client interaction and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts, and Ivy?s house | Egg trampling and hatch advancements, original Crucible GUI and animations, roost marker behavior, some legacy decorations, remaining custom crafting and advancement predicates, and Pellucida hardness, sound and swarm-specific collision |
+| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock-client interaction and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts with their sleep anchors, and Ivy?s house | Egg trampling and hatch advancements, original Crucible GUI and animations, some legacy decorations, remaining custom crafting and advancement predicates, and Pellucida hardness, sound and swarm-specific collision |
 | Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, and hurt and death cues for the roster except Moop. A connected bot verified Cindervane, Raevyx and Mossback. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Remaining per-species playback, animation keyframe cues, footsteps, takeoff and landing, and moving or looping sources |
 | Presentation | Adult rig path with Creative gender and skin changes in the Fabric companion, and stock display fallbacks | Juvenile rigs, overlays, particles, special renderers, equipment visuals, screens and translations |
 | Integration | Stock 26.3 client fallback and versioned mod interfaces | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
@@ -120,9 +120,22 @@ The original Ignivorus and Varasuchus roosts and Ivy's house generate with their
 released jigsaw placement and biome rules. The seeded scenario located all
 three, verified that Ivy spawned and her chest retained its original loot table,
 and checked the template dragons' health, skin and gender. Varasuchus retained
-its persistence flag after a server restart. Roost marker behavior and some
-legacy decorations still need parity.
+its persistence flag after a server restart. A template dragon keeps its spawn
+block as home and finds the template's sleep anchor marker. At night it returns to
+the anchor, settles and plays its fall asleep and sleep clips, and at day it wakes
+and keeps to its territory. Some legacy decorations still need parity.
 [Roost and house scenario](../tests/scenarios/p2ai-saints-dragons-roosts.txt)
+
+Cindervane, Atroxiia, Nulljaw, Moop and Mossback join the biome spawn pools of
+their released biome tags with the 0.9.88 config weights and group sizes. The
+natural spawner and chunk generation pick from vanilla and dragon entries by
+weight. Each species keeps its `canSpawnHere` rule: dry, open ground, a
+competing vanilla creature weight of at least five and no snowy slopes for
+Cindervane, End Barrens for Nulljaw, and the `DragonSpawnRules` density limits
+outside chunk generation. A wild adult rolls the released gender and skin
+weights. The rule runs on its first AI tick, not at spawn. The scenario found
+a generated Cindervane in the jagged peaks and checked its appearance.
+[Natural spawn scenario](../tests/scenarios/p2aj-saints-dragons-natural-spawns.txt)
 
 The Draconic Codex opens a stock-client dialog from either hand or when used
 on a dragon. It reads owner-specific records from the save, updates loaded

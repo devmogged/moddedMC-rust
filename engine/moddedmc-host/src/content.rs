@@ -1040,6 +1040,7 @@ fn install_runtime(runtime: Runtime) -> io::Result<()> {
         || !crate::interaction::install()
         || !crate::mob_ai::install()
         || !crate::mobs::install_structure_mobs()
+        || !crate::mobs::install_natural_spawns()
         || !engine::observe(observe)
     {
         return Err(io::Error::other("content hooks already installed"));
@@ -1901,6 +1902,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     entities_matching: crate::entities::entities_matching,
     as_player: crate::entities::as_player,
     with_player_context: crate::entities::with_player_context,
+    has_scoreboard_tag: crate::entities::has_scoreboard_tag,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {

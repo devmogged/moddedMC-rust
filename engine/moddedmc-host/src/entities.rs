@@ -72,6 +72,18 @@ pub unsafe extern "C" fn as_player(raw: abi::EntityRef) -> abi::PlayerRef {
     abi::PlayerRef(player.map_or(std::ptr::null(), |player| std::ptr::from_ref(player).cast()))
 }
 
+pub unsafe extern "C" fn has_scoreboard_tag(raw: abi::EntityRef, tag: Str) -> bool {
+    // SAFETY: the entity and the tag are borrowed for this call.
+    let (Some(base), tag) = (unsafe { entity(raw) }, unsafe { tag.str() }) else {
+        return false;
+    };
+    base.get_entity()
+        .scoreboard_tags
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .contains(tag)
+}
+
 pub unsafe extern "C" fn id(raw: abi::EntityRef) -> i32 {
     // SAFETY: the entity is live for the callback.
     unsafe { entity(raw) }.map_or(0, |base| base.get_entity().entity_id)

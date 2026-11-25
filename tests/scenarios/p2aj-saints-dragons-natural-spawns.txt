@@ -1,0 +1,37 @@
+# Run in a new directory with -Seed 1796137205646843071.
+# Chunk generation fills new jagged peaks chunks from the weighted biome pool, which holds
+# Cindervanes through #saintsdragons:has_cindervane. A wild Cindervane rolls its released
+# gender and skin when it joins. Generation spawns are random, so the bot visits mountain
+# spots until it finds one.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 4
+cmd gamemode creative tester
+cmd execute unless entity @e[tag=p2aj_found] run tp tester -1344 220 -1728
+wait 20
+cmd execute unless entity @e[tag=p2aj_found] at tester as @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},sort=nearest,limit=1] run tag @s add p2aj_found
+wait 0.5
+cmd execute unless entity @e[tag=p2aj_found] run tp tester -1024 220 -1728
+wait 20
+cmd execute unless entity @e[tag=p2aj_found] at tester as @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},sort=nearest,limit=1] run tag @s add p2aj_found
+wait 0.5
+cmd execute unless entity @e[tag=p2aj_found] run tp tester -1344 220 -2048
+wait 20
+cmd execute unless entity @e[tag=p2aj_found] at tester as @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},sort=nearest,limit=1] run tag @s add p2aj_found
+wait 0.5
+cmd execute unless entity @e[tag=p2aj_found] run tp tester -1664 220 -1728
+wait 20
+cmd execute unless entity @e[tag=p2aj_found] at tester as @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},sort=nearest,limit=1] run tag @s add p2aj_found
+wait 0.5
+cmd execute unless entity @e[tag=p2aj_found] run tp tester -1344 220 -1408
+wait 20
+cmd execute unless entity @e[tag=p2aj_found] at tester as @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},sort=nearest,limit=1] run tag @s add p2aj_found
+wait 0.5
+cmd execute as @e[tag=p2aj_found,limit=1] at @s run tp tester ~ ~3 ~
+wait 10
+cmd data get entity @e[tag=p2aj_found,limit=1] data."saintsdragons:appearance"
+wait 0.5
+expect Ravager has the following entity data: \{female: [01]b, variant: [0-2]b\}
+bot quit
+stop

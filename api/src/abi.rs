@@ -894,6 +894,8 @@ pub struct EntitiesV1 {
         context: *mut c_void,
         visit: unsafe extern "C" fn(*mut c_void, WorldRef, EntityRef),
     ) -> bool,
+    /// Whether the entity has this vanilla scoreboard tag.
+    pub has_scoreboard_tag: unsafe extern "C" fn(entity: EntityRef, tag: Str) -> bool,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.
@@ -1445,10 +1447,58 @@ pub struct MobsV1 {
     pub message: unsafe extern "C" fn(player: EntityRef, text: Str, action_bar: bool) -> bool,
     /// Vanilla `Mob.setPersistenceRequired`: keep this mob from naturally despawning.
     pub make_persistent: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    // Appended after taming: require `MobsExtension::NaturalSpawns`.
+    /// During registration: add a mob type this mod registered to the biome spawn pools the
+    /// natural spawner and chunk generation draw from (vanilla `MobSpawnSettings`). `check` is
+    /// its spawn rule (vanilla `SpawnPlacements`), asked for each position tried.
+    pub add_spawn:
+        unsafe extern "C" fn(reg: Reg, def: *const SpawnDefinition, check: SpawnCheckFn) -> i32,
 }
 
 /// A mod mob dying; the entity is still in the world.
 pub type MobDeathFn = unsafe extern "C" fn(world: WorldRef, mob: EntityRef);
+
+/// `SpawnDefinition.location`: vanilla `SpawnPlacementTypes`.
+pub mod spawn_location {
+    pub const UNRESTRICTED: u8 = 0;
+    pub const ON_GROUND: u8 = 1;
+    pub const IN_WATER: u8 = 2;
+    pub const IN_LAVA: u8 = 3;
+}
+
+/// One entry of the biome spawn pools.
+#[repr(C)]
+pub struct SpawnDefinition {
+    /// A mob type the mod registered.
+    pub kind: Str,
+    /// A biome id, or `#` and a biome tag.
+    pub biomes: Str,
+    /// Vanilla `MobCategory` name, such as `creature` or `water_ambient`. The carrier's own
+    /// category decides the mob cap it counts against.
+    pub category: Str,
+    pub weight: i32,
+    pub min_count: i32,
+    pub max_count: i32,
+    /// A `spawn_location` value.
+    pub location: u8,
+    /// Also apply the carrier's vanilla spawn rules before `check`.
+    pub carrier_rules: bool,
+}
+
+/// A position the spawner is trying for a mod mob.
+#[repr(C)]
+pub struct SpawnCheck {
+    pub kind: Str,
+    pub position: Pos,
+    /// The biome there.
+    pub biome: Str,
+    /// Summed weight of the vanilla entries in this category's pool there.
+    pub vanilla_weight: i32,
+    /// True during chunk generation, false for the natural spawner.
+    pub chunk_generation: bool,
+}
+
+pub type SpawnCheckFn = unsafe extern "C" fn(world: WorldRef, check: *const SpawnCheck) -> bool;
 
 /// Size of the mobs table before `on_death` was appended.
 pub const MOBS_V1_BASE_SIZE: usize = std::mem::offset_of!(MobsV1, on_death);
@@ -1548,7 +1598,12 @@ mod mobs_layout {
         assert_eq!(MOBS_V1_BASE_SIZE, 48);
         assert_eq!(offset_of!(MobsV1, message), 144);
         assert_eq!(offset_of!(MobsV1, make_persistent), 152);
-        assert_eq!(size_of::<MobsV1>(), 160);
+        assert_eq!(offset_of!(MobsV1, add_spawn), 160);
+        assert_eq!(size_of::<MobsV1>(), 168);
+        assert_eq!(offset_of!(SpawnDefinition, weight), 48);
+        assert_eq!(size_of::<SpawnDefinition>(), 64);
+        assert_eq!(offset_of!(SpawnCheck, biome), 32);
+        assert_eq!(size_of::<SpawnCheck>(), 56);
         assert_eq!(size_of::<MobAttribute>(), 24);
         assert_eq!(offset_of!(MobDefinition, attributes), 32);
         assert_eq!(size_of::<MobDefinition>(), 48);

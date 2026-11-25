@@ -10,14 +10,22 @@ use std::{
 
 use moddedmc_api::abi::{self, EntityRef, Reg, Sink, Str, Vec3, WorldRef, code};
 use pumpkin_core::{
+    entity::mob::spawn::EntitySpawnReason,
     entity::{
         EntityBase,
         r#type::{from_type, load_entity},
     },
-    world::{World, install_structure_entity_loader},
+    world::{
+        World, install_structure_entity_loader,
+        natural_spawner::{EmbedderSpawn, EmbedderSpawns, install_embedder_spawns, pool},
+    },
 };
 use pumpkin_data::{
-    attributes::Attributes, data_component_impl::combat::attribute_from_name, entity::EntityType,
+    attributes::Attributes,
+    biome::Biome,
+    data_component_impl::combat::attribute_from_name,
+    entity::{EntityType, MobCategory, SpawnLocation},
+    structure_registry::{biome_tag, full_id},
 };
 use pumpkin_nbt::{Nbt, compound::NbtCompound, deserializer::NbtReadHelperJava, tag::NbtTag};
 use pumpkin_util::math::{position::BlockPos, vector3::Vector3};
@@ -50,6 +58,7 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     game_mode,
     message,
     make_persistent,
+    add_spawn,
 };
 
 pub static MOB_LOOT: abi::MobLootV1 = abi::MobLootV1 {
@@ -203,6 +212,20 @@ pub struct Registration {
     carrier: &'static EntityType,
     attributes: Vec<(&'static Attributes, f64)>,
     structure_init: Option<abi::StructureMobInitFn>,
+    spawns: Vec<NaturalSpawn>,
+}
+
+/// A biome spawn pool entry from `add_spawn`.
+struct NaturalSpawn {
+    /// A biome id, or `#` and a biome tag.
+    biomes: String,
+    category: &'static MobCategory,
+    weight: i32,
+    min_count: i32,
+    max_count: i32,
+    location: SpawnLocation,
+    carrier_rules: bool,
+    check: abi::SpawnCheckFn,
 }
 
 /// Registered mob types by id. Ids are leaked once at registration so `kind` can return them.
@@ -273,6 +296,7 @@ unsafe extern "C" fn add_mob(reg: Reg, def: *const abi::MobDefinition) -> i32 {
         carrier,
         attributes,
         structure_init: None,
+        spawns: Vec::new(),
     });
     code::OK
 }
@@ -338,6 +362,133 @@ pub fn create(
         }
     }
     Some(mob)
+}
+
+unsafe extern "C" fn add_spawn(
+    reg: Reg,
+    def: *const abi::SpawnDefinition,
+    check: abi::SpawnCheckFn,
+) -> i32 {
+    // SAFETY: the host owns staging and the definition is borrowed by the registration call.
+    let (staging, Some(def)) = (unsafe { (native::staging(reg), def.as_ref()) }) else {
+        return code::INVALID_DEFINITION;
+    };
+    // SAFETY: the strings belong to the live definition.
+    let (kind, biomes, category) =
+        unsafe { (def.kind.str(), def.biomes.str(), def.category.str()) };
+    let category = match category {
+        "monster" => &MobCategory::MONSTER,
+        "creature" => &MobCategory::CREATURE,
+        "ambient" => &MobCategory::AMBIENT,
+        "axolotls" => &MobCategory::AXOLOTLS,
+        "underground_water_creature" => &MobCategory::UNDERGROUND_WATER_CREATURE,
+        "water_creature" => &MobCategory::WATER_CREATURE,
+        "water_ambient" => &MobCategory::WATER_AMBIENT,
+        _ => return code::INVALID_DEFINITION,
+    };
+    let location = match def.location {
+        abi::spawn_location::UNRESTRICTED => SpawnLocation::Unrestricted,
+        abi::spawn_location::ON_GROUND => SpawnLocation::OnGround,
+        abi::spawn_location::IN_WATER => SpawnLocation::InWater,
+        abi::spawn_location::IN_LAVA => SpawnLocation::InLava,
+        _ => return code::INVALID_DEFINITION,
+    };
+    let Some(mob) = staging.mobs.iter_mut().find(|mob| mob.id == kind) else {
+        return code::INVALID_DEFINITION;
+    };
+    if def.weight < 0 || def.min_count < 1 || def.max_count < def.min_count || biomes.is_empty() {
+        return code::INVALID_DEFINITION;
+    }
+    mob.spawns.push(NaturalSpawn {
+        biomes: biomes.to_owned(),
+        category,
+        weight: def.weight,
+        min_count: def.min_count,
+        max_count: def.max_count,
+        location,
+        carrier_rules: def.carrier_rules,
+        check,
+    });
+    code::OK
+}
+
+pub fn install_natural_spawns() -> bool {
+    install_embedder_spawns(EmbedderSpawns {
+        entries: spawn_entries,
+        check: spawn_check,
+        create: |world, spawn, position| create(spawn.id, world, position),
+    })
+}
+
+/// Each biome and category's mod entries, built on first use after registration.
+static POOLS: Mutex<BTreeMap<(u8, usize), &'static [EmbedderSpawn]>> = Mutex::new(BTreeMap::new());
+
+fn spawn_entries(
+    biome: &'static Biome,
+    category: &'static MobCategory,
+) -> &'static [EmbedderSpawn] {
+    let mut pools = POOLS.lock().unwrap_or_else(PoisonError::into_inner);
+    pools.entry((biome.id, category.id)).or_insert_with(|| {
+        let types = types();
+        let entries = types
+            .values()
+            .flat_map(|mob| mob.spawns.iter().map(move |spawn| (mob, spawn)))
+            .filter(|(_, spawn)| spawn.category == category && in_biomes(&spawn.biomes, biome))
+            .map(|(mob, spawn)| EmbedderSpawn {
+                id: mob.id,
+                carrier: mob.carrier,
+                category,
+                location: spawn.location.clone(),
+                weight: spawn.weight,
+                min_count: spawn.min_count,
+                max_count: spawn.max_count,
+                carrier_rules: spawn.carrier_rules,
+            })
+            .collect::<Vec<_>>();
+        Box::leak(entries.into_boxed_slice())
+    })
+}
+
+fn in_biomes(biomes: &str, biome: &Biome) -> bool {
+    biomes.strip_prefix('#').map_or_else(
+        || full_id(biomes) == full_id(biome.registry_id),
+        |tag| biome_tag(tag).is_some_and(|ids| ids.contains(&u16::from(biome.id))),
+    )
+}
+
+fn spawn_check(
+    world: &Arc<World>,
+    spawn: &'static EmbedderSpawn,
+    pos: &BlockPos,
+    reason: EntitySpawnReason,
+) -> bool {
+    let Some(check) = types()
+        .get(spawn.id)
+        .and_then(|mob| mob.spawns.first())
+        .map(|first| first.check)
+    else {
+        return false;
+    };
+    let biome = world.level.get_rough_biome(pos);
+    let name = full_id(biome.registry_id);
+    let vanilla_weight = pool(biome, spawn.category)
+        .iter()
+        .filter(|entry| entry.max_count > 0)
+        .map(|entry| entry.weight.max(0))
+        .sum();
+    let check_data = abi::SpawnCheck {
+        kind: Str::new(spawn.id.as_bytes()),
+        position: abi::Pos {
+            x: pos.0.x,
+            y: pos.0.y,
+            z: pos.0.z,
+        },
+        biome: Str::new(name.as_bytes()),
+        vanilla_weight,
+        chunk_generation: matches!(reason, EntitySpawnReason::ChunkGeneration),
+    };
+    // SAFETY: the world and the check outlive this synchronous callback.
+    unsafe { check(ptr::from_ref::<World>(world).cast(), &raw const check_data) }
 }
 
 pub static STRUCTURE_MOBS: abi::StructureMobsV1 = abi::StructureMobsV1 {

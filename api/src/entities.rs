@@ -28,6 +28,8 @@ pub enum EntitiesExtension {
     Carriers,
     /// Convert a borrowed player entity to a player handle.
     Player,
+    /// `Entity::has_scoreboard_tag`.
+    ScoreboardTags,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -100,6 +102,10 @@ impl Entities {
             EntitiesExtension::Player => (
                 std::mem::offset_of!(abi::EntitiesV1, with_player_context),
                 "moddedmc:entities.player",
+            ),
+            EntitiesExtension::ScoreboardTags => (
+                std::mem::offset_of!(abi::EntitiesV1, has_scoreboard_tag),
+                "moddedmc:entities.scoreboard_tags",
             ),
             EntitiesExtension::Carriers => (
                 std::mem::offset_of!(abi::EntitiesV1, entities_matching),
@@ -264,6 +270,14 @@ impl Entity<'_> {
         let mut view = EntityView::default();
         // SAFETY: the entity is live for this callback and the output is a local.
         unsafe { (self.api.view)(self.raw, &raw mut view) }.then_some(view)
+    }
+
+    /// Checks a vanilla scoreboard tag. Returns false on hosts missing this extension.
+    pub fn has_scoreboard_tag(self, tag: &str) -> bool {
+        // SAFETY: the table size covers the field and the tag and entity are live for the call.
+        self.api.size
+            >= std::mem::offset_of!(abi::EntitiesV1, has_scoreboard_tag) + size_of::<usize>()
+            && unsafe { (self.api.has_scoreboard_tag)(self.raw, crate::s(tag)) }
     }
 
     pub fn type_id(self) -> &'static str {

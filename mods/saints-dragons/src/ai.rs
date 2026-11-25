@@ -76,6 +76,9 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         .unwrap_or_else(PoisonError::into_inner)
         .get_or_insert_default()
         .insert(mob.id());
+    if phase == goal_phase::START && matches!(key, AMBIENT | crate::roster::AMBIENT) {
+        crate::roster::finalize_spawn(world, mob);
+    }
     match key {
         IDLE_LOOK => idle_look(phase, world, mob),
         GROUND_WANDER => ground_wander(phase, mob),
@@ -84,6 +87,7 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::taming::RIDE_OR_SIT => crate::taming::ride_or_sit(phase, world, mob),
         crate::taming::FOLLOW => crate::taming::follow(phase, world, mob),
         crate::flight::GOAL => crate::flight::goal(phase, world, mob),
+        crate::roost::GOAL => crate::roost::goal(phase, world, mob),
         crate::swarm::WANDER => crate::swarm::wander(phase, world, mob),
         crate::roster::AMBIENT => crate::roster::ambient(phase, world, mob),
         AMBIENT => match phase {

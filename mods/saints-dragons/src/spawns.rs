@@ -1,0 +1,221 @@
+//! Natural spawns from 0.9.88: the `DragonSpawnRegistry` entries the biome spawner uses with
+//! their config defaults, Moop and Mossback, and each species' `canSpawnHere`. Raevyx, Stegonaut
+//! and Volitans default to the release's custom spawners instead (weight 0 here).
+
+use moddedmc_api::{
+    Pos, RegistrationError, Registry,
+    content::World,
+    entities::ENTITY_ALIVE,
+    mobs::{Mobs, Spawn, SpawnCategory, SpawnCheck, SpawnLocation},
+};
+
+use crate::{ENTITIES, MOBS, taming};
+
+const SPAWNS: &[Spawn<'static>] = &[
+    Spawn {
+        kind: "saintsdragons:cindervane",
+        biomes: "#saintsdragons:has_cindervane",
+        category: SpawnCategory::Creature,
+        weight: 8,
+        min_count: 1,
+        max_count: 2,
+        location: SpawnLocation::OnGround,
+        carrier_rules: false,
+    },
+    Spawn {
+        kind: "saintsdragons:atroxiia",
+        biomes: "#saintsdragons:has_atroxiia",
+        category: SpawnCategory::Creature,
+        weight: 6,
+        min_count: 1,
+        max_count: 1,
+        location: SpawnLocation::OnGround,
+        carrier_rules: false,
+    },
+    // `Nulljaw.canSpawnHere`: the darkness and difficulty checks are the spider carrier's
+    // monster rules.
+    Spawn {
+        kind: "saintsdragons:nulljaw",
+        biomes: "#saintsdragons:has_nulljaw",
+        category: SpawnCategory::Monster,
+        weight: 4,
+        min_count: 4,
+        max_count: 4,
+        location: SpawnLocation::Unrestricted,
+        carrier_rules: true,
+    },
+    // `Moop.canSpawnHere` and `Mossback.canSpawnHere` are vanilla's water animal and animal
+    // rules, the cod and wolf carriers' own.
+    Spawn {
+        kind: "saintsdragons:moop",
+        biomes: "#saintsdragons:has_moop",
+        category: SpawnCategory::WaterAmbient,
+        weight: 4,
+        min_count: 1,
+        max_count: 1,
+        location: SpawnLocation::InWater,
+        carrier_rules: true,
+    },
+    Spawn {
+        kind: "saintsdragons:mossback",
+        biomes: "#saintsdragons:has_mossback",
+        category: SpawnCategory::Creature,
+        weight: 10,
+        min_count: 1,
+        max_count: 2,
+        location: SpawnLocation::OnGround,
+        carrier_rules: true,
+    },
+];
+
+/// `DragonEntity` subclasses, for the density limit.
+const DRAGONS: &[&str] = &[
+    "saintsdragons:raevyx",
+    "saintsdragons:stegonaut",
+    "saintsdragons:cindervane",
+    "saintsdragons:varasuchus",
+    "saintsdragons:ignivorus",
+    "saintsdragons:volitans",
+    "saintsdragons:nulljaw",
+    "saintsdragons:atroxiia",
+];
+
+/// `DragonSpawnRules`.
+const MIN_COMPETING_CREATURE_WEIGHT: i32 = 5;
+const SAME_SPECIES_RADIUS: f64 = 96.0;
+const ANY_DRAGON_RADIUS: f64 = 160.0;
+const SAME_SPECIES_LIMIT: usize = 1;
+const TOTAL_DRAGON_LIMIT: usize = 3;
+const CINDERVANE_SAME_SPECIES_RADIUS: f64 = 64.0;
+const CINDERVANE_ANY_DRAGON_RADIUS: f64 = 128.0;
+const CINDERVANE_SAME_SPECIES_LIMIT: usize = 2;
+const CINDERVANE_TOTAL_DRAGON_LIMIT: usize = 4;
+const UP: u8 = 1;
+
+pub fn register(registry: &mut Registry<'_>, mobs: Mobs) -> Result<(), RegistrationError> {
+    for spawn in SPAWNS {
+        mobs.add_spawn(registry, spawn, check)?;
+    }
+    Ok(())
+}
+
+fn check(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
+    match spawn.kind {
+        "saintsdragons:cindervane" => {
+            spawn.biome != "minecraft:snowy_slopes"
+                && spawn.vanilla_weight >= MIN_COMPETING_CREATURE_WEIGHT
+                && dry_ground(world, spawn.position)
+                && density(world, spawn)
+        }
+        "saintsdragons:atroxiia" => dry_ground(world, spawn.position) && density(world, spawn),
+        "saintsdragons:nulljaw" => {
+            let above = up(spawn.position);
+            spawn.biome == "minecraft:end_barrens"
+                && dry(world, spawn.position)
+                && dry(world, above)
+                && open(world, spawn.position)
+                && open(world, above)
+        }
+        _ => true,
+    }
+}
+
+fn up(pos: Pos) -> Pos {
+    Pos {
+        y: pos.y + 1,
+        ..pos
+    }
+}
+
+fn down(pos: Pos) -> Pos {
+    Pos {
+        y: pos.y - 1,
+        ..pos
+    }
+}
+
+fn dry(world: World<'_>, pos: Pos) -> bool {
+    world.fluid_id(pos).as_deref() == Some("minecraft:empty")
+}
+
+fn open(world: World<'_>, pos: Pos) -> bool {
+    world
+        .collision_shape(pos)
+        .is_some_and(|boxes| boxes.is_empty())
+}
+
+/// `DragonSpawnRules.hasDryGroundSpawnSpace`.
+fn dry_ground(world: World<'_>, pos: Pos) -> bool {
+    let below = down(pos);
+    dry(world, pos)
+        && dry(world, below)
+        && world.face_sturdy(below, UP)
+        && open(world, pos)
+        && open(world, up(pos))
+}
+
+/// `DragonSpawnRules.passesNearbyDragonDensityCheck`: wild dragons of the same species, and
+/// wild dragons of any species, in cubes around it. Java skips it off the server thread, which
+/// is where chunk generation spawns run.
+fn density(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
+    if spawn.chunk_generation {
+        return true;
+    }
+    let (kind, pos) = (spawn.kind, spawn.position);
+    let cindervane = kind == "saintsdragons:cindervane";
+    let (same_radius, any_radius, same_limit, total_limit) = if cindervane {
+        (
+            CINDERVANE_SAME_SPECIES_RADIUS,
+            CINDERVANE_ANY_DRAGON_RADIUS,
+            CINDERVANE_SAME_SPECIES_LIMIT,
+            CINDERVANE_TOTAL_DRAGON_LIMIT,
+        )
+    } else {
+        (
+            SAME_SPECIES_RADIUS,
+            ANY_DRAGON_RADIUS,
+            SAME_SPECIES_LIMIT,
+            TOTAL_DRAGON_LIMIT,
+        )
+    };
+    let center = [pos.x, pos.y, pos.z].map(|c| f64::from(c) + 0.5);
+    // (kind, tamed) of every live dragon within the larger cube.
+    let near = |radius: f64| -> Vec<(&'static str, bool, [f64; 3])> {
+        let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
+            return Vec::new();
+        };
+        entities
+            .entities_in(
+                world,
+                center.map(|c| c - radius),
+                center.map(|c| c + radius),
+                -1,
+            )
+            .into_iter()
+            .filter_map(|id| {
+                entities.with_entity(world, id, |e| {
+                    let kind = mobs.kind(e).filter(|k| DRAGONS.contains(k))?;
+                    if e.flags() & ENTITY_ALIVE == 0 {
+                        return None;
+                    }
+                    Some((kind, taming::is_tamed(e), e.view()?.position))
+                })?
+            })
+            .collect()
+    };
+    let all = near(same_radius.max(any_radius));
+    let within = |p: [f64; 3], radius: f64| (0..3).all(|i| (p[i] - center[i]).abs() <= radius);
+    // Java counts tamed ones of the same species too, except for Cindervane.
+    let same = all
+        .iter()
+        .filter(|(k, tamed, p)| *k == kind && within(*p, same_radius) && !(cindervane && *tamed))
+        .count();
+    if same >= same_limit {
+        return false;
+    }
+    let wild = all
+        .iter()
+        .filter(|(_, tamed, p)| !tamed && within(*p, any_radius))
+        .count();
+    wild < total_limit
+}
