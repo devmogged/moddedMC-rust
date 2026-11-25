@@ -87,7 +87,7 @@ Use a Wrench on the back seam between two crafters with the same orientation to 
 
 Craft a Rotation Speed Controller with a Precision Mechanism above a Brass Casing. Use a Large Cogwheel on the controller to mount it on top across the controller's shaft axis. Power the cogwheel and connect a shaft to either end of the controller. The shaft starts at 16 RPM. On stock Java 26.3, click the left or right half of a side plate with an empty hand to lower or raise the speed by 1 RPM. Sneak-click to adjust by 16. The action bar shows the selected RPM.
 
-The [controller scenario](../../tests/scenarios/create-speed-controller.txt) checks Survival crafting, blocked cog placement, cog consumption, 15, 16, 0 and ?16 RPM output from a ?32 RPM input, the saved ?16 RPM setting, and driving the cog from a powered side shaft. On stock Java 26.3, check that both side plates are clickable, the shaft stops at 0 and reverses at ?16 while the cog keeps turning, and the output still turns backwards after reconnecting to the restarted server.
+The [controller scenario](../../tests/scenarios/create-speed-controller.txt) checks Survival crafting, blocked cog placement, cog consumption, 15, 16, 0 and -16 RPM output from a -32 RPM input, the saved -16 RPM setting, and driving the cog from a powered side shaft. On stock Java 26.3, check that both side plates are clickable, the shaft stops at 0 and reverses at -16 while the cog keeps turning, and the output still turns backwards after reconnecting to the restarted server.
 
 ### Encased Chain Drive and Adjustable Chain Gearshift
 
@@ -96,6 +96,14 @@ Craft an Encased Chain Drive from an Andesite Casing and three iron or zinc nugg
 Power the Adjustable Chain Gearshift through its shaft and send redstone into its casing. The chain receives the same speed at signal 0, 1.5 times the speed at signal 7, and twice the speed at signal 15. Power the chain from the other end to get the inverse ratio on the Gearshift's shaft.
 
 The [chain drive scenario](../../tests/scenarios/create-chain-drive.txt) checks Survival crafting, the three speeds, a restart with signal 7, a repeater aimed into the adjacent casing, and Wrench rotation and pickup. In stock Java 26.3, check that all three casings look like a connected chain, that the Gearshift changes color and the far axle speeds up under redstone, and that removing the middle block leaves two separate end blocks.
+
+### Brass Funnel
+
+Stack an Electron Tube, Brass Ingot and Dried Kelp in the crafting grid to make two Brass Funnels. Sneak-place one against a container to collect items. Use a Wrench to switch to extraction. Over a running belt it becomes a Brass Belt Funnel. Power the funnel with redstone to pause it.
+
+Right-click the filter plate with a sample item to show it on the funnel and allow only that item type. The sample stays in your hand. For an extractor or belt funnel, click the plate with an empty hand to set its batch size. The middle switches between **Up to** and **Exactly**. Click just left or right of the middle to adjust by one, or near the edges to adjust by 16. Sneak-click with an empty hand to clear the filter. The action bar shows the current item and setting.
+
+The [Brass Funnel scenario](../../tests/scenarios/create-brass-funnel.txt) crafts two funnels in Survival and sets the extractor to exactly three iron ingots. It waits with only two in stock, then moves three after restart and leaves four gold ingots in the source. It also checks that breaking the belt preserves the filter and that a powered upward funnel rejects insertion. In stock Java 26.3, check that the sample sits on the filter plate, click each control and read the action bar, and watch a batch travel down the belt into the receiving funnel.
 
 ### Depot
 

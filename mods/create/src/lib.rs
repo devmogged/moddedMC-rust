@@ -2105,6 +2105,16 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         return speed_controller::use_block(context, states, axis);
     }
     if !context.with_item {
+        if let Some(states) = states()
+            && states
+                .funnels
+                .get(&context.state)
+                .is_some_and(|state| state.brass)
+        {
+            return with_world(context.world, |kinetics| {
+                funnel::use_item_on(context.world, states, kinetics, context)
+            });
+        }
         return BlockUseResult::Pass;
     }
     if !context.sneaking

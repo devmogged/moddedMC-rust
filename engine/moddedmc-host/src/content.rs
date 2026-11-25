@@ -882,22 +882,38 @@ fn split_items(
         .unzip()
 }
 
-/// Engine definitions for the staged blocks. States that look the same to a stock client (model
-/// and rotation) share a note block carrier, since the carrier only decides what the client draws.
-fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
-    // Preserve instrument and note for ordinary note blocks by borrowing only powered variants.
-    let mut carriers = Block::NOTE_BLOCK.states.iter().filter_map(|state| {
-        let mut props = Block::NOTE_BLOCK.properties(state.id)?.to_props();
-        let powered = props.iter_mut().find(|p| p.key_str() == "powered")?;
-        if powered.value_str() != "true" {
+fn reserve_variants(
+    block: &'static Block,
+    property: &'static str,
+    values: &'static [&'static str],
+    replacement: &'static str,
+) -> impl Iterator<Item = (BlockStateId, BlockStateId)> {
+    block.states.iter().filter_map(move |state| {
+        let mut props = block.properties(state.id)?.to_props();
+        let variant = props.iter_mut().find(|prop| prop.key_str() == property)?;
+        if !values.contains(&variant.value_str()) {
             return None;
         }
-        *powered = Property::from_str_pair("powered", "false")?;
-        let replacement = Block::NOTE_BLOCK
-            .from_properties(&props)
-            .to_state_id(&Block::NOTE_BLOCK);
+        *variant = Property::from_str_pair(property, replacement)?;
+        let replacement = block.from_properties(&props).to_state_id(block);
         Some((state.id, replacement))
-    });
+    })
+}
+
+/// Engine definitions for the staged blocks. States with the same model and rotation share a
+/// carrier, since the carrier only decides what a stock client draws.
+fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
+    // Keep each note and instrument and each hive's facing and visible honey.
+    let notes = reserve_variants(&Block::NOTE_BLOCK, "powered", &["true"], "false");
+    let target = Block::TARGET.default_state.id;
+    let targets = Block::TARGET
+        .states
+        .iter()
+        .filter_map(|state| (state.id != target).then_some((state.id, target)));
+    let hives = [&Block::BEEHIVE, &Block::BEE_NEST]
+        .into_iter()
+        .flat_map(|block| reserve_variants(block, "honey_level", &["1", "2", "3", "4"], "0"));
+    let mut carriers = notes.chain(targets).chain(hives);
     let mut assigned = HashMap::new();
     let mut definitions = Vec::with_capacity(blocks.len());
     for (_, block) in blocks {

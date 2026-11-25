@@ -4,7 +4,7 @@ Compared with Create 6.0.10 (`mc1.21.1-6.0.10`), ordered by when a player using 
 
 | Order | What a survival player hits |
 | --- | --- |
-| 1 | **Sorting and transfer.** Andesite Funnels and plain Chutes work. Brass Funnels, Smart Chutes, filters, Brass Tunnels, the Mechanical Arm, and inventory/redstone controls such as the Threshold Switch and Content Observer are missing. |
+| 1 | **Sorting and transfer.** Andesite Funnels, Brass Funnels with single-item filters and batch sizes, and plain Chutes work. Smart Chutes, list and attribute Filter items, Brass Tunnels, the Mechanical Arm, and inventory/redstone controls such as the Threshold Switch and Content Observer are missing. |
 | 2 | **Farm and tree automation.** Mounted drills and harvesters work in the tested setups. Stationary drill mining, Mechanical Saws, Ploughs, mounted Deployers, and Portable Storage Interfaces are missing or incomplete. |
 | 3 | **Belts and bulk processing.** Belts lack common wrench, casing and dye interactions. Sloped belts cannot carry stock players up. Bulk blasting and smoking do not have the full vanilla recipe set. |
 | 4 | **Factory power and fluids.** Pipes, pumps, tanks, valves, drains and basic spout filling work. Steam Engines and boilers, Portable Fluid Interfaces, and custom spout-filling recipes are missing. |

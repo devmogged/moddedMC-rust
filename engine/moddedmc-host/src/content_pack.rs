@@ -199,8 +199,7 @@ fn build_pack(
         PLACEHOLDER_PNG.to_vec(),
     );
 
-    let mut note_variants =
-        BTreeMap::from([(String::new(), json!({"model":"minecraft:block/note_block"}))]);
+    let mut carrier_variants = BTreeMap::<_, BTreeMap<_, _>>::new();
     let mut display_models = HashMap::new();
     pack.namespace_assets(blocks, items)?;
     pack.standalone_items(items)?;
@@ -220,7 +219,8 @@ fn build_pack(
                 continue;
             }
             let carrier = state.id.vanilla_view();
-            let Some(key) = note_variant(carrier) else {
+            let block = carrier.to_block();
+            let Some(key) = block_variant(block, carrier) else {
                 continue;
             };
             let model = if assets.model.is_empty() {
@@ -228,7 +228,7 @@ fn build_pack(
             } else {
                 pack.model(&assets.model)
             };
-            note_variants.insert(
+            carrier_variants.entry(block.name).or_default().insert(
                 key,
                 json!({
                     "model": model,
@@ -252,20 +252,10 @@ fn build_pack(
             }
         }
     }
-    if note_variants.len() > 1 {
-        // The stock model is identical for every note variant. Individual carriers override it.
-        let default = note_variants
-            .remove("")
-            .unwrap_or_else(|| json!({"model":"minecraft:block/note_block"}));
-        for state in Block::NOTE_BLOCK.states {
-            if let Some(key) = note_variant(state.id) {
-                note_variants.entry(key).or_insert_with(|| default.clone());
-            }
+    for (name, variants) in carrier_variants {
+        if let Some(block) = Block::from_name(name) {
+            pack.carrier_variants(block, variants)?;
         }
-        pack.json(
-            "assets/minecraft/blockstates/note_block.json",
-            &json!({"variants": note_variants}),
-        )?;
     }
     if pack.missing {
         tracing::warn!("moddedmc: some content pack assets are missing; using a placeholder");
@@ -308,8 +298,8 @@ fn encode_creative_catalog(items: &[&'static Item]) -> io::Result<Option<Vec<u8>
     Ok(Some(bytes))
 }
 
-fn note_variant(state: pumpkin_data::BlockStateId) -> Option<String> {
-    let properties = Block::NOTE_BLOCK.properties(state)?;
+fn block_variant(block: &Block, state: pumpkin_data::BlockStateId) -> Option<String> {
+    let properties = block.properties(state)?;
     Some(
         properties
             .to_props()
@@ -318,6 +308,27 @@ fn note_variant(state: pumpkin_data::BlockStateId) -> Option<String> {
             .collect::<Vec<_>>()
             .join(","),
     )
+}
+
+fn stock_carrier_model(block: &Block, variant: &str) -> Value {
+    if block == &Block::BEEHIVE || block == &Block::BEE_NEST {
+        let mut honey = false;
+        let mut rotation = 0;
+        for prop in variant.split(',') {
+            match prop {
+                "honey_level=5" => honey = true,
+                "facing=east" => rotation = 90,
+                "facing=south" => rotation = 180,
+                "facing=west" => rotation = 270,
+                _ => {}
+            }
+        }
+        let fill = if honey { "honey" } else { "empty" };
+        json!({"model": format!("minecraft:block/{}_{fill}", block.name), "y": rotation})
+    } else {
+        // Note blocks and targets each draw the same model at every power value.
+        json!({"model": format!("minecraft:block/{}", block.name)})
+    }
 }
 
 #[derive(Default)]
@@ -329,6 +340,24 @@ struct Pack {
 }
 
 impl Pack {
+    fn carrier_variants(
+        &mut self,
+        block: &Block,
+        mut variants: BTreeMap<String, Value>,
+    ) -> io::Result<()> {
+        for state in block.states {
+            if let Some(key) = block_variant(block, state.id) {
+                variants
+                    .entry(key)
+                    .or_insert_with_key(|key| stock_carrier_model(block, key));
+            }
+        }
+        self.json(
+            &format!("assets/minecraft/blockstates/{}.json", block.name),
+            &json!({"variants": variants}),
+        )
+    }
+
     fn json(&mut self, path: &str, value: &Value) -> io::Result<()> {
         self.files
             .insert(path.to_owned(), serde_json::to_vec(value)?);

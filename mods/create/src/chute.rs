@@ -651,7 +651,7 @@ fn stack_count(bytes: &[u8]) -> i32 {
 fn extract_from_above(world: World<'_>, kinetics: &mut Kinetics, pos: Pos) -> Option<Value> {
     let source = shift(pos, UP);
     if let Some(depot) = kinetics.depots.get_mut(&source) {
-        return depot.extract_items(world, EXTRACTION_AMOUNT as i32, false);
+        return depot.extract_items(world, EXTRACTION_AMOUNT as i32, false, None);
     }
     if matches!(kinetics.kind(source), Some(Kind::Belt(_))) {
         return belt_inventory::extract_from_segment(
@@ -663,12 +663,13 @@ fn extract_from_above(world: World<'_>, kinetics: &mut Kinetics, pos: Pos) -> Op
         );
     }
     if kinetics.kind(source) == Some(Kind::Millstone) {
-        return crate::millstone::extract(kinetics, source, EXTRACTION_AMOUNT as i32, false);
+        return crate::millstone::extract(kinetics, source, EXTRACTION_AMOUNT as i32, false, None);
     }
     if matches!(kinetics.kind(source), Some(Kind::Deployer { .. })) {
         return crate::deployer::extract(kinetics, source, EXTRACTION_AMOUNT as i32, false);
     }
-    if let Some(item) = crate::basin::extract(world, source, EXTRACTION_AMOUNT as i32, false) {
+    if let Some(item) = crate::basin::extract(world, source, EXTRACTION_AMOUNT as i32, false, None)
+    {
         return Some(item);
     }
     let container = CONTAINERS.get()?.at(world, source, DOWN)?;
@@ -681,6 +682,15 @@ pub fn extract_container(
     limit: u32,
     simulate: bool,
 ) -> Option<Value> {
+    extract_container_when(container, limit, simulate, |_| true)
+}
+
+pub(crate) fn extract_container_when(
+    container: moddedmc_api::containers::Container<'_>,
+    limit: u32,
+    simulate: bool,
+    accepts: impl Fn(&Value) -> bool,
+) -> Option<Value> {
     let mut extracting: Option<Value> = None;
     let mut total = 0;
     for slot in 0..container.slots()? {
@@ -690,14 +700,15 @@ pub fn extract_container(
         let Ok(item) = fastnbt::from_bytes::<Value>(&bytes) else {
             continue;
         };
-        let amount = count(&item).max(0) as u32;
         let Some(info) = STACKS.get().and_then(|stacks| stacks.info(&bytes)) else {
             continue;
         };
+        let amount = (count(&item).max(0) as u32).min(info.max_count.saturating_sub(total));
         if amount == 0
-            || extracting.as_ref().is_some_and(|prior| {
-                with_count(prior, 1) != with_count(&item, 1) || total + amount > info.max_count
-            })
+            || !accepts(&item)
+            || extracting
+                .as_ref()
+                .is_some_and(|prior| with_count(prior, 1) != with_count(&item, 1))
         {
             continue;
         }
@@ -713,7 +724,7 @@ pub fn extract_container(
         }
         total += taken;
         extracting = Some(with_count(&item, total as i32));
-        if total >= limit {
+        if total >= limit.min(info.max_count) {
             break;
         }
     }

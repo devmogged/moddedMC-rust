@@ -262,15 +262,24 @@ impl DepotBehaviour {
     }
 
     /// `ItemHelper.extract` from the held slot and then compatible output slots.
-    pub fn extract_items(&mut self, world: World<'_>, limit: i32, simulate: bool) -> Option<Value> {
+    pub fn extract_items(
+        &mut self,
+        world: World<'_>,
+        limit: i32,
+        simulate: bool,
+        accepts: Option<&dyn Fn(&Value) -> bool>,
+    ) -> Option<Value> {
         let mut result = None;
         if let Some(item) = &mut self.held_item
+            && accepts.is_none_or(|test| test(&item.item))
             && extract_matching(world, item, &mut result, limit, simulate)
         {
             self.held_item = None;
         }
-        self.processing_output_buffer
-            .retain(|_, item| !extract_matching(world, item, &mut result, limit, simulate));
+        self.processing_output_buffer.retain(|_, item| {
+            !accepts.is_none_or(|test| test(&item.item))
+                || !extract_matching(world, item, &mut result, limit, simulate)
+        });
         self.dirty |= !simulate && result.is_some();
         result
     }
@@ -330,11 +339,11 @@ fn extract_matching(
     let total = result.as_ref().map_or(0, count);
     let amount = count(&stack.item);
     let max = stack.max_count();
-    let taken = (limit - total).min(amount).min(max);
+    let taken = (limit.min(max) - total).min(amount);
     if taken <= 0
-        || result.as_ref().is_some_and(|result| {
-            with_count(result, 1) != with_count(&stack.item, 1) || total + taken > max
-        })
+        || result
+            .as_ref()
+            .is_some_and(|result| with_count(result, 1) != with_count(&stack.item, 1))
     {
         return false;
     }
