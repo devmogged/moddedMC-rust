@@ -381,55 +381,59 @@ impl Mobs {
         kind: &str,
         handler: DeathHandler,
     ) -> Result<(), RegistrationError> {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobsV1, on_death)) else {
             return Err(RegistrationError::InvalidDefinition);
         };
         let _ = DEATH.set(handler);
         // SAFETY: registration is live for the call and the trampoline is static.
-        RegistrationError::from_code(unsafe { (api.on_death)(reg.reg, s(kind), death) })
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_death).read())(reg.reg, s(kind), death)
+        })
     }
 
     pub fn uuid(self, entity: Entity<'_>) -> Option<[u8; 16]> {
-        let api = self.0.full()?;
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, uuid))?;
         let mut out = [0; 16];
         // SAFETY: the entity is live for this callback and `out` outlives the call.
-        unsafe { (api.uuid)(entity.raw(), &raw mut out) }.then_some(out)
+        unsafe { ((&raw const (*api).uuid).read())(entity.raw(), &raw mut out) }.then_some(out)
     }
 
     /// The loaded entity with `uuid` in `world`.
     pub fn by_uuid(self, world: World<'_>, uuid: &[u8; 16]) -> Option<i32> {
-        let api = self.0.full()?;
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, by_uuid))?;
         // SAFETY: the world and the UUID are borrowed for the call.
-        let id = unsafe { (api.by_uuid)(world.raw(), uuid) };
+        let id = unsafe { ((&raw const (*api).by_uuid).read())(world.raw(), uuid) };
         (id >= 0).then_some(id)
     }
 
     /// Health and max health of a living entity.
     pub fn health(self, entity: Entity<'_>) -> Option<(f32, f32)> {
-        let api = self.0.full()?;
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, health))?;
         let mut max = 0.0;
         // SAFETY: the entity is live for this callback and `max` outlives the call.
-        let health = unsafe { (api.health)(entity.raw(), &raw mut max) };
+        let health = unsafe { ((&raw const (*api).health).read())(entity.raw(), &raw mut max) };
         (health >= 0.0).then_some((health, max))
     }
 
     pub fn heal(self, entity: Entity<'_>, amount: f32) -> bool {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobsV1, heal)) else {
             return false;
         };
         // SAFETY: the entity is live for this callback.
-        unsafe { (api.heal)(entity.raw(), amount) }
+        unsafe { ((&raw const (*api).heal).read())(entity.raw(), amount) }
     }
 
     /// Direct passengers, the controlling one first.
     pub fn passengers(self, entity: Entity<'_>) -> Vec<i32> {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobsV1, passengers)) else {
             return Vec::new();
         };
         let mut ids = vec![0; 8];
         loop {
             // SAFETY: the entity is live and `ids` has the capacity passed.
-            let count = unsafe { (api.passengers)(entity.raw(), ids.as_mut_ptr(), ids.len()) };
+            let count = unsafe {
+                ((&raw const (*api).passengers).read())(entity.raw(), ids.as_mut_ptr(), ids.len())
+            };
             if count <= ids.len() {
                 ids.truncate(count);
                 return ids;
@@ -440,70 +444,81 @@ impl Mobs {
 
     /// Hearts when `tamed`, smoke otherwise.
     pub fn tame_effect(self, world: World<'_>, entity: Entity<'_>, tamed: bool) -> bool {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobsV1, tame_effect)) else {
             return false;
         };
         // SAFETY: the world and entity are live for this callback.
-        unsafe { (api.tame_effect)(world.raw(), entity.raw(), tamed) }
+        unsafe { ((&raw const (*api).tame_effect).read())(world.raw(), entity.raw(), tamed) }
     }
 
     pub fn set_no_gravity(self, entity: Entity<'_>, no_gravity: bool) -> bool {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, set_no_gravity))
+        else {
             return false;
         };
         // SAFETY: the entity is live for this callback.
-        unsafe { (api.set_no_gravity)(entity.raw(), no_gravity) }
+        unsafe { ((&raw const (*api).set_no_gravity).read())(entity.raw(), no_gravity) }
     }
 
     /// Set it burning for `ticks`; 0 puts it out.
     pub fn set_on_fire(self, entity: Entity<'_>, ticks: u32) -> bool {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobsV1, set_on_fire)) else {
             return false;
         };
         // SAFETY: the entity is live for this callback.
-        unsafe { (api.set_on_fire)(entity.raw(), ticks) }
+        unsafe { ((&raw const (*api).set_on_fire).read())(entity.raw(), ticks) }
     }
 
     pub fn reset_hurt_cooldown(self, entity: Entity<'_>) -> bool {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, reset_hurt_cooldown))
+        else {
             return false;
         };
         // SAFETY: the entity is live for this callback.
-        unsafe { (api.reset_hurt_cooldown)(entity.raw()) }
+        unsafe { ((&raw const (*api).reset_hurt_cooldown).read())(entity.raw()) }
     }
 
     /// A player's held movement keys (`PLAYER_INPUT_*` bits).
     pub fn player_input(self, player: Entity<'_>) -> Option<i32> {
-        let api = self.0.full()?;
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, player_input))?;
         // SAFETY: the entity is live for this callback.
-        let bits = unsafe { (api.player_input)(player.raw()) };
+        let bits = unsafe { ((&raw const (*api).player_input).read())(player.raw()) };
         (bits >= 0).then_some(bits)
     }
 
     /// 0 survival, 1 creative, 2 adventure, 3 spectator.
     pub fn game_mode(self, player: Entity<'_>) -> Option<i32> {
-        let api = self.0.full()?;
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, game_mode))?;
         // SAFETY: the entity is live for this callback.
-        let mode = unsafe { (api.game_mode)(player.raw()) };
+        let mode = unsafe { ((&raw const (*api).game_mode).read())(player.raw()) };
         (mode >= 0).then_some(mode)
     }
 
     /// Plain text in the player's chat, or above the hotbar.
     pub fn message(self, player: Entity<'_>, text: &str, action_bar: bool) -> bool {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobsV1, message)) else {
             return false;
         };
         // SAFETY: the entity is live and the text borrowed for the call.
-        unsafe { (api.message)(player.raw(), s(text), action_bar) }
+        unsafe { ((&raw const (*api).message).read())(player.raw(), s(text), action_bar) }
     }
 
     /// Keep a mob from naturally despawning.
     pub fn make_persistent(self, mob: Entity<'_>) -> bool {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, make_persistent))
+        else {
             return false;
         };
         // SAFETY: the mob is live for this callback.
-        unsafe { (api.make_persistent)(mob.raw()) }
+        unsafe { ((&raw const (*api).make_persistent).read())(mob.raw()) }
     }
 
     pub fn add_mob(self, reg: &mut Registry<'_>, mob: &Mob<'_>) -> Result<(), RegistrationError> {

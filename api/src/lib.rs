@@ -190,9 +190,15 @@ impl<T> InterfacePrefix<T> {
         })
     }
 
-    fn full(self) -> Option<&'static T> {
-        // SAFETY: require verifies the table type, and the size covers every field of T.
-        (self.size >= size_of::<T>()).then(|| unsafe { &*self.ptr })
+    /// The table when the host's copy reaches past `field`, the offset of a pointer-sized field.
+    /// Each call checks only its own field, so a mod built against a newer table still uses the
+    /// older fields of an older host.
+    const fn upto(self, field: usize) -> Option<*const T> {
+        if self.size >= field + size_of::<usize>() {
+            Some(self.ptr)
+        } else {
+            None
+        }
     }
 }
 

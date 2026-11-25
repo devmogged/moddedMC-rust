@@ -99,32 +99,37 @@ impl MobAi {
         kind: &str,
         handler: HurtHandler,
     ) -> Result<(), RegistrationError> {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobAiV1, on_hurt)) else {
             return Err(RegistrationError::InvalidDefinition);
         };
         let _ = HURT.set(handler);
         // SAFETY: registration is live for the call; the size was checked by require_extension.
-        RegistrationError::from_code(unsafe { (api.on_hurt)(reg.reg, s(kind), hurt) })
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_hurt).read())(reg.reg, s(kind), hurt)
+        })
     }
 
     /// Who last hurt `mob` and its tick count then (vanilla `getLastHurtByMob` and
     /// `getLastHurtByMobTimestamp`). Needs `MobAiExtension::Combat`.
     pub fn last_hurt_by(self, mob: Entity<'_>) -> Option<(i32, i32)> {
-        let api = self.0.full()?;
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobAiV1, last_hurt_by))?;
         let mut timestamp = 0;
         // SAFETY: the mob is live for this callback and the timestamp outlives the call.
-        let id = unsafe { (api.last_hurt_by)(mob.raw(), &raw mut timestamp) };
+        let id =
+            unsafe { ((&raw const (*api).last_hurt_by).read())(mob.raw(), &raw mut timestamp) };
         (id >= 0).then_some((id, timestamp))
     }
 
     /// `mob` hits the loaded entity `target` for `amount` as a mob attack. Needs
     /// `MobAiExtension::Combat`.
     pub fn attack(self, world: World<'_>, mob: Entity<'_>, target: i32, amount: f32) -> bool {
-        let Some(api) = self.0.full() else {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobAiV1, attack)) else {
             return false;
         };
         // SAFETY: the world and mob are live for this callback.
-        unsafe { (api.attack)(world.raw(), mob.raw(), target, amount) }
+        unsafe { ((&raw const (*api).attack).read())(world.raw(), mob.raw(), target, amount) }
     }
 
     /// Set the mod's goal handler, once, before adding goals. Needs `moddedmc:entities`.

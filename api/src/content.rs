@@ -274,10 +274,13 @@ impl Content {
     }
 
     pub fn require_comparator_output(self) -> Result<(), InterfaceUnavailable> {
-        self.0.full().map(|_| ()).ok_or(InterfaceUnavailable {
-            name: "moddedmc:content.set_comparator_output",
-            version: 1,
-        })
+        self.0
+            .upto(std::mem::offset_of!(abi::ContentV1, set_comparator_output))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:content.set_comparator_output",
+                version: 1,
+            })
     }
 
     /// Register a comparator strength (0 to 15) after adding the block with an exact state selector.
@@ -287,10 +290,13 @@ impl Content {
         selector: &str,
         strength: u8,
     ) -> Result<(), RegistrationError> {
-        let api = self.0.full().ok_or(RegistrationError::InvalidDefinition)?;
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::ContentV1, set_comparator_output))
+            .ok_or(RegistrationError::InvalidDefinition)?;
         // SAFETY: the table includes the function and both arguments are live for the call.
         RegistrationError::from_code(unsafe {
-            (api.set_comparator_output)(reg.reg, s(selector), strength)
+            ((&raw const (*api).set_comparator_output).read())(reg.reg, s(selector), strength)
         })
     }
 
