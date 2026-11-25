@@ -127,11 +127,7 @@ fn options(sample: &Value, id: &str) -> Vec<String> {
     if let Some((namespace, _)) = id.split_once(':') {
         options.push(format!("@{namespace}"));
     }
-    options.extend(
-        properties::Stack::new(sample)
-            .selections()
-            .map(str::to_owned),
-    );
+    properties::Stack::new(sample).add_selections(&mut options);
     options
 }
 

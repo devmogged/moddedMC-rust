@@ -4,10 +4,16 @@ use fastnbt::Value;
 use moddedmc_api::stacks::StackInfo;
 
 use crate::{
-    STACKS,
+    STACKS, TAGS,
     filtering::{Compound, compound},
-    processing_recipes::{self, Process},
+    processing_recipes::{self, Process, item_id},
 };
+
+const SHULKER_SLOTS: usize = 27;
+const HAS_ENCHANT: &str = "has_enchant";
+const BOOK_AUTHOR: &str = "book_author";
+const BOOK_COPY: &str = "book_copy";
+const SHULKER_FILL: &str = "shulker_fill";
 
 type Test = fn(&Stack<'_>) -> bool;
 
@@ -117,17 +123,114 @@ impl<'a> Stack<'a> {
         processing_recipes::current().is_some_and(|book| book.find(process, self.item).is_some())
     }
 
+    fn enchants(&self) -> Option<Compound> {
+        let key = if item_id(self.item) == Some("minecraft:enchanted_book") {
+            "minecraft:stored_enchantments"
+        } else {
+            "minecraft:enchantments"
+        };
+        match self.component(key)? {
+            Value::Compound(enchants) => Some(enchants),
+            _ => None,
+        }
+    }
+
+    fn book(&self) -> Option<(String, i32)> {
+        let Value::Compound(mut book) = self.component("minecraft:written_book_content")? else {
+            return None;
+        };
+        let (Some(Value::String(author)), Some(Value::Int(generation))) =
+            (book.remove("author"), book.remove("generation"))
+        else {
+            return None;
+        };
+        Some((author, generation))
+    }
+
+    fn shulker_fill(&self) -> Option<&'static str> {
+        let id = item_id(self.item)?;
+        if !TAGS.get()?.contains("item", "minecraft:shulker_boxes", id) {
+            return None;
+        }
+        let Some(Value::List(items)) = self.component("minecraft:container") else {
+            return Some("empty");
+        };
+        if items.is_empty() {
+            return Some("empty");
+        }
+        if self.has("minecraft:container_loot") {
+            return None;
+        }
+        if items.len() != SHULKER_SLOTS {
+            return Some("partial");
+        }
+        let stacks = STACKS.get()?;
+        let mut full = [false; SHULKER_SLOTS];
+        for item in &items {
+            let Some(fields) = compound(item) else {
+                continue;
+            };
+            let Some(Value::Int(slot)) = fields.get("slot") else {
+                continue;
+            };
+            if let Some(full) = usize::try_from(*slot)
+                .ok()
+                .and_then(|slot| full.get_mut(slot))
+            {
+                *full = fields
+                    .get("item")
+                    .and_then(|item| fastnbt::to_bytes(item).ok())
+                    .and_then(|bytes| stacks.info(&bytes))
+                    .is_some_and(|info| info.count == info.max_count);
+            }
+        }
+        Some(if full.into_iter().all(|full| full) {
+            "full"
+        } else {
+            "partial"
+        })
+    }
+
     pub(super) fn applies(&self, name: &str) -> bool {
+        if let Some((property, expected)) = name.split_once('=') {
+            return match property {
+                HAS_ENCHANT => self
+                    .enchants()
+                    .is_some_and(|enchants| enchants.contains_key(expected)),
+                BOOK_AUTHOR => self.book().is_some_and(|(author, _)| author == expected),
+                BOOK_COPY => self
+                    .book()
+                    .is_some_and(|(_, generation)| expected.parse::<i32>() == Ok(generation)),
+                SHULKER_FILL => self.shulker_fill() == Some(expected),
+                _ => false,
+            };
+        }
         PROPERTIES
             .iter()
             .find(|(property, _)| *property == name)
             .is_some_and(|(_, test)| test(self))
     }
 
-    pub(super) fn selections(&self) -> impl Iterator<Item = &'static str> + '_ {
-        PROPERTIES
-            .iter()
-            .filter(|(_, test)| test(self))
-            .map(|(name, _)| *name)
+    pub(super) fn add_selections(&self, options: &mut Vec<String>) {
+        options.extend(
+            PROPERTIES
+                .iter()
+                .filter(|(_, test)| test(self))
+                .map(|(name, _)| (*name).to_owned()),
+        );
+        if let Some(enchants) = self.enchants() {
+            let mut ids: Vec<_> = enchants.keys().collect();
+            ids.sort_unstable();
+            options.extend(ids.into_iter().map(|id| format!("{HAS_ENCHANT}={id}")));
+        }
+        if let Some((author, generation)) = self.book() {
+            if !author.is_empty() {
+                options.push(format!("{BOOK_AUTHOR}={author}"));
+            }
+            options.push(format!("{BOOK_COPY}={generation}"));
+        }
+        if let Some(level) = self.shulker_fill() {
+            options.push(format!("{SHULKER_FILL}={level}"));
+        }
     }
 }

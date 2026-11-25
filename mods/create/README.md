@@ -127,6 +127,8 @@ Install and recover it on a filter plate as you would a List Filter. The [Attrib
 
 Coal also offers `furnace_fuel`, which matches sticks. Wet sponge offers `smeltable`, which matches raw ore. Worn tools offer `damaged`. Check these three rules on one filter by sending sticks, raw iron, damaged shears and fresh shears through a chute in **Allow any** mode. The fresh shears should stay in the source. The [property scenario](../../tests/scenarios/create-attribute-filter-properties.txt) checks this through a restart.
 
+Enchanted books can select a specific enchantment, including when the enchantment is on a tool. Written books can select their author or copy generation. Shulker Boxes offer their current fill level. Check that an Efficiency book's rule accepts a tool with Efficiency and that a partly filled shulker's rule accepts a partly filled box of another color. The [contents scenario](../../tests/scenarios/create-attribute-filter-contents.txt) also checks book authors and copies after restart.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
