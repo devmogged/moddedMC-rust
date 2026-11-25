@@ -69,6 +69,12 @@ Surround a small Water Wheel with eight planks in the crafting grid. Place the L
 
 The [Large Water Wheel scenario](../../tests/scenarios/create-large-water-wheel.txt) checks crafting, blocked placement, axle extensions, flow, restart and mining across a chunk boundary. In stock Java 26.3, watch the three-block wheel and the shaft turn together, then mine an outside paddle and collect the single wheel.
 
+### Windmill sails and direction
+
+Craft white sails in a 2×2 square with wool and a stick on the top row, a stick and an Andesite Alloy below. Place eight sails or frames on a rotor and use its Windmill Bearing with an empty hand to turn it at 1 RPM and 512 SU. Use shears on a white sail to expose its frame. A Wrench click on the bearing reverses direction and displays the setting in the action bar. The direction saves with the bearing.
+
+The [windmill sails scenario](../../tests/scenarios/create-windmill-sails.txt) checks player crafting, placing a sail alongside another, shearing, reversal, restart and disassembly. In stock Java 26.3, check that the sails look the same while placed and while rotating, and that the sail assembly and output shaft reverse together.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

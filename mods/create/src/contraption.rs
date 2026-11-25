@@ -166,6 +166,7 @@ impl BlockMovementChecks {
         if chassis::is_chassis(&entry.name)
             || seat::is_seat(&entry.name)
             || bogey::is_bogey(&entry.name)
+            || crate::sail::is_sail(&entry.name)
             || matches!(
                 entry.name.as_str(),
                 BELT | sticker::ID
@@ -632,6 +633,8 @@ impl Blocks {
                         || sticker::attachment(&next, adjacent) == Some(pos)
                         || harvester::facing(&next) == Some(face as u8)
                         || next.bogey_axis() == Some(face_axis(face as u8))
+                        || crate::sail::plane(&next)
+                            .is_some_and(|axis| axis != face_axis(face as u8))
                         || can_stick(&entry.name, &next.name)
                             && !entry.is_not_supportive(face as u8)
                             && !next.is_not_supportive(face as u8 ^ 1))
@@ -984,6 +987,7 @@ impl PaletteEntry {
 
     pub(crate) fn is_not_supportive(&self, face: u8) -> bool {
         sticker::blocks_attachment(self, face)
+            || crate::sail::plane(self) == Some(face_axis(face))
             || matches!(self.name.as_str(), drill::ID | harvester::ID)
                 && self
                     .properties

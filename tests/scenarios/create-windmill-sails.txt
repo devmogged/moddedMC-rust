@@ -1,0 +1,140 @@
+# Craft and place windmill sails in Survival, then reverse and restart an assembled windmill.
+mods target\mods\create.mmc
+start
+expect registered content block create:sail_frame \(6 states\)
+expect registered content block create:white_sail \(6 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 2311.5 100 2312.5 0 0
+wait 3
+cmd fill 2306 99 2306 2316 99 2316 minecraft:stone
+cmd fill 2306 100 2306 2316 105 2316 minecraft:air
+cmd setblock 2312 100 2313 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with minecraft:white_wool 4
+cmd item replace entity tester hotbar.1 with minecraft:stick 8
+cmd item replace entity tester hotbar.2 with create:andesite_alloy 4
+wait 0.5
+bot use 2312 100 2313 north
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 right
+wait 0.25
+bot inventory-click 2 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.25
+bot inventory-click 39 left
+wait 0.25
+bot inventory-click 5 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:white_sail 0
+wait 0.5
+expect Found 8 matching item
+
+cmd setblock 2310 100 2310 create:windmill_bearing[facing=up]
+cmd setblock 2310 99 2310 create:shaft[axis=y,waterlogged=false]
+cmd fill 2310 101 2310 2310 104 2310 minecraft:slime_block
+cmd tp tester 2312.5 100 2311.5 135 70
+wait 0.5
+bot place 2310 101 2310 east
+wait 0.5
+cmd execute if block 2311 101 2310 create:white_sail[facing=up]
+wait 0.5
+expect Test passed
+bot use 2311 101 2310 up
+wait 0.5
+cmd execute if block 2311 101 2309 create:white_sail[facing=up]
+wait 0.5
+expect Test passed
+cmd clear tester create:white_sail 0
+wait 0.5
+expect Found 6 matching item
+cmd fill 2309 101 2310 2309 104 2310 create:white_sail[facing=up]
+cmd fill 2311 102 2310 2311 103 2310 create:white_sail[facing=up]
+cmd item replace entity tester weapon.mainhand with minecraft:shears
+wait 0.5
+bot use 2311 101 2310 up
+wait 0.5
+cmd execute if block 2311 101 2310 create:sail_frame[facing=up]
+wait 0.5
+expect Test passed
+
+cmd item replace entity tester weapon.mainhand with minecraft:air
+wait 0.5
+bot use 2310 100 2310 east
+wait 0.5
+cmd kinetics 2310 99 2310
+wait 0.5
+expect at 2310 99 2310 Speed=1 Stress=0 Capacity=512
+bot expect entity minecraft:block_display near 2310.5 101.5 2310.5 within 0.05 count 12
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 2310 100 2310 east
+wait 0.5
+cmd kinetics 2310 99 2310
+wait 0.5
+expect at 2310 99 2310 Speed=-1 Stress=0 Capacity=512
+cmd data get block 2310 100 2310 ScrollValue
+wait 0.25
+expect block data: 1$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+
+start
+cmd difficulty peaceful
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd kinetics 2310 99 2310
+wait 0.5
+expect at 2310 99 2310 Speed=-1 Stress=0 Capacity=512
+bot expect entity minecraft:block_display near 2310.5 101.5 2310.5 within 0.05 count 12
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display
+bot use 2310 100 2310 east
+wait 0.5
+cmd kinetics 2310 99 2310
+wait 0.5
+expect at 2310 99 2310 Speed=1 Stress=0 Capacity=512
+cmd item replace entity tester weapon.mainhand with minecraft:air
+wait 0.5
+bot use 2310 100 2310 east
+wait 0.5
+cmd kinetics 2310 99 2310
+wait 0.5
+expect at 2310 99 2310 Speed=0
+cmd execute if block 2311 101 2310 create:sail_frame[facing=up] if block 2311 101 2309 create:white_sail[facing=up]
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

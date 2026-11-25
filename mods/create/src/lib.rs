@@ -60,6 +60,7 @@ mod piston;
 mod press;
 mod processing_recipes;
 mod pulley;
+mod sail;
 mod sandpaper;
 mod seat;
 mod shaft_casing;
@@ -283,6 +284,7 @@ impl Mod for Create {
         fluids::hose_pulley::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
+        sail::register(*content, registry)?;
         piston::register(*content, registry)?;
         gantry::register(*content, registry)?;
         pulley::register(*content, registry)?;
@@ -1049,6 +1051,7 @@ fn states() -> Option<&'static StateIds> {
         ids.add(content, mixer::ID, "", Some(Kind::Mixer));
         fan::add_states(content, &mut ids);
         bearing::add_states(content, &mut ids);
+        sail::add_states(content, &mut ids);
         seat::add_states(content, &mut ids);
         drill::add_states(content, &mut ids);
         harvester::add_states(content, &mut ids);
@@ -1173,6 +1176,19 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        None if sail::is_sail(placed.block) => {
+            let facing = if args.sneak {
+                look ^ 1
+            } else {
+                sail::prefer_neighbor(states, ids[usize::from(args.face ^ 1)], args.face)
+                    .unwrap_or(look ^ 1)
+            };
+            format!(
+                "{}[facing={}]",
+                placed.block,
+                DIRECTIONS[usize::from(facing)]
+            )
+        }
         Some(Kind::LargeWaterWheel(_)) => {
             return large_water_wheel::placed(
                 args.world,
@@ -1506,11 +1522,12 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         be.millstone = data.millstone.map(millstone::Millstone::load).map(Box::new);
     }
     if kind.is_bearing()
-        && let Some(data) = data.bearing
+        && let Some(saved) = data.bearing
     {
         let mut bearing = bearing::MechanicalBearing::default();
-        bearing.data = data;
+        bearing.data = saved;
         if matches!(kind, Kind::Windmill(_)) {
+            bearing.counter_clockwise = data.scroll_value == Some(1);
             be.generated = bearing.get_generated_speed();
         }
         be.bearing = Some(Box::new(bearing));
@@ -1545,7 +1562,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         be.last_capacity_provided = network.added_capacity;
         be.overstressed = be.capacity < be.stress;
     }
-    if let Some(value) = data.scroll_value {
+    if let Some(value) = data.scroll_value
+        && !matches!(kind, Kind::Windmill(_))
+    {
         be.generated = value.clamp(-MAX_SPEED, MAX_SPEED);
     }
     if matches!(kind, Kind::Belt(_)) {
@@ -1593,7 +1612,14 @@ fn save(pos: Pos, be: &Be) -> KineticData {
             added_stress: be.last_stress_applied,
             added_capacity: be.last_capacity_provided,
         }),
-        scroll_value: matches!(be.kind, Kind::Motor(_)).then_some(be.generated),
+        scroll_value: match be.kind {
+            Kind::Motor(_) => Some(be.generated),
+            Kind::Windmill(_) => be
+                .bearing
+                .as_ref()
+                .map(|bearing| i32::from(bearing.counter_clockwise)),
+            _ => None,
+        },
         flow_score: be.kind.fluid_wheel().then_some(be.generated),
         in_use: matches!(be.kind, Kind::HandCrank(_)).then_some(be.generated.abs()),
         backwards: matches!(be.kind, Kind::HandCrank(_)).then_some(be.generated < 0),
@@ -2001,6 +2027,11 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     let Some(states) = states() else {
         return BlockUseResult::Pass;
     };
+    if let Some(entry) = states.by_id.get(&context.state)
+        && sail::is_sail(entry.block)
+    {
+        return sail::use_item_on(context, states, &entry.selector);
+    }
     if let Some(entry) = states
         .by_id
         .get(&context.state)
