@@ -16,6 +16,10 @@ included as `LICENSE.md`.
 - Straw, canvas, tree bark, rice panicles and raw rice.
 - Raw cabbage, tomato and onion can be eaten with their original hunger,
   saturation and consumption timing.
+- Plant onions and cabbage seeds in farmland, rice in source water over soil,
+  and tomato seeds in farmland. The crops use scheduled random ticks and raw
+  light, with rice forming a second block and budding tomatoes becoming a
+  fruiting vine. Picking a ripe vine drops tomatoes and resets its age.
 - The released recipes for packing and unpacking the cabbage, tomato and
   onion crates and rice bag, and for turning rice panicles into rice.
 - Original block models, textures, loot tables and axe mineability tags.
@@ -65,9 +69,11 @@ recorded nutrition and saturation modifiers into 26.3 food components.
 
 ## Remaining behavior
 
-Natural crop acquisition, growth and harvesting still need a gameplay port,
-including planting with onion and rice items. Straw harvesting, bark extraction,
-cooking, prepared foods, tools, decorations and most loot are still missing.
-The original NeoForge gameplay oracle and stock-client appearance remain
-unverified. See `docs/ws/buja.md` for
-the exact test scenarios and progress.
+Wild crop acquisition and cultivation on ropes are pending. Straw harvesting,
+bark extraction, cooking, prepared foods, tools, decorations and most loot
+are still missing.
+The original 1.3.4 NeoForge server confirmed mature onions, cabbages,
+rice and rooted tomatoes, including the rice panicle's light threshold.
+Run `tests/scenarios/farmersdelight-crop-growth.txt` to exercise the port's
+planting, growth, harvesting and persistence on the 26.3 server. See
+`docs/ws/buja.md` for the earlier milestones.

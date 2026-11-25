@@ -1,6 +1,7 @@
-//! Farmer's Delight 1.3.4 raw food, ingredients and storage crates.
+//! Farmer's Delight 1.3.4 crops, raw food, ingredients and storage crates.
 //! Source: ModBlocks and ModItems in vectorwing/FarmersDelight branch 1.21.
 
+mod crops;
 pub mod cutting;
 pub mod food_values;
 
@@ -28,13 +29,14 @@ const STORAGE_BLOCKS: [(&str, &str, &str); 7] = [
     ("rice_bag", "Rice Bag", "minecraft:white_wool"),
 ];
 
-const INGREDIENTS: [(&str, &str); 5] = [
+const INGREDIENTS: [(&str, &str); 7] = [
     ("straw", "Straw"),
     ("canvas", "Canvas"),
     ("tree_bark", "Tree Bark"),
     ("rice_panicle", "Rice Panicle"),
-    // shortcut: rice planting needs the rice crop block.
-    ("rice", "Rice"),
+    ("cabbage_seeds", "Cabbage Seeds"),
+    ("tomato_seeds", "Tomato Seeds"),
+    ("rotten_tomato", "Rotten Tomato"),
 ];
 
 fn register_raw_food(
@@ -94,9 +96,11 @@ struct FarmersDelight;
 
 impl Mod for FarmersDelight {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
-        let _ = CONTENT.set(content::require()?);
+        let content = content::require()?;
+        let _ = CONTENT.set(content);
         let _ = ITEMS.set(items::require()?);
         let _ = ITEM_DEFAULTS.set(items::require_defaults()?);
+        crops::start(content)?;
         Ok(())
     }
 
@@ -122,7 +126,6 @@ impl Mod for FarmersDelight {
         for (name, display_name, profile) in [
             ("cabbage", "Cabbage", "CABBAGE"),
             ("tomato", "Tomato", "TOMATO"),
-            // shortcut: onion planting needs the onion crop block.
             ("onion", "Onion", "ONION"),
         ] {
             register_raw_food(defaults, registry, name, display_name, profile)?;
@@ -152,7 +155,7 @@ impl Mod for FarmersDelight {
                 None,
             )?;
         }
-        Ok(())
+        crops::register(*content, registry)
     }
 }
 

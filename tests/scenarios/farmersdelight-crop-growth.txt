@@ -1,0 +1,138 @@
+# Survival planting and scheduler-driven growth on the stock 26.3 server.
+mods target\mods\farmersdelight.mmc
+start
+expect registered content block farmersdelight:onions
+cmd forceload add 1024 1024 1058 1038
+wait 6
+cmd gamerule minecraft:random_tick_speed 0
+cmd fill 1024 299 1021 1032 299 1032 minecraft:dirt
+cmd fill 1024 299 1024 1026 299 1026 minecraft:farmland[moisture=7]
+cmd setblock 1038 299 1030 minecraft:farmland[moisture=0]
+cmd setblock 1038 300 1030 farmersdelight:onions
+cmd setblock 1027 299 1025 minecraft:farmland[moisture=7]
+cmd setblock 1026 299 1025 minecraft:water
+cmd setblock 1031 299 1025 minecraft:farmland[moisture=7]
+cmd setblock 1030 299 1025 minecraft:water
+cmd setblock 1028 300 1025 minecraft:dirt
+cmd setblock 1030 300 1025 minecraft:dirt
+cmd setblock 1029 300 1024 minecraft:dirt
+cmd setblock 1029 300 1026 minecraft:dirt
+cmd setblock 1029 300 1025 minecraft:water
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1026.5 300 1023.5 0 60
+wait 1
+cmd item replace entity tester hotbar.0 with farmersdelight:onion 2
+wait 0.5
+bot use 1025 299 1025 up
+wait 0.5
+cmd execute if block 1025 300 1025 farmersdelight:onions[age=0]
+wait 0.5
+expect Test passed
+cmd clear tester farmersdelight:onion 0
+wait 0.5
+expect Found 1 matching item
+cmd item replace entity tester hotbar.0 with farmersdelight:cabbage_seeds
+wait 0.5
+bot use 1027 299 1025 up
+wait 0.5
+cmd execute if block 1027 300 1025 farmersdelight:cabbages[age=0]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with farmersdelight:rice
+wait 0.5
+bot use 1029 299 1025 up
+wait 1
+cmd execute if block 1029 300 1025 farmersdelight:rice[age=0,supporting=false]
+wait 0.5
+expect Test passed
+cmd tp tester 1031.5 300 1023.5 0 60
+wait 1
+cmd item replace entity tester hotbar.0 with farmersdelight:tomato_seeds
+wait 0.5
+bot use 1031 299 1025 up
+wait 0.5
+cmd execute if block 1031 300 1025 farmersdelight:budding_tomatoes[age=0]
+wait 0.5
+expect Test passed
+cmd execute if block 1025 300 1025 farmersdelight:onions[age=0]
+wait 0.5
+expect Test passed
+cmd tp tester 1031.5 300 1030.5 0 60
+wait 4
+cmd fill 1042 299 1022 1058 299 1038 minecraft:dirt
+cmd fill 1042 302 1022 1058 302 1038 minecraft:stone
+cmd setblock 1051 300 1030 minecraft:stone
+cmd setblock 1051 301 1030 minecraft:redstone_torch
+cmd setblock 1050 300 1030 farmersdelight:rice
+wait 2
+cmd execute if block 1050 300 1030 farmersdelight:rice[age=0,supporting=false]
+wait 1
+expect Test passed
+cmd gamerule minecraft:random_tick_speed 4096
+cmd tick sprint 320
+wait 20
+cmd gamerule minecraft:random_tick_speed 0
+cmd execute if block 1025 300 1025 farmersdelight:onions[age=7]
+wait 0.5
+expect Test passed
+cmd execute if block 1038 299 1030 minecraft:farmland[moisture=0]
+wait 0.5
+expect Test passed
+cmd execute if block 1038 300 1030 farmersdelight:onions[age=7]
+wait 0.5
+expect Test passed
+cmd setblock 1038 299 1030 minecraft:dirt
+wait 0.5
+cmd execute if block 1038 300 1030 minecraft:air
+wait 0.5
+expect Test passed
+cmd execute if block 1027 300 1025 farmersdelight:cabbages[age=7]
+wait 0.5
+expect Test passed
+cmd execute if block 1029 300 1025 farmersdelight:rice[age=3,supporting=true]
+wait 0.5
+expect Test passed
+cmd execute if block 1029 301 1025 farmersdelight:rice_panicles[age=3]
+wait 0.5
+expect Test passed
+cmd execute if block 1050 301 1030 minecraft:air
+wait 0.5
+expect Test passed
+cmd execute if block 1050 300 1030 farmersdelight:rice[age=3,supporting=false]
+wait 0.5
+expect Test passed
+cmd execute if block 1031 300 1025 farmersdelight:tomatoes[age=3,ropelogged=false]
+wait 0.5
+expect Test passed
+cmd tp tester 1031.5 300 1023.5 0 60
+wait 1
+bot use 1031 300 1025 up
+wait 0.5
+cmd execute if block 1031 300 1025 farmersdelight:tomatoes[age=0,ropelogged=false]
+wait 0.5
+expect Test passed
+cmd execute if entity @e[type=minecraft:item,x=1031,y=300,z=1025,distance=..2,nbt={Item:{id:"farmersdelight:tomato"}}]
+wait 0.5
+expect Test passed
+cmd fill 1042 302 1022 1058 302 1038 minecraft:air
+cmd gamerule minecraft:random_tick_speed 4096
+cmd tick sprint 240
+wait 15
+cmd gamerule minecraft:random_tick_speed 0
+cmd execute if block 1050 301 1030 farmersdelight:rice_panicles[age=3]
+wait 0.5
+expect Test passed
+bot quit
+stop
+start
+cmd forceload add 1024 1024
+wait 5
+cmd execute if block 1029 301 1025 farmersdelight:rice_panicles[age=3]
+wait 0.5
+expect Test passed
+cmd execute if block 1025 300 1025 farmersdelight:onions[age=7]
+wait 0.5
+expect Test passed
+stop
