@@ -84,6 +84,7 @@ pub enum InteractionExtension {
     MeleeDamage,
     ImmediateItemUse,
     PlayerPlaced,
+    Exhaustion,
 }
 
 /// Vanilla Item.use, with the held stack and the look reported by this action.
@@ -407,6 +408,18 @@ unsafe extern "C" fn use_block(
 }
 
 impl UseBlock<'_> {
+    /// Add food exhaustion to the player who clicked the block.
+    pub fn add_exhaustion(&self, amount: f32) {
+        if self.api.size
+            >= std::mem::offset_of!(abi::InteractionV1, add_exhaustion) + size_of::<usize>()
+        {
+            // SAFETY: the function is present and the player is borrowed for the call.
+            unsafe {
+                ((&raw const (*self.api.ptr).add_exhaustion).read())(self.raw_player, amount)
+            };
+        }
+    }
+
     /// Show a status message to this player. Older hosts omit the message.
     pub fn action_bar(&self, text: &str) {
         if self.api.size
@@ -600,6 +613,10 @@ impl Interaction {
             InteractionExtension::PlayerPlaced => (
                 std::mem::offset_of!(abi::InteractionV1, on_player_placed),
                 "moddedmc:interaction.player_placed",
+            ),
+            InteractionExtension::Exhaustion => (
+                std::mem::offset_of!(abi::InteractionV1, add_exhaustion),
+                "moddedmc:interaction.add_exhaustion",
             ),
             InteractionExtension::ImmediateItemUse => (
                 std::mem::offset_of!(abi::InteractionV1, on_use_item),

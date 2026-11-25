@@ -1,0 +1,96 @@
+# Survival crafting, manual rotation, food exhaustion and a restart with the crank running.
+mods target\mods\create.mmc
+start
+expect registered content block create:hand_crank \(12 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 2449.5 102 2445.5 0 25
+wait 4
+cmd fill 2444 102 2444 2453 109 2453 minecraft:air
+cmd fill 2444 101 2444 2453 101 2453 minecraft:stone
+cmd setblock 2449 102 2446 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with minecraft:spruce_planks 3
+cmd item replace entity tester hotbar.1 with create:andesite_alloy 1
+wait 0.5
+bot use 2449 102 2446 north
+wait 0.75
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 6 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:hand_crank 0
+wait 0.5
+expect Found 1 matching item
+cmd setblock 2448 103 2448 create:shaft[axis=x,waterlogged=false]
+wait 0.5
+bot place 2448 103 2448 east
+wait 0.5
+cmd clear tester create:hand_crank 0
+wait 0.5
+expect No items were found
+cmd kinetics 2449 103 2448
+wait 0.5
+expect create:hand_crank\[facing=east,waterlogged=false\] at 2449 103 2448 Speed=0
+bot expect entity minecraft:item_display near 2449.5 103.5 2448.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2449.5 103.5 2448.5
+
+bot use 2449 103 2448 north
+wait 0.15
+cmd kinetics 2448 103 2448
+wait 0.5
+expect at 2448 103 2448 Speed=32 Stress=0 Capacity=256
+cmd kinetics 2448 103 2448
+wait 0.5
+expect at 2448 103 2448 Speed=0
+cmd data get entity tester foodExhaustionLevel
+wait 0.5
+expect entity data: 0\.3[12][0-9]*f
+bot input sneak
+wait 0.25
+bot use 2449 103 2448 north
+wait 0.15
+cmd kinetics 2448 103 2448
+wait 0.05
+expect at 2448 103 2448 Speed=-32 Stress=0 Capacity=256
+stop
+
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd kinetics 2448 103 2448
+wait 0.5
+expect at 2448 103 2448 Speed=0
+bot expect entity minecraft:item_display near 2449.5 103.5 2448.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2449.5 103.5 2448.5
+cmd setblock 2448 103 2448 minecraft:air
+wait 0.5
+cmd execute if block 2449 103 2448 minecraft:air
+wait 0.5
+expect Test passed
+cmd execute if entity @e[type=minecraft:item,x=2449.5,y=103.5,z=2448.5,distance=..3]
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

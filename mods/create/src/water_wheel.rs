@@ -3,9 +3,8 @@ use std::{collections::HashSet, sync::OnceLock};
 
 use moddedmc_api::{
     InterfaceUnavailable, Pos, RegistrationError, Registry,
-    content::{self, Block, Content, ContentEvent, Placement, State, World},
+    content::{self, Block, Content, ContentEvent, State, World},
     fluid_world::{self, FluidFlow},
-    interaction::{UseOnBlock, UseResult},
 };
 
 use crate::{
@@ -61,46 +60,6 @@ pub(crate) fn add_states(content: Content, states: &mut StateIds) {
             &format!("facing={facing}"),
             Some(Kind::WaterWheel(i as u8)),
         );
-    }
-}
-
-pub(crate) fn use_on_block(context: &UseOnBlock<'_>) -> UseResult {
-    let (Some(content), Some(states), Some(player), Some(step)) = (
-        CONTENT.get(),
-        crate::states(),
-        context.player.and_then(|player| player.view()),
-        FACES.get(usize::from(context.face)),
-    ) else {
-        return UseResult::Fail;
-    };
-    let mut clicked = [content::UNLOADED_STATE];
-    if !context.world.read(&[context.position], &mut clicked)
-        || clicked[0] == content::UNLOADED_STATE
-    {
-        return UseResult::Fail;
-    }
-    let position = if states.replaceable.contains(&clicked[0]) {
-        context.position
-    } else {
-        offset(context.position, *step)
-    };
-    let Some(state) = content.state(ID) else {
-        return UseResult::Fail;
-    };
-    if crate::placed_state(Placement {
-        world: context.world,
-        state,
-        position,
-        face: context.face,
-        sneak: context.sneaking,
-        yaw: player.yaw,
-        pitch: player.pitch,
-    })
-    .is_some()
-    {
-        UseResult::Pass
-    } else {
-        UseResult::Fail
     }
 }
 

@@ -93,6 +93,7 @@ pub enum Kind {
     /// Facing.
     Motor(u8),
     WaterWheel(u8),
+    HandCrank(u8),
     Gearbox(u8),
     /// Axis and `powered`.
     Clutch(u8, bool),
@@ -257,6 +258,7 @@ impl Kind {
             Self::HosePulley(facing) => face_axis(crate::fluids::hose_pulley::shaft_side(facing)),
             Self::Motor(facing)
             | Self::WaterWheel(facing)
+            | Self::HandCrank(facing)
             | Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
@@ -283,7 +285,8 @@ impl Kind {
             Self::Motor(facing) => facing == face,
             Self::Pump(_) | Self::Mixer => false,
             Self::HosePulley(facing) => crate::fluids::hose_pulley::shaft_side(facing) == face,
-            Self::Fan(facing)
+            Self::HandCrank(facing)
+            | Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
             | Self::Drill(facing)
@@ -340,6 +343,7 @@ impl Kind {
         match self {
             Self::Motor(_) => 16384.0,
             Self::WaterWheel(_) => 32.0,
+            Self::HandCrank(_) => 8.0,
             Self::Windmill(_) => 512.0,
             _ => 0.0,
         }
@@ -348,7 +352,7 @@ impl Kind {
     const fn generator(self) -> bool {
         matches!(
             self,
-            Self::Motor(_) | Self::WaterWheel(_) | Self::Windmill(_)
+            Self::Motor(_) | Self::WaterWheel(_) | Self::HandCrank(_) | Self::Windmill(_)
         )
     }
 
@@ -495,7 +499,10 @@ impl Be {
             overstressed: false,
             last_stress_applied: 0.0,
             last_capacity_provided: 0.0,
-            generated: if matches!(kind, Kind::WaterWheel(_) | Kind::Windmill(_)) {
+            generated: if matches!(
+                kind,
+                Kind::WaterWheel(_) | Kind::HandCrank(_) | Kind::Windmill(_)
+            ) {
                 0
             } else {
                 DEFAULT_SPEED
@@ -543,6 +550,10 @@ impl Be {
             Kind::Motor(facing) if positive(facing) => self.generated as f32,
             Kind::Motor(_) => -(self.generated as f32),
             Kind::Windmill(_) => self.generated as f32,
+            Kind::HandCrank(facing) => {
+                let direction = if positive(facing) { 1 } else { -1 };
+                (self.generated.signum() * direction * crate::hand_crank::SPEED) as f32
+            }
             Kind::WaterWheel(_) => (self.generated.signum() * crate::water_wheel::SPEED) as f32,
             _ => 0.0,
         }
@@ -998,6 +1009,16 @@ impl Kinetics {
             self.update_generated_rotation(level, pos);
             if let Some(be) = self.bes.get_mut(&pos) {
                 be.re_activate_source = false;
+            }
+        }
+        if let Some(be) = self.bes.get_mut(&pos)
+            && matches!(be.kind, Kind::HandCrank(_))
+            && be.generated != 0
+        {
+            be.generated -= be.generated.signum();
+            be.dirty = true;
+            if be.generated == 0 {
+                self.update_generated_rotation(level, pos);
             }
         }
     }

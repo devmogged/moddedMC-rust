@@ -1041,6 +1041,8 @@ pub struct InteractionV1 {
     /// One Item.use callback per mod, staged during registration.
     pub on_use_item: unsafe extern "C" fn(reg: Reg, callback: UseItemFn) -> i32,
     pub on_player_placed: unsafe extern "C" fn(reg: Reg, callback: PlayerPlacedFn) -> i32,
+    /// Vanilla Player.causeFoodExhaustion.
+    pub add_exhaustion: unsafe extern "C" fn(player: EntityRef, amount: f32),
 }
 
 /// A content item used in the air, with the rotation sent for that action.

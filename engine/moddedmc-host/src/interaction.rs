@@ -47,7 +47,19 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     on_melee_damage: crate::content::on_melee_damage,
     on_use_item: crate::content::on_use_item,
     on_player_placed: crate::content::on_player_placed,
+    add_exhaustion,
 };
+
+unsafe extern "C" fn add_exhaustion(raw: abi::EntityRef, amount: f32) {
+    if !amount.is_finite() || amount < 0.0 {
+        return;
+    }
+    // SAFETY: the callback borrows the entity for this call.
+    let entity = unsafe { raw.cast::<&dyn EntityBase>().as_ref() };
+    if let Some(player) = entity.and_then(|entity| entity.get_player()) {
+        player.add_exhaustion(amount);
+    }
+}
 
 unsafe extern "C" fn action_bar(raw: abi::EntityRef, message: Str) {
     // SAFETY: the callback borrows the entity for this call.

@@ -49,6 +49,7 @@ mod funnel;
 pub mod fluids;
 mod gantry;
 mod glue;
+mod hand_crank;
 mod harvester;
 mod kinetics;
 mod manual_application;
@@ -186,6 +187,7 @@ impl Mod for Create {
         interaction.require_extension(InteractionExtension::ItemUse)?;
         interaction.require_extension(InteractionExtension::VanillaItemUse)?;
         interaction.require_extension(InteractionExtension::PlaceHeldBlock)?;
+        interaction.require_extension(InteractionExtension::Exhaustion)?;
         interaction.require_extension(InteractionExtension::Redstone)?;
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
         let _ = INTERACTION.set(interaction);
@@ -236,6 +238,7 @@ impl Mod for Create {
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         water_wheel::register(*content, registry)?;
+        hand_crank::register(*content, registry)?;
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
         for (path, name) in [
@@ -1035,6 +1038,7 @@ fn states() -> Option<&'static StateIds> {
         funnel::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
         water_wheel::add_states(content, &mut ids);
+        hand_crank::add_states(content, &mut ids);
         deployer::add_states(content, &mut ids);
         basin::add_states(content, &mut ids);
         ids.add(content, mixer::ID, "", Some(Kind::Mixer));
@@ -1156,6 +1160,21 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::HandCrank(_)) => {
+            let face = if args.sneak || preferred.is_none() {
+                args.face
+            } else {
+                connected.clone().next_back()? ^ 1
+            };
+            if !hand_crank::supported(args.world, args.position, face)? {
+                return None;
+            }
+            format!(
+                "{}[facing={},waterlogged={wet}]",
+                hand_crank::ID,
+                DIRECTIONS[usize::from(face)]
+            )
+        }
         Some(Kind::Deployer { .. }) => return deployer::placed(&args, look, states, &ids),
         Some(Kind::HosePulley(_)) => {
             return fluids::hose_pulley::placed_state(&args, &ids, states);
@@ -1384,6 +1403,10 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     flow_score: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    in_use: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backwards: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     scroll_value: Option<i32>,
     // BeltBlockEntity.write and read.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1436,6 +1459,14 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     };
     if matches!(kind, Kind::WaterWheel(_)) {
         be.generated = data.flow_score.unwrap_or(0);
+    }
+    if matches!(kind, Kind::HandCrank(_)) {
+        let in_use = data.in_use.unwrap_or(0).clamp(0, hand_crank::USE_TICKS);
+        be.generated = if data.backwards == Some(true) {
+            -in_use
+        } else {
+            in_use
+        };
     }
     be.speed = data.speed;
     be.valve = data.pointer;
@@ -1542,6 +1573,8 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         }),
         scroll_value: matches!(be.kind, Kind::Motor(_)).then_some(be.generated),
         flow_score: matches!(be.kind, Kind::WaterWheel(_)).then_some(be.generated),
+        in_use: matches!(be.kind, Kind::HandCrank(_)).then_some(be.generated.abs()),
+        backwards: matches!(be.kind, Kind::HandCrank(_)).then_some(be.generated < 0),
         ..belt_data(pos, be)
     }
 }
@@ -1654,6 +1687,13 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            if matches!(event.reason, content::NEIGHBOR_CHANGED | content::LOADED)
+                && let Some(Kind::HandCrank(facing)) = after.or(before)
+                && hand_crank::supported(world, pos, facing) == Some(false)
+            {
+                world.destroy(pos, true);
+                continue;
+            }
             if (event.reason == content::UNLOADED
                 || (matches!(before, Some(Kind::Deployer { .. }))
                     && !matches!(after, Some(Kind::Deployer { .. }))))
@@ -1780,6 +1820,46 @@ fn content_replaced(world: World<'_>, event: &ContentEvent) {
     basin::replaced(world, event);
 }
 
+fn validate_kinetic_placement(context: &UseOnBlock<'_>) -> UseResult {
+    let (Some(content), Some(states), Some(player), Some(step)) = (
+        CONTENT.get(),
+        states(),
+        context.player.and_then(|player| player.view()),
+        FACES.get(usize::from(context.face)),
+    ) else {
+        return UseResult::Fail;
+    };
+    let mut clicked = [content::UNLOADED_STATE];
+    if !context.world.read(&[context.position], &mut clicked)
+        || clicked[0] == content::UNLOADED_STATE
+    {
+        return UseResult::Fail;
+    }
+    let position = if states.replaceable.contains(&clicked[0]) {
+        context.position
+    } else {
+        offset(context.position, *step)
+    };
+    let Some(state) = content.state(context.item) else {
+        return UseResult::Fail;
+    };
+    if placed_state(Placement {
+        world: context.world,
+        state,
+        position,
+        face: context.face,
+        sneak: context.sneaking,
+        yaw: player.yaw,
+        pitch: player.pitch,
+    })
+    .is_some()
+    {
+        UseResult::Pass
+    } else {
+        UseResult::Fail
+    }
+}
+
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == blaze_burner::EMPTY {
         return blaze_burner::capture(context);
@@ -1796,8 +1876,8 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == "create:track" {
         return trains::use_on_block(context);
     }
-    if context.item == water_wheel::ID {
-        return water_wheel::use_on_block(context);
+    if matches!(context.item, water_wheel::ID | hand_crank::ID) {
+        return validate_kinetic_placement(context);
     }
     if context.item == trains::schedule::ID
         && let Some(&content) = CONTENT.get()
@@ -1844,6 +1924,12 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         if let Some(result) = trains::station::use_assembly_track(context, content) {
             return result;
         }
+    }
+    if matches!(
+        states().and_then(|states| states.kind(context.state)),
+        Some(Kind::HandCrank(_))
+    ) {
+        return hand_crank::turn(context);
     }
     if let Some(Kind::Deployer { facing, .. }) =
         states().and_then(|states| states.kind(context.state))

@@ -57,6 +57,12 @@ Craft a Water Wheel with eight planks around a Shaft. Mount it on an axle with s
 
 The [Water Wheel scenario](../../tests/scenarios/create-water-wheel.txt) crafts and places the wheel in Survival, rejects an adjacent wheel in the paddle plane, checks speed and stress capacity, restarts, then shuts off and reverses the flow. In stock Java 26.3, check that the paddles follow the axle and turn with the water, and that the wheel item shows in the inventory.
 
+### Hand Crank
+
+Craft a Hand Crank with a row of three planks and an Andesite Alloy below the rightmost plank. Place the crank against a shaft. Use it to supply 32 RPM for ten ticks, or sneak-use it to reverse. Repeated use keeps it running and costs 0.32 food exhaustion per click. Breaking the support drops the crank.
+
+The [Hand Crank scenario](../../tests/scenarios/create-hand-crank.txt) crafts it in Survival, checks both directions, checks exhaustion and restart, and removes its support. In stock Java 26.3, hold use and watch the handle and shaft turn together. Release to stop, then sneak-use to check the reverse direction.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.
