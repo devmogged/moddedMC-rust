@@ -1348,6 +1348,25 @@ pub struct ContainersV1 {
     ) -> bool,
 }
 
+pub const ITEM_INPUT: &str = "moddedmc:item_input";
+
+/// A hopper or dropper offers saved stack NBT. Return the accepted item count.
+pub type ItemInputFn = unsafe extern "C" fn(
+    world: WorldRef,
+    position: Pos,
+    state: u32,
+    face: u8,
+    stack: Str,
+    simulate: bool,
+) -> u32;
+
+#[repr(C)]
+pub struct ItemInputV1 {
+    pub size: usize,
+    /// Attach to a previously staged content block of the registering mod.
+    pub add: unsafe extern "C" fn(reg: Reg, block: Str, receive: ItemInputFn) -> i32,
+}
+
 pub const TAGS: &str = "moddedmc:tags";
 
 /// Vanilla tags merged with every loaded datapack's, by id string so content mods' blocks and

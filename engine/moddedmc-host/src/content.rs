@@ -13,8 +13,9 @@ use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
         BlockBehaviour, BlockHitResult, EmitsRedstonePowerArgs, GetComparatorOutputArgs,
-        GetRedstonePowerArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
-        OnPlaceArgs, PlayerPlacedArgs, PlayerWillDestroyArgs, UseWithItemArgs,
+        GetRedstonePowerArgs, ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs,
+        OnNeighborUpdateArgs, OnPlaceArgs, PlayerPlacedArgs, PlayerWillDestroyArgs,
+        UseWithItemArgs,
         blocks::redstone::block_receives_redstone_power,
         entities::{
             BlockEntity,
@@ -129,6 +130,7 @@ pub struct Registration {
     item_model: String,
     states: Vec<RegisteredState>,
     placement: Option<abi::ContentPlacement>,
+    item_input: Option<abi::ItemInputFn>,
 }
 
 pub struct ItemRegistration {
@@ -160,6 +162,7 @@ struct RegisteredState {
 struct RuntimeBlock {
     owner: usize,
     placement: Option<abi::ContentPlacement>,
+    item_input: Option<abi::ItemInputFn>,
 }
 
 struct Runtime {
@@ -417,9 +420,31 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         item_model: item_model.into(),
         states: registered,
         placement: def.on_place,
+        item_input: None,
     });
     code::OK
 }
+
+unsafe extern "C" fn add_item_input(reg: Reg, block: Str, receive: abi::ItemInputFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration and the id are borrowed for this call.
+    let (staging, id) = unsafe { (native::staging(reg), block.str()) };
+    let Some(block) = staging.content.iter_mut().find(|entry| entry.id == id) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.item_input.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.item_input = Some(receive);
+    code::OK
+}
+
+pub static ITEM_INPUT: abi::ItemInputV1 = abi::ItemInputV1 {
+    size: size_of::<abi::ItemInputV1>(),
+    add: add_item_input,
+};
 
 unsafe extern "C" fn set_comparator_output(reg: Reg, id: Str, strength: u8) -> i32 {
     if strength > 15 || RUNTIME.get().is_some() {
@@ -896,6 +921,7 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
             states.push(StateDefinition {
                 properties: state.properties.clone(),
                 physical: state.physical,
+                random_ticks: false,
                 carrier,
                 carrier_replacement: Some(replacement),
                 shape: state.shape.clone(),
@@ -1005,6 +1031,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
             RuntimeBlock {
                 owner,
                 placement: block.placement,
+                item_input: block.item_input,
             },
         );
         tracing::info!(
@@ -1049,7 +1076,43 @@ fn install_runtime(runtime: Runtime) -> io::Result<()> {
 
 struct Behaviour;
 
+fn item_input(block: &Block) -> Option<abi::ItemInputFn> {
+    RUNTIME.get()?.blocks.get(&block.id.as_u16())?.item_input
+}
+
 impl BlockBehaviour for Behaviour {
+    fn has_item_input(&self, block: &Block) -> bool {
+        item_input(block).is_some()
+    }
+
+    fn insert_item(&self, args: ItemInputArgs<'_>) -> u8 {
+        if args.world.get_block_state_id(&args.position) != args.state {
+            return 0;
+        }
+        let (Some(receive), Some(saved)) = (
+            item_input(Block::from_state_id(args.state)),
+            args.stack.to_nbt(),
+        ) else {
+            return 0;
+        };
+        let bytes = Nbt::from(saved).write();
+        if bytes.len() > abi::MAX_STACK_BYTES {
+            return 0;
+        }
+        // SAFETY: the callback borrows the world and saved stack for this call.
+        let accepted = unsafe {
+            receive(
+                ptr::from_ref(args.world).cast(),
+                abi_pos(args.position),
+                u32::from(args.state.as_u16()),
+                args.face.to_index(),
+                Str::new(&bytes),
+                args.simulate,
+            )
+        };
+        accepted.min(u32::from(args.stack.item_count)) as u8
+    }
+
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
         let default = args.block.default_state.id;
         let Some(callback) = RUNTIME

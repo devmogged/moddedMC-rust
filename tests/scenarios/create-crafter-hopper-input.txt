@@ -1,0 +1,108 @@
+# A vanilla hopper feeds a linked crafter pair, and a dropper keeps its item when both slots are full.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_crafter \(16 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2496.5 106 2498.5 0 0
+wait 4
+cmd fill 2490 106 2495 2502 113 2505 minecraft:air
+cmd fill 2490 105 2495 2502 105 2505 minecraft:stone
+cmd tp tester 2496.5 106 2498.5 0 0
+cmd gamemode survival tester
+cmd setblock 2496 105 2500 minecraft:barrel
+cmd setblock 2496 106 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2496 107 2500 create:mechanical_crafter[facing=north]
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 2496 106 2500 north
+wait 0.2
+bot use 2496 106 2500 north
+wait 0.2
+bot use 2496 107 2500 north
+wait 0.2
+bot use 2496 107 2500 north
+wait 0.2
+cmd tp tester 2496.5 106 2501.5 180 0
+wait 0.5
+bot use 2496 106 2500 south main 0.5 0.9 1
+wait 0.5
+expect \[bot\] sound: entity.item_frame.add_item
+cmd data get block 2496 106 2500 Crafter.Input.Controller
+wait 0.5
+expect block data: 1b$
+cmd data get block 2496 107 2500 Crafter.Input.Controller
+wait 0.5
+expect block data: 0b$
+
+cmd setblock 2496 108 2500 minecraft:hopper[facing=down]
+cmd item replace block 2496 108 2500 container.0 with create:andesite_alloy 3
+wait 2
+cmd data get block 2496 108 2500 Items[0].count
+wait 0.5
+expect block data: 1$
+cmd data get block 2496 107 2500 Crafter.Slot.id
+wait 0.5
+expect block data: "create:andesite_alloy"
+cmd data get block 2496 106 2500 Crafter.Slot.id
+wait 0.5
+expect block data: "create:andesite_alloy"
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2496 108 2500 Items[0].count
+wait 0.5
+expect block data: 1$
+cmd data get block 2496 107 2500 Crafter.Slot.count
+wait 0.5
+expect block data: 1$
+cmd data get block 2496 106 2500 Crafter.Slot.count
+wait 0.5
+expect block data: 1$
+
+# Power the dropper while both linked slots are full. Its stack must stay in place.
+cmd setblock 2497 107 2500 minecraft:dropper[facing=west]
+cmd item replace block 2497 107 2500 container.0 with create:andesite_alloy 2
+cmd setblock 2498 107 2500 minecraft:redstone_block
+wait 1
+cmd data get block 2497 107 2500 Items[0].count
+wait 0.5
+expect block data: 2$
+cmd setblock 2498 107 2500 minecraft:air
+
+# Lock the hopper to leave room for the next dropper pulse.
+cmd setblock 2496 109 2500 minecraft:redstone_block
+cmd setblock 2495 106 2500 create:cogwheel[axis=z,waterlogged=false]
+cmd setblock 2495 106 2501 create:creative_motor[facing=north]
+wait 0.5
+cmd kinetics 2495 106 2501 128
+wait 3.5
+cmd data get block 2496 105 2500 Items[0].id
+wait 0.5
+expect block data: "create:shaft"
+cmd data get block 2496 105 2500 Items[0].count
+wait 0.5
+expect block data: 8$
+cmd setblock 2498 107 2500 minecraft:redstone_block
+wait 1
+cmd data get block 2497 107 2500 Items[0].count
+wait 0.5
+expect block data: 1$
+cmd data get block 2496 107 2500 Crafter.Slot.id
+wait 0.5
+expect block data: "create:andesite_alloy"
+cmd data get block 2496 106 2500 Crafter.Slot
+wait 0.5
+expect Found no elements matching Crafter.Slot
+cmd data get block 2496 108 2500 Items[0].count
+wait 0.5
+expect block data: 1$
+reject (?i)panicked|trapped|failed to register|Failed to save player data|Error loading player data|\[bot\] error
+bot quit
+stop

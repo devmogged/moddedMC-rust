@@ -20,6 +20,7 @@ use moddedmc_api::{
     interaction::{
         self, BlockUseResult, Interaction, InteractionExtension, UseBlock, UseOnBlock, UseResult,
     },
+    item_input::{self, ItemInput},
     items::{self, Item, Items},
     resources::{self, Resources},
     stacks::{self, Displays, ItemStacks},
@@ -101,6 +102,7 @@ const STONE: &str = "minecraft:andesite";
 static CONTENT: OnceLock<Content> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
+static ITEM_INPUT: OnceLock<ItemInput> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static INTERACTION: OnceLock<Interaction> = OnceLock::new();
 static CRAFTING: OnceLock<Crafting> = OnceLock::new();
@@ -202,6 +204,7 @@ impl Mod for Create {
         item_stacks.require_extension(stacks::StacksExtension::Fuel)?;
         let _ = STACKS.set(item_stacks);
         let _ = CRAFTING.set(crafting::require()?);
+        let _ = ITEM_INPUT.set(item_input::require()?);
         let _ = DISPLAYS.set(stacks::require_displays()?);
         let _ = BLOCK_DISPLAYS.set(block_displays::require()?);
         let _ = CONTAINERS.set(containers::require()?);
@@ -244,6 +247,10 @@ impl Mod for Create {
         register_relays(content, registry)?;
         register_motor(content, registry)?;
         crafter::register(*content, registry)?;
+        ITEM_INPUT
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .register(registry, &[crafter::ID], crafter::receive_item)?;
         water_wheel::register(*content, registry)?;
         large_water_wheel::register(*content, registry)?;
         hand_crank::register(*content, registry)?;

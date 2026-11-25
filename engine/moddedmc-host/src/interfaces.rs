@@ -86,6 +86,7 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         (abi::SAVED_DATA, 1) => ptr::from_ref(&crate::saved_data::SAVED_DATA).cast(),
         (abi::SERVICES, 1) => ptr::from_ref(&crate::services::SERVICES).cast(),
         (abi::CONTAINERS, 1) => ptr::from_ref(&crate::containers::CONTAINERS).cast(),
+        (abi::ITEM_INPUT, 1) => ptr::from_ref(&crate::content::ITEM_INPUT).cast(),
         (abi::TAGS, 1) => ptr::from_ref(&crate::tags::TAGS).cast(),
         (abi::BLOCK_DISPLAYS, 1) => ptr::from_ref(&crate::block_displays::BLOCK_DISPLAYS).cast(),
         (abi::INTERACTION, 1) => ptr::from_ref(&crate::interaction::INTERACTION).cast(),

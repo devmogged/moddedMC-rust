@@ -10,6 +10,7 @@ use moddedmc_api::{
     Pos, RegistrationError, Registry,
     content::{self, Block, BlockUpdate, Content, State, World},
     interaction::{BlockUseResult, UseBlock},
+    item_input::Offer,
     items::Item,
     stacks::ItemDisplay,
 };
@@ -517,6 +518,16 @@ pub(crate) fn use_item_on(
         return BlockUseResult::Success;
     }
     BlockUseResult::TryEmptyHand
+}
+
+pub(crate) fn receive_item(offer: Offer<'_>) -> u32 {
+    let Ok(item) = fastnbt::from_bytes::<Value>(offer.stack) else {
+        return 0;
+    };
+    crate::with_world(offer.world, |kinetics| {
+        u32::try_from(insert(kinetics, offer.position, &item, offer.simulate).unwrap_or(0))
+            .unwrap_or(0)
+    })
 }
 
 pub(crate) fn insert(
