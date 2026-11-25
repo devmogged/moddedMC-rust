@@ -67,6 +67,8 @@ wait 0.5
 cmd execute if block 2311 101 2310 create:white_sail[facing=up]
 wait 0.5
 expect Test passed
+bot look 0 0
+wait 0.25
 bot use 2311 101 2310 up
 wait 0.5
 cmd execute if block 2311 101 2309 create:white_sail[facing=up]

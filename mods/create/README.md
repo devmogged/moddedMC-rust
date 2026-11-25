@@ -75,6 +75,12 @@ Craft white sails in a 2×2 square with wool and a stick on the top row, a stick
 
 The [windmill sails scenario](../../tests/scenarios/create-windmill-sails.txt) checks player crafting, placing a sail alongside another, shearing, reversal, restart and disassembly. In stock Java 26.3, check that the sails look the same while placed and while rotating, and that the sail assembly and output shaft reverse together.
 
+### Mechanical Crafter
+
+Craft three Mechanical Crafters by stacking an Electron Tube, Brass Casing and Crafting Table in a crafting grid. Mount the crafters in one plane, power them with a neighbouring Cogwheel, and click their fronts with a Wrench to route each arrow toward one output. Use each front to load one ingredient. A Crafter Slot Cover marks an empty recipe cell, and an empty hand retrieves an ingredient or cover before the machine starts.
+
+The [Mechanical Crafter scenario](../../tests/scenarios/create-mechanical-crafter.txt) makes two Crushing Wheels from the released 5×5 recipe with an output barrel. It restarts while ingredients are in transit and checks the final count. On stock Java 26.3, check that the arrows turn with each Wrench click, the front shows the loaded ingredient or cover, and the barrel receives two Crushing Wheels. Ordinary crafting recipes and linked crafter inputs are pending.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

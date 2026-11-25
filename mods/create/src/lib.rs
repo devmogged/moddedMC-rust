@@ -37,6 +37,7 @@ mod chassis;
 mod chute;
 mod collider;
 mod contraption;
+mod crafter;
 mod crusher;
 mod deployer;
 mod depot;
@@ -239,6 +240,7 @@ impl Mod for Create {
         }
         register_relays(content, registry)?;
         register_motor(content, registry)?;
+        crafter::register(*content, registry)?;
         water_wheel::register(*content, registry)?;
         large_water_wheel::register(*content, registry)?;
         hand_crank::register(*content, registry)?;
@@ -1042,6 +1044,7 @@ fn states() -> Option<&'static StateIds> {
         belt::add_states(&mut ids, content);
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
+        crafter::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
         water_wheel::add_states(content, &mut ids);
         large_water_wheel::add_states(content, &mut ids);
@@ -1176,11 +1179,20 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::Crafter(_)) => {
+            return crafter::placed(
+                states,
+                ids[usize::from(args.face)],
+                args.face ^ 1,
+                nearest_looking_direction(args.yaw, 0.0),
+                args.sneak,
+            );
+        }
         None if sail::is_sail(placed.block) => {
             let facing = if args.sneak {
                 look ^ 1
             } else {
-                sail::prefer_neighbor(states, ids[usize::from(args.face ^ 1)], args.face)
+                sail::prefer_neighbor(states, ids[usize::from(args.face)], args.face)
                     .unwrap_or(look ^ 1)
             };
             format!(
@@ -1200,7 +1212,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         }
         Some(Kind::HandCrank(_)) => {
             let face = if args.sneak || preferred.is_none() {
-                args.face
+                args.face ^ 1
             } else {
                 connected.clone().next_back()? ^ 1
             };
@@ -1421,6 +1433,8 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     deployer: Option<deployer::Deployer>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    crafter: Option<crafter::CrafterData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     basin_recipe: Option<String>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     mixer: Option<mixer::MixerData>,
@@ -1515,6 +1529,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if matches!(kind, Kind::Deployer { .. }) {
         be.deployer = Some(Box::new(data.deployer.unwrap_or_default()));
     }
+    if let Some(crafter) = &mut be.crafter {
+        crafter.data = data.crafter.unwrap_or_default();
+    }
     if kind == Kind::Mixer {
         be.mixer = data.mixer.map(mixer::Mixer::load).map(Box::new);
     }
@@ -1591,6 +1608,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         pointer: be.valve,
         press: be.press.as_ref().map(|press| press.data),
         deployer: be.deployer.as_deref().cloned(),
+        crafter: be.crafter.as_ref().map(|crafter| crafter.data.clone()),
         basin_recipe: be
             .press
             .as_ref()
@@ -1736,6 +1754,12 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            if matches!(event.reason, content::STATE_CHANGED)
+                && let Some(Kind::Crafter(block)) = before
+                && !matches!(after, Some(Kind::Crafter(_)))
+            {
+                crafter::remove(world, kinetics, pos, block);
+            }
             if matches!(event.reason, content::NEIGHBOR_CHANGED | content::LOADED)
                 && let Some(Kind::HandCrank(facing)) = after.or(before)
                 && hand_crank::supported(world, pos, facing) == Some(false)
@@ -1766,6 +1790,9 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                 }
                 content::UNLOADED => {
                     if let Some(be) = kinetics.get_mut(pos) {
+                        if let Some(crafter) = &mut be.crafter {
+                            crafter.hide(world);
+                        }
                         if let Some(bearing) = &mut be.bearing {
                             bearing.clear_displays(world);
                         }
@@ -1841,6 +1868,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         funnel::update_states(world, states, kinetics);
         press::tick(world, states, kinetics);
         deployer::tick(world, time, kinetics);
+        crafter::tick(world, kinetics, time);
         blaze_burner::tick(world, &mut kinetics.blaze_burners);
         mixer::tick(world, time, states, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
@@ -1901,7 +1929,8 @@ fn validate_kinetic_placement(context: &UseOnBlock<'_>) -> UseResult {
         world: context.world,
         state,
         position,
-        face: context.face,
+        // The placement callback sees the direction from the new block to its support.
+        face: context.face ^ 1,
         sneak: context.sneaking,
         yaw: player.yaw,
         pitch: player.pitch,
@@ -2071,6 +2100,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         Some(Kind::Millstone) => with_world(context.world, |kinetics| {
             millstone::use_item_on(kinetics, context)
         }),
+        Some(Kind::Crafter(block)) => with_world(context.world, |kinetics| {
+            crafter::use_item_on(kinetics, states, block, context)
+        }),
         Some(Kind::Bearing(_) | Kind::Windmill(_) | Kind::Clockwork(_)) => {
             with_world(context.world, |kinetics| {
                 bearing::use_item_on(kinetics, &states.contraption_blocks, context)
@@ -2185,7 +2217,12 @@ fn flush(world: World<'_>, kinetics: &mut Kinetics) {
         } else if let Ok(bytes) = fastnbt::to_bytes(&data) {
             let _ = world.set_entity(pos, &bytes);
         }
-        let _ = world.rotate(pos, be.kind.axis(), be.get_speed());
+        let rpm = if matches!(be.kind, Kind::Crafter(_)) {
+            0.0
+        } else {
+            be.get_speed()
+        };
+        let _ = world.rotate(pos, be.kind.axis(), rpm);
     }
 }
 

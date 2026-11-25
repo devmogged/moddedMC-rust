@@ -19,8 +19,12 @@ use crate::{
     press,
 };
 
+#[path = "crafter_recipes.rs"]
+mod crafter_recipes;
 #[path = "sequenced_assembly.rs"]
 mod sequenced_assembly;
+pub(crate) use crafter_recipes::MAX_GRID_SIDE as MAX_CRAFTER_SIDE;
+use crafter_recipes::MechanicalRecipe;
 use sequenced_assembly::{Advance, Assembly, Step};
 
 pub enum FillingResult<'a> {
@@ -105,6 +109,7 @@ pub struct RecipeBook {
     assemblies: Vec<Assembly>,
     applications: HashMap<String, Vec<ItemApplication>>,
     deploying: Vec<DeployingRecipe>,
+    mechanical: Vec<MechanicalRecipe>,
 }
 
 #[derive(Deserialize)]
@@ -291,6 +296,10 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
             "create:filling" => book.add_filling(raw, &mut values, tag_api),
             "create:item_application" => book.add_application(raw, &mut values),
             "create:deploying" => book.add_deploying(raw, &mut values),
+            "create:mechanical_crafting" => {
+                book.mechanical
+                    .extend(MechanicalRecipe::parse(&bytes, &mut values));
+            }
             "create:sequenced_assembly" => {
                 book.assemblies
                     .extend(Assembly::parse(&path, &bytes, &mut values, tag_api));
@@ -304,6 +313,12 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
 }
 
 impl RecipeBook {
+    pub(crate) fn mechanical_craft(&self, grid: &[Vec<Option<&str>>]) -> Option<&Value> {
+        self.mechanical
+            .iter()
+            .find_map(|recipe| recipe.matching_result(grid))
+    }
+
     fn add(&mut self, raw: RawRecipe, mut tag_values: impl FnMut(&str) -> Vec<String>) {
         let Some(kind) = Process::from_type(&raw.recipe_type) else {
             return;

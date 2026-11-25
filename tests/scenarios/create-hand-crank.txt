@@ -93,6 +93,16 @@ expect Test passed
 cmd execute if entity @e[type=minecraft:item,x=2449.5,y=103.5,z=2448.5,distance=..3]
 wait 0.5
 expect Test passed
+
+# Without a neighbouring shaft, the clicked face sets the crank's direction.
+cmd setblock 2450 103 2448 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:hand_crank
+wait 0.5
+bot place 2450 103 2448 west
+wait 0.5
+cmd kinetics 2449 103 2448
+wait 0.5
+expect create:hand_crank\[facing=west,waterlogged=false\] at 2449 103 2448 Speed=0
 reject (?i)panicked|trapped|failed to register|\[bot\] error
 bot quit
 stop

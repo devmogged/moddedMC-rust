@@ -402,6 +402,9 @@ pub fn insert(
     if kinetics.kind(pos) == Some(Kind::Millstone) {
         return crate::millstone::insert(kinetics, pos, &item.item, simulate);
     }
+    if let Some(accepted) = crate::crafter::insert(kinetics, pos, &item.item, simulate) {
+        return accepted;
+    }
     if let Some(accepted) = crate::deployer::insert(kinetics, pos, item, simulate) {
         return accepted;
     }

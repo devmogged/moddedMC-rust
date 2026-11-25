@@ -95,6 +95,7 @@ pub enum Kind {
     WaterWheel(u8),
     LargeWaterWheel(u8),
     HandCrank(u8),
+    Crafter(crate::crafter::CrafterBlock),
     Gearbox(u8),
     /// Axis and `powered`.
     Clutch(u8, bool),
@@ -257,6 +258,7 @@ impl Kind {
                 along_first,
             } => directional_shaft_axis(facing, along_first),
             Self::Pump(facing) => face_axis(facing),
+            Self::Crafter(crafter) => face_axis(crafter.facing),
             Self::HosePulley(facing) => face_axis(crate::fluids::hose_pulley::shaft_side(facing)),
             Self::Motor(facing)
             | Self::WaterWheel(facing)
@@ -285,7 +287,7 @@ impl Kind {
     pub const fn has_shaft_towards(self, face: u8) -> bool {
         match self {
             Self::Motor(facing) => facing == face,
-            Self::Pump(_) | Self::Mixer => false,
+            Self::Pump(_) | Self::Mixer | Self::Crafter(_) => false,
             Self::HosePulley(facing) => crate::fluids::hose_pulley::shaft_side(facing) == face,
             Self::HandCrank(facing)
             | Self::Fan(facing)
@@ -303,7 +305,7 @@ impl Kind {
     const fn small_cog(self) -> bool {
         matches!(
             self,
-            Self::Small(_) | Self::Pump(_) | Self::Millstone | Self::Mixer
+            Self::Small(_) | Self::Pump(_) | Self::Millstone | Self::Mixer | Self::Crafter(_)
         )
     }
 
@@ -335,7 +337,7 @@ impl Kind {
             | Self::Pulley(_)
             | Self::Elevator(_) => 4.0,
             Self::Press(_) | Self::Wheel(_) => 8.0,
-            Self::Fan(_) => 2.0,
+            Self::Fan(_) | Self::Crafter(_) => 2.0,
             _ => 0.0,
         }
     }
@@ -481,6 +483,7 @@ pub struct Be {
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
     pub deployer: Option<Box<crate::deployer::Deployer>>,
+    pub(crate) crafter: Option<Box<crate::crafter::Crafter>>,
     pub mixer: Option<Box<crate::mixer::Mixer>>,
     pub valve: Option<crate::fluids::valve::Pointer>,
     pub fan: Option<Box<crate::fan::AirCurrent>>,
@@ -494,7 +497,7 @@ pub struct Be {
 
 impl Be {
     /// A block entity as constructed, before its first tick.
-    pub const fn new(kind: Kind) -> Self {
+    pub fn new(kind: Kind) -> Self {
         Self {
             kind,
             serial: 0,
@@ -543,6 +546,7 @@ impl Be {
                 None
             },
             deployer: None,
+            crafter: matches!(kind, Kind::Crafter(_)).then(Box::default),
         }
     }
 
