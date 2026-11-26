@@ -58,10 +58,10 @@ wait 0.5
 expect expect inventory ok slot 37 flint 1
 cmd execute unless data block 1025 100 1025 LootrId
 wait 0.5
-expect Test passed
+expect Found no elements matching LootrId
 cmd execute unless data block 1025 100 1025 LootTable
 wait 0.5
-expect Test passed
+expect Found no elements matching LootTable
 cmd execute unless entity @e[type=minecraft:item,x=1025,y=100,z=1025,distance=..8]
 wait 0.5
 expect Test passed
@@ -74,6 +74,12 @@ bot expect slot 55 minecraft:flint 1
 wait 0.5
 expect expect inventory ok slot 55 flint 1
 bot inventory-close
+# Vanilla barrel viewer count transitions are applied by a block-entity
+# tick, not by the close packet itself. Verify closed before saving.
+wait 2
+cmd execute if block 1025 100 1025 minecraft:barrel[facing=up,open=false]
+wait 0.5
+expect Test passed
 bot quit
 stop
 start
@@ -91,6 +97,10 @@ bot expect slot 0 minecraft:air 0
 wait 0.5
 expect expect inventory ok slot 0 air 0
 bot inventory-close
+wait 2
+cmd execute if block 1025 100 1025 minecraft:barrel[facing=up,open=false]
+wait 0.5
+expect Test passed
 cmd clear alice minecraft:stick 0
 wait 0.5
 expect Found 1 matching item

@@ -148,8 +148,9 @@ chest becomes a waxed exposed copper chain as in the source. Default
 drop-producing decay is still unsupported: enabled decay filters without
 `replace_when_decayed=true` are rejected. A due identity without the
 replacement policy denies new claims without touching the block.
-This new path is source-only, awaiting gated compilation and runtime
-validation; it does not claim cross-file crash-atomicity.
+This path compiled and successfully performed both guarded swaps in the
+first runtime scenario; the full corrected regression remains pending.
+It does not claim cross-file crash-atomicity.
 
 ## Persistence scaling
 
@@ -213,15 +214,22 @@ not automatic vanilla-container conversion.
   changes, two independent exhausted claims and held-cursor menu invalidation.
   Preseed the dedicated run's `config/lootr/lifecycle.txt` with the settings
   in the scenario header and run with `-Keep`, **without** `-Fresh`.
-  Requires the new GameTime host. Not yet runtime verified.
+  Requires the new GameTime host; verified at checkpoint `48c875d`.
 - `lootr-refresh-permission.txt`: explicit admin timer with no automatic
   filter, denied ordinary player command, and open-only expiry. Preseed its
-  dedicated run configuration as stated in the header.
+  dedicated run configuration as stated in the header. Verified at `48c875d`.
 - `lootr-decay-replace.txt`: guarded no-drop decay of barrel and exposed
   copper chest, exact destination state, empty vanilla inventory, untouched
   unclaimed neighbor, held cursor conservation and restart. Preseed its
   dedicated configuration per the header. Requires the new replacement
-  extension and remains unrun.
+  extension. The first run proved both swaps and item conservation, but
+  failed three assertions; see the evidence below.
+- `lootr-decay-stale-guard.txt`: independent ABI fixture captures an exact
+  snapshot, rejects a stale incarnation with identical state/NBT, rejects
+  changed NBT with the same incarnation, and accepts a fresh snapshot.
+  Build the small fixture with
+  `tests/fixtures/abi-content-replacement/pack.ps1` before running.
+  Not yet compiled or run.
 - `lootr-migration-fixture-setup.txt` and `tests/fixtures/lootr-legacy.py`:
   a schema-derived legacy save fixture for the same migration-after scenario.
   Its provenance and exact commands are in [PERSISTENCE-DESIGN.md](PERSISTENCE-DESIGN.md).
@@ -236,9 +244,29 @@ players afterward, and conserved the held stick on the server. It exited
 1 solely because the bot's cursor assertion requested a cursor packet
 after the container had closed (the bot clears its cache on close).
 The scenario now asserts an untouched marker in the player inventory
-instead, with the exact server item-count check retained. That corrected
-scenario and the permission scenario still require gated execution.
+instead, with the exact server item-count check retained. Both corrected
+refresh and permission scenarios passed on the new CAS/GameTime host
+at checkpoint `48c875d`; all 29 unit tests and the release pack passed.
+Retained logs: `run/lootr-refresh-restart-48c875d/scenario.log` and
+`run/lootr-refresh-permission-48c875d/scenario.log`.
 Original evidence: `run/lootr-refresh-restart-05f0167/scenario.log`.
+
+The guarded decay run at `48c875d` exited 1 with three failed checks.
+Both destination states and the untouched neighbor were confirmed before
+restart; no item entities, exactly one recovered stick and an empty
+vanilla inventory were observed. The missing-NBT commands returned
+"Found no elements matching LootrId" and "Found no elements matching
+LootTable", rather than the harness's expected "Test passed".
+The barrel's exact `open=false` check failed after restart following
+an immediate stop after closing the vanilla menu. In Pumpkin,
+`BarrelBlockEntity::on_close` decrements the viewer count; the block
+state changes only on the next block-entity tick via
+`ViewerCountTrackerExt::update_viewer_count`. A stop before that tick
+can persist an open barrel. The corrected regression now checks
+`open=false` before stopping and again after restart (without relaxing
+the state assertion). Immediate-stop close persistence remains a
+shared vanilla-host issue, not proven fixed by this scenario change.
+Original log: `run/lootr-decay-replace-48c875d/scenario.log`.
 
 `lootr:tests/full_chest` is a port-authored deterministic fixture with 27
 unstackable vanilla wooden swords. It is not an upstream loot table.

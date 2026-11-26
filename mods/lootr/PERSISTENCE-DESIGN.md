@@ -168,7 +168,7 @@ published shard, never initializes an empty shard or adopts an orphan.
 The persisted clock is mandatory; daylight time and process ticks are not
 substitutes. This is not a cross-file crash-atomic player inventory journal.
 
-### Guarded decay contract (no-drop replacement source, not yet validated)
+### Guarded decay contract (no-drop replacement, partial runtime validation)
 
 The upstream `ILootrBlockEntity.performDecay` destroys with drops when
 `replace_when_decayed=false`. When true it destroys without drops and sets
@@ -217,8 +217,10 @@ if the world and item drops can be independently saved, replay of a
 pre-decay world after a process crash can repeat drops. Exactly-once
 cross-file durability requires the host's shared journal or checkpoint
 transaction. The explicit no-drop replacement policy now has a source
-implementation requiring the new extension, but it has not been compiled
-or tested yet. Do not enable the drop-producing policy; due identities
+implementation requiring the new extension. Compilation, pure tests and
+both runtime swaps succeeded at `48c875d`; the corrected complete decay
+regression and independent stale-snapshot fixture remain pending.
+Do not enable the drop-producing policy; due identities
 without guarded replacement continue to deny new claims.
 
 Regression plan: reject an outdated snapshot after same-state replacement,
