@@ -1,0 +1,79 @@
+# A Mechanical Arm fuels a Blaze Burner one item at a time and saves the hot-burn rejection.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_arm
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2052.5 105 2012.5
+wait 3
+cmd fill 2045 100 2005 2056 109 2020 minecraft:air
+cmd fill 2045 99 2005 2056 99 2020 minecraft:stone
+cmd tp tester 2052.5 100 2012.5
+cmd gamemode survival tester
+cmd setblock 2049 99 2012 create:creative_motor[facing=up]
+cmd setblock 2049 100 2012 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 2049 100 2013 create:depot
+cmd setblock 2051 100 2013 create:blaze_burner
+wait 0.5
+cmd kinetics 2049 99 2012 128
+cmd item replace entity tester hotbar.0 with create:mechanical_arm
+wait 0.5
+bot use 2049 100 2013 up
+wait 0.5
+expect Take items here
+bot use 2051 100 2013 up
+wait 0.5
+expect Deposit items here
+bot use 2050 99 2012 up
+wait 0.5
+cmd kinetics 2050 100 2012
+wait 0.5
+expect create:mechanical_arm\[ceiling=false\].*Speed=-128
+
+cmd item replace entity tester hotbar.0 with minecraft:coal 3
+wait 0.5
+bot use 2049 100 2013 up
+wait 5
+cmd data get block 2051 100 2013 fuelLevel
+cmd data get block 2049 100 2013 HeldItem.Item.count
+wait 0.5
+expect-all 2051, 100, 2013 has the following block data: 1b$ && 2049, 100, 2013 has the following block data: 2$
+stop
+
+start
+botstart tester
+wait 5
+expect \[bot\] joined as tester
+cmd data get block 2051 100 2013 fuelLevel
+cmd data get block 2049 100 2013 HeldItem.Item.count
+wait 0.5
+expect-all 2051, 100, 2013 has the following block data: 1b$ && 2049, 100, 2013 has the following block data: 2$
+
+# Keep the container from a single lava bucket in the arm's claw.
+bot use 2049 100 2013 up
+wait 0.5
+bot expect slot 36 minecraft:coal 2
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+cmd setblock 2051 100 2013 minecraft:air
+wait 0.5
+cmd setblock 2051 100 2013 create:blaze_burner
+cmd item replace entity tester hotbar.0 with minecraft:lava_bucket
+wait 0.5
+bot use 2049 100 2013 up
+wait 5
+cmd data get block 2051 100 2013 fuelLevel
+cmd data get block 2050 100 2012 Arm.HeldItem.id
+wait 0.5
+expect-all 2051, 100, 2013 has the following block data: 1b$ && block data: "minecraft:bucket"
+bot use 2050 100 2012 up
+wait 0.5
+bot expect slot 36 minecraft:bucket 1
+wait 0.5
+expect ^\[bot\] expect inventory ok slot 36
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

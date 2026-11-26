@@ -96,6 +96,7 @@ pub(crate) fn placed(args: Placement<'_>, states: &StateIds) -> Option<u32> {
 pub(crate) enum PointType {
     Basin,
     Belt,
+    BlazeBurner,
     Chute,
     Crafter,
     CrushingWheels,
@@ -108,6 +109,9 @@ pub(crate) enum PointType {
 impl PointType {
     fn at(world: World<'_>, states: &StateIds, pos: Pos) -> Option<Self> {
         let state = crate::belt_tunnel::read(world, pos);
+        if crate::blaze_burner::is_burner(state) {
+            return Some(Self::BlazeBurner);
+        }
         if let Some(&funnel) = states.funnels.get(&state) {
             return funnel.is_arm_point().then_some(Self::Funnel);
         }
@@ -138,7 +142,10 @@ impl PointType {
     }
 
     fn can_take(self) -> bool {
-        !matches!(self, Self::Funnel | Self::Crafter | Self::CrushingWheels)
+        !matches!(
+            self,
+            Self::Funnel | Self::Crafter | Self::CrushingWheels | Self::BlazeBurner
+        )
     }
 
     fn insert(
@@ -148,12 +155,24 @@ impl PointType {
         pos: Pos,
         item: &Value,
         simulate: bool,
-    ) -> i32 {
-        let transport = TransportedItemStack::new(item.clone());
-        if self == Self::Funnel {
-            return crate::funnel::insert_from_arm(world, kinetics, pos, &transport, simulate);
+    ) -> (i32, Option<Value>) {
+        if self == Self::BlazeBurner {
+            return crate::blaze_burner::insert_from_arm(
+                world,
+                &mut kinetics.blaze_burners,
+                pos,
+                item,
+                simulate,
+            )
+            .map_or((0, None), |replacement| (1, replacement));
         }
-        crate::funnel::insert(world, kinetics, pos, UP, &transport, simulate)
+        let transport = TransportedItemStack::new(item.clone());
+        let accepted = if self == Self::Funnel {
+            crate::funnel::insert_from_arm(world, kinetics, pos, &transport, simulate)
+        } else {
+            crate::funnel::insert(world, kinetics, pos, UP, &transport, simulate)
+        };
+        (accepted, None)
     }
 }
 
@@ -415,13 +434,16 @@ impl Arm {
             if let Some((point, target)) = self.valid_target(setup, i)
                 && !point.take
             {
-                remaining -= point.kind.insert(
-                    setup.world,
-                    kinetics,
-                    target,
-                    &with_count(value, remaining),
-                    true,
-                );
+                remaining -= point
+                    .kind
+                    .insert(
+                        setup.world,
+                        kinetics,
+                        target,
+                        &with_count(value, remaining),
+                        true,
+                    )
+                    .0;
                 if remaining <= 0 {
                     break;
                 }
@@ -538,7 +560,11 @@ impl Arm {
                 if let Some(item) = &self.held_item {
                     let mut last = self.last_output;
                     let next = self.choose(setup, false, &mut last, |point, target| {
-                        point.kind.insert(setup.world, kinetics, target, item, true) > 0
+                        point
+                            .kind
+                            .insert(setup.world, kinetics, target, item, true)
+                            .0
+                            > 0
                     });
                     self.last_output = last;
                     if next.is_some() {
@@ -549,16 +575,17 @@ impl Arm {
             }
             Phase::MoveToOutput => {
                 if let Some(item) = self.held_item.take() {
-                    let accepted = self
+                    let (accepted, replacement) = self
                         .target_point_index
                         .and_then(|i| self.valid_target(setup, i))
-                        .map_or(0, |(point, target)| {
+                        .map_or((0, None), |(point, target)| {
                             point
                                 .kind
                                 .insert(setup.world, kinetics, target, &item, false)
                         });
                     let remaining = count(&item) - accepted;
-                    self.held_item = (remaining > 0).then(|| with_count(&item, remaining));
+                    self.held_item = replacement
+                        .or_else(|| (remaining > 0).then(|| with_count(&item, remaining)));
                 }
                 self.phase(
                     if self.held_item.is_some() {

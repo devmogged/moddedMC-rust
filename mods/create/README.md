@@ -161,7 +161,9 @@ Hold the Mechanical Arm and right-click a depot, belt segment without a tunnel, 
 
 The [Mechanical Arm scenario](../../tests/scenarios/create-mechanical-arm.txt) configures two depots in Survival, holds a source under redstone, and restarts with four ingots in the claw. In stock Java 26.3, check that the selection status appears, the joints move together and the stack stays inside the claw while it swings. Try a ceiling mount and check that the arms and gear face down.
 
-Blaze Burner fueling, the vanilla special-purpose endpoints and movement of a configured arm on a contraption still need gameplay checks and ports.
+Use a Blaze Burner as a drop-off for fuel. The arm waits until the current burn is low and inserts one item per trip. Feeding a single lava bucket leaves the empty bucket in the claw. Click the arm to collect it. The [burner scenario](../../tests/scenarios/create-arm-blaze-burner.txt) checks the coal backlog across restart and the bucket return.
+
+The vanilla special-purpose endpoints and movement of a configured arm on a contraption still need gameplay checks and ports.
 
 ### Depot
 
