@@ -50,6 +50,7 @@ mod content_observer;
 mod contraption;
 mod crafter;
 mod crusher;
+mod decor;
 mod deployer;
 mod depot;
 mod directed_detector;
@@ -285,6 +286,7 @@ impl Mod for Create {
         chain_drive::register(*content, registry)?;
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
+        decor::register(*content, registry)?;
         for (path, name) in [
             ("sturdy_sheet", "Sturdy Sheet"),
             ("unprocessed_obsidian_sheet", "Unprocessed Obsidian Sheet"),
@@ -1212,7 +1214,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     if let Some(&default) = states.funnels.get(&args.state) {
         return funnel::placed_state(args, default, states);
     }
-    let placed = states.by_id.get(&args.state)?;
+    let Some(placed) = states.by_id.get(&args.state) else {
+        return decor::placed_state(&args, *CONTENT.get()?);
+    };
     if seat::is_seat(placed.block) {
         return seat::placed_state(args, placed.block);
     }

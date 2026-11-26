@@ -55,13 +55,14 @@ cmd kinetics 2599 102 2600 128
 cmd item replace entity tester weapon.mainhand with create:shaft
 wait 0.5
 bot use 2600 100 2600
-wait 1
+# The released second recipe upgrades the Cogwheel while it is still on the Depot.
+wait 3
 cmd data get block 2600 100 2600 HeldItem.Item.id
 wait 0.5
-expect create:cogwheel"
+expect create:large_cogwheel"
 cmd data get block 2600 102 2600 Deployer.HeldItem.count
 wait 0.5
-expect block data: 63$
+expect block data: 62$
 reject (?i)panicked|trapped|failed to register|\[bot\] error
 bot quit
 stop
@@ -72,13 +73,13 @@ wait 4
 expect \[bot\] joined as tester
 cmd data get block 2600 102 2600 Deployer.HeldItem.count
 wait 0.5
-expect block data: 63$
+expect block data: 62$
 cmd data get block 2600 100 2600 HeldItem.Item.id
 wait 0.5
-expect create:cogwheel"
+expect create:large_cogwheel"
 bot use 2600 100 2600
 wait 0.5
-cmd clear tester create:cogwheel 0
+cmd clear tester create:large_cogwheel 0
 wait 0.5
 expect Found 1 matching item
 cmd kinetics 2599 102 2600 0
@@ -88,7 +89,7 @@ cmd setblock 2600 101 2600 create:chute
 wait 9
 cmd data get block 2600 100 2600 Items[0].count
 wait 0.5
-expect block data: 64$
+expect block data: 63$
 cmd data get block 2600 102 2600 Deployer.HeldItem
 wait 0.5
 expect Found no elements matching Deployer

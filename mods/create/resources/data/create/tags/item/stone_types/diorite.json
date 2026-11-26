@@ -1,0 +1,11 @@
+{
+  "values": [
+    "create:cut_diorite",
+    "create:polished_cut_diorite",
+    "create:cut_diorite_bricks",
+    "create:small_diorite_bricks",
+    "create:layered_diorite",
+    "create:diorite_pillar",
+    "minecraft:diorite"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "values": [
+    "create:cut_calcite",
+    "create:polished_cut_calcite",
+    "create:cut_calcite_bricks",
+    "create:small_calcite_bricks",
+    "create:layered_calcite",
+    "create:calcite_pillar",
+    "minecraft:calcite"
+  ]
+}

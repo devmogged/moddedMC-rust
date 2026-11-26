@@ -462,7 +462,10 @@ pub fn process(
         be.dirty = true;
     }
     let outputs = recipe.finish();
-    Convert(outputs)
+    Convert {
+        outputs,
+        lock_belt_outputs: false,
+    }
 }
 
 pub fn use_block(

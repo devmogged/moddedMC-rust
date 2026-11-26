@@ -1,0 +1,11 @@
+{
+  "values": [
+    "create:cut_granite",
+    "create:polished_cut_granite",
+    "create:cut_granite_bricks",
+    "create:small_granite_bricks",
+    "create:layered_granite",
+    "create:granite_pillar",
+    "minecraft:granite"
+  ]
+}

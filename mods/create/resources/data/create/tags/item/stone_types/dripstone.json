@@ -1,0 +1,11 @@
+{
+  "values": [
+    "create:cut_dripstone",
+    "create:polished_cut_dripstone",
+    "create:cut_dripstone_bricks",
+    "create:small_dripstone_bricks",
+    "create:layered_dripstone",
+    "create:dripstone_pillar",
+    "minecraft:dripstone_block"
+  ]
+}

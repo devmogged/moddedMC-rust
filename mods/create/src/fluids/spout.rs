@@ -139,7 +139,10 @@ impl Spout {
             return Hold;
         }
         self.filled_this_tick = true;
-        Convert(vec![output.finish()])
+        Convert {
+            outputs: vec![output.finish()],
+            lock_belt_outputs: false,
+        }
     }
 }
 

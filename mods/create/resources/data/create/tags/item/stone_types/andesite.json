@@ -1,0 +1,11 @@
+{
+  "values": [
+    "create:cut_andesite",
+    "create:polished_cut_andesite",
+    "create:cut_andesite_bricks",
+    "create:small_andesite_bricks",
+    "create:layered_andesite",
+    "create:andesite_pillar",
+    "minecraft:andesite"
+  ]
+}

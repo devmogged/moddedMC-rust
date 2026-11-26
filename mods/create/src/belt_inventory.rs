@@ -163,12 +163,6 @@ impl TransportedItemStack {
         self.display = None;
     }
 
-    pub fn processed(&self, item: Value) -> Self {
-        let mut output = self.similar(item);
-        output.locked = true;
-        output
-    }
-
     pub fn similar(&self, item: Value) -> Self {
         let mut output = self.copy_with_item(item);
         output.angle = next_int(360);
@@ -684,10 +678,17 @@ fn belt_processing(
                 BeltProcessing::Pass
             }
             ProcessingResult::Hold => BeltProcessing::Held,
-            ProcessingResult::Convert(outputs) => {
+            ProcessingResult::Convert {
+                outputs,
+                lock_belt_outputs,
+            } => {
                 let mut converted: Vec<_> = outputs
                     .into_iter()
-                    .map(|value| item.processed(value))
+                    .map(|value| {
+                        let mut output = item.similar(value);
+                        output.locked = lock_belt_outputs;
+                        output
+                    })
                     .collect();
                 let rest = count(&item.item) - 1;
                 if rest > 0 {

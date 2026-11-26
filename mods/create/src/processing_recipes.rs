@@ -44,7 +44,10 @@ impl FillingResult<'_> {
 pub enum ProcessingResult {
     Pass,
     Hold,
-    Convert(Vec<Value>),
+    Convert {
+        outputs: Vec<Value>,
+        lock_belt_outputs: bool,
+    },
 }
 
 pub fn has_processor(kinetics: &Kinetics, pos: Pos) -> bool {

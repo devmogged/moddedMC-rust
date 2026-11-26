@@ -1,0 +1,11 @@
+{
+  "values": [
+    "create:cut_crimsite",
+    "create:polished_cut_crimsite",
+    "create:cut_crimsite_bricks",
+    "create:small_crimsite_bricks",
+    "create:layered_crimsite",
+    "create:crimsite_pillar",
+    "create:crimsite"
+  ]
+}

@@ -675,7 +675,7 @@ impl DepotBehaviour {
                 self.dirty |= !item.locked;
                 item.locked = true;
             }
-            ProcessingResult::Convert(outputs) => {
+            ProcessingResult::Convert { outputs, .. } => {
                 item.locked = true;
                 let rest = count(&item.item) - 1;
                 if rest == 0 {
