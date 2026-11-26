@@ -36,7 +36,12 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
         "enderitium_shovel", "enderitium_hoe", "enderitium_upgrade_smithing_template"
     }
     names = [part[0] for part in registrations] + equipment_names
-    block_names = ["enderitium_block", "enderitium_ore"]
+    alloy_blocks = ["enderitium_block", "enderitium_ore"]
+    dripstone_blocks = [
+        "ancient_dripstone_block", "ancient_dripstone_bricks",
+        "ancient_dripstone_tiles", "chiseled_ancient_dripstone_bricks",
+    ]
+    block_names = alloy_blocks + dripstone_blocks
     assert len(set(names)) == len(names), "duplicate Rust item IDs"
     assert all(carrier for _, _, carrier in registrations)
     with ZipFile(jar_path) as original:
@@ -50,24 +55,32 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
             assert f"assets/{NAMESPACE}/models/block/{name}.json" in archive
         # The original models and textures are intentionally never copied.
         recipes = sorted((MOD / "resources/data/legendary_monsters/recipe").glob("*.json"))
-        assert len(recipes) == 15, f"unexpected locally shipped recipes: {len(recipes)}"
+        assert len(recipes) == 23, f"unexpected locally shipped recipes: {len(recipes)}"
         for recipe in recipes:
             archive_name = "data/legendary_monsters/recipe/" + recipe.name
             assert archive_name in archive, f"unknown source recipe {archive_name}"
             expected = json.loads(original.read(archive_name))
+            # The 1.21.1 stonecutter format has a top-level count; 26.3
+            # uses the result stack's count. Preserve the exact quantity.
+            if expected["type"] == "minecraft:stonecutting":
+                expected["result"]["count"] = expected.pop("count", 1)
             actual = json.loads(recipe.read_text(encoding="utf-8"))
             assert actual == expected, f"recipe mismatch: {recipe.name}"
-            assert actual["type"] in ("minecraft:crafting_shaped", "minecraft:crafting_shapeless", "minecraft:smithing_transform")
+            assert actual["type"] in ("minecraft:crafting_shaped", "minecraft:crafting_shapeless", "minecraft:smithing_transform", "minecraft:stonecutting")
             text = json.dumps(actual)
             for found in re.findall(r'legendary_monsters:[a-z0-9_]+', text):
                 assert found.split(":", 1)[1] in names + block_names, f"recipe references unported item: {found}"
         for name in block_names:
             path = f"data/{NAMESPACE}/loot_table/blocks/{name}.json"
             assert json.loads((MOD / "resources" / path).read_text(encoding="utf-8")) == json.loads(original.read(path))
-        for name in ["mineable/pickaxe", "needs_diamond_tool"]:
+        for name, members in [
+            ("mineable/pickaxe", block_names),
+            ("needs_diamond_tool", alloy_blocks),
+            ("needs_wooden_tool", dripstone_blocks),
+        ]:
             path = f"data/minecraft/tags/block/{name}.json"
             actual = json.loads((MOD / "resources" / path).read_text(encoding="utf-8"))
-            assert actual == {"replace": False, "values": [f"{NAMESPACE}:{b}" for b in block_names]}
+            assert actual == {"replace": False, "values": [f"{NAMESPACE}:{b}" for b in members]}
             assert set(actual["values"]) <= set(json.loads(original.read(path))["values"])
         tags = sorted((MOD / "resources/data/minecraft/tags/item").glob("*.json"))
         assert len(tags) == 7, f"unexpected locally shipped tags: {len(tags)}"

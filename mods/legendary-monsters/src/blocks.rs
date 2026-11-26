@@ -1,4 +1,4 @@
-//! Full-cube Enderitium blocks, with source-derived physical properties and loot.
+//! Full-cube materials with source-derived physical properties and loot.
 use moddedmc_api::{
     RegistrationError, Registry,
     block_physics::BlockPhysics,
@@ -22,6 +22,30 @@ pub fn register(
             "Enderitium Ore",
             "minecraft:end_stone",
             2.5,
+        ),
+        (
+            "ancient_dripstone_block",
+            "Ancient Dripstone Block",
+            "minecraft:dripstone_block",
+            2.0,
+        ),
+        (
+            "ancient_dripstone_bricks",
+            "Ancient Dripstone Bricks",
+            "minecraft:dripstone_block",
+            2.0,
+        ),
+        (
+            "ancient_dripstone_tiles",
+            "Ancient Dripstone Tiles",
+            "minecraft:dripstone_block",
+            2.0,
+        ),
+        (
+            "chiseled_ancient_dripstone_bricks",
+            "Chiseled Ancient Dripstone Bricks",
+            "minecraft:dripstone_block",
+            2.0,
         ),
     ] {
         let full_id = format!("legendary_monsters:{id}");

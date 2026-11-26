@@ -1,7 +1,7 @@
 # Legendary Monsters 2.2.4: broken weapon parts salvage into vanilla materials.
 mods target\mods\legendary-monsters.mmc
 start
-expect Loaded built-in datapack 'mod/legendary-monsters': 15 recipe\(s\)
+expect Loaded built-in datapack 'mod/legendary-monsters': 23 recipe\(s\)
 botstart salvager
 wait 3
 expect \[bot\] joined as salvager
