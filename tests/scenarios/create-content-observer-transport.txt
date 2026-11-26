@@ -1,0 +1,121 @@
+# Smart Observers detect funnel transfers, items centered on a belt, and inbound pipe flows.
+mods target\mods\create.mmc
+start
+expect registered content block create:content_observer \(24 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2122.5 104 2112.5
+wait 3
+cmd fill 2116 100 2109 2127 108 2118 minecraft:air
+cmd fill 2116 99 2109 2127 99 2118 minecraft:stone
+cmd tp tester 2122.5 100 2112.5
+cmd gamemode survival tester
+cmd setblock 2119 100 2110 create:creative_motor[facing=east]
+cmd setblock 2120 100 2110 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2120 100 2114 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.0 with create:belt_connector
+wait 0.5
+bot use 2120 100 2110
+wait 0.5
+bot use 2120 100 2114
+wait 1
+cmd setblock 2119 101 2111 minecraft:barrel
+cmd setblock 2120 101 2110 minecraft:redstone_block
+cmd item replace entity tester hotbar.0 with create:andesite_funnel
+wait 0.5
+bot input sneak
+bot place 2119 101 2111 east
+bot input none
+wait 0.5
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 2120 101 2111 east
+wait 0.5
+
+# Each dropper records brief output by moving one marker into the barrel above it.
+cmd setblock 2121 101 2111 create:content_observer[facing=west,powered=false]
+cmd setblock 2121 100 2112 create:content_observer[facing=west,powered=false]
+cmd setblock 2122 101 2111 minecraft:dropper[facing=up]
+cmd setblock 2122 102 2111 minecraft:barrel
+cmd setblock 2122 100 2112 minecraft:dropper[facing=up]
+cmd setblock 2122 101 2112 minecraft:barrel
+cmd item replace block 2122 101 2111 container.0 with minecraft:stick
+cmd item replace block 2122 100 2112 container.0 with minecraft:stick
+
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot
+wait 0.5
+bot use 2121 101 2111 up main 0.5 1 0.5
+wait 0.5
+expect Filter: minecraft:iron_ingot
+bot use 2121 100 2112 up main 0.5 1 0.5
+wait 0.5
+expect Filter: minecraft:iron_ingot
+cmd item replace block 2119 101 2111 container.0 with minecraft:copper_ingot
+cmd setblock 2120 101 2110 minecraft:air
+wait 4
+cmd data get block 2119 101 2111 Items
+cmd data get block 2122 102 2111 Items
+cmd data get block 2122 101 2112 Items
+wait 0.5
+expect-all 2119, 101, 2111 has the following block data: \[\] && 2122, 102, 2111 has the following block data: \[\] && 2122, 101, 2112 has the following block data: \[\]
+cmd item replace block 2119 101 2111 container.0 with minecraft:iron_ingot
+wait 4
+cmd data get block 2122 102 2111 Items
+cmd data get block 2122 101 2112 Items
+wait 0.5
+expect-all 2122, 102, 2111 has the following block data:.*minecraft:stick && 2122, 101, 2112 has the following block data:.*minecraft:stick
+cmd execute if block 2121 101 2111 create:content_observer[powered=false]
+wait 0.5
+expect Test passed
+cmd execute if block 2121 100 2112 create:content_observer[powered=false]
+wait 0.5
+expect Test passed
+
+# A full destination leaves a completed water flow in the pipe while the pump is running.
+cmd tp tester 1029.5 105 1024.5
+wait 3
+cmd fill 1020 100 1018 1032 109 1031 minecraft:air
+cmd fill 1020 99 1018 1032 99 1031 minecraft:stone
+cmd tp tester 1029.5 103 1024.5
+cmd setblock 1025 100 1025 create:creative_motor[facing=up]
+cmd setblock 1025 101 1025 create:shaft[axis=y,waterlogged=false]
+cmd setblock 1025 102 1025 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 1026 102 1026 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 1027 100 1026 create:fluid_tank
+cmd setblock 1027 101 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 102 1026 create:mechanical_pump[facing=up,waterlogged=false]
+cmd setblock 1027 103 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 104 1026 create:fluid_tank
+cmd setblock 1028 103 1026 create:content_observer[facing=west,powered=false]
+cmd setblock 1029 103 1026 minecraft:redstone_lamp
+cmd item replace entity tester hotbar.0 with minecraft:lava_bucket
+wait 0.5
+bot use 1028 103 1026 up main 0.5 1 0.5
+wait 0.5
+expect Filter: minecraft:lava_bucket
+cmd data merge block 1027 104 1026 {Size:1,Height:1,Window:1b,TankContent:{Fluid:{id:"minecraft:water",amount:8000}}}
+cmd data merge block 1027 100 1026 {Size:1,Height:1,Window:1b,TankContent:{Fluid:{id:"minecraft:water",amount:8000}}}
+cmd kinetics 1025 100 1025 64
+wait 3
+cmd execute if block 1029 103 1026 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with minecraft:water_bucket
+wait 0.5
+bot use 1028 103 1026 up main 0.5 1 0.5
+wait 0.5
+expect Filter: minecraft:water_bucket
+cmd execute if block 1029 103 1026 minecraft:redstone_lamp[lit=true]
+wait 0.5
+expect Test passed
+cmd kinetics 1025 100 1025 0
+wait 2
+cmd execute if block 1029 103 1026 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

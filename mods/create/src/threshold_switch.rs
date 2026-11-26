@@ -15,87 +15,48 @@ use crate::{
     CONTAINERS, DIRECTIONS, STACKS, StateIds, WRENCH,
     belt_inventory::{self, TransportedItemStack},
     belt_tunnel::{read, shift},
-    filtering::{self, Filter},
-    kinetics::{FACES, Kinetics, face_axis},
+    directed_detector::{self, Mount},
+    filtering::Filter,
+    kinetics::Kinetics,
     processing_recipes::item_id,
 };
 
 pub(crate) const ID: &str = "create:stockpile_switch";
 const SAMPLE_INTERVAL: u64 = 10;
 const POWER_DELAY: u64 = 2;
-const NORTH: u8 = 2;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SwitchState {
-    facing: u8,
-    target: u8,
+    mount: Mount,
     level: u8,
     powered: bool,
 }
 
 impl SwitchState {
     fn all() -> impl Iterator<Item = Self> {
-        [NORTH, 3, 4, 5].into_iter().flat_map(|facing| {
-            [facing, 0, 1].into_iter().flat_map(move |target| {
-                (0..=5).flat_map(move |level| {
-                    [false, true].map(|powered| Self {
-                        facing,
-                        target,
-                        level,
-                        powered,
-                    })
+        Mount::all().flat_map(|mount| {
+            (0..=5).flat_map(move |level| {
+                [false, true].map(|powered| Self {
+                    mount,
+                    level,
+                    powered,
                 })
             })
         })
     }
 
-    fn mount(self) -> &'static str {
-        match self.target {
-            0 => "floor",
-            1 => "ceiling",
-            _ => "wall",
-        }
-    }
-
     fn properties(self) -> String {
         format!(
             "facing={},level={},powered={},target={}",
-            DIRECTIONS[usize::from(self.facing)],
+            DIRECTIONS[usize::from(self.mount.facing)],
             self.level,
             self.powered,
-            self.mount()
+            self.mount.name()
         )
     }
 
     fn id(self, states: &StateIds) -> Option<u32> {
         states.lookup(&format!("{ID}[{}]", self.properties()))
-    }
-
-    fn yaw(self) -> i16 {
-        (crate::belt::horizontal_angle(self.facing) + 180) % 360
-    }
-
-    fn rotated(mut self, face: u8) -> Self {
-        const CLOCKWISE_X: [u8; 6] = [3, 2, 0, 1, 4, 5];
-        const CLOCKWISE_Y: [u8; 6] = [0, 1, 5, 4, 2, 3];
-        const CLOCKWISE_Z: [u8; 6] = [4, 5, 2, 3, 1, 0];
-        if face < 2 {
-            self.facing = CLOCKWISE_Y[usize::from(self.facing)];
-            if self.target >= 2 {
-                self.target = self.facing;
-            }
-        } else {
-            let rotation = if face_axis(face) == 0 {
-                CLOCKWISE_X
-            } else {
-                CLOCKWISE_Z
-            };
-            self.target = rotation[usize::from(self.target)] ^ u8::from(face.is_multiple_of(2));
-            if self.target >= 2 {
-                self.facing = self.target;
-            }
-        }
-        self
     }
 }
 
@@ -110,7 +71,7 @@ pub(crate) fn register(
                 state.properties(),
                 format!(
                     "create:block/threshold_switch/block_{}_{}",
-                    state.mount(),
+                    state.mount.name(),
                     state.level
                 ),
             )
@@ -118,18 +79,15 @@ pub(crate) fn register(
         .collect();
     let states: Vec<_> = rows
         .iter()
-        .map(|(state, properties, model)| {
-            let (sin, cos) = (f32::from(state.yaw()).to_radians() * 0.5).sin_cos();
-            State {
-                properties,
-                physical: "minecraft:glass",
-                model: "",
-                rotating_model: model,
-                x: 0,
-                y: 0,
-                orientation: [0.0, -sin, 0.0, cos],
-                shape: &[],
-            }
+        .map(|(state, properties, model)| State {
+            properties,
+            physical: "minecraft:glass",
+            model: "",
+            rotating_model: model,
+            x: 0,
+            y: 0,
+            orientation: directed_detector::orientation(0, state.mount.yaw()),
+            shape: &[],
         })
         .collect();
     content.add_block(
@@ -155,40 +113,8 @@ pub(crate) fn add_states(content: Content, states: &mut StateIds) {
 }
 
 pub(crate) fn place(args: &Placement<'_>, states: &StateIds) -> Option<u32> {
-    let (sy, cy) = args.yaw.to_radians().sin_cos();
-    let (sp, cp) = args.pitch.to_radians().sin_cos();
-    let x = -sy * cp;
-    let y = -sp;
-    let z = cy * cp;
-    let mut nearest = [
-        (if x > 0.0 { 5 } else { 4 }, x.abs()),
-        (if z > 0.0 { 3 } else { 2 }, z.abs()),
-        (if y > 0.0 { 1 } else { 0 }, y.abs()),
-    ];
-    nearest.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let nearest = nearest.map(|(face, _)| face);
-    let candidates = nearest
-        .into_iter()
-        .chain(nearest.into_iter().rev().map(|face| face ^ 1));
-    let target = candidates
-        .into_iter()
-        .find(|&face| {
-            let pos = shift(args.position, face);
-            let id = read(args.world, pos);
-            supports_stock(states, id)
-                || CONTAINERS
-                    .get()
-                    .is_some_and(|containers| containers.at(args.world, pos, NO_FACE).is_some())
-        })
-        .unwrap_or_else(|| nearest[0] ^ u8::from(!args.sneak));
-    let facing = if target >= 2 {
-        target
-    } else {
-        crate::nearest_looking_direction(args.yaw, 0.0)
-    };
     SwitchState {
-        facing,
-        target,
+        mount: Mount::preferred(args, |id| supports_stock(states, id)),
         level: 0,
         powered: false,
     }
@@ -198,7 +124,7 @@ pub(crate) fn place(args: &Placement<'_>, states: &StateIds) -> Option<u32> {
 pub(crate) fn connects(id: u32, direction: u8) -> bool {
     crate::states()
         .and_then(|states| states.switches.get(&id))
-        .is_some_and(|state| direction < 6 && state.target != direction ^ 1)
+        .is_some_and(|state| direction < 6 && state.mount.target != direction ^ 1)
 }
 
 pub(crate) fn signal(query: &RedstoneQuery<'_>) -> u8 {
@@ -307,7 +233,7 @@ impl Stock {
     }
 }
 
-fn supports_stock(states: &StateIds, id: u32) -> bool {
+pub(crate) fn supports_stock(states: &StateIds, id: u32) -> bool {
     fluid_target(id)
         || states.chutes.contains_key(&id)
         || matches!(states.kind(id), Some(crate::kinetics::Kind::Belt(_)))
@@ -317,13 +243,13 @@ fn supports_stock(states: &StateIds, id: u32) -> bool {
             .is_some_and(|state| matches!(state.block, crate::depot::ID))
 }
 
-fn fluid_tank(
+pub(crate) fn fluid_tank(
     world: World<'_>,
     pos: Pos,
     state: u32,
 ) -> Option<crate::fluids::tank::TankInventory> {
     if crate::fluids::runtime::is_tank(state) {
-        crate::fluids::tank_runtime::load_at(world, pos)
+        crate::fluids::tank_runtime::canonical(world, pos).map(|(_, tank)| tank)
     } else if crate::fluids::runtime::is_item_drain(state) {
         crate::fluids::item_drain::load(world, pos)
     } else if crate::fluids::runtime::is_spout(state) {
@@ -420,7 +346,7 @@ pub(crate) fn tick(world: World<'_>, states: &StateIds, kinetics: &mut Kinetics,
         };
         let mut next = previous;
         if time >= switch.scan_at {
-            let target = shift(pos, previous.target);
+            let target = shift(pos, previous.mount.target);
             let target_state = read(world, target);
             if target_state != content::UNLOADED_STATE {
                 let (amount, capacity) =
@@ -468,7 +394,13 @@ pub(crate) fn tick(world: World<'_>, states: &StateIds, kinetics: &mut Kinetics,
             switch.dirty = false;
         }
         if switch.data.filter.stack.is_some() || switch.display.is_some() {
-            render_filter(world, pos, next, switch);
+            directed_detector::render_filter(
+                world,
+                pos,
+                next.mount,
+                &switch.data.filter,
+                &mut switch.display,
+            );
         }
     }
     kinetics.threshold_switches = switches;
@@ -481,51 +413,13 @@ fn update(world: World<'_>, states: &StateIds, pos: Pos, previous: SwitchState, 
         world.write(&[BlockUpdate {
             position: pos,
             state,
-            flags: if next.powered != previous.powered || next.target != previous.target {
+            flags: if next.powered != previous.powered || next.mount.target != previous.mount.target
+            {
                 content::UPDATE_ALL
             } else {
                 content::UPDATE_CLIENTS
             },
         }]);
-    }
-}
-
-fn render_filter(world: World<'_>, pos: Pos, state: SwitchState, switch: &mut Switch) {
-    let face = state.target ^ 1;
-    let [dx, dy, dz] = FACES[usize::from(face)].map(f64::from);
-    let [x, y, z] = [pos.x, pos.y, pos.z].map(|v| f64::from(v) + 0.5);
-    let yaw = if face >= 2 {
-        filtering::preview_angle(face)
-    } else {
-        state.yaw() as i32
-    };
-    let mut shown = belt_inventory::item_display(
-        [x + dx * 0.49, y + dy * 0.49, z + dz * 0.49],
-        yaw,
-        face >= 2,
-    );
-    shown.scale = 0.24;
-    filtering::render(
-        world,
-        switch.data.filter.stack.as_ref(),
-        &mut switch.display,
-        shown,
-    );
-}
-
-fn coordinates(state: SwitchState, face: u8, hit: [f32; 3]) -> (f32, f32) {
-    let [x, y, z] = hit;
-    match face {
-        2 => (0.5 - x, y - 0.5),
-        3 => (x - 0.5, y - 0.5),
-        4 => (z - 0.5, y - 0.5),
-        5 => (0.5 - z, y - 0.5),
-        _ => match state.facing {
-            3 => (0.5 - x, z - 0.5),
-            4 => (z - 0.5, x - 0.5),
-            5 => (0.5 - z, 0.5 - x),
-            _ => (x - 0.5, 0.5 - z),
-        },
     }
 }
 
@@ -541,14 +435,17 @@ pub(crate) fn use_block(
         .stack
         .read()
         .and_then(|bytes| fastnbt::from_bytes(&bytes).ok());
-    let (x, y) = coordinates(state, context.face, context.hit);
-    let front = context.face == state.target ^ 1;
+    let (x, y) = state.mount.coordinates(context.face, context.hit);
+    let front = context.face == state.mount.target ^ 1;
     let world = context.world;
-    let is_fluid = fluid_target(read(world, shift(context.position, state.target)));
+    let is_fluid = fluid_target(read(world, shift(context.position, state.mount.target)));
     let editable = context.main_hand && context.player.is_some_and(|player| player.may_build());
     if editable && item.as_ref().and_then(item_id) == Some(WRENCH) {
         if !front {
-            let next = state.rotated(context.face);
+            let next = SwitchState {
+                mount: state.mount.rotated(context.face),
+                ..state
+            };
             update(world, states, context.position, state, next);
         } else if x.abs() <= 0.14 && y.abs() <= 0.14 {
             switch.data.inverted = !switch.data.inverted;
@@ -583,7 +480,7 @@ pub(crate) fn use_block(
     } else if editable
         && x.abs() <= 0.19
         && y.abs() <= 0.19
-        && filter_face(state, context.face)
+        && state.mount.filter_face(context.face, true)
         && (item.is_some() || context.sneaking)
         && switch
             .data
@@ -617,13 +514,4 @@ pub(crate) fn use_block(
         }
     ));
     BlockUseResult::Success
-}
-
-fn filter_face(state: SwitchState, face: u8) -> bool {
-    face == state.target ^ 1
-        || if state.target >= 2 {
-            face < 2
-        } else {
-            face >= 2 && face_axis(face) != face_axis(state.facing)
-        }
 }

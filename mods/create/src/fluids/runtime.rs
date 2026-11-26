@@ -449,6 +449,22 @@ struct WorldPressure {
 
 static PRESSURES: Mutex<Option<HashMap<usize, WorldPressure>>> = Mutex::new(None);
 
+pub(crate) fn has_transport(state: u32) -> bool {
+    index().is_some_and(|ids| ids.kinds.contains_key(&state))
+}
+
+pub(crate) fn completed_inbound(
+    world: World<'_>,
+    pos: Pos,
+    matches: impl Fn(&super::pipe_connection::FluidStack) -> bool,
+) -> bool {
+    let cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
+    cache
+        .as_ref()
+        .and_then(|worlds| worlds.get(&world.id()))
+        .is_some_and(|pressure| pressure.flow.completed_inbound(pos, matches))
+}
+
 /// Read-only block topology from the currently loaded server world.
 struct LoadedTopology<'a> {
     world: World<'a>,

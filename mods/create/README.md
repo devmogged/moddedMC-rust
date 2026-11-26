@@ -173,6 +173,12 @@ Use a Wrench on the outward face. The upper corners adjust the on cutoff and the
 
 In stock Java 26.3, check that the indicator follows the stock level, the sample is visible on the outward face, and the action bar reports the two cutoffs. The [Threshold Switch scenario](../../tests/scenarios/create-threshold-switch.txt) verifies survival crafting, both lamp transitions, the latched state across restart, inversion and water filtering.
 
+### Smart Observer
+
+Craft it with an Electron Tube above a Brass Casing above a vanilla Observer. Place it beside an inventory, Depot, belt, funnel, pipe or tank. It points toward the target and sends redstone out the other sides when it detects matching contents or a transfer. Right-click the center of the outward filter plate with a sample to filter the signal. A filled bucket selects its fluid. Sneak-use with an empty hand to clear the sample, or use a Wrench to turn the observer. A block sample can also detect the block itself.
+
+In stock Java 26.3, aim it at a barrel and connect a lamp to the outward side. Set an iron ingot as the sample and check that it appears on the filter plate. Add copper, then iron. Watch the lamp and observer shell change together when iron is added and return to their unpowered appearance when it is removed. Try a filter on a passing belt stack to see a brief pulse. The [stock and restart scenario](../../tests/scenarios/create-content-observer.txt) and [transport scenario](../../tests/scenarios/create-content-observer-transport.txt) check those signals, funnel transfers and fluid filtering.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

@@ -70,6 +70,20 @@ pub struct FlowRuntime {
 }
 
 impl FlowRuntime {
+    pub(super) fn completed_inbound(
+        &self,
+        pos: Pos,
+        matches: impl Fn(&FluidStack) -> bool,
+    ) -> bool {
+        self.pipes.get(&pos).is_some_and(|pipe| {
+            pipe.connections
+                .iter()
+                .flatten()
+                .filter_map(|connection| connection.flow.as_ref())
+                .any(|flow| flow.inbound && flow.complete && matches(&flow.fluid))
+        })
+    }
+
     pub fn update_pressure(&mut self, faces: impl Iterator<Item = (Pos, u8, [f32; 2])>) {
         let mut by_pipe = HashMap::new();
         for (pos, face, pressure) in faces {

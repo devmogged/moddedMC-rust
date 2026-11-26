@@ -1,0 +1,102 @@
+# The Smart Observer filters a target inventory and restores the filter and output after restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:content_observer \(24 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2052.5 105 2011.5
+wait 3
+cmd fill 2045 100 2005 2056 109 2020 minecraft:air
+cmd fill 2045 99 2005 2056 99 2020 minecraft:stone
+cmd tp tester 2052.5 100 2011.5
+cmd gamemode survival tester
+cmd setblock 2053 100 2011 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:electron_tube
+cmd item replace entity tester hotbar.1 with create:brass_casing
+cmd item replace entity tester hotbar.2 with minecraft:observer
+wait 0.5
+bot use 2053 100 2011 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.25
+bot inventory-click 39 left
+wait 0.25
+bot inventory-click 7 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:content_observer 0
+wait 0.5
+expect Found 1 matching item
+
+cmd setblock 2051 100 2012 minecraft:barrel
+cmd setblock 2049 100 2012 minecraft:redstone_lamp
+bot use 2050 99 2012 up
+wait 1
+cmd execute if block 2050 100 2012 create:content_observer[facing=east,powered=false,target=wall]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot
+wait 0.5
+bot use 2050 100 2012 west main 0 0.5 0.5
+wait 0.5
+expect Filter: minecraft:iron_ingot
+cmd item replace block 2051 100 2012 container.0 with minecraft:copper_ingot
+wait 0.5
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+cmd item replace block 2051 100 2012 container.1 with minecraft:iron_ingot
+wait 0.5
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=true]
+cmd data get block 2051 100 2012 Items[1]
+wait 0.5
+expect-all Test passed && minecraft:iron_ingot
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=true]
+cmd data get block 2050 100 2012 Filter.id
+wait 0.5
+expect-all Test passed && block data: "minecraft:iron_ingot"
+cmd item replace block 2051 100 2012 container.1 with minecraft:air
+wait 1
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+
+# A block sample also detects the ordinary block itself.
+cmd item replace entity tester hotbar.0 with minecraft:stone
+wait 0.5
+bot use 2050 100 2012 west main 0 0.5 0.5
+wait 0.5
+expect Filter: minecraft:stone
+cmd setblock 2051 100 2012 minecraft:stone
+wait 0.5
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=true]
+wait 0.5
+expect Test passed
+cmd setblock 2051 100 2012 minecraft:cobblestone
+wait 1
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

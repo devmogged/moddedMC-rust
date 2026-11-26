@@ -813,6 +813,28 @@ pub(crate) fn stack_at_segment(kinetics: &Kinetics, pos: Pos) -> Option<&Transpo
         .find(|stack| !stack.is_empty() && stack.pos > start && stack.pos <= start + 1.0)
 }
 
+pub(crate) fn centered_match(
+    kinetics: &Kinetics,
+    pos: Pos,
+    filter: &crate::filtering::Filter,
+) -> bool {
+    let Some(segment) = kinetics.get(pos) else {
+        return false;
+    };
+    let center = segment.belt_index as f32 + 0.5;
+    segment
+        .controller
+        .and_then(|controller| kinetics.get(controller))
+        .and_then(|be| be.inventory.as_ref())
+        .is_some_and(|inventory| {
+            inventory.items.iter().any(|stack| {
+                !stack.is_empty()
+                    && (stack.pos - center).abs() <= 0.45
+                    && filter.matches(&stack.item)
+            })
+        })
+}
+
 pub(crate) fn lock_segment(kinetics: &mut Kinetics, pos: Pos) {
     let Some(segment) = kinetics.get(pos) else {
         return;

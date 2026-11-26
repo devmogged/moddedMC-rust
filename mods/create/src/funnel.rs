@@ -727,6 +727,7 @@ fn activate_extractor(
     let Some(item) = extract(world, kinetics, pos, funnel, false) else {
         return false;
     };
+    crate::content_observer::funnel_transfer(world, kinetics, pos, &item);
     flap(world, pos, state);
     let (position, motion) = output_location(pos, state);
     if let (Some(&stacks), Ok(bytes)) = (STACKS.get(), fastnbt::to_bytes(&item)) {
@@ -783,6 +784,7 @@ fn activate_extracting_belt_funnel(
     if accepted == 0 {
         return false;
     }
+    crate::content_observer::funnel_transfer(world, kinetics, pos, &item.item);
     flap(world, pos, state);
     true
 }
@@ -914,6 +916,7 @@ fn try_insert(
         insert(world, kinetics, target, state.facing, item, simulate)
     };
     if amount > 0 && !simulate {
+        crate::content_observer::funnel_transfer(world, kinetics, pos, &item.item);
         flap(world, pos, state);
     }
     amount

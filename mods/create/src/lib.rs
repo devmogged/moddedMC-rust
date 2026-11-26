@@ -46,11 +46,13 @@ mod chain_drive;
 mod chassis;
 mod chute;
 mod collider;
+mod content_observer;
 mod contraption;
 mod crafter;
 mod crusher;
 mod deployer;
 mod depot;
+mod directed_detector;
 mod display_model;
 mod drill;
 mod elevator;
@@ -304,6 +306,7 @@ impl Mod for Create {
         belt_tunnel::register(*content, registry)?;
         arm::register(*content, registry)?;
         threshold_switch::register(*content, registry)?;
+        content_observer::register(*content, registry)?;
         ITEM_INPUT
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -938,6 +941,7 @@ struct StateIds {
     tunnels: HashMap<u32, belt_tunnel::Tunnel>,
     contacts: HashMap<u32, elevator::Contact>,
     switches: HashMap<u32, threshold_switch::SwitchState>,
+    observers: HashMap<u32, content_observer::ObserverState>,
     crusher_controllers: HashMap<u32, (u8, bool)>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
@@ -1096,6 +1100,7 @@ fn states() -> Option<&'static StateIds> {
         belt_tunnel::add_states(content, &mut ids);
         arm::add_states(content, &mut ids);
         threshold_switch::add_states(content, &mut ids);
+        content_observer::add_states(content, &mut ids);
         ids.add(content, fluids::item_drain::ID, "", None);
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
@@ -1187,6 +1192,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return Some(track);
     }
     let states = states()?;
+    if states.observers.contains_key(&args.state) {
+        return content_observer::place(&args, states);
+    }
     if states.switches.contains_key(&args.state) {
         return threshold_switch::place(&args, states);
     }
@@ -1830,6 +1838,11 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         let mut level = WorldLevel { world, states };
         let mut gantry_changed = false;
         for event in events {
+            if states.observers.contains_key(&event.state)
+                || states.observers.contains_key(&event.previous)
+            {
+                content_observer::event(world, states, &mut kinetics.content_observers, event);
+            }
             if states.switches.contains_key(&event.state)
                 || states.switches.contains_key(&event.previous)
             {
@@ -2043,6 +2056,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         fluids::item_drain::tick(world, kinetics);
         chute::tick(world, states, kinetics);
         funnel::tick(world, kinetics);
+        content_observer::tick(world, states, kinetics);
         funnel::pull_from_depots(world, kinetics);
         depot::tick(world, kinetics);
         fan::tick(world, kinetics);
@@ -2052,7 +2066,9 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
 }
 
 fn redstone_signal(query: &interaction::RedstoneQuery<'_>) -> u8 {
-    if states().is_some_and(|states| states.switches.contains_key(&query.state)) {
+    if let Some(state) = states().and_then(|states| states.observers.get(&query.state)) {
+        content_observer::signal(*state, query)
+    } else if states().is_some_and(|states| states.switches.contains_key(&query.state)) {
         threshold_switch::signal(query)
     } else {
         elevator::signal(query)
@@ -2060,7 +2076,11 @@ fn redstone_signal(query: &interaction::RedstoneQuery<'_>) -> u8 {
 }
 
 fn redstone_connects(state: u32, direction: u8) -> bool {
-    threshold_switch::connects(state, direction) || elevator::connects(state, direction)
+    if let Some(observer) = states().and_then(|states| states.observers.get(&state)) {
+        content_observer::connects(*observer, direction)
+    } else {
+        threshold_switch::connects(state, direction) || elevator::connects(state, direction)
+    }
 }
 
 fn player_placed(world: World<'_>, player: Entity<'_>, pos: Pos, state: u32) {
@@ -2217,6 +2237,17 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if let Some(states) = states() {
         if let Some(result) = arm::select_custom(context, states) {
             return result;
+        }
+        if let Some(&state) = states.observers.get(&context.state) {
+            return with_world(context.world, |kinetics| {
+                let observer = kinetics
+                    .content_observers
+                    .entry(context.position)
+                    .or_insert_with(|| {
+                        content_observer::Observer::load(context.world, context.position)
+                    });
+                content_observer::use_block(context, states, state, observer)
+            });
         }
         if states.switches.contains_key(&context.state) {
             return with_world(context.world, |kinetics| {
