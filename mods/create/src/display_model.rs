@@ -3,7 +3,7 @@ use moddedmc_api::{content::World, stacks::ItemDisplay};
 
 use crate::DISPLAYS;
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct ModelDisplay {
     entity: Option<i32>,
     model: String,

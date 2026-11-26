@@ -328,6 +328,8 @@ In stock Java 26.3, mount the saw horizontally against a shaft, then start, reve
 
 An upward Saw takes one item at a time and carries it through the blade. Place a Depot beside its output or let the result eject onto the ground. Right-click the filter plate with a result sample to select a recipe. A stack with no matching recipe passes through. Filter for a Stone Slab and feed the saw one Stone to get two slabs through the vanilla stonecutting recipe. The [cutting scenario](../../tests/scenarios/create-saw-processing.txt) checks a paused Andesite Alloy job across restart, six Shafts delivered into a Depot, and an unchanged item waiting for the Depot to clear.
 
+Attach a horizontal Saw and a chest to a piston platform. Face the blade toward the path and extend the piston into a tree. The platform pauses for the cut and then continues with the logs in the chest. In stock Java 26.3, check that the blade travels with the casing while the platform moves. The [mounted scenario](../../tests/scenarios/create-saw-mounted.txt) restarts during that cut, checks three logs in the attached chest, and verifies that an upward Saw keeps its filter when the platform settles.
+
 ### Mechanical Harvester
 
 Attach a Mechanical Harvester to the front of a moving frame and run it down a crop row.

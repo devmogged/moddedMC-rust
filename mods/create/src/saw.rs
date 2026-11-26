@@ -164,6 +164,11 @@ pub(crate) fn show_blade(
     speed: f32,
     display: &mut ModelDisplay,
 ) {
+    let (model, shown) = blade(pos, block, speed);
+    display.show(world, model, &shown);
+}
+
+pub(crate) fn blade(pos: Pos, block: SawBlock, speed: f32) -> (&'static str, ItemDisplay) {
     let model = match (block.horizontal(), speed.total_cmp(&0.0)) {
         (true, std::cmp::Ordering::Greater) => "create:moddedmc/parts/saw/horizontal_active",
         (true, std::cmp::Ordering::Less) if speed != 0.0 => {
@@ -184,22 +189,25 @@ pub(crate) fn show_blade(
         (pitch, yaw)
     };
     let [x_pos, y_pos, z_pos] = [pos.x, pos.y, pos.z].map(|c| f64::from(c) + 0.5);
-    display.show(
-        world,
+    (
         model,
-        &ItemDisplay {
+        ItemDisplay {
             position: [x_pos, y_pos, z_pos],
             rotation: orientation(x, y),
             scale: 1.0,
             context: 0,
             interpolation: 0,
         },
-    );
+    )
 }
 
 fn in_tag(id: &str, tag: &str) -> bool {
     TAGS.get()
         .is_some_and(|tags| tags.contains("block", tag, id))
+}
+
+pub(crate) fn is_leaf(id: &str) -> bool {
+    in_tag(id, "minecraft:leaves")
 }
 
 fn is_root(id: &str) -> bool {
@@ -231,7 +239,7 @@ pub(crate) fn is_sawable(id: &str) -> bool {
     !in_tag(id, "minecraft:saplings")
         && (is_log(id)
             || is_root(id)
-            || in_tag(id, "minecraft:leaves")
+            || is_leaf(id)
             || is_vertical_plant(id)
             || matches!(
                 id,
@@ -401,15 +409,21 @@ fn tree_at(world: World<'_>, cut: Pos, broken: &str) -> Tree {
     tree
 }
 
-pub(crate) fn cut_tree(world: World<'_>, cut: Pos, facing: u8, broken: &str) {
+pub(crate) fn tree_positions(
+    world: World<'_>,
+    cut: Pos,
+    broken: &str,
+) -> impl Iterator<Item = Pos> {
     let tree = tree_at(world, cut, broken);
-    let forward = crate::kinetics::FACES[usize::from(facing)].map(f64::from);
-    for pos in tree
-        .attachments
+    tree.attachments
         .into_iter()
         .chain(tree.logs)
         .chain(tree.leaves)
-    {
+}
+
+pub(crate) fn cut_tree(world: World<'_>, cut: Pos, facing: u8, broken: &str) {
+    let forward = crate::kinetics::FACES[usize::from(facing)].map(f64::from);
+    for pos in tree_positions(world, cut, broken) {
         let dx = f64::from(pos.x - cut.x);
         let dy = f64::from(pos.y - cut.y);
         let dz = f64::from(pos.z - cut.z);

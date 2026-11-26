@@ -18,11 +18,12 @@ use crate::{
     belt_movement::can_transport_objects,
     chassis,
     collider::{Collider, Frame},
-    drill::{self, DrillMovementBehaviour},
+    display_model::ModelDisplay,
+    drill::{self, BlockBreakingMovementBehaviour},
     glue::{self, GlueBox, GlueScan},
     harvester,
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
-    seat, states, sticker,
+    saw, seat, states, sticker,
     trains::{bogey, controls},
 };
 
@@ -172,6 +173,7 @@ impl BlockMovementChecks {
                 BELT | sticker::ID
                     | crate::elevator::CONTACT
                     | drill::ID
+                    | saw::ID
                     | harvester::ID
                     | controls::ID
             )
@@ -289,7 +291,7 @@ pub struct Blocks {
     #[serde(skip)]
     glue_to_remove: Vec<i32>,
     #[serde(default, rename = "Actors", skip_serializing_if = "Vec::is_empty")]
-    drills: Vec<DrillMovementBehaviour>,
+    breakers: Vec<BlockBreakingMovementBehaviour>,
 }
 
 impl Blocks {
@@ -309,17 +311,21 @@ impl Blocks {
         }
     }
 
-    pub fn tick_drills(&mut self, world: World<'_>, before: Frame, after: Frame) -> bool {
-        let mut drills = std::mem::take(&mut self.drills);
+    pub fn tick_breakers(&mut self, world: World<'_>, before: Frame, after: Frame) -> bool {
+        let mut breakers = std::mem::take(&mut self.breakers);
         let mut stalled = false;
-        for actor in &mut drills {
+        for actor in &mut breakers {
             match actor.tick(world, before, after) {
                 drill::Tick::Stalled => stalled = true,
-                drill::Tick::Broke(pos, drops) => self.collect_or_drop_items(world, pos, drops),
+                drill::Tick::Broke(blocks) => {
+                    for (pos, drops) in blocks {
+                        self.collect_or_drop_items(world, pos, drops);
+                    }
+                }
                 drill::Tick::Travel => {}
             }
         }
-        self.drills = drills;
+        self.breakers = breakers;
         stalled
     }
 
@@ -508,7 +514,13 @@ impl Blocks {
                         .collision_shape(pos)
                         .is_none_or(|shape| !shape.is_empty())
                     && match self.palette[block.palette_index()].name.as_str() {
-                        drill::ID => drill::breakable(world, pos).is_none(),
+                        drill::ID => !drill::can_break_moving(world, pos, false),
+                        saw::ID => {
+                            let block = states()
+                                .and_then(|states| states.kind(self.palette[block.palette_index()].state()?));
+                            !matches!(block, Some(Kind::Saw(saw)) if saw.horizontal() && saw.facing ^ 1 != direction)
+                                || !drill::can_break_moving(world, pos, true)
+                        }
                         harvester::ID => !harvester::can_harvest(world, pos),
                         _ => true,
                     }
@@ -532,12 +544,17 @@ impl Blocks {
             if shapes.as_slice() != [Collider::BLOCK] {
                 block.shapes = Some(shapes);
             }
-            if entry.name == drill::ID {
-                let Some(Kind::Drill(facing)) = states()?.kind(entry.state()?) else {
-                    return None;
+            if matches!(entry.name.as_str(), drill::ID | saw::ID) {
+                let (facing, saw) = match states()?.kind(entry.state()?)? {
+                    Kind::Drill(facing) => (facing, false),
+                    Kind::Saw(block) => (block.facing, true),
+                    _ => return None,
                 };
-                self.drills
-                    .push(DrillMovementBehaviour::new(block.local_pos(), facing));
+                self.breakers.push(BlockBreakingMovementBehaviour::new(
+                    block.local_pos(),
+                    facing,
+                    saw,
+                ));
             }
             if entry.name == BELT {
                 let be = kinetics.get(position)?;
@@ -560,6 +577,7 @@ impl Blocks {
                 }
                 block.nbt = Some(fastnbt::from_bytes(&fastnbt::to_bytes(&data).ok()?).ok()?);
             } else if entry.has_storage()
+                || entry.name == saw::ID
                 || chassis::is_chassis(&entry.name)
                 || bogey::is_bogey(&entry.name)
             {
@@ -731,7 +749,11 @@ impl Blocks {
                     BlockUpdate {
                         position,
                         state: state.state()?,
-                        flags: content::UPDATE_ALL,
+                        flags: if entry.name == saw::ID {
+                            content::UPDATE_ALL | content::UPDATE_MOVED
+                        } else {
+                            content::UPDATE_ALL
+                        },
                     },
                     (
                         belt,
@@ -809,6 +831,12 @@ impl Blocks {
                 if let Ok(bytes) = fastnbt::to_bytes(&item) {
                     stacks.spawn(world, position, [0.0, 0.1, 0.0], &bytes);
                 }
+                if entry.name == saw::ID
+                    && let Some(data) = block.nbt.as_ref().and_then(|nbt| nbt.get("SawProcessing"))
+                    && let Ok(data) = fastnbt::from_value(data)
+                {
+                    crate::saw_processing::Processing::load(data).drop_contents(world, pos);
+                }
                 if entry.name == BELT
                     && let Some(inventory) = block.belt_inventory()
                 {
@@ -848,6 +876,7 @@ pub fn detach_moved_belts(world: World<'_>, remove: &[BlockUpdate], kinetics: &m
 pub struct ContraptionDisplays {
     blocks: Vec<i32>,
     belts: Option<Vec<(Chain, BeltInventory)>>,
+    saw_blades: Option<Vec<(usize, saw::SawBlock, ModelDisplay)>>,
 }
 
 impl ContraptionDisplays {
@@ -855,6 +884,11 @@ impl ContraptionDisplays {
         if let Some(displays) = BLOCK_DISPLAYS.get() {
             for id in self.blocks.drain(..).filter(|&id| id != 0) {
                 displays.remove(world, id);
+            }
+        }
+        if let Some(blades) = self.saw_blades.take() {
+            for (_, _, mut display) in blades {
+                display.clear(world);
             }
         }
         if let Some(belts) = self.belts.take() {
@@ -920,6 +954,35 @@ impl ContraptionDisplays {
         let (Some(&stacks), Some(&displays)) = (STACKS.get(), DISPLAYS.get()) else {
             return;
         };
+        let saw_blades = self.saw_blades.get_or_insert_with(|| {
+            blocks
+                .breakers
+                .iter()
+                .enumerate()
+                .filter_map(|(index, actor)| {
+                    if !actor.saw {
+                        return None;
+                    }
+                    let state = blocks
+                        .block_list
+                        .iter()
+                        .find(|block| block.local_pos() == actor.local)
+                        .and_then(|block| blocks.palette[block.palette_index()].state())?;
+                    let Kind::Saw(block) = states()?.kind(state)? else {
+                        return None;
+                    };
+                    Some((index, block, ModelDisplay::default()))
+                })
+                .collect()
+        });
+        for (index, block, display) in saw_blades {
+            let actor = &blocks.breakers[*index];
+            let [x, y, z] = actor.local;
+            let rpm = if actor.moving { 1.0 } else { 0.0 };
+            let (model, mut shown) = saw::blade(Pos { x, y, z }, *block, rpm);
+            shown.interpolation = 1;
+            display.show(world, model, &transform.item_display(shown, translation));
+        }
         let belts = self.belts.get_or_insert_with(|| {
             blocks
                 .block_list
@@ -988,7 +1051,7 @@ impl PaletteEntry {
     pub(crate) fn is_not_supportive(&self, face: u8) -> bool {
         sticker::blocks_attachment(self, face)
             || crate::sail::plane(self) == Some(face_axis(face))
-            || matches!(self.name.as_str(), drill::ID | harvester::ID)
+            || matches!(self.name.as_str(), drill::ID | saw::ID | harvester::ID)
                 && self
                     .properties
                     .get("facing")

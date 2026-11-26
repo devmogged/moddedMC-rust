@@ -367,7 +367,7 @@ impl MechanicalBearing {
             if let Some(hand) = hand
                 && let Some(anchor) = hand.anchor()
             {
-                let stalled = hand.blocks.tick_drills(
+                let stalled = hand.blocks.tick_breakers(
                     world,
                     collider::Frame::rotating(anchor, axis, before),
                     collider::Frame::rotating(anchor, axis, *angle),
@@ -453,7 +453,7 @@ impl MechanicalBearing {
             if let Some(contraption) = &mut self.data.contraption
                 && let Some(anchor) = contraption.anchor()
             {
-                if contraption.blocks.tick_drills(
+                if contraption.blocks.tick_breakers(
                     world,
                     collider::Frame::rotating(anchor, axis, before),
                     collider::Frame::rotating(anchor, axis, angle),

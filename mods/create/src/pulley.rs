@@ -484,7 +484,7 @@ impl RopePulley {
             speed
         };
         let next = (before + delta).clamp(0.0, self.data.extension_range as f32);
-        let stalled = self.data.blocks.tick_drills(
+        let stalled = self.data.blocks.tick_breakers(
             world,
             collider::Frame::translated(below(pos, 1), [0.0, -f64::from(before), 0.0]),
             collider::Frame::translated(below(pos, 1), [0.0, -f64::from(next), 0.0]),
@@ -583,7 +583,7 @@ impl RopePulley {
         let before = self.data.offset;
         let extent = self.data.extension_range as f32;
         let next = next.clamp(0.0, extent);
-        let stalled = self.data.blocks.tick_drills(
+        let stalled = self.data.blocks.tick_breakers(
             world,
             collider::Frame::translated(below(pos, 1), [0.0, -f64::from(before), 0.0]),
             collider::Frame::translated(below(pos, 1), [0.0, -f64::from(next), 0.0]),
