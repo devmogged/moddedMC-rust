@@ -12,10 +12,10 @@ use moddedmc_api::abi::{self, BlockUpdate, ContentEvent, Pos, Reg, Sink, Str, Wo
 use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
-        BlockBehaviour, BlockHitResult, EmitsRedstonePowerArgs, GetComparatorOutputArgs,
-        GetRedstonePowerArgs, ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs,
-        OnNeighborUpdateArgs, OnPlaceArgs, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
-        UseWithItemArgs,
+        BlockBehaviour, BlockHitResult, CanUpdateAtArgs, EmitsRedstonePowerArgs,
+        GetComparatorOutputArgs, GetRedstonePowerArgs, GetStateForNeighborUpdateArgs,
+        ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
+        PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs, UseWithItemArgs,
         blocks::redstone::{block_receives_redstone_power, get_redstone_power},
         entities::{
             BlockEntity,
@@ -36,6 +36,7 @@ use pumpkin_core::{
 };
 use pumpkin_data::{
     Block, BlockDirection, BlockState, BlockStateId, Property,
+    block_properties::SlabProperties,
     content::{self, BlockDefinition, ItemDefinition, StateDefinition},
     data_component::DataComponent,
     data_component_impl::{
@@ -174,16 +175,17 @@ struct ArrowRegistration {
     after_hurt: abi::ArrowHurtFn,
 }
 
-struct RegisteredState {
-    properties: BTreeMap<String, String>,
+pub struct RegisteredState {
+    pub properties: BTreeMap<String, String>,
     comparator_output: Option<u8>,
-    physical: &'static BlockState,
+    pub physical: &'static BlockState,
     shape: Vec<pumpkin_util::math::boundingbox::BoundingBox>,
     visual: content_pack::StateAssets,
 }
 
 struct RuntimeBlock {
     owner: usize,
+    slab: Option<&'static Block>,
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
     item_input: Option<abi::ItemInputFn>,
@@ -946,7 +948,7 @@ fn reserve_variants(
 
 /// Engine definitions for the staged blocks. States with the same model and rotation share a
 /// carrier, since the carrier only decides what a stock client draws.
-fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
+fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
     // Keep each note and instrument and each hive's facing and visible honey.
     let notes = reserve_variants(&Block::NOTE_BLOCK, "powered", &["true"], "false");
     let target = Block::TARGET.default_state.id;
@@ -973,12 +975,15 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
                 },
             )
         });
+    let mut slab_carriers = crate::content_slab::CARRIERS.into_iter();
     let mut assigned = HashMap::new();
     let mut definitions = Vec::with_capacity(blocks.len());
     for (_, block) in blocks {
+        let slab = crate::content_slab::template(&block.states);
+        let slab_carrier = slab.and_then(|_| slab_carriers.next());
         let mut states = Vec::with_capacity(block.states.len());
-        for state in &block.states {
-            let visual = &state.visual;
+        for state in &mut block.states {
+            let visual = &mut state.visual;
             // A display-only state draws the empty model, a state with neither draws a note block.
             let look = (
                 visual.model.clone(),
@@ -986,7 +991,22 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
                 visual.x.rem_euclid(360),
                 visual.y.rem_euclid(360),
             );
-            let (carrier, replacement) =
+            let (carrier, replacement) = if slab.is_some() {
+                let props = SlabProperties::from_state_id(state.physical.id);
+                let shared_cube = (props.r#type
+                    == pumpkin_data::block_properties::SlabType::Double
+                    && !props.waterlogged)
+                    .then(|| assigned.get(&look).copied())
+                    .flatten();
+                shared_cube.unwrap_or_else(|| {
+                    let (carrier, replacement) =
+                        slab_carrier.unwrap_or(crate::content_slab::DISPLAY_CARRIER);
+                    if slab_carrier.is_none() {
+                        visual.rotating_model = std::mem::take(&mut visual.model);
+                    }
+                    (props.to_state_id(carrier), props.to_state_id(replacement))
+                })
+            } else {
                 match assigned.entry(look) {
                     Entry::Occupied(entry) => *entry.get(),
                     Entry::Vacant(entry) => {
@@ -1004,7 +1024,8 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
                             io::Error::other("custom block carrier slots exhausted")
                         })?)
                     }
-                };
+                }
+            };
             states.push(StateDefinition {
                 properties: state.properties.clone(),
                 physical: state.physical,
@@ -1027,7 +1048,7 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
 
 fn open_registry(
     path: &Path,
-    blocks: &[(usize, Registration)],
+    blocks: &mut [(usize, Registration)],
     items: &[ItemDefinition],
 ) -> io::Result<content::Registry> {
     let definitions = block_definitions(blocks)?;
@@ -1091,7 +1112,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         .filter_map(|(_, item)| item.arrow.take().map(|arrow| (item.id.clone(), arrow)))
         .collect();
     let (item_definitions, item_assets) = split_items(items);
-    let registry = open_registry(path, &blocks, &item_definitions)?;
+    let registry = open_registry(path, &mut blocks, &item_definitions)?;
     for item in &item_assets {
         tracing::info!("moddedmc: registered content item {}", item.id);
     }
@@ -1121,6 +1142,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
             entry.id.as_u16(),
             RuntimeBlock {
                 owner,
+                slab: crate::content_slab::template(&block.states),
                 placement: block.placement,
                 random_tick: block.random_tick,
                 item_input: block.item_input,
@@ -1228,14 +1250,40 @@ impl BlockBehaviour for Behaviour {
         accepted.min(u32::from(args.stack.item_count)) as u8
     }
 
-    fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
-        let default = args.block.default_state.id;
-        let Some(callback) = RUNTIME
+    fn can_update_at(&self, args: CanUpdateAtArgs<'_>) -> bool {
+        RUNTIME
             .get()
             .and_then(|r| r.blocks.get(&args.block.id.as_u16()))
-            .and_then(|block| block.placement)
+            .and_then(|block| block.slab)
+            .is_some_and(|slab| crate::content_slab::can_update_at(&args, slab))
+    }
+
+    fn get_state_for_neighbor_update(
+        &self,
+        args: GetStateForNeighborUpdateArgs<'_>,
+    ) -> BlockStateId {
+        let Some(slab) = RUNTIME
+            .get()
+            .and_then(|r| r.blocks.get(&args.block.id.as_u16()))
+            .and_then(|block| block.slab)
+        else {
+            return args.state_id;
+        };
+        crate::content_slab::neighbor_update(&args, slab)
+    }
+
+    fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
+        let default = args.block.default_state.id;
+        let Some(block) = RUNTIME
+            .get()
+            .and_then(|r| r.blocks.get(&args.block.id.as_u16()))
         else {
             return default;
+        };
+        let Some(callback) = block.placement else {
+            return block
+                .slab
+                .map_or(default, |slab| crate::content_slab::on_place(args, slab));
         };
         let entity = args.player.get_entity();
         let placement = abi::Placement {

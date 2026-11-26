@@ -1,0 +1,103 @@
+# Survival slab placement, merging, waterlogging, drops, wire carriers, and restart.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:cut_andesite_slab \(6 states\) && registered content block create:small_veridium_brick_slab \(6 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1029.5 105 1028.5
+wait 3
+cmd fill 1024 105 1024 1034 108 1032 minecraft:air
+cmd fill 1024 104 1024 1034 104 1032 minecraft:stone
+cmd setblock 1030 106 1026 minecraft:stone
+cmd gamemode survival tester
+cmd recipe give tester create:cut_andesite_slab
+wait 0.4
+expect Unlocked 1 recipe
+cmd recipe give tester create:cut_andesite_slab_from_stone_types_andesite_stonecutting
+wait 0.4
+expect Unlocked 1 recipe
+cmd recipe give tester create:cut_andesite_slab_recycling
+wait 0.4
+expect Unlocked 1 recipe
+
+cmd item replace entity tester weapon.mainhand with create:cut_andesite_slab 3
+wait 0.35
+bot place 1027 104 1026 up
+wait 0.5
+cmd execute if block 1027 105 1026 create:cut_andesite_slab[type=bottom,waterlogged=false] if block 1027 105 1026 #minecraft:slabs
+wait 0.4
+expect Test passed
+bot expect block 1027 105 1026 minecraft:waxed_exposed_cut_copper_slab[type=bottom,waterlogged=false]
+wait 0.4
+expect \[bot\] expect block ok 1027 105 1026
+
+cmd tp tester 1027.5 106.1 1026.5
+cmd item replace entity tester weapon.mainhand with minecraft:water_bucket
+wait 0.5
+bot look 0 90
+wait 0.2
+bot use-item main
+wait 0.55
+cmd execute if block 1027 105 1026 create:cut_andesite_slab[type=bottom,waterlogged=true]
+wait 0.4
+expect Test passed
+bot expect block 1027 105 1026 minecraft:waxed_exposed_cut_copper_slab[type=bottom,waterlogged=true]
+wait 0.4
+expect \[bot\] expect block ok 1027 105 1026
+
+cmd tp tester 1029.5 105 1028.5
+cmd item replace entity tester weapon.mainhand with create:cut_andesite_slab 2
+wait 0.5
+bot place 1027 105 1026 up
+wait 0.5
+cmd execute if block 1027 105 1026 create:cut_andesite_slab[type=double,waterlogged=false]
+cmd clear tester create:cut_andesite_slab 0
+wait 0.4
+expect-all Test passed && Found 1 matching item
+cmd loot spawn 1030 107 1026 mine 1027 105 1026 minecraft:iron_pickaxe
+wait 0.4
+expect Dropped 2 .*Cut Andesite Slab
+
+cmd item replace entity tester weapon.mainhand with create:cut_calcite_slab
+wait 0.35
+bot place 1030 106 1026 west main 0.0 0.75 0.5
+wait 0.5
+cmd execute if block 1029 106 1026 create:cut_calcite_slab[type=top,waterlogged=false]
+wait 0.4
+expect Test passed
+bot expect block 1029 106 1026 minecraft:petrified_oak_slab[type=top,waterlogged=false]
+bot expect entity minecraft:item_display near 1029.5 106.5 1026.5 within 0.05 count 1
+wait 0.4
+expect-all \[bot\] expect block ok 1029 106 1026 && \[bot\] expect entity ok minecraft:item_display
+cmd setblock 1031 105 1026 minecraft:waxed_exposed_cut_copper_slab[type=bottom,waterlogged=false]
+wait 0.5
+bot expect block 1031 105 1026 minecraft:exposed_cut_copper_slab[type=bottom,waterlogged=false]
+wait 0.4
+expect \[bot\] expect block ok 1031 105 1026
+
+cmd setblock 1030 105 1027 minecraft:water
+cmd item replace entity tester weapon.mainhand with create:cut_andesite_slab
+wait 0.35
+bot place 1030 104 1027 up
+wait 0.5
+cmd execute if block 1030 105 1027 create:cut_andesite_slab[type=bottom,waterlogged=true]
+wait 0.4
+expect Test passed
+
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 1027 105 1026 create:cut_andesite_slab[type=double,waterlogged=false] if block 1029 106 1026 create:cut_calcite_slab[type=top,waterlogged=false] if block 1030 105 1027 create:cut_andesite_slab[type=bottom,waterlogged=true]
+wait 0.4
+expect Test passed
+bot expect entity minecraft:item_display near 1029.5 106.5 1026.5 within 0.05 count 1
+wait 0.4
+expect \[bot\] expect entity ok minecraft:item_display
+reject (?i)panicked|trapped|\[bot\] error
+stop

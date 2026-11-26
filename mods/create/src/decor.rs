@@ -4,6 +4,10 @@
 #[path = "decor_data.rs"]
 mod data;
 
+#[rustfmt::skip]
+#[path = "decor_slab_data.rs"]
+mod slab_data;
+
 use moddedmc_api::{
     RegistrationError, Registry,
     content::{Block, Content, Placement, State},
@@ -70,6 +74,34 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
                 states: &states,
             },
             Some(crate::placed_state),
+        )?;
+    }
+    for &(path, name, physical, double) in slab_data::SLABS {
+        let bottom = format!("create:block/{path}");
+        let top = format!("create:block/{path}_top");
+        let variants = [
+            ("type=bottom,waterlogged=false", bottom.as_str()),
+            ("type=bottom,waterlogged=true", bottom.as_str()),
+            ("type=top,waterlogged=false", top.as_str()),
+            ("type=top,waterlogged=true", top.as_str()),
+            ("type=double,waterlogged=false", double),
+            ("type=double,waterlogged=true", double),
+        ];
+        let templates = variants.map(|(properties, _)| format!("{physical}[{properties}]"));
+        let states = std::array::from_fn::<_, 6, _>(|i| {
+            let (properties, model) = variants[i];
+            state(properties, &templates[i], model, 0, 0)
+        });
+        content.add_block(
+            registry,
+            &Block {
+                id: &format!("create:{path}"),
+                display_name: name,
+                entity: "",
+                item_model: &format!("create:item/{path}"),
+                states: &states,
+            },
+            None,
         )?;
     }
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;

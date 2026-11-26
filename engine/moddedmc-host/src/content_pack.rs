@@ -311,6 +311,9 @@ fn block_variant(block: &Block, state: pumpkin_data::BlockStateId) -> Option<Str
 }
 
 fn stock_carrier_model(block: &Block, variant: &str) -> Value {
+    if let Some(model) = crate::content_slab::carrier_model(block, variant) {
+        return json!({"model": model});
+    }
     if block == &Block::BEEHIVE || block == &Block::BEE_NEST {
         let mut honey = false;
         let mut rotation = 0;
