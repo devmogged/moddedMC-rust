@@ -71,7 +71,7 @@ pub(crate) fn bucket_fluid(item: &str) -> Option<&'static str> {
     }
 }
 
-pub(super) fn emptying(item: &Value) -> Option<(FluidStack, Value)> {
+pub(crate) fn emptying(item: &Value) -> Option<(FluidStack, Value)> {
     let id = item_id(item)?;
     let (fluid, amount, container) = match bucket_fluid(id) {
         Some("minecraft:empty") => return None,

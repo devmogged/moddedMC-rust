@@ -801,6 +801,18 @@ pub fn insert_into_segment(
     accepted
 }
 
+pub(crate) fn stack_at_segment(kinetics: &Kinetics, pos: Pos) -> Option<&TransportedItemStack> {
+    let segment = kinetics.get(pos)?;
+    let start = segment.belt_index as f32;
+    kinetics
+        .get(segment.controller?)?
+        .inventory
+        .as_ref()?
+        .items
+        .iter()
+        .find(|stack| !stack.is_empty() && stack.pos > start && stack.pos <= start + 1.0)
+}
+
 pub(crate) fn lock_segment(kinetics: &mut Kinetics, pos: Pos) {
     let Some(segment) = kinetics.get(pos) else {
         return;

@@ -79,6 +79,7 @@ mod seat;
 mod shaft_casing;
 mod speed_controller;
 mod sticker;
+mod threshold_switch;
 mod trains;
 mod water_wheel;
 mod zinc;
@@ -302,6 +303,7 @@ impl Mod for Create {
         belt::register(content, registry)?;
         belt_tunnel::register(*content, registry)?;
         arm::register(*content, registry)?;
+        threshold_switch::register(*content, registry)?;
         ITEM_INPUT
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -376,7 +378,7 @@ impl Mod for Create {
         attribute_filter::register(registry)?;
         interaction.on_vanilla_use_on_block(registry, manual_application::use_on_block)?;
         interaction.on_use_block(registry, use_block)?;
-        interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
+        interaction.on_redstone(registry, redstone_signal, redstone_connects)?;
         interaction.on_player_will_destroy(registry, player_will_destroy)?;
         interaction.on_player_placed(registry, player_placed)?;
         content.on_tick(registry, tick)?;
@@ -935,6 +937,7 @@ struct StateIds {
     funnels: HashMap<u32, funnel::FunnelState>,
     tunnels: HashMap<u32, belt_tunnel::Tunnel>,
     contacts: HashMap<u32, elevator::Contact>,
+    switches: HashMap<u32, threshold_switch::SwitchState>,
     crusher_controllers: HashMap<u32, (u8, bool)>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
@@ -1092,6 +1095,7 @@ fn states() -> Option<&'static StateIds> {
         belt::add_states(&mut ids, content);
         belt_tunnel::add_states(content, &mut ids);
         arm::add_states(content, &mut ids);
+        threshold_switch::add_states(content, &mut ids);
         ids.add(content, fluids::item_drain::ID, "", None);
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
@@ -1183,6 +1187,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return Some(track);
     }
     let states = states()?;
+    if states.switches.contains_key(&args.state) {
+        return threshold_switch::place(&args, states);
+    }
     if states.tunnels.contains_key(&args.state) {
         return belt_tunnel::placed_state(args);
     }
@@ -1823,6 +1830,11 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         let mut level = WorldLevel { world, states };
         let mut gantry_changed = false;
         for event in events {
+            if states.switches.contains_key(&event.state)
+                || states.switches.contains_key(&event.previous)
+            {
+                threshold_switch::event(world, states, &mut kinetics.threshold_switches, event);
+            }
             large_water_wheel::event(world, states, &mut kinetics.pending_wheel_parts, event);
             // WS-2: recalculate fluid pipe faces when adjacent blocks change.
             fluids::runtime::event(world, event);
@@ -2025,6 +2037,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         millstone::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);
         arm::tick(world, states, kinetics, time);
+        threshold_switch::tick(world, states, kinetics, time);
         belt_inventory::tick(world, kinetics);
         brass_tunnel::tick(world, states, kinetics);
         fluids::item_drain::tick(world, kinetics);
@@ -2036,6 +2049,18 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         crusher::tick(world, states, kinetics);
         flush(world, kinetics);
     });
+}
+
+fn redstone_signal(query: &interaction::RedstoneQuery<'_>) -> u8 {
+    if states().is_some_and(|states| states.switches.contains_key(&query.state)) {
+        threshold_switch::signal(query)
+    } else {
+        elevator::signal(query)
+    }
+}
+
+fn redstone_connects(state: u32, direction: u8) -> bool {
+    threshold_switch::connects(state, direction) || elevator::connects(state, direction)
 }
 
 fn player_placed(world: World<'_>, player: Entity<'_>, pos: Pos, state: u32) {
@@ -2192,6 +2217,17 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if let Some(states) = states() {
         if let Some(result) = arm::select_custom(context, states) {
             return result;
+        }
+        if states.switches.contains_key(&context.state) {
+            return with_world(context.world, |kinetics| {
+                let switch = kinetics
+                    .threshold_switches
+                    .entry(context.position)
+                    .or_insert_with(|| {
+                        threshold_switch::Switch::load(context.world, context.position)
+                    });
+                threshold_switch::use_block(context, states, switch)
+            });
         }
         if matches!(states.kind(context.state), Some(Kind::Arm(_))) {
             return with_world(context.world, |kinetics| arm::use_block(context, kinetics));

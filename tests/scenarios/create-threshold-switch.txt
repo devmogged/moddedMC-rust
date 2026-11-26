@@ -1,0 +1,145 @@
+# Create's Threshold Switch keeps hysteresis, filters and its settings across restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:stockpile_switch \(144 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2052.5 105 2011.5
+wait 3
+cmd fill 2045 100 2005 2056 109 2020 minecraft:air
+cmd fill 2045 99 2005 2056 99 2020 minecraft:stone
+cmd tp tester 2052.5 100 2011.5
+cmd gamemode survival tester
+cmd setblock 2053 100 2011 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:electron_tube
+cmd item replace entity tester hotbar.1 with create:brass_casing
+cmd item replace entity tester hotbar.2 with minecraft:comparator
+wait 0.5
+bot use 2053 100 2011 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.25
+bot inventory-click 39 left
+wait 0.25
+bot inventory-click 7 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:stockpile_switch 0
+wait 0.5
+expect Found 1 matching item
+
+cmd setblock 2051 100 2012 minecraft:barrel
+cmd setblock 2049 100 2012 minecraft:redstone_lamp
+bot use 2050 99 2012 up
+wait 1
+cmd execute if block 2050 100 2012 create:stockpile_switch[facing=east,level=0,powered=false,target=wall]
+cmd data get block 2050 100 2012 CurrentAmount
+wait 0.5
+expect-all Test passed && block data: 0$
+
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot
+wait 0.5
+bot use 2050 100 2012 west main 0 0.5 0.5
+wait 0.5
+expect Filter: minecraft:iron_ingot
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 2050 100 2012 west main 0 0.8 0.8
+wait 0.5
+expect On at 129, off at 64
+
+cmd item replace block 2051 100 2012 container.0 with minecraft:iron_ingot 64
+cmd item replace block 2051 100 2012 container.1 with minecraft:iron_ingot 64
+cmd item replace block 2051 100 2012 container.2 with minecraft:copper_ingot 64
+wait 1
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=false]
+cmd data get block 2050 100 2012 CurrentAmount
+wait 0.5
+expect-all Test passed && block data: 128$
+cmd item replace block 2051 100 2012 container.3 with minecraft:iron_ingot
+wait 1
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=true]
+wait 0.5
+expect Test passed
+
+cmd item replace block 2051 100 2012 container.1 with minecraft:iron_ingot 35
+wait 1
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=true]
+cmd data get block 2050 100 2012 CurrentAmount
+wait 0.5
+expect-all Test passed && block data: 100$
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=true]
+cmd data get block 2050 100 2012 OnAboveAmount
+cmd data get block 2050 100 2012 Filter.id
+wait 0.5
+expect-all Test passed && block data: 129$ && block data: "minecraft:iron_ingot"
+cmd item replace block 2051 100 2012 container.1 with minecraft:air
+cmd item replace block 2051 100 2012 container.3 with minecraft:air
+wait 1
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+bot use 2050 100 2012 west main 0 0.5 0.5
+wait 1
+expect Inverted
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=true]
+wait 0.5
+expect Test passed
+bot use 2050 100 2012 west main 0 0.5 0.5
+wait 0.5
+
+# A fluid sample tests the contents in mB and ignores a different fluid.
+cmd setblock 2051 100 2012 create:fluid_tank
+cmd item replace entity tester hotbar.0 with minecraft:water_bucket
+wait 1
+bot use 2050 100 2012 west main 0 0.5 0.5
+wait 0.5
+expect Filter: minecraft:water_bucket
+cmd gamemode creative tester
+wait 0.5
+bot use 2051 100 2012 up
+wait 1
+cmd data get block 2050 100 2012 CurrentAmount
+cmd data get block 2050 100 2012 CurrentMaxAmount
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=true]
+wait 0.5
+expect-all block data: 1000$ && block data: 8000$ && Test passed
+cmd item replace entity tester hotbar.0 with minecraft:bucket
+wait 0.5
+bot use 2051 100 2012 up
+wait 0.5
+cmd item replace entity tester hotbar.0 with minecraft:lava_bucket
+wait 0.5
+bot use 2051 100 2012 up
+wait 1
+cmd fluidpipe 2051 100 2012
+wait 0.5
+expect Tank\(minecraft:lava 1000/8000 mB\)
+cmd gamemode survival tester
+cmd data get block 2050 100 2012 CurrentAmount
+cmd execute if block 2049 100 2012 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect-all block data: 0$ && Test passed
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

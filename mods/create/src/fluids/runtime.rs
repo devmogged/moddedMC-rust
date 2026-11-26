@@ -191,7 +191,7 @@ pub fn is_item_drain(state: u32) -> bool {
     index().is_some_and(|ids| ids.endpoints.get(&state) == Some(&EndpointKind::ItemDrain))
 }
 
-pub(super) fn is_tank(state: u32) -> bool {
+pub(crate) fn is_tank(state: u32) -> bool {
     index().is_some_and(|ids| ids.endpoints.get(&state) == Some(&EndpointKind::Tank))
 }
 

@@ -127,6 +127,10 @@ pub(super) fn controller(world: World<'_>, pos: Pos) -> Option<Pos> {
     controller_from_tag(&live_tag(world, pos)?, pos)
 }
 
+pub(crate) fn load_at(world: World<'_>, pos: Pos) -> Option<TankInventory> {
+    load(world, controller(world, pos)?)
+}
+
 pub fn load(world: World<'_>, pos: Pos) -> Option<TankInventory> {
     let data = live_tag(world, pos)?;
     if data.contains_key("Controller") {

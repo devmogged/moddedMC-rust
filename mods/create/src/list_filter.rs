@@ -49,11 +49,20 @@ fn entries(settings: &Compound) -> &[Value] {
 }
 
 pub(crate) fn matches(sample: &Value, stack: &Value, remaining: u8) -> Option<bool> {
+    matches_entries(sample, |entry, respect| {
+        matches_sample(entry, stack, respect, remaining)
+    })
+}
+
+pub(crate) fn matches_entries(
+    sample: &Value,
+    mut matches: impl FnMut(&Value, bool) -> bool,
+) -> Option<bool> {
     let settings = settings(sample, SETTINGS)?;
     let respect = flag(settings, RESPECT_COMPONENTS);
     let listed = entries(settings)
         .iter()
-        .any(|entry| matches_sample(entry, stack, respect, remaining));
+        .any(|entry| matches(entry, respect));
     Some(listed != flag(settings, DENY))
 }
 

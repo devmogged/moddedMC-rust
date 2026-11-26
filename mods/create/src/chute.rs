@@ -407,6 +407,10 @@ pub struct ChuteBlockEntity {
 }
 
 impl ChuteBlockEntity {
+    pub(crate) fn held(&self) -> Option<&TransportedItemStack> {
+        self.item.as_ref()
+    }
+
     fn load(world: World<'_>, pos: Pos, state: ChuteState) -> Self {
         let data: ChuteData = world
             .entity(pos)

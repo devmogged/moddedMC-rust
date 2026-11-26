@@ -185,6 +185,20 @@ impl DepotBehaviour {
             || !self.processing_output_buffer.is_empty()
     }
 
+    pub(crate) fn stock_slots(
+        &self,
+    ) -> (
+        Option<&TransportedItemStack>,
+        impl Iterator<Item = &TransportedItemStack>,
+        usize,
+    ) {
+        (
+            self.held_item.as_ref(),
+            self.processing_output_buffer.values(),
+            usize::from(OUTPUT_SLOTS),
+        )
+    }
+
     // TODO(abi): analog output
     #[allow(
         dead_code,

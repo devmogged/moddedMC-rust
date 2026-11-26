@@ -165,6 +165,14 @@ Use a Blaze Burner as a drop-off for fuel. The arm waits until the current burn 
 
 The vanilla special-purpose endpoints and movement of a configured arm on a contraption still need gameplay checks and ports.
 
+### Threshold Switch
+
+Craft it with an Electron Tube above a Brass Casing above a Comparator. Place it next to a chest, barrel or Fluid Tank. It points at the stock and emits redstone on the other sides. Click with an empty hand to read the total and cutoffs. The default output turns on at 128 and off at 64. Tanks are counted in millibuckets. A filter sample on the center of the outward face limits what counts. Sneak-use that face with an empty hand to clear the sample.
+
+Use a Wrench on the outward face. The upper corners adjust the on cutoff and the lower corners adjust the off cutoff. Left decreases, right increases, and sneak-use adjusts by 64 items or 1,000 mB. The center inverts the output. Use the Wrench on another face to rotate the detector.
+
+In stock Java 26.3, check that the indicator follows the stock level, the sample is visible on the outward face, and the action bar reports the two cutoffs. The [Threshold Switch scenario](../../tests/scenarios/create-threshold-switch.txt) verifies survival crafting, both lamp transitions, the latched state across restart, inversion and water filtering.
+
 ### Depot
 
 Craft a Depot from an Andesite Casing and an Andesite Alloy. The Depot saves its `HeldItem` and eight-slot `OutputBuffer` in Create's NBT format. Items on its top and in the buffer are shown with item displays.

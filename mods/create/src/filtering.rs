@@ -79,6 +79,31 @@ pub(crate) fn matches_sample(sample: &Value, stack: &Value, exact: bool, depth: 
     matched.unwrap_or_else(|| same_item(sample, stack, exact))
 }
 
+fn matches_fluid_sample(
+    sample: &Value,
+    fluid: &crate::fluids::pipe_connection::FluidStack,
+    exact: bool,
+    remaining: u8,
+) -> bool {
+    if remaining == 0 {
+        return false;
+    }
+    match item_id(sample) {
+        Some(list_filter::ID) => list_filter::matches_entries(sample, |entry, respect| {
+            matches_fluid_sample(entry, fluid, respect, remaining - 1)
+        })
+        .unwrap_or(false),
+        Some(attribute_filter::ID) => false,
+        _ => crate::fluids::item_drain::emptying(sample).is_some_and(|(sample, _)| {
+            if exact {
+                sample.same_fluid_same_components(fluid)
+            } else {
+                sample.id == fluid.id
+            }
+        }),
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
 pub(crate) struct Filter {
@@ -152,6 +177,12 @@ impl Filter {
         self.stack.as_ref().is_none_or(|sample| {
             item_id(sample).is_none() || matches_sample(sample, stack, false, MAX_NESTED_FILTERS)
         })
+    }
+
+    pub(crate) fn matches_fluid(&self, fluid: &crate::fluids::pipe_connection::FluidStack) -> bool {
+        self.stack
+            .as_ref()
+            .is_none_or(|sample| matches_fluid_sample(sample, fluid, true, MAX_NESTED_FILTERS))
     }
 
     fn installed_item(&self) -> Option<Vec<u8>> {
