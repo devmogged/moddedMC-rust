@@ -28,7 +28,7 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
     )
     source = (MOD / "src/lib.rs").read_text(encoding="utf-8")
     registrations = REGISTRATION_PATTERN.findall(source)
-    assert len(registrations) == 24, f"expected 24 selected items; got {len(registrations)}"
+    assert len(registrations) == 26, f"expected 26 selected items; got {len(registrations)}"
     names = [part[0] for part in registrations]
     assert len(set(names)) == len(names), "duplicate Rust item IDs"
     assert all(carrier for _, _, carrier in registrations)
@@ -41,7 +41,7 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
         assert set(models) <= archive, "original model reference missing: " + str(set(models) - archive)
         # The original models and textures are intentionally never copied.
         recipes = sorted((MOD / "resources/data/legendary_monsters/recipe").glob("*.json"))
-        assert len(recipes) == 2, f"unexpected locally shipped recipes: {len(recipes)}"
+        assert len(recipes) == 4, f"unexpected locally shipped recipes: {len(recipes)}"
         for recipe in recipes:
             archive_name = "data/legendary_monsters/recipe/" + recipe.name
             assert archive_name in archive, f"unknown source recipe {archive_name}"
@@ -77,7 +77,12 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
             assert name in entries, f"missing source registration: {name}"
             ctor = entries[name].split(";", 1)[0]
             assert "new Item(new Properties()" in ctor, f"item has custom class or constructor: {name}"
-            assert not any(x in ctor for x in (".food(", ".rarity(", ".stacksTo(", ".jukeboxPlayable(")), name
+            assert not any(x in ctor for x in (".food(", ".jukeboxPlayable(")), name
+            if name in ("portal_shard", "eye_crystal"):
+                assert ".rarity(Rarity.EPIC)" in ctor, name
+                assert ".stacksTo(" not in ctor or ".stacksTo(64)" in ctor, name
+            else:
+                assert not any(x in ctor for x in (".rarity(", ".stacksTo(")), name
             resistant = ".fireResistant()" in ctor
             assert resistant == (carrier == "netherite_ingot"), f"wrong fire-resistant carrier for {name}"
             if resistant:

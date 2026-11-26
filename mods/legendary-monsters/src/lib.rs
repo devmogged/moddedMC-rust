@@ -6,17 +6,17 @@ use std::sync::OnceLock;
 
 use moddedmc_api::{
     InterfaceUnavailable, Mod, RegistrationError, Registry,
-    items::{self, Item, Items},
+    items::{self, Item, ItemDefaults, Items},
 };
 
 static ITEMS: OnceLock<Items> = OnceLock::new();
+static DEFAULTS: OnceLock<ItemDefaults> = OnceLock::new();
 
 struct LegendaryMonsters;
 
 /// Items registered as new Item(new Properties()), plus those with only fireResistant().
 /// Netherite ingot carriers provide vanilla fire resistance; the other carriers are plain
-/// stack-64 items. Active use handlers, foods, equipment and items with distinct rarity wait
-/// until those host interfaces are available.
+/// stack-64 items.
 const PASSIVE_MATERIALS: &[(&str, &str, &str)] = &[
     (
         "dinosaur_bone",
@@ -112,9 +112,18 @@ const PASSIVE_MATERIALS: &[(&str, &str, &str)] = &[
     ("metal_debris", "Metal Debris", "minecraft:iron_ingot"),
 ];
 
+// Named-root ItemStack NBT: amethyst shard carrier with epic rarity.
+// Both source items are plain Item instances with stack size 64.
+const EPIC_DEFAULTS: &[u8] = b"\x0a\x00\x00\x08\x00\x02id\x00\x18minecraft:amethyst_shard\x0a\x00\x0acomponents\x08\x00\x10minecraft:rarity\x00\x04epic\x00\x00";
+const EPIC_MATERIALS: &[(&str, &str, &str)] = &[
+    ("portal_shard", "Portal Shard", "minecraft:amethyst_shard"),
+    ("eye_crystal", "Eye Crystal", "minecraft:amethyst_shard"),
+];
+
 impl Mod for LegendaryMonsters {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let _ = ITEMS.set(items::require()?);
+        let _ = DEFAULTS.set(items::require_defaults()?);
         Ok(())
     }
 
@@ -129,6 +138,19 @@ impl Mod for LegendaryMonsters {
                     carrier,
                     model: &format!("legendary_monsters:item/{id}"),
                 },
+            )?;
+        }
+        let defaults = DEFAULTS.get().ok_or(RegistrationError::InvalidDefinition)?;
+        for &(id, display_name, carrier) in EPIC_MATERIALS {
+            defaults.add_item(
+                registry,
+                &Item {
+                    id: &format!("legendary_monsters:{id}"),
+                    display_name,
+                    carrier,
+                    model: &format!("legendary_monsters:item/{id}"),
+                },
+                EPIC_DEFAULTS,
             )?;
         }
         Ok(())

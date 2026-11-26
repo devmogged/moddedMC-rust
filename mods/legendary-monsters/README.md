@@ -10,23 +10,29 @@ Exactly **24** source registrations using vanilla Item and default properties or
 fireResistant() only, transcribed from the official release's ModItems.java.
 The two bones, Warped Mushroom Cap Part, Air Rune and Withered Horn use a
 fire-resistant vanilla item carrier; the other nineteen have stack-64 vanilla
-carriers. The content item IDs retain the exact original legendary_monsters: namespace
+carriers. Two additional passive items, Portal Shard and Eye Crystal, use the
+item-defaults ABI to preserve epic rarity and the amethyst shard carrier's
+64-item stack limit. The content item IDs retain the exact original legendary_monsters: namespace
 even though the drop-in package ID is legendary-monsters.
 
 These entries have **no custom Rust behavior** because the original registrations
 are plain items. Their visual models are referenced by resource location, but the
 original models/textures are **not** embedded; they must come from the user's
-locally installed original JAR. The 24 model JSON paths were verified to exist
+locally installed original JAR. All 26 model JSON paths were verified to exist
 in the original 2.2.4 archive.
 
-Two source-matched recipes and two additive vanilla item tags for Enderitium
+Two source-matched Enderitium recipes and two additive vanilla item tags
 are packaged as data. The shapeless ingot-to-gems recipe was executed through a
 player inventory (1 ingot produced 9 gems). The shaped nine-gems-to-ingot
 recipe was executed through a crafting table (9 gems produced 1 ingot), with
 ingredient consumption and restart inventory persistence verified.
 
-Nothing else is complete: custom weapon actions, equipment attributes, food, rare
-item metadata, shields, spawn eggs, 46 blocks, remaining recipes and loot, 34 living entities,
+The two source-matched salvage recipes turn a Knight's Sword Blade Half into
+one iron ingot and a Long Stick Half into two sticks. The salvage scenario
+passed both transactions and inventory persistence.
+
+Nothing else is complete: custom weapon actions, equipment attributes, food,
+other item metadata, shields, spawn eggs, 46 blocks, remaining recipes and loot, 34 living entities,
 bosses, projectiles and worldgen all remain unported. The current generic item
 carrier table cannot express every original item property; do not infer Java
 parity from item registration or successful Rust compilation.
@@ -52,6 +58,12 @@ recipe, and legendary-monsters-crafting-table.txt executes the shaped recipe
 with save/restart and consumed-ingredient checks. Some content-pack
 assets still render as placeholders. Runtime parity against the original
 NeoForge 2.2.4 mod is **not yet established**.
+
+The salvage scenario also passed on that shared binary. The epic-materials
+scenario requires a newer server exposing `moddedmc:item_defaults` v1 and
+passed on the November 26 bounded-slabs test binary: both 65-item grants
+split into 64 + 1 and survived restart. Verify purple item names in a real
+stock client; the headless inventory test does not inspect tooltip colors.
 
 Optional source-artifact audit (standard Python 3 library only):
 
