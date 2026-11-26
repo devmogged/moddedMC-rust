@@ -9,6 +9,7 @@ use moddedmc_api::{
 
 use super::{
     basin_tanks::BasinTransfer,
+    boiler::Boilers,
     hose_pulley::{self, HosePulleys, HoseTransfer},
     item_drain,
     network::{FluidHandler, transfer_tick},
@@ -119,6 +120,7 @@ impl FlowRuntime {
         endpoint_states: &HashMap<u32, EndpointKind>,
         connectivity: &Connectivity,
         pulleys: &mut HosePulleys,
+        boilers: &mut Boilers,
         is_transport: impl Fn(u32) -> bool,
     ) {
         if self.pipes.is_empty() {
@@ -179,10 +181,10 @@ impl FlowRuntime {
                             }
                         }
                     }
-                    if let Some((kind, tank)) =
-                        owners.get(&adjacent.pos).and_then(|owner| tanks.get(owner))
+                    if let Some(&owner) = owners.get(&adjacent.pos)
+                        && let Some((kind, tank)) = tanks.get(&owner)
                     {
-                        if !kind.accessible(adjacent.side) {
+                        if !kind.accessible(adjacent.side) || boilers.active(owner) {
                             return None;
                         }
                         return tank.fluid().cloned().or_else(|| {
@@ -253,9 +255,7 @@ impl FlowRuntime {
         }
         for face in starts {
             let graph = &self.networks[&face];
-            if let Some(fluid) = &graph.fluid {
-                move_fluid(world, &mut tanks, &owners, &open, pulleys, graph, fluid);
-            }
+            move_fluid(world, &mut tanks, &owners, &open, pulleys, boilers, graph);
         }
     }
 }
@@ -318,15 +318,23 @@ impl NetworkTopology for Topology<'_> {
 
 enum Storage {
     Tank(Pos, EndpointKind),
+    Boiler(Pos),
     Open(OpenEnd),
     Hose(HoseTransfer),
     Basin(BasinTransfer),
 }
 
 impl Storage {
-    fn save(&self, world: World<'_>, tank: &TankInventory, pulleys: &mut HosePulleys) -> bool {
+    fn save(
+        &self,
+        world: World<'_>,
+        tank: &TankInventory,
+        pulleys: &mut HosePulleys,
+        boilers: &mut Boilers,
+    ) -> bool {
         match self {
             Self::Tank(pos, kind) => kind.save(world, *pos, tank),
+            Self::Boiler(pos) => boilers.receive(*pos, tank.amount()),
             Self::Open(end) => end.save(world, tank),
             Self::Hose(hose) => hose.save(world, tank, pulleys),
             Self::Basin(basin) => basin.save(world, tank),
@@ -336,6 +344,7 @@ impl Storage {
     fn refund(&self, world: World<'_>, tank: &TankInventory) -> bool {
         match self {
             Self::Tank(pos, kind) => kind.save(world, *pos, tank),
+            Self::Boiler(_) => false,
             Self::Open(end) => end.refund(world, tank),
             Self::Hose(hose) => hose.refund(world, tank),
             Self::Basin(basin) => basin.save(world, tank),
@@ -355,14 +364,18 @@ fn move_fluid(
     owners: &EndpointOwners,
     open: &HashSet<BlockFace>,
     pulleys: &mut HosePulleys,
+    boilers: &mut Boilers,
     graph: &FluidNetworkGraph,
-    fluid: &FluidStack,
 ) {
+    let Some(fluid) = &graph.fluid else { return };
     let mut seen_tanks = HashSet::new();
     let (source, mut updated_source) = if let Some(&owner) =
         owners.get(&graph.start.connected_pos())
         && let Some((kind, tank)) = tanks.get(&owner)
     {
+        if boilers.active(owner) {
+            return;
+        }
         seen_tanks.insert(owner);
         match kind {
             EndpointKind::Hose(_) => {
@@ -421,6 +434,15 @@ fn move_fluid(
                         let (basin, tank) = BasinTransfer::target(world, owner, fluid)?;
                         (Storage::Basin(basin), tank)
                     }
+                    EndpointKind::Tank if boilers.active(owner) => {
+                        if fluid.id != "minecraft:water" {
+                            return None;
+                        }
+                        (
+                            Storage::Boiler(owner),
+                            TankInventory::new(i32::MAX as u32, 1).ok()?,
+                        )
+                    }
                     _ => (Storage::Tank(owner, *kind), tank.clone()),
                 }
             } else if open.contains(&face) {
@@ -443,7 +465,7 @@ fn move_fluid(
         fluid,
         graph.transfer_speed as f32 * 2.0,
     );
-    if moved == 0 || !source.save(world, &updated_source, pulleys) {
+    if moved == 0 || !source.save(world, &updated_source, pulleys, boilers) {
         return;
     }
 
@@ -452,7 +474,7 @@ fn move_fluid(
     for (storage, before, tank) in targets {
         let received = tank.amount() - before;
         if received > 0 {
-            if storage.save(world, &tank, pulleys) {
+            if storage.save(world, &tank, pulleys, boilers) {
                 storage.update_cache(tanks, tank);
             } else {
                 returned += received;

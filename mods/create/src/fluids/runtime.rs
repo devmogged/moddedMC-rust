@@ -178,7 +178,7 @@ impl StateIndex {
 pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
     Some(match index()?.endpoints.get(&context.state)? {
         EndpointKind::Tank => crate::with_world(context.world, |kinetics| {
-            tank_runtime::use_item_on(context, &kinetics.fluid_tanks)
+            tank_runtime::use_item_on(context, &kinetics.fluid_tanks, &mut kinetics.boilers)
         }),
         EndpointKind::ItemDrain => crate::with_world(context.world, |kinetics| {
             item_drain::use_item_on(&mut kinetics.item_drains, context)
@@ -641,6 +641,7 @@ pub fn pressure_tick(
         &states.endpoints,
         &kinetics.fluid_tanks,
         &mut kinetics.hose_pulleys,
+        &mut kinetics.boilers,
         |state| states.kinds.contains_key(&state),
     );
 }

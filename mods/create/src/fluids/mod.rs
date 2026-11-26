@@ -2,6 +2,7 @@
 
 pub(crate) mod basin_tanks;
 pub mod blocks;
+pub(crate) mod boiler;
 pub mod connection_nbt;
 mod flow_runtime;
 pub mod flow_source;

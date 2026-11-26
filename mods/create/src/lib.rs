@@ -84,6 +84,7 @@ mod saw_processing;
 mod seat;
 mod shaft_casing;
 mod speed_controller;
+mod steam_engine;
 mod sticker;
 mod threshold_switch;
 mod trains;
@@ -356,6 +357,7 @@ impl Mod for Create {
         drill::register(*content, registry)?;
         harvester::register(*content, registry)?;
         plough::register(*content, registry)?;
+        steam_engine::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -947,6 +949,7 @@ struct KnownState {
 #[derive(Default)]
 struct StateIds {
     contraption_blocks: contraption::BlockMovementChecks,
+    steam_engines: HashMap<u32, steam_engine::EngineBlock>,
     chutes: HashMap<u32, chute::ChuteState>,
     funnels: HashMap<u32, funnel::FunnelState>,
     tunnels: HashMap<u32, belt_tunnel::Tunnel>,
@@ -1133,6 +1136,7 @@ fn states() -> Option<&'static StateIds> {
         drill::add_states(content, &mut ids);
         harvester::add_states(content, &mut ids, harvester::ID);
         harvester::add_states(content, &mut ids, plough::ID);
+        steam_engine::add_states(content, &mut ids);
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
@@ -1225,6 +1229,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     };
     if seat::is_seat(placed.block) {
         return seat::placed_state(args, placed.block);
+    }
+    if placed.block == steam_engine::ID {
+        return steam_engine::place(args);
     }
     if matches!(placed.block, harvester::ID | plough::ID) {
         return harvester::placed_state(
@@ -1433,10 +1440,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             }
         }
         None if placed.block == piston::POLE => return piston::pole_placement(args, wet),
-        Some(Kind::Shaft(_)) => format!(
-            "{SHAFT}[axis={},waterlogged={wet}]",
-            AXES[usize::from(pillar_axis)]
-        ),
+        Some(Kind::Shaft(_) | Kind::PoweredShaft(_)) => {
+            return steam_engine::shaft_state(states, args.position, pillar_axis, wet);
+        }
         Some(Kind::Small(_) | Kind::Large(_)) => {
             if placed.block == LARGE
                 && !args.sneak
@@ -1538,6 +1544,8 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pointer: Option<fluids::valve::Pointer>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    powered_shaft: Option<steam_engine::PoweredShaftData>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
     press: Option<press::PressingData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     deployer: Option<deployer::Deployer>,
@@ -1638,6 +1646,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         } else {
             in_use
         };
+    }
+    if matches!(kind, Kind::PoweredShaft(_)) {
+        be.powered_shaft = Some(Box::new(data.powered_shaft.unwrap_or_default()));
     }
     be.speed = data.speed;
     if chain_drive::from_kind(Some(kind)).is_some_and(|drive| drive.powered.is_some()) {
@@ -1743,6 +1754,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
     KineticData {
         speed: be.speed,
         pointer: be.valve,
+        powered_shaft: be.powered_shaft.as_deref().cloned(),
         press: be.press.as_ref().map(|press| press.data),
         deployer: be.deployer.as_deref().cloned(),
         drill: be
@@ -2092,6 +2104,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             }
         }
         kinetics.fluid_tanks.tick(world, time, events);
+        steam_engine::tick(world, states, kinetics, &mut level, events, time);
         // WS-2: distribute pump RPM as directional pipe pressures.
         let valve_changed = fluids::runtime::tick_valves(world, kinetics);
         fluids::hose_pulley::tick(world, kinetics);
@@ -2257,6 +2270,7 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
             | belt_tunnel::BRASS
             | harvester::ID
             | plough::ID
+            | steam_engine::ID
     ) {
         return validate_kinetic_placement(context);
     }
@@ -2302,6 +2316,9 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
 /// `useItemOn` for the mod's blocks.
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if let Some(states) = states() {
+        if let Some(&block) = states.steam_engines.get(&context.state) {
+            return steam_engine::use_block(context, states, block);
+        }
         if let Some(result) = arm::select_custom(context, states) {
             return result;
         }

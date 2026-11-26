@@ -92,6 +92,7 @@ fn nearest(diff: [i32; 3]) -> u8 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     Shaft(u8),
+    PoweredShaft(u8),
     Small(u8),
     Large(u8),
     /// Facing.
@@ -250,6 +251,7 @@ impl Kind {
     pub const fn axis(self) -> u8 {
         match self {
             Self::Shaft(axis)
+            | Self::PoweredShaft(axis)
             | Self::Small(axis)
             | Self::Large(axis)
             | Self::Gearbox(axis)
@@ -376,7 +378,7 @@ impl Kind {
         self.fluid_wheel()
             || matches!(
                 self,
-                Self::Motor(_) | Self::HandCrank(_) | Self::Windmill(_)
+                Self::Motor(_) | Self::HandCrank(_) | Self::Windmill(_) | Self::PoweredShaft(_)
             )
     }
 
@@ -514,6 +516,7 @@ pub struct Be {
     pub(crate) crafter: Option<Box<crate::crafter::Crafter>>,
     pub mixer: Option<Box<crate::mixer::Mixer>>,
     pub valve: Option<crate::fluids::valve::Pointer>,
+    pub(crate) powered_shaft: Option<Box<crate::steam_engine::PoweredShaftData>>,
     pub fan: Option<Box<crate::fan::AirCurrent>>,
     pub bearing: Option<Box<crate::bearing::MechanicalBearing>>,
     pub piston: Option<Box<crate::piston::MechanicalPiston>>,
@@ -575,6 +578,7 @@ impl Be {
             block_breaking: None,
             saw_processing: None,
             valve: None,
+            powered_shaft: matches!(kind, Kind::PoweredShaft(_)).then(Box::default),
             mixer: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
@@ -599,6 +603,10 @@ impl Be {
             Kind::Motor(facing) if positive(facing) => self.generated as f32,
             Kind::Motor(_) => -(self.generated as f32),
             Kind::Windmill(_) => self.generated as f32,
+            Kind::PoweredShaft(_) => self
+                .powered_shaft
+                .as_ref()
+                .map_or(0.0, |shaft| shaft.output().0 as f32),
             Kind::HandCrank(facing) => {
                 let direction = if positive(facing) { 1 } else { -1 };
                 (self.generated.signum() * direction * crate::hand_crank::SPEED) as f32
@@ -626,7 +634,10 @@ impl Be {
     }
 
     fn calculate_added_stress_capacity(&mut self) -> f32 {
-        self.last_capacity_provided = self.kind.capacity();
+        self.last_capacity_provided = self
+            .powered_shaft
+            .as_ref()
+            .map_or_else(|| self.kind.capacity(), |shaft| shaft.output().1);
         self.last_capacity_provided
     }
 
@@ -718,6 +729,9 @@ pub struct Kinetics {
     pub hose_pulleys: crate::fluids::hose_pulley::HosePulleys,
     pub spouts: HashMap<Pos, crate::fluids::spout::Spout>,
     pub fluid_tanks: crate::fluids::tank_connectivity::Connectivity,
+    pub(crate) boilers: crate::fluids::boiler::Boilers,
+    pub(crate) steam_engines: HashMap<Pos, crate::steam_engine::Engine>,
+    pub(crate) steam_displays: HashMap<Pos, crate::steam_engine::SteamDisplays>,
     pub chutes: crate::chute::Chutes,
     pub funnels: crate::funnel::Funnels,
     pub(crate) tunnels: HashMap<Pos, crate::belt_tunnel::Tunnel>,
@@ -1904,7 +1918,7 @@ impl Kinetics {
 
     // GeneratingKineticBlockEntity
 
-    fn update_generated_rotation(&mut self, level: &mut dyn Level, pos: Pos) {
+    pub(crate) fn update_generated_rotation(&mut self, level: &mut dyn Level, pos: Pos) {
         let Some(be) = self.bes.get(&pos) else {
             return;
         };

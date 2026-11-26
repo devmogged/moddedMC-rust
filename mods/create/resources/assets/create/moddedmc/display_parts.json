@@ -43,5 +43,8 @@
   "saw/horizontal_inactive": "create:block/mechanical_saw/blade_horizontal_inactive",
   "saw/vertical_active": "create:block/mechanical_saw/blade_vertical_active",
   "saw/vertical_reversed": "create:block/mechanical_saw/blade_vertical_reversed",
-  "saw/vertical_inactive": "create:block/mechanical_saw/blade_vertical_inactive"
+  "saw/vertical_inactive": "create:block/mechanical_saw/blade_vertical_inactive",
+  "steam_engine/piston": "create:block/steam_engine/piston",
+  "steam_engine/linkage": "create:block/steam_engine/linkage",
+  "steam_engine/shaft_connector": "create:block/steam_engine/shaft_connector"
 }
