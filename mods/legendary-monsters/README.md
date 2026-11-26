@@ -31,6 +31,16 @@ The two source-matched salvage recipes turn a Knight's Sword Blade Half into
 one iron ingot and a Long Stick Half into two sticks. The salvage scenario
 passed both transactions and inventory persistence.
 
+The Enderitium sword and pickaxe now have working vanilla-compatible equipment
+components and diamond/netherite smithing upgrades. The survival
+`legendary-monsters-combat-repair.txt` scenario passed against the previously
+compiled November 27 development server and package: diamond ore mining yielded
+one diamond and one durability damage; a sword critical hit reduced a ravager's
+health from 100 to 88.75 and consumed one durability. An anvil rejected a
+diamond, then consumed exactly one Enderitium ingot to reduce a damaged pickaxe
+from 1000 to 388 damage (2450 maximum). The repaired item and remaining ingot
+survived a full restart. This is protocol-bot evidence, not a graphical test.
+
 Nothing else is complete: custom weapon actions, equipment attributes, food,
 other item metadata, shields, spawn eggs, 46 blocks, remaining recipes and loot, 34 living entities,
 bosses, projectiles and worldgen all remain unported. The current generic item
