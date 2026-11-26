@@ -83,8 +83,9 @@ lazy legacy migration, and one-shard menu transactions. The shard is encoded
 in the non-reused menu ID; site bindings survive inventory resets. Migration
 preserves previously claimed empty inventories and allocation high-water
 marks. Once all legacy-bearing shards are initialized, the old payload is
-retired. The v2 source still requires controlled compilation and live
-upgrade verification; see [PERSISTENCE-DESIGN.md](PERSISTENCE-DESIGN.md).
+retired. The v2 source has passed unit tests and live fresh-world protocol
+scenarios. A live v1-to-v2 upgrade still needs verification; see
+[PERSISTENCE-DESIGN.md](PERSISTENCE-DESIGN.md).
 The host limits a value to 8 MiB, the whole saved-data file to 64 MiB,
 and the key count to 4096. Sharding reduces hot-path work but still shares
 the global file-size and flush limits. True large-world parity
@@ -98,6 +99,14 @@ Crash-consistent cross-file commit needs a host journal/checkpoint protocol;
 the current archive does not claim that stronger guarantee.
 
 ## Scenarios
+
+Verified against the November 27, 2026 development host using the Rust
+protocol bot: personal chest, configured generated chest, unknown table,
+cursor close, copied identity, replacement with a held cursor, and malformed
+identity. These are not graphical client tests. The UUID path uses the
+native entity UUID, matching the host's inventory transaction owner.
+The generated-chest scenario exercises an explicitly configured Lootr chest,
+not automatic vanilla-container conversion.
 
 - `lootr-personal-chest.txt`: empty chest, deposits, separate player inventory,
   restart, withdrawal.

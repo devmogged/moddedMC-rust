@@ -9,7 +9,7 @@ use moddedmc_api::{
     entities::{self, EntitiesExtension},
     interaction::{self, BlockUseResult, Interaction, InteractionExtension, UseBlock},
     inventory_menu::{self, Access, Change, MenuKind, Validated, Validity, ValiditySlots},
-    native_entity::{self, Actors},
+    mobs::{self, Mobs, MobsExtension},
     saved_data::{self, Key, SavedData},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,7 +20,7 @@ struct Interfaces {
     content: Content,
     interaction: Interaction,
     menus: Validated,
-    actors: Actors,
+    mobs: Mobs,
     saved: SavedData,
     loot: ContainerLoot,
 }
@@ -38,7 +38,7 @@ static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static LOCK: Mutex<()> = Mutex::new(());
 const SIZE: usize = 27;
 
-// Temporary bounded diagnostics for the first real stock-client smoke test.
+// Temporary bounded diagnostics for the protocol-client smoke tests.
 static DIAGNOSTICS: AtomicUsize = AtomicUsize::new(0);
 fn trace(message: &str) {
     if DIAGNOSTICS.fetch_add(1, Ordering::Relaxed) < 128 {
@@ -61,11 +61,13 @@ impl Mod for Lootr {
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
         entities::require()?.require_extension(EntitiesExtension::Player)?;
+        let mobs = mobs::require()?;
+        mobs.require_extension(MobsExtension::Taming)?;
         let _ = API.set(Interfaces {
             content,
             interaction,
             menus: inventory_menu::require_validity()?,
-            actors: native_entity::require()?,
+            mobs,
             saved: saved_data::require()?,
             loot: container_loot::require()?,
         });
@@ -131,33 +133,6 @@ fn seed_config(value: std::io::Result<String>) -> Result<bool, RegistrationError
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
         Err(_) => Err(RegistrationError::InvalidDefinition),
     }
-}
-
-fn uuid(api: Interfaces, player: &Player<'_>) -> Option<[u8; 16]> {
-    #[derive(serde::Deserialize)]
-    struct Profile {
-        id: fastnbt::IntArray,
-    }
-    let Some(bytes) = api.actors.player_profile(player) else {
-        trace("player_profile returned no bytes");
-        return None;
-    };
-    let profile: Profile = match fastnbt::from_bytes(&bytes) {
-        Ok(profile) => profile,
-        Err(error) => {
-            trace(&format!("profile NBT decoding: {error}"));
-            return None;
-        }
-    };
-    let Ok(words): Result<&[i32; 4], _> = (&profile.id[..]).try_into() else {
-        trace("profile id is not four integers");
-        return None;
-    };
-    let mut result = [0; 16];
-    for (chunk, word) in result.as_chunks_mut::<4>().0.iter_mut().zip(words) {
-        chunk.copy_from_slice(&word.to_be_bytes());
-    }
-    Some(result)
 }
 
 struct ShardStore<'a> {
@@ -323,10 +298,13 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
     let Some(runtime) = RUNTIME.get().copied() else {
         return failed("runtime missing");
     };
-    let Some(player) = context.player.and_then(|p| p.as_player()) else {
+    let Some(entity) = context.player else {
         return failed("use context has no player");
     };
-    let Some(owner) = uuid(runtime.api, &player) else {
+    let Some(player) = entity.as_player() else {
+        return failed("use context entity is not a player");
+    };
+    let Some(owner) = runtime.api.mobs.uuid(entity) else {
         return failed("owner UUID missing");
     };
     let world = context.world;
