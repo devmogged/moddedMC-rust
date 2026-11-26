@@ -68,10 +68,18 @@ wait 0.2
 bot use 1027 111 1026
 wait 0.2
 bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
 wait 0.5
 cmd fluidpipe 1027 112 1026
 wait 0.4
-expect Tank\(minecraft:water 8000/16000 mB\)
+expect Tank\(minecraft:water 12000/16000 mB\)
 cmd kinetics 1025 107 1025 32
 wait 3
 cmd kinetics 1030 105 1027
@@ -89,6 +97,23 @@ cmd kinetics 1030 105 1027
 cmd data get block 1030 105 1026 EnginePower
 wait 0.4
 expect-all create:shaft.*Speed=-64 .*Capacity=16384 && block data: 1(?:\.0)?f
+
+# Two engines share one level of heat. Both outputs recover when the second engine is removed.
+cmd setblock 1024 105 1026 create:shaft[axis=z,waterlogged=false]
+cmd setblock 1024 105 1027 create:shaft[axis=z,waterlogged=false]
+cmd setblock 1026 105 1026 create:steam_engine[face=wall,facing=west,waterlogged=false]
+wait 0.65
+cmd kinetics 1030 105 1027
+cmd kinetics 1024 105 1027
+cmd data get block 1027 104 1026 Boiler.Engines
+wait 0.4
+expect-all at 1030 105 1027 Speed=-48 .*Capacity=8192 && at 1024 105 1027 Speed=48 .*Capacity=8192 && block data: 2$
+cmd setblock 1026 105 1026 minecraft:air
+wait 0.45
+cmd kinetics 1030 105 1027
+cmd kinetics 1024 105 1027
+wait 0.4
+expect-all at 1030 105 1027 Speed=-64 .*Capacity=16384 && at 1024 105 1027 Speed=0
 cmd save-all flush
 wait 0.5
 expect Saved the game

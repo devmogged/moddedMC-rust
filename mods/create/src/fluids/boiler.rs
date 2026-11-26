@@ -2,9 +2,12 @@
 
 use std::collections::HashMap;
 
-use moddedmc_api::{Pos, content::World};
+use moddedmc_api::{
+    Pos,
+    content::{self, ContentEvent, World},
+};
 
-use super::{tank::TankInventory, tank_runtime};
+use super::{runtime::is_tank, tank::TankInventory, tank_runtime};
 use crate::{
     CONTENT, TAGS,
     belt_tunnel::read,
@@ -29,6 +32,7 @@ pub(super) struct Boiler {
     samples: [f32; SAMPLE_COUNT],
     next: usize,
     until_sample: u8,
+    engine_positions: Vec<Pos>,
 }
 
 impl Boiler {
@@ -96,42 +100,69 @@ pub(crate) fn shaft_output(efficiency: f32, direction: i32) -> (i32, f32) {
     (speed, capacity)
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, rename_all = "PascalCase")]
 struct Saved {
     supply: f32,
     active_heat: u32,
     passive_heat: bool,
     engines: u32,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    engine_positions: Vec<fastnbt::IntArray>,
 }
 
 impl Boiler {
     fn read(world: World<'_>, owner: Pos) -> Self {
-        let saved: Saved = tank_runtime::read_tag(world, owner)
-            .and_then(|tag| fastnbt::from_value(tag.get("Boiler")?).ok())
-            .unwrap_or_default();
-        Self {
+        tank_runtime::read_tag(world, owner)
+            .and_then(|tag| Self::from_tag(tag.get("Boiler")?))
+            .unwrap_or_default()
+    }
+
+    fn from_tag(tag: &fastnbt::Value) -> Option<Self> {
+        let saved: Saved = fastnbt::from_value(tag).ok()?;
+        Some(Self {
             active_heat: saved.active_heat,
             passive_heat: saved.passive_heat,
             engines: saved.engines,
+            engine_positions: saved
+                .engine_positions
+                .iter()
+                .filter_map(|packed| {
+                    let &[x, y, z] = packed.as_ref() else {
+                        return None;
+                    };
+                    Some(Pos { x, y, z })
+                })
+                .collect(),
             ..Self::restore(saved.supply)
-        }
+        })
     }
 
-    fn saved(&self) -> Saved {
-        Saved {
-            supply: self.supply,
-            active_heat: self.active_heat,
-            passive_heat: self.passive_heat,
-            engines: self.engines,
-        }
+    fn stats(&self) -> (u32, u32, bool, f32) {
+        (
+            self.engines,
+            self.active_heat,
+            self.passive_heat,
+            self.supply,
+        )
     }
 
     fn write(&self, world: World<'_>, owner: Pos) -> bool {
         let Some(mut tag) = tank_runtime::read_tag(world, owner) else {
             return false;
         };
-        let Ok(saved) = fastnbt::to_value(self.saved()) else {
+        let saved = Saved {
+            supply: self.supply,
+            active_heat: self.active_heat,
+            passive_heat: self.passive_heat,
+            engines: self.engines,
+            engine_positions: self
+                .engine_positions
+                .iter()
+                .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z]))
+                .collect(),
+        };
+        let Ok(saved) = fastnbt::to_value(saved) else {
             return false;
         };
         tag.insert("Boiler".to_owned(), saved);
@@ -162,17 +193,43 @@ impl Boilers {
         true
     }
 
+    pub(crate) fn loaded_tanks(&mut self, world: World<'_>, events: &[ContentEvent]) {
+        for event in events {
+            if event.reason == content::LOADED
+                && is_tank(event.state)
+                && !self.loaded.contains_key(&event.position)
+                && let Some(tag) = tank_runtime::read_tag(world, event.position)
+                && !tag.contains_key("Controller")
+                && let Some(boiler) = tag.get("Boiler").and_then(Boiler::from_tag)
+                && boiler.engines > 0
+                && !boiler.engine_positions.is_empty()
+            {
+                self.loaded.insert(event.position, boiler);
+            }
+        }
+    }
+
     pub(crate) fn tick(
         &mut self,
         world: World<'_>,
-        controllers: &mut HashMap<Pos, (TankInventory, u32)>,
+        controllers: &mut HashMap<Pos, (TankInventory, Vec<Pos>)>,
+        can_still_attach: impl Fn(Pos, Pos) -> bool,
     ) -> HashMap<Pos, f32> {
         self.loaded.retain(|&owner, boiler| {
             if controllers.contains_key(&owner) {
                 return true;
             }
-            if boiler.engines > 0 && tank_runtime::controller(world, owner) == Some(owner) {
+            if let Some(tank) = tank_runtime::load(world, owner) {
+                if boiler
+                    .engine_positions
+                    .iter()
+                    .any(|&pos| can_still_attach(owner, pos))
+                {
+                    controllers.insert(owner, (tank, Vec::new()));
+                    return true;
+                }
                 boiler.engines = 0;
+                boiler.engine_positions.clear();
                 boiler.write(world, owner);
             }
             false
@@ -183,8 +240,19 @@ impl Boilers {
                 .loaded
                 .entry(owner)
                 .or_insert_with(|| Boiler::read(world, owner));
-            let before = boiler.saved();
-            boiler.engines = *engines;
+            let before = boiler.stats();
+            for &pos in &boiler.engine_positions {
+                if !engines.contains(&pos) && can_still_attach(owner, pos) {
+                    engines.push(pos);
+                }
+            }
+            engines.sort_unstable_by_key(|pos| (pos.x, pos.y, pos.z));
+            engines.dedup();
+            let moved = *engines != boiler.engine_positions;
+            if moved {
+                boiler.engine_positions.clone_from(engines);
+            }
+            boiler.engines = engines.len() as u32;
             if tank.window() {
                 tank.set_window(false);
                 if !tank_runtime::update_groups(world, &[(owner, tank.clone())]) {
@@ -195,7 +263,7 @@ impl Boilers {
             boiler.active_heat = active;
             boiler.passive_heat = passive && active == 0;
             boiler.sample();
-            if before != boiler.saved() {
+            if moved || before != boiler.stats() {
                 boiler.write(world, owner);
             }
             efficiency.insert(

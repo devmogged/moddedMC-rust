@@ -479,12 +479,31 @@ pub(crate) fn tick(
         let owner = tank_runtime::canonical(world, tank)
             .filter(|(owner, _)| !kinetics.fluid_tanks.pending(*owner))
             .map(|(owner, tank)| {
-                groups.entry(owner).or_insert((tank, 0u32)).1 += 1;
+                groups
+                    .entry(owner)
+                    .or_insert((tank, Vec::new()))
+                    .1
+                    .push(pos);
                 owner
             });
         attached.push((pos, engine, tank, owner));
     }
-    let efficiency = kinetics.boilers.tick(world, &mut groups);
+    kinetics.boilers.loaded_tanks(world, events);
+    let efficiency = kinetics.boilers.tick(world, &mut groups, |owner, pos| {
+        let state = read(world, pos);
+        // Block data may remain readable after the chunk stops ticking its block entities.
+        if state == content::UNLOADED_STATE {
+            return true;
+        }
+        let Some(block) = states.steam_engines.get(&state) else {
+            return false;
+        };
+        let support = block.tank(pos);
+        tank_runtime::controller(world, support).map_or_else(
+            || read(world, support) == content::UNLOADED_STATE,
+            |current| current == owner,
+        )
+    });
 
     let mut visible = std::collections::HashSet::new();
     for (pos, mut engine, tank, owner) in attached {

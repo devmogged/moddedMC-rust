@@ -1,0 +1,70 @@
+# A boiler retains its engine when that chunk leaves block-entity tick range.
+mods target/mods/create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1037.5 106 1042.5
+wait 4
+cmd fill 1033 103 1037 1045 112 1046 minecraft:air
+cmd setblock 1039 103 1042 minecraft:magma_block
+cmd fill 1039 104 1042 1039 107 1042 create:fluid_tank
+cmd setblock 1042 105 1042 create:shaft[axis=z,waterlogged=false]
+cmd setblock 1040 105 1042 create:steam_engine[face=wall,facing=east,waterlogged=false]
+wait 1
+cmd kinetics 1042 105 1042
+wait 0.4
+expect create:powered_shaft.*Speed=0
+cmd data get block 1039 104 1042 Boiler.Engines
+wait 0.5
+expect block data: 1$
+cmd tp tester 848.5 106 1042.5
+wait 8
+cmd execute if loaded 1039 104 1042
+wait 0.4
+expect Test passed
+cmd execute if block 1040 105 1042 create:steam_engine
+wait 0.4
+expect Test passed
+cmd kinetics 1042 105 1042
+wait 0.4
+expect Kinetic block entity is unavailable
+cmd data get block 1039 104 1042 Boiler.Engines
+wait 0.4
+expect block data: 1$
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+
+start
+botstart tester
+wait 5
+expect \[bot\] joined as tester
+cmd execute if loaded 1039 104 1042
+wait 0.4
+expect Test passed
+cmd execute if block 1040 105 1042 create:steam_engine
+wait 0.4
+expect Test passed
+cmd kinetics 1042 105 1042
+wait 0.4
+expect Kinetic block entity is unavailable
+cmd data get block 1039 104 1042 Boiler.Engines
+wait 0.4
+expect block data: 1$
+
+# A loaded engine really removed by a player or command must release the tank again.
+cmd tp tester 1037.5 106 1042.5
+wait 4
+cmd execute if block 1040 105 1042 create:steam_engine
+wait 0.4
+expect Test passed
+cmd setblock 1040 105 1042 minecraft:air
+wait 0.5
+cmd data get block 1039 104 1042 Boiler.Engines
+wait 0.4
+expect block data: 0$
+reject (?i)panicked|trapped|\[bot\] error
+stop
