@@ -129,6 +129,16 @@ pub fn placed(
     states: &StateIds,
     neighbors: &[u32; 7],
 ) -> Option<u32> {
+    let (facing, along_first) = placement_axis(args, look, states, neighbors);
+    states.lookup(&format!("{ID}[{}]", properties(facing, along_first)))
+}
+
+pub(crate) fn placement_axis(
+    args: &Placement<'_>,
+    look: u8,
+    states: &StateIds,
+    neighbors: &[u32; 7],
+) -> (u8, bool) {
     let facing = look ^ u8::from(!args.sneak);
     let shaft_towards = |side: u8| {
         states
@@ -146,7 +156,7 @@ pub fn placed(
     } else {
         (face_axis(facing) == 2) ^ (shaft_towards(0) || shaft_towards(1))
     };
-    states.lookup(&format!("{ID}[{}]", properties(facing, along_first)))
+    (facing, along_first)
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]

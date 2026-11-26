@@ -77,6 +77,7 @@ mod processing_recipes;
 mod pulley;
 mod sail;
 mod sandpaper;
+mod saw;
 mod seat;
 mod shaft_casing;
 mod speed_controller;
@@ -321,6 +322,7 @@ impl Mod for Create {
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
         press::register(*content, registry)?;
+        saw::register(*content, registry)?;
         basin::register(*content, registry)?;
         mixer::register(*content, registry)?;
         blaze_burner::register(*content, registry)?;
@@ -1107,6 +1109,7 @@ fn states() -> Option<&'static StateIds> {
         funnel::add_states(content, &mut ids);
         crafter::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
+        saw::add_states(content, &mut ids);
         water_wheel::add_states(content, &mut ids);
         large_water_wheel::add_states(content, &mut ids);
         hand_crank::add_states(content, &mut ids);
@@ -1299,6 +1302,7 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             )
         }
         Some(Kind::Deployer { .. }) => return deployer::placed(&args, look, states, &ids),
+        Some(Kind::Saw(_)) => return saw::placed(&args, look, states, &ids),
         Some(Kind::HosePulley(_)) => {
             return fluids::hose_pulley::placed_state(&args, &ids, states);
         }
@@ -1525,6 +1529,8 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     drill: Option<drill::Stationary>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    saw_breaking: Option<drill::Stationary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     arm: Option<arm::Arm>,
     #[serde(skip_serializing_if = "Option::is_none")]
     crafter: Option<crafter::CrafterData>,
@@ -1628,9 +1634,11 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if matches!(kind, Kind::Deployer { .. }) {
         be.deployer = Some(Box::new(data.deployer.unwrap_or_default()));
     }
-    if matches!(kind, Kind::Drill(_)) {
-        be.drill = data.drill;
-    }
+    be.block_breaking = match kind {
+        Kind::Drill(_) => data.drill,
+        Kind::Saw(_) => data.saw_breaking,
+        _ => None,
+    };
     if matches!(kind, Kind::Arm(_)) {
         be.arm = Some(Box::new(data.arm.unwrap_or_default()));
     }
@@ -1714,7 +1722,12 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         pointer: be.valve,
         press: be.press.as_ref().map(|press| press.data),
         deployer: be.deployer.as_deref().cloned(),
-        drill: be.drill,
+        drill: be
+            .block_breaking
+            .filter(|_| matches!(be.kind, Kind::Drill(_))),
+        saw_breaking: be
+            .block_breaking
+            .filter(|_| matches!(be.kind, Kind::Saw(_))),
         arm: be.arm.as_deref().cloned(),
         crafter: be.crafter.as_ref().map(|crafter| crafter.data.clone()),
         basin_recipe: be
@@ -1880,6 +1893,11 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            if (event.reason == content::UNLOADED || !matches!(after, Some(Kind::Saw(_))))
+                && let Some(mut display) = kinetics.saw_blades.remove(&pos)
+            {
+                display.clear(world);
+            }
             if (after.is_none_or(|kind| !matches!(kind, Kind::Belt(_)))
                 || event.reason == content::UNLOADED)
                 && let Some(mut displays) = kinetics.belt_casing_displays.remove(&pos)
@@ -1966,8 +1984,10 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                     if let Some(be) = kinetics.get_mut(pos) {
                         match be.kind {
                             Kind::Fan(_) => be.fan = None,
-                            Kind::Drill(_) => {
-                                be.drill.get_or_insert_with(Default::default).wake();
+                            Kind::Drill(_) | Kind::Saw(_) => {
+                                be.block_breaking
+                                    .get_or_insert_with(Default::default)
+                                    .wake();
                                 be.dirty = true;
                             }
                             _ => {}
@@ -2457,7 +2477,8 @@ fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
     }
     match states.kind(state) {
         Some(Kind::Turntable) => turntable_entity_inside(world, pos, entity),
-        Some(Kind::Drill(_)) => drill::entity_inside(world, pos, entity),
+        Some(Kind::Drill(_)) => drill::entity_inside(world, pos, entity, drill::ID),
+        Some(Kind::Saw(_)) => drill::entity_inside(world, pos, entity, saw::ID),
         Some(Kind::Belt(belt)) => with_world(world, |kinetics| {
             belt_movement::entity_inside(kinetics, pos, state, belt, entity);
         }),

@@ -37,5 +37,11 @@
   "belt_casing/andesite/cover_x": "create:block/belt_cover/andesite_belt_cover_x",
   "belt_casing/andesite/cover_z": "create:block/belt_cover/andesite_belt_cover_z",
   "belt_casing/brass/cover_x": "create:block/belt_cover/brass_belt_cover_x",
-  "belt_casing/brass/cover_z": "create:block/belt_cover/brass_belt_cover_z"
+  "belt_casing/brass/cover_z": "create:block/belt_cover/brass_belt_cover_z",
+  "saw/horizontal_active": "create:block/mechanical_saw/blade_horizontal_active",
+  "saw/horizontal_reversed": "create:block/mechanical_saw/blade_horizontal_reversed",
+  "saw/horizontal_inactive": "create:block/mechanical_saw/blade_horizontal_inactive",
+  "saw/vertical_active": "create:block/mechanical_saw/blade_vertical_active",
+  "saw/vertical_reversed": "create:block/mechanical_saw/blade_vertical_reversed",
+  "saw/vertical_inactive": "create:block/mechanical_saw/blade_vertical_inactive"
 }

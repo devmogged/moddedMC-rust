@@ -1,0 +1,105 @@
+# A horizontal Mechanical Saw cuts a tree only after the remaining trunk loses support.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_saw \(24 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2582.5 105 2582.5
+wait 3
+cmd fill 2577 99 2577 2588 108 2588 minecraft:air
+cmd fill 2577 99 2577 2588 99 2588 minecraft:stone
+cmd tp tester 2582.5 100 2582.5
+cmd gamemode survival tester
+cmd setblock 2583 100 2583 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:iron_sheet 3
+cmd item replace entity tester hotbar.1 with minecraft:iron_ingot
+cmd item replace entity tester hotbar.2 with create:andesite_casing
+wait 0.5
+bot use 2583 100 2583 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 4 right
+wait 0.25
+bot inventory-click 6 right
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 5 left
+wait 0.25
+bot inventory-click 39 left
+wait 0.25
+bot inventory-click 8 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:mechanical_saw 0
+wait 0.5
+expect Found 1 matching item
+
+cmd setblock 2580 100 2580 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2580 100 2580 0
+wait 0.5
+expect at 2580 100 2580 Speed=0\b
+bot look 90 0
+wait 0.5
+bot place 2580 100 2580 east
+wait 1
+cmd execute if block 2581 100 2580 create:mechanical_saw[facing=east]
+wait 0.5
+expect Test passed
+
+# A saw cuts wood but leaves stone intact.
+cmd setblock 2582 100 2580 minecraft:stone
+cmd kinetics 2580 100 2580 128
+wait 2
+bot expect block 2582 100 2580 minecraft:stone
+wait 0.5
+expect ^\[bot\] expect block ok 2582 100 2580 stone
+cmd kinetics 2580 100 2580 16
+cmd fill 2582 100 2580 2583 102 2580 minecraft:oak_log[axis=y]
+cmd setblock 2582 102 2581 minecraft:oak_leaves[distance=1,persistent=true]
+wait 1.5
+cmd kinetics 2580 100 2580 0
+wait 0.5
+cmd data get block 2581 100 2580 SawBreaking.Progress
+wait 0.5
+expect block data: [1-9]$
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2581 100 2580 SawBreaking.Progress
+bot expect block 2582 100 2580 minecraft:oak_log
+wait 0.5
+expect-all block data: [1-9]$ && ^\[bot\] expect block ok 2582 100 2580 oak_log
+cmd kinetics 2580 100 2580 -128
+wait 3
+cmd execute if block 2582 100 2580 minecraft:air if block 2582 101 2580 minecraft:oak_log if block 2583 100 2580 minecraft:oak_log
+wait 0.5
+expect Test passed
+
+# With the supporting log gone, the cut takes both trunks and the connected leaves.
+cmd setblock 2583 100 2580 minecraft:air
+cmd setblock 2582 100 2580 minecraft:oak_log
+wait 3
+cmd execute if block 2582 100 2580 minecraft:air if block 2582 102 2580 minecraft:air if block 2583 102 2580 minecraft:air if block 2582 102 2581 minecraft:air
+wait 0.5
+expect Test passed
+cmd data get entity @e[type=minecraft:item,x=2582.5,y=100,z=2580.5,distance=..5,nbt={Item:{id:"minecraft:oak_log"}},limit=1] Item.id
+wait 0.5
+expect entity data: "minecraft:oak_log"
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

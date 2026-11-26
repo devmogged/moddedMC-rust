@@ -123,6 +123,7 @@ pub enum Kind {
     Bearing(u8),
     Windmill(u8),
     Drill(u8),
+    Saw(crate::saw::SawBlock),
     Clockwork(u8),
     Piston(crate::piston::PistonBlock),
     GantryShaft(crate::gantry::Shaft),
@@ -267,6 +268,7 @@ impl Kind {
                 along_first,
             } => directional_shaft_axis(facing, along_first),
             Self::Pump(facing) => face_axis(facing),
+            Self::Saw(block) => block.axis(),
             Self::Crafter(crafter) => face_axis(crafter.facing),
             Self::HosePulley(facing) => face_axis(crate::fluids::hose_pulley::shaft_side(facing)),
             Self::Motor(facing)
@@ -304,6 +306,7 @@ impl Kind {
             | Self::Windmill(facing)
             | Self::Drill(facing)
             | Self::Clockwork(facing) => facing ^ 1 == face,
+            Self::Saw(block) if block.horizontal() => block.facing ^ 1 == face,
             Self::Gearbox(axis) => face_axis(face) != axis,
             Self::Turntable | Self::Millstone => face == DOWN,
             Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
@@ -346,6 +349,7 @@ impl Kind {
             | Self::Millstone
             | Self::Bearing(_)
             | Self::Drill(_)
+            | Self::Saw(_)
             | Self::Clockwork(_)
             | Self::Piston(_)
             | Self::Pulley(_)
@@ -406,6 +410,7 @@ impl Kind {
             | (Self::Drill(a), Self::Drill(b))
             | (Self::HosePulley(a), Self::HosePulley(b))
             | (Self::Clockwork(a), Self::Clockwork(b)) => a == b,
+            (Self::Saw(a), Self::Saw(b)) => a.facing == b.facing,
             (Self::Piston(a), Self::Piston(b)) => a == b,
             (Self::GantryShaft(a), Self::GantryShaft(b)) => {
                 a.facing == b.facing && a.powered == b.powered
@@ -516,7 +521,7 @@ pub struct Be {
     pub last_gantry_shaft: Option<(crate::gantry::Shaft, f32)>,
     pub pulley: Option<Box<crate::pulley::RopePulley>>,
     pub millstone: Option<Box<crate::millstone::Millstone>>,
-    pub(crate) drill: Option<crate::drill::Stationary>,
+    pub(crate) block_breaking: Option<crate::drill::Stationary>,
 }
 
 impl Be {
@@ -566,7 +571,7 @@ impl Be {
             last_gantry_shaft: None,
             pulley: None,
             millstone: None,
-            drill: None,
+            block_breaking: None,
             valve: None,
             mixer: None,
             press: if matches!(kind, Kind::Press(_)) {
@@ -733,6 +738,7 @@ pub struct Kinetics {
     pub dropped_deployers: Vec<(Pos, fastnbt::Value)>,
     pub(crate) dropped_arms: Vec<(Pos, fastnbt::Value)>,
     pub(crate) arm_displays: HashMap<Pos, crate::arm_display::ArmDisplay>,
+    pub(crate) saw_blades: HashMap<Pos, crate::display_model::ModelDisplay>,
     pub(crate) pending_arm_points: HashMap<(i32, Pos), Vec<crate::arm::Selection>>,
     pub(crate) placed_arm_points: Vec<(Pos, Vec<crate::arm::Selection>)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,

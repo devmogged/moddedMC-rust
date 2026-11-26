@@ -12,6 +12,7 @@ use crate::{
     belt_tunnel::{read, shift},
     collider::Frame,
     kinetics::{Be, FACES, Kind, Kinetics, face_axis, positive},
+    saw,
 };
 
 pub const ID: &str = "create:mechanical_drill";
@@ -132,7 +133,7 @@ impl Stationary {
         self.next_tick = 1;
     }
 
-    fn tick(&mut self, world: World<'_>, target: Pos, speed: f32, lazy_tick: bool) {
+    fn tick(&mut self, world: World<'_>, pos: Pos, kind: Kind, speed: f32, lazy_tick: bool) {
         if self.next_tick < 0 && lazy_tick {
             self.wake();
         }
@@ -143,11 +144,19 @@ impl Stationary {
             self.next_tick -= 1;
             return;
         }
+        let (facing, saw) = match kind {
+            Kind::Drill(facing) => (facing, false),
+            Kind::Saw(block) if block.horizontal() => (block.facing, true),
+            _ => return,
+        };
+        let target = shift(pos, facing);
         let state = read(world, target);
         if state == content::UNLOADED_STATE {
             return;
         }
-        let Some((hardness, _)) = breakable_block(world, target, state) else {
+        let Some((hardness, block)) = breakable_block(world, target, state)
+            .filter(|(_, block)| !saw || saw::is_sawable(block))
+        else {
             self.progress = 0;
             self.next_tick = IDLE;
             return;
@@ -161,38 +170,52 @@ impl Stationary {
             return;
         }
 
-        if let Some(drops) = world.block_drops(target, None)
-            && world.destroy(target, false)
-            && let Some(&stacks) = STACKS.get()
-        {
-            let center = [target.x, target.y, target.z].map(|coord| f64::from(coord) + 0.5);
-            for drop in drops {
-                stacks.spawn(world, center, [0.0; 3], &drop);
-            }
+        if break_and_drop(world, target, [0.0; 3]) && saw {
+            saw::cut_tree(world, target, facing, &block);
         }
         self.progress = 0;
         self.next_tick = IDLE;
     }
 }
 
+pub(crate) fn break_and_drop(world: World<'_>, pos: Pos, motion: [f64; 3]) -> bool {
+    let Some(drops) = world.block_drops(pos, None) else {
+        return false;
+    };
+    if !world.destroy(pos, false) {
+        return false;
+    }
+    if let Some(&stacks) = STACKS.get() {
+        let center = [pos.x, pos.y, pos.z].map(|coord| f64::from(coord) + 0.5);
+        for drop in drops {
+            stacks.spawn(world, center, motion, &drop);
+        }
+    }
+    true
+}
+
 pub(crate) fn tick(world: World<'_>, kinetics: &mut Kinetics, time: u64) {
     let lazy_tick = time.is_multiple_of(LAZY_TICK_RATE);
-    for pos in kinetics.positions(|kind| matches!(kind, Kind::Drill(_))) {
+    for pos in kinetics.positions(|kind| matches!(kind, Kind::Drill(_) | Kind::Saw(_))) {
         let Some(be) = kinetics.get_mut(pos) else {
             continue;
         };
-        let Kind::Drill(facing) = be.kind else {
-            continue;
-        };
+        let kind = be.kind;
         let speed = be.get_speed();
-        let drill = be.drill.get_or_insert_with(Default::default);
-        let previous = *drill;
-        drill.tick(world, shift(pos, facing), speed, lazy_tick);
-        be.dirty |= previous != *drill;
+        if !matches!(kind, Kind::Saw(block) if !block.horizontal()) {
+            let breaker = be.block_breaking.get_or_insert_with(Default::default);
+            let previous = *breaker;
+            breaker.tick(world, pos, kind, speed, lazy_tick);
+            be.dirty |= previous != *breaker;
+        }
+        if let Kind::Saw(block) = kind {
+            let display = kinetics.saw_blades.entry(pos).or_default();
+            saw::show_blade(world, pos, block, speed, display);
+        }
     }
 }
 
-pub(crate) fn entity_inside(world: World<'_>, pos: Pos, entity: Entity<'_>) {
+pub(crate) fn entity_inside(world: World<'_>, pos: Pos, entity: Entity<'_>, damage_type: &str) {
     if entity
         .view()
         .is_none_or(|view| view.kind & ENTITY_ITEM != 0)
@@ -213,7 +236,7 @@ pub(crate) fn entity_inside(world: World<'_>, pos: Pos, entity: Entity<'_>) {
     if speed != 0.0 {
         let damage = ((speed / 16.0).min(2.0) + (speed / 32.0).min(4.0) + (speed / 64.0).min(4.0))
             .clamp(1.0, 10.0);
-        entity.hurt("create:mechanical_drill", damage);
+        entity.hurt(damage_type, damage);
     }
 }
 

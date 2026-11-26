@@ -319,6 +319,13 @@ continues once the block drops. The [drill scenario](../../tests/scenarios/creat
 checks mining progress, resumes across a restart, and checks the dropped item and final position.
 Stationary mining, damage, falling-block stacks and break overlays are pending.
 
+
+### Mechanical Saw
+
+Craft the saw with three Iron Sheets around an Iron Ingot and an Andesite Casing below. Drive a horizontal saw from the rear. It cuts logs, leaves, and supported plant types. It checks the base of the remaining trunk before felling the tree, so a neighboring log can keep a multi-block trunk standing. Mining progress survives a restart.
+
+In stock Java 26.3, mount the saw horizontally against a shaft, then start, reverse, and stop it. Check that the blade points at the log and changes appearance with the shaft. Cut into a broad trunk and confirm the upper trunk stays up until its supports are removed. The [tree scenario](../../tests/scenarios/create-saw-tree.txt) crafts and places the saw in Survival and checks those cuts and a restart.
+
 ### Mechanical Harvester
 
 Attach a Mechanical Harvester to the front of a moving frame and run it down a crop row.
