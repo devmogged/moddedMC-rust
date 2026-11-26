@@ -708,6 +708,41 @@ pub struct BlockWorldV1 {
     /// Roll block loot with the saved tool and an unspawned player-typed actor.
     pub block_drops_with_player_actor:
         unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
+    /// Vanilla chest obstruction (solid block above or a sitting cat).
+    /// -1 for unloaded positions, 0 for clear, 1 for blocked.
+    pub chest_blocked: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> i32,
+    /// Snapshot a custom block entity and its process-local incarnation.
+    pub content_entity_snapshot: unsafe extern "C" fn(
+        world: WorldRef,
+        pos: Pos,
+        state: *mut u32,
+        incarnation: *mut u64,
+        out: Sink,
+    ) -> bool,
+    /// Compare the exact state, incarnation and full NBT before replacing custom fields.
+    pub compare_content_entity: unsafe extern "C" fn(
+        world: WorldRef,
+        pos: Pos,
+        state: u32,
+        incarnation: u64,
+        expected: Str,
+        replacement: Str,
+    ) -> bool,
+    /// Persisted global game-tick clock shared by dimensions (overworld `getGameTime()`).
+    /// Unlike `day_time`, not affected by a player's `/time set` or daylight-cycle gamerule.
+    pub game_time: unsafe extern "C" fn(world: WorldRef, ticks: *mut i64) -> bool,
+    /// Identity-guarded no-drop custom block/entity replacement. When the new
+    /// state has no block entity the replacement NBT must be empty; otherwise
+    /// it must be a complete named-root entity NBT of the destination type.
+    pub compare_replace_content_entity: unsafe extern "C" fn(
+        world: WorldRef,
+        pos: Pos,
+        expected_state: u32,
+        incarnation: u64,
+        expected: Str,
+        destination: u32,
+        replacement: Str,
+    ) -> bool,
 }
 
 #[repr(C)]
@@ -721,6 +756,24 @@ pub struct DayTime {
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
 pub const BLOCK_WORLD_V1_BASE_SIZE: usize = std::mem::offset_of!(BlockWorldV1, has_neighbor_signal);
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod block_world_layout {
+    use super::*;
+    use std::mem::{offset_of, size_of};
+
+    #[test]
+    fn append_only_custom_transactions_and_game_time() {
+        assert_eq!(BLOCK_WORLD_V1_BASE_SIZE, 56);
+        assert_eq!(offset_of!(BlockWorldV1, chest_blocked), 216);
+        assert_eq!(offset_of!(BlockWorldV1, content_entity_snapshot), 224);
+        assert_eq!(offset_of!(BlockWorldV1, compare_content_entity), 232);
+        assert_eq!(offset_of!(BlockWorldV1, game_time), 240);
+        assert_eq!(offset_of!(BlockWorldV1, compare_replace_content_entity), 248);
+        assert_eq!(size_of::<BlockWorldV1>(), 256);
+        assert_eq!(size_of::<DayTime>(), 16);
+    }
+}
 
 pub const FLUID_SOURCE: u32 = 1;
 pub const FLUID_REPLACEABLE: u32 = 2;
@@ -1076,6 +1129,12 @@ pub struct InteractionV1 {
     pub on_player_placed: unsafe extern "C" fn(reg: Reg, callback: PlayerPlacedFn) -> i32,
     /// Vanilla Player.causeFoodExhaustion.
     pub add_exhaustion: unsafe extern "C" fn(player: EntityRef, amount: f32),
+    /// Read the player's actual sneaking state during an immediate item callback.
+    pub player_sneaking: unsafe extern "C" fn(player: EntityRef) -> bool,
+    /// Replace mod data and lodestone tracker on the callback's borrowed stack.
+    /// An empty dimension clears the target. Does not acquire player inventory locks.
+    pub stack_set_lodestone:
+        unsafe extern "C" fn(stack: StackRef, data: Str, dimension: Str, pos: Pos) -> bool,
 }
 
 /// A content item used in the air, with the rotation sent for that action.
@@ -1298,6 +1357,7 @@ pub struct DisplaysV1 {
 
 pub const CRAFTING: &str = "moddedmc:crafting";
 pub const MAX_CRAFTING_SIDE: u8 = 9;
+pub const MAX_CRAFTING_CHOICES: u16 = 64;
 
 /// The engine's crafting matcher and effective crafting remainders.
 #[repr(C)]
@@ -1315,6 +1375,40 @@ pub struct CraftingV1 {
     ) -> bool,
     /// The ingredient's default crafting remainder as saved stack NBT, if any.
     pub remainder: unsafe extern "C" fn(stack: Str, out: Sink) -> bool,
+    /// Bounded enumeration in the exact engine order used by ordinary crafting.
+    /// The callback's key is `index * 3 + field`: 0 saved result stack, 1 recipe
+    /// id (if known), 2 serializer id. Each result is delivered synchronously;
+    /// `index` is zero-based. The low 15 return bits are the complete number of
+    /// emitted choices, bit 15 means another matching recipe existed. A zero
+    /// limit, invalid grid or serialization failure returns zero. The caller
+    /// must check `size` before accessing this appended function pointer.
+    pub enumerate_recipes: unsafe extern "C" fn(
+        world: WorldRef,
+        width: u8,
+        height: u8,
+        grid: *const Str,
+        limit: u16,
+        out: Sink,
+    ) -> u16,
+    /// Enumerate the active player's 2x2 or 3x3 crafting grid against the
+    /// current world's recipes. The return format adds bit 14 (0x4000) when a
+    /// crafting menu is available, even if it has no recipe. Zero otherwise.
+    /// The low 14 bits hold the number of matches; bit 15 marks truncation.
+    /// Never opens a UI or mutates the player's ingredients.
+    pub current_choices: unsafe extern "C" fn(
+        player: PlayerRef,
+        limit: u16,
+        out: Sink,
+    ) -> u16,
+    /// Select an index from `current_choices` in the player's current menu.
+    /// The engine pins the selection to the exact input stack snapshot,
+    /// invalidates it on any input edit, and synchronizes the result slot.
+    /// False leaves the menu and all inventories unchanged.
+    pub select_recipe: unsafe extern "C" fn(player: PlayerRef, index: u16) -> bool,
+    /// Enable stock-client right-click cycling on the crafting result slot.
+    /// Append-only capability; without the Polymorph mod, normal vanilla
+    /// result-click semantics remain active. Returns false if unavailable.
+    pub enable_result_cycle: unsafe extern "C" fn() -> bool,
 }
 
 pub const RESOURCES: &str = "moddedmc:resources";
@@ -2063,6 +2157,43 @@ pub struct ContainerLootV1 {
     /// Emit only occupied slots, using their zero-based index and serialized ItemStack NBT.
     /// Unknown loot tables, invalid sizes, or a player in another world fail the entire call.
     pub generate: unsafe extern "C" fn(WorldRef, PlayerRef, Str, i64, Pos, usize, Sink) -> bool,
+}
+
+pub const CONTAINER_CONVERSION: &str = "moddedmc:container_conversion";
+pub const CONVERSION_PASS: i32 = 0;
+pub const CONVERSION_DEFER: i32 = 1;
+pub const CONVERSION_REPLACE: i32 = 2;
+
+#[repr(C)]
+pub struct ConversionCandidate {
+    pub world: WorldRef,
+    pub position: Pos,
+    pub state: u32,
+    pub nbt: Str,
+}
+pub type ContainerConversionFn = unsafe extern "C" fn(*const ConversionCandidate, Sink) -> i32;
+
+#[repr(C)]
+pub struct ContainerConversionV1 {
+    pub size: usize,
+    pub register: unsafe extern "C" fn(Reg, ContainerConversionFn) -> i32,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod container_conversion_layout {
+    use super::*;
+    use std::mem::{offset_of, size_of};
+
+    #[test]
+    fn conversion_table_and_candidate_are_stable_c_layout() {
+        assert_eq!(size_of::<ContainerConversionV1>(), 16);
+        assert_eq!(offset_of!(ContainerConversionV1, register), 8);
+        assert_eq!(offset_of!(ConversionCandidate, world), 0);
+        assert_eq!(offset_of!(ConversionCandidate, position), 8);
+        assert_eq!(offset_of!(ConversionCandidate, state), 20);
+        assert_eq!(offset_of!(ConversionCandidate, nbt), 24);
+        assert_eq!(size_of::<ConversionCandidate>(), 40);
+    }
 }
 
 /// Update an identified player-owned stack after a delayed action.

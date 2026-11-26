@@ -1,0 +1,14 @@
+[package]
+name = "polymorph"
+version = "0.1.0"
+edition.workspace = true
+license = "LGPL-3.0-or-later"
+description = "Native stock-client Polymorph recipe conflict selection; server-side port in progress"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+moddedmc-api.workspace = true
+fastnbt = "2.6.3"
+serde = { version = "1", features = ["derive"] }
