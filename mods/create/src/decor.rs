@@ -4,8 +4,6 @@
 #[path = "decor_data.rs"]
 mod data;
 
-use std::f32::consts::FRAC_1_SQRT_2;
-
 use moddedmc_api::{
     RegistrationError, Registry,
     content::{Block, Content, Placement, State},
@@ -20,31 +18,30 @@ use crate::{
 
 const AXES: [&str; 3] = ["x", "y", "z"];
 const AXIS_PROPERTIES: [&str; 3] = ["axis=x", "axis=y", "axis=z"];
-const TURN: f32 = FRAC_1_SQRT_2;
 const VERTICAL: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
-fn display_state<'a>(
-    properties: &'a str,
-    physical: &'a str,
-    model: &'a str,
-    orientation: [f32; 4],
-) -> State<'a> {
+fn state<'a>(properties: &'a str, physical: &'a str, model: &'a str, x: i16, y: i16) -> State<'a> {
     State {
         properties,
         physical,
-        model: "",
-        rotating_model: model,
-        x: 0,
-        y: 0,
-        orientation,
+        model,
+        rotating_model: "",
+        x,
+        y,
+        orientation: VERTICAL,
         shape: &[],
     }
 }
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
     for &(path, name, physical, model) in data::BLOCKS {
-        // The palette shares the existing empty carrier and draws the released models as displays.
-        let states = [display_state("", physical, model, VERTICAL)];
+        let mut state = state("", physical, model, 0, 0);
+        // The stock leaf carrier draws cutout, so use a display for transparent glass.
+        if physical == "minecraft:glass" {
+            state.model = "";
+            state.rotating_model = model;
+        }
+        let states = [state];
         content.add_block(
             registry,
             &Block {
@@ -59,19 +56,9 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
     }
     for &(path, name, physical, vertical, horizontal) in data::PILLARS {
         let states = [
-            display_state(AXIS_PROPERTIES[1], physical, vertical, VERTICAL),
-            display_state(
-                AXIS_PROPERTIES[0],
-                physical,
-                horizontal,
-                [-0.5, -0.5, -0.5, 0.5],
-            ),
-            display_state(
-                AXIS_PROPERTIES[2],
-                physical,
-                horizontal,
-                [-TURN, 0.0, 0.0, TURN],
-            ),
+            state(AXIS_PROPERTIES[1], physical, vertical, 0, 0),
+            state(AXIS_PROPERTIES[0], physical, horizontal, 90, 90),
+            state(AXIS_PROPERTIES[2], physical, horizontal, 90, 0),
         ];
         content.add_block(
             registry,

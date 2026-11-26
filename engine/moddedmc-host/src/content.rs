@@ -48,6 +48,7 @@ use pumpkin_data::{
     item::Item,
     item_stack::ItemStack,
     sound::Sound,
+    tag,
 };
 use pumpkin_nbt::Nbt;
 use pumpkin_util::{
@@ -144,6 +145,7 @@ pub struct Registration {
     id: String,
     name: String,
     entity: String,
+    default_entity: bool,
     item_model: String,
     states: Vec<RegisteredState>,
     placement: Option<abi::ContentPlacement>,
@@ -439,6 +441,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         } else {
             entity.into()
         },
+        default_entity: entity.is_empty(),
         item_model: item_model.into(),
         states: registered,
         placement: def.on_place,
@@ -952,6 +955,21 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
         .into_iter()
         .flat_map(|block| reserve_variants(block, "honey_level", &["1", "2", "3", "4"], "0"));
     let mut carriers = notes.chain(targets).chain(hives);
+    let mut dry_leaves = tag::Block::MINECRAFT_LEAVES
+        .0
+        .iter()
+        .filter_map(|name| Block::from_name(name))
+        .flat_map(|block| {
+            reserve_variants(block, "distance", &["1", "2", "3", "4", "5", "6"], "7").filter(
+                move |(state, _)| {
+                    block.properties(*state).is_some_and(|properties| {
+                        properties.to_props().iter().any(|property| {
+                            property.key_str() == "waterlogged" && property.value_str() == "false"
+                        })
+                    })
+                },
+            )
+        });
     let mut assigned = HashMap::new();
     let mut definitions = Vec::with_capacity(blocks.len());
     for (_, block) in blocks {
@@ -965,14 +983,25 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
                 visual.x.rem_euclid(360),
                 visual.y.rem_euclid(360),
             );
-            let (carrier, replacement) = match assigned.entry(look) {
-                Entry::Occupied(entry) => *entry.get(),
-                Entry::Vacant(entry) => *entry.insert(
-                    carriers
-                        .next()
-                        .ok_or_else(|| io::Error::other("custom block carrier slots exhausted"))?,
-                ),
-            };
+            let (carrier, replacement) =
+                match assigned.entry(look) {
+                    Entry::Occupied(entry) => *entry.get(),
+                    Entry::Vacant(entry) => {
+                        // Keep leaf carriers for opaque cubes with no mod-specific block entity.
+                        let carrier = if block.default_entity
+                            && visual.rotating_model.is_empty()
+                            && state.shape.is_empty()
+                            && state.physical.is_solid_render()
+                        {
+                            dry_leaves.next().or_else(|| carriers.next())
+                        } else {
+                            carriers.next()
+                        };
+                        *entry.insert(carrier.ok_or_else(|| {
+                            io::Error::other("custom block carrier slots exhausted")
+                        })?)
+                    }
+                };
             states.push(StateDefinition {
                 properties: state.properties.clone(),
                 physical: state.physical,

@@ -39,6 +39,17 @@ cmd setblock 2719 100 2720 create:cut_andesite
 cmd loot spawn 2719 101 2720 mine 2719 100 2720 minecraft:iron_pickaxe
 wait 0.4
 expect Dropped 1 .*Cut Andesite
+bot expect entity minecraft:item_display near 2719.5 100.5 2720.5 within 0.05 count 0
+wait 0.4
+expect \[bot\] expect entity ok minecraft:item_display
+cmd setblock 2718 100 2719 minecraft:jungle_log
+cmd setblock 2718 101 2719 minecraft:jungle_leaves[distance=1,persistent=true,waterlogged=false]
+cmd execute if block 2718 101 2719 minecraft:jungle_leaves[distance=1,persistent=true,waterlogged=false]
+wait 0.4
+expect Test passed
+bot expect block 2718 101 2719 minecraft:jungle_leaves[distance=7,persistent=true,waterlogged=false]
+wait 0.4
+expect \[bot\] expect block ok 2718 101 2719
 cmd save-all flush
 wait 0.5
 expect Saved the game
