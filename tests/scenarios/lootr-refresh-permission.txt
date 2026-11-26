@@ -1,5 +1,5 @@
 # Preseed config/lootr/lifecycle.txt with:
-# refresh_value=100
+# refresh_value=300
 # refresh_perform_while_ticking=false
 # No global filter. Only the permission-gated command can start a timer.
 mods target\mods\lootr.mmc
@@ -8,6 +8,7 @@ expect moddedmc: loaded lootr
 botstart alice
 wait 3
 cmd gamemode survival alice
+cmd deop alice
 cmd tp alice 1025.5 101 1023.5
 wait 3
 cmd fill 1020 100 1020 1031 105 1030 minecraft:air
@@ -30,7 +31,8 @@ bot cmd lootr refresh
 wait 1
 reject has been set to refresh
 cmd tp alice 1025.5 101 1023.5
-wait 8
+cmd tick sprint 400t
+wait 15
 bot use 1025 100 1025
 wait 0.5
 bot expect slot 0 minecraft:air 0
@@ -45,7 +47,7 @@ cmd tp alice 1025.5 101 1025.5
 wait 1
 bot cmd lootr refresh
 wait 0.5
-expect has been set to refresh with a delay of 100
+expect has been set to refresh with a delay of 300
 cmd deop alice
 cmd tp alice 1025.5 101 1023.5
 wait 1
@@ -54,8 +56,17 @@ wait 0.5
 bot expect slot 0 minecraft:air 0
 wait 0.5
 expect expect inventory ok slot 0 air 0
+# Even after expiry the existing view remains active: perform while
+# ticking is false, so only a subsequent open may refresh the claim.
+cmd tick sprint 400t
+wait 15
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot expect slot 54 minecraft:stick 1
+wait 0.5
+expect expect inventory ok slot 54 stick 1
 bot inventory-close
-wait 7
 bot use 1025 100 1025
 wait 0.5
 bot expect slot 0 minecraft:diamond 7

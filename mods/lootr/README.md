@@ -130,12 +130,26 @@ container also refreshes even when tick expiry is disabled. The configured
 duration does not extend an existing timer on ordinary re-open. Structure
 tag filters and source status notifications are not supported yet.
 
-Destructive decay is not active: the parser rejects an enabled decay policy
-or `replace_when_decayed=true` until the host provides guarded replacement.
-An existing due decay deadline denies a new open without touching the block.
-The replacement path must also account for the source's surprising
-`ExposedCopperChestLootrType.getReplacementBlock()` returning a waxed
-exposed copper chain; the other copper types return waxed chests.
+The new source path supports opt-in no-drop decay with
+`replace_when_decayed=true` and requires the host's
+`ContentEntityReplacement` extension in that configuration. For example:
+
+```text
+decay_all=true
+decay_value=6000
+replace_when_decayed=true
+decay_perform_while_ticking=true
+```
+
+`/lootr decay` (permission level 2) can also start a timer when guarded
+replacement is enabled. Both open and tick paths use the exact saved
+entity snapshot and new vanilla destination NBT; an exposed copper
+chest becomes a waxed exposed copper chain as in the source. Default
+drop-producing decay is still unsupported: enabled decay filters without
+`replace_when_decayed=true` are rejected. A due identity without the
+replacement policy denies new claims without touching the block.
+This new path is source-only, awaiting gated compilation and runtime
+validation; it does not claim cross-file crash-atomicity.
 
 ## Persistence scaling
 
@@ -203,6 +217,11 @@ not automatic vanilla-container conversion.
 - `lootr-refresh-permission.txt`: explicit admin timer with no automatic
   filter, denied ordinary player command, and open-only expiry. Preseed its
   dedicated run configuration as stated in the header.
+- `lootr-decay-replace.txt`: guarded no-drop decay of barrel and exposed
+  copper chest, exact destination state, empty vanilla inventory, untouched
+  unclaimed neighbor, held cursor conservation and restart. Preseed its
+  dedicated configuration per the header. Requires the new replacement
+  extension and remains unrun.
 - `lootr-migration-fixture-setup.txt` and `tests/fixtures/lootr-legacy.py`:
   a schema-derived legacy save fixture for the same migration-after scenario.
   Its provenance and exact commands are in [PERSISTENCE-DESIGN.md](PERSISTENCE-DESIGN.md).

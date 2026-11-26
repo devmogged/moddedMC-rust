@@ -1,5 +1,5 @@
 //! In-memory index of loaded sites only; the shard is authoritative.
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub(crate) type Position = [i32; 3];
 pub(crate) const BUDGET: usize = 16;
@@ -9,6 +9,7 @@ pub(crate) struct Queue {
     due: BTreeSet<(i64, Position)>,
     deadlines: HashMap<Position, i64>,
     epochs: HashMap<Position, i64>,
+    decaying: HashSet<Position>,
     next_epoch: i64,
 }
 
@@ -60,6 +61,23 @@ impl Queue {
     pub fn invalidate(&mut self, pos: Position) {
         self.epochs.remove(&pos);
     }
+
+    /// Reserve a single in-flight CAS. Unload/state callbacks cannot clear
+    /// this reservation; the caller releases it after the host returns.
+    pub fn reserve_decay(&mut self, pos: Position) -> bool {
+        self.decaying.insert(pos)
+    }
+
+    pub fn decaying(&self, pos: Position) -> bool {
+        self.decaying.contains(&pos)
+    }
+
+    pub fn finish_decay(&mut self, pos: Position, committed: bool) {
+        self.decaying.remove(&pos);
+        if committed {
+            self.invalidate(pos);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -89,5 +107,21 @@ mod tests {
         assert!(new > epoch);
         q.invalidate(pos);
         assert!(!q.valid(pos, new));
+    }
+
+    #[test]
+    fn decay_reservation_is_exclusive_and_failure_keeps_epoch() {
+        let mut q = Queue::default();
+        let pos = [1, 2, 3];
+        let epoch = q.epoch(pos).unwrap();
+        assert!(q.reserve_decay(pos));
+        assert!(!q.reserve_decay(pos));
+        assert!(q.decaying(pos));
+        q.finish_decay(pos, false);
+        assert!(!q.decaying(pos));
+        assert!(q.valid(pos, epoch));
+        assert!(q.reserve_decay(pos));
+        q.finish_decay(pos, true);
+        assert!(!q.valid(pos, epoch));
     }
 }

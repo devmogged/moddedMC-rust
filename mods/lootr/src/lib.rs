@@ -10,7 +10,7 @@ use moddedmc_api::{
     commands::{self, Argument, Node},
     container_conversion::{self, Candidate, Conversion, Decision},
     container_loot::{self, ContainerLoot},
-    content::{self, Content, World, WorldExtension},
+    content::{self, Content, EntitySnapshot, World, WorldExtension},
     entities::{self, EntitiesExtension},
     interaction::{self, BlockUseResult, Interaction, InteractionExtension, UseBlock},
     inventory_menu::{self, Access, Change, MenuKind, Validated, Validity, ValiditySlots},
@@ -107,6 +107,11 @@ impl Mod for Lootr {
         let policy = refresh_config(std::fs::read_to_string(
             moddedmc_api::data_dir().join("lifecycle.txt"),
         ))?;
+        if policy.replace_when_decayed {
+            api.content
+                .require_extension(WorldExtension::ContentEntityReplacement)
+                .map_err(|_| RegistrationError::InvalidDefinition)?;
+        }
         let legacy = api.saved.register(registry, "inventories")?;
         let manifest = api.saved.register(registry, "inventories/v2/manifest")?;
         let mut keys = [legacy; shards::COUNT];
@@ -144,6 +149,12 @@ impl Mod for Lootr {
                         argument: Argument::Literal,
                         tag: Some(3),
                     },
+                    Node {
+                        parent: None,
+                        name: "decay",
+                        argument: Argument::Literal,
+                        tag: Some(4),
+                    },
                 ],
             )?;
         api.interaction.on_use_block(registry, used)?;
@@ -167,7 +178,7 @@ impl Mod for Lootr {
             command.reply("Must provide player name.");
             return 1;
         }
-        if !matches!(tag, 1 | 3) {
+        if !matches!(tag, 1 | 3 | 4) {
             return 0;
         }
         let Some(runtime) = RUNTIME.get().copied() else {
@@ -180,7 +191,7 @@ impl Mod for Lootr {
         let Some(world) = runtime.api.content.command_world(&command) else {
             return 0;
         };
-        if tag == 3 && clock(world).is_none() {
+        if tag != 1 && clock(world).is_none() {
             command.reply("Persisted game time unavailable.");
             return 0;
         }
@@ -203,16 +214,34 @@ impl Mod for Lootr {
             pos.y = y;
         }
         let Ok(_guard) = LOCK.lock() else { return 0 };
+        let Some(dimension) = world.dimension_id() else {
+            return 0;
+        };
+        if site_decaying(dimension, position(pos)) {
+            command.reply("Container decay is in progress.");
+            return 0;
+        }
+        if tag == 4
+            && !POLICY
+                .get()
+                .is_some_and(|policy| policy.replace_when_decayed)
+        {
+            command.reply(
+                "Drop-producing decay is unavailable; enable guarded replacement in lifecycle.txt.",
+            );
+            return 0;
+        }
         if let Some((chest, _)) = chest_data(world, pos) {
             if tag == 1 {
                 command.reply(&format!("The ID of this inventory is: {}", chest.id));
-            } else if let Some(ticks) = begin_manual_refresh(runtime, world, pos, &chest) {
+            } else if let Some(ticks) = begin_manual_timer(runtime, world, pos, &chest, tag == 4) {
                 command.reply(&format!(
-                    "Container with ID {} has been set to refresh with a delay of {ticks}",
-                    chest.id
+                    "Container with ID {} has been set to {} with a delay of {ticks}",
+                    chest.id,
+                    if tag == 4 { "decay" } else { "refresh" }
                 ));
             } else {
-                command.reply("Could not persist the refresh deadline.");
+                command.reply("Could not persist the lifecycle deadline.");
                 return 0;
             }
         } else {
@@ -230,9 +259,9 @@ fn refresh_config(value: std::io::Result<String>) -> Result<lifecycle::Config, R
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => lifecycle::Config::default(),
         Err(_) => return Err(RegistrationError::InvalidDefinition),
     };
-    // Do not silently accept an active destructive policy before guarded
-    // replacement exists. Existing persisted decay deadlines are still read.
-    if config.decay.enabled() || config.replace_when_decayed {
+    // Only the no-drop guarded replacement operation is available.
+    // Never silently substitute replacement for default drop-producing decay.
+    if config.decay.enabled() && !config.replace_when_decayed {
         return Err(RegistrationError::InvalidDefinition);
     }
     Ok(config)
@@ -323,24 +352,75 @@ fn clock(world: World<'_>) -> Option<i64> {
     world.game_time().filter(|now| *now >= 0)
 }
 
-fn next_refresh(archive: &state::Archive, id: &str, config: &lifecycle::Config) -> Option<i64> {
-    if !config.refresh.perform_while_ticking {
-        return None;
+fn site_decaying(dimension: &str, pos: scheduler::Position) -> bool {
+    // Fail closed on poisoned queue state.
+    with_queue(dimension, |q| q.decaying(pos)) != Some(false)
+}
+
+/// A reservation spans the unlocked host swap call. All archive operations
+/// touching the target check this under LOCK before changing claims.
+struct DecayReservation<'a> {
+    dimension: &'a str,
+    pos: scheduler::Position,
+    committed: bool,
+}
+
+impl<'a> DecayReservation<'a> {
+    fn reserve(dimension: &'a str, pos: scheduler::Position) -> Option<Self> {
+        (with_queue(dimension, |q| q.reserve_decay(pos)) == Some(true)).then(|| Self {
+            dimension,
+            pos,
+            committed: false,
+        })
     }
+}
+
+impl Drop for DecayReservation<'_> {
+    fn drop(&mut self) {
+        let _ = with_queue(self.dimension, |q| q.finish_decay(self.pos, self.committed));
+    }
+}
+
+/// No drop-producing fallback. The persistent old binding, timer and claims
+/// are retained so a pre-swap world restored after a crash remains due.
+fn execute_decay(
+    runtime: Runtime,
+    world: World<'_>,
+    pos: moddedmc_api::Pos,
+    snapshot: &EntitySnapshot,
+    mut reservation: DecayReservation<'_>,
+) -> bool {
+    let Some((destination, replacement)) =
+        variants::decay_replacement(runtime.api.content, snapshot.state, pos)
+    else {
+        return false;
+    };
+    reservation.committed =
+        world.compare_replace_entity(pos, snapshot, destination, replacement.as_deref());
+    reservation.committed
+}
+
+fn next_refresh(archive: &state::Archive, id: &str, config: &lifecycle::Config) -> Option<i64> {
     let schedule = archive.schedule(id)?;
     if !archive.has_claims(id) {
         return None;
     }
-    // A pending decay must not be replaced by refresh while its destructive
-    // operation is unsupported. The open path will deny it when due.
-    let refresh = schedule.refresh_at?;
-    if schedule
-        .decay_at
-        .is_some_and(|decay| decay <= refresh && config.decay.perform_while_ticking)
-    {
-        return None;
+    let refresh = config
+        .refresh
+        .perform_while_ticking
+        .then_some(schedule.refresh_at)
+        .flatten();
+    let decay = config
+        .decay
+        .perform_while_ticking
+        .then_some(schedule.decay_at)
+        .flatten();
+    if config.replace_when_decayed {
+        return refresh.into_iter().chain(decay).min();
     }
-    Some(refresh)
+    // Without guarded replacement enabled, do not refresh an already-due
+    // decay identity. The open path denies it instead.
+    refresh.filter(|at| decay.is_none_or(|decay| decay > *at))
 }
 
 fn next_probe(
@@ -355,8 +435,10 @@ fn next_probe(
     // A block-entity table may be changed without a block state event.
     // Only the opt-in start-while-ticking policy needs occasional probes
     // of already-opened, currently unscheduled containers.
-    if config.refresh.start_while_ticking
-        && config.refresh.enabled()
+    if ((config.refresh.start_while_ticking && config.refresh.enabled())
+        || (config.replace_when_decayed
+            && config.decay.start_while_ticking
+            && config.decay.enabled()))
         && archive.has_claims(id)
         && archive
             .schedule(id)
@@ -369,11 +451,12 @@ fn next_probe(
 
 /// Source /lootr refresh resets the deadline even if a timer already exists.
 /// The caller holds LOCK; a new timer becomes visible only after the shard write.
-fn begin_manual_refresh(
+fn begin_manual_timer(
     runtime: Runtime,
     world: World<'_>,
     pos: moddedmc_api::Pos,
     chest: &ChestData,
+    decay: bool,
 ) -> Option<i64> {
     let now = clock(world)?;
     let config = POLICY.get()?;
@@ -393,7 +476,16 @@ fn begin_manual_refresh(
         .schedule(&chest.id)
         .cloned()
         .unwrap_or_default();
-    schedule.refresh_at = Some(now.checked_add(config.refresh.ticks)?);
+    let ticks = if decay {
+        if !config.replace_when_decayed {
+            return None;
+        }
+        schedule.decay_at = Some(now.checked_add(config.decay.ticks)?);
+        config.decay.ticks
+    } else {
+        schedule.refresh_at = Some(now.checked_add(config.refresh.ticks)?);
+        config.refresh.ticks
+    };
     if !shard.archive.set_schedule(&chest.id, schedule) {
         return None;
     }
@@ -407,7 +499,7 @@ fn begin_manual_refresh(
             next_refresh(&shard.archive, &chest.id, config),
         )
     })?;
-    Some(config.refresh.ticks)
+    Some(ticks)
 }
 
 /// Loaded/state events are cheap, deduplicated queue updates. Only a bounded
@@ -448,10 +540,13 @@ fn lifecycle_tick(world: World<'_>, _: u64, events: &[content::ContentEvent]) {
     };
     let Some(now) = now else { return };
     for pos in ready {
-        let Ok(_guard) = LOCK.lock() else { return };
-        let deadline = refresh_loaded(runtime, world, config, dimension, pos, now);
-        let _ = with_queue(dimension, |q| q.schedule(pos, deadline));
+        refresh_loaded(runtime, world, config, dimension, pos, now);
     }
+}
+
+enum LoadedProbe {
+    Deadline(i64),
+    Decay(EntitySnapshot),
 }
 
 fn refresh_loaded(
@@ -461,7 +556,45 @@ fn refresh_loaded(
     dimension: &str,
     position: scheduler::Position,
     now: i64,
-) -> Option<i64> {
+) {
+    let Ok(guard) = LOCK.lock() else { return };
+    if site_decaying(dimension, position) {
+        let _ = with_queue(dimension, |q| q.schedule(position, now.checked_add(20)));
+        return;
+    }
+    match probe_loaded(runtime, world, config, dimension, position, now) {
+        Some(LoadedProbe::Decay(snapshot)) => {
+            let Some(reservation) = DecayReservation::reserve(dimension, position) else {
+                return;
+            };
+            // Install bounded retry before releasing LOCK. A later successful
+            // open cannot have its new timer overwritten by this old probe.
+            let _ = with_queue(dimension, |q| q.schedule(position, now.checked_add(20)));
+            drop(guard);
+            // Host may close screens synchronously; never hold LOCK across CAS.
+            let [x, y, z] = position;
+            let pos = moddedmc_api::Pos { x, y, z };
+            let _ = execute_decay(runtime, world, pos, &snapshot, reservation);
+        }
+        result => {
+            let deadline = match result {
+                Some(LoadedProbe::Deadline(at)) => Some(at),
+                _ => None,
+            };
+            // Publish the result while serialized with the archive operation.
+            let _ = with_queue(dimension, |q| q.schedule(position, deadline));
+        }
+    }
+}
+
+fn probe_loaded(
+    runtime: Runtime,
+    world: World<'_>,
+    config: &lifecycle::Config,
+    dimension: &str,
+    position: scheduler::Position,
+    now: i64,
+) -> Option<LoadedProbe> {
     let [x, y, z] = position;
     let pos = moddedmc_api::Pos { x, y, z };
     // Do not assign IDs, initialize shards, or roll loot merely by loading a block.
@@ -483,8 +616,11 @@ fn refresh_loaded(
     if previous.is_none()
         && !(config.refresh.start_while_ticking
             && config.refresh.matches(chest.table.as_deref(), dimension))
+        && !(config.replace_when_decayed
+            && config.decay.start_while_ticking
+            && config.decay.matches(chest.table.as_deref(), dimension))
     {
-        return next_probe(&shard.archive, &chest.id, config, now);
+        return next_probe(&shard.archive, &chest.id, config, now).map(LoadedProbe::Deadline);
     }
     if !shard.archive.bind_site(&chest.id, &site) {
         return None;
@@ -494,7 +630,10 @@ fn refresh_loaded(
             .archive
             .advance_lifecycle(&chest.id, config, now, chest.table.as_deref(), true)?;
     if action == lifecycle::Action::Decay {
-        return None; // destructive operation deliberately not available
+        if !config.replace_when_decayed {
+            return None;
+        }
+        return Some(LoadedProbe::Decay(snapshot));
     }
     if action == lifecycle::Action::Refresh
         || previous.as_ref() != shard.archive.schedule(&chest.id)
@@ -506,13 +645,13 @@ fn refresh_loaded(
         }
         let bytes = shard.encode()?;
         if !runtime.api.saved.write(&world, runtime.keys[index], &bytes) {
-            return now.checked_add(20); // bounded retry, do not invalidate menus
+            return now.checked_add(20).map(LoadedProbe::Deadline);
         }
         if action == lifecycle::Action::Refresh {
             let _ = with_queue(dimension, |q| q.invalidate(position));
         }
     }
-    next_probe(&shard.archive, &chest.id, config, now)
+    next_probe(&shard.archive, &chest.id, config, now).map(LoadedProbe::Deadline)
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -713,10 +852,10 @@ fn chest_matches(world: World<'_>, site: &state::Site, id: &str, incarnation: Op
 }
 
 fn site_matches(world: World<'_>, record: &state::Record) -> bool {
-    record
-        .site
-        .as_ref()
-        .is_some_and(|site| chest_matches(world, site, &record.container, None))
+    record.site.as_ref().is_some_and(|site| {
+        !site_decaying(&site.dimension, site.position)
+            && chest_matches(world, site, &record.container, None)
+    })
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -773,6 +912,9 @@ fn mark_unopened(
     owner: [u8; 16],
 ) {
     let Ok(_guard) = LOCK.lock() else { return };
+    if site_decaying(&site.dimension, site.position) {
+        return;
+    }
     let Some(snapshot) = world.entity_snapshot(pos) else {
         return;
     };
@@ -862,9 +1004,12 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
         return BlockUseResult::Success;
     }
     let (index, id, inventory, validity_context, title) = {
-        let Ok(_guard) = LOCK.lock() else {
+        let Ok(guard) = LOCK.lock() else {
             return failed("archive lock poisoned");
         };
+        if site_decaying(dimension, site.position) {
+            return failed("container decay is in progress");
+        }
         let Some(now) = clock(world) else {
             return failed("persisted game time unavailable");
         };
@@ -895,7 +1040,28 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
             return failed("lifecycle site missing");
         };
         if action == lifecycle::Action::Decay {
-            return failed("container decay due; guarded destruction unavailable");
+            if !policy.replace_when_decayed {
+                return failed("container decay due; guarded destruction unavailable");
+            }
+            let Some(snapshot) = world.entity_snapshot(pos) else {
+                return failed("decay snapshot unavailable");
+            };
+            if snapshot.incarnation != incarnation
+                || variants::kind(runtime.api.content, snapshot.state) != Some(kind)
+                || !fastnbt::from_bytes::<ChestData>(&snapshot.nbt)
+                    .is_ok_and(|data| data.id == chest.id && !data.locked())
+            {
+                return failed("decay snapshot identity changed");
+            }
+            let Some(reservation) = DecayReservation::reserve(dimension, site.position) else {
+                return failed("decay already reserved");
+            };
+            drop(guard);
+            return if execute_decay(runtime, world, pos, &snapshot, reservation) {
+                BlockUseResult::Success
+            } else {
+                failed("guarded decay failed")
+            };
         }
         if action == lifecycle::Action::Refresh {
             // Persist the deletion even if new loot generation later fails.
@@ -1194,12 +1360,14 @@ mod tests {
         for invalid in [
             "decay_all=true",
             "decay_dimensions=minecraft:overworld",
-            "replace_when_decayed=true",
             "refresh_value=0",
             "unknown=true",
         ] {
             assert!(refresh_config(Ok(invalid.into())).is_err());
         }
+        let guarded =
+            refresh_config(Ok("decay_all=true\nreplace_when_decayed=true".into())).unwrap();
+        assert!(guarded.decay.all && guarded.replace_when_decayed);
         assert!(refresh_config(Err(Error::from(ErrorKind::PermissionDenied))).is_err());
     }
 
@@ -1236,6 +1404,14 @@ mod tests {
             }
         ));
         assert_eq!(next_refresh(&archive, id, &config), None);
+        config.replace_when_decayed = true;
+        assert_eq!(next_refresh(&archive, id, &config), Some(19));
+        config.refresh.perform_while_ticking = false;
+        assert_eq!(next_refresh(&archive, id, &config), Some(19));
+        config.decay.perform_while_ticking = false;
+        assert_eq!(next_refresh(&archive, id, &config), None);
+        config.refresh.perform_while_ticking = true;
+        config.replace_when_decayed = false;
         config.refresh.all = true;
         config.refresh.start_while_ticking = true;
         assert!(archive.set_schedule(id, lifecycle::Schedule::default()));

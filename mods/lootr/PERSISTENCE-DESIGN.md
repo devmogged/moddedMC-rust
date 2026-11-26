@@ -166,10 +166,9 @@ The index bounds expensive due/rehydration probes to 16 per dimension per
 tick, deduplicates positions and drops unloaded entries. Each probe reads a
 published shard, never initializes an empty shard or adopts an orphan.
 The persisted clock is mandatory; daylight time and process ticks are not
-substitutes. This is not a cross-file crash-atomic player inventory journal,
-and destructive decay remains disabled pending guarded block replacement.
+substitutes. This is not a cross-file crash-atomic player inventory journal.
 
-### Guarded decay contract (not yet active)
+### Guarded decay contract (no-drop replacement source, not yet validated)
 
 The upstream `ILootrBlockEntity.performDecay` destroys with drops when
 `replace_when_decayed=false`. When true it destroys without drops and sets
@@ -181,10 +180,11 @@ vertical axis is retained, waterlogging is copied, and chest facing/type
 are not shared. All other supported replacements use their normal physical
 counterpart with the source properties.
 
-Required host operation: one synchronous loaded-world compare-and-destroy
-or compare-and-replace call taking position, expected state, process-local
-incarnation and complete expected entity NBT, plus optional replacement
-state and drop flag. Under the world mutation exclusion boundary, verify
+The new host operation `World::compare_replace_entity` takes position,
+expected state, process-local incarnation and complete expected entity
+NBT, plus destination state and optional destination saved entity NBT.
+It is no-drop only; drop-producing destruction still needs a separate
+guarded operation. Under the world mutation exclusion boundary, verify
 the loaded entity and its exact metadata, validate the target before any
 destructive work, then perform the operation with ordinary update/drop
 semantics. A failed comparison must leave the world, drops and block entity
@@ -194,9 +194,16 @@ entity data, not the old Lootr UUID, table, seed or private inventory.
 
 Under the Lootr archive lock, evaluate decay before refresh, require the
 persisted clock and the site's matching bound identity, retain the entire
-snapshot, and resolve the replacement before calling the CAS. Do not
-consume the deadline, delete claims or invalidate a menu on CAS failure.
-Reprobe a still-loaded identity with bounded backoff and a fresh snapshot.
+snapshot, and reserve the site for one in-flight swap. Release the archive
+lock before the host call because it may synchronously close screens.
+Claims, menu commits and administrative timer changes refuse the reserved
+site while the call is in progress. A RAII reservation releases the site
+even on failure. The destination is resolved and encoded as fresh
+vanilla entity metadata (id and position only), or no NBT for the chain,
+before invoking the swap. Do not consume the deadline, delete claims or
+invalidate a menu on CAS failure. The tick path schedules a bounded
+retry before releasing the archive lock; later successful opens cannot
+have their timers overwritten by the old probe.
 After success, invalidate the old site's menu epoch. Preserve the old
 UUID binding and due deadline as a fail-closed tombstone; do not recycle
 its menu IDs, or clear the old deadline before the world transition is
@@ -209,8 +216,10 @@ The above does not promise crash-atomic world/drop/player persistence:
 if the world and item drops can be independently saved, replay of a
 pre-decay world after a process crash can repeat drops. Exactly-once
 cross-file durability requires the host's shared journal or checkpoint
-transaction. Until the guarded operation is provided and validated,
-keep new decay policies disabled and deny opening an already-due identity.
+transaction. The explicit no-drop replacement policy now has a source
+implementation requiring the new extension, but it has not been compiled
+or tested yet. Do not enable the drop-producing policy; due identities
+without guarded replacement continue to deny new claims.
 
 Regression plan: reject an outdated snapshot after same-state replacement,
 NBT edit or chunk unload without any drop; test default drop versus

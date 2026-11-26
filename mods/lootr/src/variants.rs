@@ -102,6 +102,39 @@ impl Variant {
             format!("{}[{}]", self.physical, self.properties(face, flag))
         })
     }
+
+    /// The vanilla destination must carry its own fresh saved entity, never
+    /// the source's UUID, loot table, seed, lock or private reference items.
+    fn decay_entity_id(self) -> Option<&'static str> {
+        match self.id {
+            "lootr:exposed_copper_chest" => None,
+            "lootr:barrel" => Some("minecraft:barrel"),
+            "lootr:trapped_chest" => Some("minecraft:trapped_chest"),
+            _ => Some("minecraft:chest"),
+        }
+    }
+
+    fn decay_entity(self, pos: moddedmc_api::Pos) -> Option<Option<Vec<u8>>> {
+        #[derive(serde::Serialize)]
+        struct Fresh<'a> {
+            id: &'a str,
+            x: i32,
+            y: i32,
+            z: i32,
+        }
+        match self.decay_entity_id() {
+            Some(id) => Some(Some(
+                fastnbt::to_bytes(&Fresh {
+                    id,
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                })
+                .ok()?,
+            )),
+            None => Some(None),
+        }
+    }
 }
 
 pub(crate) fn register(
@@ -221,9 +254,14 @@ pub(crate) fn converted(content: Content, source: u32) -> Option<u32> {
 
 /// Plan only; never mutate the world here. None means unresolved source/target,
 /// not permission to fall back to an unguarded destruction.
-pub(crate) fn decay_replacement(content: Content, source: u32) -> Option<u32> {
+pub(crate) fn decay_replacement(
+    content: Content,
+    source: u32,
+    pos: moddedmc_api::Pos,
+) -> Option<(u32, Option<Vec<u8>>)> {
     let entry = mapping(content)?.iter().find(|m| m.custom == source)?;
-    content.state(&entry.variant.decay_selector(entry.face, entry.flag)?)
+    let destination = content.state(&entry.variant.decay_selector(entry.face, entry.flag)?)?;
+    Some((destination, entry.variant.decay_entity(pos)?))
 }
 
 fn placed(args: Placement<'_>) -> Option<u32> {
@@ -296,6 +334,37 @@ mod tests {
         assert_eq!(total, 60);
         assert!(VARIANTS[0].decay_selector("up", false).is_none());
         assert!(VARIANTS[2].decay_selector("invalid", true).is_none());
+    }
+
+    #[test]
+    fn decay_replacement_entity_is_empty_and_has_exact_destination_metadata() {
+        let pos = moddedmc_api::Pos {
+            x: -7,
+            y: 64,
+            z: 12,
+        };
+        for (variant, expected) in VARIANTS.into_iter().zip([
+            Some("minecraft:chest"),
+            Some("minecraft:trapped_chest"),
+            Some("minecraft:barrel"),
+            Some("minecraft:chest"),
+            None,
+            Some("minecraft:chest"),
+            Some("minecraft:chest"),
+        ]) {
+            let data = variant.decay_entity(pos).unwrap();
+            if let Some(expected) = expected {
+                let fields: std::collections::HashMap<String, fastnbt::Value> =
+                    fastnbt::from_bytes(&data.unwrap()).unwrap();
+                assert_eq!(fields.len(), 4);
+                assert_eq!(fields["id"], fastnbt::Value::String(expected.into()));
+                assert_eq!(fields["x"], fastnbt::Value::Int(-7));
+                assert_eq!(fields["y"], fastnbt::Value::Int(64));
+                assert_eq!(fields["z"], fastnbt::Value::Int(12));
+            } else {
+                assert!(data.is_none());
+            }
+        }
     }
 
     #[test]
