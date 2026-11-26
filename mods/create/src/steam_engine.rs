@@ -489,21 +489,26 @@ pub(crate) fn tick(
         attached.push((pos, engine, tank, owner));
     }
     kinetics.boilers.loaded_tanks(world, events);
-    let efficiency = kinetics.boilers.tick(world, &mut groups, |owner, pos| {
-        let state = read(world, pos);
-        // Block data may remain readable after the chunk stops ticking its block entities.
-        if state == content::UNLOADED_STATE {
-            return true;
-        }
-        let Some(block) = states.steam_engines.get(&state) else {
-            return false;
-        };
-        let support = block.tank(pos);
-        tank_runtime::controller(world, support).map_or_else(
-            || read(world, support) == content::UNLOADED_STATE,
-            |current| current == owner,
-        )
-    });
+    let efficiency = kinetics.boilers.tick(
+        world,
+        &mut groups,
+        |owner, pos| {
+            let state = read(world, pos);
+            // Block data may remain readable after the chunk stops ticking its block entities.
+            if state == content::UNLOADED_STATE {
+                return true;
+            }
+            let Some(block) = states.steam_engines.get(&state) else {
+                return false;
+            };
+            let support = block.tank(pos);
+            tank_runtime::controller(world, support).map_or_else(
+                || read(world, support) == content::UNLOADED_STATE,
+                |current| current == owner,
+            )
+        },
+        time,
+    );
 
     let mut visible = std::collections::HashSet::new();
     for (pos, mut engine, tank, owner) in attached {
@@ -737,18 +742,12 @@ impl SteamDisplays {
                 -(angle + std::f32::consts::FRAC_PI_2),
             ),
         ]) {
-            let [x, y, z, _] = compose(
-                compose(
-                    base,
-                    [model_offset[0], model_offset[1], model_offset[2], 0.0],
-                ),
-                [-base[0], -base[1], -base[2], base[3]],
-            );
+            let shift = rotate_vector(base, model_offset);
             display.show(
                 world,
                 model,
                 &moddedmc_api::stacks::ItemDisplay {
-                    position: std::array::from_fn(|i| origin[i] + f64::from([x, y, z][i])),
+                    position: std::array::from_fn(|i| origin[i] + f64::from(shift[i])),
                     rotation: compose(base, spin(0, rotation)),
                     scale: 1.0,
                     context: 0,
@@ -765,18 +764,24 @@ impl SteamDisplays {
     }
 }
 
-fn spin(axis: usize, radians: f32) -> [f32; 4] {
+pub(super) fn spin(axis: usize, radians: f32) -> [f32; 4] {
     let (sin, cos) = (radians / 2.0).sin_cos();
     let mut rotation = [0.0, 0.0, 0.0, cos];
     rotation[axis] = sin;
     rotation
 }
 
-fn compose([ax, ay, az, aw]: [f32; 4], [bx, by, bz, bw]: [f32; 4]) -> [f32; 4] {
+pub(super) fn compose([ax, ay, az, aw]: [f32; 4], [bx, by, bz, bw]: [f32; 4]) -> [f32; 4] {
     [
         aw * bx + ax * bw + ay * bz - az * by,
         aw * by - ax * bz + ay * bw + az * bx,
         aw * bz + ax * by - ay * bx + az * bw,
         aw * bw - ax * bx - ay * by - az * bz,
     ]
+}
+
+pub(super) fn rotate_vector(rotation: [f32; 4], [u, v, w]: [f32; 3]) -> [f32; 3] {
+    let [x, y, z, real] = rotation;
+    let [u, v, w, _] = compose(compose(rotation, [u, v, w, 0.0]), [-x, -y, -z, real]);
+    [u, v, w]
 }

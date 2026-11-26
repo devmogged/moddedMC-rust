@@ -7,7 +7,7 @@ use moddedmc_api::{
     content::{self, ContentEvent, World},
 };
 
-use super::{runtime::is_tank, tank::TankInventory, tank_runtime};
+use super::{boiler_gauge::Gauges, runtime::is_tank, tank::TankInventory, tank_runtime};
 use crate::{
     CONTENT, TAGS,
     belt_tunnel::read,
@@ -33,6 +33,7 @@ pub(super) struct Boiler {
     next: usize,
     until_sample: u8,
     engine_positions: Vec<Pos>,
+    gauges: Gauges,
 }
 
 impl Boiler {
@@ -72,13 +73,34 @@ impl Boiler {
         if self.engines == 0 {
             return 0.0;
         }
-        let size = (volume / TANKS_PER_LEVEL).min(MAX_LEVEL);
-        let water = (self.supply.ceil() as u32 / WATER_SUPPLY_PER_LEVEL).min(MAX_LEVEL);
-        if self.active_heat == 0 && self.passive_heat && size > 0 && water > 0 {
+        let (size, water) = self.limits(volume);
+        if self.is_passive(size, water) {
             return PASSIVE_ENGINE_EFFICIENCY / self.engines as f32;
         }
         let actual_heat = self.active_heat.min(size).min(water);
         actual_heat.min(self.engines) as f32 / self.engines as f32
+    }
+
+    fn limits(&self, volume: u32) -> (u32, u32) {
+        (
+            (volume / TANKS_PER_LEVEL).min(MAX_LEVEL),
+            (self.supply.ceil() as u32 / WATER_SUPPLY_PER_LEVEL).min(MAX_LEVEL),
+        )
+    }
+
+    fn is_passive(&self, size: u32, water: u32) -> bool {
+        self.active_heat == 0 && self.passive_heat && size > 0 && water > 0
+    }
+
+    fn gauge_target(&self, volume: u32) -> f32 {
+        let (size, water) = self.limits(volume);
+        if self.is_passive(size, water) {
+            PASSIVE_ENGINE_EFFICIENCY
+        } else if size == 0 {
+            0.0
+        } else {
+            self.active_heat.min(size).min(water) as f32 / size as f32
+        }
     }
 }
 
@@ -214,6 +236,7 @@ impl Boilers {
         world: World<'_>,
         controllers: &mut HashMap<Pos, (TankInventory, Vec<Pos>)>,
         can_still_attach: impl Fn(Pos, Pos) -> bool,
+        time: u64,
     ) -> HashMap<Pos, f32> {
         self.loaded.retain(|&owner, boiler| {
             if controllers.contains_key(&owner) {
@@ -232,6 +255,7 @@ impl Boilers {
                 boiler.engine_positions.clear();
                 boiler.write(world, owner);
             }
+            boiler.gauges.clear(world);
             false
         });
         let mut efficiency = HashMap::with_capacity(controllers.len());
@@ -266,10 +290,12 @@ impl Boilers {
             if moved || before != boiler.stats() {
                 boiler.write(world, owner);
             }
-            efficiency.insert(
-                owner,
-                boiler.engine_efficiency(tank.capacity() / tank_runtime::CAPACITY_PER_BLOCK),
-            );
+            let volume = tank.capacity() / tank_runtime::CAPACITY_PER_BLOCK;
+            let target = boiler.gauge_target(volume);
+            boiler
+                .gauges
+                .update(world, owner, time, tank.width(), target);
+            efficiency.insert(owner, boiler.engine_efficiency(volume));
         }
         efficiency
     }

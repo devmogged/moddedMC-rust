@@ -46,5 +46,7 @@
   "saw/vertical_inactive": "create:block/mechanical_saw/blade_vertical_inactive",
   "steam_engine/piston": "create:block/steam_engine/piston",
   "steam_engine/linkage": "create:block/steam_engine/linkage",
-  "steam_engine/shaft_connector": "create:block/steam_engine/shaft_connector"
+  "steam_engine/shaft_connector": "create:block/steam_engine/shaft_connector",
+  "steam_engine/gauge": "create:block/steam_engine/gauge",
+  "steam_engine/gauge_dial": "create:block/steam_engine/gauge_dial"
 }
