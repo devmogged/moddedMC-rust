@@ -15,6 +15,7 @@ use moddedmc_api::{
     inventory_menu::{self, Access, Change, MenuKind, Validated, Validity, ValiditySlots},
     mobs::{self, Mobs, MobsExtension},
     saved_data::{self, Key, SavedData},
+    stacks::{self, ItemStacks},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -28,6 +29,7 @@ struct Interfaces {
     mobs: Mobs,
     saved: SavedData,
     loot: ContainerLoot,
+    stacks: ItemStacks,
 }
 #[derive(Clone, Copy)]
 struct Runtime {
@@ -86,6 +88,7 @@ impl Mod for Lootr {
             mobs,
             saved: saved_data::require()?,
             loot: container_loot::require()?,
+            stacks: stacks::require()?,
         });
         Ok(())
     }
@@ -300,7 +303,9 @@ impl ChestData {
             },
             _ => None,
         };
-        text.filter(|text| !text.is_empty() && text.len() <= 1024)
+        // Native menu ABI accepts at most 256 UTF-8 bytes, not characters.
+        // Avoid reserving a claim which cannot be shown due to its title.
+        text.filter(|text| !text.is_empty() && text.len() <= 256)
             .map_or_else(|| default.into(), |text| text.clone())
     }
 
@@ -324,7 +329,10 @@ impl ChestData {
             };
             let target = slots.get_mut(index)?;
             if target.is_some()
-                || !matches!(fields.get("id"), Some(fastnbt::Value::String(id)) if !id.is_empty())
+                || !matches!(fields.get("id"), Some(fastnbt::Value::String(id)) if !id.is_empty() && id != "minecraft:air" && id != "air")
+                || fields
+                    .get("components")
+                    .is_some_and(|value| !matches!(value, fastnbt::Value::Compound(_)))
             {
                 return None;
             }
@@ -609,20 +617,36 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
             return failed("site binding failed");
         }
         let Some(id) = data.open_bounded(&chest.id, owner, SIZE, shards::MAX_ID, || {
-            if chest.reference != 0 {
-                return chest.reference_slots();
-            }
-            match chest.table.as_deref() {
-                Some(table) => runtime.api.loot.generate(
-                    world,
-                    &player,
-                    table,
-                    loot_seed(chest.seed, runtime.randomise_seed),
-                    pos,
-                    SIZE,
-                ),
-                None => Some(vec![None; SIZE]),
-            }
+            let slots = if chest.reference != 0 {
+                chest.reference_slots()
+            } else {
+                match chest.table.as_deref() {
+                    Some(table) => runtime.api.loot.generate(
+                        world,
+                        &player,
+                        table,
+                        loot_seed(chest.seed, runtime.randomise_seed),
+                        pos,
+                        SIZE,
+                    ),
+                    None => Some(vec![None; SIZE]),
+                }
+            }?;
+            // Validate through the same host stack codec used to initialize
+            // the native menu BEFORE reserving or saving a new claim.
+            // Otherwise a typo in a custom item id permanently consumes the
+            // claim despite the menu failing to open.
+            slots
+                .iter()
+                .flatten()
+                .all(|stack| {
+                    runtime
+                        .api
+                        .stacks
+                        .info(stack)
+                        .is_some_and(|info| info.count > 0 && info.count <= info.max_count)
+                })
+                .then_some(slots)
         }) else {
             return failed("archive open / loot generation failed");
         };
@@ -756,6 +780,49 @@ mod tests {
             Value::String("minecraft:diamond".into()),
         )])));
         assert!(data.locked());
+    }
+
+    #[test]
+    fn malformed_reference_items_and_long_title_fail_safely() {
+        use fastnbt::Value;
+        use std::collections::HashMap;
+        let item = |id: &str, count: Value, components: Value| {
+            Value::Compound(HashMap::from([
+                ("id".into(), Value::String(id.into())),
+                ("count".into(), count),
+                ("components".into(), components),
+            ]))
+        };
+        let compound = || Value::Compound(HashMap::new());
+        let mut data = ChestData {
+            reference: 1,
+            ..ChestData::default()
+        };
+        for invalid in [
+            item("minecraft:air", Value::Int(1), compound()),
+            item("minecraft:diamond", Value::Int(0), compound()),
+            item("minecraft:diamond", Value::Int(100), compound()),
+            item(
+                "minecraft:diamond",
+                Value::Int(1),
+                Value::String("bad".into()),
+            ),
+        ] {
+            data.reference_items = vec![invalid];
+            assert!(data.reference_slots().is_none());
+        }
+        data.reference_items = vec![Value::Compound(HashMap::from([(
+            "id".into(),
+            Value::String("minecraft:diamond".into()),
+        )]))];
+        let slots = data.reference_slots().unwrap();
+        let stack: HashMap<String, Value> =
+            fastnbt::from_bytes(slots[0].as_ref().unwrap()).unwrap();
+        assert_eq!(stack.get("count"), Some(&Value::Int(1)));
+        data.name = Some(Value::String("é".repeat(129)));
+        assert_eq!(data.title(variants::VARIANTS[2]), "Barrel");
+        data.name = Some(Value::String("é".repeat(128)));
+        assert_eq!(data.title(variants::VARIANTS[2]).len(), 256);
     }
 
     #[test]

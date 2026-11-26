@@ -111,6 +111,18 @@ player-item persistence. That is already a separate host limitation.
   Its original source/build commit is not recorded in git; the earlier
   v1 diagnostic worlds have no saved-data file. Do not treat that package
   as a proven working legacy producer.
+  On 2026-11-27 the frozen package was run unmodified on the cached
+  03:04:43 host in `run/lootr-v1-authentic-producer`. The producer
+  scenario exited 1 (five failed checks). The explicit container-only
+  slot 54 assertion failed; subsequent bot logs show menu 0, no open
+  container, and no swords received by Bob. The stopped world contains
+  only a 93-byte `world/moddedmc/registry.dat`, not `saved_data.nbt`.
+  The copied DLL package and pristine package have the same SHA-256.
+  This rules out claiming an authentic v1-to-v2 upgrade from that run.
+  The symptoms agree with the historical UUID path failure, but that
+  frozen binary is uninstrumented and the precise cause is not proven.
+  Preserve the producer run and its `scenario.log`; do not seed it
+  synthetically or attempt an upgrade as if it were a valid v1 save.
 * A second, explicitly synthetic migration fixture follows the actual v1
   `next_id` / `records` schema described by the existing migration unit
   test, the saved-data host envelope, and native stack NBT. It encodes

@@ -157,9 +157,19 @@ not automatic vanilla-container conversion.
   and state persistence across restart.
 - `lootr-variants.txt`: explicit variant menus, barrel obstruction exception,
   independent reference inventory clones, and restart persistence.
+- `lootr-negative-metadata.txt`: unknown item and duplicate reference slots
+  are repaired in place, unsupported lock denies access, valid repaired claim
+  persists exhausted on restart while another player receives the full copy.
+  The new claim path verifies stack decoding with the host before persistence;
+  counts beyond the effective maximum are rejected, not silently truncated.
 - `lootr-migration-fixture-setup.txt` and `tests/fixtures/lootr-legacy.py`:
   a schema-derived legacy save fixture for the same migration-after scenario.
   Its provenance and exact commands are in [PERSISTENCE-DESIGN.md](PERSISTENCE-DESIGN.md).
+
+The original `lootr-variants.txt` passed on the cached host on 2026-11-27
+at checkpoint `f68c6bf` (retained `run/lootr-variants-f68c6bf/scenario.log`).
+The subsequent stack-validation and metadata-repair changes still need their
+own gated test run.
 
 `lootr:tests/full_chest` is a port-authored deterministic fixture with 27
 unstackable vanilla wooden swords. It is not an upstream loot table.

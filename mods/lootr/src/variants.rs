@@ -206,17 +206,7 @@ fn placed(args: Placement<'_>) -> Option<u32> {
     let variant = kind(content, args.state)?;
     let facing = super::placement_facing(args.yaw)?;
     let face = if variant.barrel() {
-        if !args.pitch.is_finite() {
-            return None;
-        }
-        let (sin, cos) = args.pitch.to_radians().sin_cos();
-        let (yaw_sin, yaw_cos) = args.yaw.to_radians().sin_cos();
-        // Opposite the nearest looking direction, including vertical.
-        if sin.abs() > (cos * yaw_sin).abs().max((cos * yaw_cos).abs()) {
-            if sin > 0. { "up" } else { "down" }
-        } else {
-            FACES[facing]
-        }
+        barrel_face(args.yaw, args.pitch)?
     } else {
         FACES[facing]
     };
@@ -227,4 +217,48 @@ fn placed(args: Placement<'_>) -> Option<u32> {
         variant.id,
         variant.properties(face, flag)
     ))
+}
+
+fn barrel_face(yaw: f32, pitch: f32) -> Option<&'static str> {
+    if !yaw.is_finite() || !pitch.is_finite() {
+        return None;
+    }
+    // Source Direction.orderedByNearest selects Z over X on equality,
+    // and a horizontal axis over Y on equality; return its opposite.
+    let (pitch_sin, pitch_cos) = pitch.to_radians().sin_cos();
+    let (yaw_sin, yaw_cos) = (-yaw).to_radians().sin_cos();
+    let x_wins = yaw_sin.abs() > yaw_cos.abs();
+    let horizontal = if x_wins { yaw_sin.abs() } else { yaw_cos.abs() };
+    Some(if pitch_sin.abs() > horizontal * pitch_cos {
+        if pitch_sin < 0. { "down" } else { "up" }
+    } else if x_wins {
+        if yaw_sin > 0. { "west" } else { "east" }
+    } else if yaw_cos > 0. {
+        "north"
+    } else {
+        "south"
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn barrel_opposes_nearest_look_axis() {
+        for (yaw, pitch, face) in [
+            (0., 0., "north"),
+            (90., 0., "east"),
+            (180., 0., "south"),
+            (-90., 0., "west"),
+            (0., 80., "up"),
+            (0., -80., "down"),
+            (0., 20., "north"),
+            (45., 40., "up"),
+        ] {
+            assert_eq!(barrel_face(yaw, pitch), Some(face));
+        }
+        assert_eq!(barrel_face(0., f32::NAN), None);
+        assert_eq!(barrel_face(f32::INFINITY, 0.), None);
+    }
 }
