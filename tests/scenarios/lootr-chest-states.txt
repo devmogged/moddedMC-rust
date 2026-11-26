@@ -1,0 +1,89 @@
+# Source-facing placement, waterlogging, and blocked/spectator/sneak uses.
+mods target\mods\lootr.mmc
+start
+expect moddedmc: loaded lootr
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 100 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd item replace entity alice hotbar.0 with lootr:chest 2
+bot hotbar 0
+bot look 90 0
+wait 0.5
+bot place 1025 99 1025 up
+wait 0.5
+cmd execute if block 1025 100 1025 lootr:chest[facing=east,type=single,waterlogged=false]
+wait 0.5
+expect Test passed
+cmd setblock 1027 100 1025 minecraft:water[level=0]
+bot look 180 0
+wait 0.5
+bot place 1027 99 1025 up
+wait 0.5
+cmd execute if block 1027 100 1025 lootr:chest[facing=south,type=single,waterlogged=true]
+wait 0.5
+expect Test passed
+# Interact with both non-default states; first block the dry chest with stone.
+cmd item replace entity alice hotbar.0 with minecraft:diamond 1
+cmd setblock 1025 101 1025 minecraft:stone
+wait 0.5
+bot use 1025 100 1025 north
+wait 0.5
+bot expect slot 36 minecraft:diamond 1
+wait 0.5
+expect expect inventory ok slot 36 diamond 1
+cmd setblock 1025 101 1025 minecraft:air
+# A denied open must not have created an empty claim.
+cmd data merge block 1025 100 1025 {LootTable:"lootr:tests/full_chest",LootTableSeed:12345L}
+wait 0.5
+bot use 1025 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 0 wooden_sword 1
+bot inventory-close
+# Spectator use of the wet chest likewise must not make a claim.
+cmd gamemode spectator alice
+wait 0.5
+bot use 1027 100 1025 north
+wait 0.5
+bot expect slot 36 minecraft:diamond 1
+wait 0.5
+expect expect inventory ok slot 36 diamond 1
+cmd gamemode survival alice
+cmd item replace entity alice hotbar.0 with minecraft:air
+bot input sneak
+wait 0.5
+bot use 1027 100 1025 north
+wait 0.5
+bot input none
+cmd item replace entity alice hotbar.0 with minecraft:diamond 1
+wait 0.5
+bot expect slot 36 minecraft:diamond 1
+wait 0.5
+expect expect inventory ok slot 36 diamond 1
+cmd data merge block 1027 100 1025 {LootTable:"lootr:tests/full_chest",LootTableSeed:12345L}
+wait 0.5
+bot use 1027 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 0 wooden_sword 1
+bot inventory-close
+bot quit
+stop
+start
+botstart alice
+wait 3
+cmd execute if block 1025 100 1025 lootr:chest[facing=east,type=single,waterlogged=false]
+wait 0.5
+expect Test passed
+cmd execute if block 1027 100 1025 lootr:chest[facing=south,type=single,waterlogged=true]
+wait 0.5
+expect Test passed
+reject \[bot\] error:|panicked
+bot quit
+stop

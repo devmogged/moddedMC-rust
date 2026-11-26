@@ -5,7 +5,7 @@ pub mod state;
 use moddedmc_api::{
     InterfaceUnavailable, Mod, Player, RegistrationError, Registry,
     container_loot::{self, ContainerLoot},
-    content::{self, Block, Content, State, World, WorldExtension},
+    content::{self, Block, Content, Placement, ShapeBox, State, World, WorldExtension},
     entities::{self, EntitiesExtension},
     interaction::{self, BlockUseResult, Interaction, InteractionExtension, UseBlock},
     inventory_menu::{self, Access, Change, MenuKind, Validated, Validity, ValiditySlots},
@@ -37,6 +37,44 @@ static API: OnceLock<Interfaces> = OnceLock::new();
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static LOCK: Mutex<()> = Mutex::new(());
 const SIZE: usize = 27;
+const FACINGS: [&str; 4] = ["north", "east", "south", "west"];
+const CHEST_SHAPE: [ShapeBox; 1] = [ShapeBox {
+    min: [1, 0, 1],
+    max: [15, 14, 15],
+}];
+static CHEST_STATES: OnceLock<[u32; 8]> = OnceLock::new();
+
+fn chest_properties(facing: &str, wet: bool) -> String {
+    format!("facing={facing},type=single,waterlogged={wet}")
+}
+
+fn chest_states(content: Content) -> Option<&'static [u32; 8]> {
+    if let Some(states) = CHEST_STATES.get() {
+        return Some(states);
+    }
+    let mut states = [0; 8];
+    for (index, facing) in FACINGS.iter().enumerate() {
+        for (offset, wet) in [false, true].into_iter().enumerate() {
+            states[index * 2 + offset] =
+                content.state(&format!("lootr:chest[{}]", chest_properties(facing, wet)))?;
+        }
+    }
+    let _ = CHEST_STATES.set(states);
+    CHEST_STATES.get()
+}
+
+fn placement_facing(yaw: f32) -> Option<usize> {
+    // Minecraft yaw zero looks south; a chest faces the opposite direction.
+    yaw.is_finite()
+        .then(|| ((yaw / 90.0 + 0.5).floor() as i32).rem_euclid(4) as usize)
+}
+
+fn placed(args: Placement<'_>) -> Option<u32> {
+    let content = API.get()?.content;
+    let facing = placement_facing(args.yaw)?;
+    let wet = args.world.fluid_id(args.position)?.as_str() == "minecraft:water";
+    Some(chest_states(content)?[facing * 2 + usize::from(wet)])
+}
 
 // Temporary bounded diagnostics for the protocol-client smoke tests.
 static DIAGNOSTICS: AtomicUsize = AtomicUsize::new(0);
@@ -58,6 +96,8 @@ impl Mod for Lootr {
         let content = content::require()?;
         content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::BlockEntities)?;
+        content.require_extension(WorldExtension::FluidId)?;
+        content.require_extension(WorldExtension::RedstoneConductor)?;
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
         entities::require()?.require_extension(EntitiesExtension::Player)?;
@@ -85,6 +125,28 @@ impl Mod for Lootr {
                 .register(registry, &format!("inventories/v2/{i:02x}"))?;
         }
         let menu = api.menus.register(registry, changed, valid)?;
+        let properties: Vec<_> = FACINGS
+            .iter()
+            .flat_map(|facing| [false, true].map(|wet| chest_properties(facing, wet)))
+            .collect();
+        let physical: Vec<_> = properties
+            .iter()
+            .map(|properties| format!("minecraft:chest[{properties}]"))
+            .collect();
+        let states: Vec<_> = properties
+            .iter()
+            .zip(&physical)
+            .map(|(properties, physical)| State {
+                properties,
+                physical,
+                model: "minecraft:block/chest",
+                rotating_model: "",
+                x: 0,
+                y: 0,
+                orientation: [0., 0., 0., 1.],
+                shape: &CHEST_SHAPE,
+            })
+            .collect();
         api.content.add_block(
             registry,
             &Block {
@@ -92,18 +154,9 @@ impl Mod for Lootr {
                 display_name: "Loot Chest",
                 entity: "lootr:chest",
                 item_model: "minecraft:item/chest",
-                states: &[State {
-                    properties: "",
-                    physical: "minecraft:chest[facing=north,type=single,waterlogged=false]",
-                    model: "minecraft:block/chest",
-                    rotating_model: "",
-                    x: 0,
-                    y: 0,
-                    orientation: [0., 0., 0., 1.],
-                    shape: &[],
-                }],
+                states: &states,
             },
-            None,
+            Some(placed),
         )?;
         api.interaction.on_use_block(registry, used)?;
         let randomise_seed = seed_config(std::fs::read_to_string(
@@ -191,7 +244,7 @@ fn archive(runtime: Runtime, world: World<'_>, index: usize) -> Option<shards::S
     shards::Shard::decode(index, &bytes)
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(Default, serde::Deserialize)]
 struct ChestData {
     #[serde(rename = "LootrId", default)]
     id: String,
@@ -199,6 +252,22 @@ struct ChestData {
     table: Option<String>,
     #[serde(rename = "LootTableSeed", default)]
     seed: i64,
+}
+
+fn assign_chest_id(bytes: &[u8], id: &str) -> Option<Vec<u8>> {
+    // Preserve metadata owned by the container, including fields we do not interpret.
+    let mut fields: std::collections::HashMap<String, fastnbt::Value> =
+        fastnbt::from_bytes(bytes).ok()?;
+    fields.insert("LootrId".into(), fastnbt::Value::String(id.into()));
+    fastnbt::to_bytes(&fields).ok()
+}
+
+fn is_chest(content: Content, world: World<'_>, pos: moddedmc_api::Pos) -> bool {
+    let Some(expected) = chest_states(content) else {
+        return false;
+    };
+    let mut states = [moddedmc_api::content::UNLOADED_STATE];
+    world.read(&[pos], &mut states) && expected.contains(&states[0])
 }
 
 fn chest_data(world: World<'_>, pos: moddedmc_api::Pos) -> Option<ChestData> {
@@ -215,10 +284,10 @@ fn chest_data(world: World<'_>, pos: moddedmc_api::Pos) -> Option<ChestData> {
     };
     if data.id.is_empty() {
         data.id = format!("{:032x}", rand::random::<u128>());
-        let bytes = match fastnbt::to_bytes(&data) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                trace(&format!("chest NBT encoding: {error}"));
+        let bytes = match assign_chest_id(&bytes, &data.id) {
+            Some(bytes) => bytes,
+            None => {
+                trace("chest NBT encoding failed");
                 return None;
             }
         };
@@ -249,6 +318,12 @@ fn chest_matches(world: World<'_>, site: &state::Site, id: &str) -> bool {
     }
     let [x, y, z] = site.position;
     let pos = moddedmc_api::Pos { x, y, z };
+    if !API
+        .get()
+        .is_some_and(|api| is_chest(api.content, world, pos))
+    {
+        return false;
+    }
     world
         .entity(pos)
         .and_then(|bytes| fastnbt::from_bytes::<ChestData>(&bytes).ok())
@@ -294,6 +369,11 @@ fn valid(view: Validity<'_>) -> bool {
 }
 
 fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
+    // LootrChestBlock overrides useWithoutItem only. Vanilla runs that
+    // fallback for the main hand and does not open a menu from off-hand use.
+    if context.with_item {
+        return BlockUseResult::TryEmptyHand;
+    }
     trace("block use hook entered");
     let Some(runtime) = RUNTIME.get().copied() else {
         return failed("runtime missing");
@@ -309,6 +389,24 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
     };
     let world = context.world;
     let pos = context.position;
+    if !is_chest(runtime.api.content, world, pos) {
+        return failed("container block state changed");
+    }
+    if runtime.api.mobs.game_mode(entity).is_none_or(|mode| mode == 3) {
+        return BlockUseResult::Success;
+    }
+    // The Java chest handles sneak-use before checking overhead obstruction.
+    // Visual opener markers are not implemented yet; never claim an inventory here.
+    if context.sneaking {
+        return BlockUseResult::Success;
+    }
+    let Some(above_y) = pos.y.checked_add(1) else {
+        return BlockUseResult::Success;
+    };
+    let above = moddedmc_api::Pos { y: above_y, ..pos };
+    if world.redstone_conductor(above) != Some(false) {
+        return BlockUseResult::Success;
+    }
     let Some(dimension) = world.dimension_id() else {
         return failed("world dimension missing");
     };
@@ -329,6 +427,9 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
         let Ok(_guard) = LOCK.lock() else {
             return failed("archive lock poisoned");
         };
+        if !is_chest(runtime.api.content, world, pos) {
+            return failed("container state changed before claim");
+        }
         let Some(chest) = chest_data(world, pos) else {
             return failed("chest_data failed");
         };
@@ -444,6 +545,41 @@ moddedmc_api::export_mod!(Lootr);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn placement_faces_opposite_horizontal_view() {
+        for (yaw, facing) in [(0., 0), (90., 1), (180., 2), (270., 3), (-90., 3)] {
+            assert_eq!(placement_facing(yaw), Some(facing));
+        }
+        assert_eq!(placement_facing(44.9), Some(0));
+        assert_eq!(placement_facing(45.), Some(1));
+        assert_eq!(placement_facing(-45.), Some(0));
+        assert_eq!(placement_facing(f32::NAN), None);
+    }
+
+    #[test]
+    fn assigning_identity_preserves_container_metadata() {
+        use fastnbt::Value;
+        use std::collections::HashMap;
+        let original = HashMap::from([
+            (
+                "LootTable".to_owned(),
+                Value::String("minecraft:chests/simple_dungeon".into()),
+            ),
+            ("LootTableSeed".to_owned(), Value::Long(-42)),
+            ("CustomName".to_owned(), Value::String("Example".into())),
+            (
+                "Unrecognised".to_owned(),
+                Value::Compound(HashMap::from([("flag".into(), Value::Byte(1))])),
+            ),
+        ]);
+        let bytes = fastnbt::to_bytes(&original).unwrap();
+        let id = "a1234567890123456789012345678901";
+        let updated = assign_chest_id(&bytes, id).unwrap();
+        let mut fields: HashMap<String, Value> = fastnbt::from_bytes(&updated).unwrap();
+        assert_eq!(fields.remove("LootrId"), Some(Value::String(id.into())));
+        assert_eq!(fields, original);
+    }
 
     #[test]
     fn explicit_seed_is_preserved_when_randomisation_is_off() {

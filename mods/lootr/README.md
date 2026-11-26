@@ -16,6 +16,10 @@ The separate 26.2 build is not the engine target.
 - Site and identity checks reject replaced or copied containers. Live validity
   checks use the host's stock-menu extension; they do not deserialize the
   entire inventory archive on each tick.
+- Eight single-chest state variants and placement opposite the player's
+  horizontal view, preserving source waterlogging. Spectator and sneak-use
+  cannot create private inventory claims; overhead conduction prevents
+  opening. These additions are pending host-gated protocol verification.
 
 Set `config/lootr/randomise_seed.txt` to `false` to preserve a nonzero,
 non-minus-one explicit seed. The default is `true`. With randomisation
@@ -57,13 +61,19 @@ vanilla states. `LootrChestBlock.getStateForPlacement` uses the opposite
 horizontal direction, forces a single chest and preserves waterlogging.
 The collision/outline shape is a 14-by-14 column of height 14 model units.
 The chest refuses opening when blocked above, whereas the barrel does not.
+The vanilla 26.3 `ChestBlock.isChestBlockedAt` checks redstone conduction
+above and a sitting cat intersecting the block above. The port now uses
+the generic conduction query; sitting-cat detection still needs a host
+entity pose query. The current host conduction query delegates to Pumpkin's
+solid-block predicate, so unusual vanilla conduction states need verification.
 The exact registry identifiers are `lootr:chest`, `lootr:trapped_chest`,
 `lootr:barrel`, `lootr:copper_chest`, `lootr:exposed_copper_chest`,
 `lootr:weathered_copper_chest`, and `lootr:oxidized_copper_chest`.
 Sneak-use removes the visual opener marker when permitted; it does not
 regenerate loot or delete the private inventory. Spectators do not open
-private inventories. The current chest is a one-state carrier; these placement
-and interaction differences are still to be ported.
+private inventories. The registered state variants and denied-use checks
+address placement and inventory access; visual opener markers and client
+appearance remain pending.
 
 Upstream refresh and decay are opt-in: both default to 6000 game ticks, with
 empty table/dimension filters and both global switches disabled. Start on open
@@ -123,6 +133,12 @@ not automatic vanilla-container conversion.
   item conservation and another restart. Run the former with the old
   package and `-Keep`, then the latter with the new package and no
   `-Fresh`. Do not downgrade the upgraded save.
+- `lootr-chest-states.txt`: player placement facing and source waterlogging,
+  obstruction/spectator/sneak denial followed by a first valid loot claim,
+  and state persistence across restart.
+- `lootr-migration-fixture-setup.txt` and `tests/fixtures/lootr-legacy.py`:
+  a schema-derived legacy save fixture for the same migration-after scenario.
+  Its provenance and exact commands are in [PERSISTENCE-DESIGN.md](PERSISTENCE-DESIGN.md).
 
 `lootr:tests/full_chest` is a port-authored deterministic fixture with 27
 unstackable vanilla wooden swords. It is not an upstream loot table.

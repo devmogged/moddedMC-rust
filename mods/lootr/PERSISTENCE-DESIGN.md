@@ -104,6 +104,32 @@ player-item persistence. That is already a separate host limitation.
   a second shard. Run before with the frozen v1 package and `-Keep`, then
   run after with the v2 package, same run directory, no `-Fresh`.
   Verify multiple shards and exact item conservation across another restart.
+  The before scenario now explicitly loads the frozen local package at
+  `run/lootr-v1-package/lootr.mmc` rather than whatever current package is
+  under `target/mods`. As inspected on 2026-11-27, it is 159,628 bytes,
+  SHA-256 `f5ee920b6b81075d29e2ee547a75f93e8a63589aee94de29af545bc1ea4bf512`.
+  Its original source/build commit is not recorded in git; the earlier
+  v1 diagnostic worlds have no saved-data file. Do not treat that package
+  as a proven working legacy producer.
+* A second, explicitly synthetic migration fixture follows the actual v1
+  `next_id` / `records` schema described by the existing migration unit
+  test, the saved-data host envelope, and native stack NBT. It encodes
+  Alice's empty claim and seven deposited diamonds, and Bob's 26 remaining
+  swords after one was taken. The native UUIDs were observed in the
+  passing `run/lootr-v2-personal-uuid/world/players` save. Run these steps
+  sequentially with a stopped server between them:
+
+  ```powershell
+  scripts\scenario.ps1 -Scenario tests\scenarios\lootr-migration-fixture-setup.txt -RunDir run\lootr-migration-fixture -Fresh -Keep
+  py -3 tests\fixtures\lootr-legacy.py
+  scripts\scenario.ps1 -Scenario tests\scenarios\lootr-migration-after.txt -RunDir run\lootr-migration-fixture -Keep
+  ```
+
+  Use the prime-assigned port and executable options on both scenario runs.
+  The generator checks saved player UUIDs and refuses to overwrite an existing
+  archive. This exercises the v2 migration reader with independent fixture
+  bytes; only a successful historical-package before/after run would verify
+  a real old-package upgrade.
 * The synthetic 512-record test compares the encoded size of an eight-record
   shard with the global archive and requires a greater-than-32-fold reduction.
   This checks payload scaling, not runtime latency; actual runtime

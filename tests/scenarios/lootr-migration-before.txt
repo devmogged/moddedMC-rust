@@ -1,5 +1,5 @@
 # Run against the frozen v1 package with -Keep; do not use -Fresh for after.
-mods target\mods\lootr.mmc
+mods run\lootr-v1-package\lootr.mmc
 start
 expect moddedmc: loaded lootr
 botstart alice

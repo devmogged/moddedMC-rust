@@ -1,0 +1,29 @@
+# Prepare a world for a schema-derived legacy archive without touching any chest.
+# Run with the v2 package, -Fresh -Keep and the dedicated run/lootr-migration-fixture directory.
+mods target\mods\lootr.mmc
+start
+expect moddedmc: loaded lootr
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd setblock 1025 100 1025 lootr:chest
+cmd setblock 1027 100 1025 lootr:chest
+cmd data merge block 1025 100 1025 {LootrId:"00000000000000000000000000000001",LootTable:"lootr:tests/full_chest",LootTableSeed:12345L}
+cmd data merge block 1027 100 1025 {LootrId:"fc000000000000000000000000000001"}
+botstart bob
+wait 3
+cmd gamemode survival bob
+cmd tp bob 1025.5 101 1023.5
+cmd item replace entity bob hotbar.0 with minecraft:wooden_sword
+wait 1
+cmd clear bob minecraft:wooden_sword 0
+wait 0.5
+expect Found 1 matching item
+bot quit
+botselect alice
+bot quit
+stop
