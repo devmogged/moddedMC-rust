@@ -157,6 +157,7 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | Interface | Function | Contract |
 | --- | --- | --- |
 | `moddedmc:content` v1 | `add_block(reg, definition)` | Stage the block, its item, its block entity name and 1 to 1,024 ordered states. The first state is the default. States provide exact property strings, a vanilla physics template, optional collision and outline boxes in sixteenths, model resource locations, and a display orientation. |
+| | `set_block_material(reg, block, material)` | Copy a vanilla block's hardness, blast resistance, place and step sounds, note instrument, tool requirement, and map color to a staged content block. Geometry and waterlogging come from its physical states. The definition can override hardness and set a named vanilla map color. Appended: check `Content::require_block_material()`. |
 | | `set_comparator_output(reg, selector, strength)` | Assign a fixed analog output (0 to 15) to an exact state of a block already staged by this mod. Zero is a readable signal. Unknown states and duplicate assignments are rejected. Appended: require with `Content::require_comparator_output()`. |
 | | `state(selector)` | Resolve a block name or exact `namespace:path[key=value,...]` after registration. Missing definitions return `UNLOADED_STATE`. |
 | | `on_tick(reg, callback)` | Call the mod once per loaded dimension in the server tick with queued state, neighbor and chunk lifecycle changes. The callback and its world handle are synchronous. |

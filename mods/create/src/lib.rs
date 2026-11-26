@@ -185,6 +185,7 @@ impl Mod for Create {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let content = content::require()?;
         content.require_replaced()?;
+        content.require_block_material()?;
         fluids::tank_connectivity::require()?;
         fluids::open_end_runtime::require()?;
         water_wheel::require()?;

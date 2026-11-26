@@ -580,6 +580,14 @@ pub type ContentRandomTick = unsafe extern "C" fn(world: WorldRef, pos: Pos, sta
 pub type ContentReplaced = unsafe extern "C" fn(world: WorldRef, event: *const ContentEvent);
 
 #[repr(C)]
+pub struct ContentMaterialDefinition {
+    pub template: Str,
+    pub map_color: Str,
+    pub hardness: f32,
+    pub override_hardness: bool,
+}
+
+#[repr(C)]
 pub struct ContentV1 {
     pub size: usize,
     pub add_block: unsafe extern "C" fn(reg: Reg, def: *const ContentBlockDefinition) -> i32,
@@ -592,6 +600,11 @@ pub struct ContentV1 {
     pub set_comparator_output: unsafe extern "C" fn(reg: Reg, selector: Str, strength: u8) -> i32,
     pub on_random_tick:
         unsafe extern "C" fn(reg: Reg, block: Str, callback: ContentRandomTick) -> i32,
+    pub set_block_material: unsafe extern "C" fn(
+        reg: Reg,
+        block: Str,
+        material: *const ContentMaterialDefinition,
+    ) -> i32,
 }
 
 pub const CONTENT_V1_BASE_SIZE: usize = std::mem::offset_of!(ContentV1, on_replaced);

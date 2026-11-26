@@ -158,6 +158,13 @@ pub struct Block<'a> {
     pub states: &'a [State<'a>],
 }
 
+/// Mining, sound and map settings copied from a vanilla block.
+pub struct BlockMaterial<'a> {
+    pub template: &'a str,
+    pub hardness: Option<f32>,
+    pub map_color: Option<&'a str>,
+}
+
 static WORLD_TABLE: OnceLock<InterfacePrefix<abi::BlockWorldV1>> = OnceLock::new();
 static TICK: OnceLock<Tick> = OnceLock::new();
 static RANDOM_TICK: OnceLock<RandomTick> = OnceLock::new();
@@ -312,10 +319,13 @@ impl Content {
     }
 
     pub fn require_comparator_output(self) -> Result<(), InterfaceUnavailable> {
-        self.0.full().map(|_| ()).ok_or(InterfaceUnavailable {
-            name: "moddedmc:content.set_comparator_output",
-            version: 1,
-        })
+        if self.0.size < std::mem::offset_of!(abi::ContentV1, on_random_tick) {
+            return Err(InterfaceUnavailable {
+                name: "moddedmc:content.set_comparator_output",
+                version: 1,
+            });
+        }
+        Ok(())
     }
 
     /// Register a comparator strength (0 to 15) after adding the block with an exact state selector.
@@ -325,10 +335,15 @@ impl Content {
         selector: &str,
         strength: u8,
     ) -> Result<(), RegistrationError> {
-        let api = self.0.full().ok_or(RegistrationError::InvalidDefinition)?;
+        self.require_comparator_output()
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
         // SAFETY: the table includes the function and both arguments are live for the call.
         RegistrationError::from_code(unsafe {
-            (api.set_comparator_output)(reg.reg, s(selector), strength)
+            ((&raw const (*self.0.ptr).set_comparator_output).read())(
+                reg.reg,
+                s(selector),
+                strength,
+            )
         })
     }
 
@@ -371,6 +386,33 @@ impl Content {
             })?;
         }
         Ok(())
+    }
+
+    pub fn require_block_material(self) -> Result<(), InterfaceUnavailable> {
+        self.0.full().map(|_| ()).ok_or(InterfaceUnavailable {
+            name: "moddedmc:content.set_block_material",
+            version: 1,
+        })
+    }
+
+    /// Set a staged block's material independently of its physical state shapes.
+    pub fn set_block_material(
+        self,
+        reg: &mut Registry<'_>,
+        id: &str,
+        material: &BlockMaterial<'_>,
+    ) -> Result<(), RegistrationError> {
+        let api = self.0.full().ok_or(RegistrationError::InvalidDefinition)?;
+        let definition = abi::ContentMaterialDefinition {
+            template: s(material.template),
+            map_color: s(material.map_color.unwrap_or_default()),
+            hardness: material.hardness.unwrap_or_default(),
+            override_hardness: material.hardness.is_some(),
+        };
+        // SAFETY: the registration, definition and borrowed strings live through the call.
+        RegistrationError::from_code(unsafe {
+            (api.set_block_material)(reg.reg, s(id), &definition)
+        })
     }
 
     pub fn require_replaced(self) -> Result<(), InterfaceUnavailable> {
