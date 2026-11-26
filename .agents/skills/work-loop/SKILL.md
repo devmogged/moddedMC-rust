@@ -25,7 +25,8 @@ testing in a real client.
 
 ## Pick and claim
 
-1. Start from fresh `origin/main`. Read your own open issues first: if you hold one, resume it
+1. Start from fresh `origin/main` and run `scripts\clean.ps1`. Build caches otherwise grow by
+   tens of GB a day. Read your own open issues first: if you hold one, resume it
    from its last comment.
 2. Otherwise take the most useful unclaimed job. Bugs that players hit in mods nobody owns come
    first, then the next `port` row in docs/BUJA.md that most players will see, as long as the
