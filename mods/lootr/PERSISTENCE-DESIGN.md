@@ -149,6 +149,26 @@ player-item persistence. That is already a separate host limitation.
 
 ## Phase 2: production-scale persistence
 
+### Refresh lifecycle
+
+Refresh deadlines share the corresponding archive shard with private claims.
+The live index is reconstructed from loaded-block events; no queue file or
+separate write can diverge from the saved claim state. A successful refresh
+removes claim records, retains the binding and allocation high-water mark,
+and clears the refresh timer (or begins the next timer when a player opens
+the expired container). Only after the shard write succeeds is the loaded
+site's menu epoch invalidated. The stock menu closes using its existing
+validity mechanism. A failed write leaves the old timer/claims authoritative
+and is retried with a bounded delay. Stale clicks cannot resurrect deleted
+IDs, even if menu closure has not yet reached the client.
+
+The index bounds expensive due/rehydration probes to 16 per dimension per
+tick, deduplicates positions and drops unloaded entries. Each probe reads a
+published shard, never initializes an empty shard or adopts an orphan.
+The persisted clock is mandatory; daylight time and process ticks are not
+substitutes. This is not a cross-file crash-atomic player inventory journal,
+and destructive decay remains disabled pending guarded block replacement.
+
 Static sharding improves hot-path work, but it cannot remove the
 64 MiB aggregate limit or whole-file flush. The production host should
 offer a generic registered record namespace with bounded dynamic

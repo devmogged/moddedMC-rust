@@ -1,0 +1,69 @@
+# Preseed config/lootr/lifecycle.txt with:
+# refresh_value=100
+# refresh_perform_while_ticking=false
+# No global filter. Only the permission-gated command can start a timer.
+mods target\mods\lootr.mmc
+start
+expect moddedmc: loaded lootr
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd setblock 1025 100 1025 lootr:barrel[facing=up,open=false]
+cmd data merge block 1025 100 1025 {LootrId:"00000000000000000000000000000001",LootrIsCustomInventory:1b,LootrCustomInventory:[{Slot:0b,id:"minecraft:diamond",count:7}]}
+cmd item replace entity alice hotbar.0 with minecraft:stick 1
+wait 1
+bot use 1025 100 1025
+wait 0.5
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+cmd tp alice 1025.5 101 1025.5
+wait 0.5
+bot cmd lootr refresh
+wait 1
+reject has been set to refresh
+cmd tp alice 1025.5 101 1023.5
+wait 8
+bot use 1025 100 1025
+wait 0.5
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot expect slot 54 minecraft:stick 1
+wait 0.5
+expect expect inventory ok slot 54 stick 1
+bot inventory-close
+cmd op alice
+cmd tp alice 1025.5 101 1025.5
+wait 1
+bot cmd lootr refresh
+wait 0.5
+expect has been set to refresh with a delay of 100
+cmd deop alice
+cmd tp alice 1025.5 101 1023.5
+wait 1
+bot use 1025 100 1025
+wait 0.5
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+wait 7
+bot use 1025 100 1025
+wait 0.5
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-close
+cmd clear alice minecraft:diamond 0
+wait 0.5
+expect Found 7 matching item
+bot quit
+stop

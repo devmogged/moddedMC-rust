@@ -1,5 +1,6 @@
 //! Lootr per-player inventory storage.
 mod lifecycle;
+mod scheduler;
 mod shards;
 pub mod state;
 mod variants;
@@ -17,8 +18,9 @@ use moddedmc_api::{
     saved_data::{self, Key, SavedData},
     stacks::{self, ItemStacks},
 };
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 
 #[derive(Clone, Copy)]
 struct Interfaces {
@@ -43,6 +45,9 @@ struct Runtime {
 static API: OnceLock<Interfaces> = OnceLock::new();
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static LOCK: Mutex<()> = Mutex::new(());
+static POLICY: OnceLock<lifecycle::Config> = OnceLock::new();
+static QUEUES: LazyLock<Mutex<HashMap<String, scheduler::Queue>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 const SIZE: usize = 27;
 fn placement_facing(yaw: f32) -> Option<usize> {
     // Minecraft yaw zero looks south; a chest faces the opposite direction.
@@ -73,6 +78,7 @@ impl Mod for Lootr {
         content.require_extension(WorldExtension::FluidId)?;
         content.require_extension(WorldExtension::ChestObstruction)?;
         content.require_extension(WorldExtension::ContentEntityTransaction)?;
+        content.require_extension(WorldExtension::GameTime)?;
         content.require_block_material()?;
         content.require_comparator_output()?;
         let interaction = interaction::require()?;
@@ -95,6 +101,12 @@ impl Mod for Lootr {
 
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let api = *API.get().ok_or(RegistrationError::InvalidDefinition)?;
+        let randomise_seed = seed_config(std::fs::read_to_string(
+            moddedmc_api::data_dir().join("randomise_seed.txt"),
+        ))?;
+        let policy = refresh_config(std::fs::read_to_string(
+            moddedmc_api::data_dir().join("lifecycle.txt"),
+        ))?;
         let legacy = api.saved.register(registry, "inventories")?;
         let manifest = api.saved.register(registry, "inventories/v2/manifest")?;
         let mut keys = [legacy; shards::COUNT];
@@ -105,6 +117,7 @@ impl Mod for Lootr {
         }
         let menu = api.menus.register(registry, changed, valid)?;
         variants::register(api.content, registry)?;
+        api.content.on_tick(registry, lifecycle_tick)?;
         commands::require()
             .map_err(|_| RegistrationError::InvalidDefinition)?
             .add(
@@ -125,13 +138,19 @@ impl Mod for Lootr {
                         argument: Argument::Literal,
                         tag: Some(2),
                     },
+                    Node {
+                        parent: None,
+                        name: "refresh",
+                        argument: Argument::Literal,
+                        tag: Some(3),
+                    },
                 ],
             )?;
         api.interaction.on_use_block(registry, used)?;
         api.conversion.register(registry, convert)?;
-        let randomise_seed = seed_config(std::fs::read_to_string(
-            moddedmc_api::data_dir().join("randomise_seed.txt"),
-        ))?;
+        POLICY
+            .set(policy)
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
         let _ = RUNTIME.set(Runtime {
             api,
             legacy,
@@ -148,7 +167,7 @@ impl Mod for Lootr {
             command.reply("Must provide player name.");
             return 1;
         }
-        if tag != 1 {
+        if !matches!(tag, 1 | 3) {
             return 0;
         }
         let Some(runtime) = RUNTIME.get().copied() else {
@@ -161,6 +180,10 @@ impl Mod for Lootr {
         let Some(world) = runtime.api.content.command_world(&command) else {
             return 0;
         };
+        if tag == 3 && clock(world).is_none() {
+            command.reply("Persisted game time unavailable.");
+            return 0;
+        }
         let point = player.position();
         if ![point.x, point.y, point.z]
             .into_iter()
@@ -181,12 +204,38 @@ impl Mod for Lootr {
         }
         let Ok(_guard) = LOCK.lock() else { return 0 };
         if let Some((chest, _)) = chest_data(world, pos) {
-            command.reply(&format!("The ID of this inventory is: {}", chest.id));
+            if tag == 1 {
+                command.reply(&format!("The ID of this inventory is: {}", chest.id));
+            } else if let Some(ticks) = begin_manual_refresh(runtime, world, pos, &chest) {
+                command.reply(&format!(
+                    "Container with ID {} has been set to refresh with a delay of {ticks}",
+                    chest.id
+                ));
+            } else {
+                command.reply("Could not persist the refresh deadline.");
+                return 0;
+            }
         } else {
             command.reply("Please stand on a valid Lootr container.");
         }
         1
     }
+}
+
+fn refresh_config(value: std::io::Result<String>) -> Result<lifecycle::Config, RegistrationError> {
+    let config = match value {
+        Ok(value) => {
+            lifecycle::Config::parse(&value).ok_or(RegistrationError::InvalidDefinition)?
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => lifecycle::Config::default(),
+        Err(_) => return Err(RegistrationError::InvalidDefinition),
+    };
+    // Do not silently accept an active destructive policy before guarded
+    // replacement exists. Existing persisted decay deadlines are still read.
+    if config.decay.enabled() || config.replace_when_decayed {
+        return Err(RegistrationError::InvalidDefinition);
+    }
+    Ok(config)
 }
 
 /// The configuration is read once during registration; a missing file uses
@@ -255,8 +304,215 @@ impl shards::Store for ShardStore<'_> {
 /// A live menu can only refer to an already initialized shard; a missing
 /// shard must never be recreated by a click or a menu-load callback.
 fn archive(runtime: Runtime, world: World<'_>, index: usize) -> Option<shards::Shard> {
-    let bytes = runtime.api.saved.read(&world, *runtime.keys.get(index)?)?;
-    shards::Shard::decode(index, &bytes)
+    shards::read_initialized(&ShardStore { runtime, world }, index)
+}
+
+fn with_queue<T>(dimension: &str, f: impl FnOnce(&mut scheduler::Queue) -> T) -> Option<T> {
+    let mut queues = QUEUES.lock().ok()?;
+    if let Some(queue) = queues.get_mut(dimension) {
+        return Some(f(queue));
+    }
+    Some(f(queues.entry(dimension.into()).or_default()))
+}
+
+fn position(pos: moddedmc_api::Pos) -> scheduler::Position {
+    [pos.x, pos.y, pos.z]
+}
+
+fn clock(world: World<'_>) -> Option<i64> {
+    world.game_time().filter(|now| *now >= 0)
+}
+
+fn next_refresh(archive: &state::Archive, id: &str, config: &lifecycle::Config) -> Option<i64> {
+    if !config.refresh.perform_while_ticking {
+        return None;
+    }
+    let schedule = archive.schedule(id)?;
+    if !archive.has_claims(id) {
+        return None;
+    }
+    // A pending decay must not be replaced by refresh while its destructive
+    // operation is unsupported. The open path will deny it when due.
+    let refresh = schedule.refresh_at?;
+    if schedule
+        .decay_at
+        .is_some_and(|decay| decay <= refresh && config.decay.perform_while_ticking)
+    {
+        return None;
+    }
+    Some(refresh)
+}
+
+fn next_probe(
+    archive: &state::Archive,
+    id: &str,
+    config: &lifecycle::Config,
+    now: i64,
+) -> Option<i64> {
+    if let Some(deadline) = next_refresh(archive, id, config) {
+        return Some(deadline);
+    }
+    // A block-entity table may be changed without a block state event.
+    // Only the opt-in start-while-ticking policy needs occasional probes
+    // of already-opened, currently unscheduled containers.
+    if config.refresh.start_while_ticking
+        && config.refresh.enabled()
+        && archive.has_claims(id)
+        && archive
+            .schedule(id)
+            .is_none_or(|s| s.refresh_at.is_none() && s.decay_at.is_none())
+    {
+        return now.checked_add(200);
+    }
+    None
+}
+
+/// Source /lootr refresh resets the deadline even if a timer already exists.
+/// The caller holds LOCK; a new timer becomes visible only after the shard write.
+fn begin_manual_refresh(
+    runtime: Runtime,
+    world: World<'_>,
+    pos: moddedmc_api::Pos,
+    chest: &ChestData,
+) -> Option<i64> {
+    let now = clock(world)?;
+    let config = POLICY.get()?;
+    let dimension = world.dimension_id()?;
+    let site = state::Site {
+        dimension: dimension.into(),
+        position: position(pos),
+    };
+    let index = shards::shard_for(&chest.id)?;
+    let mut store = ShardStore { runtime, world };
+    let mut shard = shards::load_or_init(&mut store, index)?;
+    if !shard.archive.bind_site(&chest.id, &site) {
+        return None;
+    }
+    let mut schedule = shard
+        .archive
+        .schedule(&chest.id)
+        .cloned()
+        .unwrap_or_default();
+    schedule.refresh_at = Some(now.checked_add(config.refresh.ticks)?);
+    if !shard.archive.set_schedule(&chest.id, schedule) {
+        return None;
+    }
+    let bytes = shard.encode()?;
+    if !runtime.api.saved.write(&world, runtime.keys[index], &bytes) {
+        return None;
+    }
+    with_queue(dimension, |q| {
+        q.schedule(
+            site.position,
+            next_refresh(&shard.archive, &chest.id, config),
+        )
+    })?;
+    Some(config.refresh.ticks)
+}
+
+/// Loaded/state events are cheap, deduplicated queue updates. Only a bounded
+/// number of sites can deserialize an archive or write a shard each tick.
+/// A persisted timer is rehydrated on load without scanning the world's blocks.
+fn lifecycle_tick(world: World<'_>, _: u64, events: &[content::ContentEvent]) {
+    let Some(runtime) = RUNTIME.get().copied() else {
+        return;
+    };
+    let Some(config) = POLICY.get() else { return };
+    let Some(dimension) = world.dimension_id() else {
+        return;
+    };
+    let now = clock(world);
+    let Some(ready) = with_queue(dimension, |q| {
+        for event in events {
+            let pos = position(event.position);
+            if event.reason == content::UNLOADED {
+                q.unload(pos);
+            } else if matches!(
+                event.reason,
+                content::LOADED | content::STATE_CHANGED | content::MOVED_STATE_CHANGED
+            ) {
+                if variants::kind(runtime.api.content, event.state).is_some() {
+                    // A state transition need not invalidate the existing
+                    // incarnation; re-probe metadata instead.
+                    // Zero is just the queue's immediate-probe priority
+                    // if the clock is unavailable, never a lifecycle time.
+                    q.schedule(pos, Some(now.unwrap_or(0)));
+                } else {
+                    q.unload(pos);
+                }
+            }
+        }
+        now.map_or_else(Vec::new, |now| q.ready(now))
+    }) else {
+        return;
+    };
+    let Some(now) = now else { return };
+    for pos in ready {
+        let Ok(_guard) = LOCK.lock() else { return };
+        let deadline = refresh_loaded(runtime, world, config, dimension, pos, now);
+        let _ = with_queue(dimension, |q| q.schedule(pos, deadline));
+    }
+}
+
+fn refresh_loaded(
+    runtime: Runtime,
+    world: World<'_>,
+    config: &lifecycle::Config,
+    dimension: &str,
+    position: scheduler::Position,
+    now: i64,
+) -> Option<i64> {
+    let [x, y, z] = position;
+    let pos = moddedmc_api::Pos { x, y, z };
+    // Do not assign IDs, initialize shards, or roll loot merely by loading a block.
+    let snapshot = world.entity_snapshot(pos)?;
+    variants::kind(runtime.api.content, snapshot.state)?;
+    let chest: ChestData = fastnbt::from_bytes(&snapshot.nbt).ok()?;
+    let index = shards::shard_for(&chest.id)?;
+    let mut shard = archive(runtime, world, index)?;
+    let site = state::Site {
+        dimension: dimension.into(),
+        position,
+    };
+    if !shard.archive.site_available(&chest.id, &site) || !shard.archive.has_claims(&chest.id) {
+        return None;
+    }
+    let previous = shard.archive.schedule(&chest.id).cloned();
+    // Nothing to do for an ordinary container with no running deadline
+    // and no enabled start-on-tick filter.
+    if previous.is_none()
+        && !(config.refresh.start_while_ticking
+            && config.refresh.matches(chest.table.as_deref(), dimension))
+    {
+        return next_probe(&shard.archive, &chest.id, config, now);
+    }
+    if !shard.archive.bind_site(&chest.id, &site) {
+        return None;
+    }
+    let action =
+        shard
+            .archive
+            .advance_lifecycle(&chest.id, config, now, chest.table.as_deref(), true)?;
+    if action == lifecycle::Action::Decay {
+        return None; // destructive operation deliberately not available
+    }
+    if action == lifecycle::Action::Refresh
+        || previous.as_ref() != shard.archive.schedule(&chest.id)
+    {
+        // This only mutates the old identity's saved data, never the block.
+        // Recheck the snapshot before the write to avoid a stale event.
+        if !chest_matches(world, &site, &chest.id, Some(snapshot.incarnation)) {
+            return None;
+        }
+        let bytes = shard.encode()?;
+        if !runtime.api.saved.write(&world, runtime.keys[index], &bytes) {
+            return now.checked_add(20); // bounded retry, do not invalidate menus
+        }
+        if action == lifecycle::Action::Refresh {
+            let _ = with_queue(dimension, |q| q.invalidate(position));
+        }
+    }
+    next_probe(&shard.archive, &chest.id, config, now)
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -468,6 +724,7 @@ struct ViewContext {
     site: state::Site,
     container: String,
     incarnation: i64,
+    epoch: i64,
 }
 
 fn within_reach(player: &Player<'_>, site: &state::Site) -> bool {
@@ -486,6 +743,13 @@ fn valid(view: Validity<'_>) -> bool {
     };
     if !within_reach(&view.player, &context.site) {
         trace("validity reach failed");
+        return false;
+    }
+    if clock(view.world).is_none()
+        || with_queue(&context.site.dimension, |q| {
+            q.valid(context.site.position, context.epoch)
+        }) != Some(true)
+    {
         return false;
     }
     if !chest_matches(
@@ -556,6 +820,12 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
     };
     let world = context.world;
     let pos = context.position;
+    if clock(world).is_none() {
+        return failed("persisted game time unavailable");
+    }
+    let Some(policy) = POLICY.get() else {
+        return failed("lifecycle policy unavailable");
+    };
     let Some(kind) = container_kind(runtime.api.content, world, pos) else {
         return failed("container block state changed");
     };
@@ -595,6 +865,9 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
         let Ok(_guard) = LOCK.lock() else {
             return failed("archive lock poisoned");
         };
+        let Some(now) = clock(world) else {
+            return failed("persisted game time unavailable");
+        };
         if container_kind(runtime.api.content, world, pos) != Some(kind) {
             return failed("container state changed before claim");
         }
@@ -616,6 +889,27 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
         if !data.bind_site(&chest.id, &site) {
             return failed("site binding failed");
         }
+        let Some(action) =
+            data.advance_lifecycle(&chest.id, policy, now, chest.table.as_deref(), false)
+        else {
+            return failed("lifecycle site missing");
+        };
+        if action == lifecycle::Action::Decay {
+            return failed("container decay due; guarded destruction unavailable");
+        }
+        if action == lifecycle::Action::Refresh {
+            // Persist the deletion even if new loot generation later fails.
+            let Some(bytes) = shard.encode() else {
+                return failed("refresh encoding failed");
+            };
+            if !runtime.api.saved.write(&world, runtime.keys[index], &bytes) {
+                return failed("refresh save failed");
+            }
+            if with_queue(dimension, |q| q.invalidate(site.position)).is_none() {
+                return failed("view invalidation failed");
+            }
+        }
+        let data = &mut shard.archive;
         let Some(id) = data.open_bounded(&chest.id, owner, SIZE, shards::MAX_ID, || {
             let slots = if chest.reference != 0 {
                 chest.reference_slots()
@@ -658,10 +952,15 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
         }
         record.site = Some(site.clone());
         data.mark_visual(&chest.id, owner, true);
+        let deadline = next_probe(data, &chest.id, policy, now);
+        let Some(Some(epoch)) = with_queue(dimension, |q| q.epoch(site.position)) else {
+            return failed("view epoch unavailable");
+        };
         let Ok(validity_context) = fastnbt::to_bytes(&ViewContext {
-            site,
+            site: site.clone(),
             container: chest.id,
             incarnation: incarnation as i64,
+            epoch,
         }) else {
             return failed("view context encoding failed");
         };
@@ -674,6 +973,7 @@ fn used(context: &mut UseBlock<'_>) -> BlockUseResult {
         if !runtime.api.saved.write(&world, runtime.keys[index], &bytes) {
             return failed("shard save failed");
         }
+        let _ = with_queue(dimension, |q| q.schedule(site.position, deadline));
         (index, id, inventory, validity_context, title)
     };
     if runtime.api.menus.open(
@@ -709,6 +1009,9 @@ fn changed(mut change: Change<'_>) {
         return;
     };
     let Ok(_guard) = LOCK.lock() else { return };
+    if clock(change.world).is_none() {
+        return;
+    }
     let Some((index, id)) = shards::split_menu(change.inventory) else {
         return;
     };
@@ -876,5 +1179,66 @@ mod tests {
         }
         assert!(seed_config(Err(Error::from(ErrorKind::PermissionDenied))).is_err());
         assert!(seed_config(Err(Error::from(ErrorKind::InvalidData))).is_err());
+    }
+
+    #[test]
+    fn refresh_configuration_requires_explicit_supported_policy() {
+        use std::io::{Error, ErrorKind};
+        assert_eq!(
+            refresh_config(Err(Error::from(ErrorKind::NotFound))).unwrap(),
+            lifecycle::Config::default()
+        );
+        let config = refresh_config(Ok("refresh_all=true\nrefresh_value=100".into())).unwrap();
+        assert!(config.refresh.all);
+        assert_eq!(config.refresh.ticks, 100);
+        for invalid in [
+            "decay_all=true",
+            "decay_dimensions=minecraft:overworld",
+            "replace_when_decayed=true",
+            "refresh_value=0",
+            "unknown=true",
+        ] {
+            assert!(refresh_config(Ok(invalid.into())).is_err());
+        }
+        assert!(refresh_config(Err(Error::from(ErrorKind::PermissionDenied))).is_err());
+    }
+
+    #[test]
+    fn pending_refresh_index_ignores_unclaimed_and_open_only_timers() {
+        let id = "00000000000000000000000000000001";
+        let mut archive = state::Archive::default();
+        let site = state::Site {
+            dimension: "minecraft:overworld".into(),
+            position: [1, 2, 3],
+        };
+        assert!(archive.bind_site(id, &site));
+        assert!(archive.set_schedule(
+            id,
+            lifecycle::Schedule {
+                refresh_at: Some(20),
+                decay_at: None
+            }
+        ));
+        let mut config = lifecycle::Config::default();
+        assert_eq!(next_refresh(&archive, id, &config), None);
+        archive
+            .open(id, [1; 16], SIZE, || Some(vec![None; SIZE]))
+            .unwrap();
+        assert_eq!(next_refresh(&archive, id, &config), Some(20));
+        config.refresh.perform_while_ticking = false;
+        assert_eq!(next_refresh(&archive, id, &config), None);
+        config.refresh.perform_while_ticking = true;
+        assert!(archive.set_schedule(
+            id,
+            lifecycle::Schedule {
+                refresh_at: Some(20),
+                decay_at: Some(19)
+            }
+        ));
+        assert_eq!(next_refresh(&archive, id, &config), None);
+        config.refresh.all = true;
+        config.refresh.start_while_ticking = true;
+        assert!(archive.set_schedule(id, lifecycle::Schedule::default()));
+        assert_eq!(next_probe(&archive, id, &config, 100), Some(300));
     }
 }

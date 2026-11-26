@@ -269,6 +269,12 @@ impl Archive {
         self.schedules.get(container)
     }
 
+    pub(crate) fn has_claims(&self, container: &str) -> bool {
+        self.records
+            .iter()
+            .any(|record| record.container == container)
+    }
+
     pub(crate) fn set_schedule(
         &mut self,
         container: &str,

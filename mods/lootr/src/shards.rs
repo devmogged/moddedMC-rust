@@ -148,6 +148,19 @@ pub trait Store {
     fn mark_migrated(&mut self, bytes: &[u8]) -> bool;
 }
 
+/// Read only a published shard. A tick or live menu must never adopt an
+/// orphan, or create a new archive after an initialization failure.
+pub fn read_initialized(store: &impl Store, index: usize) -> Option<Shard> {
+    if index >= COUNT {
+        return None;
+    }
+    let manifest = Manifest::decode(&store.manifest()?)?;
+    if !manifest.contains(index) {
+        return None;
+    }
+    Shard::decode(index, &store.read(index)?)
+}
+
 /// Existing initialized shards are authoritative, even when empty. A missing
 /// shard is initialized from a valid legacy archive only before compaction.
 /// Persist initialization before returning anything that could roll loot.
@@ -490,7 +503,9 @@ mod tests {
         assert!(store.write(0, &orphan.encode().unwrap()));
         store.reject_manifest = false;
         assert!(load_or_init(&mut store, 0).is_none());
+        assert!(read_initialized(&store, 0).is_none());
         store.manifest = None;
+        assert!(read_initialized(&store, 1).is_none());
         assert!(load_or_init(&mut store, 2).is_none());
         assert!(!store.shards.contains_key(&2));
     }

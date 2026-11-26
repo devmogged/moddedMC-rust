@@ -95,11 +95,44 @@ administrative commands are `/lootr refresh`, `/lootr decay` (stand on
 the target) and `/lootr cclear <entities>`; the latter requires the
 permission-checked entity argument interface. A strict policy parser and
 absolute persisted deadlines now exist, with atomic archive refresh and
-non-reused claim IDs. The host does not yet expose persistent overworld
-game time or a guarded destructive replacement operation. Consequently the
-deadline engine is not connected to live callbacks or exposed as an
-active config file yet. Using the mutable daylight clock or process tick
-counter would break restart and time-command semantics.
+non-reused claim IDs. Refresh is wired to the required `GameTime` extension
+and refuses access if the persisted overworld clock cannot be read. Loaded
+block events rehydrate the timer index, with at most 16 due/probe sites per
+dimension per tick. Unloading removes the transient queue entry, not the
+saved timer. Open also checks the absolute deadline, so an unloaded
+container cannot expose an expired inventory. A successful shard write
+invalidates the old menu epoch; late clicks cannot reuse the retired IDs.
+The refresh tick does not scan world blocks or decode shards on every
+menu validity check.
+With the opt-in start-while-ticking filter enabled, claimed but currently
+unscheduled sites are reprobed every 200 game ticks (subject to the same
+budget) so changed loot-table metadata can start a timer without a block
+state change.
+
+Optional `config/lootr/lifecycle.txt` uses strict port-specific key/value
+syntax. Missing file means upstream defaults. For example:
+
+```text
+# Opt in globally, or use comma-separated filters instead.
+refresh_all=true
+refresh_value=6000
+refresh_perform_while_ticking=true
+refresh_start_while_ticking=false
+# refresh_loot_tables=minecraft:chests/simple_dungeon
+# refresh_loot_table_modids=minecraft
+# refresh_dimensions=minecraft:overworld
+```
+
+`/lootr refresh` is permission level 2, targets the block at the player’s
+feet or one below, and resets its persisted deadline to the configured
+delay. Tick expiry requires a prior private claim; opening an already-due
+container also refreshes even when tick expiry is disabled. The configured
+duration does not extend an existing timer on ordinary re-open. Structure
+tag filters and source status notifications are not supported yet.
+
+Destructive decay is not active: the parser rejects an enabled decay policy
+or `replace_when_decayed=true` until the host provides guarded replacement.
+An existing due decay deadline denies a new open without touching the block.
 The replacement path must also account for the source's surprising
 `ExposedCopperChestLootrType.getReplacementBlock()` returning a waxed
 exposed copper chain; the other copper types return waxed chests.
@@ -162,6 +195,14 @@ not automatic vanilla-container conversion.
   persists exhausted on restart while another player receives the full copy.
   The new claim path verifies stack decoding with the host before persistence;
   counts beyond the effective maximum are rejected, not silently truncated.
+- `lootr-refresh-restart.txt`: auto refresh across restart, daylight-clock
+  changes, two independent exhausted claims and held-cursor menu invalidation.
+  Preseed the dedicated run's `config/lootr/lifecycle.txt` with the settings
+  in the scenario header and run with `-Keep`, **without** `-Fresh`.
+  Requires the new GameTime host. Not yet runtime verified.
+- `lootr-refresh-permission.txt`: explicit admin timer with no automatic
+  filter, denied ordinary player command, and open-only expiry. Preseed its
+  dedicated run configuration as stated in the header.
 - `lootr-migration-fixture-setup.txt` and `tests/fixtures/lootr-legacy.py`:
   a schema-derived legacy save fixture for the same migration-after scenario.
   Its provenance and exact commands are in [PERSISTENCE-DESIGN.md](PERSISTENCE-DESIGN.md).
