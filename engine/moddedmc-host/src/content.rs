@@ -435,6 +435,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
                 x: state.x,
                 y: state.y,
                 orientation: state.orientation,
+                bounded: false,
             },
         });
     }
@@ -1003,6 +1004,7 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
                         slab_carrier.unwrap_or(crate::content_slab::DISPLAY_CARRIER);
                     if slab_carrier.is_none() {
                         visual.rotating_model = std::mem::take(&mut visual.model);
+                        visual.bounded = true;
                     }
                     (props.to_state_id(carrier), props.to_state_id(replacement))
                 })
@@ -1577,9 +1579,10 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
             continue;
         };
         let overlay = displays.entry(pos).or_insert_with(|| {
+            let y_offset = if model.bounded { 0.0 } else { 0.5 };
             let center = Vector3::new(
                 f64::from(pos.0.x) + 0.5,
-                f64::from(pos.0.y) + 0.5,
+                f64::from(pos.0.y) + y_offset,
                 f64::from(pos.0.z) + 0.5,
             );
             let entity = Entity::new(world.clone(), center, &EntityType::ITEM_DISPLAY);
@@ -1592,6 +1595,14 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
             });
             display.set_item(stack);
             display.display.set_right_rotation(model.orientation);
+            if model.bounded {
+                // Java anchors its culling box at the entity's lower Y.
+                display.display.set_translation(Vector3::new(0.0, 0.5, 0.0));
+                display.display.set_display_width(1.0);
+                display.display.set_display_height(1.0);
+                // New trackers receive the initial non-default metadata when they pair.
+                display.get_entity().synched_data.clear_dirty();
+            }
             world.spawn_entity_non_save(display.clone());
             Overlay {
                 entity: display,
@@ -1600,6 +1611,9 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
                 moving: true,
             }
         });
+        if model.bounded {
+            continue;
+        }
         let (axis, rpm) = rotation.get(&pos).copied().unwrap_or((1, 0.0));
         let delta = rpm * std::f32::consts::TAU / 1200.0;
         let interval = (1.5 / delta.abs()).clamp(1.0, 5.0) as u64;
@@ -1942,7 +1956,8 @@ unsafe extern "C" fn rotate(raw: WorldRef, pos: Pos, axis: u8, rpm: f32) -> bool
     if !w.blocks.get(&pos).is_some_and(|state| {
         RUNTIME
             .get()
-            .is_some_and(|r| r.overlays.contains_key(&state.as_u16()))
+            .and_then(|runtime| runtime.overlays.get(&state.as_u16()))
+            .is_some_and(|model| !model.bounded)
     }) {
         return false;
     }

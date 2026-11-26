@@ -67,7 +67,7 @@ cmd execute if block 1029 106 1026 create:cut_calcite_slab[type=top,waterlogged=
 wait 0.4
 expect Test passed
 bot expect block 1029 106 1026 minecraft:petrified_oak_slab[type=top,waterlogged=false]
-bot expect entity minecraft:item_display near 1029.5 106.5 1026.5 within 0.05 count 1
+bot expect entity minecraft:item_display near 1029.5 106.0 1026.5 within 0.05 count 1
 wait 0.4
 expect-all \[bot\] expect block ok 1029 106 1026 && \[bot\] expect entity ok minecraft:item_display
 cmd setblock 1031 105 1026 minecraft:waxed_exposed_cut_copper_slab[type=bottom,waterlogged=false]
@@ -96,7 +96,7 @@ expect \[bot\] joined as tester
 cmd execute if block 1027 105 1026 create:cut_andesite_slab[type=double,waterlogged=false] if block 1029 106 1026 create:cut_calcite_slab[type=top,waterlogged=false] if block 1030 105 1027 create:cut_andesite_slab[type=bottom,waterlogged=true]
 wait 0.4
 expect Test passed
-bot expect entity minecraft:item_display near 1029.5 106.5 1026.5 within 0.05 count 1
+bot expect entity minecraft:item_display near 1029.5 106.0 1026.5 within 0.05 count 1
 wait 0.4
 expect \[bot\] expect entity ok minecraft:item_display
 reject (?i)panicked|trapped|\[bot\] error

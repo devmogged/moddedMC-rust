@@ -65,11 +65,13 @@ pub struct StateAssets {
     pub x: i16,
     pub y: i16,
     pub orientation: [f32; 4],
+    pub bounded: bool,
 }
 
 pub struct OverlayModel {
     pub id: String,
     pub orientation: [f32; 4],
+    pub bounded: bool,
 }
 
 pub fn valid_model(name: &str) -> bool {
@@ -247,6 +249,7 @@ fn build_pack(
                     OverlayModel {
                         id: model_id,
                         orientation: assets.orientation,
+                        bounded: assets.bounded,
                     },
                 );
             }
