@@ -1,0 +1,67 @@
+# Keep both dimensions' recoverable inventories when their deaths share one save.
+mods target\mods\corpse.mmc
+start
+expect moddedmc: loaded corpse
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+cmd gamemode survival tester
+cmd gamerule minecraft:keep_inventory false
+cmd fill 1024 299 1024 1031 299 1031 minecraft:quartz_block
+wait 0.5
+expect Successfully filled 64 block
+cmd tp tester 1025.5 300 1025.5
+wait 1
+cmd item replace entity tester hotbar.0 with minecraft:diamond 3
+cmd kill tester
+wait 0.5
+bot respawn
+wait 1
+cmd execute in minecraft:the_nether run forceload add 512 512
+wait 2
+cmd execute in minecraft:the_nether run fill 512 111 512 519 117 519 minecraft:air
+cmd execute in minecraft:the_nether run fill 512 110 512 519 110 519 minecraft:quartz_block
+cmd execute in minecraft:the_nether run tp tester 513.5 111 513.5
+wait 3
+cmd item replace entity tester hotbar.0 with minecraft:emerald 5
+cmd kill tester
+wait 0.5
+bot respawn
+wait 1
+bot quit
+stop
+start
+expect moddedmc: loaded corpse
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+cmd tp tester 1025.5 300 1027.5
+wait 2
+bot use-entity interaction 1025.5 300 1025.5 main
+wait 0.5
+bot expect slot 36 minecraft:diamond 3
+wait 0.5
+expect expect inventory ok slot 36 diamond 3
+bot inventory-click 36 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:diamond 0
+wait 0.5
+expect Found 3 matching item
+cmd execute in minecraft:the_nether run tp tester 513.5 111 515.5
+wait 3
+bot use-entity interaction 513.5 111 513.5 main
+wait 0.5
+bot expect slot 36 minecraft:emerald 5
+wait 0.5
+expect expect inventory ok slot 36 emerald 5
+bot inventory-click 36 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:emerald 0
+wait 0.5
+expect Found 5 matching item
+bot quit
+stop

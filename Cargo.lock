@@ -193,7 +193,9 @@ dependencies = [
 name = "corpse"
 version = "0.1.0"
 dependencies = [
+ "fastnbt",
  "moddedmc-api",
+ "serde",
 ]
 
 [[package]]

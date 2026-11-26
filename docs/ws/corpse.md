@@ -1,4 +1,4 @@
-# WS-12 — Corpse (M0 survey and M2 policy groundwork)
+# Corpse
 
 ## Release and provenance (2026-11-20)
 
@@ -7,7 +7,7 @@
 - Verified the checked-out upstream source at `D:\mc-ref\corpse-1.1.22-26.3`: commit `12881669fb0ef95e0a863a524bc92674cc2f5608` (2026-10-22), `gradle.properties` declares `minecraft_version=26.3`, `mod_version=1.1.22+26.3`.
 - Verified the *published* 252,237-byte jar, stored **outside version control** in `cache/corpse-neoforge-1.1.22+26.3.jar`: valid ZIP with 184 entries, including `CorpseMod.class`, `CorpseEntity.class`, `ServerConfig.class`, NeoForge metadata, and assets.
 - **License restriction:** upstream `META-INF/neoforge.mods.toml` and the published jar explicitly declare **All rights reserved**; no separate license file was found at the source root or among inspected jar entries. All original code and assets remain outside our public repository. The owner previously reported mod-port permissions have been obtained; publication of an adaptation and redistribution of assets must remain within the actual authorization. Do not import its art or Java into our public Git history.
-- Upstream core dependency: `de.maxhenkel.corelib` (Death, DeathManager, PlayerDeathEvent, ItemListInventory). Its death-storage formats and event semantics need a separate upstream-source audit before M2.
+- Upstream core dependency: Corelib `2.1.12+26.3` at `a97e109bd134964868aa1b3561df0d071fd19c1f`. Its death event reconciles the equipment and inventory snapshot with the stacks that vanilla actually drops.
 
 ## Complete registered-content inventory from the 26.3 sources
 
@@ -18,11 +18,11 @@
 | Items | None | N/A |
 | Recipes and loot tables | None | N/A |
 | World generation | None | N/A |
-| Entities | `corpse:corpse` (nonliving, 2×0.5, tracking distance 128, updates every tick); owner UUID/name, skeleton flag, model, equipment sync | **Missing**: arbitrary nonliving mod entity registration, save/load and entity-use callback; `moddedmc:mobs` v1 only supports living mob carriers; `moddedmc:entities` v1 can manipulate existing entities |
-| Menus | `corpse:corpse_inventory`, `corpse:corpse_additional_items`; transfer to matching player slots and navigate overflow pages | **Missing**: real slot-based player inventory menus/transactional transfer; basic `Player::show_menu` buttons do not supply inventory slots |
-| Commands | Operator-level `/deathhistory <player>` and `/deathhistory <player_uuid>`; normal history opened from client key | **Partial**: `moddedmc:commands` v1 handles roots and integer/literal nodes, not arbitrary player and UUID arguments or remote history GUI |
-| Serialization | Equipment-map and UUID entity data serializers; entity NBT `Death`, `Age`, `EmptyAge` | **Partial**: `moddedmc:entities` v1 entity data requires an existing entity; `moddedmc:saved_data` v1 can save global history |
-| Player death | Corelib `PlayerDeathEvent` stores death history, takes all vanilla drops, then spawns CorpseEntity | **Missing**: cancellable death/drop event and atomic inventory ownership transfer to a corpse |
+| Entities | `corpse:corpse` (nonliving, 2×0.5, tracking distance 128, updates every tick); owner UUID/name, skeleton flag, model, equipment sync | Persistent stock carrier and sleeping equipment view |
+| Menus | `corpse:corpse_inventory`, `corpse:corpse_additional_items`; transfer to matching player slots and navigate overflow pages | Stock take-only inventory. Matching and overflow controls are tracked in [#33](https://github.com/devmogged/moddedMC-rust/issues/33) |
+| Commands | Operator-level `/deathhistory <player>` and `/deathhistory <player_uuid>`; normal history opened from client key | History pending. `/corpse_recover` lets the owner recover a nearby saved body |
+| Serialization | Equipment-map and UUID entity data serializers; entity NBT `Death`, `Age`, `EmptyAge` | Per-save death records and saved carrier age and empty time |
+| Player death | Corelib `PlayerDeathEvent` stores death history, takes all vanilla drops, then spawns CorpseEntity | Commits the recoverable inventory before suppressing the original drops |
 | External integration | Optional Jade/WAILA corpse metadata | **Missing / deferred**: separate client integration |
 
 No registered custom blocks, items, block entities, crafting recipes, loot tables or worldgen features exist in the checked upstream 26.3 project. **M1 is therefore vacuous**, not an excuse to add placeholder content.
@@ -68,32 +68,9 @@ Source: `ServerConfig.java`. Check world-specific min-Y and Corelib storage befo
 6. `CorpseEntity.addAdditionalSaveData` stores `Death`, `Age` and optional `EmptyAge`, and reload restores synced owner, model and equipment.
 7. History `/deathhistory` requires moderator privileges and supports both name and UUID arguments; the client's own request opens history without command. Historical items are recoverable only under creative-mode restrictions.
 
-## ABI gaps / requests to WS-0
+## Implemented recovery
 
-**Priority 1 — blocking:** append-only `moddedmc:player_death` interface with death callback before vanilla drops, full main/armor/offhand/additional inventory snapshot, an atomic "claim and suppress original drops" operation, and world/player references. Without this we cannot create a non-duplicating corpse. No `on_player_death`, `player_death` or player-inventory hooks were found in `api/`, `mods/` or `docs/MOD-ABI.md` at this session's branch HEAD.
-
-**Priority 2:** custom nonliving entity spawn/save/interact with 2×0.5 collision shape; authoritative movement and despawn; correct chunk unload/reload behavior. Existing `moddedmc:mobs` v1 is living-entity carrier-only.
-
-**Priority 3:** player inventory slot reads/writes and a transactional slot-menu API; client-visible rendering of player-skin corpse, skeleton pose and history. `moddedmc:containers` v1 addresses world block inventories, not player inventory screens.
-
-**Available:** `moddedmc:saved_data` v1 for persistent death history; `moddedmc:commands` v1 for a limited command entry; `moddedmc:entities` v1 for generic loaded-entity view/motion/data; `moddedmc:item_stacks` v1 for world item entities; none substitutes for the death/drop API.
-
-## Session work and verification
-
-- Created `mods/corpse` through `scripts/new-mod.ps1`, discarded the generated example block/item/recipe/scenario, and added a policy-only crate with `rules.rs` tests for owner/admin/skeleton permissions, first-empty and forced timers, inclusive skeleton boundary, and state restoration. **It does not yet intercept death or create an entity.**
-- `cargo fmt -p corpse` **PASS**; `cargo clippy -p corpse --all-targets -- -D warnings` **PASS**; `cargo test -p corpse` **PASS** (10/10); `git diff --check` **PASS**. These test pure access/lifecycle rules only, not live server behavior.
-- Commit hashes and request issue numbers are recorded in the coordination-board handoff.
-- **Not verified:** NeoForge original-server oracle, actual death capture, item transfers, menus, packets, entity spawning, save/reload on a real world, visuals, multiplayer permissions, world startup scenarios.
-- Next session: confirm the pending ABI request and its implementation, audit Corelib `Death` storage format and original jar against the Rust data model; then implement one death-to-corpse mechanic and a bot death/restart scenario. Do not claim M2/M3 parity from these policy tests.
-
-## Death-drop interface
-
-`moddedmc:player_death` now provides the saved inventory stacks by slot for
-one death. The host saves a successful claim before suppressing those drops.
-The fixture in `tests/scenarios/abi-player-death.txt` checks acceptance,
-decline, duplicate attempts, a rejected write, Curse of Vanishing,
-keepInventory, and both the player inventory and claimed record after restart.
-
-The gameplay port still uses its policy-only registration. The inventory menu
-and persistent entity are tracked in GitHub issues [#22](https://github.com/devmogged/moddedMC-rust/issues/22)
-and [#23](https://github.com/devmogged/moddedMC-rust/issues/23).
+- [Player death #17](https://github.com/devmogged/moddedMC-rust/issues/17) saves the corpse record before suppressing vanilla drops. [Native inventory menus #22](https://github.com/devmogged/moddedMC-rust/issues/22) commit changes before moving items to the player. [Native entities #23](https://github.com/devmogged/moddedMC-rust/issues/23) persist the interaction carrier and show a sleeping mannequin or skeleton on stock Java.
+- A player can take their saved gear, offhand item and inventory from the body's stock chest screen. `corpse-recovery.txt` verifies one body, no loose drops, and recovery once after a cold restart. `corpse-multiple-dimensions.txt` verifies separate Overworld and Nether bodies and inventories in the same save.
+- If a carrier is missing, `/corpse_recover` opens a nearby, still-present record owned by the caller in the current dimension. It uses the last saved body location. Corpses are public by default, as in the original.
+- [The Corpse port #31](https://github.com/devmogged/moddedMC-rust/issues/31) tracks matching-slot recovery and overflow controls, history, server configuration, and comparisons on the exact NeoForge release and stock client.
