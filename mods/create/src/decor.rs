@@ -10,7 +10,7 @@ mod slab_data;
 
 use moddedmc_api::{
     RegistrationError, Registry,
-    content::{Block, Content, Placement, State},
+    content::{Block, BlockMaterial, Content, Placement, State},
     items::Item,
 };
 
@@ -35,6 +35,34 @@ fn state<'a>(properties: &'a str, physical: &'a str, model: &'a str, x: i16, y: 
         orientation: VERTICAL,
         shape: &[],
     }
+}
+
+/// `PaletteBlockPartial` copies the pattern block's `AllPaletteStoneTypes` settings.
+fn stone_material(path: &str) -> Option<BlockMaterial<'static>> {
+    let (template, hardness, map_color) = path.split('_').find_map(|part| {
+        Some(match part {
+            "andesite" => ("minecraft:andesite", None, None),
+            "asurine" => ("minecraft:deepslate", Some(1.25), Some("color_blue")),
+            "calcite" => ("minecraft:calcite", None, None),
+            "crimsite" => ("minecraft:deepslate", Some(1.25), Some("color_red")),
+            "deepslate" => ("minecraft:deepslate", None, None),
+            "diorite" => ("minecraft:diorite", None, None),
+            "dripstone" => ("minecraft:dripstone_block", None, None),
+            "granite" => ("minecraft:granite", None, None),
+            "limestone" => ("minecraft:sandstone", Some(1.25), Some("sand")),
+            "ochrum" => ("minecraft:calcite", Some(1.25), Some("terracotta_yellow")),
+            "scoria" => ("minecraft:blackstone", None, Some("color_brown")),
+            "scorchia" => ("minecraft:blackstone", None, Some("terracotta_gray")),
+            "tuff" => ("minecraft:tuff", None, None),
+            "veridium" => ("minecraft:tuff", Some(1.25), Some("warped_nylium")),
+            _ => return None,
+        })
+    })?;
+    Some(BlockMaterial {
+        template,
+        hardness,
+        map_color,
+    })
 }
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
@@ -77,6 +105,8 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         )?;
     }
     for &(path, name, physical, double) in slab_data::SLABS {
+        let id = format!("create:{path}");
+        let material = stone_material(path).ok_or(RegistrationError::InvalidDefinition)?;
         let bottom = format!("create:block/{path}");
         let top = format!("create:block/{path}_top");
         let variants = [
@@ -95,7 +125,7 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         content.add_block(
             registry,
             &Block {
-                id: &format!("create:{path}"),
+                id: &id,
                 display_name: name,
                 entity: "",
                 item_model: &format!("create:item/{path}"),
@@ -103,6 +133,7 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
             },
             None,
         )?;
+        content.set_block_material(registry, &id, &material)?;
     }
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for &(path, display_name, carrier) in data::ITEMS {

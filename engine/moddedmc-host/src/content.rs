@@ -15,8 +15,12 @@ use pumpkin_core::{
         BlockBehaviour, BlockHitResult, CanUpdateAtArgs, EmitsRedstonePowerArgs,
         GetComparatorOutputArgs, GetRedstonePowerArgs, GetStateForNeighborUpdateArgs,
         ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
-        PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs, UseWithItemArgs,
-        blocks::redstone::{block_receives_redstone_power, get_redstone_power},
+        PathComputationType, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
+        UseWithItemArgs,
+        blocks::{
+            redstone::{block_receives_redstone_power, get_redstone_power},
+            slabs::SlabBlock,
+        },
         entities::{
             BlockEntity,
             content::{self as engine, Change, ContentBlockEntity},
@@ -35,9 +39,9 @@ use pumpkin_core::{
     world::{World, install_entity_added_hook, loot::LootContextParameters},
 };
 use pumpkin_data::{
-    Block, BlockDirection, BlockState, BlockStateId, Property,
+    Block, BlockDirection, BlockId, BlockState, BlockStateId, Property,
     block_properties::SlabProperties,
-    content::{self, BlockDefinition, ItemDefinition, StateDefinition},
+    content::{self, BlockDefinition, BlockMaterial, ItemDefinition, StateDefinition},
     data_component::DataComponent,
     data_component_impl::{
         ConsumableImpl, ConsumeAnimation, DamageImpl, DataComponentImpl, EquipmentSlot, IdOr,
@@ -48,6 +52,7 @@ use pumpkin_data::{
     fluid::Fluid,
     item::Item,
     item_stack::ItemStack,
+    map_color::MapColor,
     sound::Sound,
     tag,
 };
@@ -71,6 +76,7 @@ pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     on_replaced,
     set_comparator_output,
     on_random_tick,
+    set_block_material,
 };
 pub static ITEMS: abi::ItemsV1 = abi::ItemsV1 {
     size: size_of::<abi::ItemsV1>(),
@@ -152,6 +158,7 @@ pub struct Registration {
     default_entity: bool,
     item_model: String,
     states: Vec<RegisteredState>,
+    material: Option<BlockMaterial>,
     placement: Option<abi::ContentPlacement>,
     item_input: Option<abi::ItemInputFn>,
     random_tick: Option<abi::ContentRandomTick>,
@@ -450,6 +457,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         default_entity: entity.is_empty(),
         item_model: item_model.into(),
         states: registered,
+        material: None,
         placement: def.on_place,
         random_tick: None,
         item_input: None,
@@ -520,6 +528,55 @@ unsafe extern "C" fn set_comparator_output(reg: Reg, id: Str, strength: u8) -> i
         return code::DUPLICATE_ID;
     }
     state.comparator_output = Some(strength);
+    code::OK
+}
+
+unsafe extern "C" fn set_block_material(
+    reg: Reg,
+    id: Str,
+    material: *const abi::ContentMaterialDefinition,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the registration and material are borrowed for this call.
+    let (staging, Some(material), id) = (
+        unsafe { native::staging(reg) },
+        unsafe { material.as_ref() },
+        unsafe { id.str() },
+    ) else {
+        return code::INVALID_DEFINITION;
+    };
+    // SAFETY: both strings belong to the live material definition.
+    let (template, map_color) = unsafe { (material.template.str(), material.map_color.str()) };
+    let Some(template) = Block::from_name(template.strip_prefix("minecraft:").unwrap_or(template))
+        .filter(|block| block.id.as_u16() < pumpkin_data::BlockId::COUNT)
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    let map_color = if map_color.is_empty() {
+        None
+    } else {
+        let Some(color) = MapColor::from_name(map_color) else {
+            return code::INVALID_DEFINITION;
+        };
+        Some(color.id)
+    };
+    let hardness = material.override_hardness.then_some(material.hardness);
+    if hardness.is_some_and(|value| !value.is_finite() || value < 0.0 && value != -1.0) {
+        return code::INVALID_DEFINITION;
+    }
+    let Some(block) = staging.content.iter_mut().find(|block| block.id == id) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.material.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.material = Some(BlockMaterial {
+        template,
+        hardness,
+        map_color,
+    });
     code::OK
 }
 
@@ -1042,6 +1099,7 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
             display_name: block.name.clone(),
             entity: Some(block.entity.clone()),
             item_carrier: &Item::PAPER,
+            material: block.material.take(),
             states,
         });
     }
@@ -1201,7 +1259,23 @@ fn item_input(block: &Block) -> Option<abi::ItemInputFn> {
     RUNTIME.get()?.blocks.get(&block.id.as_u16())?.item_input
 }
 
+fn slab_template(id: BlockId) -> Option<&'static Block> {
+    RUNTIME.get()?.blocks.get(&id.as_u16())?.slab
+}
+
+struct DefaultBlockBehaviour;
+
+impl BlockBehaviour for DefaultBlockBehaviour {}
+
 impl BlockBehaviour for Behaviour {
+    fn is_pathfindable(&self, state: &BlockState, computation: PathComputationType) -> bool {
+        if slab_template(state.id.to_block().id).is_some() {
+            SlabBlock.is_pathfindable(state, computation)
+        } else {
+            DefaultBlockBehaviour.is_pathfindable(state, computation)
+        }
+    }
+
     fn random_tick_sampled(&self, args: RandomTickArgs<'_>, state: BlockStateId) {
         let Some(callback) = RUNTIME
             .get()
@@ -1253,10 +1327,7 @@ impl BlockBehaviour for Behaviour {
     }
 
     fn can_update_at(&self, args: CanUpdateAtArgs<'_>) -> bool {
-        RUNTIME
-            .get()
-            .and_then(|r| r.blocks.get(&args.block.id.as_u16()))
-            .and_then(|block| block.slab)
+        slab_template(args.block.id)
             .is_some_and(|slab| crate::content_slab::can_update_at(&args, slab))
     }
 
@@ -1264,11 +1335,7 @@ impl BlockBehaviour for Behaviour {
         &self,
         args: GetStateForNeighborUpdateArgs<'_>,
     ) -> BlockStateId {
-        let Some(slab) = RUNTIME
-            .get()
-            .and_then(|r| r.blocks.get(&args.block.id.as_u16()))
-            .and_then(|block| block.slab)
-        else {
+        let Some(slab) = slab_template(args.block.id) else {
             return args.state_id;
         };
         crate::content_slab::neighbor_update(&args, slab)
