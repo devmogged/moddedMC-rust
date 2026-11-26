@@ -477,3 +477,17 @@ or -1 outside loaded positions. This query never loads a chunk. Require
 The fixture in `tests/fixtures/abi-random-tick` and scenario
 `tests/scenarios/abi-random-tick.txt` check disabled ticking, a callback that
 replaces its sampled block, and raw light in both loaded and unloaded chunks.
+
+Three appended `moddedmc:block_world` v1 operations support saved tools and block interactions.
+
+- `apply_block_transformer(world, origin, direction, tool)` traces a one-block outline ray
+  from the center of a loaded position, ignoring fluids. On a hit it applies the saved
+  tool's block transformer, including its world effects. The caller owns the saved stack.
+  Require `WorldExtension::BlockTransformer`.
+- `redstone_conductor(world, pos)` queries the loaded state's redstone conduction.
+  It returns 1 for a conductor, 0 otherwise, and -1 when unloaded.
+  Require `WorldExtension::RedstoneConductor`.
+- `block_drops_with_player_actor(world, pos, tool, out)` rolls block loot with the saved
+  tool and an unspawned player-typed loot actor. It uses the same stack sink as
+  `block_drops` and leaves the block and world unchanged.
+  Require `WorldExtension::PlayerActorBlockDrops`.

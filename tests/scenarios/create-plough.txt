@@ -1,0 +1,106 @@
+# The Plough tills dirt, clears layered snow into mounted storage, and leaves farmland crops alone.
+mods target/mods/create.mmc
+start
+expect registered content block create:mechanical_plough
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2622.5 100 2623.5
+wait 2
+cmd fill 2613 98 2615 2630 98 2626 minecraft:stone
+cmd fill 2613 99 2615 2630 106 2626 minecraft:air
+cmd gamerule minecraft:random_tick_speed 0
+cmd setblock 2620 100 2620 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2620 100 2620 0
+cmd item replace entity tester hotbar.0 with create:sticky_mechanical_piston
+bot look 90 0
+wait 0.3
+bot place 2620 100 2620 up
+wait 0.5
+cmd kinetics 2620 101 2620
+wait 0.25
+expect create:sticky_mechanical_piston\[axis_along_first=true,facing=east,state=retracted\] at 2620 101 2620
+cmd fill 2615 101 2620 2619 101 2620 create:piston_extension_pole[facing=east,waterlogged=false]
+cmd setblock 2621 101 2620 minecraft:slime_block
+cmd setblock 2621 101 2621 minecraft:slime_block
+cmd setblock 2621 102 2620 minecraft:chest
+cmd item replace entity tester hotbar.0 with create:mechanical_plough
+wait 0.25
+bot place 2621 101 2621 east
+wait 0.5
+cmd execute if block 2622 101 2621 create:mechanical_plough[facing=east,waterlogged=false]
+wait 0.4
+expect Test passed
+cmd recipe give tester create:crafting/kinetics/mechanical_plough
+wait 0.35
+expect Unlocked 1 recipe
+cmd setblock 2623 100 2621 minecraft:dirt
+cmd setblock 2624 100 2621 minecraft:stone
+cmd setblock 2624 101 2621 minecraft:snow[layers=5]
+cmd setblock 2625 100 2621 minecraft:farmland[moisture=7]
+cmd setblock 2625 101 2621 minecraft:wheat[age=7]
+cmd summon minecraft:armor_stand 2625.5 101 2621.5 {NoGravity:1b}
+wait 0.5
+bot expect entity minecraft:armor_stand near 2625.5 101 2621.5 within 0.08 count 1
+wait 0.3
+expect ^\[bot\] expect entity ok minecraft:armor_stand
+cmd kinetics 2620 100 2620 -32
+wait 0.8
+cmd data get block 2620 101 2620 Piston.Contraption.Blocks.Actors[0].Plough
+wait 0.3
+expect block data: 1b
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+wait 4
+bot expect entity minecraft:armor_stand near 2625.5 101 2621.5 within 0.08 count 0
+wait 0.4
+expect ^\[bot\] expect entity ok minecraft:armor_stand
+bot expect block 2623 100 2621 minecraft:farmland[moisture=0]
+bot expect block 2624 101 2621 minecraft:air
+bot expect block 2625 101 2621 minecraft:wheat[age=7]
+wait 0.5
+expect ^\[bot\] expect block ok 2623 100 2621
+expect ^\[bot\] expect block ok 2624 101 2621
+expect ^\[bot\] expect block ok 2625 101 2621
+cmd execute if block 2627 101 2621 create:mechanical_plough[facing=east,waterlogged=false]
+wait 0.4
+expect Test passed
+cmd data get block 2626 102 2620 Items[0].id
+cmd data get block 2626 102 2620 Items[0].count
+wait 0.4
+expect-all block data: "minecraft:snowball" && block data: 5$
+cmd save-all flush
+wait 0.75
+expect Saved the game
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 2627 101 2621 create:mechanical_plough[facing=east,waterlogged=false] if block 2623 100 2621 minecraft:farmland[moisture=0] if block 2625 101 2621 minecraft:wheat[age=7]
+wait 0.4
+expect Test passed
+cmd data get block 2626 102 2620 Items[0].count
+wait 0.4
+expect block data: 5$
+
+# Retracting a forward-facing Plough leaves newly placed dirt untilled.
+cmd setblock 2625 101 2621 minecraft:air
+cmd setblock 2624 100 2621 minecraft:dirt
+cmd kinetics 2620 100 2620 128
+wait 1.6
+cmd execute if block 2622 101 2621 create:mechanical_plough[facing=east,waterlogged=false] if block 2620 101 2620 create:sticky_mechanical_piston[state=retracted]
+wait 0.4
+expect Test passed
+cmd execute if block 2624 100 2621 minecraft:dirt
+wait 0.4
+expect Test passed
+reject (?i)panicked|trapped|\[bot\] error
+stop

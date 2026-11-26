@@ -12,7 +12,7 @@ use crate::{
     belt_tunnel::{read, shift},
     collider::Frame,
     kinetics::{Be, FACES, Kind, Kinetics, face_axis, positive},
-    saw,
+    plough, saw,
 };
 
 pub const ID: &str = "create:mechanical_drill";
@@ -286,6 +286,8 @@ pub struct BlockBreakingMovementBehaviour {
     facing: u8,
     #[serde(default)]
     pub(crate) saw: bool,
+    #[serde(default)]
+    plough: bool,
     #[serde(skip)]
     pub(crate) moving: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -302,11 +304,27 @@ impl BlockBreakingMovementBehaviour {
             local,
             facing,
             saw,
+            plough: false,
             moving: false,
             last_pos: None,
             breaking_pos: None,
             speed: 0.0,
             breaker: BreakProgress::default(),
+        }
+    }
+
+    pub(crate) fn plough(local: [i32; 3], facing: u8) -> Self {
+        Self {
+            plough: true,
+            ..Self::new(local, facing, false)
+        }
+    }
+
+    fn breakable(&self, world: World<'_>, pos: Pos) -> Option<(f32, String)> {
+        if self.plough {
+            plough::breakable(world, pos)
+        } else {
+            moving_breakable(world, pos, self.saw)
         }
     }
 
@@ -316,8 +334,12 @@ impl BlockBreakingMovementBehaviour {
             return Tick::Travel;
         };
         let step = step.map(f64::from);
-        let point =
-            std::array::from_fn(|i| f64::from(self.local[i]) + 0.5 + ACTIVE_AREA_OFFSET * step[i]);
+        let offset = if self.plough {
+            plough::ACTIVE_AREA_OFFSET
+        } else {
+            ACTIVE_AREA_OFFSET
+        };
+        let point = std::array::from_fn(|i| f64::from(self.local[i]) + 0.5 + offset * step[i]);
         let (before, after) = (previous.to_world(point), next.to_world(point));
         let motion: [f64; 3] = std::array::from_fn(|i| after[i] - before[i]);
         let local_motion = next.to_local(before);
@@ -349,17 +371,20 @@ impl BlockBreakingMovementBehaviour {
                 return Tick::Travel;
             }
         }
-        if self.breaking_pos.is_none()
-            && self.last_pos.replace(grid) != Some(grid)
-            && can_break_moving(world, block_pos(grid), self.saw)
-        {
-            self.breaking_pos = Some(grid);
-            self.speed = block_breaking_speed(speed);
+        if self.breaking_pos.is_none() && self.last_pos.replace(grid) != Some(grid) {
+            let pos = block_pos(grid);
+            if self.breakable(world, pos).is_some() {
+                self.breaking_pos = Some(grid);
+                self.speed = block_breaking_speed(speed);
+            }
+            if self.plough {
+                plough::visit(world, pos, motion, speed);
+            }
         }
         let Some(target) = self.breaking_pos.map(block_pos) else {
             return Tick::Travel;
         };
-        let Some((hardness, block)) = moving_breakable(world, target, self.saw) else {
+        let Some((hardness, block)) = self.breakable(world, target) else {
             self.breaking_pos = None;
             self.breaker = BreakProgress::default();
             return Tick::Travel;
@@ -368,9 +393,15 @@ impl BlockBreakingMovementBehaviour {
             return Tick::Stalled;
         }
         self.breaking_pos = None;
-        let Some(drops) = destroy_and_drops(world, target) else {
+        let snow = if self.plough && block == "minecraft:snow" {
+            plough::snow_drops(world, target)
+        } else {
+            Vec::new()
+        };
+        let Some(mut drops) = destroy_and_drops(world, target) else {
             return Tick::Travel;
         };
+        drops.extend(snow);
         let mut broken = vec![(target, drops)];
         if self.saw && !saw::is_leaf(&block) {
             broken.extend(

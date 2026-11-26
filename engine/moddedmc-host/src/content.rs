@@ -113,6 +113,9 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     is_thundering,
     best_neighbor_signal,
     raw_brightness,
+    apply_block_transformer,
+    redstone_conductor,
+    block_drops_with_player_actor,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -1726,12 +1729,89 @@ unsafe extern "C" fn read_block_entity(raw: WorldRef, pos: Pos, out: Sink) -> bo
     true
 }
 
+unsafe extern "C" fn redstone_conductor(raw: WorldRef, pos: Pos) -> i32 {
+    // SAFETY: the world is borrowed for this call.
+    unsafe { world(raw) }
+        .and_then(|world| world.get_block_state_id_if_loaded(&block_pos(pos)))
+        .map_or(-1, |state| i32::from(state.to_state().is_solid_block()))
+}
+
+unsafe extern "C" fn apply_block_transformer(
+    raw: WorldRef,
+    origin: Pos,
+    direction: u8,
+    tool: Str,
+) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let (Some(world), Some(direction), Some(tool)) = (
+        (unsafe { world(raw) }).and_then(shared),
+        BlockDirection::all().get(usize::from(direction)).copied(),
+        crate::stacks::read_stack(tool),
+    ) else {
+        return false;
+    };
+    let origin = block_pos(origin);
+    let delta = direction.to_offset();
+    let (Some(x), Some(y), Some(z)) = (
+        origin.0.x.checked_add(delta.x),
+        origin.0.y.checked_add(delta.y),
+        origin.0.z.checked_add(delta.z),
+    ) else {
+        return false;
+    };
+    let end = BlockPos(Vector3::new(x, y, z));
+    if world.get_block_state_id_if_loaded(&origin).is_none()
+        || world.get_block_state_id_if_loaded(&end).is_none()
+    {
+        return false;
+    }
+    let Some((pos, face, _)) =
+        world.ray_trace_block(origin.to_centered_f64(), end.to_centered_f64(), false)
+    else {
+        return false;
+    };
+    pumpkin_core::item::items::hoe::apply_block_transformer(
+        &world,
+        &tool,
+        pos,
+        face,
+        world.get_block(&pos),
+    )
+    .is_some()
+}
+
 unsafe extern "C" fn block_drops(raw: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    unsafe { world(raw) }
+        .and_then(shared)
+        .is_some_and(|world| collect_block_drops(&world, block_pos(pos), tool, &out, None))
+}
+
+unsafe extern "C" fn block_drops_with_player_actor(
+    raw: WorldRef,
+    pos: Pos,
+    tool: Str,
+    out: Sink,
+) -> bool {
     // SAFETY: the world is borrowed for this call.
     let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
         return false;
     };
     let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return false;
+    }
+    let actor = Entity::new(world.clone(), pos.to_centered_f64(), &EntityType::PLAYER);
+    collect_block_drops(&world, pos, tool, &out, Some(&actor))
+}
+
+fn collect_block_drops(
+    world: &Arc<World>,
+    pos: BlockPos,
+    tool: Str,
+    out: &Sink,
+    actor: Option<&dyn EntityBase>,
+) -> bool {
     let Some(id) = world.get_block_state_id_if_loaded(&pos) else {
         return false;
     };
@@ -1748,9 +1828,10 @@ unsafe extern "C" fn block_drops(raw: WorldRef, pos: Pos, tool: Str, out: Sink) 
         tool,
         block_state: Some(BlockState::from_id(id)),
         position: Some(pos.to_f64()),
+        this_entity: actor,
         ..Default::default()
     };
-    let drops = pumpkin_core::block::collect_loot(&world, Block::from_state_id(id), &pos, &params);
+    let drops = pumpkin_core::block::collect_loot(world, Block::from_state_id(id), &pos, &params);
     for (index, stack) in (0u64..).zip(drops) {
         if let Some(saved) = stack.to_nbt() {
             let bytes = Nbt::from(saved).write();

@@ -70,6 +70,9 @@ pub enum WorldExtension {
     Weather,
     BestNeighborSignal,
     RawBrightness,
+    BlockTransformer,
+    RedstoneConductor,
+    PlayerActorBlockDrops,
 }
 
 impl WorldExtension {
@@ -110,6 +113,18 @@ impl WorldExtension {
             Self::BestNeighborSignal => (
                 std::mem::offset_of!(abi::BlockWorldV1, best_neighbor_signal),
                 "moddedmc:block_world.best_neighbor_signal",
+            ),
+            Self::PlayerActorBlockDrops => (
+                std::mem::offset_of!(abi::BlockWorldV1, block_drops_with_player_actor),
+                "moddedmc:block_world.block_drops_with_player_actor",
+            ),
+            Self::RedstoneConductor => (
+                std::mem::offset_of!(abi::BlockWorldV1, redstone_conductor),
+                "moddedmc:block_world.redstone_conductor",
+            ),
+            Self::BlockTransformer => (
+                std::mem::offset_of!(abi::BlockWorldV1, apply_block_transformer),
+                "moddedmc:block_world.apply_block_transformer",
             ),
             Self::RawBrightness => (
                 std::mem::offset_of!(abi::BlockWorldV1, raw_brightness),
@@ -616,21 +631,73 @@ impl World<'_> {
             }
     }
 
+    /// Use a saved tool stack on the first outline hit along a one-block ray.
+    /// The ray starts at the origin block's center and ignores fluids.
+    /// Requires `WorldExtension::BlockTransformer`.
+    pub fn apply_block_transformer(self, origin: Pos, direction: u8, tool: &[u8]) -> bool {
+        if !WorldExtension::BlockTransformer.available(self.api) {
+            return false;
+        }
+        // SAFETY: the table includes the callback and the world and stack are borrowed.
+        unsafe {
+            ((&raw const (*self.api.ptr).apply_block_transformer).read())(
+                self.raw,
+                origin,
+                direction,
+                abi::Str::new(tool),
+            )
+        }
+    }
+
+    /// Reports the loaded state's redstone conduction, or `None` when unloaded.
+    /// Requires `WorldExtension::RedstoneConductor`.
+    pub fn redstone_conductor(self, pos: Pos) -> Option<bool> {
+        if !WorldExtension::RedstoneConductor.available(self.api) {
+            return None;
+        }
+        // SAFETY: the table includes the callback and the world is borrowed.
+        let value =
+            unsafe { ((&raw const (*self.api.ptr).redstone_conductor).read())(self.raw, pos) };
+        (value >= 0).then_some(value != 0)
+    }
+
     /// Vanilla `Block.getDrops` with `tool` (`None` for an empty hand), as saved stacks, without
     /// breaking the block or spawning them. `None` when unloaded or on a server without it.
     pub fn block_drops(self, pos: Pos, tool: Option<&[u8]>) -> Option<Vec<Vec<u8>>> {
         if !WorldExtension::BlockDrops.available(self.api) {
             return None;
         }
+        // SAFETY: the size check covers the appended field.
+        self.collect_block_drops(pos, tool, unsafe {
+            (&raw const (*self.api.ptr).block_drops).read()
+        })
+    }
+
+    /// Roll loot with an unspawned player-typed actor at the block.
+    /// Requires `WorldExtension::PlayerActorBlockDrops`.
+    pub fn block_drops_with_player_actor(self, pos: Pos, tool: &[u8]) -> Option<Vec<Vec<u8>>> {
+        if !WorldExtension::PlayerActorBlockDrops.available(self.api) {
+            return None;
+        }
+        // SAFETY: the size check covers the appended field.
+        let callback = unsafe { (&raw const (*self.api.ptr).block_drops_with_player_actor).read() };
+        self.collect_block_drops(pos, Some(tool), callback)
+    }
+
+    fn collect_block_drops(
+        self,
+        pos: Pos,
+        tool: Option<&[u8]>,
+        callback: unsafe extern "C" fn(abi::WorldRef, Pos, abi::Str, abi::Sink) -> bool,
+    ) -> Option<Vec<Vec<u8>>> {
         let mut stacks: Vec<Vec<u8>> = Vec::new();
         let sink = abi::Sink {
             ctx: (&raw mut stacks).cast(),
             put: each,
         };
         let tool = abi::Str::new(tool.unwrap_or_default());
-        // SAFETY: the size check covers the appended field; the sink fills `stacks` for the call.
-        unsafe { ((&raw const (*self.api.ptr).block_drops).read())(self.raw, pos, tool, sink) }
-            .then_some(stacks)
+        // SAFETY: the callback borrows the world and tool, and the sink fills stacks during the call.
+        unsafe { callback(self.raw, pos, tool, sink) }.then_some(stacks)
     }
 
     /// The overworld clock's ticks and whether this dimension has a fixed time. See

@@ -73,6 +73,7 @@ mod manual_application;
 mod millstone;
 mod mixer;
 mod piston;
+mod plough;
 mod press;
 mod processing_recipes;
 mod pulley;
@@ -196,6 +197,9 @@ impl Mod for Create {
         content.require_extension(WorldExtension::Survival)?;
         content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::BlockDrops)?;
+        content.require_extension(WorldExtension::BlockTransformer)?;
+        content.require_extension(WorldExtension::RedstoneConductor)?;
+        content.require_extension(WorldExtension::PlayerActorBlockDrops)?;
         let _ = CONTENT.set(content);
         // WS-3: save-global Create railway data through the generic ABI.
         trains::require_saved()?;
@@ -351,6 +355,7 @@ impl Mod for Create {
         seat::register(*content, registry)?;
         drill::register(*content, registry)?;
         harvester::register(*content, registry)?;
+        plough::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -1126,7 +1131,8 @@ fn states() -> Option<&'static StateIds> {
         sail::add_states(content, &mut ids);
         seat::add_states(content, &mut ids);
         drill::add_states(content, &mut ids);
-        harvester::add_states(content, &mut ids);
+        harvester::add_states(content, &mut ids, harvester::ID);
+        harvester::add_states(content, &mut ids, plough::ID);
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
@@ -1220,8 +1226,12 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     if seat::is_seat(placed.block) {
         return seat::placed_state(args, placed.block);
     }
-    if placed.block == harvester::ID {
-        return harvester::placed_state(&args, nearest_looking_direction(args.yaw, 0.0));
+    if matches!(placed.block, harvester::ID | plough::ID) {
+        return harvester::placed_state(
+            placed.block,
+            &args,
+            nearest_looking_direction(args.yaw, 0.0),
+        );
     }
     if placed.block == press::ID {
         return press::placed_state(args, states);
@@ -1901,7 +1911,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             if states
                 .by_id
                 .get(&event.state)
-                .is_some_and(|entry| entry.block == harvester::ID)
+                .is_some_and(|entry| matches!(entry.block, harvester::ID | plough::ID))
             {
                 harvester::event(world, event);
             }
@@ -2245,6 +2255,8 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
             | hand_crank::ID
             | belt_tunnel::ID
             | belt_tunnel::BRASS
+            | harvester::ID
+            | plough::ID
     ) {
         return validate_kinetic_placement(context);
     }

@@ -23,7 +23,7 @@ use crate::{
     glue::{self, GlueBox, GlueScan},
     harvester,
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
-    saw, seat, states, sticker,
+    plough, saw, seat, states, sticker,
     trains::{bogey, controls},
 };
 
@@ -175,6 +175,7 @@ impl BlockMovementChecks {
                     | drill::ID
                     | saw::ID
                     | harvester::ID
+                    | plough::ID
                     | controls::ID
             )
         {
@@ -241,7 +242,7 @@ impl BlockMovementChecks {
                     .map(|(_, step)| offset(pos, step)),
             );
         }
-        if let Some(face) = harvester::facing(entry) {
+        if let Some(face) = harvester::attached_facing(entry) {
             attached.push(offset(pos, FACES[usize::from(face ^ 1)]));
         }
         if entry.name == BELT {
@@ -522,6 +523,11 @@ impl Blocks {
                                 || !drill::can_break_moving(world, pos, true)
                         }
                         harvester::ID => !harvester::can_harvest(world, pos),
+                        plough::ID => {
+                            harvester::attached_facing(&self.palette[block.palette_index()])
+                                == Some(direction ^ 1)
+                                || plough::breakable(world, pos).is_none()
+                        }
                         _ => true,
                     }
             })
@@ -544,7 +550,12 @@ impl Blocks {
             if shapes.as_slice() != [Collider::BLOCK] {
                 block.shapes = Some(shapes);
             }
-            if matches!(entry.name.as_str(), drill::ID | saw::ID) {
+            if entry.name == plough::ID {
+                self.breakers.push(BlockBreakingMovementBehaviour::plough(
+                    block.local_pos(),
+                    harvester::attached_facing(entry)?,
+                ));
+            } else if matches!(entry.name.as_str(), drill::ID | saw::ID) {
                 let (facing, saw) = match states()?.kind(entry.state()?)? {
                     Kind::Drill(facing) => (facing, false),
                     Kind::Saw(block) => (block.facing, true),
@@ -649,7 +660,7 @@ impl Blocks {
                 if let BlockMovement::Movable(next) = get(adjacent)?
                     && (glue.is_glued(world, pos, adjacent)
                         || sticker::attachment(&next, adjacent) == Some(pos)
-                        || harvester::facing(&next) == Some(face as u8)
+                        || harvester::attached_facing(&next) == Some(face as u8)
                         || next.bogey_axis() == Some(face_axis(face as u8))
                         || crate::sail::plane(&next)
                             .is_some_and(|axis| axis != face_axis(face as u8))
@@ -1032,7 +1043,7 @@ impl PaletteEntry {
     fn can_waterlog_on_placement(&self) -> bool {
         matches!(
             self.name.as_str(),
-            BELT | drill::ID | harvester::ID | controls::ID
+            BELT | drill::ID | harvester::ID | plough::ID | controls::ID
         ) || seat::is_seat(&self.name)
             || bogey::is_bogey(&self.name)
     }
@@ -1051,11 +1062,13 @@ impl PaletteEntry {
     pub(crate) fn is_not_supportive(&self, face: u8) -> bool {
         sticker::blocks_attachment(self, face)
             || crate::sail::plane(self) == Some(face_axis(face))
-            || matches!(self.name.as_str(), drill::ID | saw::ID | harvester::ID)
-                && self
-                    .properties
-                    .get("facing")
-                    .is_some_and(|facing| facing == DIRECTIONS[usize::from(face)])
+            || matches!(
+                self.name.as_str(),
+                drill::ID | saw::ID | harvester::ID | plough::ID
+            ) && self
+                .properties
+                .get("facing")
+                .is_some_and(|facing| facing == DIRECTIONS[usize::from(face)])
     }
 
     pub(crate) fn parse(selector: &str) -> Self {

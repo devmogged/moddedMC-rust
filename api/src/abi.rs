@@ -687,6 +687,14 @@ pub struct BlockWorldV1 {
     pub best_neighbor_signal: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> u8,
     /// Vanilla raw brightness with explicit sky darkening; -1 when unloaded.
     pub raw_brightness: unsafe extern "C" fn(world: WorldRef, pos: Pos, sky_darken: u8) -> i32,
+    /// Apply a tool's block transformer along a one-block outline ray from the origin's center.
+    pub apply_block_transformer:
+        unsafe extern "C" fn(world: WorldRef, origin: Pos, direction: u8, tool: Str) -> bool,
+    /// -1 when unloaded, 1 if the state conducts redstone, 0 otherwise.
+    pub redstone_conductor: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> i32,
+    /// Roll block loot with the saved tool and an unspawned player-typed actor.
+    pub block_drops_with_player_actor:
+        unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
 }
 
 #[repr(C)]

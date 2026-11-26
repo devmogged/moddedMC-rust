@@ -574,7 +574,10 @@ impl PistonContraption {
                     Some(BlockMovement::Movable(entry)) => {
                         let stop = matches!(
                             entry.name.as_str(),
-                            crate::drill::ID | crate::saw::ID | crate::harvester::ID
+                            crate::drill::ID
+                                | crate::saw::ID
+                                | crate::harvester::ID
+                                | crate::plough::ID
                         ) && entry.is_not_supportive(piston.facing);
                         frontier.push_back((pos, entry));
                         if stop {
