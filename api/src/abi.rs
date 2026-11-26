@@ -1931,6 +1931,35 @@ pub struct InventoryMenuV1 {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct InventoryMenuControl {
+    pub slot: u8,
+    pub tag: u64,
+}
+
+#[repr(C)]
+pub struct InventoryMenuAction {
+    pub player: PlayerRef,
+    pub world: WorldRef,
+    pub inventory: u64,
+    pub tag: u64,
+}
+
+pub type InventoryMenuActionCallback = unsafe extern "C" fn(*const InventoryMenuAction);
+
+#[repr(C)]
+pub struct InventoryMenuV1Actions {
+    pub base: InventoryMenuV1,
+    pub on_action: unsafe extern "C" fn(Reg, InventoryMenuActionCallback) -> i32,
+    pub open_with_actions: unsafe extern "C" fn(
+        *const InventoryMenuOpen,
+        WorldRef,
+        *const InventoryMenuControl,
+        usize,
+    ) -> bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct InventoryMenuTarget {
     pub menu_slot: u8,
     pub player_slot: u8,

@@ -13,7 +13,7 @@ use pumpkin_core::entity::player::Player;
 use pumpkin_data::item_stack::ItemStack;
 use pumpkin_inventory::{
     native_menu::{MenuInventory, NativeMenu, SlotAccess},
-    screen_handler::InventoryPlayer,
+    screen_handler::{InventoryPlayer, MenuAction},
 };
 use pumpkin_nbt::Nbt;
 use pumpkin_util::text::TextComponent;
@@ -25,10 +25,22 @@ use crate::{lock, native, saved_data::Transaction, stacks};
 struct Kind {
     owner: &'static str,
     callback: abi::InventoryMenuCallback,
+    action: Option<abi::InventoryMenuActionCallback>,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct Registration {
+    binding: Option<(u64, abi::InventoryMenuCallback)>,
+    action: Option<abi::InventoryMenuActionCallback>,
 }
 
 type InventoryId = (Uuid, u64, u64);
-type OpenInventory = Mutex<Option<Arc<MenuInventory>>>;
+type OpenInventory = Mutex<Option<LiveInventory>>;
+
+struct LiveInventory {
+    slots: Arc<MenuInventory>,
+    controls: u64,
+}
 static NEXT_KIND: AtomicU64 = AtomicU64::new(1);
 static KINDS: LazyLock<Mutex<HashMap<u64, Kind>>> = LazyLock::new(Mutex::default);
 static INVENTORIES: LazyLock<Mutex<HashMap<InventoryId, Weak<OpenInventory>>>> =
@@ -45,11 +57,15 @@ fn invoke_callback<T>(call: impl FnOnce() -> T) -> T {
     result
 }
 
-pub static INVENTORY_MENU: abi::InventoryMenuV1 = abi::InventoryMenuV1 {
-    size: size_of::<abi::InventoryMenuV1>(),
-    register: stage_kind,
-    open,
-    restore_matching,
+pub static INVENTORY_MENU: abi::InventoryMenuV1Actions = abi::InventoryMenuV1Actions {
+    base: abi::InventoryMenuV1 {
+        size: size_of::<abi::InventoryMenuV1Actions>(),
+        register: stage_kind,
+        open,
+        restore_matching,
+    },
+    on_action: stage_action,
+    open_with_actions,
 };
 
 unsafe extern "C" fn stage_kind(
@@ -62,19 +78,39 @@ unsafe extern "C" fn stage_kind(
     }
     // SAFETY: the staging argument and output belong to the current registration.
     let staging = unsafe { native::staging(reg) };
-    if staging.inventory_menu.is_some() {
+    if staging.inventory_menu.binding.is_some() {
         return code::DUPLICATE_ID;
     }
     let id = NEXT_KIND.fetch_add(1, Ordering::Relaxed);
-    staging.inventory_menu = Some((id, callback));
+    staging.inventory_menu.binding = Some((id, callback));
     // SAFETY: a successful registration receives the assigned ID in the caller's output.
     unsafe { out.write(id) };
     code::OK
 }
 
-pub fn register(owner: &'static str, binding: Option<(u64, abi::InventoryMenuCallback)>) {
-    if let Some((id, callback)) = binding {
-        lock(&KINDS).insert(id, Kind { owner, callback });
+unsafe extern "C" fn stage_action(reg: Reg, callback: abi::InventoryMenuActionCallback) -> i32 {
+    // SAFETY: the caller borrows the staging context during registration.
+    let staged = &mut unsafe { native::staging(reg) }.inventory_menu;
+    if staged.binding.is_none() {
+        return code::INVALID_DEFINITION;
+    }
+    if staged.action.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    staged.action = Some(callback);
+    code::OK
+}
+
+pub fn register(owner: &'static str, registration: Registration) {
+    if let Some((id, callback)) = registration.binding {
+        lock(&KINDS).insert(
+            id,
+            Kind {
+                owner,
+                callback,
+                action: registration.action,
+            },
+        );
     }
 }
 
@@ -89,13 +125,37 @@ const fn decode_access(access: u8) -> Option<SlotAccess> {
 }
 
 unsafe extern "C" fn open(request: *const abi::InventoryMenuOpen) -> bool {
+    // SAFETY: the caller borrows the request for the duration of this call.
+    unsafe { request.as_ref() }.is_some_and(|request| open_menu(request, None, &[]))
+}
+
+unsafe extern "C" fn open_with_actions(
+    request: *const abi::InventoryMenuOpen,
+    world: abi::WorldRef,
+    controls: *const abi::InventoryMenuControl,
+    count: usize,
+) -> bool {
+    if world.is_null() || count > 54 || (count != 0 && controls.is_null()) {
+        return false;
+    }
+    let controls = if count == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller borrows the complete controls array for this call.
+        unsafe { std::slice::from_raw_parts(controls, count) }
+    };
+    // SAFETY: the caller borrows the request for the duration of this call.
+    unsafe { request.as_ref() }.is_some_and(|request| open_menu(request, Some(world), controls))
+}
+
+fn open_menu(
+    request: &abi::InventoryMenuOpen,
+    expected_world: Option<abi::WorldRef>,
+    controls: &[abi::InventoryMenuControl],
+) -> bool {
     if IN_CALLBACK.get() {
         return false;
     }
-    // SAFETY: the caller borrows the request and player for this call.
-    let Some(request) = (unsafe { request.as_ref() }) else {
-        return false;
-    };
     // SAFETY: the request borrows the host's player for this call.
     let Some(player) = (unsafe { request.player.0.cast::<Player>().as_ref() }) else {
         return false;
@@ -115,7 +175,17 @@ unsafe extern "C" fn open(request: *const abi::InventoryMenuOpen) -> bool {
     let Some(access): Option<Vec<_>> = access.iter().copied().map(decode_access).collect() else {
         return false;
     };
-    let id = (player.world().uuid, request.kind, request.inventory);
+    let world = player.world();
+    if expected_world
+        .is_some_and(|expected| !ptr::eq(expected, ptr::from_ref(world.as_ref()).cast()))
+    {
+        return false;
+    }
+    let id = (world.uuid, request.kind, request.inventory);
+    let Some(actions) = menu_actions(kind, id, &access, controls) else {
+        return false;
+    };
+    let controls = actions.iter().fold(0, |mask, (slot, _)| mask | (1 << slot));
     let view = {
         let mut open = lock(&INVENTORIES);
         open.retain(|_, inventory| inventory.strong_count() != 0);
@@ -127,46 +197,24 @@ unsafe extern "C" fn open(request: *const abi::InventoryMenuOpen) -> bool {
     };
     let inventory = {
         let mut current = lock(&view);
-        if let Some(inventory) = current.as_ref() {
-            if inventory.size() != access.len() {
-                return false;
-            }
-            Arc::clone(inventory)
-        } else {
-            let mut initial = vec![Str::EMPTY; request.count];
-            // SAFETY: the caller keeps its initializer alive until open returns.
-            if !invoke_callback(|| unsafe {
-                (request.initialize)(
-                    request.initialize_context,
-                    initial.as_mut_ptr(),
-                    initial.len(),
-                )
-            }) {
-                return false;
-            }
-            let Some(stacks): Option<Vec<_>> = initial
-                .into_iter()
-                .map(|stack| {
-                    if stack.len == 0 {
-                        Some(ItemStack::EMPTY.clone())
-                    } else {
-                        stacks::read_stack(stack)
-                    }
-                })
-                .collect()
-            else {
-                return false;
-            };
-            let Some(inventory) = MenuInventory::new(stacks) else {
-                return false;
-            };
-            let inventory = Arc::new(inventory);
-            *current = Some(Arc::clone(&inventory));
-            inventory
+        if current.is_none() {
+            *current = initialize_inventory(request).map(|slots| LiveInventory {
+                slots: Arc::new(slots),
+                controls,
+            });
         }
+        let Some(inventory) = current.as_ref().filter(|inventory| {
+            inventory.slots.size() == access.len() && inventory.controls == controls
+        }) else {
+            return false;
+        };
+        Arc::clone(&inventory.slots)
     };
+    if expected_world.is_some() && !Arc::ptr_eq(&world, &player.world()) {
+        return false;
+    }
     player.increment_screen_handler_sync_id();
-    let Some(menu) = NativeMenu::new(
+    let Some(mut menu) = NativeMenu::new(
         player.screen_handler_sync_id.load(Ordering::Relaxed),
         player,
         inventory,
@@ -178,10 +226,79 @@ unsafe extern "C" fn open(request: *const abi::InventoryMenuOpen) -> bool {
     ) else {
         return false;
     };
+    for (index, action) in actions {
+        if !menu.set_slot_action(index, action) {
+            return false;
+        }
+    }
     // SAFETY: the title bytes are borrowed from the caller through this call.
     let title = TextComponent::text(unsafe { request.title.str() }.to_owned());
     player.open_handled_screen_direct(Arc::new(Mutex::new(menu)), &title);
     true
+}
+
+fn initialize_inventory(request: &abi::InventoryMenuOpen) -> Option<MenuInventory> {
+    let mut initial = vec![Str::EMPTY; request.count];
+    // SAFETY: the caller keeps its initializer alive until open returns.
+    if !invoke_callback(|| unsafe {
+        (request.initialize)(
+            request.initialize_context,
+            initial.as_mut_ptr(),
+            initial.len(),
+        )
+    }) {
+        return None;
+    }
+    let stacks: Option<Vec<_>> = initial
+        .into_iter()
+        .map(|stack| {
+            if stack.len == 0 {
+                Some(ItemStack::EMPTY.clone())
+            } else {
+                stacks::read_stack(stack)
+            }
+        })
+        .collect();
+    MenuInventory::new(stacks?)
+}
+
+fn menu_actions(
+    kind: Kind,
+    id: InventoryId,
+    access: &[SlotAccess],
+    controls: &[abi::InventoryMenuControl],
+) -> Option<Vec<(usize, MenuAction)>> {
+    let mut seen = [false; 54];
+    controls
+        .iter()
+        .map(|control| {
+            let index = usize::from(control.slot);
+            let slot = access.get(index)?;
+            if slot.take || slot.insert || std::mem::replace(&mut seen[index], true) {
+                return None;
+            }
+            let callback = kind.action?;
+            let tag = control.tag;
+            let action: MenuAction = Arc::new(move |player| {
+                let Some(player) = player.as_any().downcast_ref::<Player>() else {
+                    return;
+                };
+                let world = player.world();
+                if world.uuid != id.0 {
+                    return;
+                }
+                let action = abi::InventoryMenuAction {
+                    player: abi::PlayerRef(ptr::from_ref(player).cast()),
+                    world: ptr::from_ref(world.as_ref()).cast(),
+                    inventory: id.2,
+                    tag,
+                };
+                // SAFETY: player, world and action context live through this synchronous callback.
+                unsafe { callback(&raw const action) };
+            });
+            Some((index, action))
+        })
+        .collect()
 }
 
 unsafe extern "C" fn restore_matching(
@@ -205,7 +322,10 @@ unsafe extern "C" fn restore_matching(
     let Some(view) = lock(&INVENTORIES).get(&id).and_then(Weak::upgrade) else {
         return false;
     };
-    let Some(inventory) = lock(&view).clone() else {
+    let Some(inventory) = lock(&view)
+        .as_ref()
+        .map(|inventory| Arc::clone(&inventory.slots))
+    else {
         return false;
     };
     let handler = lock(&player.current_screen_handler).clone();

@@ -139,7 +139,7 @@ pub struct Staging<'a> {
     mob_ai: std::collections::BTreeMap<String, mob_ai::TypeAi>,
     saved_keys: Vec<(u64, String)>,
     player_death: Option<abi::PlayerDeathCallback>,
-    inventory_menu: Option<(u64, abi::InventoryMenuCallback)>,
+    inventory_menu: inventory_menu::Registration,
     native_actor: Option<(u64, abi::NativeEntityCallback)>,
     services: Vec<services::Registration>,
 }
@@ -461,7 +461,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             mob_ai: std::collections::BTreeMap::new(),
             saved_keys: Vec::new(),
             player_death: None,
-            inventory_menu: None,
+            inventory_menu: inventory_menu::Registration::default(),
             native_actor: None,
             services: Vec::new(),
         };

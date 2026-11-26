@@ -2,12 +2,15 @@ use std::sync::OnceLock;
 
 use moddedmc_api::{
     Command, InterfaceUnavailable, Mod, RegistrationError, Registry,
-    inventory_menu::{self, Access, Change, MenuKind, Menus, Target},
+    entities::{self, EntitiesExtension},
+    inventory_menu::{
+        self, Access, Action, ActionSlots, Actions, Change, Control, MenuKind, Target,
+    },
     saved_data::{self, Key},
 };
 use serde::{Deserialize, Serialize};
 
-static MENUS: OnceLock<Menus> = OnceLock::new();
+static MENUS: OnceLock<Actions> = OnceLock::new();
 static KIND: OnceLock<MenuKind> = OnceLock::new();
 static RECORD: OnceLock<Key> = OnceLock::new();
 static OVERFLOW: OnceLock<Key> = OnceLock::new();
@@ -22,6 +25,54 @@ struct Stack {
 struct SavedStack {
     id: String,
     count: i32,
+}
+
+fn open_followup(menus: Actions, kind: MenuKind, action: Action<'_>) {
+    let access = [Access {
+        take: false,
+        insert: false,
+    }; 9];
+    menus
+        .menus()
+        .open(&action.player, kind, 5, "Next page", &access, || {
+            let mut slots = vec![None; 9];
+            slots[0] = Some(
+                fastnbt::to_bytes(&Stack {
+                    id: "minecraft:arrow",
+                    count: 1,
+                })
+                .ok()?,
+            );
+            Some(slots)
+        });
+}
+
+fn clicked(action: Action<'_>) {
+    let (Some(&menus), Some(&kind)) = (MENUS.get(), KIND.get()) else {
+        return;
+    };
+    if action.inventory != 2 {
+        return;
+    }
+    match action.tag {
+        0 => {
+            restore(menus, kind, &action.player);
+        }
+        1 => open_followup(menus, kind, action),
+        _ => {}
+    }
+}
+
+fn restore(menus: Actions, kind: MenuKind, player: &moddedmc_api::Player<'_>) -> bool {
+    menus.menus().restore_matching(
+        player,
+        kind,
+        2,
+        &[Target {
+            menu_slot: 0,
+            player_slot: 39,
+        }],
+    )
 }
 
 fn changed(mut change: Change<'_>) {
@@ -61,7 +112,8 @@ struct Fixture;
 
 impl Mod for Fixture {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
-        let _ = MENUS.set(inventory_menu::require()?);
+        entities::require()?.require_extension(EntitiesExtension::Player)?;
+        let _ = MENUS.set(inventory_menu::require_actions()?);
         saved_data::require()?;
         Ok(())
     }
@@ -71,12 +123,18 @@ impl Mod for Fixture {
         let save = saved_data::require().map_err(|_| RegistrationError::InvalidDefinition)?;
         let _ = RECORD.set(save.register(registry, "fixture_items")?);
         let _ = OVERFLOW.set(save.register(registry, "fixture_overflow")?);
-        let _ = KIND.set(menus.register(registry, changed)?);
+        let _ = KIND.set(menus.menus().register(registry, changed)?);
+        menus.on_action(registry, clicked)?;
         registry.add_command("abi_menu", "Open the fixture inventory", 0)?;
         registry.add_command("abi_menu_deny", "Open an inventory that declines edits", 1)?;
         registry.add_command("abi_menu_equipment", "Open matching equipment", 2)?;
         registry.add_command("abi_menu_restore", "Restore matching equipment", 3)?;
         registry.add_command("abi_menu_saved", "Inspect the saved fixture records", 4)?;
+        registry.add_command(
+            "abi_menu_alias",
+            "Check that a control cannot be opened as a normal slot",
+            5,
+        )?;
         moddedmc_api::info("abi_inventory_menu ready");
         Ok(())
     }
@@ -87,15 +145,20 @@ impl Mod for Fixture {
             return 0;
         };
         if tag == 3 {
-            return i32::from(menus.restore_matching(
-                &player,
-                kind,
-                2,
-                &[Target {
-                    menu_slot: 0,
-                    player_slot: 39,
-                }],
-            ));
+            return i32::from(restore(menus, kind, &player));
+        }
+        if tag == 5 {
+            let access = [Access {
+                take: true,
+                insert: false,
+            }; 9];
+            let opened = menus
+                .menus()
+                .open(&player, kind, 2, "Alias", &access, || Some(vec![None; 9]));
+            if !opened {
+                moddedmc_api::info("abi_inventory_menu rejected unlocked alias");
+            }
+            return i32::from(!opened);
         }
         let item = if tag == 2 {
             Stack {
@@ -108,16 +171,54 @@ impl Mod for Fixture {
                 count: 7,
             }
         };
-        let access = [Access {
+        let mut access = [Access {
             take: true,
             insert: false,
         }; 9];
+        let controls = if tag == 2 {
+            access[7..].fill(Access {
+                take: false,
+                insert: false,
+            });
+            &[Control { slot: 8, tag: 0 }, Control { slot: 7, tag: 1 }][..]
+        } else {
+            &[]
+        };
         i32::from(
-            menus.open(&player, kind, tag, "Fixture inventory", &access, || {
-                let mut slots = vec![None; 9];
-                slots[0] = Some(fastnbt::to_bytes(&item).ok()?);
-                Some(slots)
-            }),
+            player.with_entity_context(|world, _| {
+                menus.open(
+                    &player,
+                    kind,
+                    tag,
+                    "Fixture inventory",
+                    ActionSlots {
+                        world,
+                        access: &access,
+                        controls,
+                    },
+                    || {
+                        let mut slots = vec![None; 9];
+                        slots[0] = Some(fastnbt::to_bytes(&item).ok()?);
+                        if tag == 2 {
+                            slots[7] = Some(
+                                fastnbt::to_bytes(&Stack {
+                                    id: "minecraft:compass",
+                                    count: 1,
+                                })
+                                .ok()?,
+                            );
+                            slots[8] = Some(
+                                fastnbt::to_bytes(&Stack {
+                                    id: "minecraft:barrier",
+                                    count: 1,
+                                })
+                                .ok()?,
+                            );
+                        }
+                        Some(slots)
+                    },
+                )
+            }) == Some(true),
         )
     }
 }

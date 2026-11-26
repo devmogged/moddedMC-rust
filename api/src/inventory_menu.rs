@@ -9,10 +9,16 @@ use crate::{
     saved_data::Key,
 };
 
-pub use crate::abi::{InventoryMenuTarget as Target, MENU_ANY_SLOT as ANY_PLAYER_SLOT};
+pub use crate::abi::{
+    InventoryMenuControl as Control, InventoryMenuTarget as Target,
+    MENU_ANY_SLOT as ANY_PLAYER_SLOT,
+};
 
 #[derive(Clone, Copy)]
 pub struct Menus(&'static abi::InventoryMenuV1);
+
+#[derive(Clone, Copy)]
+pub struct Actions(&'static abi::InventoryMenuV1Actions);
 
 #[derive(Clone, Copy)]
 pub struct MenuKind(u64);
@@ -21,6 +27,19 @@ pub struct MenuKind(u64);
 pub struct Access {
     pub take: bool,
     pub insert: bool,
+}
+
+pub struct ActionSlots<'a> {
+    pub world: World<'a>,
+    pub access: &'a [Access],
+    pub controls: &'a [Control],
+}
+
+pub struct Action<'a> {
+    pub player: Player<'a>,
+    pub world: World<'a>,
+    pub inventory: u64,
+    pub tag: u64,
 }
 
 pub struct Change<'a> {
@@ -55,11 +74,73 @@ impl<'a> Change<'a> {
 
 pub type OnChange = fn(Change<'_>);
 static ON_CHANGE: OnceLock<OnChange> = OnceLock::new();
+pub type OnAction = fn(Action<'_>);
+static ON_ACTION: OnceLock<OnAction> = OnceLock::new();
 
 pub fn require() -> Result<Menus, InterfaceUnavailable> {
     content::require()?;
     // SAFETY: this is the named versioned C table.
     unsafe { require_interface(abi::INVENTORY_MENU, 1) }.map(Menus)
+}
+
+pub fn require_actions() -> Result<Actions, InterfaceUnavailable> {
+    content::require()?;
+    // SAFETY: this checks for the full table including the actions extension.
+    unsafe { require_interface(abi::INVENTORY_MENU, 1) }.map(Actions)
+}
+
+impl Actions {
+    pub const fn menus(self) -> Menus {
+        Menus(&self.0.base)
+    }
+
+    /// Register after registering this mod's inventory menu kind.
+    pub fn on_action(
+        self,
+        registry: &mut Registry<'_>,
+        callback: OnAction,
+    ) -> Result<(), RegistrationError> {
+        ON_ACTION
+            .set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        // SAFETY: the registry and callback belong to this mod's registration.
+        RegistrationError::from_code(unsafe { (self.0.on_action)(registry.reg, dispatch_action) })
+    }
+
+    /// Open a stock menu with controls in slots that forbid both taking and insertion.
+    /// Load their display stacks with the first view's saved slots.
+    pub fn open<F>(
+        self,
+        player: &Player<'_>,
+        kind: MenuKind,
+        inventory: u64,
+        title: &str,
+        slots: ActionSlots<'_>,
+        load: F,
+    ) -> bool
+    where
+        F: FnOnce() -> Option<Vec<Option<Vec<u8>>>>,
+    {
+        open_menu(
+            player,
+            kind,
+            inventory,
+            title,
+            slots.access,
+            load,
+            |request| {
+                // SAFETY: the open request and the action slots are borrowed for this call.
+                unsafe {
+                    (self.0.open_with_actions)(
+                        request,
+                        slots.world.raw(),
+                        slots.controls.as_ptr(),
+                        slots.controls.len(),
+                    )
+                }
+            },
+        )
+    }
 }
 
 impl Menus {
@@ -94,28 +175,10 @@ impl Menus {
     where
         F: FnOnce() -> Option<Vec<Option<Vec<u8>>>>,
     {
-        let access: Vec<_> = access
-            .iter()
-            .map(|slot| {
-                (u8::from(slot.take) * abi::MENU_TAKE) | (u8::from(slot.insert) * abi::MENU_INSERT)
-            })
-            .collect();
-        let mut pending = InitialSlots {
-            load: Some(load),
-            stacks: Vec::new(),
-        };
-        let open = abi::InventoryMenuOpen {
-            player: player.raw,
-            kind: kind.0,
-            inventory,
-            title: abi::Str::from(title),
-            access: access.as_ptr(),
-            count: access.len(),
-            initialize_context: (&raw mut pending).cast(),
-            initialize: initialize::<F>,
-        };
-        // SAFETY: all inputs are borrowed for the call.
-        unsafe { (self.0.open)(&raw const open) }
+        open_menu(player, kind, inventory, title, access, load, |request| {
+            // SAFETY: the request and its inputs are borrowed for this call.
+            unsafe { (self.0.open)(request) }
+        })
     }
 
     /// Recover one active view's slots to original player slots, using the same indices as
@@ -138,6 +201,40 @@ impl Menus {
             )
         }
     }
+}
+
+fn open_menu<F>(
+    player: &Player<'_>,
+    kind: MenuKind,
+    inventory: u64,
+    title: &str,
+    access: &[Access],
+    load: F,
+    invoke: impl FnOnce(&abi::InventoryMenuOpen) -> bool,
+) -> bool
+where
+    F: FnOnce() -> Option<Vec<Option<Vec<u8>>>>,
+{
+    let access: Vec<_> = access
+        .iter()
+        .map(|slot| {
+            (u8::from(slot.take) * abi::MENU_TAKE) | (u8::from(slot.insert) * abi::MENU_INSERT)
+        })
+        .collect();
+    let mut pending = InitialSlots {
+        load: Some(load),
+        stacks: Vec::new(),
+    };
+    invoke(&abi::InventoryMenuOpen {
+        player: player.raw,
+        kind: kind.0,
+        inventory,
+        title: abi::Str::from(title),
+        access: access.as_ptr(),
+        count: access.len(),
+        initialize_context: (&raw mut pending).cast(),
+        initialize: initialize::<F>,
+    })
 }
 
 struct InitialSlots<F> {
@@ -186,6 +283,25 @@ unsafe extern "C" fn dispatch(raw: *const abi::InventoryMenuChange) {
             stacks,
             overflow,
             raw,
+        });
+    });
+}
+
+unsafe extern "C" fn dispatch_action(raw: *const abi::InventoryMenuAction) {
+    guard("inventory menu action", (), || {
+        // SAFETY: the host borrows the context for the duration of this callback.
+        let (Some(raw), Some(callback)) = (unsafe { raw.as_ref() }, ON_ACTION.get()) else {
+            return;
+        };
+        let (Some(player), Some(world)) = (Player::new(raw.player), World::borrowed(raw.world))
+        else {
+            return;
+        };
+        callback(Action {
+            player,
+            world,
+            inventory: raw.inventory,
+            tag: raw.tag,
         });
     });
 }

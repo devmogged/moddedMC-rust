@@ -452,11 +452,26 @@ place, the host tries to pack displaced stacks and stacks marked
 remainder in `Change::overflow()`. Include those stacks in the replacement
 record to keep them available to the player.
 
+Mods with clickable controls require `inventory_menu::require_actions()` at startup.
+Use `Actions::menus()` to register the inventory kind, then `Actions::on_action`
+to register the control callback. `Actions::open` takes the world that supplied
+the items, unique control slots, and their mod-chosen tags. Each control slot
+must forbid taking and inserting.
+The initializer supplies an ordinary item stack as the control's display.
+All live views of one inventory must declare the same control slot positions.
+
+A left click with an empty cursor calls the action handler with the player, world,
+inventory ID, and tag after releasing the screen lock. The handler can restore
+matching slots or open another view. Other click modes leave the control item
+in place. Existing mods can continue using the original v1 table prefix.
+
 These transactions cover live interactions and clean restarts. Cross-file
 crash recovery between the player save and mod data requires a joint journal.
 
 `tests/scenarios/abi-inventory-menu.txt` exercises taking and quick moves,
 two viewers, rejected changes, and equipment restoration with overflow.
+`tests/scenarios/abi-inventory-actions.txt` exercises matching-slot restoration
+and opening another view from controls on a stock client connection.
 
 ## Persistent nonliving actors (`moddedmc:native_entities` v1)
 
