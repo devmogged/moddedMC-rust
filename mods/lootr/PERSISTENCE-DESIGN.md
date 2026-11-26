@@ -169,6 +169,55 @@ The persisted clock is mandatory; daylight time and process ticks are not
 substitutes. This is not a cross-file crash-atomic player inventory journal,
 and destructive decay remains disabled pending guarded block replacement.
 
+### Guarded decay contract (not yet active)
+
+The upstream `ILootrBlockEntity.performDecay` destroys with drops when
+`replace_when_decayed=false`. When true it destroys without drops and sets
+the replacement's default state with common properties copied. The Rust
+variant planner now derives the exact target selector for all 60 registered
+states. The exposed copper type specifically replaces with
+`minecraft:waxed_exposed_copper_chain[axis=y,waterlogged=...]`: the default
+vertical axis is retained, waterlogging is copied, and chest facing/type
+are not shared. All other supported replacements use their normal physical
+counterpart with the source properties.
+
+Required host operation: one synchronous loaded-world compare-and-destroy
+or compare-and-replace call taking position, expected state, process-local
+incarnation and complete expected entity NBT, plus optional replacement
+state and drop flag. Under the world mutation exclusion boundary, verify
+the loaded entity and its exact metadata, validate the target before any
+destructive work, then perform the operation with ordinary update/drop
+semantics. A failed comparison must leave the world, drops and block entity
+unchanged. No separate unguarded destroy and set-block operations, even
+after an optimistic snapshot check. A replacement receives fresh vanilla
+entity data, not the old Lootr UUID, table, seed or private inventory.
+
+Under the Lootr archive lock, evaluate decay before refresh, require the
+persisted clock and the site's matching bound identity, retain the entire
+snapshot, and resolve the replacement before calling the CAS. Do not
+consume the deadline, delete claims or invalidate a menu on CAS failure.
+Reprobe a still-loaded identity with bounded backoff and a fresh snapshot.
+After success, invalidate the old site's menu epoch. Preserve the old
+UUID binding and due deadline as a fail-closed tombstone; do not recycle
+its menu IDs, or clear the old deadline before the world transition is
+durable. The source decay operation does not explicitly delete its saved
+inventory store, so retaining claims is safer than discarding them before
+a durable world save. A copied old UUID cannot become a new claim at a
+different site. A newly placed container gets a new UUID.
+
+The above does not promise crash-atomic world/drop/player persistence:
+if the world and item drops can be independently saved, replay of a
+pre-decay world after a process crash can repeat drops. Exactly-once
+cross-file durability requires the host's shared journal or checkpoint
+transaction. Until the guarded operation is provided and validated,
+keep new decay policies disabled and deny opening an already-due identity.
+
+Regression plan: reject an outdated snapshot after same-state replacement,
+NBT edit or chunk unload without any drop; test default drop versus
+no-drop replacement (including all variant properties), independent
+player views, stale cursor closure, and orderly restart with unchanged
+unrelated blocks. Do not classify those checks as crash-atomic coverage.
+
 Static sharding improves hot-path work, but it cannot remove the
 64 MiB aggregate limit or whole-file flush. The production host should
 offer a generic registered record namespace with bounded dynamic

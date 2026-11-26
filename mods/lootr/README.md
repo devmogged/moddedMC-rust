@@ -209,8 +209,17 @@ not automatic vanilla-container conversion.
 
 The original `lootr-variants.txt` passed on the cached host on 2026-11-27
 at checkpoint `f68c6bf` (retained `run/lootr-variants-f68c6bf/scenario.log`).
-The subsequent stack-validation and metadata-repair changes still need their
-own gated test run.
+On the GameTime host, `cargo test -p lootr` passed all 27 tests and the
+release package built. The negative metadata case passed (retained
+`run/lootr-negative-gametime-05f0167/scenario.log`). The first refresh
+restart case preserved exhausted claims before expiry, refreshed both
+players afterward, and conserved the held stick on the server. It exited
+1 solely because the bot's cursor assertion requested a cursor packet
+after the container had closed (the bot clears its cache on close).
+The scenario now asserts an untouched marker in the player inventory
+instead, with the exact server item-count check retained. That corrected
+scenario and the permission scenario still require gated execution.
+Original evidence: `run/lootr-refresh-restart-05f0167/scenario.log`.
 
 `lootr:tests/full_chest` is a port-authored deterministic fixture with 27
 unstackable vanilla wooden swords. It is not an upstream loot table.

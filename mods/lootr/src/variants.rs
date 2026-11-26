@@ -88,6 +88,20 @@ impl Variant {
     fn faces(self) -> &'static [&'static str] {
         if self.barrel() { &FACES } else { &FACES[..4] }
     }
+
+    /// Upstream copies only properties shared by the original and replacement.
+    /// Exposed copper uniquely becomes a chain (as shipped in the source),
+    /// retaining waterlogging but leaving the chain's default vertical axis.
+    pub(crate) fn decay_selector(self, face: &str, flag: bool) -> Option<String> {
+        if !self.faces().contains(&face) {
+            return None;
+        }
+        Some(if self.id == "lootr:exposed_copper_chest" {
+            format!("minecraft:waxed_exposed_copper_chain[axis=y,waterlogged={flag}]")
+        } else {
+            format!("{}[{}]", self.physical, self.properties(face, flag))
+        })
+    }
 }
 
 pub(crate) fn register(
@@ -159,6 +173,8 @@ pub(crate) fn register(
 #[derive(Clone, Copy)]
 struct Mapping {
     variant: Variant,
+    face: &'static str,
+    flag: bool,
     custom: u32,
     original: u32,
     physical: u32,
@@ -176,6 +192,8 @@ fn mapping(content: Content) -> Option<&'static [Mapping]> {
                 let properties = variant.properties(face, flag);
                 states.push(Mapping {
                     variant,
+                    face,
+                    flag,
                     custom: content.state(&format!("{}[{properties}]", variant.id))?,
                     original: content.state(&format!("{}[{properties}]", variant.vanilla))?,
                     physical: content.state(&format!("{}[{properties}]", variant.physical))?,
@@ -199,6 +217,13 @@ pub(crate) fn converted(content: Content, source: u32) -> Option<u32> {
         .iter()
         .find(|m| m.original == source || m.physical == source)
         .map(|m| m.custom)
+}
+
+/// Plan only; never mutate the world here. None means unresolved source/target,
+/// not permission to fall back to an unguarded destruction.
+pub(crate) fn decay_replacement(content: Content, source: u32) -> Option<u32> {
+    let entry = mapping(content)?.iter().find(|m| m.custom == source)?;
+    content.state(&entry.variant.decay_selector(entry.face, entry.flag)?)
 }
 
 fn placed(args: Placement<'_>) -> Option<u32> {
@@ -243,6 +268,35 @@ fn barrel_face(yaw: f32, pitch: f32) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decay_targets_copy_only_shared_properties_for_all_sixty_states() {
+        let mut total = 0;
+        for variant in VARIANTS {
+            for face in variant.faces() {
+                for flag in [false, true] {
+                    let target = variant.decay_selector(face, flag).unwrap();
+                    if variant.id == "lootr:exposed_copper_chest" {
+                        assert_eq!(
+                            target,
+                            format!(
+                                "minecraft:waxed_exposed_copper_chain[axis=y,waterlogged={flag}]"
+                            )
+                        );
+                    } else {
+                        assert_eq!(
+                            target,
+                            format!("{}[{}]", variant.physical, variant.properties(face, flag))
+                        );
+                    }
+                    total += 1;
+                }
+            }
+        }
+        assert_eq!(total, 60);
+        assert!(VARIANTS[0].decay_selector("up", false).is_none());
+        assert!(VARIANTS[2].decay_selector("invalid", true).is_none());
+    }
 
     #[test]
     fn barrel_opposes_nearest_look_axis() {

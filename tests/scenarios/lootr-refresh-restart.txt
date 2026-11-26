@@ -16,6 +16,7 @@ cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
 cmd setblock 1025 100 1025 lootr:barrel[facing=up,open=false]
 cmd data merge block 1025 100 1025 {LootrId:"00000000000000000000000000000001",LootrIsCustomInventory:1b,LootrCustomInventory:[{Slot:0b,id:"minecraft:diamond",count:7}]}
 cmd item replace entity alice hotbar.0 with minecraft:stick 1
+cmd item replace entity alice hotbar.1 with minecraft:flint 1
 wait 1
 bot use 1025 100 1025
 wait 0.5
@@ -85,9 +86,12 @@ wait 20
 cmd clear alice minecraft:stick 0
 wait 0.5
 expect Found 1 matching item
-bot expect cursor minecraft:air 0
+# The bot clears its cursor cache on CONTAINER_CLOSE, so no cursor
+# packet for menu 0 is expected. Assert the untouched marker in the
+# player's inventory (slot 37, not container slot 55) instead.
+bot expect slot 37 minecraft:flint 1
 wait 0.5
-expect expect inventory ok cursor air 0
+expect expect inventory ok slot 37 flint 1
 bot use 1025 100 1025
 wait 1
 bot expect slot 0 minecraft:diamond 7
