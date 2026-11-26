@@ -1522,6 +1522,8 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     deployer: Option<deployer::Deployer>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    drill: Option<drill::Stationary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     arm: Option<arm::Arm>,
     #[serde(skip_serializing_if = "Option::is_none")]
     crafter: Option<crafter::CrafterData>,
@@ -1625,6 +1627,9 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if matches!(kind, Kind::Deployer { .. }) {
         be.deployer = Some(Box::new(data.deployer.unwrap_or_default()));
     }
+    if matches!(kind, Kind::Drill(_)) {
+        be.drill = data.drill;
+    }
     if matches!(kind, Kind::Arm(_)) {
         be.arm = Some(Box::new(data.arm.unwrap_or_default()));
     }
@@ -1708,6 +1713,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         pointer: be.valve,
         press: be.press.as_ref().map(|press| press.data),
         deployer: be.deployer.as_deref().cloned(),
+        drill: be.drill,
         arm: be.arm.as_deref().cloned(),
         crafter: be.crafter.as_ref().map(|crafter| crafter.data.clone()),
         basin_recipe: be
@@ -1956,15 +1962,18 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                     kinetics.unload(pos);
                 }
                 content::NEIGHBOR_CHANGED => {
-                    if let Some(be) = kinetics.get_mut(pos)
-                        && matches!(be.kind, Kind::Fan(_))
-                    {
-                        be.fan = None;
-                    }
-                    if let Some(be) = kinetics.get_mut(pos)
-                        && be.belt_casing != belt_casing::Casing::None
-                    {
-                        be.dirty = true;
+                    if let Some(be) = kinetics.get_mut(pos) {
+                        match be.kind {
+                            Kind::Fan(_) => be.fan = None,
+                            Kind::Drill(_) => {
+                                be.drill.get_or_insert_with(Default::default).wake();
+                                be.dirty = true;
+                            }
+                            _ => {}
+                        }
+                        if be.belt_casing != belt_casing::Casing::None {
+                            be.dirty = true;
+                        }
                     }
                     kinetics.neighbor_changed(&mut level, pos);
                 }
@@ -2037,6 +2046,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         belt_tunnel::update(world, states, kinetics, events);
         press::tick(world, states, kinetics);
         deployer::tick(world, time, kinetics);
+        drill::tick(world, kinetics, time);
         crafter::tick(world, kinetics, time);
         blaze_burner::tick(world, &mut kinetics.blaze_burners);
         mixer::tick(world, time, states, kinetics);

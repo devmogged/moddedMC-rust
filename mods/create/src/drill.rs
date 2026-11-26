@@ -1,4 +1,4 @@
-//! Create 6.0.10's DrillMovementBehaviour and BlockBreakingMovementBehaviour.
+//! Create 6.0.10's stationary drill and contraption block breaking.
 
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
@@ -7,9 +7,10 @@ use moddedmc_api::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CONTENT, DIRECTIONS, STONE, StateIds, TAGS,
+    CONTENT, DIRECTIONS, STACKS, STONE, StateIds, TAGS,
+    belt_tunnel::{read, shift},
     collider::Frame,
-    kinetics::{FACES, Kind, face_axis, positive},
+    kinetics::{FACES, Kind, Kinetics, face_axis, positive},
 };
 
 pub const ID: &str = "create:mechanical_drill";
@@ -82,29 +83,112 @@ fn block_pos([x, y, z]: [i32; 3]) -> Pos {
     Pos { x, y, z }
 }
 
-pub fn breakable(world: World<'_>, position: Pos) -> Option<f32> {
-    let mut states = [content::UNLOADED_STATE];
-    world.read(&[position], &mut states);
-    let name = CONTENT.get()?.describe_state(states[0])?;
-    let block = name.split('[').next()?;
+fn breakable_block(world: World<'_>, position: Pos, state: u32) -> Option<(f32, String)> {
+    let mut block = CONTENT.get()?.describe_state(state)?;
+    if let Some(properties) = block.find('[') {
+        block.truncate(properties);
+    }
     let hardness = world.destroy_speed(position)?;
     let tags = TAGS.get()?;
     if hardness < 0.0
         || matches!(
-            block,
+            block.as_str(),
             "minecraft:air"
                 | "minecraft:cave_air"
                 | "minecraft:void_air"
                 | "minecraft:water"
                 | "minecraft:lava"
         )
-        || tags.contains("block", "create:non_breakable", block)
-        || tags.contains("block", "create:tracks", block)
+        || tags.contains("block", "create:non_breakable", &block)
+    {
+        return None;
+    }
+    Some((hardness, block))
+}
+
+pub fn breakable(world: World<'_>, position: Pos) -> Option<f32> {
+    let (hardness, block) = breakable_block(world, position, read(world, position))?;
+    if TAGS.get()?.contains("block", "create:tracks", &block)
         || world.collision_shape(position)?.is_empty()
     {
         return None;
     }
     Some(hardness)
+}
+
+const IDLE: i32 = -1;
+const LAZY_TICK_RATE: u64 = 10;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub(crate) struct Stationary {
+    progress: i32,
+    next_tick: i32,
+}
+
+impl Stationary {
+    pub(crate) fn wake(&mut self) {
+        self.next_tick = 1;
+    }
+
+    fn tick(&mut self, world: World<'_>, target: Pos, speed: f32, lazy_tick: bool) {
+        if self.next_tick < 0 && lazy_tick {
+            self.wake();
+        }
+        if speed == 0.0 || self.next_tick < 0 {
+            return;
+        }
+        if self.next_tick > 0 {
+            self.next_tick -= 1;
+            return;
+        }
+        let state = read(world, target);
+        if state == content::UNLOADED_STATE {
+            return;
+        }
+        let Some((hardness, _)) = breakable_block(world, target, state) else {
+            self.progress = 0;
+            self.next_tick = IDLE;
+            return;
+        };
+
+        let break_speed = (speed / 100.0).abs();
+        self.progress = self.progress.clamp(0, 9);
+        self.progress += ((break_speed / hardness) as i32).clamp(1, 10 - self.progress);
+        if self.progress < 10 {
+            self.next_tick = (hardness / break_speed) as i32;
+            return;
+        }
+
+        if let Some(drops) = world.block_drops(target, None)
+            && world.destroy(target, false)
+            && let Some(&stacks) = STACKS.get()
+        {
+            let center = [target.x, target.y, target.z].map(|coord| f64::from(coord) + 0.5);
+            for drop in drops {
+                stacks.spawn(world, center, [0.0; 3], &drop);
+            }
+        }
+        self.progress = 0;
+        self.next_tick = IDLE;
+    }
+}
+
+pub(crate) fn tick(world: World<'_>, kinetics: &mut Kinetics, time: u64) {
+    let lazy_tick = time.is_multiple_of(LAZY_TICK_RATE);
+    for pos in kinetics.positions(|kind| matches!(kind, Kind::Drill(_))) {
+        let Some(be) = kinetics.get_mut(pos) else {
+            continue;
+        };
+        let Kind::Drill(facing) = be.kind else {
+            continue;
+        };
+        let speed = be.get_speed();
+        let drill = be.drill.get_or_insert_with(Default::default);
+        let previous = *drill;
+        drill.tick(world, shift(pos, facing), speed, lazy_tick);
+        be.dirty |= previous != *drill;
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

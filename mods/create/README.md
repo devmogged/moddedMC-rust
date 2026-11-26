@@ -307,6 +307,10 @@ already moving seat and handing it a leashed mob need additional interaction hoo
 
 ### Moving drills
 
+Drive a stationary Mechanical Drill from its rear shaft. It mines the block in front of the drill and drops that block's loot. Faster rotation mines faster in either direction, and stopping the shaft pauses progress. Place a hopper below the target block to collect the output from a cobblestone generator. The [stationary drill scenario](../../tests/scenarios/create-drill-stationary.txt) checks block drops, cobblestone collection, and a restart during mining.
+
+In stock Java 26.3, place the drill against a powered shaft and check that the head spins while the casing stays still. Place stone in front of the drill and check for a cobblestone drop. Stop the shaft partway through a harder block, restart the server, and reconnect power to finish mining.
+
 Mount a Mechanical Drill on a piston platform with the drill pointing forward. Put oak planks
 in front of the head and extend the piston. The platform pauses while the drill mines, then
 continues once the block drops. The [drill scenario](../../tests/scenarios/create-drill.txt)

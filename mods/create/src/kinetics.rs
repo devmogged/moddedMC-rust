@@ -516,6 +516,7 @@ pub struct Be {
     pub last_gantry_shaft: Option<(crate::gantry::Shaft, f32)>,
     pub pulley: Option<Box<crate::pulley::RopePulley>>,
     pub millstone: Option<Box<crate::millstone::Millstone>>,
+    pub(crate) drill: Option<crate::drill::Stationary>,
 }
 
 impl Be {
@@ -565,6 +566,7 @@ impl Be {
             last_gantry_shaft: None,
             pulley: None,
             millstone: None,
+            drill: None,
             valve: None,
             mixer: None,
             press: if matches!(kind, Kind::Press(_)) {
