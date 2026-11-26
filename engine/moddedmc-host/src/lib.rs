@@ -18,6 +18,7 @@ mod entities;
 mod fluid_world;
 mod interaction;
 mod interfaces;
+mod inventory_menu;
 mod live_stats;
 mod load_order;
 mod mob_ai;
@@ -135,6 +136,7 @@ pub struct Staging<'a> {
     mob_ai: std::collections::BTreeMap<String, mob_ai::TypeAi>,
     saved_keys: Vec<(u64, String)>,
     player_death: Option<abi::PlayerDeathCallback>,
+    inventory_menu: Option<(u64, abi::InventoryMenuCallback)>,
     services: Vec<services::Registration>,
 }
 
@@ -166,7 +168,7 @@ struct Host {
 static HOST: LazyLock<Host> = LazyLock::new(Host::default);
 
 // A panic elsewhere must not take the content host down with it.
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 fn read<T>(m: &RwLock<T>) -> RwLockReadGuard<'_, T> {
@@ -430,6 +432,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         ai,
         saved_keys,
         player_death_callback,
+        inventory_menu_kind,
         services,
     ) = {
         let registry = read(&HOST.registry);
@@ -448,6 +451,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             mob_ai: std::collections::BTreeMap::new(),
             saved_keys: Vec::new(),
             player_death: None,
+            inventory_menu: None,
             services: Vec::new(),
         };
         let result = module.register(&mut staging);
@@ -465,6 +469,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.mob_ai,
             staging.saved_keys,
             staging.player_death,
+            staging.inventory_menu,
             staging.services,
         )
     };
@@ -502,6 +507,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     mob_ai::register(ai);
     saved_data::register(module.id, saved_keys);
     player_death::register(module.id, player_death_callback);
+    inventory_menu::register(module.id, inventory_menu_kind);
     services::commit(services);
     lock(&HOST.commands).push(PendingCommands {
         module,

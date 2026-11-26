@@ -1811,6 +1811,57 @@ pub struct PlayerDeathV1 {
     pub on_drops: unsafe extern "C" fn(reg: Reg, callback: PlayerDeathCallback) -> i32,
 }
 
+pub const INVENTORY_MENU: &str = "moddedmc:inventory_menu";
+pub const MENU_TAKE: u8 = 1;
+pub const MENU_INSERT: u8 = 2;
+pub const MENU_ANY_SLOT: u8 = u8::MAX;
+
+#[repr(C)]
+pub struct InventoryMenuOpen {
+    pub player: PlayerRef,
+    pub kind: u64,
+    pub inventory: u64,
+    pub title: Str,
+    pub access: *const u8,
+    pub count: usize,
+    pub initialize_context: *mut c_void,
+    /// Load the current saved stacks on the first open. Fill all `count` entries.
+    pub initialize: unsafe extern "C" fn(*mut c_void, *mut Str, usize) -> bool,
+}
+
+#[repr(C)]
+pub struct InventoryMenuChange {
+    pub world: WorldRef,
+    pub player_uuid: [u8; 16],
+    pub inventory: u64,
+    /// Proposed complete menu, using saved item stacks. Empty bytes indicate an empty slot.
+    pub stacks: *const Str,
+    pub count: usize,
+    /// Stacks displaced during matching-slot restore that did not fit in the player inventory.
+    pub overflow: *const Str,
+    pub overflow_count: usize,
+    pub transaction: *mut c_void,
+    pub commit: unsafe extern "C" fn(transaction: *mut c_void, key: u64, value: Str) -> bool,
+}
+
+pub type InventoryMenuCallback = unsafe extern "C" fn(*const InventoryMenuChange);
+
+#[repr(C)]
+pub struct InventoryMenuV1 {
+    pub size: usize,
+    pub register: unsafe extern "C" fn(Reg, InventoryMenuCallback, out: *mut u64) -> i32,
+    pub open: unsafe extern "C" fn(*const InventoryMenuOpen) -> bool,
+    pub restore_matching:
+        unsafe extern "C" fn(PlayerRef, u64, u64, *const InventoryMenuTarget, usize) -> bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct InventoryMenuTarget {
+    pub menu_slot: u8,
+    pub player_slot: u8,
+}
+
 #[cfg(all(test, target_pointer_width = "64"))]
 #[test]
 fn player_death_v1_layout() {

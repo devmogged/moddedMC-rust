@@ -30,6 +30,7 @@ pub mod effects;
 pub mod entities;
 pub mod fluid_world;
 pub mod interaction;
+pub mod inventory_menu;
 pub mod item_input;
 pub mod items;
 pub mod lifecycle;

@@ -1,4 +1,4 @@
-use std::{ffi::c_void, ptr, sync::Mutex};
+use std::{ptr, sync::Mutex};
 
 use moddedmc_api::abi::{self, PlayerRef, Reg, Str, code};
 use pumpkin_core::{
@@ -8,15 +8,9 @@ use pumpkin_core::{
 use pumpkin_nbt::Nbt;
 use pumpkin_util::math::vector3::Vector3;
 
-use crate::{lock, native};
+use crate::{lock, native, saved_data::Transaction};
 
 static CALLBACKS: Mutex<Vec<(&'static str, abi::PlayerDeathCallback)>> = Mutex::new(Vec::new());
-
-struct Transaction {
-    world: abi::WorldRef,
-    owner: &'static str,
-    committed: bool,
-}
 
 pub static PLAYER_DEATH: abi::PlayerDeathV1 = abi::PlayerDeathV1 {
     size: size_of::<abi::PlayerDeathV1>(),
@@ -41,21 +35,6 @@ pub fn register(owner: &'static str, callback: Option<abi::PlayerDeathCallback>)
         return;
     }
     callbacks.push((owner, callback));
-}
-
-unsafe extern "C" fn claim(transaction: *mut c_void, key: u64, value: Str) -> bool {
-    // SAFETY: the context gives the current callback a mutable transaction.
-    let Some(transaction) = (unsafe { transaction.cast::<Transaction>().as_mut() }) else {
-        return false;
-    };
-    if transaction.committed {
-        return false;
-    }
-    // SAFETY: the world and data are borrowed during this call.
-    transaction.committed = unsafe {
-        crate::saved_data::commit_claim(transaction.world, transaction.owner, key, value)
-    };
-    transaction.committed
 }
 
 fn dispatch(
@@ -85,20 +64,17 @@ fn dispatch(
         })
         .collect();
     callbacks.into_iter().any(|(owner, callback)| {
-        let mut transaction = Transaction {
-            world: ptr::from_ref(world).cast(),
-            owner,
-            committed: false,
-        };
+        let raw_world = ptr::from_ref(world).cast();
+        let mut transaction = Transaction::new(raw_world, owner);
         let context = abi::PlayerDeathContext {
-            world: transaction.world,
+            world: raw_world,
             player: PlayerRef(ptr::from_ref(player).cast()),
             player_uuid: *player.gameprofile.id.as_bytes(),
             position: [position.x, position.y, position.z],
             drops: entries.as_ptr(),
             count: entries.len(),
             transaction: (&raw mut transaction).cast(),
-            claim,
+            claim: Transaction::commit,
         };
         // SAFETY: the world, player, transaction and saved stacks are live for this call.
         unsafe { callback(&raw const context) };

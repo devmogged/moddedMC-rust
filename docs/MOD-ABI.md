@@ -420,6 +420,43 @@ in separate files, so cross-file crash recovery requires a joint journal.
 `tests/scenarios/abi-player-death.txt` exercises accepted and declined
 claims, a failed write, keepInventory and saved data after a restart.
 
+## Inventory menus (`moddedmc:inventory_menu` v1)
+
+Use `inventory_menu::require()` at startup and `Menus::register` to register
+one change callback. `Menus::open` opens a stock chest screen with one to six
+rows. Each slot has independent take and insert permissions and carries saved
+ItemStack NBT. Views with the same world, menu kind and inventory ID share one
+slot array while any view is open. The host calls the initializer on the first
+open to read the latest saved slots. Slot permissions apply to each view.
+
+The host stages vanilla clicks against the displayed slots, player inventory
+and cursor. If a click changes mod-owned slots, the callback receives the
+complete proposed slot array and the acting player's UUID. Call
+`Change::commit(key, record)` with the mod's replacement saved-data value.
+Only a successful write applies the click. A declined or failed write
+preserves the menu, player inventory, cursor and pending drops. Keep the
+callback focused on validation and persistence, as the host holds the
+inventory locks until it returns.
+
+If multiple inventories share one saved-data record, the mod must serialize
+read-modify-write operations on that record, including writes from other hook
+types. Acquire the mod's record lock inside the change callback and initializer.
+Release it before calling any operation that opens or mutates a menu.
+
+`Menus::restore_matching` works on the active view. Pass unique source slots
+and unique destination slots in the order to restore. Player slots use the
+same indices as the death-drop interface. Once all matching stacks are in
+place, the host tries to pack displaced stacks and stacks marked
+`ANY_PLAYER_SLOT` into free inventory space. The callback receives any
+remainder in `Change::overflow()`. Include those stacks in the replacement
+record to keep them available to the player.
+
+These transactions cover live interactions and clean restarts. Cross-file
+crash recovery between the player save and mod data requires a joint journal.
+
+`tests/scenarios/abi-inventory-menu.txt` exercises taking and quick moves,
+two viewers, rejected changes, and equipment restoration with overflow.
+
 ## Inter-mod services (`moddedmc:services` v1)
 
 Mods can publish immutable, process-lifetime `#[repr(C)]` function tables to other native

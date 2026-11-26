@@ -6,6 +6,7 @@
 
 use std::{
     collections::HashMap,
+    ffi::c_void,
     fs,
     io::{Cursor, Write},
     path::{Path, PathBuf},
@@ -48,6 +49,36 @@ static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
 // Serialize flush attempts so an older snapshot cannot overwrite a newer save.
 static FLUSH: Mutex<()> = Mutex::new(());
+
+pub struct Transaction {
+    world: WorldRef,
+    owner: &'static str,
+    pub committed: bool,
+}
+
+impl Transaction {
+    pub const fn new(world: WorldRef, owner: &'static str) -> Self {
+        Self {
+            world,
+            owner,
+            committed: false,
+        }
+    }
+
+    pub unsafe extern "C" fn commit(transaction: *mut c_void, key: u64, value: Str) -> bool {
+        // SAFETY: the current callback borrows a mutable transaction.
+        let Some(transaction) = (unsafe { transaction.cast::<Self>().as_mut() }) else {
+            return false;
+        };
+        if transaction.committed {
+            return false;
+        }
+        // SAFETY: world and bytes are live until the synchronous write returns.
+        transaction.committed =
+            unsafe { write_value(transaction.world, key, value, Some(transaction.owner)) };
+        transaction.committed
+    }
+}
 
 fn keys() -> MutexGuard<'static, HashMap<u64, RegisteredKey>> {
     KEYS.lock().unwrap_or_else(PoisonError::into_inner)
@@ -208,11 +239,6 @@ unsafe extern "C" fn write(raw: WorldRef, handle: u64, value: Str) -> bool {
     unsafe { write_value(raw, handle, value, None) }
 }
 
-pub unsafe fn commit_claim(raw: WorldRef, owner: &str, handle: u64, value: Str) -> bool {
-    // SAFETY: the caller keeps the world and value live during the claim.
-    unsafe { write_value(raw, handle, value, Some(owner)) }
-}
-
 unsafe fn write_value(raw: WorldRef, handle: u64, value: Str, owner: Option<&str>) -> bool {
     if value.len > abi::MAX_SAVED_DATA_BYTES {
         return false;
@@ -221,10 +247,10 @@ unsafe fn write_value(raw: WorldRef, handle: u64, value: Str, owner: Option<&str
         return false;
     };
     if let Some(owner) = owner
-        && !key
+        && key
             .stored
             .split_once(':')
-            .is_some_and(|(registered, _)| registered == owner)
+            .is_none_or(|(registered, _)| registered != owner)
     {
         return false;
     }
@@ -385,10 +411,10 @@ mod tests {
     }
 
     #[test]
-    fn failed_disk_commit_restores_the_previous_value() {
+    fn failed_disk_commit_restores_the_previous_value() -> std::io::Result<()> {
         let blocker =
             std::env::temp_dir().join(format!("moddedmc-save-blocker-{}", uuid::Uuid::new_v4()));
-        std::fs::File::create_new(&blocker).expect("create a file that blocks the save directory");
+        std::fs::File::create_new(&blocker)?;
         let original = HashMap::from([("fixture:claim".to_owned(), vec![1, 2])]);
         let mut values = original.clone();
         let result = replace_committed(
@@ -397,8 +423,9 @@ mod tests {
             "fixture:claim".to_owned(),
             vec![3],
         );
-        std::fs::remove_file(blocker).expect("remove the temporary blocking file");
+        std::fs::remove_file(blocker)?;
         assert!(result.is_err());
         assert_eq!(values, original);
+        Ok(())
     }
 }

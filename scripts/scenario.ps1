@@ -12,6 +12,7 @@
 #   reject <regex>           fail if any log line since the previous expect/start matches
 #   stop                     send stop and wait for exit
 #   botstart <name>          join with moddedmc-bot (its output goes into the log)
+#   botselect <name>         switch the active bot when multiple are connected
 #   measure <seconds>        log server memory and CPU use over a window
 #   bot <step>               send a step to the bot: cmd <command> | use <x> <y> <z> | quit
 param(
@@ -99,6 +100,7 @@ allowed_permissions = ["fs.read.data", "fs.write.data"]
 "@)
 }
 $script:bot = $null
+$bots = @{}
 
 foreach ($raw in Get-Content $Scenario) {
     $line = $raw.Trim()
@@ -110,6 +112,9 @@ foreach ($raw in Get-Content $Scenario) {
         'start' { Start-Server }
         'cmd' { $script:p.StandardInput.WriteLine($arg) }
         'botstart' {
+            if ($bots.ContainsKey($arg) -and -not $bots[$arg].HasExited) {
+                throw "bot $arg is already running"
+            }
             $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $BotExe), "127.0.0.1:${Port} $arg")
             $psi.UseShellExecute = $false
             $psi.RedirectStandardInput = $true
@@ -122,6 +127,11 @@ foreach ($raw in Get-Content $Scenario) {
             Register-ObjectEvent $script:bot ErrorDataReceived -Action $handler -MessageData $script:log | Out-Null
             $script:bot.Start() | Out-Null
             $script:bot.BeginOutputReadLine(); $script:bot.BeginErrorReadLine()
+            $bots[$arg] = $script:bot
+        }
+        'botselect' {
+            if (-not $bots.ContainsKey($arg)) { throw "unknown bot: $arg" }
+            $script:bot = $bots[$arg]
         }
         'bot' { $script:bot.StandardInput.WriteLine($arg) }
         'measure' {
@@ -167,7 +177,9 @@ foreach ($raw in Get-Content $Scenario) {
         default { throw "unknown scenario verb: $verb" }
     }
 }
-if ($script:bot -and -not $script:bot.HasExited) { $script:bot.Kill() }
+foreach ($bot in $bots.Values) {
+    if (-not $bot.HasExited) { $bot.Kill() }
+}
 if ($script:p -and -not $script:p.HasExited) { $script:p.Kill() }
 Get-NewLines | Out-Null
 $script:all | Set-Content -Encoding utf8 (Join-Path $RunDir 'scenario.log')
