@@ -1156,6 +1156,7 @@ pub const EFFECTS: &str = "moddedmc:effects";
 
 /// Vanilla `SoundSource` ids, in declaration order.
 pub const SOUND_MASTER: u8 = 0;
+pub const SOUND_RECORDS: u8 = 2;
 pub const SOUND_BLOCKS: u8 = 4;
 pub const SOUND_NEUTRAL: u8 = 6;
 pub const SOUND_PLAYERS: u8 = 7;
@@ -1183,6 +1184,15 @@ pub struct EffectsV1 {
         spread: Vec3,
         speed: f32,
         count: u32,
+    ) -> bool,
+    /// Play a sound on an entity for its Java trackers. Removing the entity stops the sound.
+    pub play_entity_sound: unsafe extern "C" fn(
+        world: WorldRef,
+        entity: i32,
+        sound: Str,
+        source: u8,
+        volume: f32,
+        pitch: f32,
     ) -> bool,
 }
 

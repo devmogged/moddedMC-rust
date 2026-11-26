@@ -48,5 +48,11 @@
   "steam_engine/linkage": "create:block/steam_engine/linkage",
   "steam_engine/shaft_connector": "create:block/steam_engine/shaft_connector",
   "steam_engine/gauge": "create:block/steam_engine/gauge",
-  "steam_engine/gauge_dial": "create:block/steam_engine/gauge_dial"
+  "steam_engine/gauge_dial": "create:block/steam_engine/gauge_dial",
+  "steam_whistle/small_mouth": "create:block/steam_whistle/small_mouth",
+  "steam_whistle/small_top_rim": "create:block/steam_whistle/extension/small_top_rim",
+  "steam_whistle/medium_mouth": "create:block/steam_whistle/medium_mouth",
+  "steam_whistle/medium_top_rim": "create:block/steam_whistle/extension/medium_top_rim",
+  "steam_whistle/large_mouth": "create:block/steam_whistle/large_mouth",
+  "steam_whistle/large_top_rim": "create:block/steam_whistle/extension/large_top_rim"
 }

@@ -732,6 +732,7 @@ pub struct Kinetics {
     pub(crate) boilers: crate::fluids::boiler::Boilers,
     pub(crate) steam_engines: HashMap<Pos, crate::steam_engine::Engine>,
     pub(crate) steam_displays: HashMap<Pos, crate::steam_engine::SteamDisplays>,
+    pub(crate) steam_whistles: HashMap<Pos, crate::steam_whistle::Whistle>,
     pub chutes: crate::chute::Chutes,
     pub funnels: crate::funnel::Funnels,
     pub(crate) tunnels: HashMap<Pos, crate::belt_tunnel::Tunnel>,

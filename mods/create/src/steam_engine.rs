@@ -11,9 +11,13 @@ use moddedmc_api::{
 use crate::{
     AXES, AXIS_ROTATIONS, CONTENT, DIRECTIONS, SHAFT, StateIds,
     belt_tunnel::read,
-    fluids::{runtime::is_tank, tank_runtime},
+    fluids::{
+        boiler::{Attachment, Attachments, Controllers},
+        runtime::is_tank,
+        tank_runtime,
+    },
     kinetics::{FACES, Kind, Kinetics, Level, face_axis, offset, positive},
-    nearest_looking_direction, relay_orientation, relay_shape,
+    nearest_looking_direction, relay_orientation, relay_shape, steam_whistle,
 };
 
 pub(crate) const ID: &str = "create:steam_engine";
@@ -467,7 +471,7 @@ pub(crate) fn tick(
         .collect();
     engines.sort_unstable_by_key(|(pos, _)| (pos.x, pos.y, pos.z));
     let mut attached = Vec::with_capacity(engines.len());
-    let mut groups = std::collections::HashMap::new();
+    let mut groups = Controllers::new();
     for (pos, engine) in engines {
         let shaft = engine.block.shaft(pos);
         if let Some(Kind::Shaft(axis)) = states.kind(read(world, shaft))
@@ -481,27 +485,36 @@ pub(crate) fn tick(
             .map(|(owner, tank)| {
                 groups
                     .entry(owner)
-                    .or_insert((tank, Vec::new()))
+                    .or_insert((tank, Attachments::default()))
                     .1
+                    .engines
                     .push(pos);
                 owner
             });
         attached.push((pos, engine, tank, owner));
     }
+    let whistles = steam_whistle::collect(world, states, kinetics, &mut groups);
     kinetics.boilers.loaded_tanks(world, events);
     let efficiency = kinetics.boilers.tick(
         world,
         &mut groups,
-        |owner, pos| {
+        |owner, pos, kind| {
             let state = read(world, pos);
             // Block data may remain readable after the chunk stops ticking its block entities.
             if state == content::UNLOADED_STATE {
                 return true;
             }
-            let Some(block) = states.steam_engines.get(&state) else {
-                return false;
+            let support = match kind {
+                Attachment::Engine => states
+                    .steam_engines
+                    .get(&state)
+                    .map(|block| block.tank(pos)),
+                Attachment::Whistle => states
+                    .steam_whistles
+                    .get(&state)
+                    .map(|block| block.tank(pos)),
             };
-            let support = block.tank(pos);
+            let Some(support) = support else { return false };
             tank_runtime::controller(world, support).map_or_else(
                 || read(world, support) == content::UNLOADED_STATE,
                 |current| current == owner,
@@ -510,6 +523,7 @@ pub(crate) fn tick(
         time,
     );
 
+    steam_whistle::tick(world, states, kinetics, whistles, time);
     let mut visible = std::collections::HashSet::new();
     for (pos, mut engine, tank, owner) in attached {
         let target = engine.block.shaft(pos);

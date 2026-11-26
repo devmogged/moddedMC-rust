@@ -85,6 +85,7 @@ mod seat;
 mod shaft_casing;
 mod speed_controller;
 mod steam_engine;
+mod steam_whistle;
 mod sticker;
 mod threshold_switch;
 mod trains;
@@ -223,7 +224,9 @@ impl Mod for Create {
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
         interaction.require_extension(InteractionExtension::PlayerPlaced)?;
         let _ = INTERACTION.set(interaction);
-        let _ = EFFECTS.set(effects::require()?);
+        let effects = effects::require()?;
+        effects.require_entity_sound()?;
+        let _ = EFFECTS.set(effects);
         let item_stacks = stacks::require()?;
         item_stacks.require_extension(stacks::StacksExtension::Component)?;
         item_stacks.require_extension(stacks::StacksExtension::Fuel)?;
@@ -358,6 +361,7 @@ impl Mod for Create {
         harvester::register(*content, registry)?;
         plough::register(*content, registry)?;
         steam_engine::register(*content, registry)?;
+        steam_whistle::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -950,6 +954,8 @@ struct KnownState {
 struct StateIds {
     contraption_blocks: contraption::BlockMovementChecks,
     steam_engines: HashMap<u32, steam_engine::EngineBlock>,
+    steam_whistles: HashMap<u32, steam_whistle::WhistleBlock>,
+    whistle_extensions: HashMap<u32, steam_whistle::Extension>,
     chutes: HashMap<u32, chute::ChuteState>,
     funnels: HashMap<u32, funnel::FunnelState>,
     tunnels: HashMap<u32, belt_tunnel::Tunnel>,
@@ -1137,6 +1143,7 @@ fn states() -> Option<&'static StateIds> {
         harvester::add_states(content, &mut ids, harvester::ID);
         harvester::add_states(content, &mut ids, plough::ID);
         steam_engine::add_states(content, &mut ids);
+        steam_whistle::add_states(content, &mut ids);
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
@@ -1229,6 +1236,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
     };
     if seat::is_seat(placed.block) {
         return seat::placed_state(args, placed.block);
+    }
+    if placed.block == steam_whistle::ID {
+        return steam_whistle::place(args, states);
     }
     if placed.block == steam_engine::ID {
         return steam_engine::place(args);
@@ -1905,6 +1915,13 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                 threshold_switch::event(world, states, &mut kinetics.threshold_switches, event);
             }
             large_water_wheel::event(world, states, &mut kinetics.pending_wheel_parts, event);
+            if [event.state, event.previous].into_iter().any(|state| {
+                states.steam_whistles.contains_key(&state)
+                    || states.whistle_extensions.contains_key(&state)
+            }) {
+                steam_whistle::event(world, states, &mut kinetics.steam_whistles, event);
+            }
+
             // WS-2: recalculate fluid pipe faces when adjacent blocks change.
             fluids::runtime::event(world, event);
             fluids::item_drain::event(world, &mut kinetics.item_drains, event);
@@ -2271,6 +2288,7 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
             | harvester::ID
             | plough::ID
             | steam_engine::ID
+            | steam_whistle::ID
     ) {
         return validate_kinetic_placement(context);
     }
@@ -2318,6 +2336,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if let Some(states) = states() {
         if let Some(&block) = states.steam_engines.get(&context.state) {
             return steam_engine::use_block(context, states, block);
+        }
+        if let Some(result) = steam_whistle::use_block(context, states) {
+            return result;
         }
         if let Some(result) = arm::select_custom(context, states) {
             return result;

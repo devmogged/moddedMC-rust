@@ -10,6 +10,10 @@ pub(crate) struct ModelDisplay {
 }
 
 impl ModelDisplay {
+    pub(crate) const fn entity_id(&self) -> Option<i32> {
+        self.entity
+    }
+
     pub(crate) fn show(&mut self, world: World<'_>, model: &str, transform: &ItemDisplay) {
         let Some(displays) = DISPLAYS.get() else {
             return;

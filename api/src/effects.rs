@@ -1,15 +1,26 @@
 //! Sounds and particles.
 
-use crate::{InterfaceUnavailable, abi, content::World, require_interface};
+use std::mem::offset_of;
 
-pub use abi::{SOUND_AMBIENT, SOUND_BLOCKS, SOUND_MASTER, SOUND_NEUTRAL, SOUND_PLAYERS};
+use crate::{InterfacePrefix, InterfaceUnavailable, abi, content::World};
+
+pub use abi::{
+    SOUND_AMBIENT, SOUND_BLOCKS, SOUND_MASTER, SOUND_NEUTRAL, SOUND_PLAYERS, SOUND_RECORDS,
+};
 
 #[derive(Clone, Copy)]
-pub struct Effects(&'static abi::EffectsV1);
+pub struct Effects(InterfacePrefix<abi::EffectsV1>);
 
 pub fn require() -> Result<Effects, InterfaceUnavailable> {
-    // SAFETY: this is the published table type for moddedmc:effects v1.
-    unsafe { require_interface(abi::EFFECTS, 1) }.map(Effects)
+    // SAFETY: the size check covers the published v1 prefix.
+    unsafe {
+        InterfacePrefix::require(
+            abi::EFFECTS,
+            1,
+            offset_of!(abi::EffectsV1, play_entity_sound),
+        )
+    }
+    .map(Effects)
 }
 
 impl Effects {
@@ -25,7 +36,7 @@ impl Effects {
     ) -> bool {
         // SAFETY: the world and id are borrowed for the call.
         unsafe {
-            (self.0.play_sound)(
+            ((&raw const (*self.0.ptr).play_sound).read())(
                 world.raw(),
                 abi::Vec3(position),
                 abi::Str::new(sound.as_bytes()),
@@ -33,6 +44,33 @@ impl Effects {
                 volume,
                 pitch,
             )
+        }
+    }
+
+    /// Require the appended entity-sound callback.
+    pub fn require_entity_sound(self) -> Result<(), InterfaceUnavailable> {
+        self.0.full().map(|_| ()).ok_or(InterfaceUnavailable {
+            name: "moddedmc:effects.play_entity_sound",
+            version: 1,
+        })
+    }
+
+    /// Follow an entity's position. Stock Java clients stop the sound when it is removed.
+    pub fn play_entity_sound(
+        self,
+        world: World<'_>,
+        entity: i32,
+        sound: &str,
+        source: u8,
+        volume: f32,
+        pitch: f32,
+    ) -> bool {
+        let Some(api) = self.0.full() else {
+            return false;
+        };
+        // SAFETY: the full table includes this callback and the world and ID are borrowed.
+        unsafe {
+            (api.play_entity_sound)(world.raw(), entity, crate::s(sound), source, volume, pitch)
         }
     }
 
@@ -48,7 +86,7 @@ impl Effects {
     ) -> bool {
         // SAFETY: the world and id are borrowed for the call.
         unsafe {
-            (self.0.particles)(
+            ((&raw const (*self.0.ptr).particles).read())(
                 world.raw(),
                 abi::Str::new(particle.as_bytes()),
                 abi::Vec3(position),

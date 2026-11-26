@@ -25,6 +25,7 @@ const PASSIVE_ENGINE_EFFICIENCY: f32 = 0.125;
 #[derive(Debug, Default)]
 pub(super) struct Boiler {
     pub(super) engines: u32,
+    whistles: u32,
     pub(super) active_heat: u32,
     pub(super) passive_heat: bool,
     pub(super) supply: f32,
@@ -32,7 +33,7 @@ pub(super) struct Boiler {
     samples: [f32; SAMPLE_COUNT],
     next: usize,
     until_sample: u8,
-    engine_positions: Vec<Pos>,
+    attachments: Attachments,
     gauges: Gauges,
 }
 
@@ -129,8 +130,11 @@ struct Saved {
     active_heat: u32,
     passive_heat: bool,
     engines: u32,
+    whistles: u32,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     engine_positions: Vec<fastnbt::IntArray>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    whistle_positions: Vec<fastnbt::IntArray>,
 }
 
 impl Boiler {
@@ -146,23 +150,19 @@ impl Boiler {
             active_heat: saved.active_heat,
             passive_heat: saved.passive_heat,
             engines: saved.engines,
-            engine_positions: saved
-                .engine_positions
-                .iter()
-                .filter_map(|packed| {
-                    let &[x, y, z] = packed.as_ref() else {
-                        return None;
-                    };
-                    Some(Pos { x, y, z })
-                })
-                .collect(),
+            whistles: saved.whistles,
+            attachments: Attachments {
+                engines: unpack_positions(&saved.engine_positions),
+                whistles: unpack_positions(&saved.whistle_positions),
+            },
             ..Self::restore(saved.supply)
         })
     }
 
-    fn stats(&self) -> (u32, u32, bool, f32) {
+    fn stats(&self) -> (u32, u32, u32, bool, f32) {
         (
             self.engines,
+            self.whistles,
             self.active_heat,
             self.passive_heat,
             self.supply,
@@ -178,11 +178,9 @@ impl Boiler {
             active_heat: self.active_heat,
             passive_heat: self.passive_heat,
             engines: self.engines,
-            engine_positions: self
-                .engine_positions
-                .iter()
-                .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z]))
-                .collect(),
+            whistles: self.whistles,
+            engine_positions: pack_positions(&self.attachments.engines),
+            whistle_positions: pack_positions(&self.attachments.whistles),
         };
         let Ok(saved) = fastnbt::to_value(saved) else {
             return false;
@@ -191,6 +189,60 @@ impl Boiler {
         super::smart_tank::write(world, owner, &tag)
     }
 }
+
+fn pack_positions(positions: &[Pos]) -> Vec<fastnbt::IntArray> {
+    positions
+        .iter()
+        .map(|pos| fastnbt::IntArray::new(vec![pos.x, pos.y, pos.z]))
+        .collect()
+}
+
+fn unpack_positions(positions: &[fastnbt::IntArray]) -> Vec<Pos> {
+    positions
+        .iter()
+        .filter_map(|packed| {
+            let &[x, y, z] = packed.as_ref() else {
+                return None;
+            };
+            Some(Pos { x, y, z })
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Attachment {
+    Engine,
+    Whistle,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Attachments {
+    pub(crate) engines: Vec<Pos>,
+    pub(crate) whistles: Vec<Pos>,
+}
+
+impl Attachments {
+    fn kinds(&self) -> [(Attachment, &[Pos]); 2] {
+        [
+            (Attachment::Engine, &self.engines),
+            (Attachment::Whistle, &self.whistles),
+        ]
+    }
+
+    fn list(&mut self, kind: Attachment) -> &mut Vec<Pos> {
+        match kind {
+            Attachment::Engine => &mut self.engines,
+            Attachment::Whistle => &mut self.whistles,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.engines.is_empty() && self.whistles.is_empty()
+    }
+}
+
+pub(crate) type Controllers = HashMap<Pos, (TankInventory, Attachments)>;
+
 #[derive(Default)]
 pub(crate) struct Boilers {
     loaded: HashMap<Pos, Boiler>,
@@ -200,14 +252,20 @@ impl Boilers {
     pub(crate) fn active(&self, owner: Pos) -> bool {
         self.loaded
             .get(&owner)
-            .is_some_and(|boiler| boiler.engines > 0)
+            .is_some_and(|boiler| boiler.engines > 0 || boiler.whistles > 0)
+    }
+
+    pub(crate) fn heated(&self, owner: Pos) -> bool {
+        self.loaded
+            .get(&owner)
+            .is_some_and(|boiler| boiler.active_heat > 0 || boiler.passive_heat)
     }
 
     pub(crate) fn receive(&mut self, owner: Pos, amount: u32) -> bool {
         let Some(boiler) = self
             .loaded
             .get_mut(&owner)
-            .filter(|boiler| boiler.engines > 0)
+            .filter(|boiler| boiler.engines > 0 || boiler.whistles > 0)
         else {
             return false;
         };
@@ -223,8 +281,8 @@ impl Boilers {
                 && let Some(tag) = tank_runtime::read_tag(world, event.position)
                 && !tag.contains_key("Controller")
                 && let Some(boiler) = tag.get("Boiler").and_then(Boiler::from_tag)
-                && boiler.engines > 0
-                && !boiler.engine_positions.is_empty()
+                && (boiler.engines > 0 || boiler.whistles > 0)
+                && !boiler.attachments.is_empty()
             {
                 self.loaded.insert(event.position, boiler);
             }
@@ -234,8 +292,8 @@ impl Boilers {
     pub(crate) fn tick(
         &mut self,
         world: World<'_>,
-        controllers: &mut HashMap<Pos, (TankInventory, Vec<Pos>)>,
-        can_still_attach: impl Fn(Pos, Pos) -> bool,
+        controllers: &mut Controllers,
+        can_still_attach: impl Fn(Pos, Pos, Attachment) -> bool,
         time: u64,
     ) -> HashMap<Pos, f32> {
         self.loaded.retain(|&owner, boiler| {
@@ -243,40 +301,45 @@ impl Boilers {
                 return true;
             }
             if let Some(tank) = tank_runtime::load(world, owner) {
-                if boiler
-                    .engine_positions
-                    .iter()
-                    .any(|&pos| can_still_attach(owner, pos))
-                {
-                    controllers.insert(owner, (tank, Vec::new()));
+                if boiler.attachments.kinds().iter().any(|&(kind, positions)| {
+                    positions
+                        .iter()
+                        .any(|&pos| can_still_attach(owner, pos, kind))
+                }) {
+                    controllers.insert(owner, (tank, Attachments::default()));
                     return true;
                 }
                 boiler.engines = 0;
-                boiler.engine_positions.clear();
+                boiler.whistles = 0;
+                boiler.attachments = Attachments::default();
                 boiler.write(world, owner);
             }
             boiler.gauges.clear(world);
             false
         });
         let mut efficiency = HashMap::with_capacity(controllers.len());
-        for (&owner, (tank, engines)) in controllers {
+        for (&owner, (tank, attached)) in controllers {
             let boiler = self
                 .loaded
                 .entry(owner)
                 .or_insert_with(|| Boiler::read(world, owner));
             let before = boiler.stats();
-            for &pos in &boiler.engine_positions {
-                if !engines.contains(&pos) && can_still_attach(owner, pos) {
-                    engines.push(pos);
+            for (kind, previous) in boiler.attachments.kinds() {
+                let current = attached.list(kind);
+                for &pos in previous {
+                    if !current.contains(&pos) && can_still_attach(owner, pos, kind) {
+                        current.push(pos);
+                    }
                 }
+                current.sort_unstable_by_key(|pos| (pos.x, pos.y, pos.z));
+                current.dedup();
             }
-            engines.sort_unstable_by_key(|pos| (pos.x, pos.y, pos.z));
-            engines.dedup();
-            let moved = *engines != boiler.engine_positions;
+            let moved = *attached != boiler.attachments;
             if moved {
-                boiler.engine_positions.clone_from(engines);
+                boiler.attachments.clone_from(attached);
             }
-            boiler.engines = engines.len() as u32;
+            boiler.engines = attached.engines.len() as u32;
+            boiler.whistles = attached.whistles.len() as u32;
             if tank.window() {
                 tank.set_window(false);
                 if !tank_runtime::update_groups(world, &[(owner, tank.clone())]) {

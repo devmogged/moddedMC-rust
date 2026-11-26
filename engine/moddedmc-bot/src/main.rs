@@ -26,7 +26,7 @@ use pumpkin_data::{
     BlockDirection,
     packet::{
         CURRENT_MC_VERSION,
-        clientbound::play::{CHUNK_BATCH_FINISHED, SOUND},
+        clientbound::play::{CHUNK_BATCH_FINISHED, SOUND, SOUND_ENTITY},
     },
     sound::Sound,
 };
@@ -242,25 +242,9 @@ async fn pump(
             println!("[bot] chat: {}", printable_text(&packet.payload));
         } else if packet.id == show_dialog {
             println!("[bot] dialog: {}", printable_text(&packet.payload));
-        } else if packet.id == SOUND.0 {
-            use pumpkin_protocol::ser::NetworkReadExt as _;
-            if let Ok(id) = payload.get_var_int() {
-                let name = if id.0 == 0 {
-                    payload
-                        .get_var_int()
-                        .ok()
-                        .and_then(|len| usize::try_from(len.0).ok())
-                        .and_then(|len| payload.get(..len))
-                        .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                } else {
-                    usize::try_from(id.0)
-                        .ok()
-                        .and_then(|id| id.checked_sub(1))
-                        .and_then(|id| Sound::NAMES.get(id).copied())
-                };
-                if let Some(name) = name {
-                    println!("[bot] sound: {name}");
-                }
+        } else if packet.id == SOUND.0 || packet.id == SOUND_ENTITY.0 {
+            if let Err(error) = log_sound(payload, packet.id == SOUND_ENTITY.0) {
+                println!("[bot] error: bad sound packet: {error}");
             }
         } else if trace {
             println!(
@@ -270,6 +254,42 @@ async fn pump(
             );
         }
     }
+}
+
+#[expect(
+    clippy::print_stdout,
+    reason = "the bot reports to the scenario runner on stdout"
+)]
+fn log_sound(
+    mut payload: &[u8],
+    entity_bound: bool,
+) -> Result<(), pumpkin_protocol::ser::ReadingError> {
+    use pumpkin_protocol::ser::NetworkReadExt;
+
+    let id = payload.get_var_int()?.0;
+    let custom;
+    let name = if id == 0 {
+        custom = payload.get_str()?;
+        payload.get_option(NetworkReadExt::get_f32)?;
+        custom.as_ref()
+    } else {
+        let Some(name) = usize::try_from(id)
+            .ok()
+            .and_then(|id| id.checked_sub(1))
+            .and_then(|id| Sound::NAMES.get(id))
+        else {
+            return Ok(());
+        };
+        name
+    };
+    if entity_bound {
+        payload.get_var_int()?;
+        let entity = payload.get_var_int()?.0;
+        println!("[bot] entity sound: {name} (entity {entity})");
+    } else {
+        println!("[bot] sound: {name}");
+    }
+    Ok(())
 }
 
 async fn manual_ticks(
