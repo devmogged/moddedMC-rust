@@ -211,6 +211,7 @@ pub(crate) fn tick(world: World<'_>, kinetics: &mut Kinetics, time: u64) {
         if let Kind::Saw(block) = kind {
             let display = kinetics.saw_blades.entry(pos).or_default();
             saw::show_blade(world, pos, block, speed, display);
+            crate::saw_processing::tick(world, kinetics, pos, block, speed);
         }
     }
 }

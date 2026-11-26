@@ -78,6 +78,7 @@ mod pulley;
 mod sail;
 mod sandpaper;
 mod saw;
+mod saw_processing;
 mod seat;
 mod shaft_casing;
 mod speed_controller;
@@ -1531,6 +1532,8 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     saw_breaking: Option<drill::Stationary>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    saw_processing: Option<saw_processing::SawData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     arm: Option<arm::Arm>,
     #[serde(skip_serializing_if = "Option::is_none")]
     crafter: Option<crafter::CrafterData>,
@@ -1639,6 +1642,12 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         Kind::Saw(_) => data.saw_breaking,
         _ => None,
     };
+    if matches!(kind, Kind::Saw(_)) {
+        be.saw_processing = data
+            .saw_processing
+            .map(saw_processing::Processing::load)
+            .map(Box::new);
+    }
     if matches!(kind, Kind::Arm(_)) {
         be.arm = Some(Box::new(data.arm.unwrap_or_default()));
     }
@@ -1728,6 +1737,7 @@ fn save(pos: Pos, be: &Be) -> KineticData {
         saw_breaking: be
             .block_breaking
             .filter(|_| matches!(be.kind, Kind::Saw(_))),
+        saw_processing: be.saw_processing.as_ref().map(|saw| saw.data.clone()),
         arm: be.arm.as_deref().cloned(),
         crafter: be.crafter.as_ref().map(|crafter| crafter.data.clone()),
         basin_recipe: be
@@ -1898,6 +1908,16 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             {
                 display.clear(world);
             }
+            if (event.reason == content::UNLOADED || !matches!(after, Some(Kind::Saw(_))))
+                && let Some(processing) = kinetics
+                    .get_mut(pos)
+                    .and_then(|be| be.saw_processing.as_mut())
+            {
+                processing.clear_displays(world);
+                if event.reason == content::STATE_CHANGED {
+                    processing.drop_contents(world, pos);
+                }
+            }
             if (after.is_none_or(|kind| !matches!(kind, Kind::Belt(_)))
                 || event.reason == content::UNLOADED)
                 && let Some(mut displays) = kinetics.belt_casing_displays.remove(&pos)
@@ -2019,7 +2039,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                             }
                         }
                         if let Some(kind) = after {
-                            let mut be = if matches!(kind, Kind::Arm(_))
+                            let mut be = if matches!(kind, Kind::Arm(_) | Kind::Saw(_))
                                 && event.reason == content::MOVED_STATE_CHANGED
                             {
                                 load(world, pos, kind)
@@ -2419,6 +2439,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         Some(Kind::Piston(block)) => with_world(context.world, |kinetics| {
             piston::use_item_on(kinetics, block, context)
         }),
+        Some(Kind::Saw(block)) => with_world(context.world, |kinetics| {
+            saw_processing::use_block(kinetics, context, block)
+        }),
         Some(Kind::GantryCarriage(_)) => with_world(context.world, |kinetics| {
             gantry::use_item_on(kinetics, context)
         }),
@@ -2478,7 +2501,7 @@ fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
     match states.kind(state) {
         Some(Kind::Turntable) => turntable_entity_inside(world, pos, entity),
         Some(Kind::Drill(_)) => drill::entity_inside(world, pos, entity, drill::ID),
-        Some(Kind::Saw(_)) => drill::entity_inside(world, pos, entity, saw::ID),
+        Some(Kind::Saw(block)) => saw_processing::entity_inside(world, pos, block, entity),
         Some(Kind::Belt(belt)) => with_world(world, |kinetics| {
             belt_movement::entity_inside(kinetics, pos, state, belt, entity);
         }),

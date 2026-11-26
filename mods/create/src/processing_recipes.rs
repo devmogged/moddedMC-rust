@@ -82,6 +82,7 @@ pub enum Process {
     Blasting,
     Milling,
     Crushing,
+    Cutting,
 }
 
 impl Process {
@@ -96,6 +97,7 @@ impl Process {
             b"minecraft:blasting" => Some(Self::Blasting),
             b"create:milling" => Some(Self::Milling),
             b"create:crushing" => Some(Self::Crushing),
+            b"create:cutting" => Some(Self::Cutting),
             _ => None,
         }
     }
@@ -657,6 +659,29 @@ impl RecipeBook {
             return Some(vec![step.finish()]);
         }
         self.find(Process::Pressing, item).map(Recipe::outputs)
+    }
+
+    pub(crate) fn matches(
+        &self,
+        process: Process,
+        item: &Value,
+        filter: &crate::filtering::Filter,
+    ) -> Vec<&Recipe> {
+        let Some(item) = item_id(item) else {
+            return Vec::new();
+        };
+        self.by_item
+            .get(&(process, item.to_owned()))
+            .into_iter()
+            .flatten()
+            .filter(|recipe| {
+                recipe
+                    .outputs
+                    .first()
+                    .is_some_and(|output| filter.matches(output))
+                    && recipe.outputs.iter().all(is_registered_output)
+            })
+            .collect()
     }
 
     pub fn find(&self, process: Process, item: &Value) -> Option<&Recipe> {

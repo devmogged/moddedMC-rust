@@ -489,6 +489,10 @@ pub fn insert(
     if let Some(accepted) = crate::deployer::insert(kinetics, pos, item, simulate) {
         return accepted;
     }
+    if let Some(accepted) = crate::saw_processing::insert(kinetics, pos, face, &item.item, simulate)
+    {
+        return accepted;
+    }
     if kinetics.crushers.contains_key(&pos) {
         return crate::crusher::insert(kinetics, pos, &item.item, simulate);
     }

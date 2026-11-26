@@ -522,6 +522,7 @@ pub struct Be {
     pub pulley: Option<Box<crate::pulley::RopePulley>>,
     pub millstone: Option<Box<crate::millstone::Millstone>>,
     pub(crate) block_breaking: Option<crate::drill::Stationary>,
+    pub(crate) saw_processing: Option<Box<crate::saw_processing::Processing>>,
 }
 
 impl Be {
@@ -572,6 +573,7 @@ impl Be {
             pulley: None,
             millstone: None,
             block_breaking: None,
+            saw_processing: None,
             valve: None,
             mixer: None,
             press: if matches!(kind, Kind::Press(_)) {

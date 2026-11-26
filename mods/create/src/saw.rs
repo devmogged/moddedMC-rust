@@ -60,6 +60,19 @@ impl SawBlock {
         }
     }
 
+    pub(crate) const fn output_direction(self, speed: f32) -> u8 {
+        (if self.along_first { 2 } else { 5 }) ^ ((speed < 0.0) as u8)
+    }
+
+    pub(crate) fn filter_center(self) -> [f64; 2] {
+        let offset = if self.flipped { -3.0 } else { 3.0 } / 16.0;
+        if self.along_first {
+            [0.5 + offset, 0.5]
+        } else {
+            [0.5, 0.5 + offset]
+        }
+    }
+
     fn casing_rotation(self) -> (i16, i16) {
         if self.horizontal() {
             (0, (360 - crate::belt::horizontal_angle(self.facing)) % 360)

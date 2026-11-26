@@ -104,7 +104,7 @@ fn matches_fluid_sample(
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
 pub(crate) struct Filter {
     #[serde(rename = "Filter", skip_serializing_if = "Option::is_none")]
