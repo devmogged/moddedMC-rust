@@ -41,6 +41,21 @@ pub struct Actor<'a> {
     table: &'static abi::NativeEntitiesV1,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Model {
+    Player,
+    Skeleton,
+}
+
+pub struct SleepingVisual<'a> {
+    pub model: Model,
+    pub yaw: f32,
+    pub offset: [f64; 3],
+    pub profile: Option<&'a [u8]>,
+    /// Main hand, offhand, feet, legs, chest and head, as saved ItemStack NBT.
+    pub equipment: [Option<&'a [u8]>; 6],
+}
+
 impl Actor<'_> {
     pub fn data(self) -> Option<Vec<u8>> {
         let mut data = Vec::new();
@@ -56,6 +71,27 @@ impl Actor<'_> {
         // SAFETY: the host copies these bytes before returning.
         unsafe { (self.table.set_data)(self.raw, abi::Str::new(data)) }
     }
+
+    /// Show an unsaved stock-client model at this actor's current position.
+    pub fn show_sleeping(self, visual: &SleepingVisual<'_>) -> bool {
+        let Some(table) = VISUALS.get() else {
+            return false;
+        };
+        let request = abi::NativeEntityVisual {
+            model: match visual.model {
+                Model::Player => abi::ACTOR_VISUAL_PLAYER,
+                Model::Skeleton => abi::ACTOR_VISUAL_SKELETON,
+            },
+            yaw: visual.yaw,
+            offset: abi::Vec3(visual.offset),
+            profile: visual.profile.map_or(abi::Str::EMPTY, abi::Str::new),
+            equipment: visual
+                .equipment
+                .map(|item| item.map_or(abi::Str::EMPTY, abi::Str::new)),
+        };
+        // SAFETY: the actor and the borrowed visual settings live for the call.
+        unsafe { (table.show_sleeping)(self.raw, &raw const request) }
+    }
 }
 
 pub struct Event<'a> {
@@ -68,6 +104,7 @@ pub struct Event<'a> {
 pub type OnEvent = fn(Event<'_>) -> bool;
 static CALLBACK: OnceLock<OnEvent> = OnceLock::new();
 static TABLE: OnceLock<&'static abi::NativeEntitiesV1> = OnceLock::new();
+static VISUALS: OnceLock<&'static abi::NativeEntitiesV1Visual> = OnceLock::new();
 
 pub fn require() -> Result<Actors, InterfaceUnavailable> {
     content::require()?;
@@ -80,6 +117,25 @@ pub fn require() -> Result<Actors, InterfaceUnavailable> {
 }
 
 impl Actors {
+    /// Require the stock visual functions added after actor registration first shipped.
+    pub fn require_visual(self) -> Result<(), InterfaceUnavailable> {
+        // SAFETY: this table starts with NativeEntitiesV1 and includes the visual extension.
+        let table = unsafe { require_interface(abi::NATIVE_ENTITIES, 1) }?;
+        let _ = VISUALS.set(table);
+        Ok(())
+    }
+
+    pub fn player_profile(self, player: &Player<'_>) -> Option<Vec<u8>> {
+        let table = VISUALS.get()?;
+        let mut bytes = Vec::new();
+        let out = abi::Sink {
+            ctx: (&raw mut bytes).cast(),
+            put: content::bytes,
+        };
+        // SAFETY: the player and output sink are borrowed for the call.
+        unsafe { (table.player_profile)(player.raw, out) }.then_some(bytes)
+    }
+
     pub fn register(
         self,
         registry: &mut Registry<'_>,

@@ -39,12 +39,16 @@ type KindMap = HashMap<&'static str, Kind>;
 static NEXT_KIND: AtomicU64 = AtomicU64::new(1);
 static KINDS: LazyLock<Mutex<KindMap>> = LazyLock::new(Mutex::default);
 
-pub static NATIVE_ENTITIES: abi::NativeEntitiesV1 = abi::NativeEntitiesV1 {
-    size: size_of::<abi::NativeEntitiesV1>(),
-    register: stage,
-    spawn,
-    data,
-    set_data,
+pub static NATIVE_ENTITIES: abi::NativeEntitiesV1Visual = abi::NativeEntitiesV1Visual {
+    base: abi::NativeEntitiesV1 {
+        size: size_of::<abi::NativeEntitiesV1Visual>(),
+        register: stage,
+        spawn,
+        data,
+        set_data,
+    },
+    player_profile: crate::actor_visual::player_profile,
+    show_sleeping: crate::actor_visual::show_sleeping,
 };
 
 unsafe extern "C" fn stage(reg: Reg, callback: abi::NativeEntityCallback, out: *mut u64) -> i32 {
@@ -127,6 +131,7 @@ impl InteractionBehavior for Kind {
     fn tick(&self, carrier: &InteractionEntity) {
         if !carrier.entity.is_removed() {
             self.send(&carrier.entity.world.load(), carrier, None, phase::TICK);
+            crate::actor_visual::follow(&carrier.entity);
         }
     }
 
@@ -141,6 +146,7 @@ impl InteractionBehavior for Kind {
     }
 
     fn removed(&self, carrier: &InteractionEntity, reason: RemovalReason) {
+        crate::actor_visual::remove(&carrier.entity);
         let phase = if reason.should_destroy() {
             phase::REMOVED
         } else {

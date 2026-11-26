@@ -479,8 +479,18 @@ opaque bytes. The carrier saves this data with the entity. It stays nonliving
 and the host applies no gravity. Set `Spawn::physics` to enable collision for
 movement that the mod applies through `actor.entity`.
 
+`Actors::require_visual` checks the visual extension. `Actor::show_sleeping`
+attaches a stock mannequin or skeleton to an actor.
+The model follows the actor with the supplied offset, and Java right-clicks on
+the model are routed to the actor after the normal reach checks. The model
+disappears with the actor and is recreated by the mod on `Loaded`.
+`Actors::player_profile` captures the player's profile for the mannequin,
+including available signed skin properties, visible skin layers, and the
+main arm. The visual also accepts
+saved item stacks for both hands and the four armor slots.
+
 `tests/scenarios/abi-native-entity.txt` covers use, chunk unload and load,
-clean restart, and permanent removal.
+clean restart, the two stock models, and permanent removal.
 
 ## Inter-mod services (`moddedmc:services` v1)
 

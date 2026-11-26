@@ -6,6 +6,7 @@
 //! custom data on a vanilla stand-in block entity (saved by Pumpkin with the
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
+mod actor_visual;
 mod block_displays;
 mod companion;
 mod console;
@@ -219,6 +220,11 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
     pm.register::<EntityDamageEvent, _>(Arc::new(mob_ai::HurtHandler), EventPriority::Normal, true);
     pm.register::<EntityDeathEvent, _>(Arc::new(mob_ai::DeathHandler), EventPriority::Normal, true);
+    pm.register::<PlayerInteractEntityEvent, _>(
+        Arc::new(actor_visual::UseVisual),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<PlayerInteractEntityEvent, _>(
         Arc::new(mob_ai::UseMobHandler),
         EventPriority::Normal,

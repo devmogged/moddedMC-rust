@@ -1855,6 +1855,20 @@ pub struct NativeEntityContext {
 
 pub type NativeEntityCallback = unsafe extern "C" fn(*const NativeEntityContext) -> bool;
 
+pub const ACTOR_VISUAL_PLAYER: u8 = 0;
+pub const ACTOR_VISUAL_SKELETON: u8 = 1;
+
+#[repr(C)]
+pub struct NativeEntityVisual {
+    pub model: u8,
+    pub yaw: f32,
+    pub offset: Vec3,
+    /// Profile NBT saved by player_profile, or empty for the default skin.
+    pub profile: Str,
+    /// Main hand, offhand, feet, legs, chest and head.
+    pub equipment: [Str; 6],
+}
+
 #[repr(C)]
 pub struct NativeEntitiesV1 {
     pub size: usize,
@@ -1862,6 +1876,13 @@ pub struct NativeEntitiesV1 {
     pub spawn: unsafe extern "C" fn(*const NativeEntitySpawn) -> bool,
     pub data: unsafe extern "C" fn(EntityRef, Sink) -> bool,
     pub set_data: unsafe extern "C" fn(EntityRef, Str) -> bool,
+}
+
+#[repr(C)]
+pub struct NativeEntitiesV1Visual {
+    pub base: NativeEntitiesV1,
+    pub player_profile: unsafe extern "C" fn(PlayerRef, Sink) -> bool,
+    pub show_sleeping: unsafe extern "C" fn(EntityRef, *const NativeEntityVisual) -> bool,
 }
 
 pub const INVENTORY_MENU: &str = "moddedmc:inventory_menu";

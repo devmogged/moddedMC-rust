@@ -8,6 +8,8 @@ license = "GPL-3.0-only"
 crate-type = ["cdylib"]
 
 [dependencies]
+fastnbt = "2"
 moddedmc-api = { path = "../../../api" }
+serde = { version = "1", features = ["derive"] }
 
 [workspace]

@@ -17,7 +17,16 @@ expect abi_native_entity tick
 bot expect entity minecraft:interaction near 1025.5 300 1025.5 within 0.1 count 1
 wait 0.5
 expect \[bot\] expect entity ok
-bot use-entity interaction 1025.5 300 1025.5 main
+bot expect entity minecraft:mannequin near 1025.5 300 1025.5 within 0.1 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:mannequin
+cmd data get entity @e[type=minecraft:mannequin,limit=1] pose
+wait 0.5
+expect following entity data: "sleeping"
+cmd data get entity @e[type=minecraft:mannequin,limit=1] profile.name
+wait 0.5
+expect following entity data: "tester"
+bot use-entity mannequin 1025.5 300 1025.5 main
 wait 0.5
 expect abi_native_entity used 1
 cmd clear tester minecraft:barrel 0
@@ -39,6 +48,12 @@ expect abi_native_entity loaded 1
 bot use-entity interaction 1025.5 300 1025.5 off
 wait 0.5
 expect abi_native_entity used 2
+bot expect entity minecraft:mannequin near 1025.5 300 1025.5 within 0.1 count 0
+wait 0.5
+expect \[bot\] expect entity ok minecraft:mannequin
+bot expect entity minecraft:skeleton near 1025.5 300 1025.5 within 0.1 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:skeleton
 bot quit
 stop
 start
@@ -52,7 +67,10 @@ expect abi_native_entity loaded 2
 bot expect entity minecraft:interaction near 1025.5 300 1025.5 within 0.1 count 1
 wait 0.5
 expect \[bot\] expect entity ok
-bot use-entity interaction 1025.5 300 1025.5 main
+bot expect entity minecraft:skeleton near 1025.5 300 1025.5 within 0.1 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:skeleton
+bot use-entity skeleton 1025.5 300 1025.5 main
 wait 0.5
 expect abi_native_entity used 3
 expect abi_native_entity discard returned
@@ -60,11 +78,42 @@ expect abi_native_entity removed 3
 bot expect entity minecraft:interaction near 1025.5 300 1025.5 within 0.1 count 0
 wait 0.5
 expect \[bot\] expect entity ok
+bot expect entity minecraft:skeleton near 1025.5 300 1025.5 within 0.1 count 0
+wait 0.5
+expect \[bot\] expect entity ok minecraft:skeleton
 bot cmd abi_actor_spawn
 wait 0.5
 expect abi_native_entity loaded 0
 cmd kill @e[type=minecraft:interaction,x=1025.5,y=300,z=1025.5,distance=..1,limit=1]
 wait 0.5
 expect abi_native_entity removed 0
+# Keep the actor's chunk in the viewer's range while its presentation extends beyond it.
+cmd fill 1036 299 1024 1043 299 1028 minecraft:stone
+cmd tp tester 1038.5 300 1027.5
+wait 1
+bot cmd abi_actor_boundary
+wait 0.5
+expect abi_native_entity loaded 0
+bot expect entity minecraft:mannequin near 1041.5 300 1025.5 within 0.1 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:mannequin
+cmd tp tester 959.5 300 1025.5
+wait 6
+reject abi_native_entity unloaded 0
+cmd tp tester 1038.5 300 1027.5
+wait 2
+bot expect entity minecraft:mannequin near 1041.5 300 1025.5 within 0.1 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:mannequin
+# Killing the proxy discards its actor. The cosmetic gear must never drop.
+cmd kill @e[type=minecraft:mannequin,x=1041.5,y=300,z=1025.5,distance=..1,limit=1]
+wait 0.5
+expect abi_native_entity removed 0
+bot expect entity minecraft:mannequin near 1041.5 300 1025.5 within 0.1 count 0
+wait 0.5
+expect \[bot\] expect entity ok minecraft:mannequin
+bot expect entity minecraft:item near 1041.5 300 1025.5 within 4 count 0
+wait 0.5
+expect \[bot\] expect entity ok minecraft:item
 bot quit
 stop
