@@ -43,3 +43,10 @@ Run these checks with the official client and the server resource pack.
 - Put magma under both tanks. Expect the mouths to rise and vibrate while the whistles sound. Use a held Steam Whistle repeatedly on one pipe, then use a Wrench to cycle its octave. Expect half-block extensions, a lower pitch as the pipe grows, and each octave's own tone. Check the sound through several sample repeats.
 - Cut power to just one whistle. Expect its mouth to settle and its tone to stop independently of the second. Switch it back on, reconnect, and expect both tones to resume with their saved pitches. Move away and back while they remain powered to check how playback resumes at tracking distance.
 - Take away one supporting tank. Expect the whistle and its extensions to come down, its displays to disappear, and its sound to stop. Check both support orientations.
+
+## Stone palette slabs (`64f999b`)
+
+- Craft and stonecut Cut Andesite Slabs and Cut Calcite Slabs. Expect each to use its own texture. Place one against the lower half of a face and the other against the upper half. Expect each to occupy the half you clicked. Walk onto the lower slab and under the upper slab to check collision.
+- Place the same slab on its exposed half. Expect a full double slab and two slabs when mined with a pickaxe. Use two slabs in the recycling recipe and expect one matching full block.
+- Pour water into a single slab, and place another slab into a water source. Expect both to hold water through restart. Merge a waterlogged single slab and expect the double slab to lose the water. Use a bucket on a dry double slab and expect water to pour beside it.
+- Build a large mixed floor of Cut Andesite and Cut Calcite slabs. Look from both above and below, pan past the floor, then leave and re-enter its chunks. Expect the correct half-block models to stay aligned with collision. Capture frame timing and any pop-in from the display-backed Calcite slabs.
