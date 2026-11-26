@@ -1,0 +1,70 @@
+# A stock client must be able to use the same saved carrier across load boundaries.
+# Build with tests/fixtures/abi-native-entity/pack.ps1.
+mods target\mods\abi-native-entity.mmc
+start
+expect abi_native_entity ready
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+cmd gamemode survival tester
+cmd fill 1024 299 1024 1030 299 1030 minecraft:stone
+cmd tp tester 1025.5 300 1027.5
+wait 2
+bot cmd abi_actor_spawn
+wait 1
+expect abi_native_entity loaded 0
+expect abi_native_entity tick
+bot expect entity minecraft:interaction near 1025.5 300 1025.5 within 0.1 count 1
+wait 0.5
+expect \[bot\] expect entity ok
+bot use-entity interaction 1025.5 300 1025.5 main
+wait 0.5
+expect abi_native_entity used 1
+cmd clear tester minecraft:barrel 0
+wait 0.5
+expect Found 1 matching item
+bot cmd abi_actor_spawn
+wait 0.5
+expect abi_native_entity spawn rejected
+reject abi_native_entity loaded 0
+cmd tp tester 1280.5 300 1280.5
+cmd forceload remove 1024 1024
+wait 8
+expect abi_native_entity unloaded 1
+reject abi_native_entity removed
+cmd forceload add 1024 1024
+cmd tp tester 1025.5 300 1027.5
+wait 3
+expect abi_native_entity loaded 1
+bot use-entity interaction 1025.5 300 1025.5 off
+wait 0.5
+expect abi_native_entity used 2
+bot quit
+stop
+start
+expect abi_native_entity ready
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+cmd tp tester 1025.5 300 1027.5
+wait 2
+expect abi_native_entity loaded 2
+bot expect entity minecraft:interaction near 1025.5 300 1025.5 within 0.1 count 1
+wait 0.5
+expect \[bot\] expect entity ok
+bot use-entity interaction 1025.5 300 1025.5 main
+wait 0.5
+expect abi_native_entity used 3
+expect abi_native_entity discard returned
+expect abi_native_entity removed 3
+bot expect entity minecraft:interaction near 1025.5 300 1025.5 within 0.1 count 0
+wait 0.5
+expect \[bot\] expect entity ok
+bot cmd abi_actor_spawn
+wait 0.5
+expect abi_native_entity loaded 0
+cmd kill @e[type=minecraft:interaction,x=1025.5,y=300,z=1025.5,distance=..1,limit=1]
+wait 0.5
+expect abi_native_entity removed 0
+bot quit
+stop

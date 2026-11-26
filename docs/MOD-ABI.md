@@ -457,6 +457,30 @@ crash recovery between the player save and mod data requires a joint journal.
 `tests/scenarios/abi-inventory-menu.txt` exercises taking and quick moves,
 two viewers, rejected changes, and equipment restoration with overflow.
 
+## Persistent nonliving actors (`moddedmc:native_entities` v1)
+
+Require the interface in `Mod::start` and use `Actors::register` to register
+one actor kind per native mod. `Actors::spawn` creates a stock
+`minecraft:interaction` carrier in a loaded chunk with the given width,
+height, position, UUID and opaque state. Use a stable nonzero UUID to identify
+an actor across saves. Spawn rejects an already loaded UUID.
+
+Actor events borrow the world and actor. The host delivers `Loaded` when a
+carrier joins the world, `Tick` after the world's parallel entity workers
+have joined, and
+`Used` with the acting player on a right click. Return true from `Used` to
+consume the use. `Unloaded` follows a chunk unload and leaves the saved actor
+available. `Removed` follows permanent removal. The state is still readable
+in both callbacks. The other phases ignore the callback's return value.
+
+Use `Actor::data` and `Actor::set_data` to read and replace up to 64 KiB of
+opaque bytes. The carrier saves this data with the entity. It stays nonliving
+and the host applies no gravity. Set `Spawn::physics` to enable collision for
+movement that the mod applies through `actor.entity`.
+
+`tests/scenarios/abi-native-entity.txt` covers use, chunk unload and load,
+clean restart, and permanent removal.
+
 ## Inter-mod services (`moddedmc:services` v1)
 
 Mods can publish immutable, process-lifetime `#[repr(C)]` function tables to other native

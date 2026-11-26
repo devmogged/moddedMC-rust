@@ -32,7 +32,7 @@ use pumpkin_core::{
     },
     item::items::bucket::{CustomFishBuckets, install_custom_fish_buckets},
     server::Server,
-    world::{World, loot::LootContextParameters},
+    world::{World, install_entity_added_hook, loot::LootContextParameters},
 };
 use pumpkin_data::{
     Block, BlockDirection, BlockState, BlockStateId, Property,
@@ -1157,13 +1157,18 @@ fn install_runtime(runtime: Runtime) -> io::Result<()> {
     if RUNTIME.set(runtime).is_err()
         || !install_content_behaviour(Arc::new(Behaviour))
         || !crate::interaction::install()
-        || !crate::mob_ai::install()
+        || !install_entity_added_hook(on_entity_added)
         || !crate::mobs::install_structure_mobs()
         || !engine::observe(observe)
     {
         return Err(io::Error::other("content hooks already installed"));
     }
     Ok(())
+}
+
+fn on_entity_added(_world: &World, entity: &Arc<dyn EntityBase>) {
+    crate::mob_ai::attach(entity);
+    crate::native_entity::attach(entity);
 }
 
 struct Behaviour;

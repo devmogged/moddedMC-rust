@@ -25,7 +25,7 @@ use pumpkin_core::{
         },
     },
     server::Server,
-    world::{World, install_entity_added_hook},
+    world::World,
 };
 use pumpkin_data::{damage::DamageType, data_component_impl::IDSetContent};
 use pumpkin_util::math::vector3::Vector3;
@@ -292,12 +292,8 @@ impl EventHandler<EntityDamageEvent> for HurtHandler {
     }
 }
 
-pub fn install() -> bool {
-    install_entity_added_hook(attach)
-}
-
 /// Give a mod mob its type's goals as it joins a world.
-fn attach(_world: &World, entity: &Arc<dyn EntityBase>) {
+pub fn attach(entity: &Arc<dyn EntityBase>) {
     let Some(mob) = entity.get_mob() else { return };
     let Some(kind) = mobs::registered_kind(entity.as_ref()) else {
         return;

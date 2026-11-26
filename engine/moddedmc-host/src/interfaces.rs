@@ -92,6 +92,10 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
             native::request_pre_world();
             ptr::from_ref(&crate::inventory_menu::INVENTORY_MENU).cast()
         }
+        (abi::NATIVE_ENTITIES, 1) => {
+            native::request_pre_world();
+            ptr::from_ref(&crate::native_entity::NATIVE_ENTITIES).cast()
+        }
         (abi::SERVICES, 1) => ptr::from_ref(&crate::services::SERVICES).cast(),
         (abi::CONTAINERS, 1) => ptr::from_ref(&crate::containers::CONTAINERS).cast(),
         (abi::ITEM_INPUT, 1) => ptr::from_ref(&crate::content::ITEM_INPUT).cast(),

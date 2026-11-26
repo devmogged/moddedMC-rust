@@ -24,6 +24,7 @@ mod load_order;
 mod mob_ai;
 mod mobs;
 mod native;
+mod native_entity;
 mod player_death;
 mod resources;
 mod saved_data;
@@ -137,6 +138,7 @@ pub struct Staging<'a> {
     saved_keys: Vec<(u64, String)>,
     player_death: Option<abi::PlayerDeathCallback>,
     inventory_menu: Option<(u64, abi::InventoryMenuCallback)>,
+    native_actor: Option<(u64, abi::NativeEntityCallback)>,
     services: Vec<services::Registration>,
 }
 
@@ -433,6 +435,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         saved_keys,
         player_death_callback,
         inventory_menu_kind,
+        native_actor_kind,
         services,
     ) = {
         let registry = read(&HOST.registry);
@@ -452,6 +455,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             saved_keys: Vec::new(),
             player_death: None,
             inventory_menu: None,
+            native_actor: None,
             services: Vec::new(),
         };
         let result = module.register(&mut staging);
@@ -470,13 +474,13 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.saved_keys,
             staging.player_death,
             staging.inventory_menu,
+            staging.native_actor,
             staging.services,
         )
     };
-    let result = if result == code::OK && !services::available(&services) {
-        code::DUPLICATE_ID
-    } else {
-        result
+    let result = match result {
+        code::OK if !services::available(&services) => code::DUPLICATE_ID,
+        result => result,
     };
     if result != code::OK {
         tracing::error!(
@@ -508,6 +512,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     saved_data::register(module.id, saved_keys);
     player_death::register(module.id, player_death_callback);
     inventory_menu::register(module.id, inventory_menu_kind);
+    native_entity::register(module.id, native_actor_kind);
     services::commit(services);
     lock(&HOST.commands).push(PendingCommands {
         module,

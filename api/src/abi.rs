@@ -1811,6 +1811,49 @@ pub struct PlayerDeathV1 {
     pub on_drops: unsafe extern "C" fn(reg: Reg, callback: PlayerDeathCallback) -> i32,
 }
 
+pub const NATIVE_ENTITIES: &str = "moddedmc:native_entities";
+
+pub mod native_entity_phase {
+    pub const LOADED: u8 = 0;
+    pub const TICK: u8 = 1;
+    pub const USED: u8 = 2;
+    pub const UNLOADED: u8 = 3;
+    pub const REMOVED: u8 = 4;
+}
+
+#[repr(C)]
+pub struct NativeEntitySpawn {
+    pub world: WorldRef,
+    pub kind: u64,
+    pub uuid: [u8; 16],
+    pub position: Vec3,
+    pub width: f32,
+    pub height: f32,
+    /// Enable collision for moves made by the mod. The host applies no gravity.
+    pub physics: bool,
+    pub data: Str,
+}
+
+#[repr(C)]
+pub struct NativeEntityContext {
+    pub world: WorldRef,
+    pub entity: EntityRef,
+    pub player: PlayerRef,
+    pub uuid: [u8; 16],
+    pub phase: u8,
+}
+
+pub type NativeEntityCallback = unsafe extern "C" fn(*const NativeEntityContext) -> bool;
+
+#[repr(C)]
+pub struct NativeEntitiesV1 {
+    pub size: usize,
+    pub register: unsafe extern "C" fn(Reg, NativeEntityCallback, out: *mut u64) -> i32,
+    pub spawn: unsafe extern "C" fn(*const NativeEntitySpawn) -> bool,
+    pub data: unsafe extern "C" fn(EntityRef, Sink) -> bool,
+    pub set_data: unsafe extern "C" fn(EntityRef, Str) -> bool,
+}
+
 pub const INVENTORY_MENU: &str = "moddedmc:inventory_menu";
 pub const MENU_TAKE: u8 = 1;
 pub const MENU_INSERT: u8 = 2;
