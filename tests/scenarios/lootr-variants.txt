@@ -1,0 +1,100 @@
+# Explicit variant inventories, barrel obstruction exception, reference clone.
+mods target\mods\lootr.mmc
+start
+expect moddedmc: loaded lootr
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd setblock 1022 100 1025 lootr:trapped_chest[facing=west,type=single,waterlogged=false]
+cmd setblock 1023 100 1025 lootr:barrel[facing=up,open=false]
+cmd setblock 1023 101 1025 minecraft:stone
+cmd setblock 1024 100 1025 lootr:copper_chest[facing=east,type=single,waterlogged=false]
+cmd setblock 1025 100 1025 lootr:exposed_copper_chest[facing=north,type=single,waterlogged=false]
+cmd setblock 1026 100 1025 lootr:weathered_copper_chest[facing=south,type=single,waterlogged=false]
+cmd setblock 1027 100 1025 lootr:oxidized_copper_chest[facing=west,type=single,waterlogged=false]
+cmd data merge block 1022 100 1025 {LootTable:"lootr:tests/full_chest"}
+cmd data merge block 1023 100 1025 {LootTable:"lootr:tests/full_chest"}
+cmd data merge block 1024 100 1025 {LootTable:"lootr:tests/full_chest"}
+cmd data merge block 1025 100 1025 {LootTable:"lootr:tests/full_chest"}
+cmd data merge block 1026 100 1025 {LootTable:"lootr:tests/full_chest"}
+cmd data merge block 1027 100 1025 {LootrIsCustomInventory:1b,LootrCustomInventory:[{Slot:0b,id:"minecraft:diamond",count:7}],CustomName:"Private diamonds"}
+wait 1
+bot use 1022 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 0 wooden_sword 1
+bot inventory-click 0 shift-left
+bot inventory-close
+bot use 1023 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 0 wooden_sword 1
+bot inventory-close
+bot use 1024 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 0 wooden_sword 1
+bot inventory-close
+bot use 1025 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 0 wooden_sword 1
+bot inventory-close
+bot use 1026 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 0 wooden_sword 1
+bot inventory-close
+bot use 1027 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-click 0 shift-left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+botstart bob
+wait 3
+cmd gamemode survival bob
+cmd tp bob 1025.5 101 1023.5
+wait 1
+bot use 1022 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 0 wooden_sword 1
+bot inventory-close
+bot use 1027 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-close
+bot quit
+botselect alice
+bot quit
+stop
+start
+botstart alice
+wait 3
+bot use 1027 100 1025 north
+wait 0.5
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+reject \[bot\] error:|panicked
+bot quit
+stop

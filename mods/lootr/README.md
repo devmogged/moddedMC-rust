@@ -7,7 +7,8 @@ The separate 26.2 build is not the engine target.
 
 ## Implemented slice
 
-- `lootr:chest` (the 26.3 identifier in `LootrConstants.Identifiers`).
+- All seven source chest/barrel block identities, with 60 exact single-chest
+  or barrel states. Copper uses the corresponding waxed physical template.
 - Explicit `LootTable` and `LootTableSeed` block-entity fields.
 - Independent saved inventories per persistent container identity and player UUID,
   with a stock 27-slot menu and staged take/insert transactions.
@@ -16,10 +17,18 @@ The separate 26.2 build is not the engine target.
 - Site and identity checks reject replaced or copied containers. Live validity
   checks use the host's stock-menu extension; they do not deserialize the
   entire inventory archive on each tick.
-- Eight single-chest state variants and placement opposite the player's
-  horizontal view, preserving source waterlogging. Spectator and sneak-use
-  cannot create private inventory claims; overhead conduction prevents
-  opening. These additions are pending host-gated protocol verification.
+- Chest placement opposite the player's horizontal view, source waterlogging,
+  and six-direction barrel placement. Spectator and sneak-use cannot create
+  private claims; chest obstruction uses the host's chest-blocked query,
+  whereas a barrel can open beneath a solid block.
+- Source reference inventory NBT can clone slots independently for each
+  owner. Plain custom names are preserved in the menu title. Unsupported
+  lock predicates are denied rather than bypassed.
+- Source default comparator strength 1 for all states. Trapped weak/direct
+  redstone power still needs actual open-count support from the host.
+- The permission-checked `/lootr id` command reads the identity of the
+  container at the player's feet or one block below.
+  These additions are pending host-gated verification.
 
 Set `config/lootr/randomise_seed.txt` to `false` to preserve a nonzero,
 non-minus-one explicit seed. The default is `true`. With randomisation
@@ -47,11 +56,12 @@ must leave the original block and its table untouched. The source explicitly
 clears the table before replacement to avoid duplicate generated drops.
 Scanning every position on every tick is not a substitute.
 
-This conversion is not implemented yet. Other pending gameplay includes
-barrels, trapped/copper chests, reference inventories, locked containers,
-team UUIDs, redstone/comparators, visuals, source refresh/decay scheduling,
-structure and table filtering, and break rules. Refresh/clear archive
-primitives exist, but no gameplay command or schedule invokes them yet.
+The mod callback now maps vanilla chest, trapped chest, barrel and both
+waxed/unwaxed copper states to their matching Lootr state. The engine
+transaction currently covers single ordinary chests; other variants need
+the corresponding host-side eligible-container support and live verification.
+Team UUIDs, full lock predicates, richer text components, actual opener
+signals, visuals, structure/table filtering and break rules remain pending.
 
 ### Next source-matched block and lifecycle slices
 
@@ -63,17 +73,16 @@ The collision/outline shape is a 14-by-14 column of height 14 model units.
 The chest refuses opening when blocked above, whereas the barrel does not.
 The vanilla 26.3 `ChestBlock.isChestBlockedAt` checks redstone conduction
 above and a sitting cat intersecting the block above. The port now uses
-the generic conduction query; sitting-cat detection still needs a host
-entity pose query. The current host conduction query delegates to Pumpkin's
-solid-block predicate, so unusual vanilla conduction states need verification.
+the generic host chest-obstruction query; its exact behavior is awaiting
+host-gated verification.
 The exact registry identifiers are `lootr:chest`, `lootr:trapped_chest`,
 `lootr:barrel`, `lootr:copper_chest`, `lootr:exposed_copper_chest`,
 `lootr:weathered_copper_chest`, and `lootr:oxidized_copper_chest`.
 Sneak-use removes the visual opener marker when permitted; it does not
 regenerate loot or delete the private inventory. Spectators do not open
-private inventories. The registered state variants and denied-use checks
-address placement and inventory access; visual opener markers and client
-appearance remain pending.
+private inventories. The archive records the visual opener marker separately
+from the private claim; sneak-use clears it without rerolling the inventory.
+Client rendering of that marker remains pending.
 
 Upstream refresh and decay are opt-in: both default to 6000 game ticks, with
 empty table/dimension filters and both global switches disabled. Start on open
@@ -82,8 +91,18 @@ also runs while loaded; it must use persisted world game time, not process
 uptime. Refresh deletes all private inventories and visual opener markers,
 without reusing transaction IDs. Decay destroys the container (default) or
 replaces it with its corresponding vanilla block when configured. The source
-administrative command is `/lootr cclear <entities>`, not an unrestricted
-player command. Exposing it requires permission-checked entity arguments.
+administrative commands are `/lootr refresh`, `/lootr decay` (stand on
+the target) and `/lootr cclear <entities>`; the latter requires the
+permission-checked entity argument interface. A strict policy parser and
+absolute persisted deadlines now exist, with atomic archive refresh and
+non-reused claim IDs. The host does not yet expose persistent overworld
+game time or a guarded destructive replacement operation. Consequently the
+deadline engine is not connected to live callbacks or exposed as an
+active config file yet. Using the mutable daylight clock or process tick
+counter would break restart and time-command semantics.
+The replacement path must also account for the source's surprising
+`ExposedCopperChestLootrType.getReplacementBlock()` returning a waxed
+exposed copper chain; the other copper types return waxed chests.
 
 ## Persistence scaling
 
@@ -136,6 +155,8 @@ not automatic vanilla-container conversion.
 - `lootr-chest-states.txt`: player placement facing and source waterlogging,
   obstruction/spectator/sneak denial followed by a first valid loot claim,
   and state persistence across restart.
+- `lootr-variants.txt`: explicit variant menus, barrel obstruction exception,
+  independent reference inventory clones, and restart persistence.
 - `lootr-migration-fixture-setup.txt` and `tests/fixtures/lootr-legacy.py`:
   a schema-derived legacy save fixture for the same migration-after scenario.
   Its provenance and exact commands are in [PERSISTENCE-DESIGN.md](PERSISTENCE-DESIGN.md).

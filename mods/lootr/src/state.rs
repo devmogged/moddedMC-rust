@@ -16,6 +16,8 @@ pub struct Archive {
     /// Older archives derive bindings from their per-record site fields.
     #[serde(default)]
     bindings: BTreeMap<String, Site>,
+    #[serde(default)]
+    schedules: BTreeMap<String, crate::lifecycle::Schedule>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -27,6 +29,13 @@ pub struct Record {
     owner: String,
     size: i32,
     items: Vec<Slot>,
+    // Older records were claimed via an open. Keep their visual marker.
+    #[serde(default = "opened_default")]
+    visual_opened: bool,
+}
+
+fn opened_default() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -55,6 +64,12 @@ impl Archive {
                 .iter()
                 .filter(|(id, _)| accepts(id))
                 .map(|(id, site)| (id.clone(), site.clone()))
+                .collect(),
+            schedules: self
+                .schedules
+                .iter()
+                .filter(|(id, _)| accepts(id))
+                .map(|(id, schedule)| (id.clone(), schedule.clone()))
                 .collect(),
         };
         // Preserve site ownership in legacy records independently of claims.
@@ -88,6 +103,7 @@ impl Archive {
             .iter()
             .map(|r| r.container.as_str())
             .chain(self.bindings.keys().map(String::as_str))
+            .chain(self.schedules.keys().map(String::as_str))
     }
 
     pub(crate) fn all_containers_match(&self, accepts: impl Fn(&str) -> bool) -> bool {
@@ -100,6 +116,10 @@ impl Archive {
         let mut owners = HashSet::new();
         let mut sites = HashMap::new();
         self.next_id >= 0
+            && self
+                .schedules
+                .iter()
+                .all(|(id, schedule)| self.bindings.contains_key(id) && schedule.valid())
             && self.bindings.iter().all(|(id, site)| {
                 valid_id(id) && !site.dimension.is_empty() && sites.insert(id, site).is_none()
             })
@@ -197,6 +217,7 @@ impl Archive {
             owner,
             size: size as i32,
             items: Vec::new(),
+            visual_opened: true,
         };
         record.replace(slots.iter().map(|s| s.as_deref()))?;
         self.next_id = id;
@@ -219,6 +240,16 @@ impl Archive {
     /// Upstream refresh clears all private inventories for this container.
     /// Never recycle menu IDs, even if a stale screen submits another click.
     pub fn refresh(&mut self, container: &str) -> usize {
+        if let Some(schedule) = self.schedules.get_mut(container) {
+            schedule.refresh_at = None;
+        }
+        if self
+            .schedules
+            .get(container)
+            .is_some_and(|s| *s == crate::lifecycle::Schedule::default())
+        {
+            self.schedules.remove(container);
+        }
         let before = self.records.len();
         self.records.retain(|record| {
             if record.container != container {
@@ -232,6 +263,75 @@ impl Archive {
             false
         });
         before - self.records.len()
+    }
+
+    pub(crate) fn schedule(&self, container: &str) -> Option<&crate::lifecycle::Schedule> {
+        self.schedules.get(container)
+    }
+
+    pub(crate) fn set_schedule(
+        &mut self,
+        container: &str,
+        schedule: crate::lifecycle::Schedule,
+    ) -> bool {
+        if !self.bindings.contains_key(container) || !schedule.valid() {
+            return false;
+        }
+        if schedule == crate::lifecycle::Schedule::default() {
+            self.schedules.remove(container);
+        } else {
+            self.schedules.insert(container.into(), schedule);
+        }
+        true
+    }
+
+    /// Evaluate a bound container against a supplied persisted world age.
+    /// Refresh and its deadline reset are one shard mutation. Decay is a
+    /// proposal: callers must guard the block/entity replacement separately.
+    pub(crate) fn advance_lifecycle(
+        &mut self,
+        container: &str,
+        config: &crate::lifecycle::Config,
+        now: i64,
+        table: Option<&str>,
+        ticking: bool,
+    ) -> Option<crate::lifecycle::Action> {
+        use crate::lifecycle::Action;
+        let site = self.bindings.get(container)?.clone();
+        let mut schedule = self.schedule(container).cloned().unwrap_or_default();
+        let action = schedule.due(config, now, ticking);
+        if action == Action::Decay {
+            return Some(action);
+        }
+        if action == Action::Refresh {
+            self.refresh(container);
+            schedule.refresh_at = None;
+            // The Java tick clears hasBeenOpened; only a subsequent open
+            // starts the next deadline. The open path starts it immediately.
+            if ticking {
+                self.set_schedule(container, schedule);
+                return Some(action);
+            }
+        }
+        if !ticking || self.records.iter().any(|r| r.container == container) {
+            schedule.begin(config, now, table, &site.dimension, ticking);
+        }
+        self.set_schedule(container, schedule);
+        Some(action)
+    }
+
+    pub(crate) fn mark_visual(&mut self, container: &str, uuid: [u8; 16], opened: bool) -> bool {
+        let owner = owner_key(uuid);
+        let Some(record) = self
+            .records
+            .iter_mut()
+            .find(|r| r.container == container && r.owner == owner)
+        else {
+            return false;
+        };
+        let changed = record.visual_opened != opened;
+        record.visual_opened = opened;
+        changed
     }
 
     /// The upstream administrative clear removes a player's stored inventories.
@@ -430,5 +530,57 @@ mod tests {
         let partition = loaded.partition(|id| id == CHEST);
         assert!(partition.records.is_empty());
         assert!(!partition.site_available(CHEST, &moved));
+    }
+
+    #[test]
+    fn persisted_refresh_is_atomic_with_claim_invalidation() {
+        use crate::lifecycle::{Action, Config};
+        let config =
+            Config::parse("refresh_all=true\nrefresh_value=20\ndecay_all=true\ndecay_value=60")
+                .unwrap();
+        let mut archive = Archive::default();
+        let site = Site {
+            dimension: "minecraft:overworld".into(),
+            position: [1, 2, 3],
+        };
+        assert!(archive.bind_site(CHEST, &site));
+        assert_eq!(
+            archive.advance_lifecycle(CHEST, &config, 100, None, false),
+            Some(Action::None)
+        );
+        let id = archive
+            .open(CHEST, [1; 16], 27, || Some(vec![None; 27]))
+            .unwrap();
+        assert!(archive.mark_visual(CHEST, [1; 16], false));
+        assert!(archive.get(id, [1; 16]).is_some());
+        let mut restored: Archive =
+            fastnbt::from_bytes(&fastnbt::to_bytes(&archive).unwrap()).unwrap();
+        assert!(restored.validate());
+        assert_eq!(
+            restored.advance_lifecycle(CHEST, &config, 120, None, true),
+            Some(Action::Refresh)
+        );
+        assert!(restored.get(id, [1; 16]).is_none());
+        assert_eq!(restored.schedule(CHEST).unwrap().decay_at, Some(160));
+        assert_eq!(restored.schedule(CHEST).unwrap().refresh_at, None);
+        assert_eq!(
+            restored.advance_lifecycle(CHEST, &config, 121, None, true),
+            Some(Action::None)
+        );
+        assert_eq!(restored.schedule(CHEST).unwrap().refresh_at, None);
+        assert_eq!(
+            restored.advance_lifecycle(CHEST, &config, 130, None, false),
+            Some(Action::None)
+        );
+        assert_eq!(restored.schedule(CHEST).unwrap().refresh_at, Some(150));
+        let next = restored
+            .open(CHEST, [1; 16], 27, || Some(vec![None; 27]))
+            .unwrap();
+        assert!(next > id);
+        assert_eq!(
+            restored.advance_lifecycle(CHEST, &config, 160, None, false),
+            Some(Action::Decay)
+        );
+        assert!(restored.get(next, [1; 16]).is_some());
     }
 }

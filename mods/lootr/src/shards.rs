@@ -161,6 +161,12 @@ pub fn load_or_init(store: &mut impl Store, index: usize) -> Option<Shard> {
     let mut manifest = match store.manifest() {
         Some(bytes) => Manifest::decode(&bytes)?,
         None => {
+            // A shard cannot be written before the initial manifest. A missing
+            // manifest beside any shard means recovery evidence is incomplete;
+            // do not adopt it or initialize a new empty archive.
+            if (0..COUNT).any(|i| store.read(i).is_some()) {
+                return None;
+            }
             let legacy = match store.legacy() {
                 Some(bytes) => decode_legacy(&bytes)?,
                 None => Archive::default(),
@@ -173,26 +179,38 @@ pub fn load_or_init(store: &mut impl Store, index: usize) -> Option<Shard> {
             manifest
         }
     };
+    let expected_initial = |store: &mut dyn Store| -> Option<Shard> {
+        let legacy = if manifest.requires_legacy(index) {
+            let legacy = match initial_legacy.as_ref() {
+                Some(legacy) => legacy.clone(),
+                None => decode_legacy(&store.legacy()?)?,
+            };
+            let expected = Manifest::from_legacy(&legacy)?;
+            if expected.required != manifest.required
+                || expected.legacy_high_water != manifest.legacy_high_water
+            {
+                return None;
+            }
+            legacy.partition(|id| shard_for(id) == Some(index))
+        } else {
+            Archive::empty_at(manifest.legacy_high_water)
+        };
+        Some(Shard::new(index, legacy))
+    };
     let shard = match store.read(index) {
-        Some(bytes) => Shard::decode(index, &bytes)?,
+        Some(bytes) => {
+            let shard = Shard::decode(index, &bytes)?;
+            // A shard written before a failed manifest update was never
+            // exposed to a menu. Its normalized payload must match the
+            // exact initial partition before adoption.
+            if !manifest.contains(index) && shard.encode()? != expected_initial(store)?.encode()? {
+                return None;
+            }
+            shard
+        }
         None if manifest.contains(index) => return None,
         None => {
-            let legacy = if manifest.requires_legacy(index) {
-                let legacy = match initial_legacy {
-                    Some(legacy) => legacy,
-                    None => decode_legacy(&store.legacy()?)?,
-                };
-                let expected = Manifest::from_legacy(&legacy)?;
-                if expected.required != manifest.required
-                    || expected.legacy_high_water != manifest.legacy_high_water
-                {
-                    return None;
-                }
-                legacy.partition(|id| shard_for(id) == Some(index))
-            } else {
-                Archive::empty_at(manifest.legacy_high_water)
-            };
-            let shard = Shard::new(index, legacy);
+            let shard = expected_initial(store)?;
             if !store.write(index, &shard.encode()?) {
                 return None;
             }
@@ -459,6 +477,22 @@ mod tests {
         assert_ne!(store.legacy.as_deref(), Some(MIGRATED));
         store.manifest = Some(vec![1, 2, 3]);
         assert!(load_or_init(&mut store, 63).is_none());
+    }
+
+    #[test]
+    fn recovery_rejects_orphan_or_modified_unpublished_shard() {
+        let (mut store, _, _, _) = fixture();
+        assert!(load_or_init(&mut store, 1).is_some());
+        store.reject_manifest = true;
+        assert!(load_or_init(&mut store, 0).is_none());
+        let mut orphan = Shard::decode(0, store.shards.get(&0).unwrap()).unwrap();
+        orphan.archive.refresh(A);
+        assert!(store.write(0, &orphan.encode().unwrap()));
+        store.reject_manifest = false;
+        assert!(load_or_init(&mut store, 0).is_none());
+        store.manifest = None;
+        assert!(load_or_init(&mut store, 2).is_none());
+        assert!(!store.shards.contains_key(&2));
     }
 
     #[test]
