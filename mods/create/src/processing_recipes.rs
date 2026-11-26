@@ -83,6 +83,7 @@ pub enum Process {
     Milling,
     Crushing,
     Cutting,
+    Stonecutting,
 }
 
 impl Process {
@@ -98,6 +99,7 @@ impl Process {
             b"create:milling" => Some(Self::Milling),
             b"create:crushing" => Some(Self::Crushing),
             b"create:cutting" => Some(Self::Cutting),
+            b"minecraft:stonecutting" => Some(Self::Stonecutting),
             _ => None,
         }
     }
@@ -345,10 +347,16 @@ impl RecipeBook {
         let Some(outputs) = outputs else {
             return;
         };
+        // SawBlockEntity.start uses 50 ticks for stonecutting.
+        let duration = if kind == Process::Stonecutting {
+            50
+        } else {
+            raw.duration
+        };
         let recipe = Recipe {
             outputs,
             chances,
-            duration: raw.duration,
+            duration,
         };
         for item in items {
             self.by_item
@@ -661,18 +669,17 @@ impl RecipeBook {
         self.find(Process::Pressing, item).map(Recipe::outputs)
     }
 
-    pub(crate) fn matches(
+    pub(crate) fn saw_recipes(
         &self,
-        process: Process,
         item: &Value,
         filter: &crate::filtering::Filter,
     ) -> Vec<&Recipe> {
         let Some(item) = item_id(item) else {
             return Vec::new();
         };
-        self.by_item
-            .get(&(process, item.to_owned()))
+        [Process::Cutting, Process::Stonecutting]
             .into_iter()
+            .filter_map(|kind| self.by_item.get(&(kind, item.to_owned())))
             .flatten()
             .filter(|recipe| {
                 recipe

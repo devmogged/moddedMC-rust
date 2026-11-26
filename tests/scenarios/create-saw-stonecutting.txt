@@ -1,0 +1,60 @@
+# An upward Mechanical Saw uses vanilla stonecutting recipes and resumes the selected recipe after restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_saw \(24 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2582.5 105 2582.5
+wait 3
+cmd fill 2577 99 2577 2588 108 2588 minecraft:air
+cmd fill 2577 99 2577 2588 99 2588 minecraft:stone
+cmd tp tester 2581.5 100 2582.5
+cmd gamemode survival tester
+cmd setblock 2580 100 2580 create:creative_motor[facing=east]
+cmd setblock 2581 100 2579 create:depot
+cmd item replace entity tester hotbar.0 with create:mechanical_saw
+wait 0.5
+cmd kinetics 2580 100 2580 24
+bot look 90 65
+wait 0.5
+bot place 2580 100 2580 east
+wait 1
+cmd kinetics 2581 100 2580
+wait 0.5
+expect create:mechanical_saw\[axis_along_first=true,facing=up,flipped=false\] at 2581 100 2580 Speed=24\b
+
+cmd item replace entity tester hotbar.0 with minecraft:stone_slab
+wait 0.5
+bot use 2581 100 2580 up main 0.6875 0.75 0.5
+wait 0.5
+expect Filter: minecraft:stone_slab
+cmd summon minecraft:item 2581.5 101.25 2580.5 {Item:{id:"minecraft:stone",count:1},PickupDelay:32767s}
+wait 1.5
+cmd kinetics 2580 100 2580 0
+wait 0.5
+cmd data get block 2581 100 2580 SawProcessing.Items[0].id
+cmd data get block 2581 100 2580 SawProcessing.Remaining
+wait 0.5
+expect-all block data: "minecraft:stone" && block data: (?:[6-9]|[1-4][0-9])(?:\.[0-9]+)?f$
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2581 100 2580 SawProcessing.Items[0].id
+cmd data get block 2581 100 2580 SawProcessing.Filter.Filter.id
+cmd data get block 2581 100 2580 SawProcessing.Remaining
+wait 0.5
+expect-all block data: "minecraft:stone" && block data: "minecraft:stone_slab" && block data: (?:[6-9]|[1-4][0-9])(?:\.[0-9]+)?f$
+cmd kinetics 2580 100 2580 192
+wait 3
+cmd data get block 2581 100 2579 HeldItem.Item.id
+cmd data get block 2581 100 2579 HeldItem.Item.count
+wait 0.5
+expect-all block data: "minecraft:stone_slab" && block data: 2$
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

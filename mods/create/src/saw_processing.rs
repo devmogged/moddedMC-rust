@@ -15,7 +15,7 @@ use crate::{
     belt_tunnel::shift,
     filtering::{self, Filter},
     kinetics::{FACES, Kind, Kinetics},
-    processing_recipes::{self, Process, RecipeBook},
+    processing_recipes::{self, RecipeBook},
     saw::SawBlock,
 };
 
@@ -88,8 +88,7 @@ impl Processing {
             let remaining = (time - (speed.abs() / 24.0).clamp(1.0, 128.0)).max(0.0);
             self.data.remaining = Some(remaining);
             if !self.data.applied && remaining < 5.0 {
-                let recipes =
-                    recipes.matches(Process::Cutting, &self.data.items[0], &self.data.filter);
+                let recipes = recipes.saw_recipes(&self.data.items[0], &self.data.filter);
                 if !recipes.is_empty() {
                     if self.data.recipe_index >= recipes.len() {
                         self.data.recipe_index = 0;
@@ -104,7 +103,7 @@ impl Processing {
                 self.data.remaining = Some(OUTPUT_TICKS);
             }
         } else {
-            let recipes = recipes.matches(Process::Cutting, &self.data.items[0], &self.data.filter);
+            let recipes = recipes.saw_recipes(&self.data.items[0], &self.data.filter);
             let duration = if recipes.is_empty() {
                 NO_RECIPE_TICKS
             } else {
