@@ -1,0 +1,50 @@
+# Seed 42. Move the active stack to the offhand, then drop a second active search.
+mods target\mods\compasses.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+cmd item replace entity tester hotbar.1 with naturescompass:naturescompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Explorer's Compass
+bot click-label Next page
+wait 1
+bot click-label minecraft:desert_pyramid
+bot swap-hands
+bot use-item off
+wait 1
+expect Compass search started
+expect Compass search in progress
+wait 45
+expect Found minecraft:desert_pyramid at X -1376, Z -1760 in minecraft:overworld
+bot expect tracker 45 minecraft:overworld -1376 -1760
+wait 1
+expect \[bot\] expect inventory ok tracker 45 minecraft:overworld -1376 -1760
+bot expect tracker 37 none
+wait 1
+expect \[bot\] expect inventory ok tracker 37 none
+bot hotbar 1
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Select a target in this dimension
+bot click-label minecraft:badlands
+bot drop-item
+wait 0.5
+expect Compass search started
+reject Found minecraft:badlands|No minecraft:badlands found|Search for minecraft:badlands unavailable
+bot expect slot 37 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 37 minecraft:air 0
+cmd tp tester 50 83 6
+wait 5
+reject Found minecraft:badlands|No minecraft:badlands found|Search for minecraft:badlands unavailable
+bot expect tracker 45 minecraft:overworld -1376 -1760
+wait 1
+expect \[bot\] expect inventory ok tracker 45 minecraft:overworld -1376 -1760
+reject \[bot\] error:|panicked|Found minecraft:badlands
+stop

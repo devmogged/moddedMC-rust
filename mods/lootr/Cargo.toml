@@ -1,0 +1,15 @@
+[package]
+name = "lootr"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+moddedmc-api.workspace = true
+serde = { version = "1", features = ["derive"] }
+fastnbt = "2.6.3"
+rand = "0.9"

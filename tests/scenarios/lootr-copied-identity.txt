@@ -1,0 +1,60 @@
+# A copied block-entity UUID at a new position must not share or create claims.
+mods target\mods\lootr.mmc
+start
+expect moddedmc: loaded lootr
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd setblock 1025 100 1025 lootr:chest
+cmd setblock 1027 100 1025 lootr:chest
+cmd data merge block 1025 100 1025 {LootrId:"0123456789abcdef0123456789abcdef"}
+cmd data merge block 1027 100 1025 {LootrId:"0123456789abcdef0123456789abcdef",LootTable:"lootr:tests/full_chest"}
+cmd item replace entity alice hotbar.0 with minecraft:diamond 7
+cmd item replace entity alice hotbar.1 with minecraft:stick 1
+wait 1
+bot use 1025 100 1025
+wait 1
+bot inventory-click 54 shift-left
+wait 0.5
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-close
+wait 0.5
+bot use 1027 100 1025
+wait 1
+bot expect slot 37 minecraft:stick 1
+wait 0.5
+expect expect inventory ok slot 37 stick 1
+botstart bob
+wait 3
+cmd gamemode survival bob
+cmd tp bob 1025.5 101 1023.5
+cmd item replace entity bob hotbar.0 with minecraft:stick 1
+wait 1
+bot use 1027 100 1025
+wait 1
+bot expect slot 36 minecraft:stick 1
+wait 0.5
+expect expect inventory ok slot 36 stick 1
+bot use 1025 100 1025
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+bot quit
+botselect alice
+bot use 1025 100 1025
+wait 1
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-close
+reject \[bot\] error:|panicked
+bot quit
+stop

@@ -1,6 +1,6 @@
 //! Vanilla-class Enderitium equipment from ModItems and ModToolTiers 2.2.4.
-//! Sword and pickaxe have no bespoke Java use callbacks. Other tools need
-//! carrier-aware block interactions before being registered.
+//! These five tools use vanilla item classes in the exact release JAR.
+//! The host preserves their carrier block-transformer components.
 use fastnbt::Value;
 use moddedmc_api::{
     RegistrationError, Registry,
@@ -48,7 +48,7 @@ fn tool_components(kind: &str, damage: f64, speed: f64) -> Value {
         // The source tier's needs_dinosaur_bone_tool tag is absent in the release.
         // Its incorrect-block set is therefore empty.
         vec![compound([
-            ("blocks", string("#minecraft:mineable/pickaxe")),
+            ("blocks", string(&format!("#minecraft:mineable/{kind}"))),
             ("speed", Value::Float(MINING_SPEED)),
             ("correct_for_drops", Value::Byte(1)),
         ])]
@@ -132,6 +132,30 @@ pub fn register(
     register_item(
         defaults,
         registry,
+        "enderitium_axe",
+        "Enderitium Axe",
+        "minecraft:diamond_axe",
+        tool_components("axe", 5.0, -3.0),
+    )?;
+    register_item(
+        defaults,
+        registry,
+        "enderitium_shovel",
+        "Enderitium Shovel",
+        "minecraft:diamond_shovel",
+        tool_components("shovel", 1.5, -3.0),
+    )?;
+    register_item(
+        defaults,
+        registry,
+        "enderitium_hoe",
+        "Enderitium Hoe",
+        "minecraft:diamond_hoe",
+        tool_components("hoe", -3.0, 0.0),
+    )?;
+    register_item(
+        defaults,
+        registry,
         "enderitium_upgrade_smithing_template",
         "Smithing Template",
         "minecraft:netherite_upgrade_smithing_template",
@@ -191,5 +215,37 @@ mod tests {
                 ("correct_for_drops", Value::Byte(1))
             ])
         );
+    }
+
+    #[test]
+    fn remaining_tools_keep_their_own_mining_tags_and_attack_attributes() {
+        for (kind, damage, speed, expected_damage) in [
+            ("axe", 5.0, -3.0, 8.5),
+            ("shovel", 1.5, -3.0, 5.0),
+            ("hoe", -3.0, 0.0, 0.5),
+        ] {
+            let Value::Compound(components) = tool_components(kind, damage, speed) else {
+                panic!("components")
+            };
+            let Value::List(attrs) = &components["minecraft:attribute_modifiers"] else {
+                panic!("attributes")
+            };
+            assert_eq!(attrs[0], modifier("attack_damage", expected_damage));
+            assert_eq!(attrs[1], modifier("attack_speed", speed));
+            let Value::Compound(tool) = &components["minecraft:tool"] else {
+                panic!("tool")
+            };
+            let Value::List(rules) = &tool["rules"] else {
+                panic!("rules")
+            };
+            assert_eq!(
+                rules[0],
+                compound([
+                    ("blocks", string(&format!("#minecraft:mineable/{kind}"))),
+                    ("speed", Value::Float(9.0)),
+                    ("correct_for_drops", Value::Byte(1))
+                ])
+            );
+        }
     }
 }

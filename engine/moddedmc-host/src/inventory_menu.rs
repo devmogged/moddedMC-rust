@@ -12,7 +12,7 @@ use moddedmc_api::abi::{self, Reg, Str, code};
 use pumpkin_core::entity::player::Player;
 use pumpkin_data::item_stack::ItemStack;
 use pumpkin_inventory::{
-    native_menu::{MenuInventory, NativeMenu, SlotAccess},
+    native_menu::{MenuInventory, NativeMenu, SlotAccess, ValidateMenu},
     screen_handler::{InventoryPlayer, MenuAction},
 };
 use pumpkin_nbt::Nbt;
@@ -57,15 +57,18 @@ fn invoke_callback<T>(call: impl FnOnce() -> T) -> T {
     result
 }
 
-pub static INVENTORY_MENU: abi::InventoryMenuV1Actions = abi::InventoryMenuV1Actions {
-    base: abi::InventoryMenuV1 {
-        size: size_of::<abi::InventoryMenuV1Actions>(),
-        register: stage_kind,
-        open,
-        restore_matching,
+pub static INVENTORY_MENU: abi::InventoryMenuV1Validity = abi::InventoryMenuV1Validity {
+    base: abi::InventoryMenuV1Actions {
+        base: abi::InventoryMenuV1 {
+            size: size_of::<abi::InventoryMenuV1Validity>(),
+            register: stage_kind,
+            open,
+            restore_matching,
+        },
+        on_action: stage_action,
+        open_with_actions,
     },
-    on_action: stage_action,
-    open_with_actions,
+    open_validated,
 };
 
 unsafe extern "C" fn stage_kind(
@@ -126,7 +129,7 @@ const fn decode_access(access: u8) -> Option<SlotAccess> {
 
 unsafe extern "C" fn open(request: *const abi::InventoryMenuOpen) -> bool {
     // SAFETY: the caller borrows the request for the duration of this call.
-    unsafe { request.as_ref() }.is_some_and(|request| open_menu(request, None, &[]))
+    unsafe { request.as_ref() }.is_some_and(|request| open_menu(request, None, &[], None))
 }
 
 unsafe extern "C" fn open_with_actions(
@@ -145,13 +148,35 @@ unsafe extern "C" fn open_with_actions(
         unsafe { std::slice::from_raw_parts(controls, count) }
     };
     // SAFETY: the caller borrows the request for the duration of this call.
-    unsafe { request.as_ref() }.is_some_and(|request| open_menu(request, Some(world), controls))
+    unsafe { request.as_ref() }
+        .is_some_and(|request| open_menu(request, Some(world), controls, None))
+}
+
+unsafe extern "C" fn open_validated(
+    request: *const abi::InventoryMenuOpen,
+    world: abi::WorldRef,
+    context: Str,
+    callback: abi::InventoryMenuValidityCallback,
+) -> bool {
+    if world.is_null()
+        || context.len > abi::MAX_MENU_VALIDITY_CONTEXT
+        || IN_CALLBACK.get()
+    {
+        return false;
+    }
+    // SAFETY: the caller borrows the request and context until this call returns.
+    let Some(request) = (unsafe { request.as_ref() }) else {
+        return false;
+    };
+    let context = unsafe { context.bytes() }.to_vec();
+    open_menu(request, Some(world), &[], Some((context, callback)))
 }
 
 fn open_menu(
     request: &abi::InventoryMenuOpen,
     expected_world: Option<abi::WorldRef>,
     controls: &[abi::InventoryMenuControl],
+    validation: Option<(Vec<u8>, abi::InventoryMenuValidityCallback)>,
 ) -> bool {
     if IN_CALLBACK.get() {
         return false;
@@ -182,6 +207,32 @@ fn open_menu(
         return false;
     }
     let id = (world.uuid, request.kind, request.inventory);
+    let validity: Option<Arc<ValidateMenu>> = validation.map(|(context, callback)| {
+        let check: Arc<ValidateMenu> = Arc::new(move |player| {
+            if IN_CALLBACK.get() {
+                return false;
+            }
+            let Some(player) = player.as_any().downcast_ref::<Player>() else {
+                return false;
+            };
+            let world = player.world();
+            if world.uuid != id.0 {
+                return false;
+            }
+            let validity = abi::InventoryMenuValidity {
+                player: abi::PlayerRef(ptr::from_ref(player).cast()),
+                world: ptr::from_ref(world.as_ref()).cast(),
+                inventory: id.2,
+                context: Str::new(&context),
+            };
+            // SAFETY: player, world and owned context live through this synchronous call.
+            invoke_callback(|| unsafe { callback(&raw const validity) })
+        });
+        check
+    });
+    if validity.as_ref().is_some_and(|check| !check(player)) {
+        return false;
+    }
     let Some(actions) = menu_actions(kind, id, &access, controls) else {
         return false;
     };
@@ -226,6 +277,9 @@ fn open_menu(
     ) else {
         return false;
     };
+    if let Some(validity) = validity {
+        menu.set_validity(validity);
+    }
     for (index, action) in actions {
         if !menu.set_slot_action(index, action) {
             return false;

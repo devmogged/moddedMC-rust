@@ -1385,7 +1385,28 @@ pub struct ContainersV1 {
     ) -> bool,
 }
 
+/// Active structure-set membership, independent of a dimension's enabled placements.
+pub const WORLDGEN_STRUCTURE_GROUPS: &str = "moddedmc:worldgen_structure_groups";
+
+#[repr(C)]
+pub struct WorldgenStructureGroupsV1 {
+    pub size: usize,
+    /// One record per group, in registry order. Key is its zero-based index;
+    /// payload is group id followed by member ids, separated by NUL bytes.
+    pub groups: unsafe extern "C" fn(WorldRef, Sink) -> bool,
+}
+
 pub const ITEM_INPUT: &str = "moddedmc:item_input";
+
+pub const BLOCK_PHYSICS: &str = "moddedmc:block_physics";
+
+#[repr(C)]
+pub struct BlockPhysicsV1 {
+    pub size: usize,
+    /// Set the physics of a block already staged by the calling mod. Sound is
+    /// inherited from the specified vanilla state; other template properties remain unchanged.
+    pub set: unsafe extern "C" fn(Reg, Str, f32, f32, bool, Str) -> i32,
+}
 
 /// A hopper or dropper offers saved stack NBT. Return the accepted item count.
 pub type ItemInputFn = unsafe extern "C" fn(
@@ -1959,6 +1980,28 @@ pub struct InventoryMenuV1Actions {
 }
 
 #[repr(C)]
+pub struct InventoryMenuValidity {
+    pub player: PlayerRef,
+    pub world: WorldRef,
+    pub inventory: u64,
+    pub context: Str,
+}
+
+pub const MAX_MENU_VALIDITY_CONTEXT: usize = 4096;
+pub type InventoryMenuValidityCallback = unsafe extern "C" fn(*const InventoryMenuValidity) -> bool;
+
+#[repr(C)]
+pub struct InventoryMenuV1Validity {
+    pub base: InventoryMenuV1Actions,
+    pub open_validated: unsafe extern "C" fn(
+        *const InventoryMenuOpen,
+        WorldRef,
+        Str,
+        InventoryMenuValidityCallback,
+    ) -> bool,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct InventoryMenuTarget {
     pub menu_slot: u8,
@@ -1980,6 +2023,63 @@ fn player_death_v1_layout() {
 
 /// Register process-lifetime, independently versioned C interface tables supplied by mods.
 pub const SERVICES: &str = "moddedmc:services";
+
+/// Queries the active generator without loading or generating chunks.
+pub const WORLDGEN_LOOKUP: &str = "moddedmc:worldgen_lookup";
+
+#[repr(C)]
+pub struct WorldgenLookupV1 {
+    pub size: usize,
+    /// Enumerate dimension-specific biome identifiers; one UTF-8 identifier per sink call.
+    pub biomes: unsafe extern "C" fn(WorldRef, Sink) -> bool,
+    /// Sample up to 256 quart-coordinate positions. Sink keys are input indices.
+    pub noise_biomes: unsafe extern "C" fn(WorldRef, *const Pos, usize, Sink) -> bool,
+    /// Inclusive bottom and exclusive top in block coordinates.
+    pub height_bounds: unsafe extern "C" fn(WorldRef, *mut i32, *mut i32) -> bool,
+}
+
+/// Dimension-specific structure placement and deterministic start lookup.
+pub const WORLDGEN_STRUCTURES: &str = "moddedmc:worldgen_structures";
+
+/// Generate a container's loot using the active world's datapacks and player context.
+pub const CONTAINER_LOOT: &str = "moddedmc:container_loot";
+
+#[repr(C)]
+pub struct ContainerLootV1 {
+    pub size: usize,
+    /// Emit only occupied slots, using their zero-based index and serialized ItemStack NBT.
+    /// Unknown loot tables, invalid sizes, or a player in another world fail the entire call.
+    pub generate: unsafe extern "C" fn(WorldRef, PlayerRef, Str, i64, Pos, usize, Sink) -> bool,
+}
+
+/// Update an identified player-owned stack after a delayed action.
+pub const PLAYER_STACK_DATA: &str = "moddedmc:player_stack_data";
+
+#[repr(C)]
+pub struct PlayerStackDataV1 {
+    pub size: usize,
+    /// Exactly one single-count stack of this item must have the nonempty expected data.
+    /// If replace is false, only test ownership. Otherwise atomically replace its mod data.
+    pub compare: unsafe extern "C" fn(PlayerRef, Str, Str, Str, bool) -> bool,
+    /// Atomically update mod data and an untracked lodestone target. Empty dimension clears it.
+    pub compare_lodestone: unsafe extern "C" fn(PlayerRef, Str, Str, Str, Str, Pos) -> bool,
+}
+
+#[repr(C)]
+pub struct WorldgenStructuresV1 {
+    pub size: usize,
+    pub structures: unsafe extern "C" fn(WorldRef, Sink) -> bool,
+    /// Each entry's key is a placement index and value is a little-endian i32 spacing.
+    /// Zero spacing identifies a concentric ring placement.
+    pub placements: unsafe extern "C" fn(WorldRef, Str, Sink) -> bool,
+    /// Convert a sample chunk to its placement's potential start chunk.
+    pub spread_candidate: unsafe extern "C" fn(WorldRef, u32, i32, i32, *mut Pos) -> bool,
+    /// 1 = ready, 2 = pending, -1 = unavailable. Sink values are two little-endian i32s.
+    pub ring_chunks: unsafe extern "C" fn(WorldRef, u32, Sink) -> i32,
+    /// 1 = found, 0 = absent, 2 = pending, -1 = unavailable.
+    /// Coordinates are start chunk coordinates; out receives the locate block position.
+    pub structure_start: unsafe extern "C" fn(WorldRef, u32, Str, i32, i32, *mut Pos) -> i32,
+}
 
 #[repr(C)]
 pub struct ServicesV1 {

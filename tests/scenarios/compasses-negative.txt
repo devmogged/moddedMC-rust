@@ -1,0 +1,54 @@
+# A selection tied to a removed stack cannot start a search.
+mods target\mods\compasses.mmc
+start
+botstart alice
+wait 3
+botstart bob
+wait 3
+cmd item replace entity alice hotbar.0 with naturescompass:naturescompass
+cmd item replace entity bob hotbar.0 with naturescompass:naturescompass
+botselect alice
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Nature's Compass
+botselect bob
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Nature's Compass
+botselect alice
+bot click-label Next page
+wait 1
+expect \[bot\] dialog:
+bot use-item main
+wait 1
+expect \[bot\] dialog:
+bot click-replay
+wait 1
+reject Compass search started|\[bot\] error:|\[bot\] dialog:
+expect \[bot\] did: click-replay
+cmd clear alice
+wait 1
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass or dimension changed
+reject Compass search started
+botselect bob
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+bot click-replay
+wait 2
+reject Compass search started
+expect \[bot\] did: click-replay
+wait 15
+expect Found minecraft:birch_forest at X .* Z .* in minecraft:overworld
+bot click-replay
+wait 2
+reject Compass search started|Found minecraft:
+expect \[bot\] did: click-replay
+reject \[bot\] error:|panicked
+stop

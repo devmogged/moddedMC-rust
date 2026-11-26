@@ -479,6 +479,9 @@ impl Pack {
     }
 
     fn item(&mut self, path: &str, id: &str) -> io::Result<()> {
+        if id == "minecraft:item/compass" {
+            return self.json(path, &compass_item_definition());
+        }
         let model = self.model(id);
         self.json(
             path,
@@ -675,6 +678,18 @@ impl Pack {
         }
         Ok(Some((manifest, blobs)))
     }
+}
+
+/// Reference the stock client's compass frames; no vanilla textures are redistributed.
+fn compass_item_definition() -> Value {
+    let entries: Vec<_> = (0..=32).map(|step| {
+        let frame = (step + 16) % 32;
+        json!({
+            "threshold": if step == 0 {0.0} else {f64::from(step)-0.5},
+            "model": {"type":"minecraft:model","model":format!("minecraft:item/compass_{frame:02}")}
+        })
+    }).collect();
+    json!({"model":{"type":"minecraft:range_dispatch","property":"minecraft:compass","target":"lodestone","scale":32.0,"entries":entries}})
 }
 
 fn shipped_asset(path: &str) -> Option<PathBuf> {

@@ -31,20 +31,26 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
     assert len(registrations) == 26, f"expected 26 selected items; got {len(registrations)}"
     equipment = (MOD / "src/equipment.rs").read_text(encoding="utf-8")
     equipment_names = re.findall(r'register_item\(\s*defaults,\s*registry,\s*"([a-z0-9_]+)"', equipment)
-    assert set(equipment_names) == {"enderitium_sword", "enderitium_pickaxe", "enderitium_upgrade_smithing_template"}
+    assert set(equipment_names) == {
+        "enderitium_sword", "enderitium_pickaxe", "enderitium_axe",
+        "enderitium_shovel", "enderitium_hoe", "enderitium_upgrade_smithing_template"
+    }
     names = [part[0] for part in registrations] + equipment_names
+    block_names = ["enderitium_block", "enderitium_ore"]
     assert len(set(names)) == len(names), "duplicate Rust item IDs"
     assert all(carrier for _, _, carrier in registrations)
     with ZipFile(jar_path) as original:
         archive = set(original.namelist())
         models = [
             f"assets/{NAMESPACE}/models/item/{name}.json"
-            for name in names
+            for name in names + block_names
         ]
         assert set(models) <= archive, "original model reference missing: " + str(set(models) - archive)
+        for name in block_names:
+            assert f"assets/{NAMESPACE}/models/block/{name}.json" in archive
         # The original models and textures are intentionally never copied.
         recipes = sorted((MOD / "resources/data/legendary_monsters/recipe").glob("*.json"))
-        assert len(recipes) == 8, f"unexpected locally shipped recipes: {len(recipes)}"
+        assert len(recipes) == 15, f"unexpected locally shipped recipes: {len(recipes)}"
         for recipe in recipes:
             archive_name = "data/legendary_monsters/recipe/" + recipe.name
             assert archive_name in archive, f"unknown source recipe {archive_name}"
@@ -54,9 +60,17 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
             assert actual["type"] in ("minecraft:crafting_shaped", "minecraft:crafting_shapeless", "minecraft:smithing_transform")
             text = json.dumps(actual)
             for found in re.findall(r'legendary_monsters:[a-z0-9_]+', text):
-                assert found.split(":", 1)[1] in names, f"recipe references unported item: {found}"
+                assert found.split(":", 1)[1] in names + block_names, f"recipe references unported item: {found}"
+        for name in block_names:
+            path = f"data/{NAMESPACE}/loot_table/blocks/{name}.json"
+            assert json.loads((MOD / "resources" / path).read_text(encoding="utf-8")) == json.loads(original.read(path))
+        for name in ["mineable/pickaxe", "needs_diamond_tool"]:
+            path = f"data/minecraft/tags/block/{name}.json"
+            actual = json.loads((MOD / "resources" / path).read_text(encoding="utf-8"))
+            assert actual == {"replace": False, "values": [f"{NAMESPACE}:{b}" for b in block_names]}
+            assert set(actual["values"]) <= set(json.loads(original.read(path))["values"])
         tags = sorted((MOD / "resources/data/minecraft/tags/item").glob("*.json"))
-        assert len(tags) == 4, f"unexpected locally shipped tags: {len(tags)}"
+        assert len(tags) == 7, f"unexpected locally shipped tags: {len(tags)}"
         for tag in tags:
             name = "data/minecraft/tags/item/" + tag.name
             assert name in archive, f"missing source tag: {name}"
@@ -65,6 +79,12 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
             assert actual.get("replace", False) is False, "never replace base vanilla tags"
             assert set(actual["values"]) <= set(expected["values"]), f"tag differs from original: {tag.name}"
             assert all(v.split(":", 1)[1] in names for v in actual["values"])
+        # Host resolves item defaults before custom IDs exist; this equivalent
+        # synthetic singleton tag is needed to defer the repair ingredient lookup.
+        repair = MOD / "resources/data/legendary_monsters/tags/item/enderitium_repair.json"
+        assert json.loads(repair.read_text(encoding="utf-8")) == {
+            "replace": False, "values": ["legendary_monsters:enderitium_ingot"]
+        }, "repair ingredient tag must contain only the source tier's ingot"
         assert not (MOD / "resources/assets").exists(), "restricted original visuals may not be bundled"
         print(f"Verified {len(names)} original item model paths, {len(recipes)} recipes, {len(tags)} source tags")
     if java_path:
@@ -93,6 +113,10 @@ def verify(jar_path: Path, java_path: Path | None) -> None:
         assert len(fires) == 5, f"unexpected fire-resistant item count: {fires}"
         assert "new SwordItem(ModToolTiers.ENDIRITIUM" in entries["enderitium_sword"]
         assert "new PickaxeItem(ModToolTiers.ENDIRITIUM" in entries["enderitium_pickaxe"]
+        assert "new AxeItem(ModToolTiers.ENDIRITIUM" in entries["enderitium_axe"]
+        assert "new ShovelItem(ModToolTiers.ENDIRITIUM" in entries["enderitium_shovel"]
+        assert "new HoeItem(ModToolTiers.ENDIRITIUM" in entries["enderitium_hoe"]
+        assert "HoeItem.createAttributes(ModToolTiers.ENDIRITIUM, -3.0F, 0.0F)" in entries["enderitium_hoe"]
         assert "new EnderitiumSmithingTemplate" in entries["enderitium_upgrade_smithing_template"]
         print(f"Verified source registrations and vanilla property flags for {len(names)} items (5 fire-resistant)")
     print("PASS: exact 2.2.4 artifact audit")

@@ -1,0 +1,51 @@
+# Seed 42; stage custom-rings as documented in compasses-fixtures.md.
+# Each custom structure has exactly one ring position, no biome adjustment.
+# Different distances must produce different cached layouts.
+mods target\mods\compasses.mmc
+start
+cmd datapack enable "file/custom-rings" last
+wait 2
+expect Loaded datapack 'custom-rings'
+stop
+start
+expect Loaded datapack 'custom-rings'
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog button: aaa_compass_test:near_ring ->
+bot click-label aaa_compass_test:near_ring
+wait 2
+expect Compass search started
+wait 30
+expect Found aaa_compass_test:near_ring at X 0, Z 0 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld 0 0
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 0 0
+bot use-item main
+wait 1
+bot click-label Find next / retry
+wait 2
+expect Compass search started
+wait 10
+expect No aaa_compass_test:near_ring found within the search limits
+bot expect tracker 36 none
+wait 1
+expect \[bot\] expect inventory ok tracker 36 none
+bot use-item main
+wait 1
+expect \[bot\] dialog button: aaa_compass_test:far_ring ->
+bot click-label aaa_compass_test:far_ring
+wait 2
+expect Compass search started
+wait 30
+expect Found aaa_compass_test:far_ring at X -160, Z -1136 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld -160 -1136
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -160 -1136
+reject \[bot\] error:|panicked
+stop

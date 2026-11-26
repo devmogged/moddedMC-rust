@@ -11,6 +11,81 @@ use crate::{
 pub use abi::MAX_STACK_DATA;
 
 #[derive(Clone, Copy)]
+pub struct PlayerStackData(&'static abi::PlayerStackDataV1);
+
+pub fn require_player_stack_data() -> Result<PlayerStackData, InterfaceUnavailable> {
+    // SAFETY: this is the published table for player_stack_data v1.
+    unsafe { crate::require_interface(abi::PLAYER_STACK_DATA, 1) }.map(PlayerStackData)
+}
+
+impl PlayerStackData {
+    /// Update a persistent compass target alongside its state, or clear the target with None.
+    pub fn replace_lodestone(
+        self,
+        player: &crate::Player<'_>,
+        item: &str,
+        expected: &[u8],
+        new: &[u8],
+        target: Option<(&str, Pos)>,
+    ) -> bool {
+        if expected.is_empty() || expected.len() > MAX_STACK_DATA || new.len() > MAX_STACK_DATA {
+            return false;
+        }
+        let (dimension, pos) = target.unwrap_or(("", Pos::default()));
+        // SAFETY: player and slices are borrowed during the call.
+        unsafe {
+            (self.0.compare_lodestone)(
+                player.raw,
+                crate::s(item),
+                abi::Str::new(expected),
+                abi::Str::new(new),
+                crate::s(dimension),
+                pos,
+            )
+        }
+    }
+
+    pub fn contains(self, player: &crate::Player<'_>, item: &str, expected: &[u8]) -> bool {
+        self.compare(player, item, expected, None)
+    }
+
+    pub fn replace(
+        self,
+        player: &crate::Player<'_>,
+        item: &str,
+        expected: &[u8],
+        new: &[u8],
+    ) -> bool {
+        self.compare(player, item, expected, Some(new))
+    }
+
+    fn compare(
+        self,
+        player: &crate::Player<'_>,
+        item: &str,
+        expected: &[u8],
+        new: Option<&[u8]>,
+    ) -> bool {
+        if expected.is_empty()
+            || expected.len() > MAX_STACK_DATA
+            || new.is_some_and(|v| v.len() > MAX_STACK_DATA)
+        {
+            return false;
+        }
+        // SAFETY: player and slices are borrowed during the call.
+        unsafe {
+            (self.0.compare)(
+                player.raw,
+                crate::s(item),
+                abi::Str::new(expected),
+                abi::Str::new(new.unwrap_or_default()),
+                new.is_some(),
+            )
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Interaction(InterfacePrefix<abi::InteractionV1>);
 
 /// Vanilla `InteractionResult` for a use on a block.

@@ -1,0 +1,16 @@
+{
+  "placement": {
+    "type": "minecraft:concentric_rings",
+    "count": 1,
+    "distance": 0,
+    "preferred_biomes": "#aaa_compass_test:no_preference",
+    "salt": 0,
+    "spread": 1
+  },
+  "structures": [
+    {
+      "structure": "aaa_compass_test:near_ring",
+      "weight": 1
+    }
+  ]
+}

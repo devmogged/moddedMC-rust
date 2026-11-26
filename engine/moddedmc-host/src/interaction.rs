@@ -50,6 +50,153 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     add_exhaustion,
 };
 
+pub static PLAYER_STACK_DATA: abi::PlayerStackDataV1 = abi::PlayerStackDataV1 {
+    size: size_of::<abi::PlayerStackDataV1>(),
+    compare: compare_player_stack_data,
+    compare_lodestone: compare_player_lodestone,
+};
+
+unsafe extern "C" fn compare_player_stack_data(
+    player: abi::PlayerRef,
+    item: Str,
+    expected: Str,
+    replacement: Str,
+    replace: bool,
+) -> bool {
+    // SAFETY: forwarding the borrowed ABI arguments.
+    unsafe { compare_player_stack_inner(player, item, expected, replacement, replace, None) }
+}
+
+unsafe extern "C" fn compare_player_lodestone(
+    player: abi::PlayerRef,
+    item: Str,
+    expected: Str,
+    replacement: Str,
+    dimension: Str,
+    pos: abi::Pos,
+) -> bool {
+    if dimension.len > 256 {
+        return false;
+    }
+    // SAFETY: dimension is borrowed from the caller.
+    let dimension = unsafe { dimension.str() };
+    let target = if dimension.is_empty() {
+        None
+    } else {
+        if !dimension.contains(':')
+            || pos.x.unsigned_abs() > 30_000_000
+            || pos.z.unsigned_abs() > 30_000_000
+        {
+            return false;
+        }
+        Some(pumpkin_data::data_component_impl::LodestoneTarget {
+            dimension: dimension.into(),
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+        })
+    };
+    let tracker = pumpkin_data::data_component_impl::LodestoneTrackerImpl {
+        target,
+        tracked: false,
+    };
+    // SAFETY: forwarding the borrowed ABI arguments.
+    unsafe { compare_player_stack_inner(player, item, expected, replacement, true, Some(tracker)) }
+}
+
+unsafe fn compare_player_stack_inner(
+    player: abi::PlayerRef,
+    item: Str,
+    expected: Str,
+    replacement: Str,
+    replace: bool,
+    tracker: Option<pumpkin_data::data_component_impl::LodestoneTrackerImpl>,
+) -> bool {
+    if expected.len == 0
+        || expected.len > abi::MAX_STACK_DATA
+        || replacement.len > abi::MAX_STACK_DATA
+    {
+        return false;
+    }
+    // SAFETY: caller borrows the player and identifiers/data.
+    let (Some(player), Some(item)) = (
+        unsafe { crate::native::player(player) },
+        Item::from_registry_key(unsafe { item.str() }),
+    ) else {
+        return false;
+    };
+    let expected = unsafe { expected.bytes() };
+    let matches = |stack: &ItemStack| {
+        stack.item_count == 1
+            && stack.get_item().id == item.id
+            && stack
+                .get_data_component::<CustomDataImpl>()
+                .and_then(|custom| custom.data.get_byte_array(DATA_KEY))
+                .is_some_and(|bytes| {
+                    bytes.len() == expected.len()
+                        && bytes
+                            .iter()
+                            .zip(expected)
+                            .all(|(a, b)| a.cast_unsigned() == *b)
+                })
+    };
+    let inventory = player.inventory();
+    // Same lock order as PlayerInventory::swap_item.
+    let mut equipment = crate::lock(&inventory.entity_equipment);
+    let mut main = crate::write(&inventory.main_inventory);
+    let offslot = inventory.equipment_slots.get(&40);
+    let mut offhand = offslot.map(|slot| equipment.get(slot));
+    let mut indices = main
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| matches(s).then_some(i));
+    let first = indices.next();
+    if indices.next().is_some() {
+        return false;
+    }
+    let off_matches = offhand.as_ref().is_some_and(matches);
+    let slot = match (first, off_matches) {
+        (Some(i), false) => i,
+        (None, true) => 40,
+        _ => return false,
+    };
+    if !replace {
+        return true;
+    }
+    let stack = if slot == 40 {
+        let Some(stack) = offhand.as_mut() else {
+            return false;
+        };
+        stack
+    } else {
+        &mut main[slot]
+    };
+    // SAFETY: exclusive stack borrow and replacement data are live.
+    if !unsafe {
+        set_stack_data(
+            ptr::from_mut(stack).cast(),
+            replacement.ptr,
+            replacement.len,
+        )
+    } {
+        return false;
+    }
+    if let Some(tracker) = tracker {
+        stack.set_data_component(tracker);
+    }
+    let updated = stack.clone();
+    if slot == 40 {
+        let Some(offslot) = offslot else {
+            return false;
+        };
+        equipment.put(offslot, updated.clone());
+    }
+    drop(main);
+    drop(equipment);
+    player.sync_hand_slot(slot, updated);
+    true
+}
+
 unsafe extern "C" fn add_exhaustion(raw: abi::EntityRef, amount: f32) {
     if !amount.is_finite() || amount < 0.0 {
         return;

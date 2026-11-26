@@ -155,6 +155,7 @@ pub struct Registration {
     placement: Option<abi::ContentPlacement>,
     item_input: Option<abi::ItemInputFn>,
     random_tick: Option<abi::ContentRandomTick>,
+    physics: Option<content::BlockPhysics>,
 }
 
 pub struct ItemRegistration {
@@ -452,6 +453,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         placement: def.on_place,
         random_tick: None,
         item_input: None,
+        physics: None,
     });
     code::OK
 }
@@ -519,6 +521,47 @@ unsafe extern "C" fn set_comparator_output(reg: Reg, id: Str, strength: u8) -> i
         return code::DUPLICATE_ID;
     }
     state.comparator_output = Some(strength);
+    code::OK
+}
+
+pub static BLOCK_PHYSICS: abi::BlockPhysicsV1 = abi::BlockPhysicsV1 {
+    size: size_of::<abi::BlockPhysicsV1>(),
+    set: set_block_physics,
+};
+
+unsafe extern "C" fn set_block_physics(
+    reg: Reg,
+    block: Str,
+    hardness: f32,
+    blast_resistance: f32,
+    tool_required: bool,
+    sound_from: Str,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: all parameters are borrowed for registration.
+    let (staging, name, sound_from) =
+        unsafe { (native::staging(reg), block.str(), sound_from.str()) };
+    let Some(sound_state) = physical(sound_from) else {
+        return code::INVALID_DEFINITION;
+    };
+    let properties = content::BlockPhysics {
+        hardness,
+        blast_resistance,
+        tool_required,
+        sound_type: sound_state.sound_type,
+    };
+    if !properties.valid() {
+        return code::INVALID_DEFINITION;
+    }
+    let Some(block) = staging.content.iter_mut().find(|b| b.id == name) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.physics.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.physics = Some(properties);
     code::OK
 }
 
@@ -1052,7 +1095,7 @@ fn open_registry(
     items: &[ItemDefinition],
 ) -> io::Result<content::Registry> {
     let definitions = block_definitions(blocks)?;
-    content::Registry::open_with_comparator_outputs(
+    content::Registry::open_with_properties(
         &path.join("moddedmc/registry.dat"),
         &definitions,
         items,
@@ -1061,6 +1104,12 @@ fn open_registry(
                 .binary_search_by(|(_, block)| block.id.as_str().cmp(name))
                 .ok()?;
             blocks[index].1.states[state_index].comparator_output
+        },
+        |name| {
+            let index = blocks
+                .binary_search_by(|(_, block)| block.id.as_str().cmp(name))
+                .ok()?;
+            blocks[index].1.physics
         },
     )
 }

@@ -1,0 +1,26 @@
+# Inspect actual block entity identity before and after interaction.
+mods target\mods\lootr.mmc
+start
+expect moddedmc: loaded lootr
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd tp alice 1025.5 100 1023.5
+cmd setblock 1025 100 1025 lootr:chest
+cmd data get block 1025 100 1025
+cmd item replace entity alice hotbar.1 with minecraft:diamond 7
+wait 1
+bot hotbar 0
+bot use 1025 100 1025 north
+wait 1
+cmd data get block 1025 100 1025
+cmd data get entity alice Pos
+bot expect slot 55 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 55 diamond 7
+bot quit
+stop

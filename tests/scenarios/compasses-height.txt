@@ -1,0 +1,26 @@
+# Seed 42. Minecraft Mth.outFromOrigin clamps Y before searching.
+mods target\mods\compasses.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+wait 1
+bot fly on
+wait 1
+cmd tp tester -31 400 6
+wait 2
+expect \[bot\] teleported to .*y: 400
+cmd item replace entity tester hotbar.0 with naturescompass:naturescompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog button: minecraft:birch_forest ->
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+wait 30
+expect Found minecraft:birch_forest at X .* Z .* in minecraft:overworld
+reject \[bot\] error:|panicked
+stop

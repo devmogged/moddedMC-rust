@@ -3,6 +3,7 @@
 //! Restricted assets stay in the user's local original JAR, never in this library.
 
 use std::sync::OnceLock;
+mod blocks;
 mod equipment;
 
 use moddedmc_api::{
@@ -12,6 +13,8 @@ use moddedmc_api::{
 
 static ITEMS: OnceLock<Items> = OnceLock::new();
 static DEFAULTS: OnceLock<ItemDefaults> = OnceLock::new();
+static CONTENT: OnceLock<moddedmc_api::content::Content> = OnceLock::new();
+static PHYSICS: OnceLock<moddedmc_api::block_physics::BlockPhysics> = OnceLock::new();
 
 struct LegendaryMonsters;
 
@@ -125,6 +128,8 @@ impl Mod for LegendaryMonsters {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let _ = ITEMS.set(items::require()?);
         let _ = DEFAULTS.set(items::require_defaults()?);
+        let _ = CONTENT.set(moddedmc_api::content::require()?);
+        let _ = PHYSICS.set(moddedmc_api::block_physics::require()?);
         Ok(())
     }
 
@@ -155,6 +160,11 @@ impl Mod for LegendaryMonsters {
             )?;
         }
         equipment::register(*defaults, registry)?;
+        blocks::register(
+            *CONTENT.get().ok_or(RegistrationError::InvalidDefinition)?,
+            *PHYSICS.get().ok_or(RegistrationError::InvalidDefinition)?,
+            registry,
+        )?;
         Ok(())
     }
 }

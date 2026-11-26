@@ -69,6 +69,10 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
             ptr::from_ref(&crate::content::ARROW_AMMO).cast()
         }
         (abi::BLOCK_WORLD, 1) => ptr::from_ref(&crate::content::WORLD).cast(),
+        (abi::BLOCK_PHYSICS, 1) => {
+            native::request_pre_world();
+            ptr::from_ref(&crate::content::BLOCK_PHYSICS).cast()
+        }
         (abi::FLUID_WORLD, 1) => ptr::from_ref(&crate::fluid_world::FLUID_WORLD).cast(),
         (abi::ENTITIES, 1) => ptr::from_ref(&crate::content::ENTITIES).cast(),
         (abi::ITEM_STACKS, 1) => ptr::from_ref(&crate::stacks::ITEM_STACKS).cast(),
@@ -98,11 +102,18 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         }
         (abi::SERVICES, 1) => ptr::from_ref(&crate::services::SERVICES).cast(),
         (abi::CONTAINERS, 1) => ptr::from_ref(&crate::containers::CONTAINERS).cast(),
+        (abi::CONTAINER_LOOT, 1) => ptr::from_ref(&crate::container_loot::CONTAINER_LOOT).cast(),
         (abi::ITEM_INPUT, 1) => ptr::from_ref(&crate::content::ITEM_INPUT).cast(),
         (abi::TAGS, 1) => ptr::from_ref(&crate::tags::TAGS).cast(),
         (abi::BLOCK_DISPLAYS, 1) => ptr::from_ref(&crate::block_displays::BLOCK_DISPLAYS).cast(),
         (abi::INTERACTION, 1) => ptr::from_ref(&crate::interaction::INTERACTION).cast(),
+        (abi::PLAYER_STACK_DATA, 1) => ptr::from_ref(&crate::interaction::PLAYER_STACK_DATA).cast(),
         (abi::WORLD, 1) => ptr::from_ref(&WORLD).cast(),
+        (abi::WORLDGEN_LOOKUP, 1) => ptr::from_ref(&crate::worldgen_lookup::LOOKUP).cast(),
+        (abi::WORLDGEN_STRUCTURES, 1) => ptr::from_ref(&crate::worldgen_lookup::STRUCTURES).cast(),
+        (abi::WORLDGEN_STRUCTURE_GROUPS, 1) => {
+            ptr::from_ref(&crate::worldgen_groups::GROUPS).cast()
+        }
         (abi::CHUNKS, 1) => ptr::from_ref(&CHUNKS).cast(),
         (abi::COMMANDS, 1) => ptr::from_ref(&COMMANDS).cast(),
         (abi::LIFECYCLE, 1) => ptr::from_ref(&LIFECYCLE).cast(),

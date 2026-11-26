@@ -123,6 +123,17 @@ The Rust SDK checks the host's size before reading `get_interface` and checks th
 | | `integer(source, name, out)` | Copy a parsed integer to the caller's output slot. False means the argument was absent. |
 | | `feedback(source, text)` | Send command feedback using the source's feedback settings. |
 | `moddedmc:lifecycle` | `on_stopping(reg, callback)` | Stage one callback per mod. The host runs it on a blocking thread and waits for it before world save. |
+| `moddedmc:worldgen_lookup` | `biomes(world, out)` | Enumerate biome identifiers from the active dimension generator, including its datapack biome source. Does not load chunks. |
+| | `noise_biomes(world, positions, count, out)` | Sample up to 256 quart-coordinate positions; the sink key is the input index. False on invalid input or unsupported generator. |
+| | `height_bounds(world, bottom, top)` | Dimension's minimum block Y and exclusive maximum block Y. |
+| `moddedmc:worldgen_structures` | `structures(world, out)` | Enumerate locatable structures with enabled placements in the current generator. |
+| | `placements(world, target, out)` | Sink key is the placement index; value is a little-endian signed 32-bit spacing in chunks (zero for concentric rings). Indices refer to the active registry. |
+| | `spread_candidate(world, placement, x, z, out)` | Resolve a random-spread placement candidate from a chunk position. The output is a chunk position, not a confirmed structure start. |
+| | `ring_chunks(world, placement, out)` | Return 1 and emit indexed pairs of little-endian signed 32-bit chunk coordinates, 2 while calculation is pending, or -1 if unavailable. |
+| | `structure_start(world, placement, target, x, z, out)` | Check a candidate's actual generator-derived structure start. 1 means found with block coordinates, 0 absent, 2 pending, -1 unavailable. |
+| `moddedmc:container_loot` | `generate(world, player, table, seed, pos, size, out)` | Generate an independent 1–54 slot loot inventory from the active loot table registry, including player luck and chest position. Emit only occupied slots, keyed by slot index, as named-root stack NBT. Does not consume a vanilla block entity's loot table or mutate an inventory. |
+| `moddedmc:player_stack_data` | `compare(player, item, expected, new, replace)` | Match exactly one single-item stack by item id and nonempty expected mod data in the main inventory or offhand. Check only, or replace and synchronize that same stack. Absent or ambiguous matches fail. |
+| | `compare_lodestone(player, item, expected, new, dimension, pos)` | Atomically replace matching stack data and its untracked lodestone target. Empty dimension clears tracking. |
 
 Chunk requests take chunk coordinates and return immediately. A false return means the request was rejected with no callback. For an accepted request the host returns the opaque context exactly once, possibly before submission returns, on a server runtime thread. Keep callbacks short. Chunky uses a coordinator thread per active dimension to plan work, receive callbacks, log progress and save task files. The server stops accepting chunk requests on shutdown and drains accepted work before it saves worlds.
 
@@ -464,6 +475,20 @@ A left click with an empty cursor calls the action handler with the player, worl
 inventory ID, and tag after releasing the screen lock. The handler can restore
 matching slots or open another view. Other click modes leave the control item
 in place. Existing mods can continue using the original v1 table prefix.
+
+For a position- or identity-bound inventory, use
+`inventory_menu::require_validity()`. Register a change callback and a
+read-only validity callback with `Validated::register`. Open with
+`ValiditySlots { world, access, context }`; the host copies at most 4096
+bytes of immutable per-view context and checks that the player remains in
+the opening world. The callback receives the live player, world, inventory
+ID and copied context before opening, during screen ticks and before
+clicks or matching-slot restoration. Returning false rejects interaction
+and closes the invalid screen through the existing player tick path.
+Keep the check inexpensive: validate the backing block/entity identity
+and reach directly, without loading chunks, reading whole archives, opening
+menus, mutating inventory or acquiring locks held by menu callbacks.
+Change callbacks must still validate backing state at commit time.
 
 These transactions cover live interactions and clean restarts. Cross-file
 crash recovery between the player save and mod data requires a joint journal.

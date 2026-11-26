@@ -10,6 +10,7 @@ mod actor_visual;
 mod block_displays;
 mod companion;
 mod console;
+mod container_loot;
 mod containers;
 mod content;
 mod content_pack;
@@ -34,6 +35,8 @@ mod services;
 mod stacks;
 mod stats;
 mod tags;
+mod worldgen_groups;
+mod worldgen_lookup;
 
 use std::{
     collections::{HashMap, HashSet},

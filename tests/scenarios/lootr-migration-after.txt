@@ -1,0 +1,85 @@
+# Same run dir as lootr-migration-before; new v2 package, no -Fresh.
+mods target\mods\lootr.mmc
+start
+expect moddedmc: loaded lootr
+botstart alice
+wait 3
+bot use 1025 100 1025
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot expect slot 1 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 1 air 0
+bot inventory-close
+bot use 1027 100 1025
+wait 1
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-click 0 shift-left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+cmd clear alice minecraft:diamond 0
+wait 0.5
+expect Found 7 matching item
+botstart bob
+wait 3
+bot use 1025 100 1025
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot expect slot 1 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 1 wooden_sword 1
+bot inventory-click 1 shift-left
+wait 0.5
+bot expect slot 1 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 1 air 0
+bot inventory-close
+cmd clear bob minecraft:wooden_sword 0
+wait 0.5
+expect Found 2 matching item
+bot quit
+botselect alice
+bot quit
+stop
+start
+botstart alice
+wait 3
+bot use 1027 100 1025
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+bot use 1025 100 1025
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+bot quit
+botstart bob
+wait 3
+bot use 1025 100 1025
+wait 1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot expect slot 1 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 1 air 0
+bot expect slot 2 minecraft:wooden_sword 1
+wait 0.5
+expect expect inventory ok slot 2 wooden_sword 1
+bot inventory-close
+reject \[bot\] error:|panicked
+bot quit
+stop

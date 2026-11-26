@@ -21,6 +21,9 @@ pub struct Menus(&'static abi::InventoryMenuV1);
 pub struct Actions(&'static abi::InventoryMenuV1Actions);
 
 #[derive(Clone, Copy)]
+pub struct Validated(&'static abi::InventoryMenuV1Validity);
+
+#[derive(Clone, Copy)]
 pub struct MenuKind(u64);
 
 #[derive(Clone, Copy)]
@@ -40,6 +43,20 @@ pub struct Action<'a> {
     pub world: World<'a>,
     pub inventory: u64,
     pub tag: u64,
+}
+
+/// Immutable per-view context for checking whether the backing inventory is still accessible.
+pub struct ValiditySlots<'a> {
+    pub world: World<'a>,
+    pub access: &'a [Access],
+    pub context: &'a [u8],
+}
+
+pub struct Validity<'a> {
+    pub player: Player<'a>,
+    pub world: World<'a>,
+    pub inventory: u64,
+    pub context: &'a [u8],
 }
 
 pub struct Change<'a> {
@@ -76,6 +93,8 @@ pub type OnChange = fn(Change<'_>);
 static ON_CHANGE: OnceLock<OnChange> = OnceLock::new();
 pub type OnAction = fn(Action<'_>);
 static ON_ACTION: OnceLock<OnAction> = OnceLock::new();
+pub type OnValidity = fn(Validity<'_>) -> bool;
+static ON_VALIDITY: OnceLock<OnValidity> = OnceLock::new();
 
 pub fn require() -> Result<Menus, InterfaceUnavailable> {
     content::require()?;
@@ -87,6 +106,64 @@ pub fn require_actions() -> Result<Actions, InterfaceUnavailable> {
     content::require()?;
     // SAFETY: this checks for the full table including the actions extension.
     unsafe { require_interface(abi::INVENTORY_MENU, 1) }.map(Actions)
+}
+
+pub fn require_validity() -> Result<Validated, InterfaceUnavailable> {
+    content::require()?;
+    // SAFETY: require the append-only table including the validity extension.
+    unsafe { require_interface(abi::INVENTORY_MENU, 1) }.map(Validated)
+}
+
+impl Validated {
+    pub fn register(
+        self,
+        registry: &mut Registry<'_>,
+        on_change: OnChange,
+        on_validity: OnValidity,
+    ) -> Result<MenuKind, RegistrationError> {
+        ON_VALIDITY
+            .set(on_validity)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        Menus(&self.0.base.base).register(registry, on_change)
+    }
+
+    /// Open a view whose immutable context is copied by the host. The callback must be
+    /// read-only, inexpensive, and must not open or mutate a menu.
+    pub fn open<F>(
+        self,
+        player: &Player<'_>,
+        kind: MenuKind,
+        inventory: u64,
+        title: &str,
+        slots: ValiditySlots<'_>,
+        load: F,
+    ) -> bool
+    where
+        F: FnOnce() -> Option<Vec<Option<Vec<u8>>>>,
+    {
+        if slots.context.len() > abi::MAX_MENU_VALIDITY_CONTEXT {
+            return false;
+        }
+        open_menu(
+            player,
+            kind,
+            inventory,
+            title,
+            slots.access,
+            load,
+            |request| {
+                // SAFETY: the host copies the context and borrows the request until open returns.
+                unsafe {
+                    (self.0.open_validated)(
+                        request,
+                        slots.world.raw(),
+                        abi::Str::new(slots.context),
+                        dispatch_validity,
+                    )
+                }
+            },
+        )
+    }
 }
 
 impl Actions {
@@ -304,4 +381,23 @@ unsafe extern "C" fn dispatch_action(raw: *const abi::InventoryMenuAction) {
             tag: raw.tag,
         });
     });
+}
+
+unsafe extern "C" fn dispatch_validity(raw: *const abi::InventoryMenuValidity) -> bool {
+    guard("inventory menu validity", false, || {
+        // SAFETY: all fields, including the copied context, are borrowed for this call.
+        let (Some(raw), Some(callback)) = (unsafe { raw.as_ref() }, ON_VALIDITY.get()) else {
+            return false;
+        };
+        let (Some(player), Some(world)) = (Player::new(raw.player), World::borrowed(raw.world))
+        else {
+            return false;
+        };
+        callback(Validity {
+            player,
+            world,
+            inventory: raw.inventory,
+            context: unsafe { raw.context.bytes() },
+        })
+    })
 }

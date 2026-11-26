@@ -9,6 +9,7 @@ license = "GPL-3.0-only"
 bytes.workspace = true
 pumpkin-core.workspace = true
 pumpkin-data.workspace = true
+pumpkin-nbt.workspace = true
 pumpkin-protocol.workspace = true
 pumpkin-util.workspace = true
 tokio = { workspace = true, features = ["full"] }

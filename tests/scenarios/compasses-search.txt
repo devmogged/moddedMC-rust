@@ -1,0 +1,56 @@
+# Stock protocol search and per-item persistence. Use a fixed seed when running.
+mods target\mods\compasses.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd item replace entity tester hotbar.0 with naturescompass:naturescompass
+cmd item replace entity tester hotbar.1 with naturescompass:naturescompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Nature's Compass
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+wait 30
+expect Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld -287 6
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -287 6
+bot expect tracker 37 none
+wait 1
+expect \[bot\] expect inventory ok tracker 37 none
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Select a target or find next
+bot hotbar 1
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Select a target in this dimension
+bot quit
+wait 1
+stop
+start
+botstart tester
+wait 3
+bot expect tracker 36 minecraft:overworld -287 6
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -287 6
+bot expect tracker 37 none
+wait 1
+expect \[bot\] expect inventory ok tracker 37 none
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Select a target or find next
+bot hotbar 1
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Select a target in this dimension
+reject \[bot\] error:|panicked
+stop

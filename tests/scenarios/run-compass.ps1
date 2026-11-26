@@ -1,0 +1,45 @@
+# Run exactly one compass regression in a new directory. No build is performed.
+# Invoke only after the prime agent grants the scenario gate.
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)]
+    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group')]
+    [string]$Case,
+    [ValidateRange(1024,65534)]
+    [int]$Port = 26180,
+    [string]$RunName = '',
+    [switch]$Keep
+)
+$ErrorActionPreference = 'Stop'
+$root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+if (-not $RunName) { $RunName = 'compass-' + $Case + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss') }
+if ($RunName -notmatch '^[a-zA-Z0-9_-]+$') { throw 'RunName must be a single directory name' }
+$run = "run/$RunName"
+$absolute = Join-Path $root $run
+if (Test-Path -LiteralPath $absolute) { throw "Run directory already exists: $absolute" }
+$scenario = Join-Path $PSScriptRoot "compasses-$Case.txt"
+$fixture = switch ($Case) {
+    'absent' { 'zero-frequency' }
+    'custom-rings' { 'custom-rings' }
+    'offset' { 'weighted-group' }
+    'weighted-group' { 'weighted-group' }
+    default { $null }
+}
+foreach ($path in @('engine/target/pack/pack-dev.exe','engine/target/pack/moddedmc-bot.exe','target/mods/compasses.mmc')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root $path) -PathType Leaf)) {
+        throw "Missing coordinated build artifact: $path"
+    }
+}
+# Never use -Fresh: it would discard staged datapacks.
+if ($fixture) {
+    $dest = Join-Path $absolute 'world/datapacks'
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "compasses-fixtures/$fixture") -Destination $dest -Recurse
+}
+# The underlying runner retains failing worlds and logs; successful worlds
+# are discarded unless Keep is requested to avoid accumulating large data.
+$runner = Join-Path $root 'scripts/scenario.ps1'
+$arguments = @('-NoProfile','-File',$runner,'-Scenario',$scenario,'-RunDir',$run,'-Port',$Port,'-Seed',42)
+if ($Keep) { $arguments += '-Keep' }
+& powershell.exe @arguments
+exit $LASTEXITCODE

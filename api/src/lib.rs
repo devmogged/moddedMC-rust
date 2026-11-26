@@ -21,8 +21,10 @@
 
 pub mod abi;
 pub mod block_displays;
+pub mod block_physics;
 pub mod chunks;
 pub mod commands;
+pub mod container_loot;
 pub mod containers;
 pub mod content;
 pub mod crafting;
@@ -44,6 +46,8 @@ pub mod services;
 pub mod stacks;
 pub mod tags;
 pub mod world;
+mod worldgen_groups;
+pub mod worldgen_lookup;
 
 use std::{
     ffi::c_void,

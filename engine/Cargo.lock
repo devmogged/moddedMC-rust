@@ -2071,6 +2071,7 @@ dependencies = [
  "bytes",
  "pumpkin-core",
  "pumpkin-data",
+ "pumpkin-nbt",
  "pumpkin-protocol",
  "pumpkin-util",
  "reqwest",
