@@ -311,6 +311,8 @@ Drive a stationary Mechanical Drill from its rear shaft. It mines the block in f
 
 In stock Java 26.3, place the drill against a powered shaft and check that the head spins while the casing stays still. Place stone in front of the drill and check for a cobblestone drop. Stop the shaft partway through a harder block, restart the server, and reconnect power to finish mining.
 
+A powered Drill also hurts players and mobs that touch its head. In a stock client, walk up to the head with the shaft stopped, then power it and approach again. Check that you take damage while touching the spinning head and that dropped items survive the contact. The [contact scenario](../../tests/scenarios/create-drill-contact.txt) checks the head and outer margin of the hitbox after restarting with power connected.
+
 Mount a Mechanical Drill on a piston platform with the drill pointing forward. Put oak planks
 in front of the head and extend the piston. The platform pauses while the drill mines, then
 continues once the block drops. The [drill scenario](../../tests/scenarios/create-drill.txt)

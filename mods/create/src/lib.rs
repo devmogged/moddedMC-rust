@@ -203,6 +203,7 @@ impl Mod for Create {
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::MayBuild)?;
         entities.require_extension(EntitiesExtension::Carriers)?;
+        entities.require_extension(EntitiesExtension::Damage)?;
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
@@ -2456,6 +2457,7 @@ fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
     }
     match states.kind(state) {
         Some(Kind::Turntable) => turntable_entity_inside(world, pos, entity),
+        Some(Kind::Drill(_)) => drill::entity_inside(world, pos, entity),
         Some(Kind::Belt(belt)) => with_world(world, |kinetics| {
             belt_movement::entity_inside(kinetics, pos, state, belt, entity);
         }),

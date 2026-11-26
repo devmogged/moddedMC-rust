@@ -16,7 +16,10 @@ cmd recipe give tester create:crafting/kinetics/mechanical_drill
 wait 0.5
 expect Unlocked 1 recipe
 cmd setblock 2580 100 2580 create:creative_motor[facing=east]
+wait 0.5
 cmd kinetics 2580 100 2580 0
+wait 0.5
+expect at 2580 100 2580 Speed=0\b
 cmd setblock 2582 100 2580 minecraft:stone
 cmd item replace entity tester hotbar.0 with create:mechanical_drill
 wait 0.5

@@ -911,6 +911,8 @@ pub struct EntitiesV1 {
         context: *mut c_void,
         visit: unsafe extern "C" fn(*mut c_void, WorldRef, EntityRef),
     ) -> bool,
+    /// Hurt this entity with a registered, unattributed damage type.
+    pub hurt: unsafe extern "C" fn(entity: EntityRef, damage_type: Str, amount: f32) -> bool,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.

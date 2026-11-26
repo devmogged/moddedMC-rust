@@ -301,6 +301,11 @@ content item, world and player, and the look angles for the action. It edits
 the borrowed hand stack through the existing stack calls. Success or consume
 writes the hand back. Pass and fail leave that slot alone.
 
+`moddedmc:entities.damage` (`EntitiesExtension::Damage`) adds `Entity::hurt`.
+It resolves a registered damage type, including types defined in mod datapacks,
+and applies damage without an attacker through the normal entity damage path.
+The return value reports whether the hit took effect.
+
 `moddedmc:entities.player` (`EntitiesExtension::Player`) exposes a borrowed
 player handle for a player entity, so item and entity callbacks can use the
 SDK's dialog and other player methods. The handle shares the entity callback's

@@ -3,6 +3,7 @@
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
     content::{self, Block, Content, ShapeBox, State, World},
+    entities::{ENTITY_ITEM, Entity},
 };
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +11,7 @@ use crate::{
     CONTENT, DIRECTIONS, STACKS, STONE, StateIds, TAGS,
     belt_tunnel::{read, shift},
     collider::Frame,
-    kinetics::{FACES, Kind, Kinetics, face_axis, positive},
+    kinetics::{Be, FACES, Kind, Kinetics, face_axis, positive},
 };
 
 pub const ID: &str = "create:mechanical_drill";
@@ -188,6 +189,31 @@ pub(crate) fn tick(world: World<'_>, kinetics: &mut Kinetics, time: u64) {
         let previous = *drill;
         drill.tick(world, shift(pos, facing), speed, lazy_tick);
         be.dirty |= previous != *drill;
+    }
+}
+
+pub(crate) fn entity_inside(world: World<'_>, pos: Pos, entity: Entity<'_>) {
+    if entity
+        .view()
+        .is_none_or(|view| view.kind & ENTITY_ITEM != 0)
+    {
+        return;
+    }
+    let Some(body) = entity.body() else {
+        return;
+    };
+    // DrillBlock checks a full block box deflated by 0.1, including the exposed drill head.
+    let coords = [pos.x, pos.y, pos.z].map(f64::from);
+    if !(0..3).all(|i| body.max[i] > coords[i] + 0.1 && body.min[i] < coords[i] + 0.9) {
+        return;
+    }
+    let speed = crate::with_world(world, |kinetics| kinetics.get(pos).map(Be::get_speed))
+        .unwrap_or_default()
+        .abs();
+    if speed != 0.0 {
+        let damage = ((speed / 16.0).min(2.0) + (speed / 32.0).min(4.0) + (speed / 64.0).min(4.0))
+            .clamp(1.0, 10.0);
+        entity.hurt("create:mechanical_drill", damage);
     }
 }
 

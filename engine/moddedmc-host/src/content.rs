@@ -2065,6 +2065,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     entities_matching: crate::entities::entities_matching,
     as_player: crate::entities::as_player,
     with_player_context: crate::entities::with_player_context,
+    hurt: crate::entities::hurt,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
