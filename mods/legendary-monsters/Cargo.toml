@@ -11,3 +11,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 moddedmc-api.workspace = true
+fastnbt = "2.6.3"

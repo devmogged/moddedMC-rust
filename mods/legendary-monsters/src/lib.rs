@@ -3,6 +3,7 @@
 //! Restricted assets stay in the user's local original JAR, never in this library.
 
 use std::sync::OnceLock;
+mod equipment;
 
 use moddedmc_api::{
     InterfaceUnavailable, Mod, RegistrationError, Registry,
@@ -153,6 +154,7 @@ impl Mod for LegendaryMonsters {
                 EPIC_DEFAULTS,
             )?;
         }
+        equipment::register(*defaults, registry)?;
         Ok(())
     }
 }
