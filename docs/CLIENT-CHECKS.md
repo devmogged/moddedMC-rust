@@ -36,3 +36,10 @@ Run these checks with the official client and the server resource pack.
 
 - Form a boiler with four tank blocks, passive heat, and a Steam Engine. Expect a gauge to sit against each exposed side of the bottom tank layer. Pump water into the boiler and watch the needle rise. Add active heat and expect a higher reading.
 - Cover one gauge with a solid block. Expect the other three to stay visible. Restart and remove the obstructing block. Expect the fourth gauge to appear again. Remove the last engine and expect all of the gauges to disappear.
+
+## Steam Whistle (`8905d60`)
+
+- Craft two Steam Whistles. Place one on top of a Fluid Tank and the other on a side of a separate tank. Expect both to point away from their supports and show the correct floor and wall bases. Power both with redstone while the tanks are cold. Expect silence.
+- Put magma under both tanks. Expect the mouths to rise and vibrate while the whistles sound. Use a held Steam Whistle repeatedly on one pipe, then use a Wrench to cycle its octave. Expect half-block extensions, a lower pitch as the pipe grows, and each octave's own tone. Check the sound through several sample repeats.
+- Cut power to just one whistle. Expect its mouth to settle and its tone to stop independently of the second. Switch it back on, reconnect, and expect both tones to resume with their saved pitches. Move away and back while they remain powered to check how playback resumes at tracking distance.
+- Take away one supporting tank. Expect the whistle and its extensions to come down, its displays to disappear, and its sound to stop. Check both support orientations.
