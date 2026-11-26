@@ -16,9 +16,16 @@ cmd setblock 2470 101 2470 minecraft:slime_block
 cmd setblock 2471 101 2470 minecraft:cobblestone
 cmd summon minecraft:armor_stand 2471.5 102 2470.5
 wait 0.5
+# Limit the ordinary ticks before and after the 20-tick quarter turn.
+cmd tick rate 1
+wait 1.2
 cmd kinetics 2470 99 2470 15
-wait 0.95
+cmd tick sprint 20t
+wait 1.2
+expect \[bot\].*commands.tick.sprint.report
 cmd kinetics 2470 99 2470 0
+wait 1.2
+cmd tick rate 20
 wait 0.5
 bot expect entity minecraft:armor_stand near 2470.5 102 2469.5 within 0.3 count 1
 bot expect block 2470 101 2469 minecraft:cobblestone
