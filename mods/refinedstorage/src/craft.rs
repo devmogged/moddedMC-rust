@@ -300,6 +300,14 @@ mod tests {
         )
         .unwrap()
     }
+
+    fn copy_match(recipe: &RecipeMatch) -> RecipeMatch {
+        RecipeMatch {
+            result: recipe.result.clone(),
+            id: recipe.id.clone(),
+            serializer: recipe.serializer.clone(),
+        }
+    }
     #[test]
     fn nine_ghost_ingredients_round_trip_and_clear() {
         let mut pattern = Pattern::default();
@@ -401,7 +409,7 @@ mod tests {
         };
         let oak = recipe("test:oak_result", "minecraft:oak_planks");
         let birch = recipe("test:birch_result", "minecraft:birch_planks");
-        let choices = vec![oak, birch.clone()];
+        let choices = vec![oak, copy_match(&birch)];
         let mut pattern = Pattern::default();
 
         assert!(pattern.cycle_recipe(&choices));
@@ -415,14 +423,14 @@ mod tests {
         let restored =
             Pattern::decode(&fastnbt::from_bytes(&fastnbt::to_bytes(&root).unwrap()).unwrap())
                 .unwrap();
-        let reordered = vec![birch, choices[0].clone()];
+        let reordered = vec![birch, copy_match(&choices[0])];
         assert_eq!(
             restored.selected_recipe(&reordered).unwrap().id.as_deref(),
             Some("test:birch_result")
         );
         assert_eq!(
             restored
-                .selected_recipe(&[choices[0].clone()])
+                .selected_recipe(&[copy_match(&choices[0])])
                 .unwrap()
                 .id
                 .as_deref(),

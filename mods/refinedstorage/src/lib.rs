@@ -414,7 +414,14 @@ fn selected_matching_recipe(
     pattern: &craft::Pattern,
 ) -> Option<RecipeMatch> {
     let choices = matching_recipes(crafting, world, pattern)?;
-    pattern.selected_recipe(&choices).cloned()
+    let selected = pattern.selected_recipe(&choices)?;
+    // RecipeMatch is a borrowed API payload, not a Clone type. Own only the
+    // fields needed after the choices vector is dropped.
+    Some(RecipeMatch {
+        result: selected.result.clone(),
+        id: selected.id.clone(),
+        serializer: selected.serializer.clone(),
+    })
 }
 
 fn unique_recipe(
