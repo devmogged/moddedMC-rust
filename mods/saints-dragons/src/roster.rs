@@ -644,6 +644,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let Some(name) = kind.strip_prefix("saintsdragons:") else {
         return false;
     };
+    if name == "nulljaw" {
+        crate::combat_nulljaw::cloak_tick(world, mob);
+    }
     let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
         return false;
     };

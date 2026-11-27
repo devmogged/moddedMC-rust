@@ -759,6 +759,7 @@ pub fn feed_particles(world: World<'_>, mob: Entity<'_>, happy: bool) {
 }
 
 pub fn death(world: World<'_>, mob: Entity<'_>) {
+    crate::combat_nulljaw::death(world, mob);
     crate::audio::death(world, mob);
     crate::nucleus::defeated(world, mob);
     crate::codex::remove(world, mob);
