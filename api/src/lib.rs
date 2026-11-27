@@ -47,6 +47,7 @@ pub mod saved_data;
 pub mod services;
 pub mod stacks;
 pub mod tags;
+pub mod weathering_copper;
 pub mod world;
 mod worldgen_groups;
 pub mod worldgen_lookup;

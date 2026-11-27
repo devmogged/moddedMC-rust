@@ -294,6 +294,16 @@ Require the tables from `Mod::start` and register definitions in `Mod::register`
 
 The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects`, `moddedmc_api::mobs` and `moddedmc_api::mob_ai`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.
 
+## Copper weathering (`moddedmc:weathering_copper` v1)
+
+`register(reg, ids)` accepts eight distinct IDs of blocks already staged by the same mod:
+unaffected, exposed, weathered and oxidized, followed by their waxed equivalents. All
+eight must have the same state selectors, use the default content entity, and have no
+mod-defined random tick. Unwaxed blocks participate in vanilla oxidation and
+lightning cleaning with vanilla copper. Honeycomb and axes use the vanilla waxing,
+scraping and unwaxing paths, preserving matching state properties. The family is
+rebuilt from the registration before each world opens.
+
 ## Item defaults (`moddedmc:item_defaults` v1)
 
 This pre-world interface starts with its byte size and exposes

@@ -186,6 +186,7 @@ impl Mod for Create {
         let content = content::require()?;
         content.require_replaced()?;
         content.require_block_material()?;
+        decor::require()?;
         fluids::tank_connectivity::require()?;
         fluids::open_end_runtime::require()?;
         water_wheel::require()?;
