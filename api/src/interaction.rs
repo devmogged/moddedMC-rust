@@ -160,6 +160,7 @@ pub enum InteractionExtension {
     ImmediateItemUse,
     PlayerPlaced,
     Exhaustion,
+    HeldTracker,
 }
 
 /// Vanilla Item.use, with the held stack and the look reported by this action.
@@ -173,6 +174,20 @@ pub struct UseItem<'a> {
 }
 
 impl UseItem<'_> {
+    /// Read the player's sneaking state during this item callback.
+    pub fn sneaking(&self) -> bool {
+        let Some(player) = self.player else {
+            return false;
+        };
+        if self.stack.api.size
+            < std::mem::offset_of!(abi::InteractionV1, player_sneaking) + size_of::<usize>()
+        {
+            return false;
+        }
+        // SAFETY: the checked callback borrows the player for this call.
+        unsafe { ((&raw const (*self.stack.api.ptr).player_sneaking).read())(player.raw()) }
+    }
+
     /// Start the cooldown for the held item.
     pub fn cooldown(&self, ticks: u32) {
         if let Some(player) = self.player {
@@ -695,6 +710,10 @@ impl Interaction {
                 std::mem::offset_of!(abi::InteractionV1, add_exhaustion),
                 "moddedmc:interaction.add_exhaustion",
             ),
+            InteractionExtension::HeldTracker => (
+                std::mem::offset_of!(abi::InteractionV1, stack_set_lodestone),
+                "moddedmc:interaction.stack_set_lodestone",
+            ),
             InteractionExtension::ImmediateItemUse => (
                 std::mem::offset_of!(abi::InteractionV1, on_use_item),
                 "moddedmc:interaction.use_item",
@@ -980,6 +999,25 @@ impl UseOnBlock<'_> {
 }
 
 impl Stack<'_> {
+    /// Replace the callback stack's mod data and lodestone target in one operation.
+    pub fn set_lodestone(&mut self, data: &[u8], tracker: Option<(&str, Pos)>) -> bool {
+        if self.api.size
+            < std::mem::offset_of!(abi::InteractionV1, stack_set_lodestone) + size_of::<usize>()
+        {
+            return false;
+        }
+        let (dimension, pos) = tracker.unwrap_or_default();
+        // SAFETY: the checked callback borrows the stack, data and dimension for this call.
+        unsafe {
+            ((&raw const (*self.api.ptr).stack_set_lodestone).read())(
+                self.raw,
+                abi::Str::new(data),
+                crate::s(dimension),
+                pos,
+            )
+        }
+    }
+
     pub fn count(&self) -> u32 {
         // SAFETY: the stack is live for this callback.
         unsafe { ((&raw const (*self.api.ptr).stack_count).read())(self.raw) }

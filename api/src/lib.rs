@@ -24,6 +24,7 @@ pub mod block_displays;
 pub mod block_physics;
 pub mod chunks;
 pub mod commands;
+pub mod container_conversion;
 pub mod container_loot;
 pub mod containers;
 pub mod content;

@@ -24,6 +24,14 @@ pub struct World<'a> {
     scope: PhantomData<&'a ()>,
 }
 
+/// The state, process-local identity and complete saved NBT of a custom block entity.
+#[derive(Clone, Debug)]
+pub struct EntitySnapshot {
+    pub state: u32,
+    pub incarnation: u64,
+    pub nbt: Vec<u8>,
+}
+
 pub struct Placement<'a> {
     pub world: World<'a>,
     pub state: u32,
@@ -73,6 +81,10 @@ pub enum WorldExtension {
     BlockTransformer,
     RedstoneConductor,
     PlayerActorBlockDrops,
+    ChestObstruction,
+    ContentEntityTransaction,
+    GameTime,
+    ContentEntityReplacement,
     NeighborShapes,
 }
 
@@ -146,6 +158,22 @@ impl WorldExtension {
             Self::NeighborShapes => (
                 std::mem::offset_of!(abi::BlockWorldV1, write_with_neighbor_shapes),
                 "moddedmc:block_world.write_with_neighbor_shapes",
+            ),
+            Self::ChestObstruction => (
+                std::mem::offset_of!(abi::BlockWorldV1, chest_blocked),
+                "moddedmc:block_world.chest_blocked",
+            ),
+            Self::ContentEntityTransaction => (
+                std::mem::offset_of!(abi::BlockWorldV1, compare_content_entity),
+                "moddedmc:block_world.compare_content_entity",
+            ),
+            Self::GameTime => (
+                std::mem::offset_of!(abi::BlockWorldV1, game_time),
+                "moddedmc:block_world.game_time",
+            ),
+            Self::ContentEntityReplacement => (
+                std::mem::offset_of!(abi::BlockWorldV1, compare_replace_content_entity),
+                "moddedmc:block_world.compare_replace_content_entity",
             ),
         }
     }
@@ -691,6 +719,91 @@ impl World<'_> {
                     abi::Str::new(nbt),
                 )
             }
+    }
+
+    /// Whether a loaded chest is obstructed. Requires `WorldExtension::ChestObstruction`.
+    pub fn chest_blocked(self, pos: Pos) -> Option<bool> {
+        if !WorldExtension::ChestObstruction.available(self.api) {
+            return None;
+        }
+        // SAFETY: the checked callback borrows the world for this call.
+        let blocked = unsafe { ((&raw const (*self.api.ptr).chest_blocked).read())(self.raw, pos) };
+        (blocked >= 0).then_some(blocked != 0)
+    }
+
+    /// Snapshot a loaded custom block entity for a later guarded update.
+    pub fn entity_snapshot(self, pos: Pos) -> Option<EntitySnapshot> {
+        if !WorldExtension::ContentEntityTransaction.available(self.api) {
+            return None;
+        }
+        let mut state = UNLOADED_STATE;
+        let mut incarnation = 0;
+        let mut nbt = Vec::new();
+        // SAFETY: all output slots and the sink are live for this synchronous call.
+        unsafe {
+            ((&raw const (*self.api.ptr).content_entity_snapshot).read())(
+                self.raw,
+                pos,
+                &mut state,
+                &mut incarnation,
+                sink(&mut nbt),
+            )
+        }
+        .then_some(EntitySnapshot {
+            state,
+            incarnation,
+            nbt,
+        })
+    }
+
+    /// Write custom fields if the state, entity identity and NBT still match.
+    pub fn compare_entity(self, pos: Pos, expected: &EntitySnapshot, replacement: &[u8]) -> bool {
+        // SAFETY: the checked callback borrows the world and both snapshots.
+        WorldExtension::ContentEntityTransaction.available(self.api)
+            && unsafe {
+                ((&raw const (*self.api.ptr).compare_content_entity).read())(
+                    self.raw,
+                    pos,
+                    expected.state,
+                    expected.incarnation,
+                    abi::Str::new(&expected.nbt),
+                    abi::Str::new(replacement),
+                )
+            }
+    }
+
+    /// Replace a custom block and entity if the snapshot still matches. Produces no drops.
+    pub fn compare_replace_entity(
+        self,
+        pos: Pos,
+        expected: &EntitySnapshot,
+        destination: u32,
+        replacement: Option<&[u8]>,
+    ) -> bool {
+        // SAFETY: the checked callback borrows the world and both snapshots.
+        WorldExtension::ContentEntityReplacement.available(self.api)
+            && unsafe {
+                ((&raw const (*self.api.ptr).compare_replace_content_entity).read())(
+                    self.raw,
+                    pos,
+                    expected.state,
+                    expected.incarnation,
+                    abi::Str::new(&expected.nbt),
+                    destination,
+                    abi::Str::new(replacement.unwrap_or_default()),
+                )
+            }
+    }
+
+    /// The persisted overworld tick clock, shared by dimensions.
+    pub fn game_time(self) -> Option<i64> {
+        if !WorldExtension::GameTime.available(self.api) {
+            return None;
+        }
+        let mut ticks = 0;
+        // SAFETY: the checked callback borrows the world and a live output slot.
+        unsafe { ((&raw const (*self.api.ptr).game_time).read())(self.raw, &mut ticks) }
+            .then_some(ticks)
     }
 
     /// Use a saved tool stack on the first outline hit along a one-block ray.

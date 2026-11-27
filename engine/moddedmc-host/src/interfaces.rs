@@ -102,6 +102,9 @@ pub unsafe extern "C" fn get_interface(name: Str, version: u32) -> *const c_void
         }
         (abi::SERVICES, 1) => ptr::from_ref(&crate::services::SERVICES).cast(),
         (abi::CONTAINERS, 1) => ptr::from_ref(&crate::containers::CONTAINERS).cast(),
+        (abi::CONTAINER_CONVERSION, 1) => {
+            ptr::from_ref(&crate::content::CONTAINER_CONVERSION).cast()
+        }
         (abi::CONTAINER_LOOT, 1) => ptr::from_ref(&crate::container_loot::CONTAINER_LOOT).cast(),
         (abi::ITEM_INPUT, 1) => ptr::from_ref(&crate::content::ITEM_INPUT).cast(),
         (abi::TAGS, 1) => ptr::from_ref(&crate::tags::TAGS).cast(),

@@ -142,6 +142,9 @@ impl Inventory {
                 .get(&slot)
                 .ok_or("server did not send tracker slot")?;
             match expected {
+                ["absent"] if stack.tracker.is_none() => {
+                    return Ok(format!("tracker {slot} absent"));
+                }
                 ["none"]
                     if stack
                         .tracker

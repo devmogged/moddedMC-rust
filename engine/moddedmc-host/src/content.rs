@@ -38,7 +38,7 @@ use pumpkin_core::{
     },
     item::items::bucket::{CustomFishBuckets, install_custom_fish_buckets},
     server::Server,
-    world::{World, install_entity_added_hook, loot::LootContextParameters},
+    world::{World, container_conversion, install_entity_added_hook, loot::LootContextParameters},
 };
 use pumpkin_data::{
     Block, BlockDirection, BlockId, BlockState, BlockStateId, Mirror, Property, Rotation,
@@ -58,7 +58,7 @@ use pumpkin_data::{
     sound::Sound,
     tag,
 };
-use pumpkin_nbt::Nbt;
+use pumpkin_nbt::{Nbt, compound::NbtCompound};
 use pumpkin_util::{
     Hand,
     math::{position::BlockPos, vector3::Vector3},
@@ -222,6 +222,7 @@ struct Runtime {
     player_placed: BTreeMap<usize, abi::PlayerPlacedFn>,
     melee_damage: BTreeMap<usize, abi::MeleeDamageFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
+    conversion: BTreeMap<usize, abi::ContainerConversionFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
     /// Owning mod of each content item, block items included.
@@ -241,6 +242,7 @@ pub struct Hooks {
     pub player_placed: Option<abi::PlayerPlacedFn>,
     pub melee_damage: Option<abi::MeleeDamageFn>,
     pub use_block: Option<abi::UseBlockFn>,
+    conversion: Option<abi::ContainerConversionFn>,
     pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
     pub redstone: Option<(abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
 }
@@ -259,6 +261,7 @@ struct Pending {
     player_placed: BTreeMap<usize, abi::PlayerPlacedFn>,
     melee_damage: BTreeMap<usize, abi::MeleeDamageFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
+    conversion: BTreeMap<usize, abi::ContainerConversionFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
 }
@@ -275,6 +278,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     player_placed: BTreeMap::new(),
     melee_damage: BTreeMap::new(),
     use_block: BTreeMap::new(),
+    conversion: BTreeMap::new(),
     player_will_destroy: BTreeMap::new(),
     redstone: BTreeMap::new(),
 });
@@ -982,6 +986,9 @@ pub fn register(
     if let Some(callback) = hooks.use_block {
         pending.use_block.insert(owner, callback);
     }
+    if let Some(callback) = hooks.conversion {
+        pending.conversion.insert(owner, callback);
+    }
     if let Some(callback) = hooks.player_will_destroy {
         pending.player_will_destroy.insert(owner, callback);
     }
@@ -1272,6 +1279,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         player_placed,
         melee_damage,
         use_block,
+        conversion,
         player_will_destroy,
         redstone,
     } = std::mem::take(&mut *lock(&PENDING));
@@ -1317,6 +1325,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         player_placed,
         melee_damage,
         use_block,
+        conversion,
         player_will_destroy,
         redstone,
         item_owners: HashMap::new(),
@@ -1366,16 +1375,100 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
 }
 
 fn install_runtime(runtime: Runtime) -> io::Result<()> {
+    let has_conversion = !runtime.conversion.is_empty();
     if RUNTIME.set(runtime).is_err()
         || !install_content_behaviour(Arc::new(Behaviour))
         || !crate::interaction::install()
         || !install_entity_added_hook(on_entity_added)
         || !crate::mobs::install_structure_mobs()
+        || (has_conversion && !container_conversion::install(propose_container_conversion))
         || !engine::observe(observe)
     {
         return Err(io::Error::other("content hooks already installed"));
     }
     Ok(())
+}
+
+pub static CONTAINER_CONVERSION: abi::ContainerConversionV1 = abi::ContainerConversionV1 {
+    size: size_of::<abi::ContainerConversionV1>(),
+    register: register_container_conversion,
+};
+
+unsafe extern "C" fn register_container_conversion(
+    reg: Reg,
+    callback: abi::ContainerConversionFn,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the registration handle is borrowed for this call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.conversion;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
+fn propose_container_conversion(
+    world: &World,
+    pos: BlockPos,
+    state: BlockStateId,
+    source: &NbtCompound,
+) -> container_conversion::Proposal {
+    use container_conversion::Proposal;
+
+    let Some(runtime) = RUNTIME.get() else {
+        return Proposal::Pass;
+    };
+    let bytes = Nbt::from(source.clone()).write();
+    if bytes.len() > abi::MAX_BLOCK_ENTITY_BYTES {
+        return Proposal::Pass;
+    }
+    let candidate = abi::ConversionCandidate {
+        world: ptr::from_ref(world).cast(),
+        position: abi_pos(pos),
+        state: u32::from(state.as_u16()),
+        nbt: Str::new(&bytes),
+    };
+    for (&owner, callback) in &runtime.conversion {
+        let mut output: Result<Option<(BlockStateId, NbtCompound)>, ()> = Ok(None);
+        let sink = Sink {
+            ctx: ptr::from_mut(&mut output).cast(),
+            put: collect_container_conversion,
+        };
+        // SAFETY: the candidate and sink are borrowed for the synchronous callback.
+        match unsafe { callback(&raw const candidate, sink) } {
+            abi::CONVERSION_PASS => {}
+            abi::CONVERSION_REPLACE => {
+                if let Ok(Some((state, nbt))) = output
+                    && runtime_block(state.to_block().id).is_some_and(|block| block.owner == owner)
+                {
+                    return Proposal::Replace(state, nbt);
+                }
+                return Proposal::Defer;
+            }
+            _ => return Proposal::Defer,
+        }
+    }
+    Proposal::Pass
+}
+
+unsafe extern "C" fn collect_container_conversion(ctx: *mut c_void, key: u64, bytes: Str) {
+    // SAFETY: the synchronous proposal supplied a live output slot.
+    let output = unsafe { &mut *ctx.cast::<Result<Option<(BlockStateId, NbtCompound)>, ()>>() };
+    if !matches!(output, Ok(None)) || !(1..=abi::MAX_BLOCK_ENTITY_BYTES).contains(&bytes.len) {
+        *output = Err(());
+        return;
+    }
+    let state = u16::try_from(key)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id);
+    // SAFETY: the mod lends the replacement NBT to the sink for this call.
+    *output = state
+        .zip(read_nbt(unsafe { bytes.bytes() }))
+        .map(Some)
+        .ok_or(());
 }
 
 fn on_entity_added(_world: &World, entity: &Arc<dyn EntityBase>) {
@@ -1996,6 +2089,120 @@ unsafe extern "C" fn read_entity(raw: WorldRef, pos: Pos, out: Sink) -> bool {
     true
 }
 
+unsafe extern "C" fn chest_blocked(raw: WorldRef, pos: Pos) -> i32 {
+    // SAFETY: the world is borrowed for the synchronous callback.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return -1;
+    }
+    i32::from(pumpkin_core::block::blocks::chests::is_chest_blocked(
+        world, &pos,
+    ))
+}
+
+unsafe extern "C" fn content_entity_snapshot(
+    raw: WorldRef,
+    pos: Pos,
+    state: *mut u32,
+    incarnation: *mut u64,
+    out: Sink,
+) -> bool {
+    // SAFETY: the callback borrows the world and distinct output slots.
+    let (Some(world), Some(state), Some(incarnation)) =
+        (unsafe { (world(raw), state.as_mut(), incarnation.as_mut()) })
+    else {
+        return false;
+    };
+    let Some((current, identity, nbt)) = world.content_entity_snapshot(&block_pos(pos)) else {
+        return false;
+    };
+    let bytes = Nbt::from(nbt).write();
+    if bytes.len() > abi::MAX_BLOCK_ENTITY_BYTES {
+        return false;
+    }
+    *state = u32::from(current.as_u16());
+    *incarnation = identity;
+    // SAFETY: bytes and the sink are live until the synchronous call returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
+unsafe extern "C" fn compare_content_entity(
+    raw: WorldRef,
+    pos: Pos,
+    state: u32,
+    incarnation: u64,
+    expected: Str,
+    replacement: Str,
+) -> bool {
+    if expected.len > abi::MAX_BLOCK_ENTITY_BYTES || replacement.len > abi::MAX_BLOCK_ENTITY_BYTES {
+        return false;
+    }
+    // SAFETY: the caller borrows the world and both NBT inputs for this call.
+    let (world, expected, replacement) = unsafe {
+        (
+            world(raw),
+            read_nbt(expected.bytes()),
+            read_nbt(replacement.bytes()),
+        )
+    };
+    let state = u16::try_from(state)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id);
+    match (world, state, expected, replacement) {
+        (Some(world), Some(state), Some(expected), Some(replacement)) => world
+            .compare_content_entity(&block_pos(pos), state, incarnation, &expected, &replacement),
+        _ => false,
+    }
+}
+
+unsafe extern "C" fn compare_replace_content_entity(
+    raw: WorldRef,
+    pos: Pos,
+    expected_state: u32,
+    incarnation: u64,
+    expected: Str,
+    destination: u32,
+    replacement: Str,
+) -> bool {
+    if expected.len > abi::MAX_BLOCK_ENTITY_BYTES || replacement.len > abi::MAX_BLOCK_ENTITY_BYTES {
+        return false;
+    }
+    // SAFETY: the caller borrows the world and both NBT inputs for this call.
+    let (world, expected) = unsafe { (world(raw), read_nbt(expected.bytes())) };
+    let state = u16::try_from(expected_state)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id);
+    let destination = u16::try_from(destination)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id);
+    let (Some(world), Some(state), Some(expected), Some(destination)) =
+        (world.and_then(shared), state, expected, destination)
+    else {
+        return false;
+    };
+    let replacement = if replacement.len == 0 {
+        None
+    } else {
+        // SAFETY: replacement is a bounded borrowed byte string.
+        let Some(nbt) = read_nbt(unsafe { replacement.bytes() }) else {
+            return false;
+        };
+        Some(nbt)
+    };
+    world.compare_replace_content_entity(
+        &block_pos(pos),
+        state,
+        incarnation,
+        &expected,
+        destination,
+        replacement.as_ref(),
+    )
+}
+
 unsafe extern "C" fn write_entity(raw: WorldRef, pos: Pos, nbt: Str) -> bool {
     if nbt.len > MAX_STATE_BYTES {
         return false;
@@ -2368,6 +2575,19 @@ unsafe extern "C" fn day_time(raw: WorldRef, out: *mut abi::DayTime) -> bool {
         ticks,
         fixed_time: world.dimension.has_fixed_time,
     };
+    true
+}
+
+unsafe extern "C" fn game_time(raw: WorldRef, out: *mut i64) -> bool {
+    // SAFETY: the caller borrows the world and a writable output slot.
+    let (Some(world), Some(out)) = (unsafe { world(raw) }, unsafe { out.as_mut() }) else {
+        return false;
+    };
+    let overworld = world
+        .server
+        .upgrade()
+        .map(|server| server.get_world_from_dimension(&Dimension::OVERWORLD));
+    *out = overworld.as_deref().unwrap_or(world).get_world_age();
     true
 }
 

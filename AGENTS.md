@@ -22,6 +22,9 @@ What we never compromise on:
 
 Several people work on this repo at once, each with their own agent. GitHub issues on `devmogged/moddedMC-rust` are the board; there is no lock or claim tool (the old `mmc-coord` board is retired). Create and its add-ons belong to Noel-Alex and Saints Dragons to sting-raider; everything else goes to whoever claims it. The skills below say how to pick, claim, hand off and finish work.
 
+- When two worktrees extend the same ABI table, use the field offsets already on `origin/main`. Append the incoming fields, rebuild their consumers, and build the integrated server before pushing.
+- If worktrees share a Cargo target, match the DLL inside the `.mmc` to the DLL Cargo just built before running scenarios. Use unique scenario directories, server ports and resource-pack ports per worktree.
+
 ## Skills
 
 Read the matching skill in `.agents/skills/` before you start:
