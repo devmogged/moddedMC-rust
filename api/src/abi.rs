@@ -485,6 +485,8 @@ pub const UPDATE_ALL: u8 = UPDATE_NEIGHBORS | UPDATE_CLIENTS;
 pub const UPDATE_MOVED: u8 = 4;
 /// Skip neighbour shape updates. Requires the fluid world tick-control extension.
 pub const UPDATE_KNOWN_SHAPE: u8 = 8;
+/// Resolve the new state's neighbor shapes just before placing it in the batch.
+pub const UPDATE_FROM_NEIGHBOR_SHAPES: u8 = 16;
 
 #[repr(C)]
 pub struct StateDefinition {
@@ -708,6 +710,9 @@ pub struct BlockWorldV1 {
     /// Roll block loot with the saved tool and an unspawned player-typed actor.
     pub block_drops_with_player_actor:
         unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
+    /// Like `write`, with `UPDATE_FROM_NEIGHBOR_SHAPES` supported per entry.
+    pub write_with_neighbor_shapes:
+        unsafe extern "C" fn(world: WorldRef, updates: *const BlockUpdate, count: usize) -> usize,
 }
 
 #[repr(C)]

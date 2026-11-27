@@ -157,6 +157,7 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | `moddedmc:block_world` v1 | `read(world, positions, out, count)` | Read at most 4,096 positions without loading chunks. Unloaded positions return `UNLOADED_STATE`. |
 | | `dimension_id(world)` | Canonical dimension registry ID for the callback world, such as `minecraft:the_nether`. Require `WorldExtension::Dimension`. |
 | | `write(world, updates, count)` | Validate the batch before applying edits in input order. Each edit explicitly chooses neighbor and client notifications. `UPDATE_MOVED` is vanilla's move-by-piston and suppress-drops write: the replaced block entity is removed without side effects, so a container captured with `read_block_entity` doesn't scatter. Older hosts reject a batch using it. |
+| | `write_with_neighbor_shapes(world, updates, count)` | Like `write`. For an entry with `UPDATE_FROM_NEIGHBOR_SHAPES`, resolve the new state's shape against the world just before applying that entry. Earlier edits in the batch are visible to the shape update. Require `WorldExtension::NeighborShapes`. |
 | | `command_world(source)` | Borrow the command source's world for the callback. |
 | | `read_entity`, `write_entity` | Copy Java named-root NBT for a loaded custom block entity. The write keeps its registered id and position and updates the chunk's saved copy. Writes have a 64 KiB limit. |
 | | `rotate(world, position, axis, rpm)` | Set a rotating model's signed RPM around its positive X, Y or Z axis. |

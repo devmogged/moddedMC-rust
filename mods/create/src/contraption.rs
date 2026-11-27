@@ -758,15 +758,18 @@ impl Blocks {
                         .properties
                         .insert("waterlogged".into(), wet.to_string());
                 }
+                let mut flags = content::UPDATE_ALL;
+                if entry.name == saw::ID {
+                    flags |= content::UPDATE_MOVED;
+                }
+                if entry.name.ends_with("_stairs") {
+                    flags |= content::UPDATE_FROM_NEIGHBOR_SHAPES;
+                }
                 Some((
                     BlockUpdate {
                         position,
                         state: state.state()?,
-                        flags: if entry.name == saw::ID {
-                            content::UPDATE_ALL | content::UPDATE_MOVED
-                        } else {
-                            content::UPDATE_ALL
-                        },
+                        flags,
                     },
                     (
                         belt,
@@ -788,7 +791,7 @@ impl Blocks {
             };
             glue_placed.push(id);
         }
-        if world.write(&place) != place.len() {
+        if world.write_with_neighbor_shapes(&place) != place.len() {
             for id in glue_placed {
                 glue::discard(world, id);
             }

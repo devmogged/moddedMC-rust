@@ -124,6 +124,7 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     apply_block_transformer,
     redstone_conductor,
     block_drops_with_player_actor,
+    write_with_neighbor_shapes: write,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -1853,7 +1854,12 @@ unsafe extern "C" fn write(raw: WorldRef, updates: *const BlockUpdate, count: us
         .map(|update| {
             let pos = block_pos(update.position);
             let state = BlockStateId::from_runtime_id(u16::try_from(update.state).ok()?)?;
-            if update.flags & !(abi::UPDATE_ALL | abi::UPDATE_MOVED | abi::UPDATE_KNOWN_SHAPE) != 0
+            if update.flags
+                & !(abi::UPDATE_ALL
+                    | abi::UPDATE_MOVED
+                    | abi::UPDATE_KNOWN_SHAPE
+                    | abi::UPDATE_FROM_NEIGHBOR_SHAPES)
+                != 0
             {
                 return None;
             }
@@ -1867,13 +1873,17 @@ unsafe extern "C" fn write(raw: WorldRef, updates: *const BlockUpdate, count: us
                 flags |= BlockFlags::UPDATE_KNOWN_SHAPE;
             }
             world.get_block_state_id_if_loaded(&pos)?;
-            Some((pos, state, flags))
+            let resolve_shape = update.flags & abi::UPDATE_FROM_NEIGHBOR_SHAPES != 0;
+            Some((pos, state, flags, resolve_shape))
         })
         .collect::<Option<Vec<_>>>()
     else {
         return 0;
     };
-    for (pos, state, flags) in validated {
+    for (pos, mut state, flags, resolve_shape) in validated {
+        if resolve_shape {
+            state = world.update_from_neighbor_shapes(state, &pos);
+        }
         world.set_block_state(&pos, state, flags);
     }
     count
