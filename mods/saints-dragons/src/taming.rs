@@ -593,6 +593,30 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if let Some(result) = crate::stun::feed(click, item) {
         return result;
     }
+    // RaevyxInteractionHandler.handleStandardMounting: owner, adult, no saddle.
+    if mobs.kind(mob) == Some("saintsdragons:raevyx") {
+        if !click.main_hand
+            || click.sneaking
+            || crate::eggs::is_juvenile(mob)
+            || happiness(mob).is_some_and(|value| value <= 30)
+            || !is_owner(mob, player)
+            || !mobs.passengers(mob).is_empty()
+        {
+            return UseResult::Pass;
+        }
+        if !player.start_riding(mob.id(), false) {
+            return UseResult::Fail;
+        }
+        if let Some(mut state) = tamed(mob)
+            && state.order == Order::Sit
+        {
+            state.order = Order::Follow;
+            mobs.set_state(mob, &state.encode());
+        }
+        ai.stop(mob);
+        ai.set_target(click.world, mob, None);
+        return UseResult::Success;
+    }
     if mobs.kind(mob) != Some(crate::CINDERVANE) {
         return UseResult::Pass;
     }
@@ -843,8 +867,16 @@ fn ride(mob: Entity<'_>, rider: Entity<'_>) {
         return;
     };
     let keys = mobs.player_input(rider).unwrap_or(0);
-    let sprint = keys & PLAYER_INPUT_SPRINT != 0;
-    let jump = keys & PLAYER_INPUT_JUMP != 0;
+    let (ascend, descend, accelerate, locked) = if mobs.kind(mob) == Some("saintsdragons:raevyx") {
+        crate::combat_raevyx::rider_movement(mob)
+    } else {
+        (false, false, false, false)
+    };
+    if locked {
+        return;
+    }
+    let sprint = accelerate || keys & PLAYER_INPUT_SPRINT != 0;
+    let jump = ascend || keys & PLAYER_INPUT_JUMP != 0;
     let yaw = f64::from(look.yaw).to_radians();
     let strafe = body.input[0] * 0.4;
     let forward = body.input[2];
@@ -859,7 +891,9 @@ fn ride(mob: Entity<'_>, rider: Entity<'_>) {
     };
     let desired_x = (strafe * yaw.cos() - forward * yaw.sin()) * speed;
     let desired_z = (strafe * yaw.sin() + forward * yaw.cos()) * speed;
-    let vertical = if jump {
+    let vertical = if descend && air {
+        -0.85
+    } else if jump {
         0.45
     } else if air {
         let pitch = f64::from(look.pitch).to_radians();

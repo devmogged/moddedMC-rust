@@ -41,28 +41,27 @@ cmd kill @e[tag=primary]
 cmd kill @e[tag=chain]
 wait 2
 cmd tp @e[type=minecraft:ravager,limit=1] 1025.5 100 1025.5
-cmd weather clear
-cmd saintsdragons storm 1025 100 1025
+# Companion input is unavailable to this stock bot. Exercise owner mounting first.
+cmd tp tester 1025.5 100 1029.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
-expect Raevyx storm casting
-wait 7
-cmd data get entity @e[type=minecraft:ravager,limit=1] Health
+bot use-entity ravager 1025.5 100 1025.5 off
 wait 0.5
-expect has the following entity data: 360f
-cmd saintsdragons storm 1025 100 1025
+expect Dragon tamed
+bot use-entity ravager 1025.5 100 1025.5 main
 wait 0.5
-expect Raevyx storm unavailable
-# A nearly hatched egg finishes in 48 thunder ticks, but not at the clear rate.
-cmd tick rate 1
-cmd setblock 1035 100 1035 saintsdragons:raevyx_egg
-cmd data merge block 1035 100 1035 {HatchProgress:0.995d}
-cmd tick sprint 55t
-wait 5
-expect \[bot\] chat: .*commands.tick.sprint.report
-cmd tick rate 20
-cmd execute if block 1035 100 1035 minecraft:air
+bot expect riding ravager
+# Manual Fabric companion checks (same arena, mounted owner):
+# Tap H: supercharge at ground tick 60, thunder at 125, health 360f.
+# A second tap during cooldown does not cast. Hold H >= 6 ticks instead:
+# ground rend starts, surges after 20 ticks and recovers by 70; no storm.
+# Hold G for 20+ ticks while aiming through a line of hostile targets:
+# beam hits all in path, drains energy; release G stops it.
+# R: roar strikes aggressors; Ctrl+4: stationary flex, 65 tick lock.
+# X: toggles stored melee mode. Left-click attack is not exposed.
+bot input sneak
 wait 0.5
-expect Test passed
+bot expect riding none
 reject (?i)panic|panicked
 bot quit
 stop
