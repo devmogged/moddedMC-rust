@@ -31,6 +31,21 @@ use pumpkin_core::{
 use pumpkin_data::{damage::DamageType, data_component_impl::IDSetContent};
 use pumpkin_util::math::vector3::Vector3;
 
+/// Resolve dynamic damage types through their runtime registry, whose keys
+/// are distinct from death-message IDs. Vanilla IDs retain their static names.
+pub fn damage_type_name(server: &Server, damage_type: &DamageType) -> String {
+    if <DamageType as IDSetContent>::from_id(u16::from(damage_type.id)).is_none()
+        && let Some((key, _)) = server
+            .datapack_manager
+            .get_damage_type_registry_map()
+            .into_iter()
+            .find(|(_, entry)| entry.damage_type == *damage_type)
+    {
+        return key;
+    }
+    IDSetContent::to_string(damage_type)
+}
+
 use crate::{
     content::{entity, world},
     mobs, native,
@@ -342,7 +357,7 @@ impl EventHandler<EntityDamageEvent> for HurtHandler {
             // The display string is not a protocol identifier and can differ
             // from the original resource location (or be locale-dependent).
             // `registry_key` is the death message id (`inFire`); this is `minecraft:in_fire`.
-            let name = IDSetContent::to_string(&event.damage_type);
+            let name = damage_type_name(server, &event.damage_type);
             let base: &dyn EntityBase = entity.as_ref();
             // SAFETY: the world, the mob and the name outlive this synchronous callback.
             let take = with_damage_source(event, || unsafe {
