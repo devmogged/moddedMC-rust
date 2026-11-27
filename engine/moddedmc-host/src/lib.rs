@@ -59,7 +59,10 @@ use pumpkin_core::{
     plugin::{
         BoxFuture, Cancellable, EventHandler, EventPriority,
         api::events::{
-            entity::{entity_damage::EntityDamageEvent, entity_death::EntityDeathEvent},
+            entity::{
+                entity_damage::EntityDamageEvent, entity_death::EntityDeathEvent,
+                entity_potion_effect::EntityPotionEffectEvent,
+            },
             player::player_interact_entity_event::PlayerInteractEntityEvent,
         },
         block::{block_break::BlockBreakEvent, block_place::BlockPlaceEvent},
@@ -228,6 +231,11 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
     pm.register::<EntityDamageEvent, _>(Arc::new(mob_ai::HurtHandler), EventPriority::Normal, true);
     pm.register::<EntityDeathEvent, _>(Arc::new(mob_ai::DeathHandler), EventPriority::Normal, true);
+    pm.register::<EntityPotionEffectEvent, _>(
+        Arc::new(effects::EffectVetoHandler),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<EntityDamageEvent, _>(
         Arc::new(equipment::WornHurtHandler),
         EventPriority::Normal,

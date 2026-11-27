@@ -111,7 +111,9 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::ContentEntityTransaction)?;
         content.require_comparator_output()?;
         let _ = CONTENT.set(content);
-        let _ = EFFECTS.set(effects::require()?);
+        let effects = effects::require()?;
+        effects.require_effect_veto()?;
+        let _ = EFFECTS.set(effects);
         let _ = COMMANDS.set(commands::require()?);
         let entities = entities::require()?;
         entities.require_extension(EntitiesExtension::Carriers)?;
@@ -275,6 +277,12 @@ impl Mod for SaintsDragons {
             &nodes,
         )?;
         roster::register(registry)?;
+        for kind in ["saintsdragons:volitans", mossback::KIND] {
+            EFFECTS
+                .get()
+                .ok_or(missing)?
+                .on_effect(registry, kind, can_be_affected)?;
+        }
         spawns::register(
             registry,
             *MOBS.get().ok_or(RegistrationError::InvalidDefinition)?,
@@ -385,6 +393,17 @@ impl Mod for SaintsDragons {
             _ => 0,
         }
     }
+}
+
+/// Volitans and Mossback canBeAffected overrides.
+fn can_be_affected(
+    _world: content::World<'_>,
+    _mob: entities::Entity<'_>,
+    effect: &str,
+    _duration: i32,
+    _amplifier: u8,
+) -> bool {
+    effect != "minecraft:poison"
 }
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {

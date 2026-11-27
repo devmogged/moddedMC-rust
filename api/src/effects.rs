@@ -1,8 +1,35 @@
-//! Sounds and particles.
+//! Sounds, particles and mob effect admission.
 
-use std::mem::offset_of;
+use std::{mem::offset_of, sync::OnceLock};
 
-use crate::{InterfacePrefix, InterfaceUnavailable, abi, content::World};
+use crate::{
+    InterfacePrefix, InterfaceUnavailable, RegistrationError, Registry, abi, content::World,
+    entities::Entity, guard, s,
+};
+
+/// Return false to refuse a pending effect on a mod mob.
+pub type EffectHandler = fn(World<'_>, Entity<'_>, &str, i32, u8) -> bool;
+static EFFECT_HANDLER: OnceLock<EffectHandler> = OnceLock::new();
+
+unsafe extern "C" fn effect_callback(
+    world: abi::WorldRef,
+    mob: abi::EntityRef,
+    effect: abi::Str,
+    duration: i32,
+    amplifier: u8,
+) -> bool {
+    guard("mob effect", true, || {
+        let (Some(handler), Some(world), Some(mob)) = (
+            EFFECT_HANDLER.get(),
+            World::borrowed(world),
+            Entity::borrowed(mob),
+        ) else {
+            return true;
+        };
+        // SAFETY: the effect registry id is borrowed for this callback.
+        handler(world, mob, unsafe { effect.str() }, duration, amplifier)
+    })
+}
 
 pub use abi::{
     SOUND_AMBIENT, SOUND_BLOCKS, SOUND_MASTER, SOUND_NEUTRAL, SOUND_PLAYERS, SOUND_RECORDS,
@@ -33,6 +60,34 @@ pub fn require() -> Result<Effects, InterfaceUnavailable> {
 }
 
 impl Effects {
+    /// Require the appended mob effect admission callback.
+    pub fn require_effect_veto(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(offset_of!(abi::EffectsV1, on_effect))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:effects.on_effect",
+                version: 1,
+            })
+    }
+
+    /// Register the mod's shared effect handler for a mob kind, after registering the mob.
+    pub fn on_effect(
+        self,
+        reg: &mut Registry<'_>,
+        kind: &str,
+        handler: EffectHandler,
+    ) -> Result<(), RegistrationError> {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, on_effect)) else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        let _ = EFFECT_HANDLER.set(handler);
+        // SAFETY: registration is live and the table size covers the appended function.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_effect).read())(reg.reg, s(kind), effect_callback)
+        })
+    }
+
     /// Require the appended parameterized-particle callback.
     pub fn require_particle_options(self) -> Result<(), InterfaceUnavailable> {
         self.0
@@ -207,5 +262,15 @@ mod tests {
         });
         assert!(effects.require_entity_sound().is_ok());
         assert!(effects.require_particle_options().is_err());
+    }
+
+    #[test]
+    fn particle_options_prefix_has_no_effect_veto() {
+        let effects = Effects(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: offset_of!(abi::EffectsV1, on_effect),
+        });
+        assert!(effects.require_particle_options().is_ok());
+        assert!(effects.require_effect_veto().is_err());
     }
 }

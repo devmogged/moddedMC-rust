@@ -1,9 +1,20 @@
-//! `moddedmc:effects` v1: sounds and particles.
+//! `moddedmc:effects` v1: sounds, particles and mob effect admission.
+
+use std::{ptr, sync::Arc};
 
 use moddedmc_api::abi::{self, Str, WorldRef};
+use pumpkin_core::{
+    entity::EntityBase,
+    plugin::{
+        BoxFuture, Cancellable, EventHandler,
+        api::events::entity::entity_potion_effect::EntityPotionEffectEvent,
+    },
+    server::Server,
+};
 use pumpkin_data::{
     BlockStateId,
     data_component_impl::{IdOr, SoundEvent},
+    effect::StatusEffect,
     item::Item,
     item_stack::ItemStack,
     particle::Particle,
@@ -19,6 +30,53 @@ use pumpkin_protocol::{
 use pumpkin_util::{math::vector3::Vector3, random::get_seed};
 
 use crate::content::world;
+
+pub struct EffectVetoHandler;
+
+impl EventHandler<EntityPotionEffectEvent> for EffectVetoHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut EntityPotionEffectEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if event.cancelled() {
+                return;
+            }
+            let Some(effect) = event
+                .effect_name
+                .strip_prefix("effect.minecraft.")
+                .and_then(StatusEffect::from_name)
+            else {
+                return;
+            };
+            let Some((world, entity)) = server.worlds.load().iter().find_map(|world| {
+                world
+                    .get_entity_by_id(event.entity_id)
+                    .map(|entity| (world.clone(), entity))
+            }) else {
+                return;
+            };
+            let base: &dyn EntityBase = entity.as_ref();
+            let Some(callback) = crate::mobs::effect_veto(base) else {
+                return;
+            };
+            // SAFETY: the world, mob and effect id remain live for this synchronous callback.
+            let allowed = unsafe {
+                callback(
+                    ptr::from_ref(world.as_ref()).cast(),
+                    ptr::from_ref(&base).cast(),
+                    Str::new(effect.minecraft_name.as_bytes()),
+                    event.duration,
+                    event.amplifier,
+                )
+            };
+            if !allowed {
+                event.set_cancelled(true);
+            }
+        })
+    }
+}
 
 /// Vanilla `SoundSource` in declaration order, which the ABI ids follow.
 const SOURCES: [SoundCategory; 11] = [
@@ -269,6 +327,7 @@ pub static EFFECTS: abi::EffectsV1 = abi::EffectsV1 {
     particles,
     play_entity_sound,
     particles_with_options,
+    on_effect: crate::mobs::on_effect,
 };
 
 #[cfg(test)]

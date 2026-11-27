@@ -117,10 +117,7 @@ fn toxin(world: World<'_>, mob: Entity<'_>) {
     for id in entities.entities_in(world, min, max, mob.id()) {
         entities.with_entity(world, id, |target| {
             if target.view().is_some_and(|v| v.kind & ENTITY_LIVING != 0) {
-                // Mossback.canBeAffected rejects poison, including another Mossback's toxin.
-                if MOBS.get().and_then(|m| m.kind(target)) != Some(KIND) {
-                    target.add_effect("minecraft:poison", TOXIN_TICKS, 0, false, true);
-                }
+                target.add_effect("minecraft:poison", TOXIN_TICKS, 0, false, true);
                 target.add_effect("minecraft:nausea", TOXIN_TICKS, 0, false, true);
                 target.add_effect("minecraft:blindness", TOXIN_TICKS, 0, false, true);
             }

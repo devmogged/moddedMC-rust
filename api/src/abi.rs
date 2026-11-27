@@ -1389,7 +1389,18 @@ pub struct EffectsV1 {
         options: ParticleOptions,
         viewer: i32,
     ) -> bool,
+    /// Register a mod mob's effect admission callback. False from the callback vetoes the effect.
+    pub on_effect: unsafe extern "C" fn(reg: Reg, kind: Str, callback: EffectCallback) -> i32,
 }
+
+/// A pending mob effect, before it is stored or applied.
+pub type EffectCallback = unsafe extern "C" fn(
+    world: WorldRef,
+    mob: EntityRef,
+    effect: Str,
+    duration: i32,
+    amplifier: u8,
+) -> bool;
 
 #[cfg(test)]
 #[test]
@@ -1399,7 +1410,8 @@ fn effects_v1_layout() {
     assert_eq!(offset_of!(EffectsV1, particles), 16);
     assert_eq!(offset_of!(EffectsV1, play_entity_sound), 24);
     assert_eq!(offset_of!(EffectsV1, particles_with_options), 32);
-    assert_eq!(size_of::<EffectsV1>(), 40);
+    assert_eq!(offset_of!(EffectsV1, on_effect), 40);
+    assert_eq!(size_of::<EffectsV1>(), 48);
     assert_eq!(offset_of!(ParticleOptions, item), 0);
     assert_eq!(offset_of!(ParticleOptions, kind), 16);
     assert_eq!(offset_of!(ParticleOptions, block_state), 20);
