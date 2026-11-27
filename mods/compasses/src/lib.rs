@@ -12,7 +12,10 @@ use moddedmc_api::{
     InterfaceUnavailable, Menu, MenuButton, Mod, Player, Pos, RegistrationError, Registry,
     content::{self, Content, World, WorldExtension},
     entities::{self, Entities, EntitiesExtension},
-    interaction::{self, Interaction, InteractionExtension, PlayerStackData, UseItem, UseResult},
+    interaction::{
+        self, Interaction, InteractionExtension, PlayerStackData, PlayerStackDataDebit, UseItem,
+        UseResult,
+    },
     items::{self, Item, ItemDefaults},
     mobs::{self, Mobs, MobsExtension},
     tags::{self, Tags},
@@ -30,6 +33,7 @@ struct Host {
     entities: Entities,
     interaction: Interaction,
     stacks: PlayerStackData,
+    debit: Option<PlayerStackDataDebit>,
     biomes: WorldgenLookup,
     structures: Structures,
     groups: Option<StructureGroups>,
@@ -86,6 +90,42 @@ fn structure_groups(host: &Host, world: World<'_>) -> Vec<group_search::Group> {
             members: g.members,
         })
         .collect()
+}
+
+/// The exact catalog presented by a dialog. A successful world lookup with
+/// zero entries is distinct from an unavailable world lookup. Group order and
+/// member order are part of the snapshot: both affect the selected structure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Catalog {
+    targets: Vec<String>,
+    groups: Vec<group_search::Group>,
+    offered_groups: Vec<usize>,
+}
+
+impl Catalog {
+    fn new(targets: Vec<String>, groups: Vec<group_search::Group>) -> Self {
+        let offered_groups = group_search::offered_groups(&groups, &targets);
+        Self {
+            targets,
+            groups,
+            offered_groups,
+        }
+    }
+
+    fn current(
+        host: &Host,
+        world: World<'_>,
+        item: &str,
+        options: &config::Options,
+    ) -> Option<Self> {
+        let targets = visible_targets(host, world, item, options)?;
+        let groups = if item == EXPLORER {
+            structure_groups(host, world)
+        } else {
+            Vec::new()
+        };
+        Some(Self::new(targets, groups))
+    }
 }
 
 const MAX_JOBS: usize = 32;
@@ -151,8 +191,10 @@ impl Selection {
         (shown == live).then_some(live)
     }
 
-    fn catalog_matches(&self, targets: &[String], groups: &[group_search::Group]) -> bool {
-        self.targets.as_slice() == targets && self.groups.as_slice() == groups
+    fn catalog_matches(&self, catalog: &Catalog) -> bool {
+        self.targets == catalog.targets
+            && self.groups == catalog.groups
+            && self.offered_groups == catalog.offered_groups
     }
 
     fn can_next(&self) -> bool {
@@ -275,6 +317,27 @@ impl Runtime {
             .or_else(|| self.in_flight.contains(&key).then_some(None))
     }
 
+    /// Reserve one exact stack while the caller performs the host's atomic
+    /// inventory transaction outside the runtime lock. Repeated/stale actions
+    /// cannot admit two workers for the same nonce, even during an in-flight
+    /// world tick or while a prior worker still owns that stack.
+    fn reserve_search(&mut self, key: (i32, u128)) -> bool {
+        if self.jobs.len() + self.in_flight.len() >= MAX_JOBS
+            || self.jobs.iter().any(|job| job.key() == key)
+        {
+            return false;
+        }
+        self.in_flight.insert(key)
+    }
+
+    fn settle_search(&mut self, key: (i32, u128), job: Option<Job>) {
+        if self.in_flight.remove(&key)
+            && let Some(job) = job
+        {
+            self.jobs.push(job);
+        }
+    }
+
     fn clear_dialog(&mut self, owner: &str) {
         self.menus.remove(owner);
         self.navigation.remove(owner);
@@ -333,6 +396,14 @@ impl Runtime {
         }
     }
 }
+
+/// Only invoke the inventory/XP transaction after a successful reservation.
+/// The operation must be a single host call that either debits and changes
+/// the exact stack together or does neither. The search worker never charges
+/// on finding/exhausting a result, preventing duplicate debits on tick retries.
+fn execute_reserved_search(reserved: bool, transact: impl FnOnce() -> bool) -> bool {
+    reserved && transact()
+}
 static RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
 
 fn with_runtime<T>(f: impl FnOnce(&mut Runtime) -> T) -> T {
@@ -348,8 +419,8 @@ fn horizontal_distance(player: moddedmc_api::Position, target: Pos) -> i32 {
     ((dx * dx + dz * dz) as f32).sqrt() as i32
 }
 
-fn search_tooltip(item: &str, requested: &str, description: &str) -> String {
-    let levels = options(item).map_or(0, |opts| opts.costs.xp_for(requested));
+fn search_tooltip(item: &str, intent: config::SearchIntent<'_>, description: &str) -> String {
+    let levels = options(item).map_or(0, |opts| opts.costs.quote(intent).levels);
     if levels == 0 {
         description.into()
     } else {
@@ -377,7 +448,11 @@ fn open_menu(player: &Player<'_>, selection: &Selection, page: usize) {
         .take(PAGE)
         .map(|(index, id)| MenuButton {
             label: id.clone(),
-            tooltip: search_tooltip(selection.item, id, "Search from your current position"),
+            tooltip: search_tooltip(
+                selection.item,
+                config::SearchIntent::Target(id),
+                "Search from your current position",
+            ),
             action: format!("compasses:pick/{nonce:x}/{index}"),
         })
         .collect();
@@ -407,7 +482,7 @@ fn open_menu(player: &Player<'_>, selection: &Selection, page: usize) {
             label: "Find next / retry".into(),
             tooltip: search_tooltip(
                 selection.item,
-                &selection.state.target,
+                config::SearchIntent::FindNext(&selection.state.target),
                 &selection.state.target,
             ),
             action: format!("compasses:next/{nonce:x}/0"),
@@ -478,7 +553,7 @@ fn open_group_menu(player: &Player<'_>, selection: &Selection, page: usize) {
                 label: group.id.clone(),
                 tooltip: search_tooltip(
                     selection.item,
-                    &group.id,
+                    config::SearchIntent::Group(&group.id),
                     &format!("Search {} member structures", group.members.len()),
                 ),
                 action: format!("compasses:gpick/{nonce:x}/{index}"),
@@ -600,20 +675,14 @@ fn use_item(ctx: &mut UseItem<'_>) -> UseResult {
     if !ctx.stack.set_lodestone(&expected, state.tracker()) {
         return UseResult::Fail;
     }
-    let Some(targets) = visible_targets(host, ctx.world, item, options) else {
+    let Some(catalog) = Catalog::current(host, ctx.world, item, options) else {
         player.send_message("Compass lookup is unavailable in this world.");
         return UseResult::Fail;
     };
-    if targets.is_empty() {
+    if catalog.targets.is_empty() {
         player.send_message("No searchable targets in this dimension.");
         return UseResult::Success;
     }
-    let groups: Vec<_> = if item == EXPLORER {
-        structure_groups(host, ctx.world)
-    } else {
-        Vec::new()
-    };
-    let offered_groups = group_search::offered_groups(&groups, &targets);
     let selection = Selection {
         item,
         entity: entity.id(),
@@ -621,9 +690,9 @@ fn use_item(ctx: &mut UseItem<'_>) -> UseResult {
         page: MenuPage::Targets(0),
         state,
         expected,
-        targets,
-        groups,
-        offered_groups,
+        targets: catalog.targets,
+        groups: catalog.groups,
+        offered_groups: catalog.offered_groups,
         dimension: dimension.into(),
         expires: moddedmc_api::tick_count().saturating_add(MENU_TTL),
     };
@@ -659,18 +728,19 @@ fn start_search(
         }
         // A datapack reload may have changed visibility or group membership
         // since this dialog was sent. Authorize against the live registry.
-        let Some(targets) = visible_targets(host, world, selection.item, options) else {
+        let Some(catalog) = Catalog::current(host, world, selection.item, options) else {
             player.send_message("Compass lookup is unavailable in this world.");
             return;
         };
-        let groups = if is_group && selection.item == EXPLORER {
-            structure_groups(host, world)
-        } else {
-            Vec::new()
-        };
-        let offered_groups = group_search::offered_groups(&groups, &targets);
+        // A search click must authorize the same snapshot as page navigation.
+        // Merely finding the selected ID again misses changed registry/group
+        // order and hidden-tag reloads that leave that particular ID present.
+        if !selection.catalog_matches(&catalog) {
+            player.send_message("Compass catalog changed. Open the compass again.");
+            return;
+        }
         let group = if is_group && selection.item == EXPLORER {
-            let Some(group) = selection.group_for_action(&groups, &target, next) else {
+            let Some(group) = selection.group_for_action(&catalog.groups, &target, next) else {
                 player.send_message("Compass group changed. Open the compass again.");
                 return;
             };
@@ -679,10 +749,29 @@ fn start_search(
             None
         };
         if (is_group
-            && !group.is_some_and(|g| offered_groups.iter().any(|&i| groups.get(i) == Some(g))))
-            || ((!is_group || next) && !targets.contains(&target))
+            && !group.is_some_and(|g| {
+                catalog
+                    .offered_groups
+                    .iter()
+                    .any(|&i| catalog.groups.get(i) == Some(g))
+            }))
+            || ((!is_group || next) && !catalog.targets.contains(&target))
         {
             player.send_message("Target is not available in this dimension.");
+            return;
+        }
+        let intent = if next {
+            config::SearchIntent::FindNext(&target)
+        } else if is_group {
+            config::SearchIntent::Group(&target)
+        } else {
+            config::SearchIntent::Target(&target)
+        };
+        let charge = options.costs.quote(intent);
+        // Never charge separately from the stack CAS. Older hosts can still
+        // execute free searches, but positive-cost searches require v2.
+        if charge.levels != 0 && host.debit.is_none() {
+            player.send_message("Compass search requires atomic XP charging.");
             return;
         }
         let mut state = selection.state;
@@ -794,25 +883,32 @@ fn start_search(
         // Immediate item use holds the player's inventory while touching
         // Runtime. Never acquire inventory locks while holding Runtime.
         let key = (entity.id(), state.nonce);
-        let reserved = with_runtime(|rt| {
-            if rt.jobs.len() + rt.in_flight.len() >= MAX_JOBS {
-                return false;
+        let reserved = with_runtime(|rt| rt.reserve_search(key));
+        let accepted = execute_reserved_search(reserved, || {
+            if let Some(debit) = host.debit {
+                debit.replace_lodestone_debit(
+                    player,
+                    selection.item,
+                    &selection.expected,
+                    &expected,
+                    None,
+                    charge.levels,
+                )
+            } else {
+                host.stacks.replace_lodestone(
+                    player,
+                    selection.item,
+                    &selection.expected,
+                    &expected,
+                    None,
+                )
             }
-            rt.in_flight.insert(key)
         });
-        let accepted = reserved
-            && host.stacks.replace_lodestone(
-                player,
-                selection.item,
-                &selection.expected,
-                &expected,
-                None,
-            );
         if reserved {
             with_runtime(|rt| {
-                rt.in_flight.remove(&key);
-                if accepted {
-                    rt.jobs.push(Job {
+                rt.settle_search(
+                    key,
+                    accepted.then(|| Job {
                         owner: player.name().into(),
                         entity: entity.id(),
                         item: selection.item,
@@ -820,15 +916,26 @@ fn start_search(
                         failure_target,
                         expected,
                         search,
-                    });
-                }
+                    }),
+                );
             });
         }
-        player.send_message(if accepted {
+        let message = if accepted {
             "Compass search started."
+        } else if reserved
+            && charge.levels != 0
+            && host
+                .stacks
+                .contains(player, selection.item, &selection.expected)
+        {
+            // With the exact original stack still present, the atomic debit
+            // most likely failed for insufficient levels. A concurrent change
+            // remains possible; the host transaction is the authority.
+            "Not enough XP levels or compass changed; retry."
         } else {
             "Compass search could not start; retry."
-        });
+        };
+        player.send_message(message);
     });
 }
 
@@ -1035,6 +1142,7 @@ impl Mod for Compasses {
             entities,
             interaction,
             stacks: interaction::require_player_stack_data()?,
+            debit: interaction::require_player_stack_data_debit().ok(),
             biomes: worldgen_lookup::require()?,
             structures: worldgen_lookup::require_structures()?,
             groups: worldgen_lookup::require_groups().ok(),
@@ -1049,12 +1157,16 @@ impl Mod for Compasses {
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let host = HOST.get().ok_or(RegistrationError::InvalidDefinition)?;
         let load = |nature| {
-            config::Options::load(moddedmc_api::data_dir(), nature, host.modes.is_some()).map_err(
-                |error| {
-                    moddedmc_api::error(&format!("Invalid compass configuration: {error}"));
-                    RegistrationError::InvalidDefinition
-                },
+            config::Options::load(
+                moddedmc_api::data_dir(),
+                nature,
+                host.modes.is_some(),
+                host.debit.is_some(),
             )
+            .map_err(|error| {
+                moddedmc_api::error(&format!("Invalid compass configuration: {error}"));
+                RegistrationError::InvalidDefinition
+            })
         };
         let _ = CONFIG.set((load(true)?, load(false)?));
         use fastnbt::Value;
@@ -1134,15 +1246,10 @@ impl Mod for Compasses {
                         {
                             return Err("Compass or dimension changed. Open the compass again.");
                         }
-                        let targets = options(selection.item)
-                            .and_then(|opts| visible_targets(host, world, selection.item, opts))
+                        let catalog = options(selection.item)
+                            .and_then(|opts| Catalog::current(host, world, selection.item, opts))
                             .ok_or("Compass lookup is unavailable in this world.")?;
-                        let groups = if selection.item == EXPLORER {
-                            structure_groups(host, world)
-                        } else {
-                            Vec::new()
-                        };
-                        if !selection.catalog_matches(&targets, &groups) {
+                        if !selection.catalog_matches(&catalog) {
                             return Err("Compass catalog changed. Open the compass again.");
                         }
                         Ok(())
@@ -1377,6 +1484,83 @@ mod dialog_tests {
     }
 
     #[test]
+    fn search_admission_transactions_do_not_double_debit_or_charge_failed_reservations() {
+        use std::cell::Cell;
+
+        let mut rt = Runtime::default();
+        let mut state = State::blank();
+        state.target = "test:paid".into();
+        state.dimension = "minecraft:overworld".into();
+        state.status = Status::Searching;
+        let key = (8, state.nonce);
+        let expected = state.encode(EXPLORER).unwrap();
+        let levels = Cell::new(7_u32);
+        let stack_present = Cell::new(true);
+        let transactions = Cell::new(0_u32);
+        let quote = config::SearchQuote { levels: 3 };
+
+        assert!(rt.reserve_search(key));
+        let admitted = execute_reserved_search(true, || {
+            transactions.set(transactions.get() + 1);
+            // Model the host's indivisible exact-stack + XP transaction.
+            if !stack_present.get() || levels.get() < u32::from(quote.levels) {
+                return false;
+            }
+            levels.set(levels.get() - 3);
+            stack_present.set(false);
+            true
+        });
+        assert!(admitted);
+        rt.settle_search(
+            key,
+            Some(Job {
+                owner: "alice".into(),
+                entity: key.0,
+                item: EXPLORER,
+                expected,
+                failure_target: state.target.clone(),
+                state,
+                search: Search::Disabled,
+            }),
+        );
+        assert_eq!((levels.get(), transactions.get(), rt.jobs.len()), (4, 1, 1));
+
+        // A forged/replayed action for an admitted stack never even reaches
+        // the atomic callback. Completion and retries do not charge again.
+        assert!(!rt.reserve_search(key));
+        let replayed = execute_reserved_search(false, || {
+            transactions.set(transactions.get() + 1);
+            levels.set(levels.get() - 3);
+            true
+        });
+        assert!(!replayed);
+        assert_eq!((levels.get(), transactions.get()), (4, 1));
+
+        // A removed stack cancels admission with no debit, and releases the
+        // slot for another legitimate search.
+        let cancelled_key = (8, state::nonce());
+        assert!(rt.reserve_search(cancelled_key));
+        assert!(!execute_reserved_search(true, || {
+            transactions.set(transactions.get() + 1);
+            stack_present.get()
+        }));
+        rt.settle_search(cancelled_key, None);
+        assert!(!rt.in_flight.contains(&cancelled_key));
+        assert_eq!((levels.get(), transactions.get(), rt.jobs.len()), (4, 2, 1));
+
+        let poor_key = (8, state::nonce());
+        levels.set(2);
+        stack_present.set(true);
+        assert!(rt.reserve_search(poor_key));
+        assert!(!execute_reserved_search(true, || {
+            transactions.set(transactions.get() + 1);
+            levels.get() >= u32::from(quote.levels)
+        }));
+        rt.settle_search(poor_key, None);
+        assert_eq!((levels.get(), transactions.get(), rt.jobs.len()), (2, 3, 1));
+    }
+
+    #[test]
     fn hidden_actual_member_disables_next_even_with_remaining_budget() {
         let mut menu = test_selection(30);
         let group = group_search::Group {
@@ -1443,7 +1627,8 @@ mod dialog_tests {
         };
         menu.targets = vec!["test:b".into()];
         menu.groups = vec![pair.clone()];
-        assert!(menu.catalog_matches(&menu.targets, &menu.groups));
+        menu.offered_groups = group_search::offered_groups(&menu.groups, &menu.targets);
+        assert!(menu.catalog_matches(&Catalog::new(menu.targets.clone(), menu.groups.clone())));
         assert_eq!(
             menu.group_for_action(&menu.groups, "test:pair", false),
             Some(&pair)
@@ -1469,7 +1654,42 @@ mod dialog_tests {
         let groups = vec![new_first, pair];
         assert!(menu.group_for_action(&groups, "test:b", true).is_none());
         assert!(menu.group_for_action(&groups, "test:pair", false).is_some());
-        assert!(!menu.catalog_matches(&menu.targets, &groups));
-        assert!(!menu.catalog_matches(&[], &menu.groups));
+        assert!(!menu.catalog_matches(&Catalog::new(menu.targets.clone(), groups)));
+        assert!(!menu.catalog_matches(&Catalog::new(vec![], menu.groups.clone())));
+    }
+
+    #[test]
+    fn search_click_rejects_any_changed_catalog_even_when_selected_id_remains() {
+        let mut menu = test_selection(50);
+        menu.targets = vec!["test:a".into(), "test:b".into()];
+        menu.groups = vec![group_search::Group {
+            id: "test:pair".into(),
+            members: vec!["test:a".into(), "test:b".into()],
+        }];
+        menu.offered_groups = group_search::offered_groups(&menu.groups, &menu.targets);
+        let original = Catalog::new(menu.targets.clone(), menu.groups.clone());
+        assert!(menu.catalog_matches(&original));
+        // The first visible target is still eligible, but a reload has
+        // inserted an ID on another menu page. Old pick/next actions expire.
+        let added = Catalog::new(
+            vec!["test:a".into(), "test:b".into(), "test:c".into()],
+            menu.groups.clone(),
+        );
+        assert!(!menu.catalog_matches(&added));
+        let hidden = Catalog::new(vec!["test:a".into()], menu.groups.clone());
+        assert!(!menu.catalog_matches(&hidden));
+        // Two catalogs with unchanged visible targets are still distinct if
+        // the first registered set or ordered membership changes.
+        let mut groups = menu.groups.clone();
+        groups[0].members.reverse();
+        assert!(!menu.catalog_matches(&Catalog::new(menu.targets.clone(), groups)));
+        let mut wrong_offers = menu.clone();
+        wrong_offers.offered_groups.clear();
+        assert!(!wrong_offers.catalog_matches(&original));
+        // An empty successful catalog is a legitimate snapshot, and does not
+        // authenticate an older nonempty menu by itself.
+        let empty = Catalog::new(vec![], vec![]);
+        assert!(empty.targets.is_empty());
+        assert!(!menu.catalog_matches(&empty));
     }
 }

@@ -1,15 +1,15 @@
-# Paid-search acceptance (pending host capability)
+# Paid-search acceptance (new host capability; runtime verification pending)
 
-These fixtures are deliberately outside the active 24-case runner. The current
-package correctly rejects their positive XP configurations. Promote the scripts
-to the active scenario suite only after the shared host provides an atomic
-exact-stack replacement and experience-level debit interface, and Compass has
-been wired to it. These scripts have not been run.
+The shared host now exposes a combined exact-stack data/tracker replacement and
+XP-level debit, and Compass uses it when starting a search. The acceptance cases
+are available through `run-compass.ps1 -Case xp-nature` and `-Case xp-explorer`.
+These scripts have not yet been run against the rebuilt Compass package.
+The host operation provides an in-memory atomic admission transaction; crash
+consistency across an interrupted disk save is a separate concern.
 
-Use fresh seed-42 worlds, the `config/` files under `config/compasses/`, and
-the existing `weighted-group` datapack for Explorer. The intended insufficient
-funds response contains `Not enough XP levels`; adjust the test wording to the
-real integrated implementation without weakening the no-side-effect checks.
+The runner stages config files under `config/compasses/` in a new seed-42 world,
+and stages `weighted-group` for Explorer. The insufficient-funds response
+contains `Not enough XP levels`, with no state, wear or level mutation.
 
 Nature checks insufficient funds before and after a result, successful
 per-target debit, replay resistance, stale same-ID replacement, creative

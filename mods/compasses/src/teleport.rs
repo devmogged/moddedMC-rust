@@ -2,6 +2,55 @@
 //! The host must provide one coherent, generated column snapshot and recheck
 //! destination safety and authorization at the actual teleport transaction.
 
+use moddedmc_api::Pos;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TeleportDenied {
+    Disabled,
+    NoPermission,
+    StaleCompass,
+    NoSavedTarget,
+    WrongDimension,
+    UnsafeLanding,
+}
+
+/// Mod-side checks required immediately before a future host-controlled
+/// teleport. The saved result supplies X/Z and dimension, never client text.
+/// `stack_matches` is the host's exact-stack/nonce check, not an item-ID test.
+/// Both permission and generated-column safety must be rechecked by the host
+/// when it moves the player, since either may change after a menu was shown.
+#[derive(Clone, Copy, Debug)]
+pub struct TeleportCheck<'a> {
+    pub enabled: bool,
+    pub permitted: bool,
+    pub stack_matches: bool,
+    pub current_dimension: &'a str,
+    pub saved_target: Option<(&'a str, Pos)>,
+    pub landing_y: Option<i32>,
+}
+
+pub fn authorize(check: TeleportCheck<'_>) -> Result<Pos, TeleportDenied> {
+    if !check.enabled {
+        return Err(TeleportDenied::Disabled);
+    }
+    if !check.permitted {
+        return Err(TeleportDenied::NoPermission);
+    }
+    if !check.stack_matches {
+        return Err(TeleportDenied::StaleCompass);
+    }
+    let (target_dimension, target) = check.saved_target.ok_or(TeleportDenied::NoSavedTarget)?;
+    if target_dimension != check.current_dimension {
+        return Err(TeleportDenied::WrongDimension);
+    }
+    let y = check.landing_y.ok_or(TeleportDenied::UnsafeLanding)?;
+    Ok(Pos {
+        x: target.x,
+        y,
+        z: target.z,
+    })
+}
+
 /// A cell is classified by the host, not by a guessed block identifier.
 /// Free must be collision-free, dry and nonhazardous for the player's body.
 /// Support must be a safe, full-width upper surface. Blocked is neither.
@@ -92,5 +141,55 @@ mod tests {
         assert_eq!(find_landing(i32::MAX, 0, &col), None);
         assert_eq!(find_landing(0, 0, &[Cell::Free; 2]), None);
         assert_eq!(find_landing(0, 0, &[Cell::Free; 4097]), None);
+    }
+
+    #[test]
+    fn permission_and_exact_stack_gate_even_a_previously_displayed_teleport() {
+        let target = Pos {
+            x: -287,
+            y: 71,
+            z: 6,
+        };
+        let mut column = [Cell::Blocked; 16];
+        column[7] = Cell::Support;
+        column[8] = Cell::Free;
+        column[9] = Cell::Free;
+        let mut check = TeleportCheck {
+            enabled: true,
+            permitted: true,
+            stack_matches: true,
+            current_dimension: "minecraft:overworld",
+            saved_target: Some(("minecraft:overworld", target)),
+            landing_y: find_landing(55, 63, &column),
+        };
+        assert_eq!(
+            authorize(check),
+            Ok(Pos {
+                x: -287,
+                y: 63,
+                z: 6
+            })
+        );
+        // Even a formerly authorized action must be denied if the privilege
+        // is revoked before the click, regardless of creative game mode.
+        check.permitted = false;
+        assert_eq!(authorize(check), Err(TeleportDenied::NoPermission));
+        check.permitted = true;
+        check.stack_matches = false;
+        assert_eq!(authorize(check), Err(TeleportDenied::StaleCompass));
+        check.stack_matches = true;
+        check.current_dimension = "minecraft:the_nether";
+        assert_eq!(authorize(check), Err(TeleportDenied::WrongDimension));
+        check.current_dimension = "minecraft:overworld";
+        check.saved_target = None;
+        assert_eq!(authorize(check), Err(TeleportDenied::NoSavedTarget));
+        check.saved_target = Some(("minecraft:overworld", target));
+        // A fresh generated-column classification may have invalidated the
+        // previous landing. Do not use its old Y as a fallback.
+        column[9] = Cell::Blocked;
+        check.landing_y = find_landing(55, 63, &column);
+        assert_eq!(authorize(check), Err(TeleportDenied::UnsafeLanding));
+        check.enabled = false;
+        assert_eq!(authorize(check), Err(TeleportDenied::Disabled));
     }
 }
