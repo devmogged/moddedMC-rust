@@ -19,6 +19,9 @@ const KEYS: &[(&str, &str, u8)] = &[
     ("ability_secondary", "key.keyboard.h", ALL),
     ("toggle_melee", "key.keyboard.x", ACTION_PRESSED),
     ("flex", "ctrl+key.keyboard.4", ACTION_PRESSED),
+    // shortcut: independent rebindable key until the companion can observe the
+    // vanilla attack mapping without stealing its clicks.
+    ("attack", "key.keyboard.unknown", ACTION_PRESSED),
 ];
 
 pub fn start() -> Result<(), InterfaceUnavailable> {
@@ -53,6 +56,10 @@ fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
     };
     // shortcut: only route mounted dragon input; individual ability implementations follow.
     let _ = entities.with_entity(world, vehicle, |dragon| {
+        if mobs.kind(dragon) == Some("saintsdragons:nulljaw") {
+            crate::combat_nulljaw::rider_action(world, dragon, player, action, phase);
+            return;
+        }
         if phase != ACTION_HELD
             && mobs
                 .kind(dragon)
