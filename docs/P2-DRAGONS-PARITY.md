@@ -676,3 +676,5 @@ Moop swim and panic goals and water movement are ported. See the Moop scenario.
 The host and companion expose semantic rider actions.
 
 Raevyx rider abilities include storm tap, ground rend hold, beam, roar, flex and movement controls. [Scenario](../tests/scenarios/p2c-raevyx-combat.txt).
+
+Volitans rider input and medium-specific movement are ported.

@@ -8,15 +8,22 @@ use moddedmc_api::{
     content::{BlockUpdate, UPDATE_ALL, World},
     effects::SOUND_NEUTRAL,
     entities::{
-        ENTITY_PLAYER, Entity, EntityChange, EntityView, SET_BODY_YAW, SET_MOTION, SET_YAW,
+        ENTITY_PLAYER, Entity, EntityChange, EntityView, SET_BODY_YAW, SET_HEAD_YAW, SET_MOTION,
+        SET_YAW,
     },
     mob_ai::goal_phase,
+    mobs::{
+        PLAYER_INPUT_BACKWARD, PLAYER_INPUT_FORWARD, PLAYER_INPUT_JUMP, PLAYER_INPUT_LEFT,
+        PLAYER_INPUT_RIGHT, PLAYER_INPUT_SPRINT,
+    },
+    player_actions::{ACTION_PRESSED, ACTION_RELEASED},
     tick_count,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Mutex, PoisonError},
+    time::{Duration, Instant},
 };
 
 pub const TARGET: u64 = 130;
@@ -32,6 +39,8 @@ enum Attack {
     Orb,
     Roar,
     Burrow,
+    Ultimate,
+    Flex,
 }
 impl Attack {
     fn name(self) -> &'static str {
@@ -43,6 +52,8 @@ impl Attack {
             Self::Orb => "poison_ball",
             Self::Roar => "roar",
             Self::Burrow => "burrow",
+            Self::Ultimate => "ultimate",
+            Self::Flex => "flex",
         }
     }
     fn melee(self) -> bool {
@@ -65,6 +76,9 @@ struct Saved {
     energy: f32,
     energy_tick: i64,
     poison_last: bool,
+    rider_ready: [i64; 9],
+    rider_gore: bool,
+    depleted: bool,
 }
 impl Default for Saved {
     fn default() -> Self {
@@ -76,6 +90,9 @@ impl Default for Saved {
             energy: 1.0,
             energy_tick: 0,
             poison_last: false,
+            rider_ready: [0; 9],
+            rider_gore: false,
+            depleted: false,
         }
     }
 }
@@ -107,6 +124,8 @@ struct Action {
     exit: Option<(u64, bool)>,
     burrow_origin: [f64; 3],
     burrow_progress: u64,
+    rider: bool,
+    released: bool,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ShotKind {
@@ -114,6 +133,7 @@ enum ShotKind {
     Poison,
     Orb(i32),
     Spine,
+    DashSpine,
 }
 struct Shot {
     kind: ShotKind,
@@ -133,7 +153,34 @@ struct Runtime {
     next_burrow: u64,
     last_target: Option<i32>,
     opener_used: bool,
+    rider: RiderRuntime,
 }
+#[derive(Default)]
+struct RiderRuntime {
+    id: Option<i32>,
+    primary: Option<Instant>,
+    tertiary: Option<u64>,
+    action: Option<Action>,
+    ascend: bool,
+    descend: bool,
+    accelerate: bool,
+    takeoff_block: u64,
+    previous_keys: i32,
+    taps: [Option<Instant>; 4],
+    dash: Option<Dash>,
+    dash_ready: u64,
+}
+struct Dash {
+    direction: usize,
+    start: u64,
+    velocity: [f64; 3],
+}
+const DASH_CLIPS: [&str; 4] = [
+    "dash_forward",
+    "dash_backwards",
+    "dodge_left",
+    "dodge_right",
+];
 static RUNTIME: Mutex<Option<HashMap<i32, Runtime>>> = Mutex::new(None);
 pub fn forget(id: i32) {
     if let Some(all) = RUNTIME
@@ -146,11 +193,15 @@ pub fn forget(id: i32) {
 }
 pub fn exit_invulnerable(mob: Entity<'_>) -> bool {
     with_runtime(mob, |rt| {
-        rt.action.as_ref().is_some_and(|a| {
-            a.kind == Attack::Burrow
-                && a.exit
-                    .is_some_and(|(start, _)| tick_count().saturating_sub(start) < 52)
-        })
+        rt.rider
+            .action
+            .as_ref()
+            .or(rt.action.as_ref())
+            .is_some_and(|a| {
+                a.kind == Attack::Burrow
+                    && a.exit
+                        .is_some_and(|(start, _)| tick_count().saturating_sub(start) < 52)
+            })
     })
 }
 fn with_runtime<T>(mob: Entity<'_>, f: impl FnOnce(&mut Runtime) -> T) -> T {
@@ -472,6 +523,7 @@ fn start(
             "enter_burrow",
             2.0,
         ),
+        Attack::Ultimate | Attack::Flex => return,
     };
     let poison = kind == Attack::Breath
         && !s.poison_last
@@ -509,6 +561,8 @@ fn start(
         exit: None,
         burrow_origin: v.position,
         burrow_progress: tick_count(),
+        rider: false,
+        released: false,
     });
     sound(world, mob, event, volume);
 }
@@ -659,7 +713,8 @@ fn run_action(
     m: Medium,
 ) -> bool {
     let age = tick_count().saturating_sub(a.start);
-    if (a.kind != Attack::Burrow || age < 14 || a.exit.is_some())
+    if !a.rider
+        && (a.kind != Attack::Burrow || age < 14 || a.exit.is_some())
         && let Some(ai) = MOB_AI.get()
     {
         ai.stop(mob);
@@ -708,25 +763,7 @@ fn run_action(
                 let origin = aim(mob, v);
                 let lead = add(center, tv.motion.map(|x| x * 0.6));
                 let velocity = unit(offset(lead, origin)).map(|x| x * 3.5);
-                // shortcut: the ABI spawns vanilla projectiles; a snowball carries the
-                // orb until custom projectile types and collision hooks are available.
-                if let Some(id) = ENTITIES.get().and_then(|e| {
-                    e.spawn_projectile(
-                        world,
-                        "minecraft:snowball",
-                        mob.id(),
-                        None,
-                        origin,
-                        velocity,
-                    )
-                }) {
-                    rt.shots.push(Shot {
-                        kind: ShotKind::Orb(id),
-                        pos: origin,
-                        velocity,
-                        age: 0,
-                    });
-                }
+                launch_orb(world, mob, rt, origin, velocity);
             }
         }
         Attack::Breath => {
@@ -821,14 +858,23 @@ fn run_action(
                     a.burrow_origin = v.position;
                     a.burrow_progress = tick_count();
                 }
-                let reached = gap <= 4.75 && m == Medium::Ground;
+                let reached = if a.rider {
+                    a.released || age >= 314
+                } else {
+                    gap <= 4.75 && m == Medium::Ground
+                };
                 let aborted = m != Medium::Ground
-                    || target.is_none()
-                    || age >= 314
-                    || tick_count() - a.burrow_progress >= 50;
+                    || (!a.rider
+                        && (target.is_none()
+                            || age >= 314
+                            || tick_count() - a.burrow_progress >= 50));
                 if reached || aborted {
                     a.exit = Some((tick_count(), reached && !aborted));
                     sound(world, mob, "burrow_exit", 2.0);
+                } else if a.rider {
+                    if age.is_multiple_of(6) && length_squared(v.motion) > 0.015 {
+                        particle(world, "minecraft:cloud", v.position, 0.8, 8);
+                    }
                 } else if let Some((_, (tv, _, _, _))) = target {
                     chase(world, mob, rt, v, tv.position, m, gap, true);
                     if age.is_multiple_of(6) {
@@ -866,6 +912,690 @@ fn hit(world: World<'_>, mob: Entity<'_>, t: Entity<'_>, damage: f32) {
     if let Some(ai) = MOB_AI.get() {
         ai.attack(world, mob, t.id(), damage);
     }
+}
+fn launch_orb(
+    world: World<'_>,
+    mob: Entity<'_>,
+    rt: &mut Runtime,
+    origin: [f64; 3],
+    velocity: [f64; 3],
+) {
+    // shortcut: the ABI spawns vanilla projectiles; a snowball carries the
+    // orb until custom projectile types and collision hooks are available.
+    if let Some(id) = ENTITIES.get().and_then(|e| {
+        e.spawn_projectile(
+            world,
+            "minecraft:snowball",
+            mob.id(),
+            None,
+            origin,
+            velocity,
+        )
+    }) {
+        rt.shots.push(Shot {
+            kind: ShotKind::Orb(id),
+            pos: origin,
+            velocity,
+            age: 0,
+        });
+    }
+}
+
+fn rider_cooldown(kind: Attack) -> i64 {
+    match kind {
+        Attack::Bite => 10,
+        Attack::Claw => 8,
+        Attack::Gore => 12,
+        Attack::Breath | Attack::Orb => 20,
+        Attack::Roar => 30,
+        Attack::Burrow => 50,
+        Attack::Ultimate => 40,
+        Attack::Flex => 65,
+    }
+}
+
+fn primary_held(press: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(press) >= Duration::from_millis(180)
+}
+
+fn tertiary_held(press: u64, now: u64) -> bool {
+    now.saturating_sub(press) >= 5
+}
+
+fn controlling(mob: Entity<'_>, player: Entity<'_>) -> bool {
+    player.vehicle() == Some(mob.id())
+        && MOBS
+            .get()
+            .is_some_and(|m| m.passengers(mob).first() == Some(&player.id()))
+        && crate::taming::is_owner(mob, player)
+        && !crate::eggs::is_juvenile(mob)
+}
+
+fn reset_rider(rt: &mut Runtime, id: i32) {
+    if rt.rider.id != Some(id) {
+        rt.rider = RiderRuntime {
+            id: Some(id),
+            ..Default::default()
+        };
+    }
+}
+
+/// Volitans.getPrimaryRiderDualAbility/getTertiaryRiderDualAbility.
+pub fn rider_input(world: World<'_>, mob: Entity<'_>, player: Entity<'_>, action: &str, phase: u8) {
+    if !controlling(mob, player) {
+        return;
+    }
+    let Some(view) = mob.view() else {
+        return;
+    };
+    let mut rt = with_runtime(mob, std::mem::take);
+    reset_rider(&mut rt, player.id());
+    let pressed = phase == ACTION_PRESSED;
+    let released = phase == ACTION_RELEASED;
+    let active = rt.rider.action.as_ref().map(|a| a.kind);
+    let locked = rt
+        .rider
+        .action
+        .as_ref()
+        .is_some_and(|a| rider_locked(a, tick_count()));
+    match action {
+        "saintsdragons:ascend" => rt.rider.ascend = !released,
+        "saintsdragons:descend" => rt.rider.descend = !released,
+        "saintsdragons:accelerate" => rt.rider.accelerate = !released,
+        "saintsdragons:ability_primary" if pressed && !locked => {
+            rt.rider.primary = Some(Instant::now());
+        }
+        "saintsdragons:ability_primary" if released => {
+            if active == Some(Attack::Orb) {
+                if let Some(a) = rt.rider.action.as_mut() {
+                    a.released = true;
+                }
+            } else if let Some(press) = rt.rider.primary.take() {
+                let held = primary_held(press, Instant::now());
+                start_rider(
+                    world,
+                    mob,
+                    &mut rt,
+                    if held { Attack::Orb } else { Attack::Roar },
+                    view,
+                );
+                if held && let Some(a) = rt.rider.action.as_mut().filter(|a| a.kind == Attack::Orb)
+                {
+                    a.released = true;
+                }
+            }
+            rt.rider.primary = None;
+        }
+        "saintsdragons:ability_tertiary" if pressed && !locked => {
+            rt.rider.tertiary = Some(tick_count());
+        }
+        "saintsdragons:ability_tertiary" if released => {
+            if active == Some(Attack::Breath) {
+                finish_rider(world, mob, &mut rt);
+            } else if let Some(press) = rt.rider.tertiary.take()
+                && !tertiary_held(press, tick_count())
+            {
+                start_rider(world, mob, &mut rt, Attack::Claw, view);
+            }
+            rt.rider.tertiary = None;
+        }
+        "saintsdragons:ability_secondary" if pressed => {
+            if let Some(a) = rt
+                .rider
+                .action
+                .as_mut()
+                .filter(|a| a.kind == Attack::Burrow && a.exit.is_none())
+            {
+                a.released = true;
+            } else if !locked {
+                let kind = if medium(world, view) == Medium::Ground {
+                    Attack::Burrow
+                } else {
+                    Attack::Ultimate
+                };
+                start_rider(world, mob, &mut rt, kind, view);
+            }
+        }
+        "saintsdragons:toggle_melee" if pressed && !locked && active != Some(Attack::Burrow) => {
+            if let Some(a) = rt
+                .rider
+                .action
+                .as_mut()
+                .filter(|a| a.kind == Attack::Breath)
+            {
+                a.poison = !a.poison;
+                if let Some(m) = MOBS.get() {
+                    m.message(
+                        player,
+                        if a.poison {
+                            "Volitans breath mode: Poison"
+                        } else {
+                            "Volitans breath mode: Water"
+                        },
+                        true,
+                    );
+                }
+            } else {
+                let mut s = saved(mob);
+                s.rider_gore = !s.rider_gore;
+                save(mob, &s);
+            }
+        }
+        "saintsdragons:flex" if pressed && !locked => {
+            start_rider(world, mob, &mut rt, Attack::Flex, view)
+        }
+        "saintsdragons:attack" if pressed && !locked => {
+            let kind = if saved(mob).rider_gore {
+                Attack::Gore
+            } else {
+                Attack::Bite
+            };
+            start_rider(world, mob, &mut rt, kind, view);
+        }
+        _ => {}
+    }
+    with_runtime(mob, |s| *s = rt);
+}
+
+fn rider_locked(a: &Action, tick: u64) -> bool {
+    match a.kind {
+        Attack::Roar => a.medium == Medium::Ground,
+        Attack::Ultimate | Attack::Flex => true,
+        Attack::Burrow => tick.saturating_sub(a.start) < 14 || a.exit.is_some(),
+        _ => false,
+    }
+}
+
+fn start_rider(world: World<'_>, mob: Entity<'_>, rt: &mut Runtime, kind: Attack, v: EntityView) {
+    if rt.rider.action.is_some() || rt.rider.dash.is_some() {
+        return;
+    }
+    let m = medium(world, v);
+    let time = now(world);
+    let mut s = saved(mob);
+    if time < s.rider_ready[kind as usize] {
+        return;
+    }
+    if kind == Attack::Breath {
+        s.energy = energy(&s, time);
+        s.energy_tick = time;
+        if s.energy >= 0.20 {
+            s.depleted = false;
+        }
+        if s.depleted || s.energy <= 0.01 {
+            return;
+        }
+    }
+    if matches!(kind, Attack::Burrow | Attack::Flex) && m != Medium::Ground
+        || kind == Attack::Ultimate && m != Medium::Air
+    {
+        return;
+    }
+    let (duration, event, volume) = match kind {
+        Attack::Bite => (14, "bite", 1.4),
+        Attack::Claw => (10, "claws", 1.9),
+        Attack::Gore => (15, "horn_gore", 1.4),
+        Attack::Breath => (257, "breath_start", 2.0),
+        Attack::Orb => (u64::MAX, "poison_ball_ready", 2.0),
+        Attack::Roar => (
+            if m == Medium::Ground { 64 } else { 33 },
+            if m == Medium::Ground {
+                "roar"
+            } else {
+                "roar_air_water"
+            },
+            1.6,
+        ),
+        Attack::Burrow => (314, "enter_burrow", 2.0),
+        Attack::Ultimate => (12025, "slamming", 1.6),
+        Attack::Flex => (65, "roar", 1.6),
+    };
+    s.last = kind.name().into();
+    if kind == Attack::Flex {
+        s.rider_ready[kind as usize] = time + rider_cooldown(kind);
+    }
+    save(mob, &s);
+    rt.rider.action = Some(Action {
+        kind,
+        target: 0,
+        start: tick_count(),
+        duration,
+        medium: m,
+        poison: false,
+        hit: HashSet::new(),
+        exit: None,
+        burrow_origin: v.position,
+        burrow_progress: tick_count(),
+        rider: true,
+        released: false,
+    });
+    sound(world, mob, event, volume);
+}
+
+fn finish_rider(world: World<'_>, mob: Entity<'_>, rt: &mut Runtime) {
+    if let Some(a) = rt.rider.action.take() {
+        let mut s = saved(mob);
+        if a.kind != Attack::Flex {
+            s.rider_ready[a.kind as usize] = now(world) + rider_cooldown(a.kind);
+        }
+        if a.kind == Attack::Breath {
+            if tick_count().saturating_sub(a.start) < 17 {
+                s.energy = energy(&s, now(world));
+            }
+            s.energy_tick = now(world);
+            sound(world, mob, "breath_end", 2.0);
+        }
+        let block = match a.kind {
+            Attack::Orb => 16,
+            Attack::Roar if a.medium == Medium::Ground => 10,
+            Attack::Burrow | Attack::Ultimate => 8,
+            _ => 0,
+        };
+        rt.rider.takeoff_block = rt.rider.takeoff_block.max(tick_count() + block);
+        save(mob, &s);
+    }
+}
+
+fn look_dir(yaw: f32, pitch: f32) -> [f64; 3] {
+    let (sy, cy) = f64::from(yaw).to_radians().sin_cos();
+    let (sp, cp) = f64::from(pitch).to_radians().sin_cos();
+    [-sy * cp, -sp, cy * cp]
+}
+
+fn dash_speed(distance: f64, ticks: i32, drag: f64) -> f64 {
+    distance / (0..ticks).map(|i| drag.powi(i)).sum::<f64>()
+}
+
+fn update_dash(
+    world: World<'_>,
+    mob: Entity<'_>,
+    rt: &mut Runtime,
+    v: EntityView,
+    keys: i32,
+) -> bool {
+    let time = Instant::now();
+    let tick = tick_count();
+    let ground = medium(world, v) == Medium::Ground;
+    for (i, key) in [
+        PLAYER_INPUT_FORWARD,
+        PLAYER_INPUT_BACKWARD,
+        PLAYER_INPUT_LEFT,
+        PLAYER_INPUT_RIGHT,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if keys & key != 0 && rt.rider.previous_keys & key == 0 {
+            let twice = rt.rider.taps[i]
+                .is_some_and(|p| time.saturating_duration_since(p) <= Duration::from_millis(300));
+            rt.rider.taps[i] = Some(time);
+            if twice
+                && ground
+                && tick >= rt.rider.dash_ready
+                && rt.rider.action.is_none()
+                && rt.rider.dash.is_none()
+            {
+                let (angle, speed) = match i {
+                    0 => (0.0, dash_speed(26.0, 25, 0.90)),
+                    1 => (180.0, dash_speed(12.0, 8, 0.90)),
+                    2 => (-90.0, 1.0),
+                    _ => (90.0, 1.0),
+                };
+                rt.rider.dash = Some(Dash {
+                    direction: i,
+                    start: tick,
+                    velocity: look_dir(v.body_yaw + angle, 0.0).map(|x| x * speed),
+                });
+                rt.rider.dash_ready = tick + 30;
+                sound(world, mob, if i < 2 { DASH_CLIPS[i] } else { "dodge" }, 1.6);
+            }
+        }
+    }
+    rt.rider.previous_keys = keys;
+    let Some(dash) = rt.rider.dash.as_mut() else {
+        return false;
+    };
+    let age = tick.saturating_sub(dash.start);
+    let duration = match dash.direction {
+        0 => 25,
+        1 => 13,
+        _ => 12,
+    };
+    if age >= duration || !ground {
+        rt.rider.dash = None;
+        return false;
+    }
+    if dash.direction == 0 && age == 14 {
+        let width = mob.body().map_or(2.0, |b| b.max[0] - b.min[0]);
+        let center = add(
+            v.position,
+            look_dir(v.body_yaw, 0.0).map(|x| x * width * 0.75),
+        );
+        for_near(world, mob, center, 8.0, false, |t| hit(world, mob, t, 16.0));
+    } else if dash.direction == 1 && age == 8 {
+        for angle in [-12.0, 0.0, 12.0] {
+            rt.shots.push(Shot {
+                kind: ShotKind::DashSpine,
+                pos: aim(mob, v),
+                velocity: look_dir(v.body_yaw + angle, 0.0).map(|x| x * 2.9),
+                age: 0,
+            });
+        }
+    }
+    motion(
+        mob,
+        [dash.velocity[0], v.motion[1].min(0.0), dash.velocity[2]],
+    );
+    let drag = match dash.direction {
+        0 => 0.90,
+        1 if age < 8 => 0.90,
+        2 | 3 if age < 7 => 1.0,
+        _ => 0.82,
+    };
+    dash.velocity = dash.velocity.map(|x| x * drag);
+    true
+}
+
+/// DragonMeleeGeometry.bodyForwardAttack and sweep.
+fn melee_sweep(v: EntityView, width: f64, height: f64, range: f64) -> ([f64; 3], [f64; 3]) {
+    let forward = look_dir(v.body_yaw, 0.0);
+    let origin = add(
+        add(v.position, [0.0, height * 0.52, 0.0]),
+        forward.map(|x| x * (width * 0.35 + 2.0)),
+    );
+    let end = add(origin, forward.map(|x| x * range));
+    (
+        std::array::from_fn(|i| origin[i].min(end[i]) - range),
+        std::array::from_fn(|i| origin[i].max(end[i]) + range),
+    )
+}
+
+fn rider_melee(world: World<'_>, mob: Entity<'_>, a: &mut Action, v: EntityView, age: u64) {
+    let first = if a.kind == Attack::Claw { 3 } else { 5 };
+    if age != first && !(a.kind == Attack::Gore && age == first + 1) {
+        return;
+    }
+    let (width, height) = mob
+        .body()
+        .map_or((2.0, 2.0), |b| (b.max[0] - b.min[0], b.max[1] - b.min[1]));
+    let range = if a.kind == Attack::Claw { 3.5 } else { 4.5 };
+    let (min, max) = melee_sweep(v, width, height, range);
+    let Some(entities) = ENTITIES.get() else {
+        return;
+    };
+    for id in entities.entities_in(world, min, max, mob.id()) {
+        entities.with_entity(world, id, |t| {
+            if !enemy(mob, t) || !a.hit.insert(id) {
+                return;
+            }
+            let damage = match a.kind {
+                Attack::Bite => 12.0,
+                Attack::Claw => 11.0,
+                _ => 15.0,
+            };
+            hit(world, mob, t, damage * crate::hunger::melee_multiplier(mob));
+            if let Some(tv) = t.view().filter(|_| a.kind != Attack::Claw) {
+                let f = look_dir(v.yaw, v.pitch);
+                let push = if a.kind == Attack::Gore { 1.4 } else { 0.3 };
+                motion(
+                    t,
+                    [
+                        tv.motion[0] + f[0] * push,
+                        if a.kind == Attack::Gore {
+                            tv.motion[1].max(0.35)
+                        } else {
+                            tv.motion[1] + 0.1
+                        },
+                        tv.motion[2] + f[2] * push,
+                    ],
+                );
+            }
+        });
+    }
+}
+
+/// Tick the rider-controlled sections, sharing autonomous roar, burrow and projectile effects.
+fn run_rider_action(
+    world: World<'_>,
+    mob: Entity<'_>,
+    rt: &mut Runtime,
+    a: &mut Action,
+    v: EntityView,
+    look: EntityView,
+) -> bool {
+    let age = tick_count().saturating_sub(a.start);
+    match a.kind {
+        Attack::Bite | Attack::Claw | Attack::Gore => rider_melee(world, mob, a, v, age),
+        Attack::Orb => {
+            if a.released && age >= 13 && a.duration == u64::MAX {
+                a.duration = age + 8;
+                sound(world, mob, "poison_ball_shoot", 2.0);
+            }
+            if age >= a.duration {
+                launch_orb(
+                    world,
+                    mob,
+                    rt,
+                    aim(mob, v),
+                    look_dir(look.yaw, look.pitch).map(|x| x * 3.5),
+                );
+                return false;
+            }
+        }
+        Attack::Breath => {
+            if age >= 17 {
+                let mut s = saved(mob);
+                if age == 17 {
+                    s.energy = energy(&s, now(world));
+                }
+                s.energy = (s.energy - 1.0 / 240.0).max(0.0);
+                s.energy_tick = now(world);
+                if s.energy <= 0.01 {
+                    s.depleted = true;
+                }
+                save(mob, &s);
+                if s.depleted || age >= a.duration {
+                    return false;
+                }
+                if age == 17 {
+                    sound(world, mob, "breathing", 2.0);
+                }
+                if tick_count().is_multiple_of(2) {
+                    let direction = look_dir(look.yaw, look.pitch);
+                    rt.shots.push(Shot {
+                        kind: if a.poison {
+                            ShotKind::Poison
+                        } else {
+                            ShotKind::Water
+                        },
+                        pos: aim(mob, v),
+                        velocity: direction.map(|x| x * 1.6),
+                        age: 0,
+                    });
+                }
+            }
+        }
+        Attack::Roar | Attack::Burrow => {
+            return run_action(world, mob, rt, a, v, None, f64::INFINITY, medium(world, v));
+        }
+        Attack::Ultimate => {
+            if let Some((impact, _)) = a.exit {
+                return tick_count().saturating_sub(impact) < 20;
+            }
+            if age < 25 {
+                motion(mob, [v.motion[0] * 0.78, 0.0, v.motion[2] * 0.78]);
+            } else if v.on_ground {
+                a.exit = Some((tick_count(), false));
+                motion(mob, [0.0; 3]);
+                sound(world, mob, "slammed", 1.9);
+                particle(world, "minecraft:cloud", v.position, 3.0, 120);
+                for_near(world, mob, v.position, 20.0, true, |t| {
+                    if !poison_immune(t) {
+                        hit(world, mob, t, 24.0);
+                        t.add_effect("minecraft:poison", 600, 1, false, true);
+                        stun(t, 40);
+                        if let Some(tv) = t.view() {
+                            let d = unit(offset(tv.position, v.position));
+                            motion(t, add(tv.motion, [d[0], 0.45, d[2]]));
+                        }
+                    }
+                });
+                for wave in 0..3 {
+                    spine_ring(
+                        rt,
+                        mob,
+                        v,
+                        10 + wave * 2,
+                        u64::from(wave),
+                        1.2 + f64::from(wave) * 0.25,
+                        0.14 + f64::from(wave) * 0.07,
+                        1.0 + f64::from(wave) * 0.35,
+                    );
+                }
+            } else {
+                motion(
+                    mob,
+                    [v.motion[0], -2.5 - 0.15 * (age - 25) as f64, v.motion[2]],
+                );
+            }
+        }
+        Attack::Flex => {}
+    }
+    age < a.duration
+}
+
+/// Called by the existing mounted movement goal. Does not compete with its motion writes.
+pub fn ride(
+    world: World<'_>,
+    mob: Entity<'_>,
+    player: Entity<'_>,
+    v: EntityView,
+    look: EntityView,
+    input: [f64; 3],
+    keys: i32,
+) {
+    let mut rt = with_runtime(mob, std::mem::take);
+    reset_rider(&mut rt, player.id());
+    if rt
+        .rider
+        .primary
+        .is_some_and(|p| primary_held(p, Instant::now()))
+    {
+        rt.rider.primary = None;
+        start_rider(world, mob, &mut rt, Attack::Orb, v);
+    }
+    if rt
+        .rider
+        .tertiary
+        .is_some_and(|p| tertiary_held(p, tick_count()))
+    {
+        rt.rider.tertiary = None;
+        start_rider(world, mob, &mut rt, Attack::Breath, v);
+    }
+    if let Some(mut a) = rt.rider.action.take() {
+        let ongoing = run_rider_action(world, mob, &mut rt, &mut a, v, look);
+        rt.rider.action = Some(a);
+        if !ongoing {
+            finish_rider(world, mob, &mut rt);
+        }
+    }
+    let locked = rt
+        .rider
+        .action
+        .as_ref()
+        .is_some_and(|a| rider_locked(a, tick_count()));
+    let ultimate = rt
+        .rider
+        .action
+        .as_ref()
+        .is_some_and(|a| a.kind == Attack::Ultimate);
+    if update_dash(world, mob, &mut rt, v, keys) {
+        // Dash owns motion until its recovery completes.
+    } else if locked {
+        if !ultimate {
+            motion(mob, [0.0, v.motion[1].min(0.0), 0.0]);
+        }
+    } else {
+        let active = rt.rider.action.as_ref();
+        let m = medium(world, v);
+        let burrowing = active.is_some_and(|a| a.kind == Attack::Burrow);
+        let takeoff_allowed = !burrowing
+            && tick_count() >= rt.rider.takeoff_block
+            && !active.is_some_and(|a| a.kind == Attack::Orb && a.released);
+        let up = takeoff_allowed && (rt.rider.ascend || keys & PLAYER_INPUT_JUMP != 0);
+        let down = !burrowing && rt.rider.descend;
+        let sprint = !burrowing && (rt.rider.accelerate || keys & PLAYER_INPUT_SPRINT != 0);
+        let yaw = f64::from(look.yaw).to_radians();
+        let (sin, cos) = yaw.sin_cos();
+        let pitch = if up || down {
+            0.0
+        } else {
+            f64::from(look.pitch).to_radians()
+        };
+        let forward = input[2];
+        let strafe = input[0];
+        let speed = if burrowing {
+            0.40
+        } else if m == Medium::Water {
+            1.42 * if sprint { 1.6 } else { 1.0 }
+        } else if m == Medium::Air || up {
+            0.60 * if sprint { 5.0 } else { 4.0 }
+        } else if sprint {
+            0.34
+        } else {
+            0.24
+        };
+        let f = if m == Medium::Ground {
+            1.0
+        } else {
+            pitch.cos()
+        };
+        let desired = [
+            (-sin * forward * f + cos * strafe * 0.4) * speed,
+            -pitch.sin() * forward * speed,
+            (cos * forward * f + sin * strafe * 0.4) * speed,
+        ];
+        let mut velocity = match m {
+            Medium::Water => {
+                let dir = [desired[0], desired[1] * 0.65, desired[2]];
+                let desired = if forward.abs() > 0.01 || strafe.abs() > 0.01 {
+                    unit(dir).map(|x| x * speed)
+                } else {
+                    [0.0, v.motion[1] * 0.9, 0.0]
+                };
+                let mut next = std::array::from_fn(|i| {
+                    (v.motion[i] + (desired[i] - v.motion[i]) * 0.28)
+                        * if i == 1 { 0.96 } else { 0.92 }
+                });
+                if up {
+                    next[1] = (next[1] + 0.18).min(0.55);
+                } else if down {
+                    next[1] = (next[1] - 0.20).max(-0.55);
+                }
+                next
+            }
+            Medium::Air => std::array::from_fn(|i| v.motion[i] + (desired[i] - v.motion[i]) * 0.35),
+            Medium::Ground => [desired[0], v.motion[1].min(0.0), desired[2]],
+        };
+        if m != Medium::Water {
+            if up {
+                velocity[1] = (v.motion[1] + 0.45).min(1.5);
+            } else if down && m == Medium::Air {
+                velocity[1] = (v.motion[1] - 0.85).max(-1.5);
+            }
+        }
+        mob.change(&EntityChange {
+            mask: SET_YAW | SET_BODY_YAW | SET_HEAD_YAW | SET_MOTION,
+            yaw: look.yaw,
+            body_yaw: look.yaw,
+            head_yaw: look.yaw,
+            motion: velocity,
+            ..Default::default()
+        });
+    }
+    mob.reset_fall_distance();
+    player.reset_fall_distance();
+    with_runtime(mob, |s| *s = rt);
 }
 fn stun(t: Entity<'_>, ticks: i32) {
     if t.view().is_some_and(|v| v.kind & ENTITY_PLAYER == 0) {
@@ -1039,6 +1769,10 @@ fn step_shot(
                         return;
                     }
                     touched = true;
+                    if shot.kind == ShotKind::DashSpine && !poison_immune(t) {
+                        hit(world, mob, t, 5.0);
+                        t.add_effect("minecraft:poison", 100, 0, false, true);
+                    }
                     if breath
                         && breath_hits
                             .get(&id)
@@ -1072,7 +1806,7 @@ fn step_shot(
         ShotKind::Water => ("minecraft:splash", 28, 0.997),
         ShotKind::Poison => ("minecraft:witch", 28, 0.997),
         ShotKind::Orb(_) => ("minecraft:witch", 201, 0.99),
-        ShotKind::Spine => ("minecraft:crit", 40, 0.99),
+        ShotKind::Spine | ShotKind::DashSpine => ("minecraft:crit", 40, 0.99),
     };
     particle(world, visual, next, if breath { 0.15 } else { 0.12 }, 2);
     if let Some(id) = orb {
@@ -1094,7 +1828,7 @@ fn step_shot(
     }
     shot.pos = next;
     shot.velocity = shot.velocity.map(|x| x * drag);
-    if shot.kind == ShotKind::Spine {
+    if matches!(shot.kind, ShotKind::Spine | ShotKind::DashSpine) {
         shot.velocity[1] -= 0.05;
     }
     if shot.age >= lifetime {
@@ -1106,44 +1840,67 @@ fn step_shot(
     true
 }
 pub fn ambient(world: World<'_>, mob: Entity<'_>) -> Option<&'static str> {
+    // Drop pressed keys and unfinished abilities when the controlling passenger leaves.
+    let rider = MOBS.get().and_then(|m| m.passengers(mob).first().copied());
+    let stale = with_runtime(mob, |rt| rt.rider.id.is_some() && rt.rider.id != rider);
+    if stale {
+        let mut rt = with_runtime(mob, std::mem::take);
+        finish_rider(world, mob, &mut rt);
+        rt.rider = RiderRuntime::default();
+        with_runtime(mob, |s| *s = rt);
+    }
     let (mut shots, mut hits, clip) = with_runtime(mob, |rt| {
-        let clip = rt.action.as_ref().map(|a| match a.kind {
-            Attack::Bite => "bite",
-            Attack::Claw => "swipe_left",
-            Attack::Gore => "horn_gore",
-            Attack::Breath => {
-                if tick_count() - a.start < 17 {
-                    "breath_start"
-                } else {
-                    "breathing"
+        let clip = rt
+            .rider
+            .action
+            .as_ref()
+            .or(rt.action.as_ref())
+            .map(|a| match a.kind {
+                Attack::Bite => "bite",
+                Attack::Claw => "swipe_left",
+                Attack::Gore => "horn_gore",
+                Attack::Breath => {
+                    if tick_count() - a.start < 17 {
+                        "breath_start"
+                    } else {
+                        "breathing"
+                    }
                 }
-            }
-            Attack::Orb => {
-                if tick_count() - a.start < 13 {
-                    "poison_ball_ready"
-                } else if tick_count() - a.start + 8 < a.duration {
-                    "poison_ball_hold"
-                } else {
-                    "poison_ball_shoot"
+                Attack::Orb => {
+                    if tick_count() - a.start < 13 {
+                        "poison_ball_ready"
+                    } else if tick_count() - a.start + 8 < a.duration {
+                        "poison_ball_hold"
+                    } else {
+                        "poison_ball_shoot"
+                    }
                 }
-            }
-            Attack::Roar => {
-                if a.medium == Medium::Ground {
-                    "roar"
-                } else {
-                    "roar_air_water"
+                Attack::Roar => {
+                    if a.medium == Medium::Ground {
+                        "roar"
+                    } else {
+                        "roar_air_water"
+                    }
                 }
-            }
-            Attack::Burrow => {
-                if a.exit.is_some() {
-                    "burrow_exit"
-                } else if tick_count() - a.start < 14 {
-                    "enter_burrow"
-                } else {
-                    "burrow_move"
+                Attack::Burrow => {
+                    if a.exit.is_some() {
+                        "burrow_exit"
+                    } else if tick_count() - a.start < 14 {
+                        "enter_burrow"
+                    } else {
+                        "burrow_move"
+                    }
                 }
-            }
-        });
+                Attack::Ultimate => {
+                    if a.exit.is_some() {
+                        "slammed"
+                    } else {
+                        "slamming"
+                    }
+                }
+                Attack::Flex => "roar",
+            })
+            .or_else(|| rt.rider.dash.as_ref().map(|d| DASH_CLIPS[d.direction]));
         (
             std::mem::take(&mut rt.shots),
             std::mem::take(&mut rt.breath_hits),
@@ -1161,6 +1918,14 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dual_key_thresholds_match_release() {
+        let start = Instant::now();
+        assert!(!primary_held(start, start + Duration::from_millis(179)));
+        assert!(primary_held(start, start + Duration::from_millis(180)));
+        assert!(!tertiary_held(10, 14));
+        assert!(tertiary_held(10, 15));
+    }
     #[test]
     fn orb_gravity_ramps_then_caps() {
         assert_eq!(orb_motion([3.5, 0.0, 0.0], 10), [3.5, -0.025, 0.0]);

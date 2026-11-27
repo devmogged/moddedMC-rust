@@ -70,6 +70,10 @@ fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
             crate::combat_raevyx::rider_action(world, dragon, player, action, phase);
             return;
         }
+        if mobs.kind(dragon) == Some("saintsdragons:volitans") {
+            crate::combat_volitans::rider_input(world, dragon, player, action, phase);
+            return;
+        }
         if phase != ACTION_HELD
             && mobs
                 .kind(dragon)

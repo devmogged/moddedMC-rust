@@ -1015,7 +1015,7 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             if let Some(&first) = passengers.first() {
                 entities.with_entity(world, first, |rider| {
                     if mobs.uuid(rider) == Some(state.owner) {
-                        ride(mob, rider);
+                        ride(world, mob, rider);
                     } else if mobs.kind(mob) != Some(crate::CINDERVANE) {
                         rider.stop_riding();
                     }
@@ -1027,13 +1027,17 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     }
 }
 
-fn ride(mob: Entity<'_>, rider: Entity<'_>) {
+fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
     let (Some(mobs), Some(view), Some(look), Some(body)) =
         (MOBS.get(), mob.view(), rider.view(), rider.body())
     else {
         return;
     };
     let keys = mobs.player_input(rider).unwrap_or(0);
+    if mobs.kind(mob) == Some("saintsdragons:volitans") {
+        crate::combat_volitans::ride(world, mob, rider, view, look, body.input, keys);
+        return;
+    }
     let (ascend, descend, accelerate, locked) = if mobs.kind(mob) == Some("saintsdragons:raevyx") {
         crate::combat_raevyx::rider_movement(mob)
     } else {
