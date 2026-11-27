@@ -32,6 +32,12 @@ const GOODS: &[Item<'static>] = &[
         model: "minecraft:item/cod_bucket",
     },
     Item {
+        id: crate::mossback::KIND,
+        display_name: "Mossback",
+        carrier: "minecraft:paper",
+        model: "minecraft:item/pufferfish",
+    },
+    Item {
         id: BRUSH,
         display_name: "Dragon Brush",
         carrier: "minecraft:enchanted_book",
@@ -227,6 +233,8 @@ pub fn register(
             components.insert("minecraft:damage".to_owned(), Value::Int(0));
         } else if matches!(item.id, CREATIVE_MEAL | GENDER_WAND | VARIANT_BRUSH) {
             components.insert("minecraft:max_stack_size".to_owned(), Value::Int(1));
+        } else if item.id == crate::mossback::KIND {
+            components.insert("minecraft:max_stack_size".to_owned(), Value::Int(16));
         }
         if !components.is_empty() {
             let stack = fastnbt::to_bytes(&HashMap::from([

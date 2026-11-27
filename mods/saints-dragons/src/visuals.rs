@@ -194,7 +194,9 @@ pub fn invalidate_appearance(mob_id: i32) {
 
 fn body_stack(species: &str, clip: &str, appearance: Appearance) -> Vec<u8> {
     let name = species.strip_prefix("baby_").unwrap_or(species);
-    let clip = if matches!(
+    let clip = if species == "baby_mossback" {
+        format!("baby_mossback.animation.{clip}")
+    } else if matches!(
         name,
         "latcher" | "winged" | "whettled" | crate::ivy::SPECIES
     ) {
