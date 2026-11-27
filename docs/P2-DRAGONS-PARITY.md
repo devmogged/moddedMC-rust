@@ -117,10 +117,19 @@ and intercept its bullets when the shooter targets the owner or the bullet
 approaches the owner's body center within eight blocks. Tracked bullets remain
 valid within 40 blocks of a living owner. Saved cloak state counts loaded ticks
 and removes invisibility from the dragon and recorded rider on expiry, dismount
-or death. The secondary rider ability input is unavailable, so activation and
-manual cancellation remain blocked; the scenario seeds cloak state directly.
+or death. An adult owner can mount without a saddle above 30 happiness.
+Secondary (H) presses toggle the saved five-minute cloak for the rider and
+dragon. Primary (R) presses sample the mounted collision shell every half block
+along the rider's look direction, stop at the first obstruction, and teleport to
+the last safe point 1–16 blocks away with a 40-tick cooldown. The mounted bite
+reuses the AI bite timeline, sound and damage, using the released body-facing
+sweep rather than a single AI target. The rider attack is rebindable (unbound
+by default until the companion can observe the existing vanilla attack key).
 Exact effect-presence checks, independent effect icons, display-rig hiding,
-direct damage source immunity, forward teleport and strict-air navigation remain pending.
+direct damage source immunity, teleport world-border/entity collision and custom
+tracking packet, and strict-air navigation remain pending. The bot scenario
+checks mounting and saved cloak cleanup; actual companion actions need a live
+client, with manual checks listed in the scenario.
 [Scenario](../tests/scenarios/p2c-nulljaw-combat.txt).
 
 
@@ -688,3 +697,5 @@ Raevyx rider abilities include storm tap, ground rend hold, beam, roar, flex and
 Volitans rider input and medium-specific movement are ported.
 
 Varasuchus rider combat and movement are ported.
+
+Nulljaw rider combat, cloak and teleport controls are ported.

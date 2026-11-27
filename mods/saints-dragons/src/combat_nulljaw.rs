@@ -37,8 +37,9 @@ struct Brain {
     last_hurt: Option<i32>,
     next_scan: u64,
     group: Option<GroupKey>,
-    bite: Option<(u64, i32)>,
+    bite: Option<(u64, Option<i32>)>,
     ready: u64,
+    teleport_ready: u64,
     eat_until: u64,
     projectile: Option<i32>,
     next_projectile_scan: u64,
@@ -103,6 +104,8 @@ fn radial(angle: f64) -> Point {
 
 const CLOAK_DATA: &str = "saintsdragons:nulljaw_cloak";
 const INVISIBILITY: &str = "minecraft:invisibility";
+const CLOAK_DURATION: i32 = 6000;
+const TELEPORT_COOLDOWN: u64 = 40;
 
 #[derive(Deserialize, Serialize)]
 struct Cloak {
@@ -111,6 +114,19 @@ struct Cloak {
 }
 
 impl Cloak {
+    fn new(uuid: [u8; 16]) -> Self {
+        Self {
+            remaining: CLOAK_DURATION,
+            rider: fastnbt::IntArray::new(
+                uuid.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|bytes| i32::from_be_bytes(*bytes))
+                    .collect(),
+            ),
+        }
+    }
+
     fn load(mob: Entity<'_>) -> Option<Self> {
         let cloak: Self = fastnbt::from_bytes(&mob.data(CLOAK_DATA)?).ok()?;
         (cloak.remaining > 0 && cloak.rider.len() == 4).then_some(cloak)
@@ -147,7 +163,6 @@ fn deactivate_cloak(world: World<'_>, mob: Entity<'_>, cloak: &Cloak) {
 }
 
 /// Nulljaw.tickCloak: validate the recorded controlling owner and count loaded ticks.
-/// shortcut: the custom secondary ability key is not exposed by the rider input ABI.
 pub fn cloak_tick(world: World<'_>, mob: Entity<'_>) {
     let (Some(mut cloak), Some(mobs), Some(entities)) =
         (Cloak::load(mob), MOBS.get(), ENTITIES.get())
@@ -178,6 +193,154 @@ pub fn cloak_tick(world: World<'_>, mob: Entity<'_>) {
         }
     } else {
         deactivate_cloak(world, mob, &cloak);
+    }
+}
+
+fn controlling_owner(mob: Entity<'_>, player: Entity<'_>) -> bool {
+    mob.flags() & ENTITY_ALIVE != 0
+        && !crate::eggs::is_juvenile(mob)
+        && player.vehicle() == Some(mob.id())
+        && taming::is_owner(mob, player)
+        && MOBS
+            .get()
+            .is_some_and(|m| m.passengers(mob).first() == Some(&player.id()))
+}
+
+/// Nulljaw.toggleCloak: secondary press toggles five minutes of invisibility.
+fn toggle_cloak(world: World<'_>, mob: Entity<'_>, player: Entity<'_>) {
+    if let Some(cloak) = Cloak::load(mob) {
+        deactivate_cloak(world, mob, &cloak);
+    } else if let Some(uuid) = MOBS.get().and_then(|m| m.uuid(player))
+        && let Ok(nbt) = fastnbt::to_bytes(&Cloak::new(uuid))
+        && mob.set_data(CLOAK_DATA, &nbt)
+    {
+        mob.add_effect(INVISIBILITY, CLOAK_DURATION, 0, false, false);
+        player.add_effect(INVISIBILITY, CLOAK_DURATION, 0, false, false);
+    }
+}
+
+fn direction(yaw: f32, pitch: f32) -> Point {
+    let yaw = f64::from(yaw).to_radians();
+    let pitch = f64::from(pitch).to_radians();
+    [
+        -yaw.sin() * pitch.cos(),
+        -pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    ]
+}
+
+/// The last uninterrupted safe half-block sample, at least one block away.
+fn teleport_distance(mut clear: impl FnMut(f64) -> bool) -> Option<f64> {
+    let mut last = None;
+    for i in 1..=32 {
+        let d = f64::from(i) * 0.5;
+        if !clear(d) {
+            break;
+        }
+        if d >= 1.0 {
+            last = Some(d);
+        }
+    }
+    last
+}
+
+/// Nulljaw.createMountedCollisionShell, using released dimensions and actual block shapes.
+fn clear_shell(world: World<'_>, at: Point) -> bool {
+    let min = flight::add(at, [-0.5999, -1.6499, -0.5999]);
+    let max = flight::add(at, [0.5999, 1.1499, 0.5999]);
+    let a = flight::cell(min);
+    let b = flight::cell(max);
+    (a.x..=b.x).all(|x| {
+        (a.y..=b.y).all(|y| {
+            (a.z..=b.z).all(|z| {
+                let cell = [f64::from(x), f64::from(y), f64::from(z)];
+                world
+                    .collision_shape(moddedmc_api::Pos { x, y, z })
+                    .is_some_and(|boxes| {
+                        boxes.iter().all(|shape| {
+                            (0..3).any(|i| {
+                                cell[i] + shape.max[i] <= min[i] || cell[i] + shape.min[i] >= max[i]
+                            })
+                        })
+                    })
+            })
+        })
+    })
+}
+
+/// NulljawForwardTeleportAbility: instant action with a 40-tick cooldown on success.
+fn forward_teleport(world: World<'_>, mob: Entity<'_>, player: Entity<'_>) {
+    let now = tick_count();
+    if brain(mob.id(), |b| b.bite.is_some() || now < b.teleport_ready) {
+        return;
+    }
+    let (Some(view), Some(rider), Some(dimension), Some(p)) = (
+        mob.view(),
+        player.view(),
+        world.dimension_id(),
+        player.as_player(),
+    ) else {
+        return;
+    };
+    let look = direction(rider.yaw, rider.pitch);
+    // shortcut: world border and exact entity collision predicates are not exposed.
+    let Some(distance) =
+        teleport_distance(|d| clear_shell(world, flight::add(view.position, scale(look, d))))
+    else {
+        return;
+    };
+    let delta = scale(look, distance);
+    let destination = flight::add(view.position, delta);
+    let [x, y, z] = flight::add(rider.position, delta);
+    if !p.teleport(dimension, x, y, z, None) {
+        return;
+    }
+    if let Some(ai) = MOB_AI.get() {
+        ai.stop(mob);
+    }
+    // shortcut: ordinary carrier position sync and player teleport replace the release's
+    // dedicated mounted-teleport tracking packet.
+    mob.set_position(destination);
+    brain(mob.id(), |b| b.teleport_ready = now + TELEPORT_COOLDOWN);
+    if let Some(effects) = EFFECTS.get() {
+        for at in [view.position, destination] {
+            effects.play_sound(
+                world,
+                at,
+                "minecraft:entity.enderman.teleport",
+                SOUND_NEUTRAL,
+                1.0,
+                1.0,
+            );
+        }
+    }
+}
+
+pub fn rider_action(
+    world: World<'_>,
+    mob: Entity<'_>,
+    player: Entity<'_>,
+    action: &str,
+    phase: u8,
+) {
+    if phase != moddedmc_api::player_actions::ACTION_PRESSED || !controlling_owner(mob, player) {
+        return;
+    }
+    match action {
+        "saintsdragons:ability_primary" => forward_teleport(world, mob, player),
+        "saintsdragons:ability_secondary" => toggle_cloak(world, mob, player),
+        "saintsdragons:attack" => {
+            start_bite(world, mob, None, tick_count());
+        }
+        _ => {}
+    }
+}
+
+/// Mounted ability progression does not require an autonomous attack target.
+pub fn rider_tick(world: World<'_>, mob: Entity<'_>) {
+    cloak_tick(world, mob);
+    if brain(mob.id(), |b| matches!(b.bite, Some((_, None)))) {
+        bite_tick(world, mob, tick_count());
     }
 }
 
@@ -603,6 +766,39 @@ fn fly(world: World<'_>, mob: Entity<'_>, at: Point, waypoint: Point, speed: f64
     mob.reset_fall_distance();
 }
 
+fn start_bite(world: World<'_>, mob: Entity<'_>, target: Option<i32>, now: u64) -> bool {
+    let started = brain(mob.id(), |b| {
+        if b.bite.is_some() || now < b.ready {
+            return false;
+        }
+        b.bite = Some((now, target));
+        true
+    });
+    if started {
+        sound(
+            world,
+            mob,
+            "saintsdragons:nulljaw_bite",
+            "entity.spider.hurt",
+        );
+    }
+    started
+}
+
+/// DragonMeleeGeometry.findBodySweepTargets: horizontal body facing, not rider pitch.
+fn bite_bounds(at: Point, yaw: f32) -> (Point, Point) {
+    let dir = direction(yaw, 0.0);
+    let start = flight::add(
+        flight::add(at, [0.0, 1.15 * 0.52, 0.0]),
+        scale(dir, WIDTH * 0.35 + 1.75),
+    );
+    let end = flight::add(start, scale(dir, 2.75));
+    (
+        std::array::from_fn(|i| start[i].min(end[i]) - 3.3),
+        std::array::from_fn(|i| start[i].max(end[i]) + 3.3),
+    )
+}
+
 fn bite_tick(world: World<'_>, mob: Entity<'_>, now: u64) {
     let active = brain(mob.id(), |b| b.bite);
     let Some((start, id)) = active else { return };
@@ -617,27 +813,45 @@ fn bite_tick(world: World<'_>, mob: Entity<'_>, now: u64) {
             return;
         };
         let damage = 8.0 * hunger::melee_multiplier(mob);
-        let valid = entities
-            .with_entity(world, id, |e| {
-                let (Some(v), Some(body)) = (e.view(), e.body()) else {
-                    return false;
-                };
-                enemy(mob, e)
-                    && distance2(v.position, view.position)
-                        <= reach(2.75, body.max[0] - body.min[0]).powi(2)
-            })
-            .unwrap_or(false);
-        if valid && ai.attack(world, mob, id, damage) {
-            entities.with_entity(world, id, |e| {
-                if let Some(v) = e.view() {
-                    let yaw = f64::from(view.yaw).to_radians();
-                    e.change(&EntityChange {
-                        mask: SET_MOTION,
-                        motion: flight::add(v.motion, [-yaw.sin() * 0.2, 0.05, yaw.cos() * 0.2]),
-                        ..EntityChange::default()
-                    });
-                }
-            });
+        let ids = if let Some(id) = id {
+            vec![id]
+        } else if MOBS.get().is_some_and(|m| !m.passengers(mob).is_empty()) {
+            let (min, max) = bite_bounds(view.position, view.body_yaw);
+            entities.entities_in(world, min, max, mob.id())
+        } else {
+            Vec::new()
+        };
+        for target in ids {
+            let valid = entities
+                .with_entity(world, target, |e| {
+                    let (Some(v), Some(body)) = (e.view(), e.body()) else {
+                        return false;
+                    };
+                    enemy(mob, e)
+                        && (id.is_some()
+                            || !matches!(
+                                e.type_id(),
+                                "minecraft:villager"
+                                    | "minecraft:wandering_trader"
+                                    | "minecraft:iron_golem"
+                            ))
+                        && (id.is_none()
+                            || distance2(v.position, view.position)
+                                <= reach(2.75, body.max[0] - body.min[0]).powi(2))
+                })
+                .unwrap_or(false);
+            if valid && ai.attack(world, mob, target, damage) {
+                entities.with_entity(world, target, |e| {
+                    if let Some(v) = e.view() {
+                        let push = scale(direction(view.yaw, view.pitch), 0.2);
+                        e.change(&EntityChange {
+                            mask: SET_MOTION,
+                            motion: flight::add(v.motion, [push[0], 0.05, push[2]]),
+                            ..EntityChange::default()
+                        });
+                    }
+                });
+            }
         }
     }
 }
@@ -696,14 +910,19 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         goal_phase::STOP => {
             state(|s| {
                 leave(s, mob.id());
-                s.brains.entry(mob.id()).or_default().bite = None;
+                let b = s.brains.entry(mob.id()).or_default();
+                if matches!(b.bite, Some((_, Some(_)))) {
+                    b.bite = None;
+                }
             });
             ai.stop(mob);
             mobs.set_no_gravity(mob, false);
             false
         }
         goal_phase::TICK => {
-            bite_tick(world, mob, now);
+            if brain(mob.id(), |b| matches!(b.bite, Some((_, Some(_))))) {
+                bite_tick(world, mob, now);
+            }
             if let Some(id) = bullet {
                 state(|s| leave(s, mob.id()));
                 if let Some(Some((v, body))) =
@@ -794,13 +1013,7 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 && distance2(view.position, v.position)
                     <= reach(1.5, body.max[0] - body.min[0]).powi(2)
                 && visible(world, flight::add(view.position, [0.0, 0.6, 0.0]), center)
-                && brain(mob.id(), |b| {
-                    if b.bite.is_some() || now < b.ready {
-                        return false;
-                    }
-                    b.bite = Some((now, id));
-                    true
-                })
+                && start_bite(world, mob, Some(id), now)
             {
                 state(|s| {
                     if let Some(run) = s
@@ -811,12 +1024,6 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                         run.bite = Some(now);
                     }
                 });
-                sound(
-                    world,
-                    mob,
-                    "saintsdragons:nulljaw_bite",
-                    "entity.spider.hurt",
-                );
             }
             let speed = match mode {
                 Phase::Orbit => 0.9,
@@ -850,10 +1057,27 @@ mod tests {
         };
         let loaded: Cloak = fastnbt::from_bytes(&fastnbt::to_bytes(&cloak).unwrap()).unwrap();
         assert_eq!(loaded.remaining, 6000);
+        assert_eq!(Cloak::new(loaded.uuid()).rider, loaded.rider);
         assert_eq!(
             loaded.uuid(),
             [1, 2, 3, 4, 5, 6, 7, 8, 255, 255, 255, 255, 0, 0, 0, 0]
         );
+    }
+    #[test]
+    fn teleport_stops_at_first_obstruction_and_requires_one_block() {
+        assert_eq!(teleport_distance(|_| true), Some(16.0));
+        assert_eq!(teleport_distance(|d| d < 5.0), Some(4.5));
+        assert_eq!(teleport_distance(|d| d < 1.0), None);
+        assert_eq!(teleport_distance(|d| d != 0.5), None);
+    }
+
+    #[test]
+    fn rider_bite_sweep_uses_body_forward_offset() {
+        let (min, max) = bite_bounds([0.0; 3], 0.0);
+        assert!((min[2] + 1.13).abs() < 1e-8);
+        assert!((max[2] - 8.22).abs() < 1e-8);
+        assert_eq!(min[0], -3.3);
+        assert_eq!(max[0], 3.3);
     }
     #[test]
     fn bite_and_intercept_geometry() {

@@ -24,8 +24,8 @@ wait 8
 cmd data get entity @e[tag=nulljaw_target,limit=1] Health
 wait 0.5
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
-# Seed the saved cloak after its rider has dismounted: the secondary ability
-# key is not exposed yet. The rider's long invisibility must disappear early.
+# Seed the saved cloak after its rider has dismounted: a headless bot cannot
+# send companion key actions. The rider's long invisibility must disappear early.
 cmd kill @e[tag=nulljaw_target]
 cmd tag @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] add cloak_probe
 cmd effect give tester minecraft:invisibility 300 0 true
@@ -57,6 +57,27 @@ wait 0.4
 cmd execute if entity @e[type=minecraft:shulker_bullet,tag=orphan_bullet]
 wait 0.5
 expect Test passed
+# The adult owner mounts without a saddle.
+cmd kill @e[tag=orphan_bullet]
+bot use-entity spider 1025.5 120 1025.5 main
+wait 0.75
+bot expect riding spider
+wait 0.5
+expect \[bot\] expect riding ok spider
+bot input sneak
+wait 1
+bot input none
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+# Companion manual extension (open air, mounted adult):
+# H toggles five-minute invisibility on both entities; holding H does not
+# retrigger, and a second press or dismount removes it from both.
+# R teleports mount and rider up to 16 blocks along the rider's look vector,
+# stops before a wall, refuses a blocked first block, and has a two-second cooldown.
+# Bind Rider Attack in the companion controls. Pressing it starts a bite;
+# after five ticks a body-facing sweep deals eight
+# base damage scaled by hunger, with a 17-tick track and 12-tick cooldown.
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop
