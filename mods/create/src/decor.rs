@@ -227,7 +227,9 @@ pub(crate) fn wrench_pickup(context: &UseOnBlock<'_>) -> Option<UseResult> {
     }
     let description = CONTENT.get()?.describe_state(state[0])?;
     let block = description.split('[').next()?;
-    if !TAGS.get()?.contains("block", "create:wrench_pickup", block) {
+    if !crate::metal_ladder::is_metal_ladder(block)
+        && !TAGS.get()?.contains("block", "create:wrench_pickup", block)
+    {
         return None;
     }
     let drops = if context.creative {
@@ -243,8 +245,7 @@ pub(crate) fn wrench_pickup(context: &UseOnBlock<'_>) -> Option<UseResult> {
     }
     if let Some(effects) = EFFECTS.get() {
         let coords = [pos.x, pos.y, pos.z];
-        let sample = (RandomState::new().hash_one(coords) >> 48) as u16;
-        let pitch = 0.75 * (0.5 + 0.5 * f32::from(sample) / 65_536.0);
+        let pitch = 0.75 * (0.5 + 0.5 * wrench_pitch(coords));
         for sound in [
             "minecraft:entity.item.pickup",
             "minecraft:block.netherite_block.hit",
@@ -260,6 +261,11 @@ pub(crate) fn wrench_pickup(context: &UseOnBlock<'_>) -> Option<UseResult> {
         }
     }
     Some(UseResult::Success)
+}
+
+pub(crate) fn wrench_pitch(coords: [i32; 3]) -> f32 {
+    let sample = (RandomState::new().hash_one(coords) >> 48) as u16;
+    f32::from(sample) / 65_536.0
 }
 
 fn register_connected_block(
