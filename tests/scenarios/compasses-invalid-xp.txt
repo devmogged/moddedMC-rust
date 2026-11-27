@@ -1,0 +1,6 @@
+# Invalid XP bounds fail registration even on a host supporting atomic debits.
+mods target\mods\compasses.mmc
+start
+reject registered content item (naturescompass|explorerscompass):
+expect-all Invalid compass configuration: .*defaultXpLevels must be 0\.\.\=3 && moddedmc: compasses failed to register
+stop

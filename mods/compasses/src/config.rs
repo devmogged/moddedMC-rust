@@ -42,6 +42,32 @@ pub struct SearchCosts {
     pub durability: u16,
 }
 
+/// The source charges when a search is requested, including searches that
+/// eventually exhaust. A new group search uses its set ID, while find-next
+/// uses the actual structure member saved in the previous result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchIntent<'a> {
+    Target(&'a str),
+    Group(&'a str),
+    FindNext(&'a str),
+}
+
+impl<'a> SearchIntent<'a> {
+    fn billed_id(self) -> &'a str {
+        match self {
+            Self::Target(id) | Self::Group(id) | Self::FindNext(id) => id,
+        }
+    }
+}
+
+/// A quote describes the required debit, never proof that it was performed.
+/// The v2 host interface must check available levels, debit, and replace the
+/// exact compass state in one operation or do none of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SearchQuote {
+    pub levels: u8,
+}
+
 impl SearchCosts {
     fn parse(raw: &FileOptions, nature: bool) -> Result<Self, &'static str> {
         let default_xp = raw.default_xp_levels.unwrap_or(0);
@@ -92,8 +118,14 @@ impl SearchCosts {
         })
     }
 
-    /// For an explicit group search, pass the selected group ID. For
-    /// find-next, pass the actual member saved by the preceding result.
+    /// Resolve explicit group search against its group ID and find-next
+    /// against the previously found actual member, regardless of visibility.
+    pub fn quote(&self, intent: SearchIntent<'_>) -> SearchQuote {
+        SearchQuote {
+            levels: self.xp_for(intent.billed_id()),
+        }
+    }
+
     pub fn xp_for(&self, requested: &str) -> u8 {
         self.overrides
             .iter()
@@ -101,14 +133,14 @@ impl SearchCosts {
             .map_or(self.default_xp, |(_, cost)| *cost)
     }
 
-    fn require_supported(&self, durable_state: bool) -> Result<(), &'static str> {
-        if self.default_xp != 0 {
+    fn require_supported(&self, durable_state: bool, atomic_xp: bool) -> Result<(), &'static str> {
+        if self.default_xp != 0 && !atomic_xp {
             return Err("nonzero defaultXpLevels requires atomic XP charging");
         }
         if self.durability != 0 && !durable_state {
             return Err("nonzero compassDurability requires player mode and atomic stack state");
         }
-        if self.overrides.iter().any(|(_, cost)| *cost != 0) {
+        if !atomic_xp && self.overrides.iter().any(|(_, cost)| *cost != 0) {
             return Err("nonzero per-target XP overrides require atomic XP charging");
         }
         Ok(())
@@ -121,16 +153,26 @@ impl Options {
         Self::parse_with_durability(raw, nature, false)
     }
 
+    #[cfg(test)]
     fn parse_with_durability(
         raw: FileOptions,
         nature: bool,
         durable_state: bool,
     ) -> Result<Self, &'static str> {
+        Self::parse_with_capabilities(raw, nature, durable_state, false)
+    }
+
+    fn parse_with_capabilities(
+        raw: FileOptions,
+        nature: bool,
+        durable_state: bool,
+        atomic_xp: bool,
+    ) -> Result<Self, &'static str> {
         if raw.allow_teleport == Some(true) {
             return Err("allowTeleport=true requires permission-checked teleport support");
         }
         let costs = SearchCosts::parse(&raw, nature)?;
-        costs.require_supported(durable_state)?;
+        costs.require_supported(durable_state, atomic_xp)?;
         let limit = if nature { 25 } else { 100 };
         let max_next = raw.max_next_searches.unwrap_or(limit);
         let max_samples = raw
@@ -184,7 +226,12 @@ impl Options {
         })
     }
 
-    pub fn load(dir: &Path, nature: bool, durable_state: bool) -> Result<Self, String> {
+    pub fn load(
+        dir: &Path,
+        nature: bool,
+        durable_state: bool,
+        atomic_xp: bool,
+    ) -> Result<Self, String> {
         let path = dir.join(if nature {
             "naturescompass.json"
         } else {
@@ -197,7 +244,7 @@ impl Options {
             Err(e) if e.kind() == ErrorKind::NotFound => FileOptions::default(),
             Err(e) => return Err(format!("{}: {e}", path.display())),
         };
-        Self::parse_with_durability(raw, nature, durable_state)
+        Self::parse_with_capabilities(raw, nature, durable_state, atomic_xp)
             .map_err(|e| format!("{}: {e}", path.display()))
     }
 
@@ -266,7 +313,7 @@ mod tests {
         assert_eq!(costs.xp_for("test:member_a"), 1);
         assert_eq!(costs.xp_for("minecraft:stronghold"), 2);
         assert_eq!(costs.durability, 3);
-        assert!(costs.require_supported(false).is_err());
+        assert!(costs.require_supported(false, false).is_err());
     }
 
     #[test]
@@ -384,6 +431,58 @@ mod tests {
                 Options::parse_with_durability(raw, nature, true).err(),
                 Some("nonzero defaultXpLevels requires atomic XP charging")
             );
+        }
+    }
+
+    #[test]
+    fn paid_config_requires_atomic_stack_and_xp_capability() {
+        for nature in [true, false] {
+            let key = if nature {
+                "perBiomeXpLevels"
+            } else {
+                "perStructureXpLevels"
+            };
+            let json = format!(
+                r#"{{"defaultXpLevels":2,"{key}":["test:free,0","test:paid,3"],"compassDurability":4}}"#
+            );
+            let raw: FileOptions = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                Options::parse_with_capabilities(raw, nature, true, false).err(),
+                Some("nonzero defaultXpLevels requires atomic XP charging")
+            );
+            let raw: FileOptions = serde_json::from_str(&json).unwrap();
+            let supported = Options::parse_with_capabilities(raw, nature, true, true).unwrap();
+            assert_eq!(supported.costs.durability, 4);
+            assert_eq!(supported.costs.xp_for("test:paid"), 3);
+            assert_eq!(supported.costs.xp_for("test:free"), 0);
+            let raw: FileOptions = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                Options::parse_with_capabilities(raw, nature, false, true).err(),
+                Some("nonzero compassDurability requires player mode and atomic stack state")
+            );
+        }
+    }
+
+    #[test]
+    fn quoted_group_then_actual_member_next_charges_distinct_targets() {
+        let raw: FileOptions = serde_json::from_str(
+            r#"{"defaultXpLevels":3,"perStructureXpLevels":[
+                "test:pair,2","test:a,1","test:b,0","test:pair,2"]}"#,
+        )
+        .unwrap();
+        let costs = SearchCosts::parse(&raw, false).unwrap();
+        let first = costs.quote(SearchIntent::Group("test:pair"));
+        let second = costs.quote(SearchIntent::FindNext("test:b"));
+        let third = costs.quote(SearchIntent::FindNext("test:a"));
+        assert_eq!(first.levels, 2);
+        assert_eq!(second.levels, 0);
+        assert_eq!(third.levels, 1);
+        assert_eq!(costs.quote(SearchIntent::Target("test:other")).levels, 3);
+        // No forged extra comma or resource ID is accepted as a cost override.
+        for malformed in ["test:pair,1,2", "test:PAIR,1", "test:pair,-1"] {
+            let json = format!(r#"{{"perStructureXpLevels":["{malformed}"]}}"#);
+            let raw = serde_json::from_str(&json).unwrap();
+            assert!(SearchCosts::parse(&raw, false).is_err());
         }
     }
 }

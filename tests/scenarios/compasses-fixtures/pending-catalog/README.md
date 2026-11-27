@@ -1,5 +1,15 @@
 # Global catalog acceptance (pending coherent host snapshot)
 
+The Compass crate now has `global_catalog::GlobalCatalog`, a pure complete-
+snapshot validator with explicit generating-dimension eligibility, duplicate
+and invalid metadata rejection, live visibility filtering, and pre-debit
+search authorization. It is not yet wired into menus: the host still needs
+an authoritative global registry snapshot interface. These fixtures remain
+unrun and their metadata assumptions must be checked against the real host.
+Existing local Explorer search admission also rejects an authoritative empty
+structure-placement list (including groups with no placement entries) before
+any XP charge. A generator placement lookup failure remains unavailable.
+
 This pack has two registered structures but no structure sets or placements.
 `aaa_compass_test:unplaced` is eligible by the stronghold biome holder set;
 `aaa_compass_test:never_eligible` uses a deliberately empty biome tag. The

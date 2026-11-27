@@ -245,7 +245,7 @@ configuration and any required datapack automatically.
 | group-navigation | Old group-entry and return-page tokens cannot reopen a dialog. Replacing the original stack with another of the same item ID invalidates its group action. A fresh menu works, and replay of the successful pick is inert. |
 | repair | With explicit zero XP cost, locate a biome, craft the found Nature compass plus a vanilla compass in the 2x2 player grid, obtain exactly one fresh mod compass, consume both ingredients, reject the pre-repair menu, persist absent tracker across restart, and locate the same biome again. |
 | explorer-repair | Find both weighted members, exhaust the group, check unchanged XP, locate the first member again, repair via stock crafting, reject the stale action, and recover the first member after restart. |
-| unsupported-xp | Valid positive XP configuration fails registration with its precise atomic-charge capability error. |
+| invalid-xp | Positive XP levels outside the original 0–3 range fail registration even when atomic debit is supported. |
 | invalid-durability | Out-of-range durability (>10000) rejects registration. |
 | durability | Positive Nature wear, separate same-ID stacks, sneak-reset, broken stack/restart, real repair and creative exemption. |
 | explorer-durability | Positive Explorer wear on weighted-member successes, no wear on exhaustion, broken stack retained with exact tracker over restart. |
@@ -306,3 +306,23 @@ the batch runner are removed.
 These are stock protocol checks, not a graphical client inspection. Positive
 XP charging, permission-checked teleport, full registry/dimension catalog,
 and graphical durability presentation remain separate host-capability work.
+
+## Atomic XP admission integration (source prepared; runtime pending)
+
+The shared `PlayerStackDataV2` exposes one exact-stack replacement plus XP
+level debit operation. Compass now requests the debit once when admitting a
+search, including a search that later exhausts its limits; it does not charge
+during worker ticks. Creative players are exempted inside the host transaction.
+Positive config values require that interface at registration. The unchanged
+V1 host still runs zero-cost searches and explicitly rejects paid config.
+The result of a failed debit does not start a job or change the stack.
+
+The runner has `xp-nature` and `xp-explorer` cases using the existing
+`pending-xp` fixture and weighted-group generator, plus `invalid-xp` to check
+that out-of-range costs still fail registration on the upgraded host.
+The historical `unsupported-xp` case belongs to the V1-host compatibility
+check and is no longer included in the current-host runner. These three new
+cases have **not** been run yet; the earlier 24-case pass table describes the
+prior zero-cost release, not this new code. The host transaction is atomic in
+memory, but durable crash-atomic XP/inventory commits across disk saves remain
+pending a shared persistence transaction design.

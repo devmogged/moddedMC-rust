@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group','reset','visibility','visibility-reload','multiplayer','interrupted','same-item','repair','explorer-repair','unsupported-xp','invalid-durability','group-navigation','durability','explorer-durability')]
+    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group','reset','visibility','visibility-reload','multiplayer','interrupted','same-item','repair','explorer-repair','invalid-xp','invalid-durability','group-navigation','durability','explorer-durability','xp-nature','xp-explorer')]
     [string]$Case,
     [ValidateRange(1024,65534)]
     [int]$Port = 26180,
@@ -18,6 +18,8 @@ $run = "run/$RunName"
 $absolute = Join-Path $root $run
 if (Test-Path -LiteralPath $absolute) { throw "Run directory already exists: $absolute" }
 $scenario = Join-Path $PSScriptRoot "compasses-$Case.txt"
+if ($Case -eq 'xp-nature') { $scenario = Join-Path $PSScriptRoot 'compasses-fixtures/pending-xp/nature.txt' }
+if ($Case -eq 'xp-explorer') { $scenario = Join-Path $PSScriptRoot 'compasses-fixtures/pending-xp/explorer.txt' }
 $fixture = switch ($Case) {
     'absent' { 'zero-frequency' }
     'custom-rings' { 'custom-rings' }
@@ -32,6 +34,7 @@ $fixture = switch ($Case) {
     'explorer-repair' { 'weighted-group' }
     'group-navigation' { 'weighted-group' }
     'explorer-durability' { 'weighted-group' }
+    'xp-explorer' { 'weighted-group' }
     default { $null }
 }
 foreach ($path in @('engine/target/pack/pack-dev.exe','engine/target/pack/moddedmc-bot.exe','target/mods/compasses.mmc')) {
@@ -60,10 +63,12 @@ if ($Case -eq 'interrupted') {
     New-Item -ItemType Directory -Force -Path $config | Out-Null
     Copy-Item -LiteralPath (Join-Path $source 'explorerscompass.json') -Destination $config
 }
-if ($Case -in @('repair','explorer-repair','unsupported-xp','invalid-durability','durability','explorer-durability')) {
+if ($Case -in @('repair','explorer-repair','invalid-xp','invalid-durability','durability','explorer-durability','xp-nature','xp-explorer')) {
     $configFixture = switch ($Case) {
         'explorer-repair' { 'repair' }
         'explorer-durability' { 'durability' }
+        'xp-nature' { 'pending-xp' }
+        'xp-explorer' { 'pending-xp' }
         default { $Case }
     }
     $source = Join-Path $PSScriptRoot "compasses-fixtures/$configFixture/config"
