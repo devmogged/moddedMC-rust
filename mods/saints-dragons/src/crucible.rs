@@ -5,19 +5,35 @@ use std::{
 
 use fastnbt::Value;
 use moddedmc_api::{
-    Pos, RegistrationError, Registry,
-    content::{self, Block, Content, ContentEvent, State, World},
+    InterfaceUnavailable, Player, Pos, RegistrationError, Registry,
+    content::{self, Block, Content, ContentEvent, EntitySnapshot, State, World},
     interaction::{BlockUseResult, PlayerWillDestroy, UseBlock},
+    inventory_menu::{
+        self, Access, Action, Control, Managed, ManagedChange, ManagedSlots, MenuKind, Validity,
+    },
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{CONTENT, MOBS, STACKS, TAGS};
+use crate::{CONTENT, STACKS, TAGS};
 
 mod smelting;
 
 pub const ID: &str = "saintsdragons:draconic_crucible";
 pub const NAME: &str = "Draconic Crucible";
 const GRID_SIZE: usize = 9;
+const SLOTS: usize = 27;
+const GRID: [usize; GRID_SIZE] = [0, 1, 2, 9, 10, 11, 18, 19, 20];
+const FUEL: usize = 4;
+const OUTPUT: usize = 6;
+const START: usize = 15;
+const CLOSED: Access = Access {
+    take: false,
+    insert: false,
+};
+const OPEN: Access = Access {
+    take: true,
+    insert: true,
+};
 const CAPACITY: [i32; 4] = [0, 5, 11, 17];
 const COST: [i32; 4] = [0, 1, 2, 6];
 type Stack = HashMap<String, Value>;
@@ -25,6 +41,13 @@ type Stack = HashMap<String, Value>;
 static RECIPES: OnceLock<Vec<Recipe>> = OnceLock::new();
 static BLOCK_STATE: OnceLock<u32> = OnceLock::new();
 static ACTIVE: Mutex<Option<HashMap<usize, HashSet<Pos>>>> = Mutex::new(None);
+static MENUS: OnceLock<Managed> = OnceLock::new();
+static KIND: OnceLock<MenuKind> = OnceLock::new();
+
+pub fn require() -> Result<(), InterfaceUnavailable> {
+    let _ = MENUS.set(inventory_menu::require_managed()?);
+    Ok(())
+}
 
 #[derive(Deserialize)]
 struct Ingredient {
@@ -92,7 +115,7 @@ impl Recipe {
     }
 }
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 struct Crucible {
     input: [Stack; GRID_SIZE],
@@ -102,7 +125,7 @@ struct Crucible {
     job: Option<Job>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, PartialEq)]
 struct Job {
     result: Stack,
     minimum_charge: i32,
@@ -112,15 +135,37 @@ struct Job {
 }
 
 impl Crucible {
-    fn load(world: World<'_>, pos: Pos) -> Self {
-        world
-            .entity(pos)
-            .and_then(|bytes| fastnbt::from_bytes(&bytes).ok())
-            .unwrap_or_default()
+    fn access(&self) -> [Access; SLOTS] {
+        let mut access = [CLOSED; SLOTS];
+        for slot in GRID {
+            access[slot] = if self.job.is_none() { OPEN } else { CLOSED };
+        }
+        access[FUEL] = OPEN;
+        access[OUTPUT] = Access {
+            take: true,
+            insert: false,
+        };
+        access
     }
 
-    fn save(&self, world: World<'_>, pos: Pos) -> bool {
-        fastnbt::to_bytes(self).is_ok_and(|bytes| world.set_entity(pos, &bytes))
+    fn slots(&self) -> Option<Vec<Option<Vec<u8>>>> {
+        let mut slots = vec![None; SLOTS];
+        for (slot, item) in GRID
+            .into_iter()
+            .zip(&self.input)
+            .chain([(FUEL, &self.fuel), (OUTPUT, &self.output)])
+        {
+            if !item.is_empty() {
+                slots[slot] = Some(fastnbt::to_bytes(item).ok()?);
+            }
+        }
+        let marker = if self.job.is_some() {
+            "minecraft:clock"
+        } else {
+            "minecraft:lever"
+        };
+        slots[START] = Some(fastnbt::to_bytes(&stack(marker, 1)).ok()?);
+        Some(slots)
     }
 
     fn store_fuel(&mut self, fuel_level: impl Fn(&str) -> Option<usize>) {
@@ -142,6 +187,7 @@ impl Crucible {
         if self.job.is_some() {
             return false;
         }
+        self.store_fuel(&fuel_level);
 
         // Released shaped recipes have equal priority and are stored in recipe-id order.
         let shaped = recipes
@@ -276,7 +322,12 @@ fn decrement(stack: &mut Stack) {
 }
 
 fn same_item(left: &Stack, right: &Stack) -> bool {
-    item_id(left) == item_id(right) && left.get("components") == right.get("components")
+    fn components(stack: &Stack) -> Option<&Value> {
+        stack
+            .get("components")
+            .filter(|value| !matches!(value, Value::Compound(fields) if fields.is_empty()))
+    }
+    item_id(left) == item_id(right) && components(left) == components(right)
 }
 
 fn max_count(stack: &Stack) -> i32 {
@@ -309,6 +360,9 @@ fn recipes() -> &'static [Recipe] {
 }
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
+    let menus = MENUS.get().ok_or(RegistrationError::InvalidDefinition)?;
+    let kind = menus.register(registry, changed, action, valid, accepts, route)?;
+    let _ = KIND.set(kind);
     let recipes = serde_json::from_str(include_str!("crucible_recipes.json"))
         .map_err(|_| RegistrationError::InvalidDefinition)?;
     let _ = RECIPES.set(recipes);
@@ -343,176 +397,301 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
     )
 }
 
-pub fn tick(world: World<'_>, events: &[ContentEvent]) {
-    let Some(state) = state() else {
-        return;
-    };
-    let mut worlds = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
-    if events.is_empty() && worlds.is_none() {
-        return;
+fn snapshot(world: World<'_>, pos: Pos) -> Option<(EntitySnapshot, Crucible)> {
+    let snapshot = world.entity_snapshot(pos)?;
+    if state() != Some(snapshot.state) {
+        return None;
     }
-    let positions = worlds
-        .get_or_insert_with(HashMap::new)
-        .entry(world.id())
-        .or_default();
-    for event in events {
-        if event.previous == state && (event.state != state || event.reason == content::UNLOADED) {
-            positions.remove(&event.position);
-        } else if event.state == state
-            && event.reason == content::LOADED
-            && Crucible::load(world, event.position).job.is_some()
-        {
-            positions.insert(event.position);
-        }
-    }
-    positions.retain(|&pos| {
-        let mut crucible = Crucible::load(world, pos);
-        if crucible.job.is_none() {
-            return false;
-        }
-        crucible.advance(recipes(), max_count, smelting::find, fuel_level);
-        crucible.save(world, pos) && crucible.job.is_some()
-    });
+    let machine = fastnbt::from_bytes(&snapshot.nbt).ok()?;
+    Some((snapshot, machine))
 }
 
-fn grid_slot(hit: [f32; 3]) -> usize {
-    let cell = |value: f32| ((value * 3.0) as usize).min(2);
-    cell(hit[0]) + 3 * cell(hit[2])
+fn replacement(snapshot: &EntitySnapshot, machine: &Crucible) -> Option<Vec<u8>> {
+    let mut fields: Stack = fastnbt::from_bytes(&fastnbt::to_bytes(machine).ok()?).ok()?;
+    let original: Stack = fastnbt::from_bytes(&snapshot.nbt).ok()?;
+    for key in ["id", "x", "y", "z"] {
+        fields.insert(key.into(), original.get(key)?.clone());
+    }
+    fastnbt::to_bytes(&fields).ok()
+}
+
+fn mutate(world: World<'_>, pos: Pos, snapshot: &EntitySnapshot, machine: &Crucible) -> bool {
+    let (Some(menus), Some(kind), Some(slots), Some(bytes)) = (
+        MENUS.get(),
+        KIND.get(),
+        machine.slots(),
+        replacement(snapshot, machine),
+    ) else {
+        return false;
+    };
+    menus.mutate(
+        world,
+        *kind,
+        snapshot.incarnation,
+        &machine.access(),
+        &slots,
+        || world.compare_entity(pos, snapshot, &bytes),
+    )
+}
+
+fn remember(world: World<'_>, pos: Pos) {
+    ACTIVE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(HashMap::new)
+        .entry(world.id())
+        .or_default()
+        .insert(pos);
+}
+
+pub fn tick(world: World<'_>, events: &[ContentEvent]) {
+    let Some(state) = state() else { return };
+    let positions = {
+        let mut worlds = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
+        if events.is_empty() && worlds.is_none() {
+            return;
+        }
+        let positions = worlds
+            .get_or_insert_with(HashMap::new)
+            .entry(world.id())
+            .or_default();
+        for event in events {
+            if event.previous == state
+                && (event.state != state || event.reason == content::UNLOADED)
+            {
+                positions.remove(&event.position);
+            } else if event.state == state {
+                positions.insert(event.position);
+            }
+        }
+        positions.clone()
+    };
+    for pos in positions {
+        let Some((before, mut machine)) = snapshot(world, pos) else {
+            continue;
+        };
+        if machine.job.is_none() && (machine.charge != 0 || machine.fuel.is_empty()) {
+            continue;
+        }
+        machine.advance(recipes(), max_count, smelting::find, fuel_level);
+        mutate(world, pos, &before, &machine);
+    }
+}
+
+fn position_context(pos: Pos) -> [u8; 12] {
+    let mut bytes = [0; 12];
+    for (index, coordinate) in [pos.x, pos.y, pos.z].into_iter().enumerate() {
+        bytes[index * 4..index * 4 + 4].copy_from_slice(&coordinate.to_le_bytes());
+    }
+    bytes
+}
+
+fn decode_pos(bytes: &[u8]) -> Option<Pos> {
+    if bytes.len() != 12 {
+        return None;
+    }
+    Some(Pos {
+        x: i32::from_le_bytes(bytes[0..4].try_into().ok()?),
+        y: i32::from_le_bytes(bytes[4..8].try_into().ok()?),
+        z: i32::from_le_bytes(bytes[8..12].try_into().ok()?),
+    })
+}
+
+fn reachable(player: &Player<'_>, pos: Pos) -> bool {
+    let player = player.position();
+    let dx = player.x - f64::from(pos.x) - 0.5;
+    let dy = player.y - f64::from(pos.y) - 0.5;
+    let dz = player.z - f64::from(pos.z) - 0.5;
+    dx * dx + dy * dy + dz * dz <= 64.0
+}
+
+fn valid(view: Validity<'_>) -> bool {
+    decode_pos(view.context).is_some_and(|pos| {
+        reachable(&view.player, pos)
+            && snapshot(view.world, pos)
+                .is_some_and(|(snapshot, _)| snapshot.incarnation == view.inventory)
+    })
+}
+
+fn decode_stack(bytes: Option<&[u8]>) -> Option<Stack> {
+    bytes.map_or_else(
+        || Some(Stack::new()),
+        |bytes| fastnbt::from_bytes(bytes).ok(),
+    )
+}
+
+fn accepts(_: &[u8], slot: u8, bytes: &[u8]) -> bool {
+    let slot = usize::from(slot);
+    if slot == FUEL {
+        decode_stack(Some(bytes))
+            .as_ref()
+            .and_then(item_id)
+            .and_then(fuel_level)
+            .is_some()
+    } else {
+        GRID.contains(&slot)
+    }
+}
+
+fn route(_: &[u8], bytes: &[u8]) -> u64 {
+    if accepts(&[], FUEL as u8, bytes) {
+        1 << FUEL
+    } else {
+        GRID.into_iter().fold(
+            moddedmc_api::abi::MENU_ROUTE_PLAYER_FALLBACK,
+            |mask, slot| mask | (1 << slot),
+        )
+    }
+}
+
+fn changed(mut event: ManagedChange<'_>) {
+    let Some(pos) = decode_pos(event.context) else {
+        return;
+    };
+    let world = event.change.world;
+    let Some((before, mut machine)) = snapshot(world, pos) else {
+        return;
+    };
+    if before.incarnation != event.change.inventory {
+        return;
+    }
+    let Some(proposed) = event
+        .change
+        .slots()
+        .map(decode_stack)
+        .collect::<Option<Vec<_>>>()
+    else {
+        return;
+    };
+    if proposed.len() != SLOTS {
+        return;
+    }
+    let input = GRID.map(|slot| proposed[slot].clone());
+    let fuel = &proposed[FUEL];
+    let output = &proposed[OUTPUT];
+    if (machine.job.is_some()
+        && input
+            .iter()
+            .zip(&machine.input)
+            .any(|(left, right)| !same_item(left, right) || count(left) != count(right)))
+        || (!fuel.is_empty() && item_id(fuel).and_then(fuel_level).is_none())
+        || (!output.is_empty()
+            && (!same_item(output, &machine.output) || count(output) > count(&machine.output)))
+    {
+        return;
+    }
+    machine.input = input;
+    machine.fuel = fuel.clone();
+    machine.output = output.clone();
+    let Some(bytes) = replacement(&before, &machine) else {
+        return;
+    };
+    event.commit_external(|| world.compare_entity(pos, &before, &bytes));
+}
+
+fn action(event: Action<'_>) {
+    let positions = ACTIVE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .and_then(|worlds| worlds.get(&event.world.id()))
+        .cloned();
+    let Some(positions) = positions else { return };
+    for pos in positions {
+        if !reachable(&event.player, pos) {
+            continue;
+        }
+        let Some((before, mut machine)) = snapshot(event.world, pos) else {
+            continue;
+        };
+        if before.incarnation != event.inventory {
+            continue;
+        }
+        if machine.job.is_some() {
+            return;
+        }
+        let charge = machine.charge;
+        let started = machine.start(recipes(), max_count, smelting::find, fuel_level);
+        if started || machine.charge != charge {
+            mutate(event.world, pos, &before, &machine);
+        }
+        return;
+    }
 }
 
 pub fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if state() != Some(context.state) || !context.main_hand {
         return BlockUseResult::Pass;
     }
-    // Serialize player inventory transfers with the world tick's block entity writes.
-    let mut worlds = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
-    let mut crucible = Crucible::load(context.world, context.position);
-    let top = context.face == 1;
-    let changed = if context.with_item {
-        let Some(held) = context
-            .stack
-            .read()
-            .and_then(|bytes| fastnbt::from_bytes::<Stack>(&bytes).ok())
-        else {
-            return BlockUseResult::TryEmptyHand;
-        };
-        let maximum = max_count(&held);
-        let slot = if top {
-            &mut crucible.input[grid_slot(context.hit)]
-        } else if item_id(&held).and_then(fuel_level).is_some() {
-            &mut crucible.fuel
-        } else {
-            return BlockUseResult::TryEmptyHand;
-        };
-        if !slot.is_empty() && !same_item(slot, &held) {
-            return BlockUseResult::Fail;
-        }
-        let moved = count(&held).min(maximum - count(slot));
-        if moved <= 0 {
-            return BlockUseResult::Fail;
-        }
-        let total = count(slot) + moved;
-        *slot = held;
-        slot.insert("count".into(), Value::Int(total));
-        crucible.store_fuel(fuel_level);
-        if !crucible.save(context.world, context.position) {
-            return BlockUseResult::Fail;
-        }
-        if !context.creative {
-            context.stack.shrink(moved as u32);
-        }
-        true
-    } else if top {
-        let removed = std::mem::take(&mut crucible.input[grid_slot(context.hit)]);
-        return take(context, &crucible, removed);
-    } else if context.face == 0 {
-        let removed = std::mem::take(&mut crucible.fuel);
-        return take(context, &crucible, removed);
-    } else if !crucible.output.is_empty() {
-        let removed = std::mem::take(&mut crucible.output);
-        return take(context, &crucible, removed);
+    let (Some(player), Some(menus), Some(kind), Some((before, machine))) = (
+        context.player.and_then(|entity| entity.as_player()),
+        MENUS.get(),
+        KIND.get(),
+        snapshot(context.world, context.position),
+    ) else {
+        return BlockUseResult::Fail;
+    };
+    remember(context.world, context.position);
+    let pos = context.position;
+    let world = context.world;
+    let opened = menus.open(
+        &player,
+        *kind,
+        before.incarnation,
+        NAME,
+        ManagedSlots {
+            world,
+            access: &machine.access(),
+            controls: &[Control {
+                slot: START as u8,
+                tag: 1,
+            }],
+            context: &position_context(pos),
+        },
+        || {
+            let (latest, current) = snapshot(world, pos)?;
+            (latest.incarnation == before.incarnation && current == machine)
+                .then(|| current.slots())
+                .flatten()
+        },
+    );
+    if opened {
+        BlockUseResult::Success
     } else {
-        let started = crucible.start(recipes(), max_count, smelting::find, fuel_level);
-        if started && !crucible.save(context.world, context.position) {
-            return BlockUseResult::Fail;
-        }
-        let status = if let Some(job) = &crucible.job {
-            format!(
-                "Draconic Crucible: {} ticks remaining, {} charge",
-                job.ticks - job.elapsed,
-                crucible.charge
-            )
-        } else {
-            format!(
-                "Draconic Crucible: {} charge. Use the top for ingredients and the sides for fuel, start and output.",
-                crucible.charge
-            )
-        };
-        if let (Some(mobs), Some(player)) = (MOBS.get(), context.player) {
-            mobs.message(player, &status, true);
-        }
-        started
-    };
-    if changed && crucible.job.is_some() {
-        worlds
-            .get_or_insert_with(HashMap::new)
-            .entry(context.world.id())
-            .or_default()
-            .insert(context.position);
+        BlockUseResult::Fail
     }
-    BlockUseResult::Success
-}
-
-fn take(context: &UseBlock<'_>, crucible: &Crucible, removed: Stack) -> BlockUseResult {
-    if removed.is_empty() {
-        return BlockUseResult::Success;
-    }
-    let Ok(bytes) = fastnbt::to_bytes(&removed) else {
-        return BlockUseResult::Fail;
-    };
-    if !crucible.save(context.world, context.position) {
-        return BlockUseResult::Fail;
-    }
-    if !context.give(&bytes)
-        && let Ok(stack) = fastnbt::from_bytes::<Stack>(&bytes)
-    {
-        let mut restored = Crucible::load(context.world, context.position);
-        match context.face {
-            0 => restored.fuel = stack,
-            1 => restored.input[grid_slot(context.hit)] = stack,
-            _ => restored.output = stack,
-        }
-        restored.save(context.world, context.position);
-        return BlockUseResult::Fail;
-    }
-    BlockUseResult::Success
 }
 
 pub fn break_block(context: &PlayerWillDestroy<'_>) {
     if state() != Some(context.state) {
         return;
     }
-    let Some(stacks) = STACKS.get() else {
-        return;
-    };
-    let _worlds = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(stacks) = STACKS.get() else { return };
     let pos = context.position;
     let at = [
         f64::from(pos.x) + 0.5,
         f64::from(pos.y) + 0.5,
         f64::from(pos.z) + 0.5,
     ];
-    let crucible = Crucible::load(context.world, pos);
-    for stack in crucible
-        .input
-        .into_iter()
-        .chain([crucible.fuel, crucible.output])
-    {
-        if !stack.is_empty()
-            && let Ok(bytes) = fastnbt::to_bytes(&stack)
-        {
-            stacks.spawn(context.world, at, [0.0; 3], &bytes);
+    for _ in 0..4 {
+        let Some((before, machine)) = snapshot(context.world, pos) else {
+            return;
+        };
+        if !mutate(context.world, pos, &before, &Crucible::default()) {
+            continue;
         }
+        for stack in machine
+            .input
+            .into_iter()
+            .chain([machine.fuel, machine.output])
+        {
+            if !stack.is_empty()
+                && let Ok(bytes) = fastnbt::to_bytes(&stack)
+            {
+                stacks.spawn(context.world, at, [0.0; 3], &bytes);
+            }
+        }
+        return;
     }
 }
 
@@ -522,6 +701,45 @@ mod tests {
 
     fn released_recipes() -> Vec<Recipe> {
         serde_json::from_str(include_str!("crucible_recipes.json")).unwrap()
+    }
+
+    #[test]
+    fn menu_projects_consumption_and_lock_in_the_same_state() {
+        let mut machine = Crucible {
+            charge: 5,
+            ..Default::default()
+        };
+        machine.input[0] = stack("minecraft:raw_iron", 2);
+        assert!(machine.access()[GRID[0]].insert);
+        assert!(machine.start(
+            &[],
+            |_| 64,
+            |_| Some((stack("minecraft:iron_ingot", 1), 2)),
+            |_| None
+        ));
+        let access = machine.access();
+        for slot in GRID {
+            assert!(!access[slot].take && !access[slot].insert);
+        }
+        assert!(access[FUEL].insert && access[FUEL].take);
+        assert!(access[OUTPUT].take && !access[OUTPUT].insert);
+        assert!(!access[START].take && !access[START].insert);
+        let slots = machine.slots().unwrap();
+        assert_eq!(count(&decode_stack(slots[GRID[0]].as_deref()).unwrap()), 1);
+        assert_eq!(
+            item_id(&decode_stack(slots[START].as_deref()).unwrap()),
+            Some("minecraft:clock")
+        );
+        let pos = Pos {
+            x: -320,
+            y: -64,
+            z: 500,
+        };
+        assert!(decode_pos(&position_context(pos)) == Some(pos));
+        let bare = stack("minecraft:iron_ingot", 1);
+        let mut host_encoded = bare.clone();
+        host_encoded.insert("components".into(), Value::Compound(HashMap::new()));
+        assert!(same_item(&bare, &host_encoded));
     }
 
     #[test]
