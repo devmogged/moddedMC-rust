@@ -19,9 +19,6 @@ const KEYS: &[(&str, &str, u8)] = &[
     ("ability_secondary", "key.keyboard.h", ALL),
     ("toggle_melee", "key.keyboard.x", ACTION_PRESSED),
     ("flex", "ctrl+key.keyboard.4", ACTION_PRESSED),
-    // shortcut: independent rebindable key until the companion can observe the
-    // vanilla attack mapping without stealing its clicks.
-    ("attack", "key.keyboard.unknown", ACTION_PRESSED),
 ];
 
 pub fn start() -> Result<(), InterfaceUnavailable> {

@@ -740,7 +740,12 @@ fn mount_interact(click: &mut UseMob<'_>, item: &str) -> UseResult {
         return UseResult::Pass;
     }
     if click.sneaking {
-        if !owner || !matches!(kind, crate::CINDERVANE | crate::wild::VARASUCHUS | "saintsdragons:stegonaut") {
+        if !owner
+            || !matches!(
+                kind,
+                crate::CINDERVANE | crate::wild::VARASUCHUS | "saintsdragons:stegonaut"
+            )
+        {
             return UseResult::Pass;
         }
         let (order, label) = match state.order {
@@ -753,7 +758,9 @@ fn mount_interact(click: &mut UseMob<'_>, item: &str) -> UseResult {
             return UseResult::Fail;
         }
         ai.stop(mob);
-        if kind == crate::CINDERVANE { mobs.message(player, &format!("Cindervane is {label}."), true); }
+        if kind == crate::CINDERVANE {
+            mobs.message(player, &format!("Cindervane is {label}."), true);
+        }
         return UseResult::Success;
     }
     if owner && profile.saddle && !state.saddle {
@@ -834,7 +841,15 @@ fn mount_interact(click: &mut UseMob<'_>, item: &str) -> UseResult {
             state.order = Order::Follow;
             mobs.set_state(mob, &state.encode());
         }
-        crate::roost::wake(mob, true, if kind == crate::wild::VARASUCHUS { 200 } else { 100 });
+        crate::roost::wake(
+            mob,
+            true,
+            if kind == crate::wild::VARASUCHUS {
+                200
+            } else {
+                100
+            },
+        );
         ai.stop(mob);
         ai.set_target(click.world, mob, None);
     }
@@ -1018,9 +1033,9 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                     if mobs.uuid(rider) == Some(state.owner) {
                         if mobs.kind(mob) == Some(crate::wild::VARASUCHUS) {
                             crate::combat_varasuchus::ride(world, mob, rider);
-                         } else if mobs.kind(mob) == Some("saintsdragons:stegonaut") {
+                        } else if mobs.kind(mob) == Some("saintsdragons:stegonaut") {
                             crate::combat_stegonaut::ride(mob, rider);
-                         } else if mobs.kind(mob) == Some("saintsdragons:atroxiia") {
+                        } else if mobs.kind(mob) == Some("saintsdragons:atroxiia") {
                             crate::combat_atroxiia::ride(world, mob, rider);
                         } else {
                             ride(world, mob, rider);
@@ -1047,11 +1062,12 @@ fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
         crate::combat_volitans::ride(world, mob, rider, view, look, body.input, keys);
         return;
     }
-    let (ascend, mut descend, accelerate, locked) = if mobs.kind(mob) == Some("saintsdragons:raevyx") {
-        crate::combat_raevyx::rider_movement(mob)
-    } else {
-        (false, false, false, false)
-    };
+    let (ascend, mut descend, accelerate, locked) =
+        if mobs.kind(mob) == Some("saintsdragons:raevyx") {
+            crate::combat_raevyx::rider_movement(mob)
+        } else {
+            (false, false, false, false)
+        };
     if locked {
         return;
     }
@@ -1090,7 +1106,11 @@ fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
     let desired_x = (strafe * yaw.cos() - forward * yaw.sin()) * speed;
     let desired_z = (strafe * yaw.sin() + forward * yaw.cos()) * speed;
     let vertical = if descend && air {
-        -0.85
+        if mobs.kind(mob) == Some("saintsdragons:ignivorus") {
+            -0.45
+        } else {
+            -0.85
+        }
     } else if flying && jump {
         0.45
     } else if air {
@@ -1207,6 +1227,7 @@ mod tests {
                 owner: [0; 16],
                 order: Order::Sit,
                 saddle: false,
+                chest: false,
                 regrowth: 0,
                 happiness: 100,
                 plucked: false,

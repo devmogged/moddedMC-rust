@@ -329,7 +329,7 @@ pub fn rider_action(
     match action {
         "saintsdragons:ability_primary" => forward_teleport(world, mob, player),
         "saintsdragons:ability_secondary" => toggle_cloak(world, mob, player),
-        "saintsdragons:attack" => {
+        "moddedmc:mounted_attack" => {
             start_bite(world, mob, None, tick_count());
         }
         _ => {}

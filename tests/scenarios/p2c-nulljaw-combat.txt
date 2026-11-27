@@ -75,7 +75,7 @@ expect \[bot\] expect riding ok none
 # retrigger, and a second press or dismount removes it from both.
 # R teleports mount and rider up to 16 blocks along the rider's look vector,
 # stops before a wall, refuses a blocked first block, and has a two-second cooldown.
-# Bind Rider Attack in the companion controls. Pressing it starts a bite;
+# Press the normal attack key while mounted to start a bite;
 # after five ticks a body-facing sweep deals eight
 # base damage scaled by hunger, with a 17-tick track and 12-tick cooldown.
 reject (?i)panic|panicked|\[bot\] error

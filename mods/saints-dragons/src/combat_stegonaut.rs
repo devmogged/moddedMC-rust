@@ -678,9 +678,7 @@ pub fn rider_action(
     } else if phase == ACTION_PRESSED && s.action == 0 && State::load(mob).attack == 0 {
         match key {
             "toggle_melee" => s.melee = 1 - s.melee,
-            // shortcut: primary R is a temporary substitute until the shared companion
-            // delivers the release's vanilla attack key as its own action.
-            "attack" | "ability_primary" => {
+            "moddedmc:mounted_attack" => {
                 let combat = State::load(mob);
                 let attack = if s.melee == 0 { 1 } else { 2 };
                 if (attack == 1 && combat.bite_cooldown == 0)

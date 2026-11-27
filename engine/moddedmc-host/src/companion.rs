@@ -38,12 +38,8 @@ fn answer(hello: &[u8], catalog: Option<&Catalog>) -> Option<Vec<u8>> {
         return None;
     }
     let mut reply = VERSION.to_be_bytes().to_vec();
-    let supported = if u16::from_be_bytes([v1, v2]) == VERSION {
-        u32::from_be_bytes([a, b, c, d])
-            & (PLAYER_ACTIONS | if catalog.is_some() { ASSETS } else { 0 })
-    } else {
-        0
-    };
+    let supported = u32::from_be_bytes([a, b, c, d])
+        & (PLAYER_ACTIONS | if catalog.is_some() { ASSETS } else { 0 });
     reply.extend_from_slice(&supported.to_be_bytes());
     if supported & ASSETS != 0
         && let Some(catalog) = catalog

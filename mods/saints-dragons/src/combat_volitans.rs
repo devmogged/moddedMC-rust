@@ -12,10 +12,7 @@ use moddedmc_api::{
         SET_YAW,
     },
     mob_ai::goal_phase,
-    mobs::{
-        PLAYER_INPUT_BACKWARD, PLAYER_INPUT_FORWARD, PLAYER_INPUT_JUMP, PLAYER_INPUT_LEFT,
-        PLAYER_INPUT_RIGHT, PLAYER_INPUT_SPRINT,
-    },
+    mobs::{PLAYER_INPUT_JUMP, PLAYER_INPUT_SPRINT},
     player_actions::{ACTION_PRESSED, ACTION_RELEASED},
     tick_count,
 };
@@ -165,8 +162,6 @@ struct RiderRuntime {
     descend: bool,
     accelerate: bool,
     takeoff_block: u64,
-    previous_keys: i32,
-    taps: [Option<Instant>; 4],
     dash: Option<Dash>,
     dash_ready: u64,
 }
@@ -999,6 +994,14 @@ pub fn rider_input(world: World<'_>, mob: Entity<'_>, player: Entity<'_>, action
         .as_ref()
         .is_some_and(|a| rider_locked(a, tick_count()));
     match action {
+        action if pressed && action.starts_with("moddedmc:double_tap/") => {
+            if let Some(i) = ["forward", "back", "left", "right"]
+                .iter()
+                .position(|d| action.strip_prefix("moddedmc:double_tap/") == Some(*d))
+            {
+                start_dash(world, mob, &mut rt, view, i);
+            }
+        }
         "saintsdragons:ascend" => rt.rider.ascend = !released,
         "saintsdragons:descend" => rt.rider.descend = !released,
         "saintsdragons:accelerate" => rt.rider.accelerate = !released,
@@ -1084,7 +1087,7 @@ pub fn rider_input(world: World<'_>, mob: Entity<'_>, player: Entity<'_>, action
         "saintsdragons:flex" if pressed && !locked => {
             start_rider(world, mob, &mut rt, Attack::Flex, view)
         }
-        "saintsdragons:attack" if pressed && !locked => {
+        "moddedmc:mounted_attack" if pressed && !locked => {
             let kind = if saved(mob).rider_gore {
                 Attack::Gore
             } else {
@@ -1206,52 +1209,32 @@ fn dash_speed(distance: f64, ticks: i32, drag: f64) -> f64 {
     distance / (0..ticks).map(|i| drag.powi(i)).sum::<f64>()
 }
 
-fn update_dash(
-    world: World<'_>,
-    mob: Entity<'_>,
-    rt: &mut Runtime,
-    v: EntityView,
-    keys: i32,
-) -> bool {
-    let time = Instant::now();
+fn start_dash(world: World<'_>, mob: Entity<'_>, rt: &mut Runtime, v: EntityView, i: usize) {
+    let tick = tick_count();
+    if medium(world, v) != Medium::Ground
+        || tick < rt.rider.dash_ready
+        || rt.rider.action.is_some()
+        || rt.rider.dash.is_some()
+    {
+        return;
+    }
+    let (angle, speed) = match i {
+        0 => (0.0, dash_speed(26.0, 25, 0.90)),
+        1 => (180.0, dash_speed(12.0, 8, 0.90)),
+        2 => (-90.0, 1.0),
+        _ => (90.0, 1.0),
+    };
+    rt.rider.dash = Some(Dash {
+        direction: i,
+        start: tick,
+        velocity: look_dir(v.body_yaw + angle, 0.0).map(|x| x * speed),
+    });
+    rt.rider.dash_ready = tick + 30;
+    sound(world, mob, if i < 2 { DASH_CLIPS[i] } else { "dodge" }, 1.6);
+}
+fn update_dash(world: World<'_>, mob: Entity<'_>, rt: &mut Runtime, v: EntityView) -> bool {
     let tick = tick_count();
     let ground = medium(world, v) == Medium::Ground;
-    for (i, key) in [
-        PLAYER_INPUT_FORWARD,
-        PLAYER_INPUT_BACKWARD,
-        PLAYER_INPUT_LEFT,
-        PLAYER_INPUT_RIGHT,
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        if keys & key != 0 && rt.rider.previous_keys & key == 0 {
-            let twice = rt.rider.taps[i]
-                .is_some_and(|p| time.saturating_duration_since(p) <= Duration::from_millis(300));
-            rt.rider.taps[i] = Some(time);
-            if twice
-                && ground
-                && tick >= rt.rider.dash_ready
-                && rt.rider.action.is_none()
-                && rt.rider.dash.is_none()
-            {
-                let (angle, speed) = match i {
-                    0 => (0.0, dash_speed(26.0, 25, 0.90)),
-                    1 => (180.0, dash_speed(12.0, 8, 0.90)),
-                    2 => (-90.0, 1.0),
-                    _ => (90.0, 1.0),
-                };
-                rt.rider.dash = Some(Dash {
-                    direction: i,
-                    start: tick,
-                    velocity: look_dir(v.body_yaw + angle, 0.0).map(|x| x * speed),
-                });
-                rt.rider.dash_ready = tick + 30;
-                sound(world, mob, if i < 2 { DASH_CLIPS[i] } else { "dodge" }, 1.6);
-            }
-        }
-    }
-    rt.rider.previous_keys = keys;
     let Some(dash) = rt.rider.dash.as_mut() else {
         return false;
     };
@@ -1509,7 +1492,7 @@ pub fn ride(
         .action
         .as_ref()
         .is_some_and(|a| a.kind == Attack::Ultimate);
-    if update_dash(world, mob, &mut rt, v, keys) {
+    if update_dash(world, mob, &mut rt, v) {
         // Dash owns motion until its recovery completes.
     } else if locked {
         if !ultimate {

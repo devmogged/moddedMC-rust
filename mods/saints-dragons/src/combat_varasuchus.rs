@@ -221,8 +221,6 @@ struct State {
     ascend: bool,
     descend: bool,
     accelerate: bool,
-    forward_down: bool,
-    forward_tap: Option<u64>,
     dash: Option<Dash>,
     dash_ready: u64,
     right_dash: bool,
@@ -256,8 +254,6 @@ fn begin_ride(mob: Entity<'_>, rider: Entity<'_>) {
             s.ascend = false;
             s.descend = false;
             s.accelerate = false;
-            s.forward_down = false;
-            s.forward_tap = None;
             s.dash = None;
             s.flex_end = 0;
         }
@@ -319,8 +315,10 @@ pub fn rider_action(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>, action
         return;
     }
     begin_ride(mob, rider);
-    let Some(action) = action.strip_prefix("saintsdragons:") else {
-        return;
+    let action = match action {
+        "moddedmc:mounted_attack" => "attack",
+        "moddedmc:double_tap/forward" => "double_tap_forward",
+        _ => action.strip_prefix("saintsdragons:").unwrap_or(action),
     };
     let now = tick_count();
     let saved = Saved::load(mob);
@@ -602,25 +600,11 @@ pub fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
     let yaw = f64::from(look.yaw).to_radians();
     let forward = input.input[2];
     let strafe = input.input[0];
-    // DragonRideInputHandler uses a 300ms double-tap window. Detect the same
-    // forward key edges from the vanilla input packets when no action packet exists.
-    let forward_down = forward > 0.01;
-    let double_tap = forward_down
-        && !s.forward_down
-        && s.forward_tap
-            .is_some_and(|last| now.saturating_sub(last) < 6);
     state(mob, |s| {
-        if forward_down && !s.forward_down {
-            s.forward_tap = Some(now);
-        }
-        s.forward_down = forward_down;
         if s.dash.is_some_and(|d| now >= d.end) {
             s.dash = None;
         }
     });
-    if double_tap && !locked {
-        start_dash(world, mob, saved.phase_two, in_water);
-    }
     s = snapshot(mob);
     let accelerating = s.accelerate && !s.active.is_some_and(|r| r.attack == Attack::Barrage);
     let happiness = taming::happiness(mob).unwrap_or(100);

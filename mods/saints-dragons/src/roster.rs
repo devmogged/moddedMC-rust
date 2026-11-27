@@ -284,7 +284,6 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             attributes.push(("minecraft:armor_toughness", 0.0));
         }
         if species.name == "mossback" {
-            attributes.push(("minecraft:armor", 0.0));
             items.add_item(
                 registry,
                 &Item {
