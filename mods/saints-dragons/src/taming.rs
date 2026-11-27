@@ -162,6 +162,10 @@ pub fn inherit_owner(mob: Entity<'_>, owner: [u8; 16]) {
     }
 }
 
+pub fn owner(mob: Entity<'_>) -> Option<[u8; 16]> {
+    tamed(mob).map(|state| state.owner)
+}
+
 pub fn is_tamed(mob: Entity<'_>) -> bool {
     tamed(mob).is_some()
 }
@@ -511,6 +515,9 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if matches!(item, BRUSH | GOLDEN_BRUSH) {
         return brush(click, item == GOLDEN_BRUSH);
     }
+    if let Some(result) = crate::breed::feed(click, item) {
+        return result;
+    }
     if let Some(result) = crate::stun::feed(click, item) {
         return result;
     }
@@ -522,11 +529,6 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     let state = tamed(mob);
 
     if tags.contains("item", FOOD_TAG, item) {
-        // shortcut: breeding and hunger are separate mechanics. Crouching with food on a tame
-        // dragon is reserved for breeding.
-        if click.sneaking && state.is_some() {
-            return UseResult::Consume;
-        }
         let now = tick_count();
         fed.retain(|_, until| *until > now);
         if fed.contains_key(&mob.id()) {
@@ -671,6 +673,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::flight::forget(mob.id());
     crate::swarm::forget(mob.id());
     crate::stun::forget(mob.id());
+    crate::breed::forget(mob.id());
     crate::visuals::death(world, mob);
     {
         let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
@@ -705,7 +708,9 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         return false;
     };
     let passengers = mobs.passengers(mob);
-    let active = (state.order == Order::Sit && !released_in_flight(mob))
+    let active = (state.order == Order::Sit
+        && !released_in_flight(mob)
+        && !crate::breed::wants_mate(world, mob))
         || passengers
             .first()
             .is_some_and(|&id| !crate::combat::holding(mob, id));

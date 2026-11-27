@@ -9,6 +9,7 @@ mod armor;
 mod audio;
 mod binders;
 mod blocks;
+mod breed;
 mod catalog;
 mod codex;
 mod combat;
@@ -210,6 +211,7 @@ impl Mod for SaintsDragons {
                 goal_control::MOVE | goal_control::LOOK,
             ),
             (taming::FOLLOW, 2, goal_control::MOVE),
+            (breed::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
             (flight::GOAL, 2, goal_control::MOVE | goal_control::LOOK),
             (ai::IDLE_LOOK, 3, goal_control::LOOK),
             (ai::GROUND_WANDER, 4, goal_control::MOVE),

@@ -345,10 +345,6 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     let (health, max) = mobs.health(mob)?;
     let now = tick_count();
     let tamed = taming::is_tamed(mob);
-    if tamed && click.sneaking {
-        // shortcut: crouching with food on a tame dragon is reserved for breeding.
-        return Some(UseResult::Consume);
-    }
     let stun = with(|state| state.stunned.get(&mob.id()).copied());
     if !tamed && stun.is_some_and(|stun| !stun.awaiting) {
         mobs.message(player, &text(profile.dazed, profile.display), true);

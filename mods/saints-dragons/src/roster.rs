@@ -285,7 +285,13 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     goal_control::MOVE | goal_control::LOOK | goal_control::JUMP,
                 ),
                 (taming::FOLLOW, 2, goal_control::MOVE),
-            ] {
+            ]
+            .into_iter()
+            .chain(crate::breed::breeds(species.name).then_some((
+                crate::breed::GOAL,
+                1,
+                goal_control::MOVE | goal_control::LOOK,
+            ))) {
                 ai.add_goal(
                     registry,
                     &Goal {
@@ -409,6 +415,12 @@ pub fn names() -> impl Iterator<Item = (&'static str, &'static str)> {
             .iter()
             .map(|species| (species.name, species.display)),
     )
+}
+
+pub fn display(species: &str) -> &'static str {
+    names()
+        .find(|(name, _)| *name == species)
+        .map_or("Dragon", |(_, display)| display)
 }
 
 pub fn egg_names() -> impl Iterator<Item = (&'static str, &'static str)> {

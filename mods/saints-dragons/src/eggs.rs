@@ -709,6 +709,102 @@ fn advance(world: World<'_>, pos: Pos, ids: &EggStates) -> bool {
     true
 }
 
+fn block(world: World<'_>, pos: Pos) -> Option<u32> {
+    let mut state = [0];
+    world.read(&[pos], &mut state).then_some(state[0])
+}
+
+/// `DragonBreedBehaviour.findGroundBelow`: the air block over the first sturdy block within 8
+/// blocks down.
+fn ground_below(world: World<'_>, pos: Pos, air: u32) -> Option<Pos> {
+    (0..=8).find_map(|depth| {
+        let check = Pos {
+            y: pos.y - depth,
+            ..pos
+        };
+        let above = Pos {
+            y: check.y + 1,
+            ..check
+        };
+        (block(world, check).is_some_and(|state| state != air && state != UNLOADED_STATE)
+            && world.face_sturdy(check, 1)
+            && block(world, above) == Some(air))
+        .then_some(above)
+    })
+}
+
+/// `findNearestEggPosition`: the closest open ground within 4 blocks of `center`.
+fn egg_spot(world: World<'_>, center: Pos, air: u32) -> Option<Pos> {
+    let mut best: Option<(i32, Pos)> = None;
+    for radius in 0_i32..=4 {
+        for x in -radius..=radius {
+            for z in -radius..=radius {
+                if x.abs().max(z.abs()) != radius {
+                    continue;
+                }
+                let column = Pos {
+                    x: center.x + x,
+                    z: center.z + z,
+                    ..center
+                };
+                let Some(ground) = ground_below(world, column, air) else {
+                    continue;
+                };
+                let distance = (ground.x - center.x).pow(2)
+                    + (ground.y - center.y).pow(2)
+                    + (ground.z - center.z).pow(2);
+                if best.is_none_or(|(closest, _)| distance < closest) {
+                    best = Some((distance, ground));
+                }
+            }
+        }
+    }
+    best.map(|(_, pos)| pos)
+}
+
+/// `DragonBreedBehaviour.breed`: lays `species`' egg near the first center with room, owned by
+/// the mother's owner and with a random baby gender.
+pub fn lay(world: World<'_>, centers: [Pos; 2], species: &str, owner: Option<[u8; 16]>) -> bool {
+    let (Some(ids), Some(index)) = (ids(), SPECIES.iter().position(|s| s.name == species)) else {
+        return false;
+    };
+    let Some(pos) = centers
+        .into_iter()
+        .find_map(|center| egg_spot(world, center, ids.air))
+    else {
+        return false;
+    };
+    let wet = species == "volitans" && world.fluid_id(pos).as_deref() == Some("minecraft:water");
+    if world.write(&[BlockUpdate {
+        position: pos,
+        state: ids.stages[index][if wet { 3 } else { 0 }],
+        flags: UPDATE_ALL,
+    }]) != 1
+    {
+        return false;
+    }
+    let owner = owner.map(|uuid| {
+        IntArray::new(
+            uuid.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|chunk| i32::from_be_bytes(*chunk))
+                .collect(),
+        )
+    });
+    save(
+        world,
+        pos,
+        &Egg {
+            owner,
+            baby_gender: Some(random(2) as i8),
+            ..Egg::default()
+        },
+    );
+    sound(world, pos, "minecraft:entity.turtle.lay_egg");
+    true
+}
+
 fn save(world: World<'_>, pos: Pos, egg: &Egg) {
     if let Ok(bytes) = fastnbt::to_bytes(egg) {
         world.set_entity(pos, &bytes);

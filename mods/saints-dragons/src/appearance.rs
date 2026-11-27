@@ -104,6 +104,10 @@ impl Appearance {
         fastnbt::to_bytes(&self).is_ok_and(|nbt| mob.set_data(DATA, &nbt))
     }
 
+    pub fn is_female(mob: Entity<'_>) -> bool {
+        Self::load(mob).female
+    }
+
     pub fn set_female(female: bool, mob: Entity<'_>) {
         let appearance = Self {
             female,
