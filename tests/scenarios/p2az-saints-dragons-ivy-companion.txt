@@ -360,6 +360,7 @@ expect \[bot\] dialog: .*Ivy the Merchant
 cmd gamemode survival tester
 cmd item replace entity tester hotbar.0 with minecraft:diamond_sword
 cmd item replace entity tester hotbar.1 with minecraft:bread 3
+cmd item replace entity tester hotbar.2 with minecraft:totem_of_undying
 wait 0.5
 cmd tp @e[tag=ivy_probe,limit=1] 1027.5 224 1026.5
 wait 0.2
@@ -374,12 +375,18 @@ wait 0.5
 bot inventory-click 64 left
 bot inventory-click 9 left
 wait 0.5
+bot inventory-click 65 left
+bot inventory-click 10 left
+wait 0.5
 bot expect slot 4 minecraft:diamond_sword 1
 wait 0.5
 expect expect inventory ok slot 4 diamond_sword 1
 bot expect slot 9 minecraft:bread 3
 wait 0.5
 expect expect inventory ok slot 9 bread 3
+bot expect slot 10 minecraft:totem_of_undying 1
+wait 0.5
+expect expect inventory ok slot 10 totem_of_undying 1
 bot inventory-close
 bot quit
 stop
@@ -415,6 +422,9 @@ expect expect inventory ok slot 4 diamond_sword 1
 bot expect slot 9 minecraft:bread 3
 wait 0.5
 expect expect inventory ok slot 9 bread 3
+bot expect slot 10 minecraft:totem_of_undying 1
+wait 0.5
+expect expect inventory ok slot 10 totem_of_undying 1
 bot inventory-close
 # A fresh hostile attacker triggers recruited Ivy's melee response.
 cmd data merge entity @e[tag=ivy_probe,limit=1] {NoAI:0b}
@@ -427,6 +437,19 @@ wait 1.8
 cmd data get entity @e[tag=ivy_target,limit=1] Health
 wait 0.5
 expect Zombie has the following entity data: (?:[0-3]?[0-9])(?:\.[0-9]+)?f
+# Ivy uses her saved totem before the downed path; the next lethal hit has none.
+wait 1
+cmd damage @e[tag=ivy_probe,limit=1] 100 minecraft:generic
+wait 0.5
+cmd data get entity @e[tag=ivy_probe,limit=1] data."saintsdragons:ivy_downed".Downed
+wait 0.5
+expect following entity data: 0b
+wait 1
+cmd damage @e[tag=ivy_probe,limit=1] 100 minecraft:generic
+wait 0.5
+cmd data get entity @e[tag=ivy_probe,limit=1] data."saintsdragons:ivy_downed".Downed
+wait 0.5
+expect following entity data: 1b
 reject (?i)panic|panicked
 bot quit
 stop
