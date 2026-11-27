@@ -90,6 +90,8 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::combat_atroxiia::COMBAT => crate::combat_atroxiia::goal(phase, world, mob),
         crate::combat_ignivorus::TARGETING => crate::combat_ignivorus::targeting(phase, world, mob),
         crate::combat_ignivorus::COMBAT => crate::combat_ignivorus::goal(phase, world, mob),
+        crate::combat_volitans::TARGET => crate::combat_volitans::targeting(phase, world, mob),
+        crate::combat_volitans::COMBAT => crate::combat_volitans::goal(phase, world, mob),
         crate::taming::RIDE_OR_SIT => crate::taming::ride_or_sit(phase, world, mob),
         crate::taming::FOLLOW => crate::taming::follow(phase, world, mob),
         crate::flight::GOAL => crate::flight::goal(phase, world, mob),

@@ -233,6 +233,25 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             ("minecraft:max_health", species.health),
             ("minecraft:movement_speed", species.speed),
         ];
+        if species.name == "volitans" {
+            for (key, controls) in [
+                (crate::combat_volitans::TARGET, goal_control::TARGET),
+                (
+                    crate::combat_volitans::COMBAT,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority: 1,
+                        controls,
+                    },
+                )?;
+            }
+        }
         if species.name == "raevyx" {
             attributes.extend([
                 ("minecraft:armor", 8.0),
@@ -261,6 +280,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:armor", 10.0),
                 ("minecraft:knockback_resistance", 1.0),
             ]);
+        }
+        if species.name == "volitans" {
+            attributes.extend([("minecraft:armor", 6.0), ("minecraft:follow_range", 64.0)]);
         }
         mobs.add_mob(
             registry,
@@ -424,6 +446,25 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK,
                 },
             )?;
+        }
+        if species.name == "volitans" {
+            for (key, controls) in [
+                (crate::combat_volitans::TARGET, goal_control::TARGET),
+                (
+                    crate::combat_volitans::COMBAT,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority: 1,
+                        controls,
+                    },
+                )?;
+            }
         }
         if species.name == "raevyx" {
             for (key, priority, controls) in [
@@ -733,6 +774,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     } else {
         clip
     };
+    let clip = clip.or_else(|| if name == "volitans" { crate::combat_volitans::ambient(world, mob) } else { None });
     let clip = clip.or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count())).unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
     false

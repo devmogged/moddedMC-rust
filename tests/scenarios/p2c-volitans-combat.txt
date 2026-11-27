@@ -1,0 +1,27 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 1029.5 121 1033.5
+wait 4
+cmd fill 1007 119 1007 1051 119 1057 minecraft:stone
+cmd fill 1007 120 1007 1051 129 1057 minecraft:air
+cmd time set midnight
+wait 3
+cmd saintsdragons spawn volitans 1025 120 1025
+cmd summon minecraft:iron_golem 1025.5 120 1028.25 {NoAI:1b}
+wait 2
+cmd tp @e[type=minecraft:ravager,limit=1] 1025.5 120 1025.5 0 0
+wait 0.25
+cmd damage @e[type=minecraft:ravager,limit=1] 1 minecraft:mob_attack by @e[type=minecraft:iron_golem,limit=1]
+wait 1.5
+cmd data get entity @e[type=minecraft:ravager,limit=1] data."saintsdragons:volitans_combat".last
+cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+wait 0.5
+expect has the following entity data: "?(bite|claw|horn_gore)"?
+expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
+reject (?i)panic|panicked
+bot quit
+stop
