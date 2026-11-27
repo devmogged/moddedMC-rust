@@ -36,9 +36,10 @@ wait 2
 cmd legendary ambusher find 1025 100 1025
 await Ambusher found 1: id=[0-9]+ health=50.0/50.0
 cmd kill @e[type=minecraft:item]
-# This test must not accidentally kill another naturally spawned spider.
-# Select the nearest spider to the known spawn point.
-cmd damage @e[type=minecraft:spider,limit=1] 100 minecraft:generic
+# The world can spawn ordinary spiders. Restrict damage to the exact
+# encounter arena and nearest known spawn; a random spider drop is not proof
+# that the persistent native Ambusher died.
+cmd damage @e[type=minecraft:spider,x=1025.5,y=100,z=1025.5,distance=..3,sort=nearest,limit=1] 100 minecraft:generic
 wait 2
 cmd legendary ambusher find 1025 100 1025
 await Ambusher found 0:
