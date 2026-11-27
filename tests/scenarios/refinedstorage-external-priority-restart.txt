@@ -1,0 +1,81 @@
+# Two configured External Storage connections must obey stable highest-priority
+# ordering, live redstone enablement and independent inventories. Settings persist.
+# One actual importer transfers through exact-full-source-NBT host slot operations.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1020 100 1020 1033 105 1031 minecraft:air
+cmd fill 1020 99 1020 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:external_storage[facing=east]
+cmd setblock 1028 100 1025 minecraft:barrel
+cmd setblock 1026 100 1026 refinedstorage:external_storage[facing=south]
+cmd setblock 1026 100 1027 minecraft:barrel
+cmd setblock 1025 100 1026 refinedstorage:importer[facing=south]
+cmd setblock 1025 100 1027 minecraft:barrel
+# The east interface has higher priority than the south interface.
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot hotbar 0
+bot use 1027 100 1025
+wait 1
+bot inventory-click 48 left
+wait 0.5
+bot inventory-close
+cmd item replace block 1025 100 1027 container.0 with minecraft:diamond 12
+wait 5
+cmd data get block 1028 100 1025 Items[0].count
+wait 0.5
+expect 12
+cmd data get block 1026 100 1027 Items
+wait 0.5
+expect \[\]
+# The more preferred interface now requires power and stops accepting.
+bot use 1027 100 1025
+wait 1
+bot inventory-click 50 left
+wait 0.5
+bot inventory-close
+cmd item replace block 1025 100 1027 container.0 with minecraft:emerald 8
+wait 4
+cmd data get block 1026 100 1027 Items[0].count
+wait 0.5
+expect 8
+cmd data get block 1028 100 1025 Items
+wait 0.5
+reject minecraft:emerald
+# Power restores priority one immediately.
+cmd setblock 1027 101 1025 minecraft:redstone_block
+cmd item replace block 1025 100 1027 container.0 with minecraft:gold_ingot 4
+wait 4
+cmd data get block 1028 100 1025 Items
+wait 0.5
+expect minecraft:gold_ingot
+cmd data get block 1026 100 1027 Items
+wait 0.5
+reject minecraft:gold_ingot
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd setblock 1027 101 1025 minecraft:air
+cmd item replace block 1025 100 1027 container.0 with minecraft:lapis_lazuli 4
+wait 4
+cmd data get block 1026 100 1027 Items
+wait 0.5
+expect minecraft:lapis_lazuli
+cmd data get block 1028 100 1025 Items
+wait 0.5
+reject minecraft:lapis_lazuli
+reject (?i)panicked|\[bot\] error:
+bot quit
+stop

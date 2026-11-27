@@ -1,0 +1,72 @@
+# Two players open the same digital Grid while the disk holds 16 diamonds.
+# Alice requests all 16, then Bob clicks the stale copy. The second request
+# must not materialize another item. Disk CAS is re-read under the mod lock.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart alice
+botstart bob
+wait 3
+cmd gamemode survival alice
+cmd gamemode survival bob
+cmd tp alice 1022.5 101 1026.5
+cmd tp bob 1030.5 101 1026.5
+wait 2
+cmd fill 1021 100 1021 1033 105 1031 minecraft:air
+cmd fill 1021 99 1021 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1026 refinedstorage:controller
+cmd setblock 1026 100 1026 refinedstorage:grid
+cmd setblock 1025 100 1025 refinedstorage:cable
+cmd setblock 1026 100 1025 refinedstorage:disk_drive
+botselect alice
+cmd item replace entity alice hotbar.0 with refinedstorage:1k_storage_disk 1
+bot hotbar 0
+bot use 1026 100 1025
+wait 0.5
+expect Storage disk installed
+cmd item replace entity alice hotbar.0 with minecraft:diamond 16
+bot use 1026 100 1026
+wait 0.5
+expect Stored 16 items
+cmd item replace entity alice hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.5
+bot expect slot 0 minecraft:diamond 16
+botselect bob
+bot use 1026 100 1026
+wait 0.5
+bot expect slot 0 minecraft:diamond 16
+botselect alice
+bot inventory-click 0 left
+wait 0.5
+expect Requested 16 minecraft:diamond
+bot inventory-close
+botselect bob
+bot inventory-click 0 left
+wait 0.5
+bot inventory-close
+# Bob cannot receive a second stack from his stale Grid display.
+cmd execute positioned 1030.5 101 1026.5 unless entity @e[type=minecraft:item,distance=..2,nbt={Item:{id:"minecraft:diamond"}}]
+wait 0.5
+expect Test passed
+bot use 1026 100 1026
+wait 0.5
+bot expect slot 0 minecraft:air 0
+bot inventory-close
+bot quit
+botselect alice
+bot quit
+stop
+start
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1022.5 101 1026.5
+wait 2
+bot use 1026 100 1026
+wait 0.5
+bot expect slot 0 minecraft:air 0
+bot inventory-close
+reject (?i)panicked|could not restore failed Grid delivery|\[bot\] error:
+bot quit
+stop

@@ -1,0 +1,59 @@
+# Refined Storage 2.0.9: install real 1k cartridge, insert diamonds into its
+# persistent digital inventory, verify stock Grid and fresh world restart,
+# extract real items and verify disk count changes without duplication.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1022 100 1022 1033 105 1031 minecraft:air
+cmd fill 1022 99 1022 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:disk_drive
+cmd setblock 1026 100 1026 refinedstorage:grid
+cmd item replace entity tester hotbar.0 with refinedstorage:1k_storage_disk 1
+bot hotbar 0
+bot use 1027 100 1025
+wait 1
+expect Storage disk installed and contents mounted
+cmd item replace entity tester hotbar.0 with minecraft:diamond 10
+bot use 1026 100 1026
+wait 1
+expect Stored 10 items in network disks
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 1
+bot expect slot 0 minecraft:diamond 10
+bot inventory-close
+cmd data get block 1027 100 1025
+wait 0.5
+expect refinedstorage_disks
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+bot use 1026 100 1026
+wait 1
+bot expect slot 0 minecraft:diamond 10
+bot inventory-click 0 left
+wait 1
+expect Requested 10 minecraft:diamond
+bot inventory-close
+bot use 1026 100 1026
+wait 1
+bot expect slot 0 minecraft:air 0
+bot inventory-close
+cmd data get block 1027 100 1025
+wait 0.5
+expect refinedstorage_disks
+reject (?i)panicked|could not restore failed Grid delivery|\[bot\] error:
+bot quit
+stop

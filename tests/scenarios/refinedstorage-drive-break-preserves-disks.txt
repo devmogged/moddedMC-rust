@@ -1,0 +1,53 @@
+# Survival mining a loaded disk drive emits each installed disk as a real item
+# carrying its full stored contents. Item data is checked after restart.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1024.5 101 1023.5
+wait 2
+cmd fill 1021 100 1021 1032 105 1031 minecraft:air
+cmd fill 1021 99 1021 1032 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:disk_drive
+cmd setblock 1026 100 1026 refinedstorage:grid
+cmd item replace entity tester hotbar.0 with refinedstorage:1k_storage_disk 1
+bot hotbar 0
+bot use 1027 100 1025
+wait 0.5
+expect Storage disk installed
+cmd item replace entity tester hotbar.0 with minecraft:diamond 5
+bot use 1026 100 1026
+wait 0.5
+expect Stored 5 items
+cmd item replace entity tester hotbar.0 with minecraft:iron_pickaxe 1
+bot dig start 1027 100 1025 north
+wait 2
+bot dig finish
+wait 1
+cmd execute positioned 1027.5 100.5 1025.5 if entity @e[type=minecraft:item,distance=..1.5,nbt={Item:{id:"refinedstorage:1k_storage_disk"}}]
+wait 0.5
+expect Test passed
+cmd data get entity @e[type=minecraft:item,x=1027.5,y=100.5,z=1025.5,distance=..1.5,nbt={Item:{id:"refinedstorage:1k_storage_disk"}},limit=1] Item.components."minecraft:custom_data"
+wait 0.5
+expect refinedstorage_disk
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode spectator tester
+cmd tp tester 1024.5 101 1023.5
+wait 2
+cmd execute positioned 1027.5 100.5 1025.5 if entity @e[type=minecraft:item,distance=..1.5,nbt={Item:{id:"refinedstorage:1k_storage_disk"}}]
+wait 0.5
+expect Test passed
+cmd data get entity @e[type=minecraft:item,x=1027.5,y=100.5,z=1025.5,distance=..1.5,nbt={Item:{id:"refinedstorage:1k_storage_disk"}},limit=1] Item.components."minecraft:custom_data"
+wait 0.5
+expect refinedstorage_disk
+reject (?i)panicked|unencoded storage disk|failed break drop|\[bot\] error:
+bot quit
+stop

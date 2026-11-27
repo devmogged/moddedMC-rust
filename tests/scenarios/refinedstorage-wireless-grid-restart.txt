@@ -1,0 +1,64 @@
+# Wireless Grid binds to one real Controller, opens only through a connected
+# range-upgraded transmitter, refuses foreign/distant access and survives restart.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1022 100 1022 1066 105 1034 minecraft:air
+cmd fill 1022 99 1022 1066 99 1034 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:disk_drive
+cmd setblock 1026 100 1026 refinedstorage:grid
+cmd setblock 1025 100 1026 refinedstorage:wireless_transmitter
+cmd item replace entity tester hotbar.0 with refinedstorage:1k_storage_disk 1
+bot hotbar 0
+bot use 1027 100 1025
+wait 0.5
+cmd item replace entity tester hotbar.0 with minecraft:diamond 7
+bot use 1026 100 1026
+wait 0.5
+expect Stored 7 items
+cmd item replace entity tester hotbar.0 with refinedstorage:range_upgrade 1
+bot use 1025 100 1026
+wait 0.5
+expect Wireless Transmitter range upgraded
+cmd item replace entity tester hotbar.0 with refinedstorage:wireless_grid 1
+bot use 1025 100 1025
+wait 0.5
+expect Wireless Grid bound to this Controller
+cmd tp tester 1032.5 101 1025.5
+wait 1
+bot use-item main
+wait 1
+bot expect slot 0 minecraft:diamond 7
+bot inventory-close
+cmd tp tester 1060.5 101 1025.5
+wait 1
+bot use-item main
+wait 1
+expect controller unavailable or outside powered transmitter range
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1032.5 101 1025.5
+wait 2
+bot use-item main
+wait 1
+bot expect slot 0 minecraft:diamond 7
+bot inventory-close
+cmd setblock 1025 100 1026 minecraft:air
+wait 1
+bot use-item main
+wait 1
+expect controller unavailable or outside powered transmitter range
+reject (?i)panicked|\[bot\] error:
+bot quit
+stop

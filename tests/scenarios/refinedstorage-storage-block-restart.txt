@@ -1,0 +1,61 @@
+# Native 1k Storage Block is a bounded digital cell without a removable disk
+# slot. Its contents appear in the Grid, persist restart, and are rescued as a
+# filled tier-matched cartridge when the block is mined in survival.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1021 100 1021 1033 105 1031 minecraft:air
+cmd fill 1021 99 1021 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:1k_storage_block
+cmd setblock 1026 100 1026 refinedstorage:grid
+cmd item replace entity tester hotbar.0 with minecraft:emerald 11
+bot hotbar 0
+bot use 1026 100 1026
+wait 0.5
+expect Stored 11 items in network storage
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 1
+bot expect slot 0 minecraft:emerald 11
+bot inventory-close
+cmd data get block 1027 100 1025
+wait 0.5
+expect refinedstorage_storage_block
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1024.5 101 1023.5
+wait 2
+bot use 1026 100 1026
+wait 0.5
+bot expect slot 0 minecraft:emerald 11
+bot inventory-close
+cmd item replace entity tester hotbar.0 with minecraft:iron_pickaxe 1
+bot hotbar 0
+bot dig start 1027 100 1025 north
+wait 2
+bot dig finish
+wait 1
+cmd execute positioned 1027.5 100.5 1025.5 if entity @e[type=minecraft:item,distance=..1.5,nbt={Item:{id:"refinedstorage:1k_storage_disk"}}]
+wait 0.5
+expect Test passed
+cmd data get entity @e[type=minecraft:item,x=1027.5,y=100.5,z=1025.5,distance=..1.5,nbt={Item:{id:"refinedstorage:1k_storage_disk"}},limit=1] Item.components."minecraft:custom_data"
+wait 0.5
+expect refinedstorage_disk
+bot use 1026 100 1026
+wait 0.5
+bot expect slot 0 minecraft:air 0
+bot inventory-close
+reject (?i)panicked|Storage Block contents could not be restored|\[bot\] error:
+bot quit
+stop

@@ -1,0 +1,80 @@
+# Real recipe: nine diamond items from the digital disk are consumed by the
+# 3x3 crafting grid and exactly one diamond block enters the same disk CAS.
+# Recipe selection, stored result and new recipes survive restart.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1022 100 1022 1033 105 1031 minecraft:air
+cmd fill 1022 99 1022 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:disk_drive
+cmd setblock 1026 100 1026 refinedstorage:crafting_grid
+cmd item replace entity tester hotbar.0 with refinedstorage:1k_storage_disk 1
+bot hotbar 0
+bot use 1027 100 1025
+wait 1
+expect Storage disk installed
+cmd item replace entity tester hotbar.0 with minecraft:diamond 9
+bot use 1026 100 1026
+wait 1
+expect Stored 9 items
+# Nine actual held-item sneak clicks configure the ghost pattern only.
+cmd item replace entity tester hotbar.0 with minecraft:diamond 1
+bot input sneak
+wait 0.5
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.5
+bot input none
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 1
+bot expect slot 49 minecraft:diamond_block 1
+bot inventory-click 49 left
+wait 1
+expect Crafted recipe using network disk ingredients
+bot inventory-close
+bot use 1026 100 1026
+wait 1
+bot expect slot 0 minecraft:diamond_block 1
+bot inventory-close
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+bot use 1026 100 1026
+wait 1
+bot expect slot 0 minecraft:diamond_block 1
+bot expect slot 49 minecraft:diamond_block 1
+bot inventory-click 49 left
+wait 1
+expect No single disk can atomically craft this recipe
+reject (?i)panicked|\[bot\] error:
+bot inventory-close
+bot quit
+stop

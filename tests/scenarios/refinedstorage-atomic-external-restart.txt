@@ -1,0 +1,70 @@
+# Exact-preimage host slot transfers: importer sources a real chest and
+# deposits into connected External Storage barrel, then exporter draws the
+# same item into a second chest with its configured allowlist and redstone gate.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1020 100 1020 1033 105 1031 minecraft:air
+cmd fill 1020 99 1020 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:external_storage[facing=east]
+cmd setblock 1028 100 1025 minecraft:barrel
+cmd setblock 1025 100 1026 refinedstorage:importer[facing=south]
+cmd setblock 1025 100 1027 minecraft:barrel
+cmd item replace block 1025 100 1027 container.0 with minecraft:diamond 12
+wait 5
+cmd data get block 1025 100 1027 Items
+wait 0.5
+expect \[\]
+cmd data get block 1028 100 1025 Items[0].count
+wait 0.5
+expect 12
+cmd setblock 1025 100 1024 refinedstorage:exporter[facing=north]
+cmd setblock 1025 100 1023 minecraft:barrel
+cmd item replace entity tester hotbar.0 with minecraft:diamond 1
+bot hotbar 0
+bot use 1025 100 1024
+wait 1
+expect Filter ghost item configured
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1025 100 1024
+wait 1
+# Now redstone-only, no movement until actual neighboring power arrives.
+bot inventory-click 49 left
+wait 0.5
+bot inventory-close
+wait 3
+cmd data get block 1025 100 1023 Items
+wait 0.5
+expect \[\]
+cmd setblock 1025 101 1024 minecraft:redstone_block
+wait 5
+cmd data get block 1025 100 1023 Items[0].count
+wait 0.5
+expect 12
+cmd data get block 1028 100 1025 Items
+wait 0.5
+expect \[\]
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd data get block 1025 100 1023 Items[0].count
+wait 0.5
+expect 12
+cmd data get block 1028 100 1025 Items
+wait 0.5
+expect \[\]
+reject (?i)panicked|failed to restore|\[bot\] error:
+bot quit
+stop
