@@ -911,13 +911,6 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     } else {
         clip
     };
-    let clip = clip.or_else(|| {
-        if name == "volitans" {
-            crate::combat_volitans::ambient(world, mob)
-        } else {
-            None
-        }
-    });
     let clip = clip
         .or(volitans_clip)
         .or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count()))

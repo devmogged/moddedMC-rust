@@ -10,8 +10,8 @@ The companion now exposes the eight released rider keybinds through a generic
 versioned player-action interface, including held and released phases. The
 [stock-client smoke scenario](../tests/scenarios/p2-rider-actions.txt) checks
 registration and absence of rider callbacks for a stock client. The dragon
-callbacks currently log mounted input; ability execution, vanilla key fallbacks
-and live companion rebinding verification remain separate work.
+callbacks route Volitans rider abilities; other species still log mounted input
+on this branch. Live companion rebinding verification remains separate work.
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ bulldoze, precise leap and breath sweeps, timed pillar entities, and terrain eff
 Fireball uses sampled collision and mob-attributed damage rather than a native
 projectile and attributed explosion damage. Visual effects and animation timing
 also remain partial.
-Volitans has hunger-scaled melee, medium-specific AI selection, persisted cooldowns and breath energy, swept breath/orb damage, poison and roar stun, and water extinguishing fire/solidifying lava with Fire Hydrant credit for its owner. Burrow uses surface navigation and particles; the poison orb uses an owned snowball carrier with the released motion and area impact, while breath and spines remain simulated. Rider-only ultimate, dash/dodge inputs, exact burrow collision, incoming attacker-specific reactions and full targeting/navigation remain pending host support. [Retaliation scenario](../tests/scenarios/p2c-volitans-combat.txt) covers melee selection and damage.
+Volitans has hunger-scaled melee, medium-specific AI selection, persisted cooldowns and breath energy, swept breath/orb damage, poison and roar stun, and water extinguishing fire/solidifying lava with Fire Hydrant credit for its owner. Its owner can tap R for roar or hold/release R for the poison orb, tap G for claw or hold G for breath, toggle water/poison while breathing with X, use H for burrow/exit or an airborne slam, and flex with Ctrl+4. Mounted movement handles ascend, descend, acceleration and double-tap directional dash/dodge. Burrow uses surface navigation and particles; the poison orb uses an owned snowball carrier, while breath and spines remain simulated. The melee sweep and bite/gore selector are implemented, but the shared companion does not yet forward vanilla attack/use mouse buttons. Exact flight state, steering, burrow collision, incoming attacker-specific reactions and full targeting/navigation remain gaps. [Retaliation scenario](../tests/scenarios/p2c-volitans-combat.txt) covers melee selection and damage; [rider scenario](../tests/scenarios/p2c-volitans-rider.txt) records companion checks pending live execution.
 
 Stegonaut AI combat selects bite or chin slam with the released 26-tick cadence,
 individual cooldowns, tick-13 impact, hunger scaling and knockback. Its tame aura

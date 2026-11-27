@@ -1,0 +1,24 @@
+# Companion integration checklist: use a Fabric 26.3 client in the prepared
+# arena. The stock bot cannot send semantic key packets.
+# Tame an adult Volitans with the Creative Dragon Taming Meal and mount it.
+# Place non-poison-immune, durable targets in front and around the mount.
+# R tap (<180 ms): ground roar, 10 damage/poison III; airborne or wet 7/II.
+# R hold (>180 ms): no roar; charge for >=13 ticks and release to shoot an
+# owned snowball orb eight ticks later. Check impact damage/poison and cooldown.
+# G tap (<5 ticks): claw sweep. G hold: breath begins after 17 ticks, X switches
+# water to poison, release stops emissions. Re-hold after cooldown starts water.
+# H on ground: burrow entry, movement, H again exits and bursts after 28 ticks.
+# H in flight: windup, descent, ground impact, poison/stun, recovery.
+# Ctrl+4: harmless roar animation; movement locked for 65 ticks.
+# Double-tap W/S/A/D within 300 ms: forward dash, backward dash/spines, side dodge.
+# Dismount while charging or breathing: no further emissions; remount starts clean.
+# Non-owner, unmounted and second passenger inputs must not activate abilities.
+# Automated stock-client registration smoke check:
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+expect-all registered player action saintsdragons:ability_primary && registered player action saintsdragons:ability_tertiary && registered player action saintsdragons:ability_secondary && registered player action saintsdragons:toggle_melee && registered player action saintsdragons:flex
+botstart tester
+wait 3
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
