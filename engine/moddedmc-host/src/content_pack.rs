@@ -472,12 +472,20 @@ impl Pack {
                 .into_iter()
                 .map(|part| {
                     let apply = json!({"model": self.model(&part.model), "y": part.y});
-                    match part.when {
-                        None => json!({"apply": apply}),
-                        Some((index, connected)) => json!({
-                            "when": {(content_panes::SIDES[index]): connected.to_string()},
-                            "apply": apply,
-                        }),
+                    if part.when.is_empty() {
+                        json!({"apply": apply})
+                    } else {
+                        let when: serde_json::Map<String, Value> = part
+                            .when
+                            .into_iter()
+                            .map(|(index, connected)| {
+                                (
+                                    content_panes::SIDES[index].to_owned(),
+                                    json!(connected.to_string()),
+                                )
+                            })
+                            .collect();
+                        json!({"when": when, "apply": apply})
                     }
                 })
                 .collect();
@@ -488,10 +496,15 @@ impl Pack {
             &carrier_path,
             &json!({"variants": {"": {"model": EMPTY_MODEL}}}),
         )?;
+        let model_kind = if path.ends_with("_bars") {
+            "bars"
+        } else {
+            "pane"
+        };
         let mut models = Vec::with_capacity(parts.len());
         for (index, part) in parts.into_iter().enumerate() {
             let original = self.model(&part.model).to_owned();
-            let part_path = format!("moddedmc/pane/{path}/part_{index}");
+            let part_path = format!("moddedmc/{model_kind}/{path}/part_{index}");
             let oriented = self.oriented_pane_model(&original, part.y);
             let id = if let Some(model) = oriented {
                 self.json(
@@ -506,7 +519,8 @@ impl Pack {
             models.push((part, id));
         }
 
-        let ids = std::array::from_fn(|mask| format!("{namespace}:moddedmc/pane/{path}/{mask}"));
+        let ids =
+            std::array::from_fn(|mask| format!("{namespace}:moddedmc/{model_kind}/{path}/{mask}"));
         for (mask, _) in ids.iter().enumerate() {
             let components: Vec<_> = models
                 .iter()
@@ -514,7 +528,7 @@ impl Pack {
                 .map(|(_, id)| json!({"type": "minecraft:model", "model": id}))
                 .collect();
             self.json(
-                &format!("assets/{namespace}/items/moddedmc/pane/{path}/{mask}.json"),
+                &format!("assets/{namespace}/items/moddedmc/{model_kind}/{path}/{mask}.json"),
                 &json!({"model": {"type": "minecraft:composite", "models": components}}),
             )?;
         }

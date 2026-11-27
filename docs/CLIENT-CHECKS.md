@@ -90,3 +90,9 @@ Run these checks with the official client and the server resource pack.
 - Place a pane into a water source and another next to Waxed Oxidized Copper Bars. Expect the pane to hold water and the stock bars to keep their copper appearance. Restart and expect the same geometry and water.
 - Rotate an Oak Window Pane on a Mechanical Bearing. Restart while it runs, remove one neighbor at the landing position, and stop the bearing. Expect the moving pane to keep its material and update its arms on landing.
 - Pan across large arrays of Framed Glass and Oak Window Panes, including across chunk boundaries. Record frame timing, overlay pop-in, edge seams, and any differences between the two rendering paths.
+
+## Create metal bars ([issue #40](https://github.com/devmogged/moddedMC-rust/issues/40), engine `bb5eeda87`)
+
+- Stonecut Andesite Alloy, a Brass Ingot and a Copper Ingot. Expect four of the corresponding bar per input. Place each alongside stock Iron Bars, Glass Panes and a wall. Expect copper placement sounds, a cap on the loose end of a single connection, and the correct shape at corners and junctions.
+- Place Brass Bars in source water. Restart, then sneak-use a wrench in Survival. Expect one Brass Bars item in your inventory, water in the old position, and the neighboring arms to retract. Repeat in Creative and expect no recovered item.
+- Rotate waterlogged Brass Bars on a Mechanical Bearing. Expect water to remain at the source during motion. Restart and stop the bearing beside a different neighbor. Expect the rendered bars to keep their material through motion and reconnect and waterlog at the landing site.

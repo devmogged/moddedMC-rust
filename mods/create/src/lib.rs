@@ -2273,6 +2273,11 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     {
         return result;
     }
+    if context.item == WRENCH
+        && let Some(result) = decor::wrench_pickup(context)
+    {
+        return result;
+    }
     if context.item == glue::ID {
         return glue::use_on_block(context);
     }

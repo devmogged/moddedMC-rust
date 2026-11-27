@@ -8,14 +8,18 @@ mod data;
 #[path = "decor_slab_data.rs"]
 mod slab_data;
 
+use std::hash::{BuildHasher, RandomState};
+
 use moddedmc_api::{
     RegistrationError, Registry,
     content::{Block, BlockMaterial, Content, Placement, State},
+    effects::SOUND_BLOCKS,
+    interaction::{UseOnBlock, UseResult},
     items::Item,
 };
 
 use crate::{
-    ITEMS,
+    CONTENT, EFFECTS, ITEMS, TAGS,
     belt_tunnel::{read, shift},
     kinetics::face_axis,
 };
@@ -156,7 +160,24 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         register_wall(content, registry, stairs, stairs_name, &material)?;
     }
     for &(path, name, map_color) in data::PANES {
-        register_pane(content, registry, path, name, map_color)?;
+        register_connected_block(
+            content,
+            registry,
+            path,
+            name,
+            "minecraft:glass_pane",
+            map_color,
+        )?;
+    }
+    for &(path, name, map_color) in data::BARS {
+        register_connected_block(
+            content,
+            registry,
+            path,
+            name,
+            "minecraft:copper_bars",
+            Some(map_color),
+        )?;
     }
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for &(path, display_name, carrier) in data::ITEMS {
@@ -185,15 +206,68 @@ pub fn is_display_pane(path: &str) -> bool {
         )
 }
 
-fn register_pane(
+pub(crate) fn uses_bar_display(path: &str) -> bool {
+    path.ends_with("_bars") && data::BARS.iter().any(|(id, ..)| *id == path)
+}
+
+pub(crate) fn wrench_pickup(context: &UseOnBlock<'_>) -> Option<UseResult> {
+    if !context.sneaking || !context.player.is_some_and(|player| player.may_build()) {
+        return None;
+    }
+    let world = context.world;
+    let pos = context.position;
+    let mut state = [0];
+    if !world.read(&[pos], &mut state) {
+        return None;
+    }
+    let description = CONTENT.get()?.describe_state(state[0])?;
+    let block = description.split('[').next()?;
+    if !TAGS.get()?.contains("block", "create:wrench_pickup", block) {
+        return None;
+    }
+    let drops = if context.creative {
+        Vec::new()
+    } else {
+        world.block_drops(pos, None)?
+    };
+    if !world.destroy(pos, false) {
+        return Some(UseResult::Fail);
+    }
+    for stack in drops {
+        context.give(&stack);
+    }
+    if let Some(effects) = EFFECTS.get() {
+        let coords = [pos.x, pos.y, pos.z];
+        let sample = (RandomState::new().hash_one(coords) >> 48) as u16;
+        let pitch = 0.75 * (0.5 + 0.5 * f32::from(sample) / 65_536.0);
+        for sound in [
+            "minecraft:entity.item.pickup",
+            "minecraft:block.netherite_block.hit",
+        ] {
+            effects.play_sound(
+                world,
+                coords.map(|n| f64::from(n) + 0.5),
+                sound,
+                SOUND_BLOCKS,
+                0.25,
+                pitch,
+            );
+        }
+    }
+    Some(UseResult::Success)
+}
+
+fn register_connected_block(
     content: Content,
     registry: &mut Registry<'_>,
     path: &str,
     name: &str,
+    template: &str,
     map_color: Option<&str>,
 ) -> Result<(), RegistrationError> {
     let id = format!("create:{path}");
-    let post = format!("create:block/{path}_post");
+    let model = path.strip_suffix("_bars").unwrap_or(path);
+    let post = format!("create:block/{model}_post");
     let variants: [(String, String); 32] = std::array::from_fn(|index| {
         let flag = |bit: usize| index & (1usize << bit) != 0;
         let properties = format!(
@@ -204,13 +278,13 @@ fn register_pane(
             flag(4),
             flag(3)
         );
-        let physical = format!("minecraft:glass_pane[{properties}]");
+        let physical = format!("{template}[{properties}]");
         (properties, physical)
     });
     let states = variants.each_ref().map(|(properties, physical)| {
         let mut variant = state(properties, physical, &post, 0, 0);
         // Use three spare cutout carriers for the framed and tiled families.
-        if is_display_pane(path) {
+        if is_display_pane(path) || uses_bar_display(path) {
             variant.model = "";
             variant.rotating_model = &post;
         }
@@ -232,7 +306,7 @@ fn register_pane(
             registry,
             &id,
             &BlockMaterial {
-                template: "minecraft:glass_pane",
+                template,
                 hardness: None,
                 map_color,
             },

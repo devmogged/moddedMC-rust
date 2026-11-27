@@ -911,14 +911,19 @@ struct ShapedBlockDisplay {
 impl ShapedBlockDisplay {
     fn new(entry: &PaletteEntry) -> Option<Self> {
         let path = entry.name.strip_prefix("create:")?;
-        if decor::is_display_pane(path) {
+        if decor::is_display_pane(path) || decor::uses_bar_display(path) {
+            let kind = if path.ends_with("_bars") {
+                "bars"
+            } else {
+                "pane"
+            };
             let mut mask = 0;
             for (bit, side) in ["north", "east", "south", "west"].into_iter().enumerate() {
                 if entry.properties.get(side)? == "true" {
                     mask |= 1 << bit;
                 }
             }
-            let model = format!("create:moddedmc/pane/{path}/{mask}");
+            let model = format!("create:moddedmc/{kind}/{path}/{mask}");
             let stack = fastnbt::nbt!({
                 "id": "minecraft:paper",
                 "count": 1i32,

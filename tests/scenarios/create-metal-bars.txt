@@ -1,0 +1,75 @@
+# Create metal bars connect, survive restart, and return to the player through the wrench.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:andesite_bars \(32 states\) && registered content block create:brass_bars \(32 states\) && registered content block create:copper_bars \(32 states\)
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 1028.5 105 1024.5 0 0
+await 10 \[bot\] teleported to .*1028\.5.*1024\.5
+wait 2
+cmd fill 1024 105 1024 1034 108 1034 minecraft:air
+cmd fill 1024 104 1024 1034 104 1034 minecraft:stone
+cmd setblock 1027 105 1027 minecraft:glass_pane
+cmd setblock 1029 105 1027 minecraft:water[level=0]
+cmd gamemode survival tester
+cmd recipe give tester create:andesite_bars_from_andesite_alloy_stonecutting
+await 5 Unlocked 1 recipe
+cmd recipe give tester create:brass_bars_from_ingots_brass_stonecutting
+await 5 Unlocked 1 recipe
+cmd recipe give tester create:copper_bars_from_ingots_copper_stonecutting
+await 5 Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with create:brass_bars
+wait 0.5
+bot place 1029 104 1027 up
+await 5 \[bot\] sound: block.copper.place
+cmd item replace entity tester hotbar.0 with create:andesite_bars
+wait 0.5
+bot place 1028 104 1027 up
+wait 1
+cmd execute if block 1028 105 1027 create:andesite_bars[east=true,west=true,waterlogged=false] if block 1029 105 1027 create:brass_bars[west=true,waterlogged=true] if block 1027 105 1027 minecraft:glass_pane[east=true] if block 1028 105 1027 #minecraft:bars
+await 5 Test passed
+cmd execute if entity @e[type=minecraft:item_display,x=1028.5,y=105,z=1027.5,distance=..0.05,nbt={item:{components:{"minecraft:item_model":"create:moddedmc/bars/andesite_bars/10"}}}]
+await 5 Test passed
+cmd setblock 1028 105 1026 create:copper_bars
+cmd execute if block 1028 105 1027 create:andesite_bars[north=true] if block 1028 105 1026 create:copper_bars[south=true]
+await 5 Test passed
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 1028 105 1027 north
+wait 0.5
+cmd execute if block 1028 105 1027 create:andesite_bars
+await 5 Test passed
+cmd save-all flush
+await 10 Saved the game
+stop
+
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if block 1028 105 1027 create:andesite_bars[east=true,north=true,west=true] if block 1029 105 1027 create:brass_bars[west=true,waterlogged=true] if block 1028 105 1026 create:copper_bars[south=true]
+await 5 Test passed
+bot input sneak
+wait 0.5
+bot use 1028 105 1027 north
+wait 0.5
+cmd execute if block 1028 105 1027 minecraft:air if block 1029 105 1027 create:brass_bars[west=false,waterlogged=true] if block 1028 105 1026 create:copper_bars[south=false]
+await 5 Test passed
+cmd clear tester create:andesite_bars 0
+await 5 Found 1 matching item
+bot use 1029 105 1027 north
+wait 0.5
+cmd execute if block 1029 105 1027 minecraft:water[level=0]
+await 5 Test passed
+cmd clear tester create:brass_bars 0
+await 5 Found 1 matching item
+cmd gamemode creative tester
+bot use 1028 105 1026 north
+wait 0.5
+cmd execute if block 1028 105 1026 minecraft:air
+await 5 Test passed
+cmd clear tester create:copper_bars 0
+await 5 No items were found on player tester
+bot input none
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop
