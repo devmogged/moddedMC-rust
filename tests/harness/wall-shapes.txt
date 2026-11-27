@@ -1,0 +1,32 @@
+# Check wall arms and posts against the 26.3 block shapes, including partial covers.
+seed 12345
+area 0 150 0 6 154 6
+start
+cmd fill 0 150 0 6 150 6 minecraft:stone
+cmd setblock 3 151 3 minecraft:cobblestone_wall
+cmd setblock 3 152 3 minecraft:stone_slab[type=bottom]
+cmd setblock 2 151 3 minecraft:stone
+cmd setblock 4 151 3 minecraft:stone
+probe execute if block 3 151 3 minecraft:cobblestone_wall[east=tall,west=tall,up=false]
+expect Test passed
+snapshot bottom-slab-arms
+
+cmd setblock 3 152 3 minecraft:stone_slab[type=top]
+probe execute if block 3 151 3 minecraft:cobblestone_wall[east=low,west=low,up=false]
+expect Test passed
+snapshot top-slab-arms
+
+cmd setblock 3 152 3 minecraft:air
+cmd setblock 3 151 4 minecraft:glass_pane
+probe execute if block 3 151 3 minecraft:cobblestone_wall[east=low,west=low,south=low,up=true]
+expect Test passed
+snapshot asymmetric-post
+
+cmd setblock 3 151 2 minecraft:oak_fence_gate[facing=east]
+probe execute if block 3 151 3 minecraft:cobblestone_wall[east=low,west=low,north=low,south=low,up=false]
+expect Test passed
+cmd setblock 3 152 3 minecraft:mossy_cobblestone_wall
+probe execute if block 3 151 3 minecraft:cobblestone_wall[up=true]
+expect Test passed
+snapshot stacked-post
+stop
