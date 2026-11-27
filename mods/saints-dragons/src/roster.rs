@@ -304,6 +304,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             },
         )?;
         mobs.on_death(registry, &kind, taming::death)?;
+        if species.name == crate::ivy::SPECIES {
+            mobs.on_merchant_close(registry, &kind, crate::ivy::merchant_close)?;
+        }
         let stun = crate::stun::uses_stun(species.name);
         if swarm_damage.is_some()
             || stun

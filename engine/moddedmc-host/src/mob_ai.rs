@@ -149,6 +149,7 @@ pub struct TypeAi {
     hurt_final: Option<abi::HurtFinalCallback>,
     use_mob: Option<abi::UseMobFn>,
     death: Option<abi::MobDeathFn>,
+    merchant_close: Option<abi::MerchantCloseFn>,
 }
 
 static TYPES: Mutex<BTreeMap<String, TypeAi>> = Mutex::new(BTreeMap::new());
@@ -241,6 +242,26 @@ pub unsafe extern "C" fn on_death(reg: Reg, kind: Str, callback: abi::MobDeathFn
         return code::DUPLICATE_ID;
     }
     code::OK
+}
+
+pub unsafe extern "C" fn on_merchant_close(
+    reg: Reg,
+    kind: Str,
+    callback: abi::MerchantCloseFn,
+) -> i32 {
+    // SAFETY: registration is live for the call.
+    let Some(ai) = (unsafe { staged(reg, kind) }) else {
+        return code::INVALID_DEFINITION;
+    };
+    if ai.merchant_close.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    ai.merchant_close = Some(callback);
+    code::OK
+}
+
+pub fn merchant_close_callback(kind: &str) -> Option<abi::MerchantCloseFn> {
+    types().get(kind).and_then(|ai| ai.merchant_close)
 }
 
 /// The loaded entity `id` in any world, with its world.
@@ -347,6 +368,7 @@ pub fn register(staged: BTreeMap<String, TypeAi>) {
         entry.hurt_final = entry.hurt_final.or(ai.hurt_final);
         entry.use_mob = entry.use_mob.or(ai.use_mob);
         entry.death = entry.death.or(ai.death);
+        entry.merchant_close = entry.merchant_close.or(ai.merchant_close);
     }
 }
 

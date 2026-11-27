@@ -348,6 +348,92 @@ struct Session {
 static SESSIONS: LazyLock<Mutex<HashMap<[u8; 16], Session>>> = LazyLock::new(Mutex::default);
 static NONCE: AtomicU64 = AtomicU64::new(1);
 
+struct TradeResume {
+    ivy: [u8; 16],
+    dimension: String,
+    path: String,
+    node: String,
+    due: Option<u64>,
+}
+
+impl TradeResume {
+    fn close(&mut self, merchant: [u8; 16], dimension: Option<&str>, tick: u64) {
+        if self.ivy == merchant && dimension == Some(self.dimension.as_str()) && self.due.is_none()
+        {
+            self.due = Some(tick + 3);
+        }
+    }
+}
+
+static TRADE_RESUMES: LazyLock<Mutex<HashMap<[u8; 16], TradeResume>>> =
+    LazyLock::new(Mutex::default);
+
+/// IvyTheDragonMerchant.scheduleDialogueResumeAfterTrade.
+pub fn merchant_close(world: World<'_>, viewer: Entity<'_>, ivy: Entity<'_>) {
+    let Some((owner, merchant)) = MOBS
+        .get()
+        .and_then(|mobs| Some((mobs.uuid(viewer)?, mobs.uuid(ivy)?)))
+    else {
+        return;
+    };
+    let mut pending = TRADE_RESUMES.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(resume) = pending.get_mut(&owner) {
+        resume.close(merchant, world.dimension_id(), moddedmc_api::tick_count());
+    }
+}
+
+/// IvyTheDragonMerchant.tickDialogueTradeResume: wait for the trade close to reach the client.
+pub fn trade_resume_tick(world: World<'_>) {
+    let (Some(mobs), Some(entities)) = (MOBS.get(), ENTITIES.get()) else {
+        return;
+    };
+    let tick = moddedmc_api::tick_count();
+    let ready = {
+        let mut pending = TRADE_RESUMES.lock().unwrap_or_else(PoisonError::into_inner);
+        let owners: Vec<_> = pending
+            .iter()
+            .filter(|(_, resume)| {
+                world.dimension_id() == Some(resume.dimension.as_str())
+                    && resume.due.is_some_and(|due| due <= tick)
+            })
+            .map(|(owner, _)| *owner)
+            .collect();
+        owners
+            .into_iter()
+            .filter_map(|owner| pending.remove(&owner).map(|resume| (owner, resume)))
+            .collect::<Vec<_>>()
+    };
+    for (owner, resume) in ready {
+        let (Some(viewer), Some(ivy)) = (
+            mobs.by_uuid(world, &owner),
+            mobs.by_uuid(world, &resume.ivy),
+        ) else {
+            continue;
+        };
+        entities.with_entity(world, viewer, |viewer| {
+            entities.with_entity(world, ivy, |ivy| {
+                if mobs.kind(ivy) == Some(KIND)
+                    && ivy.flags() & ENTITY_ALIVE != 0
+                    && !downed_state(ivy).active()
+                    && viewer.view().zip(ivy.view()).is_some_and(|(a, b)| {
+                        flight::length_squared(flight::offset(a.position, b.position))
+                            <= RADIUS * RADIUS
+                    })
+                {
+                    show(
+                        world,
+                        viewer,
+                        ivy,
+                        &resume.path,
+                        Some(&resume.node),
+                        memory(world, viewer),
+                    );
+                }
+            });
+        });
+    }
+}
+
 pub fn register(items: ItemDefaults, reg: &mut Registry<'_>) -> Result<(), RegistrationError> {
     let saves = SAVES.get().ok_or(RegistrationError::InvalidDefinition)?;
     let _ = MEMORY_KEY.set(saves.register(reg, "ivy_memory")?);
@@ -583,6 +669,10 @@ fn show(
     let (player, mobs) = (viewer.as_player()?, MOBS.get()?);
     let owner = mobs.uuid(viewer)?;
     let dragon = mobs.uuid(ivy)?;
+    TRADE_RESUMES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&owner);
     let tree = dialogue(path)?;
     let node = tree.states.get(state.unwrap_or(&tree.start_at))?;
     let flags = flags(world, viewer, ivy, &memory);
@@ -769,11 +859,28 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
             {
                 memory.flags.insert("known_work_done".into());
             }
+            let (path, node) = action
+                .next
+                .strip_prefix("saintsdragons:ivy/")
+                .and_then(|reference| reference.split_once('#'))
+                .unwrap_or((&session.path, &action.next));
             if session.trade {
-                // shortcut: Java resumes at `next` after the trade screen closes; needs
-                // a merchant menu close callback with the player and merchant identity.
                 save_memory(world, viewer, &memory);
-                open_trades(viewer, ivy);
+                if open_trades(viewer, ivy) {
+                    TRADE_RESUMES
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .insert(
+                            owner,
+                            TradeResume {
+                                ivy: session.ivy,
+                                dimension: session.dimension.clone(),
+                                path: path.into(),
+                                node: node.into(),
+                                due: None,
+                            },
+                        );
+                }
                 return;
             }
             if session.inventory {
@@ -781,11 +888,6 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
                 open_inventory(world, viewer, ivy);
                 return;
             }
-            let (path, node) = action
-                .next
-                .strip_prefix("saintsdragons:ivy/")
-                .and_then(|reference| reference.split_once('#'))
-                .unwrap_or((&session.path, &action.next));
             show(world, viewer, ivy, path, Some(node), memory);
         });
     });
@@ -1659,21 +1761,23 @@ pub fn combat_clip(id: i32, moving: bool) -> Option<&'static str> {
 }
 
 /// `IvyTheDragonMerchant.getOffers`: rolled the first time, then kept by her villager carrier.
-fn open_trades(viewer: Entity<'_>, ivy: Entity<'_>) {
+fn open_trades(viewer: Entity<'_>, ivy: Entity<'_>) -> bool {
     let Some(mobs) = MOBS.get() else {
-        return;
+        return false;
     };
     let offers = if ivy.data(TRADES_ROLLED).is_some() {
         Vec::new()
     } else {
         crate::ivy_trades::roll().unwrap_or_default()
     };
-    if mobs.open_trades(ivy, viewer, &offers)
+    let opened = mobs.open_trades(ivy, viewer, &offers);
+    if opened
         && !offers.is_empty()
         && let Ok(flag) = fastnbt::to_bytes(&Value::Compound(Compound::new()))
     {
         ivy.set_data(TRADES_ROLLED, &flag);
     }
+    opened
 }
 
 fn custom_data(stack: &mut Compound) -> Option<&mut Compound> {
@@ -1812,6 +1916,24 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trade_resume_only_schedules_matching_close_once() {
+        let mut resume = TradeResume {
+            ivy: [1; 16],
+            dimension: "overworld".into(),
+            path: "first_meeting".into(),
+            node: "anchor_intro".into(),
+            due: None,
+        };
+        resume.close([2; 16], Some("overworld"), 10);
+        resume.close([1; 16], Some("nether"), 10);
+        assert_eq!(resume.due, None);
+        resume.close([1; 16], Some("overworld"), 11);
+        assert_eq!(resume.due, Some(14));
+        resume.close([1; 16], Some("overworld"), 12);
+        assert_eq!(resume.due, Some(14));
+    }
 
     #[test]
     fn downed_revive_grace_and_bleed_out() {

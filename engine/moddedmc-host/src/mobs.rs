@@ -68,6 +68,7 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     boolean_gamerule,
     last_hurt_mob,
     last_hurt_by_mob,
+    on_merchant_close: crate::mob_ai::on_merchant_close,
 };
 
 unsafe extern "C" fn last_hurt_mob(raw: EntityRef, timestamp: *mut i64) -> i32 {
@@ -163,12 +164,14 @@ unsafe extern "C" fn award_stat(raw: EntityRef, category: Str, stat: Str, amount
     }
     let id = match category {
         StatisticCategory::Custom => {
-            static STATS: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
+            static STATS: std::sync::OnceLock<Option<serde_json::Value>> =
+                std::sync::OnceLock::new();
             let stats = STATS.get_or_init(|| {
-                serde_json::from_str(include_str!("../../pumpkin/assets/stats.json"))
-                    .ok()
+                serde_json::from_str(include_str!("../../pumpkin/assets/stats.json")).ok()
             });
-            stats.as_ref().and_then(|stats| stats["minecraft:custom"]["entries"][stat]["id"].as_i64())
+            stats
+                .as_ref()
+                .and_then(|stats| stats["minecraft:custom"]["entries"][stat]["id"].as_i64())
                 .and_then(|id| i32::try_from(id).ok())
         }
         StatisticCategory::Killed | StatisticCategory::KilledBy => {
@@ -971,8 +974,93 @@ unsafe extern "C" fn open_trades(mob: EntityRef, player: EntityRef, offers: Str)
         };
         villager.set_offers_from_nbt(&saved.root_tag);
     }
+    let before = player.screen_handler_sync_id.load(Ordering::Relaxed);
     villager.open_trading_screen(&player);
+    let current = player
+        .current_screen_handler
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let (sync_id, window_type) = {
+        let handler = current.lock().unwrap_or_else(PoisonError::into_inner);
+        (handler.sync_id(), handler.window_type())
+    };
+    if sync_id == before || window_type != Some(pumpkin_data::screen::WindowType::Merchant) {
+        return false;
+    }
+    if registered_kind(mob)
+        .and_then(crate::mob_ai::merchant_close_callback)
+        .is_some()
+    {
+        let mut trades = OPEN_TRADES.lock().unwrap_or_else(PoisonError::into_inner);
+        trades.retain(|_, (screen, _)| screen.strong_count() != 0);
+        trades.insert(
+            player.gameprofile.id,
+            (Arc::downgrade(&current), mob.get_entity().entity_uuid),
+        );
+    }
     true
+}
+
+type TradeScreen = std::sync::Weak<Mutex<dyn pumpkin_inventory::screen_handler::ScreenHandler>>;
+static OPEN_TRADES: Mutex<BTreeMap<Uuid, (TradeScreen, Uuid)>> = Mutex::new(BTreeMap::new());
+
+pub struct MerchantCloseHandler;
+
+impl
+    pumpkin_core::plugin::EventHandler<
+        pumpkin_core::plugin::api::events::player::inventory_close::InventoryCloseEvent,
+    > for MerchantCloseHandler
+{
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<pumpkin_core::server::Server>,
+        event: &'a mut pumpkin_core::plugin::api::events::player::inventory_close::InventoryCloseEvent,
+    ) -> pumpkin_core::plugin::BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if event.window_type != Some(pumpkin_data::screen::WindowType::Merchant) {
+                return;
+            }
+            let player = &event.player;
+            let trade = OPEN_TRADES
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&player.gameprofile.id);
+            let Some((screen, merchant)) = trade else {
+                return;
+            };
+            let current = player
+                .current_screen_handler
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if !screen
+                .upgrade()
+                .is_some_and(|screen| Arc::ptr_eq(&screen, &current))
+            {
+                return;
+            }
+            let world = player.world();
+            let Some(merchant) = world.get_entity_by_uuid(merchant) else {
+                return;
+            };
+            let Some(callback) =
+                registered_kind(merchant.as_ref()).and_then(crate::mob_ai::merchant_close_callback)
+            else {
+                return;
+            };
+            let player: &dyn EntityBase = player.as_ref();
+            let merchant: &dyn EntityBase = merchant.as_ref();
+            // SAFETY: world and both entity handles are live for the synchronous callback.
+            unsafe {
+                callback(
+                    ptr::from_ref(world.as_ref()).cast(),
+                    ptr::from_ref(&player).cast(),
+                    ptr::from_ref(&merchant).cast(),
+                );
+            };
+        })
+    }
 }
 
 unsafe extern "C" fn award_advancement(

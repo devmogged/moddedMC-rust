@@ -243,6 +243,9 @@ pub fn attach(server: &Arc<Server>) {
         EventPriority::Normal,
         true,
     );
+    pm.register::<pumpkin_core::plugin::api::events::player::inventory_close::InventoryCloseEvent, _>(
+        Arc::new(mobs::MerchantCloseHandler), EventPriority::Normal, true,
+    );
     pm.register::<EntityDamageEvent, _>(
         Arc::new(equipment::WornHurtHandler),
         EventPriority::Normal,

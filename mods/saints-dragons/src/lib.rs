@@ -146,6 +146,7 @@ impl Mod for SaintsDragons {
         mobs.require_extension(MobsExtension::Taming)?;
         mobs.require_extension(MobsExtension::NaturalSpawns)?;
         mobs.require_extension(MobsExtension::Trading)?;
+        mobs.require_extension(MobsExtension::MerchantClose)?;
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;
@@ -429,6 +430,7 @@ fn can_be_affected(
 }
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
+    ivy::trade_resume_tick(world);
     crucible::tick(world, events);
     nucleus::tick(world, time, events);
     eggs::tick(world, events);
