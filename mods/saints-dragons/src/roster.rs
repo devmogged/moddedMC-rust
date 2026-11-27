@@ -256,10 +256,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         )?;
         mobs.on_death(registry, &kind, taming::death)?;
         let stun = crate::stun::uses_stun(species.name);
-        if swarm_damage.is_some()
-            || stun
-            || (species.name != "moop" && cfg!(feature = "original-assets"))
-        {
+        if swarm_damage.is_some() || stun || cfg!(feature = "original-assets") {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
         }
         if stun {

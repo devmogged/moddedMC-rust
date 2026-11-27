@@ -388,6 +388,7 @@ fn draw(
         }) {
             rig.seen = now;
             let clip = select(&mut rig.pose);
+            crate::audio::tick_clip(world, mob, species, view, clip, now);
             let appearance = rig.appearance.unwrap_or_else(|| Appearance::load(mob));
             if (clip != rig.clip || species != rig.species || rig.appearance.is_none())
                 && displays.set_item(world, rig.ids[0], &body_stack(species, clip, appearance))
@@ -426,6 +427,7 @@ fn draw(
         } else {
             let mut pose = Pose::new(view);
             let clip = select(&mut pose);
+            crate::audio::tick_clip(world, mob, species, view, clip, now);
             let appearance = Appearance::load(mob);
             let body = body_stack(species, clip, appearance);
             let mut ids = [0; PARTS];
@@ -466,6 +468,7 @@ pub fn sweep(world: World<'_>, time: u64, _events: &[ContentEvent]) {
         return;
     }
     let now = tick_count();
+    crate::audio::sweep(now);
     HURT.lock()
         .unwrap_or_else(PoisonError::into_inner)
         .retain(|_, until| *until > now);

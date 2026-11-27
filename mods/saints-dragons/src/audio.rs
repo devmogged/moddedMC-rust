@@ -5,6 +5,10 @@ use moddedmc_api::{
 };
 
 use crate::{CINDERVANE, EFFECTS, MOBS};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, PoisonError},
+};
 
 fn event(stock: &'static str, original: &'static str) -> &'static str {
     if cfg!(feature = "original-assets") {
@@ -79,6 +83,14 @@ fn vocal(kind: &str, death: bool) -> Option<(&'static str, f32, f32)> {
             1.0,
             1.0,
         ),
+        // Moop extends AbstractFish without overriding LivingEntity's hurt/death sounds.
+        "saintsdragons:moop" => (
+            "minecraft:entity.generic.hurt",
+            "minecraft:entity.generic.death",
+            1.0,
+            1.0,
+            1.0,
+        ),
         _ => return None,
     };
     Some(if death {
@@ -92,53 +104,95 @@ pub fn hurt(world: World<'_>, dragon: Entity<'_>, kind: &str) {
     let sound = if kind == CINDERVANE {
         Some((
             event("entity.ender_dragon.hurt", "saintsdragons:cindervane_hurt"),
-            0.65,
-            1.2,
+            if cfg!(feature = "original-assets") {
+                1.2
+            } else {
+                0.65
+            },
+            if cfg!(feature = "original-assets") {
+                0.95 + random_float() * 0.1
+            } else {
+                1.2
+            },
         ))
     } else if cfg!(feature = "original-assets") {
-        vocal(kind, false)
+        vocal(kind, false).map(|(id, volume, pitch)| {
+            (
+                id,
+                volume,
+                if kind
+                    .strip_prefix("saintsdragons:")
+                    .and_then(ambient_profile)
+                    .is_some()
+                {
+                    0.95 + random_float() * 0.1
+                } else {
+                    pitch
+                },
+            )
+        })
     } else {
         None
     };
     if let Some((sound, volume, pitch)) = sound {
-        play(world, dragon, sound, volume, pitch);
+        if cfg!(feature = "original-assets")
+            && kind
+                .strip_prefix("saintsdragons:")
+                .and_then(ambient_profile)
+                .is_some()
+        {
+            moving(world, dragon, sound, volume, pitch);
+        } else {
+            play(world, dragon, sound, volume, pitch);
+        }
     }
 }
 
+/// Released species interaction handlers play a moving feeding cue.
 pub fn eat(world: World<'_>, dragon: Entity<'_>) {
-    if MOBS.get().and_then(|mobs| mobs.kind(dragon)) == Some(crate::wild::VARASUCHUS) {
-        // `VarasuchusInteractionHandler.playEatSound`.
-        play(
+    let name = MOBS
+        .get()
+        .and_then(|mobs| mobs.kind(dragon))
+        .and_then(|kind| kind.strip_prefix("saintsdragons:"));
+    if cfg!(feature = "original-assets")
+        && let Some(name) = name
+        && ambient_profile(name).is_some()
+    {
+        let pitch = if !matches!(name, "atroxiia" | "nulljaw") && crate::eggs::is_juvenile(dragon) {
+            1.6
+        } else {
+            1.0
+        };
+        moving(
             world,
             dragon,
-            event("entity.generic.eat", "saintsdragons:varasuchus_eat"),
+            &format!("saintsdragons:{name}_eat"),
             1.0,
-            if crate::eggs::is_juvenile(dragon) {
-                1.6
-            } else {
-                1.0
-            },
+            pitch,
         );
-        return;
+    } else {
+        play(world, dragon, "entity.generic.eat", 0.9, 0.8);
     }
-    play(
-        world,
-        dragon,
-        event("entity.generic.eat", "saintsdragons:cindervane_eat"),
-        0.9,
-        0.8,
-    );
 }
 
 pub fn death(world: World<'_>, dragon: Entity<'_>) {
+    forget(dragon.id());
     let Some(kind) = MOBS.get().and_then(|mobs| mobs.kind(dragon)) else {
         return;
     };
     let sound = if kind == CINDERVANE {
         Some((
             event("entity.ender_dragon.death", "saintsdragons:cindervane_die"),
-            0.65,
-            1.2,
+            if cfg!(feature = "original-assets") {
+                1.5
+            } else {
+                0.65
+            },
+            if cfg!(feature = "original-assets") {
+                1.0
+            } else {
+                1.2
+            },
         ))
     } else if cfg!(feature = "original-assets") {
         vocal(kind, true)
@@ -166,7 +220,7 @@ pub fn attack(world: World<'_>, dragon: Entity<'_>, attack: crate::abilities::At
             Attack::SlashGrab => ("saintsdragons:cindervane_slash", 1.0, 1.0),
             Attack::MagmaVolley => ("saintsdragons:cindervane_magma_volley", 2.0, 1.0),
         };
-        play(world, dragon, sound, volume, pitch);
+        moving(world, dragon, sound, volume, pitch);
     } else if attack != Attack::MagmaVolley {
         play(world, dragon, "entity.ender_dragon.growl", 0.8, 1.15);
     }
@@ -179,6 +233,9 @@ fn play(world: World<'_>, dragon: Entity<'_>, id: &str, volume: f32, pitch: f32)
 }
 
 pub fn tick(world: World<'_>, id: i32, view: EntityView, now: u64) {
+    if cfg!(feature = "original-assets") {
+        return;
+    }
     let phase = now.wrapping_add(id as u64);
     if !phase.is_multiple_of(20) {
         return;
@@ -201,5 +258,346 @@ pub fn tick(world: World<'_>, id: i32, view: EntityView, now: u64) {
     };
     if let Some(effects) = EFFECTS.get() {
         effects.play_sound(world, view.position, sound, SOUND_NEUTRAL, volume, pitch);
+    }
+}
+fn random_float() -> f32 {
+    crate::ai::random(1 << 24) as f32 / (1 << 24) as f32
+}
+
+/// DragonSoundSpec.moving: the stock client tracks the emitter for the recording.
+fn moving(world: World<'_>, mob: Entity<'_>, sound: &str, volume: f32, pitch: f32) {
+    if let Some(effects) = EFFECTS.get()
+        && !effects.play_entity_sound(world, mob.id(), sound, SOUND_NEUTRAL, volume, pitch)
+    {
+        play(world, mob, sound, volume, pitch);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Ambient {
+    min: u64,
+    max: u64,
+    seed: bool,
+    weights: [f32; 2],
+    voices: [(f32, f32, f32); 3],
+}
+fn ambient_profile(name: &str) -> Option<Ambient> {
+    let (min, max, seed, weights, voices) = match name {
+        "cindervane" => (
+            180,
+            420,
+            true,
+            [0.45, 0.8],
+            [(1.1, 0.98, 0.06), (1.2, 0.96, 0.08), (1.0, 1.0, 0.05)],
+        ),
+        "raevyx" => (200, 600, true, [0.4, 0.7], [(0.8, 0.95, 0.1); 3]),
+        "stegonaut" => (200, 600, true, [0.4, 0.7], [(0.6, 1.1, 0.2); 3]),
+        "varasuchus" => (200, 600, true, [0.4, 0.7], [(0.8, 0.95, 0.1); 3]),
+        "ignivorus" => (
+            180,
+            520,
+            false,
+            [0.34, 0.67],
+            [(1.1, 0.95, 0.08), (1.15, 1.0, 0.08), (1.2, 0.9, 0.08)],
+        ),
+        "volitans" => (
+            220,
+            420,
+            false,
+            [0.34, 0.67],
+            [(1.0, 0.98, 0.08), (1.0, 0.98, 0.08), (1.0, 1.0, 0.06)],
+        ),
+        "nulljaw" => (220, 420, true, [0.34, 0.67], [(1.0, 1.0, 0.08); 3]),
+        "atroxiia" => (
+            200,
+            600,
+            true,
+            [1.0 / 3.0, 2.0 / 3.0],
+            [(1.0, 0.95, 0.1); 3],
+        ),
+        _ => return None,
+    };
+    Some(Ambient {
+        min,
+        max,
+        seed,
+        weights,
+        voices,
+    })
+}
+impl Ambient {
+    fn delay(self, first: bool) -> u64 {
+        self.min + crate::ai::random(self.max - self.min + 1)
+            - if first && self.seed {
+                crate::ai::random(80)
+            } else {
+                0
+            }
+    }
+    fn voice(self, roll: f32) -> usize {
+        if roll < self.weights[0] {
+            0
+        } else if roll < self.weights[1] {
+            1
+        } else {
+            2
+        }
+    }
+}
+
+#[derive(Default)]
+struct AudioState {
+    remaining: u64,
+    clip: &'static str,
+    clip_tick: u64,
+    last: u64,
+    on_ground: Option<bool>,
+    swarm_ambient: i32,
+}
+static AUDIO: Mutex<Option<HashMap<i32, AudioState>>> = Mutex::new(None);
+fn forget(id: i32) {
+    if let Some(all) = AUDIO
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        all.remove(&id);
+    }
+}
+pub fn sweep(now: u64) {
+    if let Some(all) = AUDIO
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        all.retain(|_, state| now.saturating_sub(state.last) < 200);
+    }
+}
+
+/// Released adult movement animation sound_effects. Seconds converted to nearest server tick.
+/// shortcut: the stock client has no animation callback or sub-tick playback; use the selected server clip.
+fn movement_cues(name: &str, clip: &str) -> Option<(u64, &'static [u64])> {
+    Some(match (name, clip) {
+        ("cindervane", "run") => (24, &[0, 13]),
+        ("cindervane", "flap") => (60, &[18]),
+        ("cindervane", "fly_idle") => (120, &[0, 56]),
+        ("cindervane", "sprint_flap") => (180, &[12, 46, 83, 118, 153]),
+        ("raevyx", "walk") => (33, &[1, 18]),
+        ("raevyx", "run") => (25, &[1, 13]),
+        ("raevyx", "flap") => (144, &[14, 50, 87, 123]),
+        ("raevyx", "fly_idle") => (144, &[14, 51, 88, 124]),
+        ("raevyx", "sprint_flap") => (144, &[4, 27, 48, 69, 89, 110, 129]),
+        ("ignivorus", "walk") => (50, &[0, 18, 28, 43]),
+        ("ignivorus", "run") => (25, &[0, 13]),
+        ("ignivorus", "flap") => (240, &[15, 65, 113, 160, 208]),
+        ("ignivorus", "fly_idle") => (42, &[7]),
+        ("ignivorus", "sprint_flap") => (192, &[12, 37, 61, 85, 109, 133, 156, 180]),
+        ("ignivorus", "phase2_walk") => (42, &[1, 22]),
+        ("ignivorus", "phase2_run") => (33, &[1, 18]),
+        ("ignivorus", "bulldozing") => (27, &[0, 13]),
+        ("volitans", "walk") => (33, &[0, 17]),
+        ("volitans", "run") => (25, &[0, 4]),
+        ("volitans", "flap") => (194, &[0, 29, 55, 83, 112, 141, 168]),
+        ("volitans", "fly_idle") => (180, &[2, 27, 52, 77, 102, 126, 154]),
+        ("volitans", "sprint_flap") => (96, &[0, 25, 49, 72]),
+        ("stegonaut", "walk") => (33, &[0, 17]),
+        ("stegonaut", "run") => (20, &[0, 12]),
+        ("varasuchus", "walk") => (50, &[0, 13, 25, 38]),
+        ("varasuchus", "run") => (33, &[0, 16]),
+        ("varasuchus", "run2") => (27, &[0, 13]),
+        ("atroxiia", "walk") => (50, &[0, 23]),
+        ("atroxiia", "run") => (25, &[0, 13]),
+        ("mossback", "walk") => (15, &[0, 7]),
+        _ => return None,
+    })
+}
+
+/// Server-side timing for DragonEntity.tickAmbientVocalSounds and movement clips.
+pub fn tick_clip(
+    world: World<'_>,
+    mob: Entity<'_>,
+    name: &str,
+    view: EntityView,
+    clip: &'static str,
+    now: u64,
+) {
+    if !cfg!(feature = "original-assets") {
+        return;
+    }
+    let juvenile = name.starts_with("baby_");
+    let name = name.strip_prefix("baby_").unwrap_or(name);
+    let profile = ambient_profile(name);
+    let swarm = matches!(name, "latcher" | "winged" | "whettled");
+    if profile.is_none() && !swarm && name != "mossback" {
+        return;
+    }
+    let sleeping =
+        matches!(name, "ignivorus" | "varasuchus") && crate::roost::sleep_clip(mob.id()).is_some();
+    let riding = matches!(name, "cindervane" | "volitans" | "nulljaw")
+        && MOBS.get().is_some_and(|m| !m.passengers(mob).is_empty());
+    let targeting = matches!(name, "cindervane" | "volitans" | "ignivorus")
+        && crate::MOB_AI.get().and_then(|ai| ai.target(mob)).is_some();
+    let cindervane_attack = name == "cindervane"
+        && (crate::combat::active_attack(mob).is_some() || crate::combat::fire_active(mob));
+    let can_vocal = !juvenile
+        && !sleeping
+        && !riding
+        && !targeting
+        && !cindervane_attack
+        && !(matches!(
+            name,
+            "ignivorus" | "varasuchus" | "volitans" | "cindervane" | "raevyx"
+        ) && crate::taming::order_name(mob) == "stay")
+        && !matches!(clip, "hurt" | "die" | "takeoff" | "landing" | "landed");
+    let (voice, cue, transition, swarm_voice) = {
+        let mut all = AUDIO.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = all.get_or_insert_default().entry(mob.id()).or_default();
+        if state.on_ground.is_some() && state.last == now {
+            return;
+        }
+        let voice = profile.and_then(|p| {
+            if state.remaining == 0 {
+                state.remaining = p.delay(true);
+            }
+            if !can_vocal {
+                return None;
+            }
+            state.remaining -= 1;
+            if state.remaining != 0 {
+                return None;
+            }
+            state.remaining = p.delay(false);
+            let i = p.voice(random_float());
+            Some((i, p.voices[i]))
+        });
+        if state.clip != clip || now.saturating_sub(state.last) > 1 {
+            state.clip = clip;
+            state.clip_tick = 0;
+        } else if state.last != now {
+            state.clip_tick += 1;
+        }
+        let cue = !juvenile
+            && movement_cues(name, clip)
+                .is_some_and(|(period, ticks)| ticks.contains(&(state.clip_tick % period)));
+        let transition = state
+            .on_ground
+            .filter(|old| *old != view.on_ground)
+            .map(|_| view.on_ground);
+        // AbstractDraconianSwarmEntity.getAmbientSound uses the vanilla Mob timer.
+        let swarm_voice = if swarm {
+            let due = (crate::ai::random(1000) as i32) < state.swarm_ambient;
+            state.swarm_ambient = if due { -80 } else { state.swarm_ambient + 1 };
+            due
+        } else {
+            false
+        };
+        state.on_ground = Some(view.on_ground);
+        state.last = now;
+        (voice, cue, transition, swarm_voice)
+    };
+    if swarm_voice && let Some(effects) = EFFECTS.get() {
+        // SoundSource.HOSTILE is ordinal 5.
+        effects.play_sound(
+            world,
+            view.position,
+            &format!("saintsdragons:draconian_swarm_idle{}", crate::ai::random(3)),
+            5,
+            1.0,
+            1.0,
+        );
+    }
+    if let Some((i, (volume, pitch, variance))) = voice {
+        let separator = if name == "raevyx" { "_" } else { "" };
+        moving(
+            world,
+            mob,
+            &format!("saintsdragons:{name}_grumble{separator}{}", i + 1),
+            volume,
+            pitch + random_float() * variance,
+        );
+    }
+    if cue {
+        let flap = matches!(clip, "flap" | "fly_idle" | "sprint_flap");
+        if flap {
+            let (volume, pitch) = match name {
+                "cindervane" => (1.1, 0.98 + (random_float() - 0.5) * 0.1),
+                "ignivorus" => (1.2, 0.95 + (random_float() - 0.5) * 0.1),
+                "volitans" => (1.0, 0.96 + (random_float() - 0.5) * 0.1),
+                "raevyx" => {
+                    let speed = view.motion[0].hypot(view.motion[2]) as f32;
+                    ((0.9 + speed * 0.2).max(0.6), 1.0 + speed * 0.3)
+                }
+                _ => return,
+            };
+            play(
+                world,
+                mob,
+                &format!("saintsdragons:{name}_flap"),
+                volume,
+                pitch,
+            );
+        } else {
+            // DragonEntity.playAnimationKeyframeSound plays steps at volume and pitch 1.
+            play(world, mob, &format!("saintsdragons:{name}_step"), 1.0, 1.0);
+        }
+    }
+    if let Some(landed) = transition {
+        // shortcut: ground contact is the available flight transition signal for roster carriers.
+        let params = match (name, landed) {
+            ("cindervane" | "raevyx", true) => Some((1.0, 1.0)),
+            ("cindervane", false) if clip == "takeoff" => Some((1.2, 1.0)),
+            ("raevyx", false) if view.motion[1] > 0.08 => Some((1.2, 0.94 + random_float() * 0.12)),
+            ("ignivorus", true) => Some((1.0, 1.0)),
+            ("ignivorus", false) if view.motion[1] > 0.08 => Some((1.0, 1.0)),
+            ("volitans", _) => Some((2.0, 1.0)),
+            _ => None,
+        };
+        if let Some((volume, pitch)) = params
+            && !juvenile
+        {
+            let suffix = if landed { "landed" } else { "takeoff" };
+            moving(
+                world,
+                mob,
+                &format!("saintsdragons:{name}_{suffix}"),
+                volume,
+                pitch,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ambient_delays_and_weight_boundaries() {
+        let p = ambient_profile("cindervane").unwrap();
+        for _ in 0..100 {
+            assert!((101..=420).contains(&p.delay(true)));
+            assert!((180..=420).contains(&p.delay(false)));
+        }
+        assert_eq!([p.voice(0.0), p.voice(0.45), p.voice(0.8)], [0, 1, 2]);
+        assert!(ambient_profile("moop").is_none());
+    }
+    #[test]
+    fn released_keyframes_use_clip_time() {
+        assert_eq!(
+            movement_cues("ignivorus", "walk"),
+            Some((50, &[0, 18, 28, 43][..]))
+        );
+        assert_eq!(
+            movement_cues("raevyx", "flap"),
+            Some((144, &[14, 50, 87, 123][..]))
+        );
+        assert_eq!(movement_cues("raevyx", "idle"), None);
+        assert_eq!(
+            movement_cues("volitans", "flap"),
+            Some((194, &[0, 29, 55, 83, 112, 141, 168][..]))
+        );
+        assert_eq!(
+            vocal("saintsdragons:moop", false).unwrap().0,
+            "minecraft:entity.generic.hurt"
+        );
     }
 }

@@ -1,0 +1,37 @@
+# Saint's Dragons 0.9.88: species-specific feeding, ambient and Moop hurt/death packets.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1029.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn stegonaut 1025 100 1025
+wait 2
+cmd item replace entity tester weapon.offhand with minecraft:salmon 8
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Stegonaut has been tamed!
+expect \[bot\] entity sound: saintsdragons:stegonaut_eat
+# The adult's initial ambient timer is at most 600 loaded ticks.
+wait 32
+expect \[bot\] entity sound: saintsdragons:stegonaut_grumble[123]
+cmd fill 1028 100 1028 1031 103 1031 minecraft:water
+cmd saintsdragons spawn moop 1029 101 1029
+wait 1
+cmd damage @e[type=minecraft:cod,x=1029,y=101,z=1029,distance=..5,limit=1] 1 minecraft:generic
+wait 1
+expect \[bot\] sound: (minecraft:)?entity.generic.hurt
+cmd damage @e[type=minecraft:cod,x=1029,y=101,z=1029,distance=..5,limit=1] 100 minecraft:generic
+wait 1
+expect \[bot\] sound: (minecraft:)?entity.generic.death
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

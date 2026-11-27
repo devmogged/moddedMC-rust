@@ -17,7 +17,7 @@ wait 0.5
 expect saintsdragons:cindervane: spawned
 cmd damage @e[type=minecraft:ravager,limit=1] 2 minecraft:generic
 wait 0.5
-expect \[bot\] sound: saintsdragons:cindervane_hurt
+expect \[bot\] (entity )?sound: saintsdragons:cindervane_hurt
 cmd damage @e[type=minecraft:ravager,limit=1] 1000 minecraft:generic
 wait 0.5
 expect \[bot\] sound: saintsdragons:cindervane_die
@@ -26,7 +26,7 @@ wait 0.5
 expect saintsdragons:raevyx: spawned
 cmd damage @e[type=minecraft:ravager,x=24,y=105,z=26,distance=..6,limit=1] 2 minecraft:generic
 wait 0.5
-expect \[bot\] sound: saintsdragons:raevyx_hurt
+expect \[bot\] (entity )?sound: saintsdragons:raevyx_hurt
 cmd damage @e[type=minecraft:ravager,x=24,y=105,z=26,distance=..6,limit=1] 1000 minecraft:generic
 wait 0.5
 expect \[bot\] sound: saintsdragons:raevyx_die
