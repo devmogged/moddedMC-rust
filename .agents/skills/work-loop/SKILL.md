@@ -18,7 +18,8 @@ testing in a real client.
 ## Who owns what
 
 - Create and every Create add-on, Steam 'n' Rails included (`mods/create*`, `mods/createaddition`):
-  Noel-Alex. Saints Dragons (`mods/saints-dragons`): sting-raider.
+  Noel-Alex. Saints Dragons (`mods/saints-dragons`): sting-raider. Waystones, Farmer's Delight,
+  Corpse and Simple Storage Network: KaustuvMohapatra.
 - Everything else goes to whoever claims it first through an issue.
 - Never edit a crate someone else owns. If you need something from it, open an issue and say
   what you need and why.
@@ -26,10 +27,13 @@ testing in a real client.
 ## Pick and claim
 
 1. Read [docs/ENGINEERING-EXECUTION.md](../../../docs/ENGINEERING-EXECUTION.md) first. Inspect the exact worktree, branch, dirty/untracked paths, active workers and build processes. Start new work from fresh `origin/main` in an isolated worktree when the assigned checkout is dirty or shared. **Never run `scripts\clean.ps1`, reset, stash, checkout over, or remove files from a shared/dirty worktree** until every owner confirms it is disposable. Build-cache cleanup is a separate, scoped operation. Read your own open issues first: if you hold one, resume it from its last comment.
-2. Otherwise take the most useful unclaimed job. Bugs that players hit in mods nobody owns come
-   first, then the next `port` row in docs/BUJA.md that most players will see, as long as the
-   ports it depends on exist. If a port is blocked on host or engine support nobody is building,
-   build that support yourself as its own job.
+2. Otherwise take the first unclaimed job in [docs/QUEUE.md](../../../docs/QUEUE.md). When the
+   queue is empty: bugs that players hit in mods nobody owns come first, then the next `port` row
+   in docs/BUJA.md that most players will see, as long as the ports it depends on exist. If a port
+   is blocked on host or engine support nobody is building, build that support yourself as its
+   own job.
+   Hold one job at a time and finish it before claiming another. Never start several mods at
+   once: a half-started port blocks everyone else from claiming it and is worth less than none.
 3. A job is taken when an open issue for it is assigned to someone and that issue, or the
    matching branch or commits, moved in the last three days. An assigned issue that has been
    quiet for longer is free: comment that you're taking it over.
@@ -39,7 +43,12 @@ testing in a real client.
 
 ## While working
 
-- Make small, coherent commits on an owned feature branch. Fetch and rebase onto the current target before opening/updating a PR; never force-push `main` or the engine's `moddedmc`. Merge through an approved PR after review/CI, unless the maintainer explicitly directs a direct push. Commit as the person you work for, with conventional commits that have a scope and no agent or tool attribution. Follow the repository's three-open-PR limit.
+- Work in your own worktree under `N:\mmc-wt\<issue>-<slug>`, made from fresh `origin/main`.
+  Never edit `N:\git repos\moddedMC-rust` itself: that is the Create worker's checkout.
+- Port from the exact release source (the "Latest" column of docs/BUJA.md). Read the Java class
+  and every override it inherits before implementing a behavior, and match it. When a scenario
+  and the source disagree, the scenario is wrong.
+- Make small, coherent commits on an owned feature branch. Fetch and rebase onto the current target before opening/updating a PR; never force-push `main` or the engine's `moddedmc`. There is no CI, so your checks are the gate: when they pass on the rebased branch, merge your own PR (`gh pr merge --squash --delete-branch`). A PR that doesn't compile on `main` stays a draft. Commit as the person you work for, with conventional commits that have a scope and no agent or tool attribution. Follow the repository's three-open-PR limit.
 - Changes to shared code (`host/`, `api/`, `engine/pumpkin`, workspace `Cargo.toml`) stay
   generic, small and additive, and go in early so others build on them. The ABI is append-only.
   An engine pointer conflict means rebasing your engine commits onto the latest `moddedmc` and
@@ -48,7 +57,11 @@ testing in a real client.
   next. That comment is the handoff. Another session, yours or anyone else's, has to be able to
   continue from it with nothing else.
 - Before repeating a failed scenario or build, record its run ID, exact source commit/tree, artifact path/hash, server PID, scenario and log path, failure signature, hypothesis and what changed since the previous attempt. Do not rerun an unchanged experiment; choose a discriminating test or implement the identified root-cause fix.
-- Treat the build/package/runtime gate as exclusive. One coordinator owns Cargo, packaging and server scenarios at a time; other workers continue only in disjoint owned source paths and do not launch competing builds. Every runtime result must identify the exact artifact it exercised.
+- Build, pack and run scenarios only from your own worktree's target dir (see section 4 of the
+  execution playbook), so you never wait on or overwrite another worker. Every runtime result
+  must identify the exact artifact it exercised.
+- Spend your time on the port. Don't write process docs about agents, don't open extra chats or
+  workers, and don't re-audit the repo at the start of every turn.
 - When you find a separate bug, open an issue for it rather than widening your job.
 
 ## Finishing

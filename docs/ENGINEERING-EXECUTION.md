@@ -39,14 +39,14 @@ Read `AGENTS.md`, `CONTRIBUTING.md`, the matching agent skill and relevant featu
 - Give every worker one bounded vertical slice, one explicit owner and exact file/path boundaries.
 - Split by independent mod crate or independent fixture family. Do not assign two workers the same files or the same acceptance failure.
 - Shared API/host/Pumpkin, workspace manifests, packer and scenario-runner changes have one named integration owner. Mod workers request shared capability through an issue/handoff rather than editing shared code opportunistically.
-- Keep one integration coordinator responsible for dependency order, merge readiness, the shared build gate and acceptance-ledger updates.
+- Keep one integration coordinator responsible for dependency order, merge readiness and acceptance-ledger updates.
 - Prefer work that unblocks multiple dependent features or closes a player-visible critical path. Do not spawn more workers when review, build or runtime capacity is saturated.
 - Reuse an existing sleeping worker for related follow-up before spawning a new chat. For new workers, use a model/reasoning combination confirmed available in the current worker launcher; verify the worker reaches `active` before treating the task as underway. If startup fails, do not retry the same unavailable combination or open repeated tabs—use a known-good model, wake an existing worker, or do the work directly. An `invited` state is not implementation progress.
 - Each worker handoff must include exact changed paths, behavior added, tests run with results, unvalidated behavior, remaining work and any dependency needed from another owner.
 
-## 4. One expensive validation gate at a time
+## 4. One validation gate per worktree
 
-Cargo builds, packaging and live server scenarios contend for the same workspace/target outputs and can invalidate one another's evidence. The integration coordinator owns one exclusive gate:
+Cargo builds, packaging and live server scenarios that share a target directory overwrite each other's artifacts. So every worktree builds into its own target (`CARGO_TARGET_DIR=N:\mmc-target\<worktree-name>`, `CARGO_BUILD_JOBS=8`), packs into that target, and runs scenarios with `-Exe`/`-BotExe` from it in its own run dirs and ports. `N:\mmc-target\shared` belongs to the main checkout's Create worker. With separate targets, each worktree owns its own gate and never waits for another's. Within your worktree:
 
 1. Freeze source edits to the files being compiled; record the source HEAD and working-tree diff hash.
 2. Run the narrowest useful compile/test first, then the required workspace checks.
@@ -54,11 +54,11 @@ Cargo builds, packaging and live server scenarios contend for the same workspace
 4. Start the scenario server from that artifact; record PID, run directory, scenario file and start time.
 5. Preserve complete logs and extract the first causal failure, not only the last generic rejection.
 6. After a fix, rebuild and rerun only the discriminating regression plus impacted acceptance cases.
-7. Release the gate and tell workers exactly which source paths may resume.
+7. Delete your worktree's target and run dirs when the job lands. Disk on N: is limited.
 
-**Do not confuse the shared runtime gate with the only possible compile target.** If unrelated server processes are running but no Cargo process owns a separate target directory, a focused compile/test can run in an isolated target (for example, set `CARGO_TARGET_DIR` to a named `N:\\mmc-target\\pr-review` directory and cap `CARGO_BUILD_JOBS=2`). Reuse that isolated target sequentially across clean PR worktrees; never run two Cargo processes against the same target. This avoids overwriting the shared pack artifact while still catching missing ABI symbols before review. Run at least `cargo test -p <crate> --lib` on the exact PR branch before opening a PR whenever possible. If a required host/ABI dependency prevents compilation, name the missing symbols and blocking issue explicitly and keep the PR draft; static checks are not compile evidence.
+Run at least `cargo test -p <crate>` on the exact PR branch, rebased on current `origin/main`, before opening a PR. If a required host/ABI dependency prevents compilation, name the missing symbols and blocking issue explicitly and keep the PR draft; static checks are not compile evidence.
 
-Other workers may continue static source work only in disjoint owned paths while the gate is occupied. They must not launch competing Cargo, pack or server runs. Do not kill a process by executable name; stop only a PID you started and recorded.
+Never build into another worktree's target. Do not kill a process by executable name; stop only a PID you started and recorded.
 
 ## 5. Make experiments discriminating; never loop
 
@@ -81,7 +81,7 @@ Before rerunning, compare the experiment with the previous attempt. If source, a
 - **Stale artifact / wrong binary:** a scenario can exercise an old pack even after source changes. Verify the artifact hash and pack timestamp, and prove the scenario runner launched that exact artifact before interpreting a pass or failure.
 - **Misattributed failure:** distinguish menu validation, callback dispatch, mod archive CAS, host participant commit, player checkpoint lineage, filesystem persistence and recovery. Log the first rejected boundary and relevant identifiers/revisions; do not label every rejection as a generic menu bug.
 - **Fixture drift:** validate that scenario actors, blocks, recipes, dimensions and prerequisites actually exist in the current pack. A fixture setup failure is not a gameplay pass or a production defect.
-- **Build contention:** overlapping Cargo/pack/runtime jobs waste CPU, hold stale locks and make artifacts/evidence ambiguous. Use the exclusive gate above.
+- **Build contention:** overlapping Cargo/pack/runtime jobs waste CPU, hold stale locks and make artifacts/evidence ambiguous. Use your own target directory, as above.
 - **Static-only PR opened before a current-main compile:** formatting and JSON validation do not catch unresolved public API symbols. Compile the exact crate on the PR's current base before opening; use an isolated target directory when the shared pack target is occupied. If compile is blocked by a missing shared ABI, keep the PR draft and track the API/host work separately.
 - **Repeated diagnosis without a code delta:** every investigation cycle must end in a discriminating test, a production fix, a documented external blocker, or a handoff to the owner. Repeating the same broad audit is not progress.
 - **False completion:** unit tests, successful compile, bot output, restart persistence and real client behavior are separate claims. Report exactly what was observed and what remains untested.
@@ -112,7 +112,7 @@ For each deliverable:
 4. Commit with a scoped conventional message, authored by the human maintainer; no agent/model attribution.
 5. Rebase/update against current base, resolve conflicts without overwriting other work, then open/update the PR using `.github/pull_request_template.md`.
 6. Include reproduction, root cause, behavior change, tests/log evidence, artifact identity and residual risks. Link the issue and maintainer approval where required.
-7. Merge only when the required review/CI and repository policy allow it. Otherwise leave a reviewable PR and a clear owner/next step.
+7. There is no CI. When your checks pass on the rebased branch, merge your own PR (`gh pr merge --squash --delete-branch`); the owner approved self-merging for claimed jobs. A PR that doesn't compile on `main` stays a draft with a clear owner and next step.
 8. Update the issue and acceptance ledger with the commit/PR and exact evidence. A PR being open does not make the feature accepted.
 
 Never commit another worker's changes because they happen to be in the same worktree. If a broad dirty branch cannot be safely split, preserve it and create a path-scoped integration plan; do not force-push or create a giant unreviewable PR.
