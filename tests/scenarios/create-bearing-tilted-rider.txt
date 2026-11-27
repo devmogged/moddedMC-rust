@@ -16,15 +16,21 @@ cmd fill 2521 101 2519 2521 101 2520 minecraft:slime_block
 cmd setblock 2521 101 2518 minecraft:cobblestone
 cmd summon minecraft:armor_stand 2521.5 102 2518.5
 wait 0.5
+cmd tick rate 1
+await 5 Set the target tick rate to 1\.0
 cmd kinetics 2519 101 2520 6
 # About 32 degrees around the X axis. The stand rises over a block as the support tilts.
-wait 0.9
+cmd tick sprint 18t
+await 5 \[bot\].*commands.tick.sprint.report
+wait 0.1
 bot expect entity minecraft:armor_stand near 2521.5 103.03 2519.07 within 0.45 count 1
 bot expect entity minecraft:block_display near 2521.5 101.5 2520.5 within 0.05 count 3
 wait 0.5
 expect ^\[bot\] expect entity ok minecraft:armor_stand
 expect ^\[bot\] expect entity ok minecraft:block_display
 cmd kinetics 2519 101 2520 0
+wait 1.2
+cmd tick rate 20
 
 cmd tp tester 2543.5 100 2543.5
 wait 1
@@ -38,8 +44,12 @@ cmd fill 2540 101 2541 2541 101 2541 minecraft:slime_block
 cmd setblock 2542 101 2541 minecraft:cobblestone
 cmd summon minecraft:armor_stand 2542.5 102 2541.5
 wait 0.5
+cmd tick rate 1
+await 5 Set the target tick rate to 1\.0
 cmd kinetics 2540 101 2539 6
-wait 0.9
+cmd tick sprint 18t
+await 5 \[bot\].*commands.tick.sprint.report
+wait 0.1
 bot expect entity minecraft:armor_stand near 2541.93 103.03 2541.5 within 0.45 count 1
 bot expect entity minecraft:block_display near 2540.5 101.5 2541.5 within 0.05 count 3
 wait 0.5
