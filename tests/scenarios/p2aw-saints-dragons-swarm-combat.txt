@@ -59,6 +59,29 @@ wait 4
 cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
 wait 0.5
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
+cmd kill @e[type=minecraft:ravager]
+cmd kill @e[type=minecraft:iron_golem]
+wait 2
+
+# A full Draconian set pacifies the swarm until its wearer attacks.
+cmd item replace entity tester armor.head with saintsdragons:draconian_helmet
+cmd item replace entity tester armor.chest with saintsdragons:draconian_chestplate
+cmd item replace entity tester armor.legs with saintsdragons:draconian_leggings
+cmd item replace entity tester armor.feet with saintsdragons:draconian_boots
+cmd tp tester 1025.5 120 1028.5
+cmd gamemode survival tester
+cmd effect give tester minecraft:instant_health 1 10
+wait 1
+cmd saintsdragons spawn latcher 1025 120 1025
+wait 5
+cmd data get entity tester Health
+wait 0.5
+expect tester has the following entity data: 20(?:\.0)?f$
+cmd damage @e[type=minecraft:spider,limit=1] 1 minecraft:player_attack by tester
+wait 5
+cmd data get entity tester Health
+wait 0.5
+expect tester has the following entity data: (?:[0-9]|1[0-9])(?:\.[0-9]+)?f$
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop

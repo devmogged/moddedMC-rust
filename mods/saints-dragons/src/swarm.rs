@@ -16,7 +16,7 @@ use moddedmc_api::{
 };
 
 use crate::{
-    ENTITIES, MOB_AI, MOBS,
+    ENTITIES, EQUIPMENT, MOB_AI, MOBS,
     ai::random,
     flight::{add, cell, clear_body, length_squared, offset},
 };
@@ -130,22 +130,44 @@ impl Member {
     }
 }
 
-/// AbstractDraconianSwarmEntity.canHitWithSwarmAttack. The host cannot read a
-/// player's equipped item IDs outside a hurt callback.
+/// DraconianArmorSet.pacifiesSwarm and AbstractDraconianSwarmEntity.isNeutralToward.
+fn neutral_to_armor(armor: Option<[String; 4]>, last_attacker: bool) -> bool {
+    !last_attacker
+        && armor.is_some_and(|ids| {
+            ids == [
+                "saintsdragons:draconian_helmet",
+                "saintsdragons:draconian_chestplate",
+                "saintsdragons:draconian_leggings",
+                "saintsdragons:draconian_boots",
+            ]
+        })
+}
+
+/// AbstractDraconianSwarmEntity.canHitWithSwarmAttack.
 fn can_hit(mob: Entity<'_>, target: Entity<'_>) -> bool {
     let flags = target.flags();
+    let Some(view) = target.view() else {
+        return false;
+    };
     target.id() != mob.id()
         && flags & ENTITY_ALIVE != 0
-        && target
-            .view()
-            .is_some_and(|view| view.kind & ENTITY_LIVING != 0)
+        && view.kind & ENTITY_LIVING != 0
         && target.type_id() != "enderman"
         && Member::of(target).is_none()
         && !matches!(
             MOBS.get().and_then(|mobs| mobs.game_mode(target)),
             Some(1 | 3)
         )
-    // shortcut: full Draconian set pacification requires a generic equipped-item read call.
+        && !(view.kind & ENTITY_PLAYER != 0
+            && neutral_to_armor(
+                EQUIPMENT
+                    .get()
+                    .and_then(|equipment| equipment.worn_armor(target)),
+                MOB_AI
+                    .get()
+                    .and_then(|ai| ai.last_hurt_by(mob))
+                    .is_some_and(|(id, _)| id == target.id()),
+            ))
 }
 
 #[derive(Clone, Copy)]
@@ -933,6 +955,25 @@ fn destination(world: World<'_>, mob: Entity<'_>, from: [f64; 3], yaw: f32) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_draconian_set_pacifies_unless_last_attacker() {
+        let full = [
+            "saintsdragons:draconian_helmet",
+            "saintsdragons:draconian_chestplate",
+            "saintsdragons:draconian_leggings",
+            "saintsdragons:draconian_boots",
+        ]
+        .map(str::to_owned);
+        assert!(neutral_to_armor(Some(full.clone()), false));
+        assert!(!neutral_to_armor(Some(full.clone()), true));
+        for slot in 0..4 {
+            let mut partial = full.clone();
+            partial[slot] = "minecraft:air".to_owned();
+            assert!(!neutral_to_armor(Some(partial), false));
+        }
+        assert!(!neutral_to_armor(None, false));
+    }
 
     #[test]
     fn released_melee_reach_and_timing() {

@@ -2388,6 +2388,9 @@ pub struct EquipmentV1 {
     pub on_worn_hurt: unsafe extern "C" fn(reg: Reg, item: Str, callback: WornHurtFn) -> i32,
     /// Call `callback` when a player holding this mod's `item` hits an entity.
     pub on_weapon_hit: unsafe extern "C" fn(reg: Reg, item: Str, callback: WeaponHitFn) -> i32,
+    /// Read a player's head, chest, legs and feet item IDs, newline-separated in sink key 0.
+    /// Empty slots are minecraft:air; false for a non-player or invalid handle.
+    pub worn_armor: unsafe extern "C" fn(player: EntityRef, out: Sink) -> bool,
 }
 
 #[cfg(all(test, target_pointer_width = "64"))]
@@ -2399,6 +2402,7 @@ mod equipment_layout {
     fn equipment_v1() {
         assert_eq!(offset_of!(EquipmentV1, on_worn_hurt), 8);
         assert_eq!(offset_of!(EquipmentV1, on_weapon_hit), 16);
-        assert_eq!(size_of::<EquipmentV1>(), 24);
+        assert_eq!(offset_of!(EquipmentV1, worn_armor), 24);
+        assert_eq!(size_of::<EquipmentV1>(), 32);
     }
 }
