@@ -1035,7 +1035,7 @@ impl
                     ptr::from_ref(world.as_ref()).cast(),
                     ptr::from_ref(&player).cast(),
                     ptr::from_ref(&merchant).cast(),
-                )
+                );
             };
         })
     }
