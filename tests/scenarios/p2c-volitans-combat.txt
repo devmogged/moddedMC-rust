@@ -28,15 +28,20 @@ wait 0.5
 expect has the following entity data: "?(bite|claw|horn_gore)"?
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
 cmd kill @e[tag=volitans_melee_probe,limit=1]
-# The effect command accepts players only. Seed the saved effect while frozen
-# and prove that Volitans removes it on its next ambient tick.
-cmd tick freeze
-cmd data merge entity @e[tag=volitans_probe,limit=1] {active_effects:[{id:"minecraft:poison",amplifier:0,duration:600,show_particles:1b,show_icon:1b}]}
-cmd data get entity @e[tag=volitans_probe,limit=1] active_effects
+# The release vetoes new effects, not poison injected directly into saved NBT.
+# Use a real splash potion and a nearby susceptible positive control.
+cmd data merge entity @e[tag=volitans_probe,limit=1] {NoAI:1b}
+cmd tp @e[tag=volitans_probe,limit=1] 1025.5 120 1025.5
+cmd summon minecraft:villager 1027.5 120 1025.5 {NoAI:1b,Tags:["poison_control"]}
+cmd tp tester 1026.5 120 1025.5
+cmd item replace entity tester weapon.mainhand with minecraft:splash_potion[minecraft:potion_contents={potion:"minecraft:poison"}]
+wait 1
+bot look 0 90
+bot use-item main
+wait 1
+cmd data get entity @e[tag=poison_control,limit=1] active_effects
 wait 0.5
-expect Ravager has the following entity data: .*minecraft:poison
-cmd tick unfreeze
-wait 0.5
+expect Villager has the following entity data: .*minecraft:poison
 cmd data get entity @e[tag=volitans_probe,limit=1] data.moddedmc.mob
 wait 0.25
 expect following entity data: "saintsdragons:volitans"
@@ -44,6 +49,9 @@ expect following entity data: "saintsdragons:volitans"
 cmd execute unless entity @e[tag=volitans_probe,nbt={active_effects:[{id:"minecraft:poison"}]}]
 wait 0.25
 expect Test passed
+cmd kill @e[tag=poison_control,limit=1]
+cmd data merge entity @e[tag=volitans_probe,limit=1] {NoAI:0b}
+cmd tp tester 1029.5 121 1033.5
 cmd tp @e[tag=volitans_probe,limit=1] 1025.5 120 1025.5 0 0
 cmd summon minecraft:villager 1025.5 120 1047.5 {NoAI:1b,Tags:["orb_probe"]}
 cmd attribute @e[tag=orb_probe,limit=1] minecraft:max_health base set 100

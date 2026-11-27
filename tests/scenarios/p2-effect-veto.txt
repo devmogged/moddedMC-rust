@@ -9,7 +9,9 @@ cmd tp tester 1025.5 105 1025.5
 cmd forceload add 1025 1025
 wait 3
 cmd fill 1013 104 1013 1037 104 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd fill 1013 105 1013 1037 110 1037 minecraft:air
+await 30 Successfully filled|No blocks were filled
 cmd saintsdragons spawn volitans 1025 105 1027
 cmd saintsdragons spawn mossback 1028 105 1027
 cmd summon minecraft:villager 1031 105 1027 {NoAI:1b,Tags:["effect_control"]}
@@ -18,11 +20,21 @@ cmd tag @e[nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] add eff
 cmd tag @e[nbt={data:{moddedmc:{mob:"saintsdragons:mossback"}}},limit=1] add effect_mossback
 cmd data merge entity @e[tag=effect_volitans,limit=1] {NoAI:1b}
 cmd data merge entity @e[tag=effect_mossback,limit=1] {NoAI:1b}
-cmd effect give @e[tag=effect_volitans,limit=1] minecraft:poison 30 0
-cmd effect give @e[tag=effect_mossback,limit=1] minecraft:poison 30 0
-cmd effect give @e[tag=effect_control,limit=1] minecraft:poison 30 0
-cmd effect give @e[tag=effect_volitans,limit=1] minecraft:slowness 30 0
-cmd effect give @e[tag=effect_mossback,limit=1] minecraft:slowness 30 0
+# Pumpkin's /effect command accepts players only. Apply both effects through
+# the actual splash-potion path, with an ordinary villager as positive control.
+cmd tp @e[tag=effect_volitans,limit=1] 1025.5 105 1027.5
+cmd tp @e[tag=effect_mossback,limit=1] 1028.5 105 1027.5
+cmd tp @e[tag=effect_control,limit=1] 1027 105 1029.5
+cmd tp tester 1027 105 1027.5
+cmd item replace entity tester weapon.mainhand with minecraft:splash_potion[minecraft:potion_contents={potion:"minecraft:poison"}]
+wait 1
+bot look 0 90
+bot use-item main
+wait 1
+cmd item replace entity tester weapon.mainhand with minecraft:splash_potion[minecraft:potion_contents={potion:"minecraft:slowness"}]
+wait 0.5
+bot use-item main
+wait 1
 cmd execute if entity @e[tag=effect_volitans,nbt={active_effects:[{id:"minecraft:slowness"}]}] unless entity @e[tag=effect_volitans,nbt={active_effects:[{id:"minecraft:poison"}]}] run say VOLITANS_VETO_OK
 cmd execute if entity @e[tag=effect_mossback,nbt={active_effects:[{id:"minecraft:slowness"}]}] unless entity @e[tag=effect_mossback,nbt={active_effects:[{id:"minecraft:poison"}]}] run say MOSSBACK_VETO_OK
 cmd execute if entity @e[tag=effect_control,nbt={active_effects:[{id:"minecraft:poison"}]}] run say CONTROL_POISON_OK

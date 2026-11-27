@@ -11,6 +11,7 @@ use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, abilities::enemy, ai::random, fligh
 
 pub const TARGETING: u64 = 120;
 pub const COMBAT: u64 = 121;
+pub const STORM_COMMAND: u64 = 130;
 const DATA: &str = "saintsdragons:raevyx_combat";
 const RANGE: f64 = 64.0;
 const STORM_DURATION: i32 = 1200;
@@ -1308,6 +1309,47 @@ pub fn rider_movement(mob: Entity<'_>) -> (bool, bool, bool, bool) {
                 .storm_age
                 .is_some_and(|age| age < storm_timing(state.storm_air).1),
     )
+}
+
+/// Operator command bridge for the custom rider key, which the stock client cannot send.
+pub fn storm_nodes(nodes: &mut Vec<moddedmc_api::commands::Node<'static>>) {
+    let base = nodes.len() as u32;
+    nodes.extend([
+        crate::literal("storm"),
+        crate::number(Some(base), "x", None),
+        crate::number(Some(base + 1), "y", None),
+        crate::number(Some(base + 2), "z", Some(STORM_COMMAND)),
+    ]);
+}
+
+pub fn command_storm(world: World<'_>, at: [f64; 3], command: &moddedmc_api::Command<'_>) -> i32 {
+    let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
+        return 0;
+    };
+    let nearest = entities
+        .entities_in(world, at.map(|v| v - 4.0), at.map(|v| v + 4.0), -1)
+        .into_iter()
+        .filter_map(|id| {
+            entities
+                .with_entity(world, id, |mob| {
+                    (mobs.kind(mob) == Some("saintsdragons:raevyx"))
+                        .then(|| mob.view().map(|v| (id, distance(v.position, at))))
+                        .flatten()
+                })
+                .flatten()
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1));
+    let started = nearest.is_some_and(|(id, _)| {
+        entities
+            .with_entity(world, id, |mob| start_storm(world, mob))
+            .unwrap_or(false)
+    });
+    command.reply(if started {
+        "Raevyx storm casting"
+    } else {
+        "Raevyx storm unavailable"
+    });
+    i32::from(started)
 }
 
 fn start_storm(world: World<'_>, mob: Entity<'_>) -> bool {

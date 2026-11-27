@@ -10,15 +10,18 @@ cmd tp tester 1025.5 105 1025.5 0 0
 cmd forceload add 1025 1025
 wait 3
 cmd fill 1013 104 1013 1037 104 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd fill 1013 105 1013 1037 110 1037 minecraft:air
+await 30 Successfully filled|No blocks were filled
 cmd saintsdragons spawn mossback 1025 105 1027
-wait 0.5
-expect saintsdragons:mossback: spawned
+await 30 saintsdragons:mossback: spawned
+wait 1
 cmd damage @e[type=minecraft:wolf,sort=nearest,limit=1] 4 minecraft:fall
 cmd data get entity @e[type=minecraft:wolf,sort=nearest,limit=1] Health
 wait 0.5
 expect has the following entity data: 10(\.0)?f
 cmd item replace entity tester weapon.mainhand with minecraft:air
+await 10 Replaced a slot on tester
 bot use-entity wolf 1025.5 105 1027.5 main
 wait 0.5
 cmd data get entity tester Inventory[{Slot:0b}].id
