@@ -441,6 +441,8 @@ mod layout {
             offset_of!(EntitiesV1, players),
             offset_of!(EntitiesV1, has_scoreboard_tag) + 8
         );
+        assert_eq!(offset_of!(EntitiesV1, age), 248);
+        assert_eq!(size_of::<EntitiesV1>(), 256);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -1022,6 +1024,8 @@ pub struct EntitiesV1 {
     /// Ids of the world's players, spectators and dead ones included. Returns how many there
     /// are, which can exceed `capacity`.
     pub players: unsafe extern "C" fn(world: WorldRef, out: *mut i32, capacity: usize) -> usize,
+    /// Vanilla Entity.tickCount, including non-living entities; -1 for an invalid handle.
+    pub age: unsafe extern "C" fn(entity: EntityRef) -> i32,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.
@@ -1722,6 +1726,18 @@ pub struct MobsV1 {
     /// unknown, or `player` isn't a player.
     pub award_advancement:
         unsafe extern "C" fn(player: EntityRef, advancement: Str, criterion: Str) -> bool,
+    /// Vanilla LivingEntity.getKillCredit, or -1.
+    pub kill_credit: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    /// Player.isSleeping: -1 for a non-player, 0 awake, 1 asleep.
+    pub player_sleeping: unsafe extern "C" fn(player: EntityRef) -> i32,
+    /// Spawn vanilla experience orbs worth amount in total.
+    pub award_experience:
+        unsafe extern "C" fn(world: WorldRef, position: Vec3, amount: u32) -> bool,
+    /// Increment a vanilla statistic by its category and resource key.
+    pub award_stat:
+        unsafe extern "C" fn(player: EntityRef, category: Str, stat: Str, amount: i32) -> bool,
+    /// Read a boolean gamerule by its 26.3 resource key; -1 if missing or not boolean.
+    pub boolean_gamerule: unsafe extern "C" fn(world: WorldRef, rule: Str) -> i32,
 }
 
 /// A mod mob dying; the entity is still in the world.
@@ -1870,7 +1886,12 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, add_spawn), 160);
         assert_eq!(offset_of!(MobsV1, open_trades), 168);
         assert_eq!(offset_of!(MobsV1, award_advancement), 176);
-        assert_eq!(size_of::<MobsV1>(), 184);
+        assert_eq!(offset_of!(MobsV1, kill_credit), 184);
+        assert_eq!(offset_of!(MobsV1, player_sleeping), 192);
+        assert_eq!(offset_of!(MobsV1, award_experience), 200);
+        assert_eq!(offset_of!(MobsV1, award_stat), 208);
+        assert_eq!(offset_of!(MobsV1, boolean_gamerule), 216);
+        assert_eq!(size_of::<MobsV1>(), 224);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

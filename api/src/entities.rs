@@ -324,6 +324,18 @@ impl Entity<'_> {
         unsafe { (self.api.id)(self.raw) }
     }
 
+    /// The number of ticks this entity has existed, including item entities.
+    pub fn age(self) -> Option<i32> {
+        let prefix = crate::InterfacePrefix {
+            ptr: std::ptr::from_ref(self.api),
+            size: self.api.size,
+        };
+        let api = prefix.upto(std::mem::offset_of!(abi::EntitiesV1, age))?;
+        // SAFETY: the checked prefix includes the function and the entity is borrowed.
+        let age = unsafe { ((&raw const (*api).age).read())(self.raw) };
+        (age >= 0).then_some(age)
+    }
+
     /// `ENTITY_ALIVE`, `ENTITY_SNEAKING`, `ENTITY_FLYING`, `ENTITY_HANGING` and
     /// `ENTITY_PUSH_IGNORED` bits.
     pub fn flags(self) -> u32 {

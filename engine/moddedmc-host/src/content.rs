@@ -2791,6 +2791,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     hurt: crate::entities::hurt,
     has_scoreboard_tag: crate::entities::has_scoreboard_tag,
     players: crate::entities::players,
+    age: crate::entities::age,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {

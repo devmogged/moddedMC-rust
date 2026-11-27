@@ -89,6 +89,13 @@ pub unsafe extern "C" fn id(raw: abi::EntityRef) -> i32 {
     unsafe { entity(raw) }.map_or(0, |base| base.get_entity().entity_id)
 }
 
+pub unsafe extern "C" fn age(raw: abi::EntityRef) -> i32 {
+    // SAFETY: the entity is borrowed for the callback.
+    unsafe { entity(raw) }.map_or(-1, |base| {
+        base.get_entity().tick_count.load(Ordering::Relaxed)
+    })
+}
+
 pub unsafe extern "C" fn with_entity(
     raw: WorldRef,
     id: i32,

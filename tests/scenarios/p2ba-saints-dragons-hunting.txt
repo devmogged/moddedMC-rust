@@ -1,6 +1,6 @@
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 # Saint's Dragons 0.9.88: roster melee attributes follow the hunger multiplier.
-# Hunting remains blocked on item age and kill attribution host support.
+# A hungry Raevyx kills its tagged prey and eats fresh drops, not old food.
 start
 botstart tester
 wait 3
@@ -30,6 +30,18 @@ wait 2
 cmd attribute @e[tag=hunger_test,limit=1] minecraft:attack_damage base get
 wait 0.5
 expect is 12(?:\.0)?\b
+cmd tp @e[tag=hunger_test,limit=1] 1025.5 100 1025.5
+cmd summon minecraft:item 1025.5 100 1025.5 {Tags:["old_food"],PickupDelay:32767s,Item:{id:"minecraft:porkchop",count:64}}
+wait 6
+cmd data merge entity @e[tag=hunger_test,limit=1] {data:{"saintsdragons:hunger":{Hunger:60}}}
+cmd execute at @e[tag=hunger_test,limit=1] run summon minecraft:pig ~1 ~ ~ {Health:1f,NoAI:1b}
+wait 8
+cmd data get entity @e[tag=hunger_test,limit=1] data."saintsdragons:hunger".Hunger
+wait 0.5
+expect has the following entity data: (70|80|90|100)\b
+cmd data get entity @e[tag=old_food,limit=1] Item.count
+wait 0.5
+expect has the following entity data: 64\b
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop

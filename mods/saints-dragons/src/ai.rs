@@ -79,6 +79,20 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
     if phase == goal_phase::START && matches!(key, AMBIENT | crate::roster::AMBIENT) {
         crate::roster::finalize_spawn(world, mob);
     }
+    if matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE)
+        && !matches!(
+            key,
+            AMBIENT
+                | crate::roster::AMBIENT
+                | crate::combat::TARGETING
+                | crate::roost::GOAL
+                | crate::taming::RIDE_OR_SIT
+                | crate::stun::GOAL
+        )
+        && crate::roost::sleep_clip(mob.id()).is_some()
+    {
+        return false;
+    }
     match key {
         IDLE_LOOK => idle_look(phase, world, mob),
         GROUND_WANDER => ground_wander(phase, mob),
@@ -93,6 +107,7 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::stun::GOAL => crate::stun::goal(phase, world, mob),
         crate::breed::GOAL => crate::breed::goal(phase, world, mob),
         crate::wild::GOAL => crate::wild::goal(phase, world, mob),
+        crate::hunt::GOAL => crate::hunt::goal(phase, world, mob),
         AMBIENT => match phase {
             goal_phase::CAN_START | goal_phase::CONTINUE => true,
             goal_phase::TICK => {
@@ -111,7 +126,8 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
                     }
                     return false;
                 }
-                crate::taming::regrow(mob);
+                crate::hunt::tick(world, mob, "cindervane");
+                crate::roost::owner_tick(world, mob, "cindervane");
                 crate::combat::ambient(world, mob);
                 crate::visuals::tick(world, mob);
                 false

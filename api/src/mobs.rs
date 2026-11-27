@@ -414,6 +414,83 @@ impl Mobs {
         }
     }
 
+    /// Vanilla kill credit, including the remembered attacker during its timeout.
+    pub fn kill_credit(self, mob: Entity<'_>) -> Option<i32> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, kill_credit))?;
+        // SAFETY: the field is present and the entity is borrowed.
+        let id = unsafe { ((&raw const (*api).kill_credit).read())(mob.raw()) };
+        (id >= 0).then_some(id)
+    }
+
+    /// Whether a player is sleeping.
+    pub fn player_sleeping(self, player: Entity<'_>) -> Option<bool> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, player_sleeping))?;
+        // SAFETY: the field is present and the entity is borrowed.
+        match unsafe { ((&raw const (*api).player_sleeping).read())(player.raw()) } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+
+    /// Award experience at a world position.
+    pub fn award_experience(
+        self,
+        world: World<'_>,
+        position: [f64; 3],
+        amount: u32,
+    ) -> Option<bool> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, award_experience))?;
+        // SAFETY: the field is present and the world is borrowed.
+        Some(unsafe {
+            ((&raw const (*api).award_experience).read())(world.raw(), abi::Vec3(position), amount)
+        })
+    }
+
+    /// Increment a vanilla statistic identified by its category and registry key.
+    pub fn award_stat(
+        self,
+        player: Entity<'_>,
+        category: &str,
+        stat: &str,
+        amount: i32,
+    ) -> Option<bool> {
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, award_stat))?;
+        // SAFETY: the field is present and all inputs live through the call.
+        Some(unsafe {
+            ((&raw const (*api).award_stat).read())(
+                player.raw(),
+                abi::Str::new(category.as_bytes()),
+                abi::Str::new(stat.as_bytes()),
+                amount,
+            )
+        })
+    }
+
+    /// Read a boolean gamerule by its vanilla registry key.
+    pub fn boolean_gamerule(self, world: World<'_>, rule: &str) -> Option<bool> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, boolean_gamerule))?;
+        // SAFETY: the field is present and both inputs live through the call.
+        match unsafe {
+            ((&raw const (*api).boolean_gamerule).read())(
+                world.raw(),
+                abi::Str::new(rule.as_bytes()),
+            )
+        } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+
     /// Hear deaths for one registered mob kind. Different kinds can have
     /// independent handlers, dispatched by the mob's persisted native identity.
     pub fn on_death(

@@ -306,6 +306,11 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 1,
                 goal_control::MOVE | goal_control::LOOK,
             )))
+            .chain(crate::hunt::supported(species.name).then_some((
+                crate::hunt::GOAL,
+                1,
+                goal_control::MOVE | goal_control::LOOK,
+            )))
             .chain((species.name == "varasuchus").then_some((
                 crate::wild::GOAL,
                 0,
@@ -629,6 +634,8 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         );
         return false;
     }
+    crate::hunt::tick(world, mob, name);
+    crate::roost::owner_tick(world, mob, name);
     let wet = species.swim.is_some()
         && matches!(
             world.fluid_id(flight::cell(view.position)).as_deref(),
@@ -640,7 +647,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         }
         swarm::hover(mob, view.motion);
     }
-    let clip = if cfg!(feature = "original-assets") && matches!(name, "ignivorus" | "varasuchus") {
+    let clip = if cfg!(feature = "original-assets") {
         crate::roost::sleep_clip(mob.id())
     } else {
         None
