@@ -137,7 +137,15 @@ pub fn hurt_final(
         Some(crate::ivy::KIND) => {
             crate::ivy::hurt_final(world, mob, damage_type, amount, lethal, absorption)
         }
-        Some(crate::wild::VARASUCHUS) if damage_type == "minecraft:drown" => amount * 0.5,
+        Some(crate::wild::VARASUCHUS) => {
+            if crate::combat_varasuchus::parry(world, mob) {
+                0.0
+            } else if damage_type == "minecraft:drown" {
+                amount * 0.5
+            } else {
+                amount
+            }
+        }
         _ => amount,
     }
 }

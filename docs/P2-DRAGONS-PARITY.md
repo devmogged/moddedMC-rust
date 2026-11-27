@@ -422,8 +422,16 @@ released sleep-capable dragons now follow their owner's actual bed sleep at
 night and wake when the owner wakes or conditions no longer permit sleep.
 The released underwater sleep-depth search and sensory disturbances remain
 pending.
-The released tamed mounting interaction wakes the dragon immediately, rather
-than rejecting the ride; tamed Varasuchus riding is outside this port.
+The tamed mounting interaction wakes the dragon immediately and allows the
+adult owner to ride without a saddle, subject to happiness. Varasuchus now
+handles rider ground/swim movement, double-tap dash, flex, phase shift,
+phase-dependent claw/tail sweep and barrage, and held tailguard. The final-hurt
+hook cancels qualifying close-range damage and applies the parry sweep.
+Melee mode is persisted and the bite/horn action handler is implemented,
+but the shared companion still needs to dispatch the vanilla attack key.
+Claw terrain destruction follows the mob-griefing rule; the separate release
+config switch and waterlogged block handling are not reproduced.
+[Varasuchus rider scenario](../tests/scenarios/p2-rider-varasuchus.txt)
 [Varasuchus care scenario](../tests/scenarios/p2au-saints-dragons-varasuchus-care.txt)
 
 The released saddle carriers are Cindervane, Atroxiia and Stegonaut. Owners
@@ -678,3 +686,5 @@ The host and companion expose semantic rider actions.
 Raevyx rider abilities include storm tap, ground rend hold, beam, roar, flex and movement controls. [Scenario](../tests/scenarios/p2c-raevyx-combat.txt).
 
 Volitans rider input and medium-specific movement are ported.
+
+Varasuchus rider combat and movement are ported.
