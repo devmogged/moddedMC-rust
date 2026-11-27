@@ -8,8 +8,8 @@
 #   cmd <console line>       send a console line
 #   wait <seconds>
 #   expect <regex>           fail unless a log line since the previous expect/start matches
-#   await <regex>            wait for actual log acknowledgement (up to 5s) without a fixed delay
 #   expect-all <regex> && <regex>  require each pattern in the same log window, in any order
+#   await [seconds] <regex>  wait for acknowledgement; default 5s when no timeout supplied
 #   reject <regex>           fail if any log line since the previous expect/start matches
 #   stop                     send stop and wait for exit
 #   botstart <name>          join with moddedmc-bot (its output goes into the log)
@@ -146,32 +146,25 @@ foreach ($raw in Get-Content $Scenario) {
             Write-Host "  $line"
         }
         'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000)) }
-        'await' {
-            $deadline = (Get-Date).AddSeconds(5)
-            $matchIndex = -1
-            while ((Get-Date) -lt $deadline) {
-                $new = @(Get-NewLines)
-                for ($i = 0; $i -lt $new.Count; $i++) {
-                    if ($new[$i] -match $arg) {
-                        $matchIndex = $i
-                        break
-                    }
+        { $_ -in 'expect', 'expect-all', 'await' } {
+            if ($_ -eq 'await') {
+                $seconds = 5
+                if ($arg -match '^([0-9]+(?:\.[0-9]+)?)\s+(.+)$') {
+                    $seconds = [double]$Matches[1]
+                    $arg = $Matches[2]
                 }
-                if ($matchIndex -ge 0) { break }
-                if ($script:p.HasExited) { break }
-                Start-Sleep -Milliseconds 10
-            }
-            if ($matchIndex -ge 0) {
-                Write-Host "  ok: $($new[$matchIndex])" -ForegroundColor Green
-                $script:cursor += $matchIndex + 1
+                $deadline = [Diagnostics.Stopwatch]::StartNew()
+                do {
+                    $new = @(Get-NewLines)
+                    if ($new -match $arg) { break }
+                    $script:p.Refresh()
+                    if ($script:p.HasExited) { break }
+                    Start-Sleep -Milliseconds 25
+                } while ($deadline.Elapsed.TotalSeconds -lt [double]$seconds)
             } else {
-                Write-Host "  FAIL: no acknowledgement matches /$arg/" -ForegroundColor Red
-                $failures++
+                $new = @(Get-NewLines)
             }
-        }
-        { $_ -in 'expect', 'expect-all' } {
             $patterns = if ($_ -eq 'expect-all') { $arg -split ' && ' } else { $arg }
-            $new = @(Get-NewLines)
             $consumed = 0
             foreach ($pattern in $patterns) {
                 $i = 0
