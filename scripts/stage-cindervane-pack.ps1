@@ -73,6 +73,22 @@ foreach ($name in $species) {
         }
     }
     $files["$assets/moddedmc/rigs/${name}_display.json"] = $rig | ConvertTo-Json -Compress
+    if ($name -notin @('moop', 'mossback')) {
+        $baby = "entity/$name/baby_$name"
+        $copies["$assets/geo/$baby.geo.json"] = "$assets/geckolib/models/$baby.geo.json"
+        $copies["$assets/animations/$baby.animation.json"] = "$assets/geckolib/animations/$baby.animation.json"
+        $copies["$assets/textures/$baby.png"] = "$assets/textures/$baby.png"
+        $copies["$assets/textures/${baby}_female.png"] = "$assets/textures/${baby}_female.png"
+        $files["$assets/moddedmc/rigs/baby_${name}_display.json"] = [ordered]@{
+            geometry = "saintsdragons:$baby"
+            animations = "saintsdragons:$baby"
+            texture = "saintsdragons:textures/$baby.png"
+            textures = @{ default_female = "saintsdragons:textures/${baby}_female.png" }
+            clip = "animation.$name.idle"
+            yaw_offset = 180
+            author = 'Leon Saint'
+        } | ConvertTo-Json -Compress
+    }
 }
 if ($AllDragons) {
     foreach ($name in @('latcher','winged','whettled','ivy_oleander')) {
@@ -187,22 +203,6 @@ if ($AllDragons) {
         'textures/item/atroxiia/atroxiia_egg.png'
     )) {
         $copies["$assets/$path"] = "$assets/$path"
-    }
-    foreach ($name in @('ignivorus','stegonaut','varasuchus','atroxiia','volitans','cindervane','raevyx','nulljaw')) {
-        $baby = "entity/$name/baby_$name"
-        $copies["$assets/geo/$baby.geo.json"] = "$assets/geckolib/models/$baby.geo.json"
-        $copies["$assets/animations/$baby.animation.json"] = "$assets/geckolib/animations/$baby.animation.json"
-        $copies["$assets/textures/$baby.png"] = "$assets/textures/$baby.png"
-        $copies["$assets/textures/${baby}_female.png"] = "$assets/textures/${baby}_female.png"
-        $files["$assets/moddedmc/rigs/baby_${name}_display.json"] = [ordered]@{
-            geometry = "saintsdragons:$baby"
-            animations = "saintsdragons:$baby"
-            texture = "saintsdragons:textures/$baby.png"
-            textures = @{ default_female = "saintsdragons:textures/${baby}_female.png" }
-            clip = "animation.$name.idle"
-            yaw_offset = 180
-            author = 'Leon Saint'
-        } | ConvertTo-Json -Compress
     }
     $dropTextures = [ordered]@{
         hearty_dragon_meal = 'hearty_dragon_meal'
