@@ -63,6 +63,7 @@ use pumpkin_core::{
             entity::{
                 entity_damage::EntityDamageEvent, entity_damage_final::EntityDamageFinalEvent,
                 entity_death::EntityDeathEvent,
+                entity_potion_effect::EntityPotionEffectEvent,
             },
             player::player_interact_entity_event::PlayerInteractEntityEvent,
         },
@@ -237,6 +238,11 @@ pub fn attach(server: &Arc<Server>) {
         true,
     );
     pm.register::<EntityDeathEvent, _>(Arc::new(mob_ai::DeathHandler), EventPriority::Normal, true);
+    pm.register::<EntityPotionEffectEvent, _>(
+        Arc::new(effects::EffectVetoHandler),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<EntityDamageEvent, _>(
         Arc::new(equipment::WornHurtHandler),
         EventPriority::Normal,

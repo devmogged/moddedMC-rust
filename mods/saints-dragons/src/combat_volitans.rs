@@ -1106,9 +1106,6 @@ fn step_shot(
     true
 }
 pub fn ambient(world: World<'_>, mob: Entity<'_>) -> Option<&'static str> {
-    // Volitans.canBeAffected rejects poison; remove externally applied poison
-    // on the next tick until the host exposes an effect admission hook.
-    mob.remove_effect("minecraft:poison");
     let (mut shots, mut hits, clip) = with_runtime(mob, |rt| {
         let clip = rt.action.as_ref().map(|a| match a.kind {
             Attack::Bite => "bite",

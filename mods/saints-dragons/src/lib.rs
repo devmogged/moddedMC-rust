@@ -32,6 +32,7 @@ mod hunger;
 mod hunt;
 mod ivy;
 mod ivy_trades;
+mod mossback;
 mod nucleus;
 mod roost;
 mod roster;
@@ -117,7 +118,9 @@ impl Mod for SaintsDragons {
         content.require_comparator_output()?;
         content.require_block_material()?;
         let _ = CONTENT.set(content);
-        let _ = EFFECTS.set(effects::require()?);
+        let effects = effects::require()?;
+        effects.require_effect_veto()?;
+        let _ = EFFECTS.set(effects);
         let _ = COMMANDS.set(commands::require()?);
         let entities = entities::require()?;
         combat_raevyx::require(content, entities)?;
@@ -192,6 +195,7 @@ impl Mod for SaintsDragons {
         venom_arrow::register(registry)?;
         binders::register(defaults, registry)?;
         interaction.on_use_item(registry, |click| match click.item {
+            mossback::KIND => mossback::throw_item(click),
             codex::ID => codex::use_item(click),
             ivy::PLUSHIE => ivy::use_item(click),
             nucleus::CONTROLLER => nucleus::use_item(click),
@@ -293,6 +297,12 @@ impl Mod for SaintsDragons {
             &nodes,
         )?;
         roster::register(registry)?;
+        for kind in ["saintsdragons:volitans", mossback::KIND] {
+            EFFECTS
+                .get()
+                .ok_or(missing)?
+                .on_effect(registry, kind, can_be_affected)?;
+        }
         spawns::register(
             registry,
             *MOBS.get().ok_or(RegistrationError::InvalidDefinition)?,
@@ -404,6 +414,17 @@ impl Mod for SaintsDragons {
             _ => 0,
         }
     }
+}
+
+/// Volitans and Mossback canBeAffected overrides.
+fn can_be_affected(
+    _world: content::World<'_>,
+    _mob: entities::Entity<'_>,
+    effect: &str,
+    _duration: i32,
+    _amplifier: u8,
+) -> bool {
+    effect != "minecraft:poison"
 }
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {

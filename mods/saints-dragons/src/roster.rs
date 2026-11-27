@@ -283,6 +283,18 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         if species.name == crate::ivy::SPECIES {
             attributes.push(("minecraft:armor_toughness", 0.0));
         }
+        if species.name == "mossback" {
+            attributes.push(("minecraft:armor", 0.0));
+            items.add_item(
+                registry,
+                &Item {
+                    id: "saintsdragons:baby_mossback_display",
+                    display_name: "Mossback",
+                    carrier: "minecraft:paper",
+                    model: "minecraft:item/pufferfish",
+                },
+            )?;
+        }
         mobs.add_mob(
             registry,
             &Mob {
@@ -298,6 +310,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             || species.name == "stegonaut"
             || species.name == "varasuchus"
             || species.name == crate::ivy::SPECIES
+            || species.name == "mossback"
             || cfg!(feature = "original-assets")
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
@@ -376,10 +389,21 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         )?;
         if !species.aquatic {
             ai.replace_goals(registry, &kind)?;
-            if swarm_damage.is_some() {
+            if species.name == "mossback" {
+                INTERACTION
+                    .get()
+                    .ok_or(missing)?
+                    .on_use_mob(registry, &kind, taming::interact)?;
                 for (key, priority, controls) in [
-                    (swarm::TARGETING, 1, goal_control::TARGET),
-                    (swarm::COMBAT, 2, goal_control::MOVE | goal_control::LOOK),
+                    (crate::mossback::FLOAT, 0, goal_control::JUMP),
+                    (crate::mossback::PANIC, 1, goal_control::MOVE),
+                    (
+                        crate::mossback::BREED,
+                        2,
+                        goal_control::MOVE | goal_control::LOOK,
+                    ),
+                    (crate::mossback::WANDER, 4, goal_control::MOVE),
+                    (ai::IDLE_LOOK, 5, goal_control::LOOK),
                 ] {
                     ai.add_goal(
                         registry,
@@ -391,28 +415,45 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                         },
                     )?;
                 }
-            }
-            for (key, priority, controls) in [
-                (ai::IDLE_LOOK, 3, goal_control::LOOK),
-                (
-                    if swarm_damage.is_some() {
-                        swarm::WANDER
-                    } else {
-                        ai::GROUND_WANDER
-                    },
-                    if swarm_damage.is_some() { 7 } else { 4 },
-                    goal_control::MOVE,
-                ),
-            ] {
-                ai.add_goal(
-                    registry,
-                    &Goal {
-                        kind: &kind,
-                        key,
-                        priority,
-                        controls,
-                    },
-                )?;
+            } else {
+                if swarm_damage.is_some() {
+                    for (key, priority, controls) in [
+                        (swarm::TARGETING, 1, goal_control::TARGET),
+                        (swarm::COMBAT, 2, goal_control::MOVE | goal_control::LOOK),
+                    ] {
+                        ai.add_goal(
+                            registry,
+                            &Goal {
+                                kind: &kind,
+                                key,
+                                priority,
+                                controls,
+                            },
+                        )?;
+                    }
+                }
+                for (key, priority, controls) in [
+                    (ai::IDLE_LOOK, 3, goal_control::LOOK),
+                    (
+                        if swarm_damage.is_some() {
+                            swarm::WANDER
+                        } else {
+                            ai::GROUND_WANDER
+                        },
+                        if swarm_damage.is_some() { 7 } else { 4 },
+                        goal_control::MOVE,
+                    ),
+                ] {
+                    ai.add_goal(
+                        registry,
+                        &Goal {
+                            kind: &kind,
+                            key,
+                            priority,
+                            controls,
+                        },
+                    )?;
+                }
             }
         }
         if cfg!(feature = "original-assets") && matches!(species.name, "ignivorus" | "varasuchus") {
@@ -776,6 +817,10 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
         return false;
     };
+    if name == "mossback" {
+        crate::mossback::ambient(world, mob, view);
+        return false;
+    }
     if name == crate::ivy::SPECIES {
         crate::ivy::downed_tick(world, mob);
         crate::ivy::target_tick(world, mob);

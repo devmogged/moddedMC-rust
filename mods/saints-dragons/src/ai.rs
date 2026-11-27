@@ -128,6 +128,11 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::hunt::GOAL => crate::hunt::goal(phase, world, mob),
         crate::cindervane_wild::SOCIAL => crate::cindervane_wild::social(phase, world, mob),
         crate::cindervane_wild::DRINK => crate::cindervane_wild::drink(phase, world, mob),
+
+        crate::mossback::FLOAT
+        | crate::mossback::PANIC
+        | crate::mossback::BREED
+        | crate::mossback::WANDER => crate::mossback::goal(phase, key, world, mob),
         AMBIENT => match phase {
             goal_phase::CAN_START | goal_phase::CONTINUE => true,
             goal_phase::TICK => {
@@ -159,6 +164,12 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
 }
 
 fn idle_look(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
+    let range = if crate::MOBS.get().and_then(|mobs| mobs.kind(mob)) == Some(crate::mossback::KIND)
+    {
+        6.0
+    } else {
+        LOOK_RANGE
+    };
     let (Some(ai), Some(entities)) = (MOB_AI.get(), ENTITIES.get()) else {
         return false;
     };
@@ -178,14 +189,14 @@ fn idle_look(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     ];
     let near = |p: [f64; 3]| {
         let d = [p[0] - eye[0], p[1] - view.position[1], p[2] - eye[2]];
-        d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= LOOK_RANGE * LOOK_RANGE
+        d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= range * range
     };
     let mut looks = LOOKS.lock().unwrap_or_else(PoisonError::into_inner);
     let look = looks.get_or_insert_default().entry(mob.id()).or_default();
     look.ticks -= 1;
     if look.ticks < 0 {
-        let min = view.position.map(|c| c - LOOK_RANGE);
-        let max = view.position.map(|c| c + LOOK_RANGE);
+        let min = view.position.map(|c| c - range);
+        let max = view.position.map(|c| c + range);
         // shortcut: nearest player by distance without vanilla's line-of-sight check; add one
         // when the host exposes `canSee`.
         look.player = entities

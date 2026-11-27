@@ -1,0 +1,33 @@
+# Feeding a juvenile uses the actual held food as an item-particle payload.
+# The stock Java bot must remain connected and the feed must complete.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1029.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn stegonaut 1025 100 1025
+wait 2.5
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..3,limit=1] {data:{"saintsdragons:growth":{remaining:20000},"saintsdragons:hunger":{Hunger:50}}}
+wait 0.5
+cmd item replace entity tester weapon.offhand with minecraft:salmon 8
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Stegonaut has been tamed!
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..3,limit=1] data."saintsdragons:hunger".Hunger
+wait 0.5
+expect has the following entity data: 60
+wait 1.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Stegonaut grows a bit stronger!
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

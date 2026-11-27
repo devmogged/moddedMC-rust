@@ -387,7 +387,7 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if !click.creative {
         click.stack.shrink(1);
     }
-    crate::audio::eat(click.world, mob);
+    crate::audio::eat(click.world, mob, item);
     let hearty = item == taming::HEARTY_MEAL;
     let hungry = crate::hunger::feed(mob, hearty);
     if tamed {

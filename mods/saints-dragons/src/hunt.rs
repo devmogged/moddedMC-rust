@@ -12,7 +12,7 @@ use std::{
     sync::{Mutex, PoisonError},
 };
 
-pub const GOAL: u64 = 17;
+pub const GOAL: u64 = 200;
 #[derive(Default)]
 struct Hunt {
     prey: Option<i32>,
@@ -342,7 +342,9 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             };
             if stacks.set_entity_stack(item, &remaining) {
                 hunger::feed(mob, false);
-                crate::audio::eat(world, mob);
+                if let Some(Value::String(food)) = stack.get("id") {
+                    crate::audio::eat(world, mob, food);
+                }
                 if name == "varasuchus" {
                     crate::baby::start_eating(mob.id(), 20);
                 }

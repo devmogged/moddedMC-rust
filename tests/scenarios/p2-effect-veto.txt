@@ -1,0 +1,35 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 104 1013 1037 104 1037 minecraft:stone
+cmd fill 1013 105 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn volitans 1025 105 1027
+cmd saintsdragons spawn mossback 1028 105 1027
+cmd summon minecraft:villager 1031 105 1027 {NoAI:1b,Tags:["effect_control"]}
+wait 1
+cmd tag @e[nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] add effect_volitans
+cmd tag @e[nbt={data:{moddedmc:{mob:"saintsdragons:mossback"}}},limit=1] add effect_mossback
+cmd data merge entity @e[tag=effect_volitans,limit=1] {NoAI:1b}
+cmd data merge entity @e[tag=effect_mossback,limit=1] {NoAI:1b}
+cmd effect give @e[tag=effect_volitans,limit=1] minecraft:poison 30 0
+cmd effect give @e[tag=effect_mossback,limit=1] minecraft:poison 30 0
+cmd effect give @e[tag=effect_control,limit=1] minecraft:poison 30 0
+cmd effect give @e[tag=effect_volitans,limit=1] minecraft:slowness 30 0
+cmd effect give @e[tag=effect_mossback,limit=1] minecraft:slowness 30 0
+cmd execute if entity @e[tag=effect_volitans,nbt={active_effects:[{id:"minecraft:slowness"}]}] unless entity @e[tag=effect_volitans,nbt={active_effects:[{id:"minecraft:poison"}]}] run say VOLITANS_VETO_OK
+cmd execute if entity @e[tag=effect_mossback,nbt={active_effects:[{id:"minecraft:slowness"}]}] unless entity @e[tag=effect_mossback,nbt={active_effects:[{id:"minecraft:poison"}]}] run say MOSSBACK_VETO_OK
+cmd execute if entity @e[tag=effect_control,nbt={active_effects:[{id:"minecraft:poison"}]}] run say CONTROL_POISON_OK
+wait 0.5
+expect VOLITANS_VETO_OK
+expect MOSSBACK_VETO_OK
+expect CONTROL_POISON_OK
+reject (?i)panic|panicked
+bot quit
+stop

@@ -354,6 +354,7 @@ pub struct Registration {
     carrier: &'static EntityType,
     attributes: Vec<(&'static Attributes, f64)>,
     structure_init: Option<abi::StructureMobInitFn>,
+    effect_veto: Option<abi::EffectCallback>,
     spawns: Vec<NaturalSpawn>,
 }
 
@@ -438,6 +439,7 @@ unsafe extern "C" fn add_mob(reg: Reg, def: *const abi::MobDefinition) -> i32 {
         carrier,
         attributes,
         structure_init: None,
+        effect_veto: None,
         spawns: Vec::new(),
     });
     code::OK
@@ -719,6 +721,26 @@ pub fn registered_kind(base: &dyn EntityBase) -> Option<&'static str> {
         return None;
     };
     types().get_key_value(&*name).map(|(id, _)| *id)
+}
+
+pub unsafe extern "C" fn on_effect(reg: Reg, kind: Str, callback: abi::EffectCallback) -> i32 {
+    // SAFETY: the registration and kind are borrowed for the call.
+    let (staging, kind) = unsafe { (native::staging(reg), kind.str()) };
+    let Some(mob) = staging.mobs.iter_mut().find(|mob| mob.id == kind) else {
+        return code::INVALID_DEFINITION;
+    };
+    if mob.effect_veto.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    mob.effect_veto = Some(callback);
+    code::OK
+}
+
+pub fn effect_veto(base: &dyn EntityBase) -> Option<abi::EffectCallback> {
+    let NbtTag::String(kind) = base.get_entity().get_custom_data(NAMESPACE, TYPE_KEY)? else {
+        return None;
+    };
+    types().get(&*kind)?.effect_veto
 }
 
 /// True when `kind` is a registered mod mob type or one of `staged`.

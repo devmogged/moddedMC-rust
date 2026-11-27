@@ -1334,6 +1334,23 @@ pub const SOUND_NEUTRAL: u8 = 6;
 pub const SOUND_PLAYERS: u8 = 7;
 pub const SOUND_AMBIENT: u8 = 8;
 
+pub const PARTICLE_SIMPLE: u32 = 0;
+pub const PARTICLE_ITEM: u32 = 1;
+pub const PARTICLE_BLOCK: u32 = 2;
+pub const PARTICLE_DUST: u32 = 3;
+
+/// Options for a parameterized particle. Only fields selected by `kind` are read.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ParticleOptions {
+    pub item: Str,
+    pub kind: u32,
+    pub block_state: u32,
+    /// Packed 0xRRGGBB, without alpha.
+    pub rgb: u32,
+    pub scale: f32,
+}
+
 #[repr(C)]
 pub struct EffectsV1 {
     pub size: usize,
@@ -1366,6 +1383,47 @@ pub struct EffectsV1 {
         volume: f32,
         pitch: f32,
     ) -> bool,
+    /// Simple, item, block/falling_dust, or dust particles. -1 broadcasts; otherwise only
+    /// the loaded player with this entity id receives the packet.
+    pub particles_with_options: unsafe extern "C" fn(
+        world: WorldRef,
+        particle: Str,
+        position: Vec3,
+        spread: Vec3,
+        speed: f32,
+        count: u32,
+        options: ParticleOptions,
+        viewer: i32,
+    ) -> bool,
+    /// Register a mod mob's effect admission callback. False from the callback vetoes the effect.
+    pub on_effect: unsafe extern "C" fn(reg: Reg, kind: Str, callback: EffectCallback) -> i32,
+}
+
+/// A pending mob effect, before it is stored or applied.
+pub type EffectCallback = unsafe extern "C" fn(
+    world: WorldRef,
+    mob: EntityRef,
+    effect: Str,
+    duration: i32,
+    amplifier: u8,
+) -> bool;
+
+#[cfg(test)]
+#[test]
+fn effects_v1_layout() {
+    use std::mem::{offset_of, size_of};
+    assert_eq!(offset_of!(EffectsV1, play_sound), 8);
+    assert_eq!(offset_of!(EffectsV1, particles), 16);
+    assert_eq!(offset_of!(EffectsV1, play_entity_sound), 24);
+    assert_eq!(offset_of!(EffectsV1, particles_with_options), 32);
+    assert_eq!(offset_of!(EffectsV1, on_effect), 40);
+    assert_eq!(size_of::<EffectsV1>(), 48);
+    assert_eq!(offset_of!(ParticleOptions, item), 0);
+    assert_eq!(offset_of!(ParticleOptions, kind), 16);
+    assert_eq!(offset_of!(ParticleOptions, block_state), 20);
+    assert_eq!(offset_of!(ParticleOptions, rgb), 24);
+    assert_eq!(offset_of!(ParticleOptions, scale), 28);
+    assert_eq!(size_of::<ParticleOptions>(), 32);
 }
 
 pub const MAX_STACK_DATA: usize = 1024;

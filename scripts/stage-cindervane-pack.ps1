@@ -272,6 +272,25 @@ if ($AllDragons) {
         dragonheart_chunk = 'dragonheart_chunk'
         dragonheart_alloy = 'dragonheart_alloy'
     }
+    $mossbackBaby = 'entity/mossback/baby_mossback'
+    $copies["$assets/geo/$mossbackBaby.geo.json"] = "$assets/geckolib/models/$mossbackBaby.geo.json"
+    $copies["$assets/animations/$mossbackBaby.animation.json"] = "$assets/geckolib/animations/$mossbackBaby.animation.json"
+    $copies["$assets/textures/$mossbackBaby.png"] = "$assets/textures/$mossbackBaby.png"
+    $files["$assets/moddedmc/rigs/baby_mossback_display.json"] = [ordered]@{
+        geometry = "saintsdragons:$mossbackBaby"
+        animations = "saintsdragons:$mossbackBaby"
+        texture = "saintsdragons:textures/$mossbackBaby.png"
+        clip = 'baby_mossback.animation.idle'
+        yaw_offset = 180
+        author = 'Leon Saint'
+    } | ConvertTo-Json -Compress
+    # The release's builtin/entity model requires a custom item renderer. Use its released sprite.
+    $copies["$assets/textures/item/mossback/mossback.png"] = "$assets/textures/item/mossback/mossback.png"
+    $copies["$assets/textures/item/mossback/mossback.png.mcmeta"] = "$assets/textures/item/mossback/mossback.png.mcmeta"
+    $files["$assets/models/item/mossback.json"] = @{
+        parent = 'minecraft:item/generated'
+        textures = @{ layer0 = 'saintsdragons:item/mossback/mossback' }
+    } | ConvertTo-Json -Compress
     foreach ($name in $dropTextures.Keys) {
         $model = "$assets/models/item/$name.json"
         $texture = "$assets/textures/item/$($dropTextures[$name]).png"
