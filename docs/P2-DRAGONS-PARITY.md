@@ -57,6 +57,17 @@ The [combat scenario](../tests/scenarios/p2c-atroxiia-combat.txt) exercises
 close-range retaliation, sweep damage, obstructed attack selection and native
 freeze application. The follow-up decision rules are unit tested.
 
+Mounted Atroxiia routes attack to Slam/Swipe (X toggles) or underwater Bite,
+R to Devastating Sweep, H to Helheim Quake (release before tick 22 cancels the
+second impact unless pressed again), and G tap/hold to Gungnir Stab/Precise
+Strike. Forward double-tap starts Slither with the released movement phases,
+contact damage and per-target hit interval. Flex locks movement for 67 ticks.
+Ground and swim rider movement use the released speeds, blended yaw, and vertical thrust. Rider ability cooldowns follow the release ability classes rather than AI
+pacing. Built-in attack and double-tap callbacks require the shared mouse
+input integration; companion live testing, normal Atroxiia mounting, exact
+sub-tick dual input timing, moving sounds and custom effects remain pending.
+[Rider scenario](../tests/scenarios/p2c-atroxiia-rider.txt).
+
 Ignivorus ground combat implements bite, body slam, wing swipe, stomp, fire breath,
 magma-pillar roar, charged fireball, Skyfall and a partial leap, including melee
 hunger scaling and saved combat state. [Combat scenario](../tests/scenarios/p2c-ignivorus-combat.txt)
@@ -701,3 +712,5 @@ Varasuchus rider combat and movement are ported.
 Nulljaw rider combat, cloak and teleport controls are ported.
 
 Stegonaut rider movement, melee and ground abilities are ported.
+
+Atroxiia rider melee, movement and frost abilities are ported.

@@ -1020,6 +1020,8 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                             crate::combat_varasuchus::ride(world, mob, rider);
                          } else if mobs.kind(mob) == Some("saintsdragons:stegonaut") {
                             crate::combat_stegonaut::ride(mob, rider);
+                         } else if mobs.kind(mob) == Some("saintsdragons:atroxiia") {
+                            crate::combat_atroxiia::ride(world, mob, rider);
                         } else {
                             ride(world, mob, rider);
                         }

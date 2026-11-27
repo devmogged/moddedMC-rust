@@ -1,0 +1,14 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Stock bot checks action registration and that an unmounted player cannot
+# activate abilities. Companion follow-up: mount a tamed Atroxiia, press R
+# (sweep), X then attack (swipe), H tap (one quake) then hold H (two quakes),
+# G tap (stab) then hold G (precise strike), double-tap W (slither), Ctrl+4
+# (flex), and underwater attack (bite). Check health, clips and cooldowns.
+start
+expect-all registered player action saintsdragons:ability_primary && registered player action saintsdragons:ability_secondary && registered player action saintsdragons:ability_tertiary && registered player action saintsdragons:toggle_melee && registered player action saintsdragons:flex
+botstart tester
+wait 3
+reject saintsdragons: rider action
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
