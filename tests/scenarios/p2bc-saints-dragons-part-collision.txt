@@ -1,0 +1,22 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Pellucida remains solid for ordinary entities.
+# Native swarm pass-through is pending an entity-aware host collision filter.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1029.5 120 1029.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1023 119 1023 1031 119 1031 minecraft:stone
+cmd fill 1023 120 1023 1031 128 1031 minecraft:air
+cmd fill 1024 120 1024 1026 120 1026 saintsdragons:draconian_pellucida
+cmd summon minecraft:item 1025.5 124 1025.5 {Item:{id:"minecraft:stone",count:1},Tags:["pellucida_probe"],PickupDelay:32767s,Motion:[0.0d,0.0d,0.0d]}
+wait 3
+cmd execute if entity @e[type=minecraft:item,tag=pellucida_probe,x=1025.5,y=121,z=1025.5,distance=..0.8]
+wait 0.5
+expect Test passed
+bot quit
+stop
