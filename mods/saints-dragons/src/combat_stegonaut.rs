@@ -531,7 +531,6 @@ struct RiderState {
     accelerating: bool,
     jump_held: bool,
     chunks: Vec<GroundChunk>,
-    pillars: Vec<Pillar>,
 }
 
 #[derive(Clone, Deserialize, Serialize, PartialEq)]
@@ -539,14 +538,6 @@ struct GroundChunk {
     position: [f64; 3],
     motion: [f64; 3],
     age: i32,
-}
-
-#[derive(Clone, Deserialize, Serialize, PartialEq)]
-struct Pillar {
-    position: [f64; 3],
-    age: i32,
-    damage: f32,
-    hits: Vec<i32>,
 }
 
 impl RiderState {
@@ -843,7 +834,7 @@ fn damage_push(
     });
 }
 
-fn slam(world: World<'_>, mob: Entity<'_>, second: bool, s: &mut RiderState) {
+fn slam(world: World<'_>, mob: Entity<'_>, second: bool) {
     let (Some(entities), Some(v), Some(b)) = (ENTITIES.get(), mob.view(), mob.body()) else {
         return;
     };
@@ -895,12 +886,12 @@ fn slam(world: World<'_>, mob: Entity<'_>, second: bool, s: &mut RiderState) {
             for dir in [f, scale(f, -1.0), right, scale(right, -1.0)] {
                 let mut position = flight::add(v.position, scale(dir, 4.5 * f64::from(step)));
                 position[1] = (v.position[1] - 0.05).floor() + 1.0;
-                s.pillars.push(Pillar {
+                crate::pillars::amethyst(
+                    world,
+                    mob,
                     position,
-                    age: 0,
-                    damage: 10.0 * hunger::melee_multiplier(mob),
-                    hits: Vec::new(),
-                });
+                    10.0 * hunger::melee_multiplier(mob),
+                );
             }
         }
     }
@@ -970,51 +961,6 @@ fn tick_chunk(world: World<'_>, mob: Entity<'_>, chunk: &mut GroundChunk) -> boo
     false
 }
 
-/// Amethyst pillars retain independent hit sets, warm up for four ticks and
-/// strike through tick 26. shortcut: particles approximate the original animated models.
-fn tick_pillar(world: World<'_>, mob: Entity<'_>, pillar: &mut Pillar) -> bool {
-    pillar.age += 1;
-    if pillar.age > 36 {
-        return false;
-    }
-    let [x, y, z] = pillar.position;
-    if let Some(effects) = EFFECTS.get() {
-        effects.particles(
-            world,
-            "minecraft:end_rod",
-            [x, y + 1.5, z],
-            [0.3, 1.5, 0.3],
-            0.02,
-            2,
-        );
-    }
-    if (4..=26).contains(&pillar.age)
-        && let Some(entities) = ENTITIES.get()
-    {
-        for id in entities.entities_in(
-            world,
-            [x - 4.5, y - 0.5, z - 4.5],
-            [x + 4.5, y + 7.5, z + 4.5],
-            mob.id(),
-        ) {
-            if !pillar.hits.contains(&id)
-                && entities
-                    .with_entity(world, id, |target| {
-                        if !enemy(mob, target) {
-                            return false;
-                        }
-                        damage_push(mob, target, pillar.position, pillar.damage, 0.9, 0.32, true);
-                        true
-                    })
-                    .unwrap_or(false)
-            {
-                pillar.hits.push(id);
-            }
-        }
-    }
-    true
-}
-
 fn rider_tick(world: World<'_>, mob: Entity<'_>) {
     let mut s = RiderState::load(mob);
     let old = s.clone();
@@ -1022,7 +968,6 @@ fn rider_tick(world: World<'_>, mob: Entity<'_>) {
     s.slam_cd = (s.slam_cd - 1).max(0);
     s.flex_cd = (s.flex_cd - 1).max(0);
     s.chunks.retain_mut(|chunk| tick_chunk(world, mob, chunk));
-    s.pillars.retain_mut(|p| tick_pillar(world, mob, p));
     let rider_aim = MOBS
         .get()
         .and_then(|mobs| mobs.passengers(mob).first().copied())
@@ -1071,7 +1016,7 @@ fn rider_tick(world: World<'_>, mob: Entity<'_>) {
             CANCEL if s.age >= 1 => s.finish(),
             SLAM => {
                 if s.age == 18 {
-                    slam(world, mob, false, &mut s);
+                    slam(world, mob, false);
                 }
                 if s.age >= 23 {
                     if !s.chain_slam() {
@@ -1083,7 +1028,7 @@ fn rider_tick(world: World<'_>, mob: Entity<'_>) {
                 }
             }
             SLAM2 if s.age >= 25 => {
-                slam(world, mob, true, &mut s);
+                slam(world, mob, true);
                 s.finish();
             }
             FLEX if s.age >= 100 => s.finish(),
