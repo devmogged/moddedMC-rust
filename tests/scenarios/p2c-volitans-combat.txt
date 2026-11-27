@@ -15,13 +15,14 @@ await 30 Successfully filled|No blocks were filled
 cmd time set midnight
 wait 3
 cmd saintsdragons spawn volitans 1025 120 1025
+cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},x=1025.5,y=120,z=1025.5,distance=..2,sort=nearest,limit=1] add volitans_probe
 cmd summon minecraft:iron_golem 1025.5 120 1028.25 {NoAI:1b,Tags:["volitans_melee_probe"]}
 wait 2
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] 1025.5 120 1025.5 0 0
+cmd tp @e[tag=volitans_probe,limit=1] 1025.5 120 1025.5 0 0
 wait 0.25
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] 1 minecraft:mob_attack by @e[tag=volitans_melee_probe,limit=1]
+cmd damage @e[tag=volitans_probe,limit=1] 1 minecraft:mob_attack by @e[tag=volitans_melee_probe,limit=1]
 wait 1.5
-cmd data get entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] data."saintsdragons:volitans_combat".last
+cmd data get entity @e[tag=volitans_probe,limit=1] data."saintsdragons:volitans_combat".last
 cmd data get entity @e[tag=volitans_melee_probe,limit=1] Health
 wait 0.5
 expect has the following entity data: "?(bite|claw|horn_gore)"?
@@ -30,23 +31,27 @@ cmd kill @e[tag=volitans_melee_probe,limit=1]
 # The effect command accepts players only. Seed the saved effect while frozen
 # and prove that Volitans removes it on its next ambient tick.
 cmd tick freeze
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] {active_effects:[{id:"minecraft:poison",amplifier:0,duration:600,show_particles:1b,show_icon:1b}]}
-cmd data get entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] active_effects
+cmd data merge entity @e[tag=volitans_probe,limit=1] {active_effects:[{id:"minecraft:poison",amplifier:0,duration:600,show_particles:1b,show_icon:1b}]}
+cmd data get entity @e[tag=volitans_probe,limit=1] active_effects
 wait 0.5
 expect Ravager has the following entity data: .*minecraft:poison
 cmd tick unfreeze
 wait 0.5
-cmd data get entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] active_effects
+cmd data get entity @e[tag=volitans_probe,limit=1] data.moddedmc.mob
 wait 0.25
-expect Found no elements matching active_effects
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] 1025.5 120 1025.5 0 0
+expect following entity data: "saintsdragons:volitans"
+# The flight/hide rig may independently add invisibility: only poison must disappear.
+cmd execute unless entity @e[tag=volitans_probe,nbt={active_effects:[{id:"minecraft:poison"}]}]
+wait 0.25
+expect Test passed
+cmd tp @e[tag=volitans_probe,limit=1] 1025.5 120 1025.5 0 0
 cmd summon minecraft:villager 1025.5 120 1047.5 {NoAI:1b,Tags:["orb_probe"]}
 cmd attribute @e[tag=orb_probe,limit=1] minecraft:max_health base set 100
 cmd data merge entity @e[tag=orb_probe,limit=1] {Health:100f}
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] {data:{"saintsdragons:volitans_combat":{ready:[9223372036854775807L,9223372036854775807L,9223372036854775807L,9223372036854775807L,0L,9223372036854775807L,9223372036854775807L],major:0L,cadence:0L}}}
+cmd data merge entity @e[tag=volitans_probe,limit=1] {data:{"saintsdragons:volitans_combat":{ready:[9223372036854775807L,9223372036854775807L,9223372036854775807L,9223372036854775807L,0L,9223372036854775807L,9223372036854775807L],major:0L,cadence:0L}}}
 # Slow the simulation to observe the brief, real projectile.
 cmd tick rate 5
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] 1 minecraft:mob_attack by @e[tag=orb_probe,limit=1]
+cmd damage @e[tag=volitans_probe,limit=1] 1 minecraft:mob_attack by @e[tag=orb_probe,limit=1]
 wait 4
 cmd execute if entity @e[type=minecraft:snowball,x=1025,y=120,z=1025,distance=..28]
 wait 0.4
@@ -71,7 +76,7 @@ wait 0.4
 expect Test passed
 cmd tick rate 20
 wait 0.5
-cmd data get entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] data."saintsdragons:volitans_combat".last
+cmd data get entity @e[tag=volitans_probe,limit=1] data."saintsdragons:volitans_combat".last
 cmd data get entity @e[tag=orb_probe,limit=1] active_effects
 wait 0.5
 expect has the following entity data: "?poison_ball"?

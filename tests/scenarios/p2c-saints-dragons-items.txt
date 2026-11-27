@@ -26,6 +26,6 @@ wait 0.5
 expect saintsdragons:cindervane: spawned
 cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 2 minecraft:generic
 wait 0.5
-expect \[bot\] sound: saintsdragons:cindervane_hurt
+expect \[bot\] (entity )?sound: saintsdragons:cindervane_hurt
 bot quit
 stop

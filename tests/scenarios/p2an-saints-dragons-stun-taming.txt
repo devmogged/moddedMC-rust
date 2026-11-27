@@ -14,20 +14,28 @@ wait 3
 cmd fill 1015 99 1015 1035 99 1035 minecraft:stone
 cmd fill 1015 100 1015 1035 110 1035 minecraft:air
 cmd saintsdragons spawn raevyx 1025 100 1025
+cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1025.5,y=100,z=1025.5,distance=..8,limit=1] add stun_probe
 wait 1
 cmd item replace entity tester weapon.offhand with minecraft:mutton
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 0.5
 expect too strong! Weaken it to 60 HP first
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.5
-cmd data get entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] Health
+cmd data get entity @e[tag=stun_probe,limit=1] Health
 wait 0.5
 expect has the following entity data: 60f
 # Feeding a held Raevyx rolls 20 percent for mutton. Either it is tamed, or it rejects the food
 # and is dazed until it heals.
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 0.5
 expect still dazed from the fight|is still eating
@@ -35,104 +43,149 @@ expect still dazed from the fight|is still eating
 # Once tamed, the meal only heals. 14 rounds miss with odds of 0.3 percent.
 cmd item replace entity tester weapon.offhand with saintsdragons:hearty_dragon_meal
 wait 3.5
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 2.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 1
 # A tame Raevyx is never held: the hit lands in full and food heals it.
-cmd data merge entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] {Health:180f}
+cmd data merge entity @e[tag=stun_probe,limit=1] {Health:180f}
 wait 3.5
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] 150 minecraft:magic
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
 wait 0.3
-cmd data get entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4,limit=1] Health
+cmd data get entity @e[tag=stun_probe,limit=1] Health
 wait 0.5
 expect has the following entity data: 30f
+cmd tp @e[tag=stun_probe,limit=1] 1025.5 100 1025.5
+wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 0.5
 expect Raevyx is being healed
 
 # A second, wild Raevyx held and left unfed recovers to full health after 30 seconds.
-cmd kill @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..4]
+cmd kill @e[tag=stun_probe]
 wait 1
 cmd saintsdragons spawn raevyx 1025 100 1020
 wait 1
