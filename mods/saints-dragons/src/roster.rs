@@ -233,6 +233,14 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             ("minecraft:max_health", species.health),
             ("minecraft:movement_speed", species.speed),
         ];
+        if species.name == "raevyx" {
+            attributes.extend([
+                ("minecraft:armor", 8.0),
+                ("minecraft:follow_range", 64.0),
+                ("minecraft:flying_speed", 0.5),
+                ("minecraft:knockback_resistance", 1.0),
+            ]);
+        }
         if species.name == crate::ivy::SPECIES {
             attributes.extend([
                 ("minecraft:attack_damage", 4.0),
@@ -369,6 +377,26 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK,
                 },
             )?;
+        }
+        if species.name == "raevyx" {
+            for (key, priority, controls) in [
+                (crate::combat_raevyx::TARGETING, 0, 0),
+                (
+                    crate::combat_raevyx::COMBAT,
+                    1,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
+                        controls,
+                    },
+                )?;
+            }
         }
         ai.add_goal(
             registry,
@@ -637,6 +665,11 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             None
         }
     });
+    let clip = if name == "raevyx" {
+        crate::combat_raevyx::ambient(world, mob, view).or(clip)
+    } else {
+        clip
+    };
     let clip = clip.unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
     false
