@@ -1047,7 +1047,7 @@ fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
         crate::combat_volitans::ride(world, mob, rider, view, look, body.input, keys);
         return;
     }
-    let (ascend, descend, accelerate, locked) = if mobs.kind(mob) == Some("saintsdragons:raevyx") {
+    let (ascend, mut descend, accelerate, locked) = if mobs.kind(mob) == Some("saintsdragons:raevyx") {
         crate::combat_raevyx::rider_movement(mob)
     } else {
         (false, false, false, false)
@@ -1055,8 +1055,22 @@ fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
     if locked {
         return;
     }
-    let sprint = accelerate || keys & PLAYER_INPUT_SPRINT != 0;
-    let jump = ascend || keys & PLAYER_INPUT_JUMP != 0;
+    let mut sprint = accelerate || keys & PLAYER_INPUT_SPRINT != 0;
+    let mut jump = ascend || keys & PLAYER_INPUT_JUMP != 0;
+    let mut ground_speed = None;
+    if mobs.kind(mob) == Some("saintsdragons:ignivorus") {
+        let (locked, ascend, down, accelerate, speed) =
+            crate::combat_ignivorus::rider_movement(mob, sprint);
+        if locked {
+            rider.reset_fall_distance();
+            mob.reset_fall_distance();
+            return;
+        }
+        sprint |= accelerate;
+        jump |= ascend;
+        descend = down;
+        ground_speed = Some(speed);
+    }
     let yaw = f64::from(look.yaw).to_radians();
     let strafe = body.input[0] * 0.4;
     let forward = body.input[2];
@@ -1070,8 +1084,8 @@ fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
     let speed = match (air, sprint) {
         (true, true) => 0.60 * 4.0,
         (true, false) => 0.60 * 3.0,
-        (false, true) => 0.45,
-        (false, false) => 0.18,
+        (false, true) => ground_speed.unwrap_or(0.45),
+        (false, false) => ground_speed.unwrap_or(0.18),
     };
     let desired_x = (strafe * yaw.cos() - forward * yaw.sin()) * speed;
     let desired_z = (strafe * yaw.sin() + forward * yaw.cos()) * speed;

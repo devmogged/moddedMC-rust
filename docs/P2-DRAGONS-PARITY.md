@@ -72,8 +72,8 @@ Ignivorus ground combat implements bite, body slam, wing swipe, stomp, fire brea
 magma-pillar roar, charged fireball, Skyfall and a partial leap, including melee
 hunger scaling and saved combat state. [Combat scenario](../tests/scenarios/p2c-ignivorus-combat.txt)
 covers fire immunity and retaliation; awaiting coordinator execution. Remaining
-work includes exact score inputs and targeting, airborne and rider combat,
-bulldoze, precise leap and breath sweeps, timed pillar entities, and terrain effects
+work includes exact score inputs and targeting, autonomous airborne combat,
+bulldoze terrain carving, precise leap and breath sweeps, timed pillar entities, and terrain effects
 (griefing-aware breaking and ignition, cooking acceleration, associated advancement).
 Charged fireball now spawns an owned vanilla fireball after the release windup,
 tracks its flight and applies charge-scaled, dragon-attributed explosion damage,
@@ -714,3 +714,5 @@ Nulljaw rider combat, cloak and teleport controls are ported.
 Stegonaut rider movement, melee and ground abilities are ported.
 
 Atroxiia rider melee, movement and frost abilities are ported.
+
+Ignivorus rider movement and abilities are ported.

@@ -88,6 +88,25 @@ struct State {
     right: bool,
     hit: Vec<i32>,
     shots: Vec<Shot>,
+    rider: Option<i32>,
+    primary_since: Option<i64>,
+    releasing: bool,
+    breath_used: f32,
+    breath_depleted: bool,
+    melee_mode: bool,
+    flex_until: i64,
+    flex_ready: i64,
+    phase_ready: i64,
+    locked_until: i64,
+    phase_animation: Option<bool>,
+    bulldoze: bool,
+    bulldoze_ready: i64,
+    bulldoze_hits: Vec<BulldozeHit>,
+    descend: bool,
+    ascend: bool,
+    accelerate: bool,
+    skyfall_offset: i32,
+    skyfall_air: bool,
 }
 #[derive(Serialize, Deserialize)]
 struct Shot {
@@ -99,6 +118,11 @@ struct Shot {
     multiplier: f32,
     #[serde(default)]
     travelled: f64,
+}
+#[derive(Serialize, Deserialize)]
+struct BulldozeHit {
+    id: i32,
+    until: i64,
 }
 impl State {
     fn load(mob: Entity<'_>) -> Self {
@@ -134,6 +158,17 @@ fn unit(a: [f64; 3]) -> [f64; 3] {
 fn forward(yaw: f32) -> [f64; 3] {
     let angle = f64::from(yaw).to_radians();
     [-angle.sin(), 0.0, angle.cos()]
+}
+fn look_direction(yaw: f32, pitch: f32) -> [f64; 3] {
+    let p = f64::from(pitch).to_radians();
+    let f = forward(yaw);
+    [f[0] * p.cos(), -p.sin(), f[2] * p.cos()]
+}
+
+fn rider_aim(world: World<'_>, s: &State) -> Option<[f64; 3]> {
+    ENTITIES.get()?.with_entity(world, s.rider?, |rider| {
+        rider.view().map(|v| look_direction(v.yaw, v.pitch))
+    })?
 }
 fn target_at(world: World<'_>, mob: Entity<'_>, id: i32) -> Option<([f64; 3], f64)> {
     ENTITIES.get()?.with_entity(world, id, |e| {
@@ -372,8 +407,23 @@ fn area(
 
 pub fn clip(mob: Entity<'_>) -> Option<&'static str> {
     let s = State::load(mob);
+    if now() < s.flex_until {
+        return Some("flex");
+    }
+    if now() < s.locked_until
+        && let Some(enter) = s.phase_animation
+    {
+        return Some(if enter { "phase2_enter" } else { "phase2_exit" });
+    }
     s.attack.map(|a| match a {
         Attack::Breath if s.age < 9 => "fire_breath_start",
+        Attack::Fireball if s.rider.is_some() && s.releasing => match charge_multiplier(s.charge) {
+            2.0 => "fireball_level3_shoot",
+            1.5 => "fireball_level2_shoot",
+            _ => "fireball_level1_shoot",
+        },
+        Attack::Skyfall if s.skyfall_air => "skyfall_air",
+        Attack::Skyfall if s.skyfall_offset != 0 => "skyfall_phase2",
         Attack::Fireball if s.charge >= 50 => "fireball_level3_charge",
         Attack::Fireball if s.charge >= 25 => "fireball_level2_charge",
         Attack::Wing if !s.right => "wing_swipe_left",
@@ -404,6 +454,9 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             return eligible(mob) && (target.is_some() || s.attack == Some(Attack::Skyfall));
         }
         goal_phase::STOP => {
+            if s.rider.is_some() {
+                return false;
+            }
             s.attack = None;
             s.phase_two = false;
             s.ultimate_used = false;
@@ -525,7 +578,28 @@ fn tick_attack(
     };
     match a {
         Attack::Bite if age == 6 => {
-            strike(world, mob, s.target, at, melee(55.0, 60, 0.25, 0.08));
+            if s.rider.is_some() {
+                let air = mob.view().is_some_and(|v| !v.on_ground);
+                let range = if air { 8.0 } else { 6.0 };
+                let center = add(at, scale(f, 5.0));
+                // shortcut: carrier-centered sweep; multipart body geometry needs a host hook.
+                area(
+                    world,
+                    mob,
+                    center,
+                    range,
+                    range,
+                    melee(
+                        55.0,
+                        60,
+                        if air { 0.4 } else { 0.25 },
+                        if air { 0.2 } else { 0.08 },
+                    ),
+                    &mut seen,
+                );
+            } else {
+                strike(world, mob, s.target, at, melee(55.0, 60, 0.25, 0.08));
+            }
         }
         Attack::Slam if age == 15 => {
             let width = mob.body().map_or(2.5, |b| b.max[0] - b.min[0]);
@@ -564,9 +638,12 @@ fn tick_attack(
         }
         // shortcut: sampled breath ray rather than expanding swept sections; upgrade with a shared projectile/terrain interface.
         Attack::Breath if age >= 9 => {
-            if let Some((target, _)) = target_at(world, mob, s.target) {
-                let origin = add(add(at, [0.0, 3.0, 0.0]), scale(f, 3.0));
-                let dir = unit(sub(add(target, [0.0, 1.0, 0.0]), origin));
+            let origin = add(add(at, [0.0, 3.0, 0.0]), scale(f, 3.0));
+            let direction = rider_aim(world, s).or_else(|| {
+                target_at(world, mob, s.target)
+                    .map(|(target, _)| unit(sub(add(target, [0.0, 1.0, 0.0]), origin)))
+            });
+            if let Some(dir) = direction {
                 for step in 1..=96 {
                     let p = add(origin, scale(dir, f64::from(step)));
                     if world
@@ -592,7 +669,7 @@ fn tick_attack(
                 }
             }
         }
-        Attack::Roar if matches!(age, 15 | 21 | 27) => {
+        Attack::Roar if matches!(age, 15 | 21 | 27) && !(s.rider.is_some() && s.skyfall_air) => {
             let wave = (age - 15) / 6;
             for lane in -1..=1 {
                 let p = add(
@@ -631,9 +708,13 @@ fn tick_attack(
             }
         }
         Attack::Fireball if age == s.charge + 15 => {
-            if let Some((target, _)) = target_at(world, mob, s.target) {
-                let origin = add(add(at, [0.0, 3.0, 0.0]), scale(f, 4.0));
-                let velocity = scale(unit(sub(add(target, [0.0, 1.0, 0.0]), origin)), 5.0);
+            let origin = add(add(at, [0.0, 3.0, 0.0]), scale(f, 4.0));
+            let direction = rider_aim(world, s).or_else(|| {
+                target_at(world, mob, s.target)
+                    .map(|(target, _)| unit(sub(add(target, [0.0, 1.0, 0.0]), origin)))
+            });
+            if let Some(dir) = direction {
+                let velocity = scale(dir, 5.0);
                 if let Some(id) = ENTITIES.get().and_then(|entities| {
                     entities.spawn_projectile(
                         world,
@@ -670,7 +751,7 @@ fn tick_attack(
             s.hit = seen.into_iter().collect();
             particles(world, at, radius, "minecraft:flame");
         }
-        Attack::Skyfall if age == 290 => {
+        Attack::Skyfall if age == 290 && s.rider.is_none() => {
             s.phase_two = true;
             sound(world, at, "phase2_enter");
         }
@@ -704,6 +785,431 @@ fn charge_multiplier(charge: i32) -> f32 {
     } else {
         1.0
     }
+}
+
+fn rider_cooldown(a: Attack) -> i64 {
+    match a {
+        Attack::Bite | Attack::Slam | Attack::Fireball => 20,
+        Attack::Wing => 3,
+        Attack::Stomp => 6,
+        Attack::Breath => 40,
+        Attack::Roar => 50,
+        Attack::Skyfall => 0,
+        Attack::Leap => 140,
+    }
+}
+
+fn begin_rider(world: World<'_>, mob: Entity<'_>, s: &mut State, a: Attack) -> bool {
+    if s.attack.is_some() || now() < s.locked_until || s.bulldoze || now() < s.ready[a.index()] {
+        return false;
+    }
+    let Some(v) = mob.view() else {
+        return false;
+    };
+    s.attack = Some(a);
+    s.age = 0;
+    s.charge = 0;
+    s.releasing = false;
+    s.target = -1;
+    s.right = !s.right;
+    s.hit.clear();
+    s.skyfall_air = !v.on_ground;
+    s.skyfall_offset = 0;
+    if a == Attack::Skyfall {
+        s.skyfall_offset = if s.phase_two && v.on_ground { 16 } else { 0 };
+        s.age = s.skyfall_offset;
+        if s.skyfall_air
+            && let Some(mobs) = MOBS.get()
+        {
+            mobs.set_no_gravity(mob, true);
+        }
+        mob.change(&EntityChange {
+            mask: SET_MOTION,
+            motion: [0.0; 3],
+            ..Default::default()
+        });
+    }
+    let cue = match a {
+        Attack::Breath => "fire_breath_start",
+        Attack::Fireball => "level1_charge",
+        Attack::Wing => "wing_swipe",
+        Attack::Stomp => "stomp",
+        Attack::Skyfall if s.skyfall_air => "skyfall_air",
+        Attack::Skyfall if s.skyfall_offset != 0 => "skyfall_phase2",
+        _ => a.clip(),
+    };
+    sound(world, v.position, cue);
+    true
+}
+
+fn finish_rider(world: World<'_>, mob: Entity<'_>, s: &mut State) {
+    if let Some(a) = s.attack.take() {
+        s.ready[a.index()] = now() + rider_cooldown(a);
+        if a == Attack::Breath
+            && let Some(v) = mob.view()
+        {
+            sound(world, v.position, "fire_breath_end");
+        }
+        if a == Attack::Skyfall
+            && s.skyfall_air
+            && let Some(mobs) = MOBS.get()
+        {
+            mobs.set_no_gravity(mob, false);
+        }
+    }
+    s.releasing = false;
+    s.hit.clear();
+}
+
+fn wet(world: World<'_>, mob: Entity<'_>) -> bool {
+    mob.view().is_some_and(|v| {
+        matches!(
+            world.fluid_id(crate::flight::cell(v.position)).as_deref(),
+            Some("minecraft:water" | "minecraft:flowing_water")
+        )
+    })
+}
+
+fn primary_is_hold(elapsed: i64) -> bool {
+    // 180 ms on a 20 Hz server; companion sends held every four client ticks.
+    elapsed >= 4
+}
+
+/// Ignivorus.getPrimaryRiderDualAbility and the released rider bindings.
+pub fn rider_action(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>, action: &str, phase: u8) {
+    use moddedmc_api::player_actions::{ACTION_HELD, ACTION_PRESSED, ACTION_RELEASED};
+    let Some(mobs) = MOBS.get() else {
+        return;
+    };
+    if mobs.passengers(mob).first() != Some(&rider.id())
+        || !taming::is_owner(mob, rider)
+        || crate::eggs::is_juvenile(mob)
+    {
+        return;
+    }
+    let Some(v) = mob.view() else {
+        return;
+    };
+    let mut s = State::load(mob);
+    if s.rider != Some(rider.id()) {
+        s.attack = None;
+        s.primary_since = None;
+        s.rider = Some(rider.id());
+    }
+    let pressed = phase == ACTION_PRESSED;
+    let released = phase == ACTION_RELEASED;
+    match action {
+        "saintsdragons:ascend" => s.ascend = !released,
+        "saintsdragons:descend" => s.descend = !released,
+        "saintsdragons:accelerate" => {
+            s.accelerate = !released;
+            if released && s.bulldoze {
+                s.bulldoze = false;
+                s.bulldoze_ready = now() + 40;
+                s.locked_until = now() + 20;
+                sound(world, v.position, "bulldozer_exit");
+            }
+        }
+        "saintsdragons:ability_primary" => {
+            if pressed && s.attack.is_none() && now() >= s.locked_until {
+                s.primary_since = Some(now());
+            } else if phase == ACTION_HELD && s.primary_since.is_some() && !wet(world, mob) {
+                begin_rider(world, mob, &mut s, Attack::Fireball);
+                s.primary_since = None;
+            } else if released {
+                if let Some(start) = s.primary_since.take() {
+                    let hold = primary_is_hold(now() - start);
+                    if hold && !wet(world, mob) {
+                        begin_rider(world, mob, &mut s, Attack::Fireball);
+                    } else if !hold {
+                        begin_rider(world, mob, &mut s, Attack::Roar);
+                    }
+                }
+                if s.attack == Some(Attack::Fireball) && !s.releasing {
+                    s.releasing = true;
+                    s.charge = s.age.clamp(1, 95);
+                    s.age = s.charge;
+                    let cue = match charge_multiplier(s.charge) {
+                        2.0 => "level3_shoots",
+                        1.5 => "level2_shoots",
+                        _ => "level1_shoots",
+                    };
+                    sound(world, v.position, cue);
+                }
+            }
+        }
+        "saintsdragons:ability_tertiary" => {
+            if released && s.attack == Some(Attack::Breath) {
+                finish_rider(world, mob, &mut s);
+            } else if pressed && !s.breath_depleted && s.breath_used < 237.6 && !wet(world, mob) {
+                begin_rider(world, mob, &mut s, Attack::Breath);
+            }
+        }
+        "saintsdragons:ability_secondary" if pressed => {
+            if let Some((hp, max)) = mobs.health(mob) {
+                if hp < max {
+                    mobs.message(
+                        rider,
+                        "Ignivorus must be at full health to unleash its cataclysm.",
+                        true,
+                    );
+                } else if begin_rider(world, mob, &mut s, Attack::Skyfall) && hp > 50.0 {
+                    if let Some(health) = crate::MOB_HEALTH.get() {
+                        health.set(mob, 50.0);
+                    }
+                    mobs.message(
+                        rider,
+                        "Ignivorus sacrifices its vitality to fuel the inferno!",
+                        true,
+                    );
+                }
+            }
+        }
+        "saintsdragons:toggle_melee" if pressed && now() >= s.locked_until && !s.bulldoze => {
+            if !v.on_ground {
+                mobs.message(
+                    rider,
+                    "Ignivorus can only body slam while on the ground.",
+                    true,
+                );
+            } else {
+                s.melee_mode = !s.melee_mode;
+                mobs.message(
+                    rider,
+                    if s.melee_mode {
+                        "Secondary Melee"
+                    } else {
+                        "Primary Melee"
+                    },
+                    true,
+                );
+            }
+        }
+        "saintsdragons:flex"
+            if pressed
+                && v.on_ground
+                && !s.phase_two
+                && !wet(world, mob)
+                && s.attack.is_none()
+                && !s.bulldoze
+                && now() >= s.locked_until
+                && now() >= s.flex_ready =>
+        {
+            s.flex_until = now() + 170;
+            s.flex_ready = now() + 200;
+            s.locked_until = s.flex_until;
+            s.phase_animation = None;
+            mob.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: [0.0; 3],
+                ..Default::default()
+            });
+            sound(world, v.position, "flex");
+        }
+        "moddedmc:mounted_attack" if pressed => {
+            let a = if !v.on_ground {
+                Attack::Bite
+            } else {
+                match (s.phase_two, s.melee_mode) {
+                    (false, false) => Attack::Bite,
+                    (false, true) => Attack::Slam,
+                    (true, false) => Attack::Wing,
+                    (true, true) => Attack::Stomp,
+                }
+            };
+            begin_rider(world, mob, &mut s, a);
+        }
+        "moddedmc:double_tap/back"
+            if pressed
+                && v.on_ground
+                && !s.bulldoze
+                && s.attack.is_none()
+                && now() >= s.locked_until
+                && now() >= s.phase_ready =>
+        {
+            s.phase_two = !s.phase_two;
+            s.phase_animation = Some(s.phase_two);
+            s.locked_until = now() + 13;
+            if !s.phase_two {
+                s.phase_ready = now() + 40;
+            }
+            sound(
+                world,
+                v.position,
+                if s.phase_two {
+                    "phase2_enter"
+                } else {
+                    "phase2_exit"
+                },
+            );
+        }
+        "moddedmc:double_tap/forward" if pressed && v.on_ground && now() >= s.locked_until => {
+            if s.phase_two {
+                begin_rider(world, mob, &mut s, Attack::Leap);
+            } else if s.attack.is_none() && now() >= s.bulldoze_ready {
+                s.bulldoze = !s.bulldoze;
+                s.accelerate = s.bulldoze;
+                s.locked_until = now() + if s.bulldoze { 25 } else { 20 };
+                s.phase_animation = None;
+                if !s.bulldoze {
+                    s.bulldoze_ready = now() + 40;
+                }
+                sound(
+                    world,
+                    v.position,
+                    if s.bulldoze {
+                        "bulldozer_enter"
+                    } else {
+                        "bulldozer_exit"
+                    },
+                );
+            }
+        }
+        _ => {}
+    }
+    s.save(mob);
+}
+
+/// Rider ability clocks run from the ambient goal, independently of the mounted movement goal.
+fn tick_rider(world: World<'_>, mob: Entity<'_>, s: &mut State) -> bool {
+    let Some(id) = s.rider else {
+        if s.breath_used > 0.0 {
+            s.breath_used = (s.breath_used - 0.6).max(0.0);
+            if s.breath_used <= 192.0 {
+                s.breath_depleted = false;
+            }
+            return true;
+        }
+        return false;
+    };
+    if !MOBS
+        .get()
+        .is_some_and(|m| m.passengers(mob).first() == Some(&id))
+        || ENTITIES.get().and_then(|entities| {
+            entities.with_entity(world, id, |rider| taming::is_owner(mob, rider))
+        }) != Some(true)
+    {
+        finish_rider(world, mob, s);
+        s.rider = None;
+        s.primary_since = None;
+        s.bulldoze = false;
+        s.ascend = false;
+        s.descend = false;
+        s.accelerate = false;
+        return true;
+    }
+    let Some(v) = mob.view() else {
+        return false;
+    };
+    if now() < s.locked_until || s.attack == Some(Attack::Skyfall) {
+        mob.change(&EntityChange {
+            mask: SET_MOTION,
+            motion: [0.0; 3],
+            ..Default::default()
+        });
+    }
+    if s.attack != Some(Attack::Breath) || s.age < 9 {
+        s.breath_used = (s.breath_used - 0.6).max(0.0);
+        if s.breath_used <= 192.0 {
+            s.breath_depleted = false;
+        }
+    }
+    if let Some(a) = s.attack {
+        if matches!(a, Attack::Breath | Attack::Fireball) && wet(world, mob) {
+            finish_rider(world, mob, s);
+            return true;
+        }
+        if a == Attack::Fireball && !s.releasing {
+            s.age = (s.age + 1).min(95);
+            s.charge = s.age;
+            if matches!(s.age, 25 | 50) {
+                sound(
+                    world,
+                    v.position,
+                    if s.age == 25 {
+                        "level2_charge"
+                    } else {
+                        "level3_charge"
+                    },
+                );
+            }
+            return true;
+        }
+        s.age += 1;
+        if a == Attack::Breath && s.age >= 9 {
+            s.breath_used = (s.breath_used + 1.0).min(240.0);
+            s.breath_depleted = s.breath_used >= 240.0;
+        }
+        tick_attack(world, mob, s, a, v.position, v.yaw);
+        if s.age
+            >= if a == Attack::Skyfall {
+                280
+            } else {
+                a.duration(s.charge)
+            }
+            || (a == Attack::Breath && s.breath_depleted)
+        {
+            finish_rider(world, mob, s);
+        }
+    }
+    if s.bulldoze && now() >= s.locked_until {
+        let center = add(v.position, scale(forward(v.yaw), 4.5));
+        let mut seen = s
+            .bulldoze_hits
+            .iter()
+            .filter(|hit| hit.until > now())
+            .map(|hit| hit.id)
+            .collect::<HashSet<_>>();
+        let old = seen.clone();
+        area(
+            world,
+            mob,
+            center,
+            7.0,
+            2.5,
+            Hit {
+                damage: 10.0,
+                fire: 0,
+                push: 1.0,
+                lift: 0.2,
+                melee: false,
+            },
+            &mut seen,
+        );
+        s.bulldoze_hits.retain(|hit| hit.until > now());
+        s.bulldoze_hits
+            .extend(seen.difference(&old).map(|id| BulldozeHit {
+                id: *id,
+                until: now() + 5,
+            }));
+        // shortcut: tunnel carving needs exact protected-block/griefing checks and multipart sweep.
+    }
+    true
+}
+
+/// Mounted movement state used by taming's shared rider goal.
+pub fn rider_movement(mob: Entity<'_>, sprint: bool) -> (bool, bool, bool, bool, f64) {
+    let s = State::load(mob);
+    let locked = now() < s.locked_until || matches!(s.attack, Some(Attack::Skyfall | Attack::Leap));
+    let speed = match (s.phase_two, sprint || s.accelerate || s.bulldoze) {
+        (false, false) => 0.25,
+        (false, true) => 0.55,
+        (true, false) => 0.15,
+        (true, true) => 0.32,
+    };
+    let happiness = taming::happiness(mob).unwrap_or(100);
+    let multiplier = match happiness {
+        0..=30 => 0.5,
+        60..=100 => 1.0,
+        _ => 0.5 + 0.5 * f64::from(happiness - 30) / 30.0,
+    };
+    (
+        locked,
+        s.ascend,
+        s.descend,
+        s.accelerate || s.bulldoze,
+        speed * multiplier,
+    )
 }
 
 /// IgnivorusFireballEntity.explode: charge-scaled explosion in an AABB.
@@ -785,7 +1291,11 @@ fn point_in_collision_shape(point: [f64; 3], shape: &[CollisionBox]) -> bool {
 /// Fireball flight and impact continue independently of the ability's recovery.
 pub fn ambient(world: World<'_>, mob: Entity<'_>) {
     let mut s = State::load(mob);
+    let changed = tick_rider(world, mob, &mut s);
     if s.shots.is_empty() {
+        if changed {
+            s.save(mob);
+        }
         return;
     }
     let Some(entities) = ENTITIES.get() else {
@@ -873,6 +1383,40 @@ mod tests {
         assert_eq!(decoded.hit, vec![42]);
         assert_eq!(decoded.previous, None);
         let _: State = fastnbt::from_bytes(&fastnbt::to_bytes(&State::default()).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn rider_charge_and_cooldowns() {
+        assert!(!primary_is_hold(3));
+        assert!(primary_is_hold(4));
+        assert_eq!(charge_multiplier(1), 1.0);
+        assert_eq!(charge_multiplier(25), 1.5);
+        assert_eq!(charge_multiplier(50), 2.0);
+        assert_eq!(Attack::Fireball.duration(95), 110);
+        assert_eq!(rider_cooldown(Attack::Fireball), 20);
+        assert_eq!(rider_cooldown(Attack::Breath), 40);
+        assert_eq!(rider_cooldown(Attack::Skyfall), 0);
+        let s = State {
+            rider: Some(23),
+            primary_since: Some(42),
+            attack: Some(Attack::Fireball),
+            releasing: true,
+            charge: 50,
+            breath_used: 15.0,
+            phase_two: true,
+            bulldoze_hits: vec![BulldozeHit { id: 19, until: 300 }],
+            ..Default::default()
+        };
+        let back: State = fastnbt::from_bytes(&fastnbt::to_bytes(&s).unwrap()).unwrap();
+        assert_eq!(back.rider, Some(23));
+        assert_eq!(back.primary_since, Some(42));
+        assert!(back.releasing);
+        assert_eq!(back.charge, 50);
+        assert!(back.phase_two);
+        assert_eq!(back.bulldoze_hits[0].until, 300);
+        let aim = look_direction(90.0, -30.0);
+        assert!((aim[0] + 3.0_f64.sqrt() / 2.0).abs() < 1e-6);
+        assert!((aim[1] - 0.5).abs() < 1e-6);
     }
 
     #[test]
