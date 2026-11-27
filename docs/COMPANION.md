@@ -4,7 +4,7 @@ The companion is a required Fabric mod for joining moddedMC servers with loaded 
 
 The companion implements shared client capabilities. A pack supplies rig descriptors, assets and state for the mods installed on that server. The animated display descriptor below is the existing example. A creative item catalog or new control bindings would also use shared code and per-pack definitions. A feature that needs its own client code can use an optional add-on.
 
-For Saint's Dragons, the server runs the Rust `.mmc` and enhanced clients use our 26.3 companion. The upstream 0.9.88 Fabric JAR targets Minecraft 1.20.1 and expects its Java-side registries and networking.
+For Saint's Dragons, the server runs the Rust `.mmc` and players use our 26.3 companion. The upstream 0.9.88 Fabric JAR targets Minecraft 1.20.1 and expects its Java-side registries and networking.
 
 ## Build
 
@@ -18,7 +18,7 @@ The Java configuration custom payload channel is `moddedmc:negotiate`. Integers 
 | --- | --- |
 | `0x00000001` | Hashed assets. Follow the six-byte header with 32 raw SHA-256 bytes for the manifest and 20 raw SHA-1 bytes tying the manifest to the vanilla ZIP offer. |
 
-The ping orders the exchange before the pack offer or known packs. When any mod is loaded, a client that has not supplied a valid hello by the ping's reply is disconnected with installation instructions. Servers with no loaded mods still permit vanilla clients. On servers without a challenge the companion sends nothing. Every connection currently uses the stock block, item and display representation. The headless scenario bot responds to the same challenge by default; set `MODDEDMC_BOT_COMPANION=0` to test a vanilla client, or set a nonzero protocol version to require a negotiation response.
+The ping orders the exchange before the pack offer or known packs. When any mod is loaded, a client that has not supplied a valid hello by the ping's reply is disconnected with installation instructions. Bedrock clients cannot complete the Java exchange and are also disconnected. Servers with no loaded mods still permit vanilla clients. On servers without a challenge the companion sends nothing. Every connection currently uses the stock block, item and display representation. The headless scenario bot responds to the same challenge by default; set `MODDEDMC_BOT_COMPANION=0` to test a vanilla client, or set a nonzero protocol version to require a negotiation response.
 
 ## Asset delivery
 
