@@ -7,16 +7,20 @@ wait 3
 cmd op tester
 cmd gamemode creative tester
 cmd gamerule minecraft:spawn_mobs false
-cmd tp tester 1025.5 100 1029.5
+cmd tp tester 1025.5 100 1028.5
 cmd forceload add 1025 1025
 wait 3
 cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
 cmd fill 1013 100 1013 1037 110 1037 minecraft:air
 cmd saintsdragons spawn raevyx 1022 100 1025
+cmd data merge entity @e[type=minecraft:ravager,x=1022.5,y=100,z=1025.5,sort=nearest,limit=1] {NoAI:1b,Tags:["breed_female"]}
 cmd saintsdragons spawn raevyx 1028 100 1025
+cmd data merge entity @e[type=minecraft:ravager,tag=!breed_female,x=1028.5,y=100,z=1025.5,sort=nearest,limit=1] {NoAI:1b,Tags:["breed_male"]}
 wait 2.5
-cmd data merge entity @e[type=minecraft:ravager,x=1022.5,y=100,z=1025.5,distance=..2,limit=1] {data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
-cmd data merge entity @e[type=minecraft:ravager,x=1028.5,y=100,z=1025.5,distance=..2,limit=1] {data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
+cmd tp @e[tag=breed_female,limit=1] 1022.5 100 1025.5
+cmd tp @e[tag=breed_male,limit=1] 1028.5 100 1025.5
+cmd data merge entity @e[tag=breed_female,limit=1] {data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+cmd data merge entity @e[tag=breed_male,limit=1] {data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1022.5 100 1025.5 off
@@ -39,6 +43,8 @@ bot use-entity ravager 1028.5 100 1025.5 off
 wait 0.5
 expect Raevyx is ready to breed!
 bot input none
+cmd data merge entity @e[tag=breed_female,limit=1] {NoAI:0b}
+cmd data merge entity @e[tag=breed_male,limit=1] {NoAI:0b}
 wait 12
 cmd fill 1013 95 1013 1037 110 1037 saintsdragons:raevyx_egg[hatch=1] replace saintsdragons:raevyx_egg[hatch=0]
 wait 0.5
