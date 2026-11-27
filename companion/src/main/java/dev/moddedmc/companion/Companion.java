@@ -38,6 +38,7 @@ public final class Companion implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         CreativeCatalog.register();
+        PlayerActions.register();
         ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> session = null);
         ClientConfigurationConnectionEvents.INIT.register((listener, client) -> session = null);
         ClientConfigurationConnectionEvents.DISCONNECT.register((listener, client) -> session = null);
@@ -51,6 +52,7 @@ public final class Companion implements ClientModInitializer {
             var answer = Protocol.answer(packet.bytes());
             if (answer != null) {
                 session = answer.offer() == null ? null : new Session(answer.offer());
+                PlayerActions.negotiated((answer.flags() & Protocol.PLAYER_ACTIONS) != 0);
                 LOGGER.info("moddedMC companion protocol {}, active capabilities {}", Protocol.VERSION, answer.flags());
             }
         });

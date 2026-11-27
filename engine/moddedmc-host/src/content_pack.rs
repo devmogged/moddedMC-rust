@@ -201,6 +201,12 @@ fn build_pack(
     let mut carrier_variants = CarrierVariants::new();
     let mut display_models = HashMap::new();
     pack.namespace_assets(blocks, items)?;
+    for namespace in crate::player_actions::namespaces() {
+        let path = format!("assets/{namespace}/lang/en_us.json");
+        if let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file)) {
+            pack.files.insert(path, bytes);
+        }
+    }
     pack.standalone_items(items)?;
     for block in blocks {
         let Some(registered) = Block::from_name(&block.id) else {
