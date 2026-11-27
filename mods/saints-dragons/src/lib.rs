@@ -15,6 +15,7 @@ mod breed;
 mod catalog;
 mod codex;
 mod combat;
+mod combat_varasuchus;
 mod consumables;
 mod crucible;
 mod discs;

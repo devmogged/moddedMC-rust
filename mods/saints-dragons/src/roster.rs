@@ -239,6 +239,14 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:follow_range", 32.0),
             ]);
         }
+        if species.name == "varasuchus" {
+            attributes.extend([
+                ("minecraft:attack_damage", 10.0),
+                ("minecraft:armor", 8.0),
+                ("minecraft:follow_range", 32.0),
+                ("minecraft:knockback_resistance", 1.0),
+            ]);
+        }
         if let Some(damage) = swarm_damage {
             attributes.extend([
                 ("minecraft:attack_damage", damage),
@@ -258,6 +266,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let stun = crate::stun::uses_stun(species.name);
         if swarm_damage.is_some()
             || stun
+            || species.name == "varasuchus"
             || (species.name != "moop" && cfg!(feature = "original-assets"))
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
@@ -369,6 +378,26 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK,
                 },
             )?;
+        }
+        if species.name == "varasuchus" {
+            for (key, priority, controls) in [
+                (crate::combat_varasuchus::TARGET, 0, 0),
+                (
+                    crate::combat_varasuchus::COMBAT,
+                    1,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
+                        controls,
+                    },
+                )?;
+            }
         }
         ai.add_goal(
             registry,
@@ -632,7 +661,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     };
     let clip = clip.or_else(|| {
         if name == "varasuchus" {
-            crate::baby::eating_clip(mob.id())
+            crate::combat_varasuchus::clip(mob).or_else(|| crate::baby::eating_clip(mob.id()))
         } else {
             None
         }
