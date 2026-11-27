@@ -19,21 +19,25 @@ bot place 1025 104 1027 up
 wait 0.5
 cmd item replace entity tester hotbar.0 with saintsdragons:raw_worldroot 2
 wait 0.5
-bot use 1025 105 1027 up
+bot use 1025 105 1027 north
 wait 0.5
-bot expect slot 36 minecraft:air 0
+bot inventory-click 54 shift-left
+wait 0.5
+bot expect slot 54 minecraft:air 0
 wait 0.3
-expect \[bot\] expect inventory ok slot 36
+expect \[bot\] expect inventory ok slot 54
 cmd item replace entity tester hotbar.0 with minecraft:blaze_powder
 wait 0.5
-bot use 1025 105 1027 north
+bot inventory-click 54 shift-left
 wait 0.5
-bot expect slot 36 minecraft:air 0
+bot expect slot 54 minecraft:air 0
 wait 0.3
-expect \[bot\] expect inventory ok slot 36
-bot use 1025 105 1027 north
+expect \[bot\] expect inventory ok slot 54
+bot inventory-click 15 left
 wait 0.5
-expect Draconic Crucible: 200 ticks remaining, 11 charge
+bot expect slot 15 minecraft:clock 1
+wait 0.3
+expect \[bot\] expect inventory ok slot 15
 cmd data get block 1025 105 1027 job.result.id
 wait 0.5
 expect saintsdragons:worldroot_ingot
@@ -46,6 +50,12 @@ cmd tp tester 1025.5 105 1025.5
 wait 24
 bot use 1025 105 1027 north
 wait 0.5
+bot inventory-click 6 left
+wait 0.5
+bot inventory-click 54 left
+wait 0.5
+bot inventory-close
+wait 0.5
 cmd data get entity tester Inventory[{Slot:0b}]
 wait 0.5
 expect tester has the following entity data: (?=.*saintsdragons:worldroot_ingot)(?=.*count: 2)
@@ -54,13 +64,21 @@ wait 0.5
 expect 7$
 cmd item replace entity tester hotbar.0 with minecraft:raw_iron
 wait 0.5
-bot use 1025 105 1027 up
-wait 0.5
 bot use 1025 105 1027 north
 wait 0.5
-expect Draconic Crucible: 200 ticks remaining, 7 charge
+bot inventory-click 54 shift-left
+wait 0.5
+bot inventory-click 15 left
+wait 0.5
+bot expect slot 15 minecraft:clock 1
+wait 0.3
+expect \[bot\] expect inventory ok slot 15
 wait 11
-bot use 1025 105 1027 north
+bot inventory-click 6 left
+wait 0.5
+bot inventory-click 54 left
+wait 0.5
+bot inventory-close
 wait 0.5
 cmd data get entity tester Inventory[{Slot:0b}].id
 wait 0.5

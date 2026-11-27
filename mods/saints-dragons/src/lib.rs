@@ -22,6 +22,7 @@ mod discs;
 mod eggs;
 mod flight;
 mod hunger;
+mod hunt;
 mod ivy;
 mod ivy_trades;
 mod nucleus;
@@ -100,6 +101,7 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::Weather)?;
         content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::Surface)?;
+        content.require_extension(WorldExtension::ContentEntityTransaction)?;
         content.require_comparator_output()?;
         let _ = CONTENT.set(content);
         let _ = EFFECTS.set(effects::require()?);
@@ -136,6 +138,7 @@ impl Mod for SaintsDragons {
         interaction.require_extension(InteractionExtension::ImmediateItemUse)?;
         interaction.require_extension(InteractionExtension::PlayerPlaced)?;
         codex::require()?;
+        crucible::require()?;
         ivy::require()?;
         nucleus::require()?;
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
@@ -225,6 +228,7 @@ impl Mod for SaintsDragons {
             ),
             (taming::FOLLOW, 2, goal_control::MOVE),
             (breed::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
+            (hunt::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
             (flight::GOAL, 2, goal_control::MOVE | goal_control::LOOK),
             (ai::IDLE_LOOK, 3, goal_control::LOOK),
             (ai::GROUND_WANDER, 4, goal_control::MOVE),
@@ -379,9 +383,8 @@ fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) 
     eggs::trample(world);
     spawners::tick(world);
     visuals::sweep(world, time, events);
-    if cfg!(feature = "original-assets") {
-        roost::sweep();
-    }
+    roost::sweep();
+    hunt::sweep(time);
 }
 
 const fn literal(name: &str) -> Node<'_> {

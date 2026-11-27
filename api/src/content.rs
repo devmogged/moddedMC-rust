@@ -24,6 +24,28 @@ pub struct World<'a> {
     scope: PhantomData<&'a ()>,
 }
 
+#[cfg(test)]
+mod extension_tests {
+    use super::*;
+
+    #[test]
+    fn weather_and_raycast_are_unavailable_on_old_hosts() {
+        let api = InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: std::mem::offset_of!(abi::BlockWorldV1, set_weather),
+        };
+        let world = World {
+            raw: std::ptr::null(),
+            api,
+            scope: PhantomData,
+        };
+        assert_eq!(world.set_weather(2, 100), None);
+        assert!(world.raycast([0.0; 3], [1.0; 3], None).is_none());
+        assert!(!WorldExtension::WeatherControl.available(api));
+        assert!(!WorldExtension::Raycast.available(api));
+    }
+}
+
 /// The state, process-local identity and complete saved NBT of a custom block entity.
 #[derive(Clone, Debug)]
 pub struct EntitySnapshot {
@@ -88,6 +110,8 @@ pub enum WorldExtension {
     NeighborShapes,
     /// `in_biome`, `surface_height` and `can_see_sky`.
     Surface,
+    WeatherControl,
+    Raycast,
 }
 
 impl WorldExtension {
@@ -180,6 +204,14 @@ impl WorldExtension {
             Self::ContentEntityReplacement => (
                 std::mem::offset_of!(abi::BlockWorldV1, compare_replace_content_entity),
                 "moddedmc:block_world.compare_replace_content_entity",
+            ),
+            Self::WeatherControl => (
+                std::mem::offset_of!(abi::BlockWorldV1, set_weather),
+                "moddedmc:block_world.set_weather",
+            ),
+            Self::Raycast => (
+                std::mem::offset_of!(abi::BlockWorldV1, raycast),
+                "moddedmc:block_world.raycast",
             ),
         }
     }
@@ -941,6 +973,42 @@ impl World<'_> {
         // SAFETY: the optional field is size-checked and the world is borrowed.
         WorldExtension::Weather.available(self.api)
             && unsafe { ((&raw const (*self.api.ptr).is_thundering).read())(self.raw) }
+    }
+
+    /// Weather mode: 0 clear, 1 rain, 2 thunder. None means the host lacks the call.
+    pub fn set_weather(self, mode: u8, ticks: i32) -> Option<bool> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::BlockWorldV1, set_weather))?;
+        // SAFETY: the field is size checked and the world is borrowed.
+        Some(unsafe { ((&raw const (*api).set_weather).read())(self.raw, mode, ticks) })
+    }
+
+    /// First collider block and nearest entity before it, excluding an optional entity id.
+    /// None means invalid inputs or an older host; a successful miss contains two Nones.
+    pub fn raycast(
+        self,
+        from: [f64; 3],
+        to: [f64; 3],
+        except: Option<i32>,
+    ) -> Option<(Option<Pos>, Option<i32>)> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::BlockWorldV1, raycast))?;
+        let mut block = Pos { x: 0, y: 0, z: 0 };
+        let mut entity = -1;
+        // SAFETY: the field is size checked and both outputs live for this call.
+        let hit = unsafe {
+            ((&raw const (*api).raycast).read())(
+                self.raw,
+                abi::Vec3(from),
+                abi::Vec3(to),
+                except.unwrap_or(-1),
+                &raw mut block,
+                &raw mut entity,
+            )
+        };
+        (hit >= 0).then_some(((hit == 1).then_some(block), (entity >= 0).then_some(entity)))
     }
 
     /// Whether the biome at `pos` is `biomes`, a biome id or a `#tag`; `None` when unloaded.
