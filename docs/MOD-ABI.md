@@ -610,7 +610,7 @@ crash recovery between the player save and mod data requires a joint journal.
 `tests/scenarios/abi-inventory-menu.txt` exercises taking and quick moves,
 two viewers, rejected changes, and equipment restoration with overflow.
 `tests/scenarios/abi-inventory-actions.txt` exercises matching-slot restoration
-and opening another view from controls on a stock client connection.
+and opening another view from controls using vanilla menu packets.
 
 ## Persistent nonliving actors (`moddedmc:native_entities` v1)
 

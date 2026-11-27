@@ -4,7 +4,7 @@ This file is the plan for the whole project and the decisions behind it. Every a
 
 ## Goal
 
-Modded Minecraft that plays exactly like the original mods on vanilla 26.3, runs much faster, uses far less RAM, disk and bandwidth, and is easy to host and join. The server is Rust (our Pumpkin fork). Mods are Rust ports. Players use the official Java client, with an optional lean companion mod when a pack needs it.
+Modded Minecraft that plays exactly like the original mods on Java 26.3, runs much faster, uses far less RAM, disk and bandwidth, and is easy to host and join. The server is Rust (our Pumpkin fork). Mods are Rust ports. Players use the official Java client with Fabric and the required lean companion mod when the server has mods loaded.
 
 ## Decisions (2026-11-18)
 
@@ -16,8 +16,8 @@ Modded Minecraft that plays exactly like the original mods on vanilla 26.3, runs
 | Vanilla parity | Full parity, built by us from the decompiled 26.3 server (Vineflower). Pumpkin's missing systems are ours to finish. |
 | Mods | All Rust mods, including [ports](PORTS.md), ship as drop-in `.mmc` files. The [stable ABI](MOD-ABI.md) lets them request named, versioned interfaces and run across server builds. Packs use the stock server for each target with a set of mod files. |
 | Removing a mod | Its blocks, items and entities are deleted (Forge behavior). The app takes an automatic snapshot before every rebuild. |
-| Client | Official 26.3 client. Ported content is server-side plus an auto-sent resource pack wherever vanilla can show it. When a pack needs more (Create kinetics, contraptions, animated rigs, HUD, keybinds), the pack enables the **companion**: one Fabric 26.3 mod, data-driven, built once. Mods never ship client code. They describe models, animations, GUIs and renderers as data the server sends. No from-scratch client. |
-| Bandwidth | Built for slow uplinks (the Pi on a home connection). Assets are content-hashed and fetched once per pack version, not per join, and can arrive through the join exe or any file transfer. With the companion: client chunk cache by hash, zstd with a trained dictionary instead of zlib, rate shaping, entity updates only for what is in view. Plain vanilla clients still work. |
+| Client | Official 26.3 client with the **companion**: one Fabric 26.3 mod, data-driven, built once and required on modded servers. Ported content is server-side plus an auto-sent resource pack wherever vanilla can show it. Mods describe models, animations, GUIs and renderers as data the server sends. No from-scratch client. |
+| Bandwidth | Built for slow uplinks (the Pi on a home connection). Assets are content-hashed and fetched once per pack version, not per join, and can arrive through the join exe or any file transfer. With the companion: client chunk cache by hash, zstd with a trained dictionary instead of zlib, rate shaping, entity updates only for what is in view. Plain vanilla clients work on servers with no loaded mods. |
 | Joining | Normal offline-mode server (`online-mode=false`), no login plugin. Skins: default, Mojang's public API, or the player's choice. A join exe sets up the companion profile in whatever launcher it finds (official, Prism, MultiMC, TLauncher, SKLauncher), with a zip and instructions as the fallback. |
 | World storage | Compact native format (evolving Pumpkin's `pump`), content-addressed chunk store with deduplicated incremental backups, lossless Anvil import and export so any vanilla tool can open the world. Skipping storage of untouched chunks (regenerate from seed) only after worldgen is proven bit-exact on x86 and ARM. |
 | Pregen | A Chunky port that uses every core, writes straight into the compact format, and runs on the Pi or the laptop (the app offers both). |

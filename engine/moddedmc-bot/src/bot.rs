@@ -11,7 +11,8 @@ use pumpkin_protocol::{
     java::{
         client::{
             config::{
-                CConfigAddResourcePack, CConfigPing, CFinishConfig, CKnownPacks, CPluginMessage,
+                CConfigAddResourcePack, CConfigDisconnect, CConfigPing, CFinishConfig, CKnownPacks,
+                CPluginMessage,
             },
             login::CLoginSuccess,
             play::{CLogin, CPlayerPosition},
@@ -39,6 +40,7 @@ use tokio::{
 use uuid::Uuid;
 
 pub const PACKET_TIMEOUT: Duration = Duration::from_secs(60);
+const COMPANION_CHANNEL: &str = "moddedmc:negotiate";
 
 pub struct HeadlessBot {
     pub name: String,
@@ -178,16 +180,28 @@ impl HeadlessBot {
         let finish_config_id = CFinishConfig::to_id(CURRENT_MC_VERSION);
         let pack_id = CConfigAddResourcePack::to_id(CURRENT_MC_VERSION);
         let config_ping_id = CConfigPing::to_id(CURRENT_MC_VERSION);
-        let companion_version = std::env::var("MODDEDMC_BOT_COMPANION")
+        let companion_override = std::env::var("MODDEDMC_BOT_COMPANION")
             .ok()
             .and_then(|value| value.parse::<u16>().ok());
+        // Default to the companion, but allow protocol probes and vanilla-client tests.
+        let companion_version = companion_override.unwrap_or(1);
+        let mut challenged = false;
         let mut received_answer = false;
         loop {
             let pkt = self.next_packet().await?;
-            if pkt.id == CPluginMessage::to_id(CURRENT_MC_VERSION)
-                && let Some(version) = companion_version
+            if pkt.id == CConfigDisconnect::to_id(CURRENT_MC_VERSION) {
+                let reason = (&pkt.payload[..])
+                    .get_component_borrowed(&CURRENT_MC_VERSION)
+                    .map_err(|error| error.to_string())?;
+                return Err(format!("Configuration disconnected: {}", reason.get_text()));
+            } else if pkt.id == CPluginMessage::to_id(CURRENT_MC_VERSION) && companion_version != 0
             {
-                received_answer |= self.companion_message(&pkt.payload, version).await?;
+                let mut data = &pkt.payload[..];
+                if data.get_str_borrowed().map_err(|error| error.to_string())? == COMPANION_CHANNEL
+                {
+                    challenged = true;
+                    received_answer |= self.companion_message(data, companion_version).await?;
+                }
             } else if pkt.id == pack_id {
                 let uuid = download_pack(&pkt.payload, host).await?;
                 self.send_packet(&SConfigResourcePack {
@@ -209,7 +223,9 @@ impl HeadlessBot {
                 })
                 .await?;
             } else if pkt.id == finish_config_id {
-                if companion_version.is_some() && !received_answer {
+                if (challenged || companion_override.is_some_and(|version| version != 0))
+                    && !received_answer
+                {
                     return Err("No companion configuration answer".into());
                 }
                 return self.send_packet(&SAcknowledgeFinishConfig).await;
@@ -221,16 +237,12 @@ impl HeadlessBot {
         clippy::print_stdout,
         reason = "the bot reports configuration evidence to stdout"
     )]
-    async fn companion_message(&mut self, mut data: &[u8], version: u16) -> Result<bool, String> {
-        const CHANNEL: &str = "moddedmc:negotiate";
-        if data.get_str_borrowed().map_err(|error| error.to_string())? != CHANNEL {
-            return Ok(false);
-        }
+    async fn companion_message(&mut self, data: &[u8], version: u16) -> Result<bool, String> {
         if data.is_empty() {
             let mut hello = version.to_be_bytes().to_vec();
             hello.extend_from_slice(&1u32.to_be_bytes());
             self.send_packet(&SPluginMessage {
-                channel: CHANNEL,
+                channel: COMPANION_CHANNEL,
                 data: &hello,
             })
             .await?;

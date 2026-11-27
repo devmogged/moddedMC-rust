@@ -1,6 +1,6 @@
 # Architecture
 
-moddedMC-rust is Pumpkin (a Rust Minecraft Java server, our fork) plus a content host. All Rust mods, including [ports](PORTS.md), are native libraries packaged as `.mmc` files. They use a stable C ABI with named, versioned interfaces. A server upgrade can keep an existing mod binary by serving the versions it requires. Players join with a stock 26.3 client. The plan for the companion, storage, app and agent is in [ROADMAP.md](ROADMAP.md).
+moddedMC-rust is Pumpkin (a Rust Minecraft Java server, our fork) plus a content host. All Rust mods, including [ports](PORTS.md), are native libraries packaged as `.mmc` files. They use a stable C ABI with named, versioned interfaces. A server upgrade can keep an existing mod binary by serving the versions it requires. Players join modded servers with Fabric 26.3 and the [moddedMC companion](COMPANION.md). Servers with no loaded mods still accept vanilla clients. The plan for the companion, storage, app and agent is in [ROADMAP.md](ROADMAP.md).
 
 ## Layout
 

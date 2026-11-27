@@ -6,7 +6,7 @@ This is how mods add blocks, items, entities and the rest so that Create, Saints
 
 1. **Modded content is first-class in the engine.** A Create shaft is a real block with real block states in the chunk palette, not a barrel with a tag. Ticking, collision, light, redstone, drops and saving all go through the same code as vanilla blocks.
 2. **One server truth, two client views.** The server keeps the real ids. Each connection gets a view of it:
-   - **Vanilla view** (stock client, no companion): every modded block state, item and entity is mapped to something vanilla can show. A block state becomes an unused vanilla state retextured by the pack's resource pack (note block, mushroom block and tripwire states and the like, the way Polymer does it), or a carrier block plus display entities for complex models. Items get custom item models. Entities become display or vanilla carrier entities.
+   - **Vanilla wire view** (the current representation used by companion clients): every modded block state, item and entity is mapped to something vanilla can show. A block state becomes an unused vanilla state retextured by the pack's resource pack (note block, mushroom block and tripwire states and the like, the way Polymer does it), or a carrier block plus display entities for complex models. Items get custom item models. Entities become display or vanilla carrier entities.
    - **Companion view**: the companion registers a fixed pool of generic blocks, items and entity types at client start. At join, the server sends definitions (model, shape, collision, light, sounds) for the pool slots this pack uses, and then sends modded ids directly. Nothing about the pack is compiled into the companion.
 3. **Ids are append-only and saved per world.** Modded registry entries get ids after vanilla's, and the world stores the namespaced-id-to-number map (`moddedmc/registry.dat`). Adding a mod appends; removing one leaves a hole that loading code clears (Forge behavior). The same applies to the network: each connection gets its own id table at configuration time.
 4. **Behavior is Rust, data is data.** Block properties, shapes, recipes, loot tables, tags, sounds and models are data, ideally the mod's own JSON from its source or jar, loaded through the same paths as vanilla datapacks. Behavior (kinetics, contraption assembly, AI) is Rust code behind traits shaped like vanilla's (`BlockBehaviour`, `ItemBehaviour`, entity tick, `Goal`).
@@ -26,7 +26,7 @@ Blocks and block states, items, block entities, entity types, menus (container G
 
 ## Order
 
-1. Dynamic block registry, per-world id map, vanilla-view translation, generated resource pack. The test is a Create shaft rendered from a retextured vanilla state on a stock client.
+1. Dynamic block registry, per-world id map, vanilla-view translation, generated resource pack. The test is a Create shaft rendered from a retextured vanilla state.
 2. Items and block entities on the same path.
 3. Entities, display-entity rigs and animated models (GeckoLib format, for Saints Dragons and Cataclysm).
 4. Companion view.
@@ -40,6 +40,6 @@ The current Java connections all use the same vanilla view. The host reserves po
 
 Content slabs use the six combinations of `type` and `waterlogged` from one vanilla physical slab template. They inherit vanilla placement and water tick scheduling. The stock view first reuses waxed copper slab states and models already assigned to dry full cubes. When those slab slots are full, the matching petrified oak slab state provides collision and shows an item display of the released model. Vanilla waxed copper and petrified oak slabs sent through occupied slots keep their original shape and texture through the matching unwaxed copper or oak slab. The slab display uses a one-block culling box and sends its model in the initial tracking metadata.
 
-The [companion handshake](COMPANION.md) currently negotiates hashed asset delivery. It loads the same resource definitions from its cache while these vanilla-view mappings remain in use.
+The [companion handshake](COMPANION.md) is required when mods are loaded and currently negotiates hashed asset delivery. It loads the same resource definitions from its cache while these vanilla-view mappings remain in use.
 
 Pack generation copies the referenced model and texture dependencies from local jars. The generated ZIP is required when real content is present and takes the Java pack offer. The stock outline follows the carrier. Server-side collision and outline queries use the registered shapes.
