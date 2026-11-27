@@ -1,0 +1,356 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Saint's Dragons 0.9.88: three saddle carriers, five saddle-free owner mounts.
+# Cindervane's second seat is covered by the policy test; the scenario uses one bot.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1028.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd time set day
+
+# Stegonaut
+cmd gamemode creative tester
+cmd tp tester 1025.5 100 1028.5
+cmd saintsdragons spawn stegonaut 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] {NoAI:1b}
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+cmd gamemode survival tester
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.5
+expect Stegonaut won't let you ride without a saddle\.
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+cmd item replace entity tester weapon.mainhand with minecraft:saddle
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.5
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.75
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+bot input sneak
+wait 1
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+bot input none
+cmd tp tester 1033.5 101 1025.5
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] 1000 minecraft:generic
+wait 3
+cmd data get entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}},limit=1] Item.id
+wait 0.5
+expect minecraft:saddle
+cmd kill @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
+
+# Atroxiia
+cmd gamemode creative tester
+cmd tp tester 1025.5 100 1028.5
+cmd saintsdragons spawn atroxiia 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] {NoAI:1b}
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+cmd gamemode survival tester
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.5
+expect Atroxiia won't let you ride without a saddle\.
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+cmd item replace entity tester weapon.mainhand with minecraft:saddle
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.5
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.75
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+bot input sneak
+wait 1
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+bot input none
+cmd tp tester 1033.5 101 1025.5
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] 1000 minecraft:generic
+wait 3
+cmd data get entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}},limit=1] Item.id
+wait 0.5
+expect minecraft:saddle
+cmd kill @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
+
+# Cindervane
+cmd gamemode creative tester
+cmd tp tester 1025.5 100 1028.5
+cmd saintsdragons spawn cindervane 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] {NoAI:1b}
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+cmd gamemode survival tester
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.5
+expect Cindervane won't let you ride without a saddle\.
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+cmd item replace entity tester weapon.mainhand with minecraft:saddle
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.5
+bot expect slot 36 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.75
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+bot input sneak
+wait 1
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+bot input none
+cmd tp tester 1033.5 101 1025.5
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1000 minecraft:generic
+wait 3
+cmd data get entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}},limit=1] Item.id
+wait 0.5
+expect minecraft:saddle
+cmd kill @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
+
+# Varasuchus
+cmd gamemode creative tester
+cmd tp tester 1025.5 100 1028.5
+cmd saintsdragons spawn varasuchus 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] {NoAI:1b}
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+cmd gamemode survival tester
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:saddle
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.75
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+bot expect slot 36 minecraft:saddle 1
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+bot input sneak
+wait 1
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+bot input none
+cmd tp tester 1033.5 101 1025.5
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1000 minecraft:generic
+wait 3
+cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
+wait 0.5
+expect Test passed
+
+# Ignivorus
+cmd gamemode creative tester
+cmd tp tester 1025.5 100 1028.5
+cmd saintsdragons spawn ignivorus 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] {NoAI:1b}
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+cmd gamemode survival tester
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:saddle
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.75
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+bot expect slot 36 minecraft:saddle 1
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+bot input sneak
+wait 1
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+bot input none
+cmd tp tester 1033.5 101 1025.5
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] 1000 minecraft:generic
+wait 3
+cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
+wait 0.5
+expect Test passed
+
+# Raevyx
+cmd gamemode creative tester
+cmd tp tester 1025.5 100 1028.5
+cmd saintsdragons spawn raevyx 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] {NoAI:1b}
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+cmd gamemode survival tester
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:saddle
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.75
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+bot expect slot 36 minecraft:saddle 1
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+bot input sneak
+wait 1
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+bot input none
+cmd tp tester 1033.5 101 1025.5
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1000 minecraft:generic
+wait 3
+cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
+wait 0.5
+expect Test passed
+
+# Volitans
+cmd gamemode creative tester
+cmd tp tester 1025.5 100 1028.5
+cmd saintsdragons spawn volitans 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] {NoAI:1b}
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+cmd gamemode survival tester
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:saddle
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.75
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+bot expect slot 36 minecraft:saddle 1
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+bot input sneak
+wait 1
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+bot input none
+cmd tp tester 1033.5 101 1025.5
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] 1000 minecraft:generic
+wait 3
+cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
+wait 0.5
+expect Test passed
+
+# Nulljaw
+cmd gamemode creative tester
+cmd tp tester 1025.5 100 1028.5
+cmd saintsdragons spawn nulljaw 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] {NoAI:1b}
+cmd tp @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity spider 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+cmd gamemode survival tester
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:saddle
+wait 0.5
+bot use-entity spider 1025.5 100 1025.5 main
+wait 0.75
+bot expect riding spider
+wait 0.5
+expect \[bot\] expect riding ok spider
+bot expect slot 36 minecraft:saddle 1
+wait 0.5
+expect \[bot\] expect inventory ok slot 36
+bot input sneak
+wait 1
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+bot input none
+cmd tp tester 1033.5 101 1025.5
+cmd damage @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] 1000 minecraft:generic
+wait 3
+cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
+wait 0.5
+expect Test passed
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

@@ -1,4 +1,4 @@
-//! Adult Cindervane interaction, following, and rider movement.
+//! Dragon taming, mounting, following, and rider movement.
 
 use std::{
     collections::HashMap,
@@ -32,6 +32,48 @@ const BRUSH_COOLDOWN: u64 = 10;
 const SADDLE: &str = "minecraft:saddle";
 const CHEST: &str = "minecraft:chest";
 const FEED_COOLDOWN: u64 = 44;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MountProfile {
+    saddle: bool,
+    seats: usize,
+    flying: bool,
+}
+
+/// The released DragonSaddleCarrier implementations and player passenger limits.
+fn mount_profile(kind: &str) -> Option<MountProfile> {
+    let (saddle, seats, flying) = match kind {
+        "saintsdragons:cindervane" => (true, 2, true),
+        "saintsdragons:atroxiia" | "saintsdragons:stegonaut" => (true, 1, false),
+        "saintsdragons:varasuchus" => (false, 1, false),
+        "saintsdragons:ignivorus"
+        | "saintsdragons:raevyx"
+        | "saintsdragons:volitans"
+        | "saintsdragons:nulljaw" => (false, 1, true),
+        _ => return None,
+    };
+    Some(MountProfile {
+        saddle,
+        seats,
+        flying,
+    })
+}
+
+impl MountProfile {
+    fn owner_can_mount(self, state: Tamed, juvenile: bool) -> bool {
+        !juvenile && (!self.saddle || state.saddle) && state.happiness > 30
+    }
+
+    fn guest_seat(self, passengers: usize, owner_in_first_seat: bool) -> Result<(), &'static str> {
+        if passengers >= self.seats {
+            return Err("Sorry, but the seats are full.");
+        }
+        if self.seats == 1 || !owner_in_first_seat {
+            return Err("The owner needs to mount it first before you can do it.");
+        }
+        Ok(())
+    }
+}
 
 #[derive(Default)]
 struct InteractionTimers {
@@ -547,14 +589,9 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if click.mob.and_then(|mob| MOBS.get()?.kind(mob)) == Some(crate::mossback::KIND) {
         return crate::mossback::interact(click);
     }
-    let (Some(player), Some(mob), Some(mobs), Some(ai), Some(entities), Some(tags)) = (
-        click.player,
-        click.mob,
-        MOBS.get(),
-        MOB_AI.get(),
-        ENTITIES.get(),
-        TAGS.get(),
-    ) else {
+    let (Some(player), Some(mob), Some(mobs), Some(tags)) =
+        (click.player, click.mob, MOBS.get(), TAGS.get())
+    else {
         return UseResult::Pass;
     };
     let Some(uuid) = mobs.uuid(player) else {
@@ -620,7 +657,7 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
         return result;
     }
     if mobs.kind(mob) != Some(crate::CINDERVANE) {
-        return UseResult::Pass;
+        return mount_interact(click, item);
     }
     let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
     let fed = &mut lock.get_or_insert_default().feed;
@@ -670,12 +707,40 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
         return UseResult::Success;
     }
 
-    let Some(mut state) = state.filter(|_| click.main_hand) else {
+    drop(lock);
+    mount_interact(click, item)
+}
+
+/// DragonSaddleInteractionHelper and each species' mounting handler.
+fn mount_interact(click: &mut UseMob<'_>, item: &str) -> UseResult {
+    let (Some(player), Some(mob), Some(mobs), Some(ai), Some(entities)) = (
+        click.player,
+        click.mob,
+        MOBS.get(),
+        MOB_AI.get(),
+        ENTITIES.get(),
+    ) else {
         return UseResult::Pass;
     };
-    let owner = uuid == state.owner;
+    let Some(kind) = mobs.kind(mob) else {
+        return UseResult::Pass;
+    };
+    let Some(profile) = mount_profile(kind) else {
+        return UseResult::Pass;
+    };
+    if !click.main_hand || crate::eggs::is_juvenile(mob) {
+        return UseResult::Pass;
+    }
+    let _guard = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(mut state) = tamed(mob) else {
+        return UseResult::Pass;
+    };
+    let owner = mobs.uuid(player) == Some(state.owner);
+    if !owner && profile.seats == 1 {
+        return UseResult::Pass;
+    }
     if click.sneaking {
-        if !owner {
+        if !owner || kind != crate::CINDERVANE {
             return UseResult::Pass;
         }
         let (order, label) = match state.order {
@@ -691,22 +756,77 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
         mobs.message(player, &format!("Cindervane is {label}."), true);
         return UseResult::Success;
     }
-    if !state.saddle {
-        mobs.message(player, "Cindervane needs a saddle.", true);
+    if owner && profile.saddle && !state.saddle {
+        let name = crate::binders::saved_name(mob).unwrap_or_else(|| {
+            crate::roster::display(kind.trim_start_matches("saintsdragons:")).to_owned()
+        });
+        mobs.message(
+            player,
+            &format!("{name} won't let you ride without a saddle."),
+            true,
+        );
         return UseResult::Consume;
     }
 
-    let passengers = mobs.passengers(mob);
-    let can_mount = if owner {
-        passengers.is_empty()
-    } else {
-        let [first] = passengers.as_slice() else {
-            return UseResult::Fail;
-        };
-        entities.with_entity(click.world, *first, |rider| mobs.uuid(rider))
+    if player.vehicle() == Some(mob.id()) {
+        return UseResult::Consume;
+    }
+    // Species food handlers run first; an unhandled food is not a mounting click.
+    if TAGS.get().is_some_and(|tags| {
+        tags.contains(
+            "item",
+            &format!(
+                "saintsdragons:foods/{}",
+                kind.trim_start_matches("saintsdragons:")
+            ),
+            item,
+        )
+    }) {
+        return UseResult::Pass;
+    }
+    let mut passengers = mobs.passengers(mob);
+    let owner_in_first_seat = passengers.first().is_some_and(|&first| {
+        entities.with_entity(click.world, first, |rider| mobs.uuid(rider))
             == Some(Some(state.owner))
-    };
-    if !can_mount || !player.start_riding(mob.id(), !owner) {
+    });
+    if owner {
+        if !profile.owner_can_mount(state, false) {
+            if let (Some(effects), Some(view)) = (EFFECTS.get(), mob.view()) {
+                let [x, y, z] = view.position;
+                effects.particles(
+                    click.world,
+                    "minecraft:angry_villager",
+                    [x, y + 2.0, z],
+                    [0.3, 0.2, 0.3],
+                    0.0,
+                    6,
+                );
+            }
+            return UseResult::Consume;
+        }
+        if !passengers.is_empty() {
+            if profile.seats == 1 || owner_in_first_seat {
+                return UseResult::Consume;
+            }
+            // Cindervane's owner can reclaim the controlling seat.
+            entities.with_entity(click.world, passengers[0], |rider| rider.stop_riding());
+            passengers = mobs.passengers(mob);
+            if !passengers.is_empty() {
+                return UseResult::Fail;
+            }
+        }
+    } else {
+        if let Err(message) = profile.guest_seat(passengers.len(), owner_in_first_seat) {
+            mobs.message(player, message, true);
+            return UseResult::Fail;
+        }
+        if !state.saddle {
+            return UseResult::Fail;
+        }
+    }
+    // shortcut: the ABI has no per-passenger seat transform or safe dismount hook;
+    // the host's carrier attachment and normal dismount handle positioning.
+    if !player.start_riding(mob.id(), !owner) {
         return UseResult::Fail;
     }
     if owner {
@@ -714,6 +834,7 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
             state.order = Order::Follow;
             mobs.set_state(mob, &state.encode());
         }
+        crate::roost::wake(mob, true, 100);
         ai.stop(mob);
         ai.set_target(click.world, mob, None);
     }
@@ -895,7 +1016,7 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 entities.with_entity(world, first, |rider| {
                     if mobs.uuid(rider) == Some(state.owner) {
                         ride(mob, rider);
-                    } else {
+                    } else if mobs.kind(mob) != Some(crate::CINDERVANE) {
                         rider.stop_riding();
                     }
                 });
@@ -920,7 +1041,11 @@ fn ride(mob: Entity<'_>, rider: Entity<'_>) {
     let forward = body.input[2];
     // shortcut: stock clients use jump and look pitch for vertical control. The Java release
     // also sends custom descend, dive and flight mode packets.
-    let air = jump || !view.on_ground;
+    let flying = mobs
+        .kind(mob)
+        .and_then(mount_profile)
+        .is_some_and(|profile| profile.flying);
+    let air = flying && (jump || !view.on_ground);
     let speed = match (air, sprint) {
         (true, true) => 0.60 * 4.0,
         (true, false) => 0.60 * 3.0,
@@ -929,7 +1054,7 @@ fn ride(mob: Entity<'_>, rider: Entity<'_>) {
     };
     let desired_x = (strafe * yaw.cos() - forward * yaw.sin()) * speed;
     let desired_z = (strafe * yaw.sin() + forward * yaw.cos()) * speed;
-    let vertical = if jump {
+    let vertical = if flying && jump {
         0.45
     } else if air {
         let pitch = f64::from(look.pitch).to_radians();
@@ -1019,6 +1144,57 @@ pub fn follow(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn released_mount_profiles_and_owner_requirements() {
+        for (species, saddle, seats, flying) in [
+            ("cindervane", true, 2, true),
+            ("atroxiia", true, 1, false),
+            ("stegonaut", true, 1, false),
+            ("varasuchus", false, 1, false),
+            ("ignivorus", false, 1, true),
+            ("raevyx", false, 1, true),
+            ("volitans", false, 1, true),
+            ("nulljaw", false, 1, true),
+        ] {
+            let profile = mount_profile(&format!("saintsdragons:{species}")).unwrap();
+            assert_eq!(
+                profile,
+                MountProfile {
+                    saddle,
+                    seats,
+                    flying
+                }
+            );
+            let mut state = Tamed {
+                owner: [0; 16],
+                order: Order::Sit,
+                saddle: false,
+                regrowth: 0,
+                happiness: 100,
+                plucked: false,
+            };
+            assert_eq!(profile.owner_can_mount(state, false), !saddle);
+            state.saddle = true;
+            assert!(profile.owner_can_mount(state, false));
+            assert!(!profile.owner_can_mount(state, true));
+            state.happiness = 30;
+            assert!(!profile.owner_can_mount(state, false));
+            state.happiness = 31;
+            assert!(profile.owner_can_mount(state, false));
+        }
+        assert_eq!(mount_profile("saintsdragons:ivy"), None);
+        assert_eq!(mount_profile("saintsdragons:mossback"), None);
+        assert_eq!(mount_profile("saintsdragons:moop"), None);
+        let cindervane = mount_profile(crate::CINDERVANE).unwrap();
+        assert!(cindervane.guest_seat(0, false).is_err());
+        assert!(cindervane.guest_seat(1, false).is_err());
+        assert!(cindervane.guest_seat(1, true).is_ok());
+        assert!(cindervane.guest_seat(2, true).is_err());
+        let stegonaut = mount_profile("saintsdragons:stegonaut").unwrap();
+        assert!(stegonaut.guest_seat(0, false).is_err());
+        assert!(stegonaut.guest_seat(1, true).is_err());
+    }
 
     #[test]
     fn tame_state_round_trips_and_reads_old_wild_state() {
