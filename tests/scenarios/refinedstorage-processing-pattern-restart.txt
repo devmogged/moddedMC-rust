@@ -1,0 +1,165 @@
+# BUJA's pinned Refined Storage 1.12.4 PatternItem workflow: configure both
+# processing and exact crafting patterns, install them in a Crafter, and verify
+# Crafter and Crafter Manager state survive a clean restart.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1021 100 1021 1033 105 1031 minecraft:air
+cmd fill 1021 99 1021 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1026 100 1026 refinedstorage:pattern_grid
+cmd setblock 1025 100 1026 refinedstorage:crafter[facing=east]
+cmd setblock 1027 100 1025 refinedstorage:crafter_manager
+wait 1
+# Switch Pattern Grid from crafting-recipe mode to processing-pattern mode.
+bot use 1026 100 1026
+wait 0.5
+bot inventory-click 48 left
+wait 0.5
+bot inventory-close
+# Assign four iron ingots to input slot zero.
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot 4
+bot hotbar 0
+bot input sneak
+wait 0.2
+bot use 1026 100 1026
+wait 0.5
+expect Processing Pattern ingredient/output recorded
+bot input none
+# Change the editor to output-side and assign two iron blocks.
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.5
+bot inventory-click 50 left
+wait 0.5
+bot inventory-close
+cmd item replace entity tester hotbar.0 with minecraft:iron_block 2
+bot input sneak
+wait 0.2
+bot use 1026 100 1026
+wait 0.5
+expect Processing Pattern ingredient/output recorded
+bot input none
+# Encode source Version/Processing/Exact and Input_0/Output_0 into the Pattern.
+cmd item replace entity tester hotbar.0 with refinedstorage:pattern 1
+bot use 1026 100 1026
+wait 0.5
+expect Refined Storage processing Pattern encoded
+# Install the encoded Pattern and one source Speed upgrade into the Crafter.
+bot use 1025 100 1026
+wait 0.5
+expect Crafter Pattern installed
+cmd item replace entity tester hotbar.0 with refinedstorage:speed_upgrade 1
+bot use 1025 100 1026
+wait 0.5
+expect Crafter speed upgraded
+# Encode a second source crafting PatternItem (Processing=false, Exact=true).
+# Unlike a processing pattern, a crafting pattern must resolve to a real live recipe.
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.5
+bot inventory-click 46 left
+wait 0.3
+bot inventory-click 47 left
+wait 0.3
+bot inventory-click 50 left
+wait 0.5
+bot inventory-close
+cmd item replace entity tester hotbar.0 with minecraft:stick 1
+bot input sneak
+wait 0.2
+bot use 1026 100 1026
+wait 0.5
+bot input none
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.5
+bot inventory-click 1 left
+wait 0.5
+bot inventory-close
+cmd item replace entity tester hotbar.0 with minecraft:coal 1
+bot input sneak
+wait 0.2
+bot use 1026 100 1026
+wait 0.5
+bot input none
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.5
+bot inventory-click 50 left
+wait 0.5
+bot inventory-close
+cmd item replace entity tester hotbar.0 with minecraft:torch 4
+bot input sneak
+wait 0.2
+bot use 1026 100 1026
+wait 0.5
+bot input none
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.5
+bot inventory-click 51 left
+wait 0.3
+bot inventory-click 49 left
+wait 0.5
+bot inventory-close
+cmd item replace entity tester hotbar.0 with refinedstorage:pattern 1
+bot use 1026 100 1026
+wait 0.5
+expect Refined Storage crafting Pattern encoded
+bot use 1025 100 1026
+wait 0.5
+expect Crafter Pattern installed
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1025 100 1026
+wait 0.5
+bot expect slot 0 minecraft:iron_block 2
+bot expect slot 1 minecraft:torch 4
+bot expect slot 18 refinedstorage:speed_upgrade 1
+bot inventory-close
+# Manager is a network-wide pattern catalogue with source size/search settings.
+bot use 1027 100 1025
+wait 0.5
+bot expect slot 0 minecraft:iron_block 2
+bot expect slot 1 minecraft:torch 4
+bot inventory-click 49 left
+wait 0.5
+bot inventory-click 50 left
+wait 0.5
+bot inventory-close
+cmd data get block 1027 100 1025
+wait 0.5
+expect refinedstorage_crafter_manager
+expect searchBoxMode
+bot quit
+stop
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+bot use 1025 100 1026
+wait 0.5
+bot expect slot 0 minecraft:iron_block 2
+bot expect slot 1 minecraft:torch 4
+bot expect slot 18 refinedstorage:speed_upgrade 1
+bot inventory-close
+bot use 1027 100 1025
+wait 0.5
+bot expect slot 0 minecraft:iron_block 2
+bot expect slot 1 minecraft:torch 4
+bot inventory-close
+cmd data get block 1025 100 1026
+wait 0.5
+expect refinedstorage_crafter
+reject (?i)panicked|\[bot\] error:|failed to restore undelivered Crafter
+bot quit
+stop

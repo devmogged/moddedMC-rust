@@ -1,0 +1,7 @@
+{
+  "replace": false,
+  "values": [
+    "refinedstorage:grid",
+    "refinedstorage:crafting_grid"
+  ]
+}

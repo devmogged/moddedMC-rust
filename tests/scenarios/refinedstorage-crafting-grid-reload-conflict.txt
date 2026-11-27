@@ -1,0 +1,67 @@
+# A Crafting Grid selection must revalidate after a datapack reload removes the
+# selected conflict. The live vanilla recipe becomes the result and consumes
+# the stored ingredient exactly once.
+mods target\mods\refinedstorage.mmc
+datapack tests\fixtures\polymorph-crafter-conflicts conflicts
+start
+expect moddedmc: loaded refinedstorage
+cmd datapack enable "file/conflicts" last
+wait 1
+expect Loaded datapack 'conflicts'
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1021 100 1021 1033 105 1031 minecraft:air
+cmd fill 1021 99 1021 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:disk_drive
+cmd setblock 1025 100 1024 refinedstorage:grid
+cmd setblock 1026 100 1026 refinedstorage:crafting_grid
+cmd item replace entity tester hotbar.0 with refinedstorage:1k_storage_disk 1
+bot hotbar 0
+bot use 1027 100 1025
+wait 0.5
+expect Storage disk installed
+# Store one real stone, then configure a one-stone ghost recipe.
+cmd item replace entity tester hotbar.0 with minecraft:stone 1
+bot use 1026 100 1026
+wait 0.5
+expect Stored 1 items
+cmd item replace entity tester hotbar.0 with minecraft:stone 1
+bot input sneak
+wait 0.5
+bot use 1026 100 1026
+wait 0.5
+expect Crafting ghost ingredient recorded
+bot input none
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 1
+bot expect slot 49 minecraft:stone_button 1
+bot inventory-click 47 left
+wait 0.5
+bot expect slot 49 minecraft:diamond 1
+bot inventory-click 47 left
+wait 0.5
+bot expect slot 49 minecraft:emerald 1
+cmd datapack disable "file/conflicts"
+wait 2
+expect Disabled datapack 'conflicts'
+# The selected recipe disappeared. Resolve the live vanilla recipe, consume
+# one stone exactly once and store the vanilla button in the digital disk.
+bot inventory-click 49 left
+wait 0.5
+expect Crafted recipe using network disk ingredients
+bot inventory-close
+bot use 1025 100 1024
+wait 1
+bot expect slot 0 minecraft:stone_button 1
+bot inventory-close
+reject (?i)panicked|\[bot\] error:
+bot quit
+stop

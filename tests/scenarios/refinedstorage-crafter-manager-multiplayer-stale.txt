@@ -1,0 +1,58 @@
+# Alice and Bob open the same Crafter Manager. Alice changes its saved size;
+# Bob's stale menu action must not overwrite the newer block-entity snapshot.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart alice
+botstart bob
+wait 3
+cmd gamemode survival alice
+cmd gamemode survival bob
+cmd tp alice 1022.5 101 1025.5
+cmd tp bob 1030.5 101 1025.5
+wait 2
+cmd fill 1021 100 1021 1033 105 1031 minecraft:air
+cmd fill 1021 99 1021 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:crafter_manager
+wait 1
+botselect alice
+bot use 1027 100 1025
+wait 0.5
+botselect bob
+bot use 1027 100 1025
+wait 0.5
+# Alice's first click commits size=1 and replaces her menu snapshot.
+botselect alice
+bot inventory-click 49 left
+wait 0.5
+bot inventory-close
+# Bob's old session contains the pre-change NBT and must be rejected.
+botselect bob
+bot inventory-click 49 left
+wait 0.5
+bot inventory-close
+cmd data get block 1027 100 1025
+wait 0.5
+expect refinedstorage_crafter_manager
+expect size: 1
+expect searchBoxMode: 0
+botselect alice
+bot quit
+botselect bob
+bot quit
+stop
+start
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1022.5 101 1025.5
+wait 2
+cmd data get block 1027 100 1025
+wait 0.5
+expect size: 1
+expect searchBoxMode: 0
+reject (?i)panicked|\[bot\] error:|failed to restore undelivered Crafter
+bot quit
+stop

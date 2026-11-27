@@ -1,0 +1,88 @@
+# A true shaped recipe with holes: three oak planks across the first row and
+# two sticks in the middle column. Ghost-cell selection and empty-hand skip
+# preserve blanks; Pattern encoding and queued crafting yield the *real*
+# wooden pickaxe without consuming any item outside the digital inventory.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1021 100 1021 1033 105 1031 minecraft:air
+cmd fill 1021 99 1021 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:disk_drive
+cmd setblock 1025 100 1024 refinedstorage:grid
+cmd setblock 1026 100 1026 refinedstorage:pattern_grid
+cmd setblock 1025 100 1026 refinedstorage:autocrafter
+cmd item replace entity tester hotbar.0 with refinedstorage:1k_storage_disk 1
+bot hotbar 0
+bot use 1027 100 1025
+wait 0.5
+cmd item replace entity tester hotbar.0 with minecraft:oak_planks 3
+bot use 1025 100 1024
+wait 0.5
+expect Stored 3 items
+cmd item replace entity tester hotbar.0 with minecraft:stick 2
+bot use 1025 100 1024
+wait 0.5
+expect Stored 2 items
+# Enter the actual 3x3 shaped recipe with empty slots 3,5,6,8.
+cmd item replace entity tester hotbar.0 with minecraft:oak_planks 1
+bot input sneak
+wait 0.5
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.5
+expect Crafting grid skipped one empty ghost cell
+cmd item replace entity tester hotbar.0 with minecraft:stick 1
+bot use 1026 100 1026
+wait 0.2
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+cmd item replace entity tester hotbar.0 with minecraft:stick 1
+bot use 1026 100 1026
+wait 0.2
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.2
+bot input none
+bot use 1026 100 1026
+wait 0.5
+bot expect slot 49 minecraft:wooden_pickaxe 1
+bot inventory-close
+cmd item replace entity tester hotbar.0 with refinedstorage:pattern 1
+bot use 1026 100 1026
+wait 0.5
+expect Pattern encoded with actual recipe identity and output
+bot use 1025 100 1026
+wait 0.5
+expect Autocrafter Pattern installed
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1025 100 1026
+wait 0.5
+bot expect slot 0 minecraft:wooden_pickaxe 1
+bot inventory-click 0 left
+wait 0.5
+expect Autocrafter recipe queued
+bot inventory-close
+wait 3
+bot use 1025 100 1024
+wait 0.5
+bot expect slot 0 minecraft:wooden_pickaxe 1
+bot inventory-close
+reject (?i)panicked|recipe stored, but Autocrafter completion checkpoint failed|\[bot\] error:
+bot quit
+stop

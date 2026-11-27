@@ -1,0 +1,73 @@
+# Two connected Crafters form a facing chain. The second Crafter is the root;
+# its four speed upgrades, pulse mode and powered-edge checkpoint persist.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1021 100 1021 1033 105 1031 minecraft:air
+cmd fill 1021 99 1021 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:crafter[facing=east]
+cmd setblock 1028 100 1025 refinedstorage:crafter[facing=east]
+wait 1
+# Install four Speed upgrades on the root Crafter.
+cmd item replace entity tester hotbar.0 with refinedstorage:speed_upgrade 4
+bot hotbar 0
+bot use 1028 100 1025
+wait 0.3
+bot use 1028 100 1025
+wait 0.3
+bot use 1028 100 1025
+wait 0.3
+bot use 1028 100 1025
+wait 0.5
+expect Crafter speed upgraded
+cmd item replace entity tester hotbar.0 with minecraft:air
+# Cycle the root through IGNORE -> SIGNAL_UNLOCKS -> SIGNAL_LOCKS -> PULSE.
+bot use 1028 100 1025
+wait 0.5
+bot inventory-click 53 left
+wait 0.3
+bot inventory-click 53 left
+wait 0.3
+bot inventory-click 53 left
+wait 0.5
+bot inventory-close
+cmd setblock 1028 101 1025 minecraft:redstone_block
+wait 2
+cmd data get block 1028 100 1025
+wait 0.5
+expect refinedstorage_crafter
+expect speedUpgrades: 4
+expect wasPowered: 1b
+expect mode: 3
+cmd setblock 1028 101 1025 minecraft:air
+wait 2
+cmd data get block 1028 100 1025
+wait 0.5
+expect wasPowered: 0b
+expect locked: 0b
+bot use 1027 100 1025
+wait 0.5
+bot inventory-close
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd data get block 1028 100 1025
+wait 0.5
+expect speedUpgrades
+expect mode: 3
+expect wasPowered: 0b
+reject (?i)panicked|\[bot\] error:|failed to restore undelivered Crafter
+bot quit
+stop

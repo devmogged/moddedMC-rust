@@ -1,0 +1,55 @@
+# Pattern Grid uses the same live recipe choices as Polymorph. The selected
+# recipe identity is encoded into the Pattern and accepted by an Autocrafter.
+mods target\mods\refinedstorage.mmc
+datapack tests\fixtures\polymorph-crafter-conflicts conflicts
+start
+expect moddedmc: loaded refinedstorage
+cmd datapack enable "file/conflicts" last
+wait 1
+expect Loaded datapack 'conflicts'
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1022 100 1022 1033 105 1031 minecraft:air
+cmd fill 1022 99 1022 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1026 100 1026 refinedstorage:pattern_grid
+cmd setblock 1025 100 1026 refinedstorage:autocrafter
+cmd item replace entity tester hotbar.0 with minecraft:stone 1
+bot hotbar 0
+bot input sneak
+wait 0.5
+bot use 1026 100 1026
+wait 0.5
+expect Crafting ghost ingredient recorded
+bot input none
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1026 100 1026
+wait 0.5
+bot expect slot 49 minecraft:stone_button 1
+bot inventory-click 47 left
+wait 0.5
+bot expect slot 49 minecraft:diamond 1
+bot inventory-click 47 left
+wait 0.5
+bot expect slot 49 minecraft:emerald 1
+bot inventory-close
+cmd item replace entity tester hotbar.0 with refinedstorage:pattern 1
+bot use 1026 100 1026
+wait 0.5
+expect Pattern encoded with actual recipe identity and output
+bot use 1025 100 1026
+wait 0.5
+expect Autocrafter Pattern installed
+cmd data get block 1025 100 1026
+wait 0.5
+expect refinedstorage_autocrafting
+bot inventory-close
+reject (?i)panicked|\[bot\] error:
+bot quit
+stop

@@ -1,0 +1,122 @@
+# Source v2.0.9 Pattern Grid encodes a real 3x3 recipe into a Pattern item;
+# Autocrafter accepts the encoded item and only crafts queued jobs. Ingredients
+# and output stay inside one disk block entity CAS. Clean restarts preserve the
+# installed Pattern and do not generate additional items without another job.
+mods target\mods\refinedstorage.mmc
+start
+expect moddedmc: loaded refinedstorage
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd fill 1021 100 1021 1033 105 1031 minecraft:air
+cmd fill 1021 99 1021 1033 99 1031 minecraft:stone
+cmd setblock 1025 100 1025 refinedstorage:controller
+cmd setblock 1026 100 1025 refinedstorage:cable
+cmd setblock 1027 100 1025 refinedstorage:disk_drive
+cmd setblock 1025 100 1024 refinedstorage:grid
+cmd setblock 1026 100 1026 refinedstorage:pattern_grid
+cmd setblock 1025 100 1026 refinedstorage:autocrafter
+cmd item replace entity tester hotbar.0 with refinedstorage:1k_storage_disk 1
+bot hotbar 0
+bot use 1027 100 1025
+wait 0.5
+expect Storage disk installed
+cmd item replace entity tester hotbar.0 with minecraft:diamond 9
+bot use 1025 100 1024
+wait 0.5
+expect Stored 9 items
+# Configure the Pattern Grid with nine ghost diamonds without spending them.
+cmd item replace entity tester hotbar.0 with minecraft:diamond 1
+bot input sneak
+wait 0.5
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.2
+bot use 1026 100 1026
+wait 0.5
+bot input none
+cmd item replace entity tester hotbar.0 with refinedstorage:pattern 1
+bot use 1026 100 1026
+wait 0.5
+expect Pattern encoded with actual recipe identity and output
+bot use 1025 100 1026
+wait 0.5
+expect Autocrafter Pattern installed
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot use 1025 100 1026
+wait 0.5
+bot expect slot 0 minecraft:diamond_block 1
+bot inventory-click 53 left
+wait 0.5
+bot inventory-close
+bot use 1025 100 1026
+wait 0.5
+bot inventory-click 0 left
+wait 0.5
+expect Autocrafter recipe queued
+bot inventory-close
+wait 3
+bot use 1025 100 1024
+wait 0.5
+bot expect slot 0 minecraft:diamond 9
+bot inventory-close
+# Real neighbor power releases the queued job.
+cmd setblock 1025 101 1026 minecraft:redstone_block
+wait 3
+bot use 1025 100 1024
+wait 0.5
+bot expect slot 0 minecraft:diamond_block 1
+bot inventory-close
+cmd data get block 1025 100 1026
+wait 0.5
+expect refinedstorage_autocrafting
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd setblock 1025 101 1026 minecraft:air
+bot use 1025 100 1024
+wait 0.5
+bot expect slot 0 minecraft:diamond_block 1
+bot inventory-close
+bot use 1025 100 1026
+wait 0.5
+bot expect slot 0 minecraft:diamond_block 1
+bot inventory-click 0 left
+wait 0.5
+expect Autocrafter recipe queued
+bot inventory-close
+# No extra diamonds remain, and the power requirement survived restart.
+wait 4
+bot use 1025 100 1024
+wait 0.5
+bot expect slot 0 minecraft:diamond_block 1
+bot inventory-close
+cmd setblock 1025 101 1026 minecraft:redstone_block
+wait 4
+bot use 1025 100 1024
+wait 0.5
+bot expect slot 0 minecraft:diamond_block 1
+bot inventory-close
+reject (?i)panicked|recipe stored, but Autocrafter completion checkpoint failed|\[bot\] error:
+bot quit
+stop
