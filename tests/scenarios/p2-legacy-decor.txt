@@ -1,0 +1,38 @@
+# Run in a new directory with -Seed 1796137205646843071 and the rebuilt release pack.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester -352 95 880
+wait 8
+
+# Relative to the known loot chest, support all four template rotations.
+cmd execute if block -355 75 874 minecraft:chest[facing=south] run data get block -351 77 876 profile
+cmd execute if block -355 75 874 minecraft:chest[facing=west] run data get block -357 77 878 profile
+cmd execute if block -355 75 874 minecraft:chest[facing=north] run data get block -359 77 872 profile
+cmd execute if block -355 75 874 minecraft:chest[facing=east] run data get block -353 77 870 profile
+wait 0.5
+expect following block data: (?=.*textures)(?=.*eyJ0ZXh0dXJlc)
+
+cmd execute if block -355 75 874 minecraft:chest[facing=south] run data get block -353 78 871 patterns
+cmd execute if block -355 75 874 minecraft:chest[facing=west] run data get block -352 78 876 patterns
+cmd execute if block -355 75 874 minecraft:chest[facing=north] run data get block -357 78 877 patterns
+cmd execute if block -355 75 874 minecraft:chest[facing=east] run data get block -358 78 872 patterns
+wait 0.5
+expect following block data: (?=.*stripe_middle)(?=.*rhombus)(?=.*flower)(?=.*triangle_top)(?=.*curly_border)(?=.*circle)
+
+cmd execute if block -355 75 874 minecraft:chest[facing=south] run data get block -356 75 878 Items
+cmd execute if block -355 75 874 minecraft:chest[facing=west] run data get block -359 75 873 Items
+cmd execute if block -355 75 874 minecraft:chest[facing=north] run data get block -354 75 870 Items
+cmd execute if block -355 75 874 minecraft:chest[facing=east] run data get block -351 75 875 Items
+wait 0.5
+expect following block data: (?=.*minecraft:book)(?=.*Slot: 0b)(?=.*Slot: 5b)
+
+cmd execute positioned -352 75 880 run data get entity @e[type=minecraft:item_frame,distance=..30,limit=1] Item
+wait 0.5
+expect following entity data: (?=.*minecraft:player_head)(?=.*Armaralis Egg)(?=.*minecraft:profile)(?=.*minecraft:movement_speed)
+
+bot quit
+stop
