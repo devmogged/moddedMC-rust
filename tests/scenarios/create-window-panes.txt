@@ -1,0 +1,66 @@
+# Mixed panes connect, place in water, display the correct material, and survive reload.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:tiled_glass_pane \(32 states\) && registered content block create:weathered_iron_window_pane \(32 states\)
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 1028.5 105 1024.5 0 0
+await 10 \[bot\] teleported to .*1028\.5.*1024\.5
+wait 2
+cmd fill 1024 105 1024 1034 108 1034 minecraft:air
+cmd fill 1024 104 1024 1034 104 1034 minecraft:stone
+cmd setblock 1027 105 1027 minecraft:glass_pane
+cmd setblock 1029 105 1027 minecraft:iron_bars
+cmd gamemode survival tester
+cmd recipe give tester create:oak_window_pane
+await 5 Unlocked 1 recipe
+cmd recipe give tester create:framed_glass_pane_from_glass_panes_colorless_stonecutting
+await 5 Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with create:oak_window_pane
+wait 0.5
+bot place 1028 104 1027 up
+wait 1
+cmd execute if block 1028 105 1027 create:oak_window_pane[east=true,north=false,south=false,west=true,waterlogged=false] if block 1027 105 1027 minecraft:glass_pane[east=true] if block 1029 105 1027 minecraft:iron_bars[west=true] if block 1028 105 1027 #c:glass_panes
+await 5 Test passed
+bot expect block 1028 105 1027 minecraft:waxed_oxidized_copper_bars[east=true,west=true]
+await 5 \[bot\] expect block ok 1028 105 1027
+cmd execute if entity @e[type=minecraft:item_display,x=1028.5,y=105,z=1027.5,distance=..0.05,nbt={item:{components:{"minecraft:item_model":"create:moddedmc/pane/oak_window_pane/10"}}}]
+await 5 Test passed
+
+cmd setblock 1029 105 1027 minecraft:air
+cmd setblock 1029 105 1027 minecraft:water[level=0]
+cmd item replace entity tester hotbar.0 with create:framed_glass_pane
+wait 0.5
+bot place 1029 104 1027 up
+wait 1
+cmd execute if block 1028 105 1027 create:oak_window_pane[east=true] if block 1029 105 1027 create:framed_glass_pane[west=true,waterlogged=true] if block 1029 105 1027 #c:glass_panes/colorless
+await 5 Test passed
+bot expect entity minecraft:item_display near 1029.5 105 1027.5 within 0.05 count 0
+await 5 \[bot\] expect entity ok minecraft:item_display
+# A reserved waxed carrier must retain its stock appearance and shape.
+cmd setblock 1030 105 1027 minecraft:waxed_oxidized_copper_bars
+cmd execute if block 1030 105 1027 minecraft:waxed_oxidized_copper_bars[west=true]
+await 5 Test passed
+bot expect block 1030 105 1027 minecraft:oxidized_copper_bars[west=true]
+await 5 \[bot\] expect block ok 1030 105 1027
+cmd setblock 1030 105 1027 minecraft:air
+cmd loot spawn 1028 106 1027 mine 1028 105 1027 minecraft:diamond_pickaxe[minecraft:enchantments={silk_touch:1}]
+await 5 Dropped 1 .*Oak Window Pane
+cmd save-all flush
+await 10 Saved the game
+stop
+
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if block 1028 105 1027 create:oak_window_pane[east=true,west=true] if block 1029 105 1027 create:framed_glass_pane[west=true,waterlogged=true]
+await 5 Test passed
+cmd setblock 1027 105 1027 minecraft:air
+cmd execute if block 1028 105 1027 create:oak_window_pane[east=true,west=false]
+await 5 Test passed
+wait 0.5
+cmd execute if entity @e[type=minecraft:item_display,x=1028.5,y=105,z=1027.5,distance=..0.05,nbt={item:{components:{"minecraft:item_model":"create:moddedmc/pane/oak_window_pane/2"}}}]
+await 5 Test passed
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop

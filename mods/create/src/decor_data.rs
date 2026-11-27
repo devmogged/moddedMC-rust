@@ -128,3 +128,24 @@ pub const ITEMS: &[(&str, &str, &str)] = &[
     ("pulp", "Pulp", "minecraft:paper"),
     ("transmitter", "Transmitter", "minecraft:paper"),
 ];
+
+pub const PANES: &[(&str, &str, Option<&str>)] = &[
+    ("framed_glass_pane", "Framed Glass Pane", None),
+    ("horizontal_framed_glass_pane", "Horizontal Framed Glass Pane", None),
+    ("vertical_framed_glass_pane", "Vertical Framed Glass Pane", None),
+    ("tiled_glass_pane", "Tiled Glass Pane", None),
+    ("acacia_window_pane", "Acacia Window Pane", Some("color_orange")),
+    ("bamboo_window_pane", "Bamboo Window Pane", Some("color_yellow")),
+    ("birch_window_pane", "Birch Window Pane", Some("sand")),
+    ("cherry_window_pane", "Cherry Window Pane", Some("terracotta_white")),
+    ("crimson_window_pane", "Crimson Window Pane", Some("crimson_stem")),
+    ("dark_oak_window_pane", "Dark Oak Window Pane", Some("color_brown")),
+    ("industrial_iron_window_pane", "Industrial Iron Window Pane", Some("color_gray")),
+    ("jungle_window_pane", "Jungle Window Pane", Some("dirt")),
+    ("mangrove_window_pane", "Mangrove Window Pane", Some("color_red")),
+    ("oak_window_pane", "Oak Window Pane", Some("wood")),
+    ("ornate_iron_window_pane", "Ornate Iron Window Pane", Some("terracotta_light_gray")),
+    ("spruce_window_pane", "Spruce Window Pane", Some("podzol")),
+    ("warped_window_pane", "Warped Window Pane", Some("warped_stem")),
+    ("weathered_iron_window_pane", "Weathered Iron Window Pane", Some("terracotta_light_gray")),
+];

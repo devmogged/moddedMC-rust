@@ -23,6 +23,7 @@ use sha1::{Digest, Sha1};
 use sha2::Sha256;
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+use crate::content_panes;
 use crate::content_walls::{self, WallSelector};
 
 const EMPTY_MODEL: &str = "moddedmc:block/empty";
@@ -74,6 +75,7 @@ pub struct StateAssets {
     pub straight_stair_display: bool,
     pub block_display_carrier: Option<BlockStateId>,
     pub wall: Option<WallSelector>,
+    pub pane: bool,
 }
 
 pub struct OverlayModel {
@@ -216,6 +218,13 @@ fn build_pack(
             extend_wall_overlays(&mut display_models, registered, &block.states, &id);
             continue;
         }
+        if block.states.first().is_some_and(|assets| assets.pane) {
+            let carrier = registered.default_state.id.vanilla_view().to_block();
+            if let Some(ids) = pack.pane_models(namespace, path, carrier)? {
+                extend_pane_overlays(&mut display_models, registered, &ids);
+            }
+            continue;
+        }
         for (index, (state, assets)) in registered.states.iter().zip(&block.states).enumerate() {
             if assets.model.is_empty() && assets.rotating_model.is_empty() {
                 continue;
@@ -276,6 +285,25 @@ fn build_pack(
         tracing::warn!("moddedmc: some content pack assets are missing; using a placeholder");
     }
     Ok((pack, display_models))
+}
+
+fn extend_pane_overlays(
+    display_models: &mut HashMap<u16, OverlayModel>,
+    block: &Block,
+    ids: &[String; 16],
+) {
+    display_models.extend(block.states.iter().map(|state| {
+        let mask = usize::from(content_panes::side_mask(state.id.vanilla_view()));
+        (
+            state.id.as_u16(),
+            OverlayModel {
+                id: ids[mask].clone(),
+                orientation: [0.0, 0.0, 0.0, 1.0],
+                bounded: true,
+                wall: None,
+            },
+        )
+    }));
 }
 
 fn extend_wall_overlays(
@@ -417,6 +445,93 @@ impl Pack {
             PLACEHOLDER_PNG.to_vec(),
         );
         Ok(())
+    }
+
+    fn pane_models(
+        &mut self,
+        namespace: &str,
+        path: &str,
+        carrier: &Block,
+    ) -> io::Result<Option<[String; 16]>> {
+        let key = format!("assets/{namespace}/blockstates/{path}.json");
+        let parts = self.asset(namespace, &key).and_then(|bytes| {
+            let root: Value = serde_json::from_slice(&bytes).ok()?;
+            root.get("multipart")?
+                .as_array()?
+                .iter()
+                .map(content_panes::PanePart::read)
+                .collect::<Option<Vec<_>>>()
+        });
+        let Some(parts) = parts else {
+            self.missing = true;
+            return Ok(None);
+        };
+        let carrier_path = format!("assets/minecraft/blockstates/{}.json", carrier.name);
+        if carrier != content_panes::DISPLAY_CARRIER.0 {
+            let entries: Vec<_> = parts
+                .into_iter()
+                .map(|part| {
+                    let apply = json!({"model": self.model(&part.model), "y": part.y});
+                    match part.when {
+                        None => json!({"apply": apply}),
+                        Some((index, connected)) => json!({
+                            "when": {(content_panes::SIDES[index]): connected.to_string()},
+                            "apply": apply,
+                        }),
+                    }
+                })
+                .collect();
+            self.json(&carrier_path, &json!({"multipart": entries}))?;
+            return Ok(None);
+        }
+        self.json(
+            &carrier_path,
+            &json!({"variants": {"": {"model": EMPTY_MODEL}}}),
+        )?;
+        let mut models = Vec::with_capacity(parts.len());
+        for (index, part) in parts.into_iter().enumerate() {
+            let original = self.model(&part.model).to_owned();
+            let part_path = format!("moddedmc/pane/{path}/part_{index}");
+            let oriented = self.oriented_pane_model(&original, part.y);
+            let id = if let Some(model) = oriented {
+                self.json(
+                    &format!("assets/{namespace}/models/{part_path}.json"),
+                    &model,
+                )?;
+                format!("{namespace}:{part_path}")
+            } else {
+                self.missing = true;
+                original
+            };
+            models.push((part, id));
+        }
+
+        let ids = std::array::from_fn(|mask| format!("{namespace}:moddedmc/pane/{path}/{mask}"));
+        for (mask, _) in ids.iter().enumerate() {
+            let components: Vec<_> = models
+                .iter()
+                .filter(|(part, _)| part.visible(mask))
+                .map(|(_, id)| json!({"type": "minecraft:model", "model": id}))
+                .collect();
+            self.json(
+                &format!("assets/{namespace}/items/moddedmc/pane/{path}/{mask}.json"),
+                &json!({"model": {"type": "minecraft:composite", "models": components}}),
+            )?;
+        }
+        Ok(Some(ids))
+    }
+
+    fn oriented_pane_model(&self, original: &str, y: i32) -> Option<Value> {
+        let read = |id: &str| {
+            let (namespace, path) = id.split_once(':')?;
+            self.files
+                .get(&format!("assets/{namespace}/models/{path}.json"))
+                .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        };
+        let model = read(original)?;
+        let base = read(model.get("parent")?.as_str()?)?;
+        let elements = content_panes::orient_elements(base.get("elements")?.as_array()?, y)?;
+        Some(json!({"parent": original, "elements": elements}))
     }
 
     fn wall_item(&mut self, namespace: &str, path: &str, post: &str) -> io::Result<String> {

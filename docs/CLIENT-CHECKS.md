@@ -82,3 +82,11 @@ Run these checks with the official client and the server resource pack.
 
 - Connect a Glass Pane to Iron Bars and a Cobblestone Wall. Add and remove a block above the pane. Expect the horizontal connections to stay in place. Remove one horizontal neighbor and expect only that side to retract.
 - Waterlog Waxed Copper Bars and connect them to a wall. Expect the water to remain when you add a block above or remove the wall. Restart and expect the same connections and water.
+
+## Create window and glass panes ([issue #39](https://github.com/devmogged/moddedMC-rust/issues/39), Pumpkin `3d233d7d8`)
+
+- Craft Oak Window Panes from six Oak Windows and stonecut Glass Panes into Framed Glass Panes. Expect 16 from the crafting recipe and one from the stonecutter. Mine with a Silk Touch tool to recover a pane.
+- Place Framed Glass, Oak Window and Birch Window Panes between vanilla Glass Panes, Iron Bars and walls. Expect the arms to connect on the correct sides, recheck the ends after removing a neighbor, and compare the edges between matching panes. Look through Birch Window Panes at close range to check translucency.
+- Place a pane into a water source and another next to Waxed Oxidized Copper Bars. Expect the pane to hold water and the stock bars to keep their copper appearance. Restart and expect the same geometry and water.
+- Rotate an Oak Window Pane on a Mechanical Bearing. Restart while it runs, remove one neighbor at the landing position, and stop the bearing. Expect the moving pane to keep its material and update its arms on landing.
+- Pan across large arrays of Framed Glass and Oak Window Panes, including across chunk boundaries. Record frame timing, overlay pop-in, edge seams, and any differences between the two rendering paths.

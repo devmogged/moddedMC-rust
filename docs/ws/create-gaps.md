@@ -5,15 +5,15 @@ Compared with Create 6.0.10 (`mc1.21.1-6.0.10`). The inventory uses `AllBlocks`,
 The port side uses the host's registered block and item IDs, the Create behavior modules and
 the data files bundled in `create.mmc`.
 
-Create registers 396 blocks and 56 standalone items. Of 643 released blockstate IDs,
-251 remain outside the port. The package includes 1,372 recipe files and 391 block loot tables.
+Create registers 414 blocks and 56 standalone items. Of 643 released blockstate IDs,
+233 remain outside the port. The package includes 1,394 recipe files and 409 block loot tables.
 The release generates 1,884 recipe files and 640 block loot tables. A bundled file may still need
 its runtime mechanic or an optional mod to run.
 
 | Order | What a survival player hits |
 | --- | --- |
 | 1 | **Steam power.** Steam Engines form boilers, consume pumped water, and share capacity across shafts. The tested boilers restore their output and retain engine attachments across chunk loads and restart. Boiler gauges show the water and heat limits on exposed sides. Steam Whistles attach to the top or side of tanks, grow and retune, and sound on redstone with heat. Goggles pitch information, Create's steam jet, advancements and continuous client audio still need work ([issue #30](https://github.com/devmogged/moddedMC-rust/issues/30)). |
-| 2 | **Building and materials.** Full stone palettes, pillars, framed glass, solid windows, and 56 each of stone slabs, stairs and walls craft or stonecut and drop. Slabs merge, stairs form corners with vanilla stairs, and walls connect to stock blocks and respond to partial blocks overhead. All three waterlog and use their release material settings on the server. Stock-client sounds, wall overlay seams and frame timing remain under [issue #32](https://github.com/devmogged/moddedMC-rust/issues/32), [issue #37](https://github.com/devmogged/moddedMC-rust/issues/37) and [issue #38](https://github.com/devmogged/moddedMC-rust/issues/38). Panes and bars need placement, neighbor shapes and multipart models. Copper slabs wait on oxidation and waxing. Metal Ladders and Scaffolds need climbable stock carriers and support rules. Copper shingles and tiles need oxidation and waxing. Sliding Doors and Trapdoors need their ordinary hand and redstone behavior. Metal Girders, encased cogs, colored sails, Table Covers, Cardboard Blocks and Copycat Step, Panel and Bars remain. |
+| 2 | **Building and materials.** Full stone palettes, pillars, framed glass, solid windows, and 56 each of stone slabs, stairs and walls craft or stonecut and drop. Slabs merge, stairs form corners with vanilla stairs, and walls connect to stock blocks and respond to partial blocks overhead. All three waterlog and use their release material settings on the server. Stock-client sounds, wall overlay seams and frame timing remain under [issue #32](https://github.com/devmogged/moddedMC-rust/issues/32), [issue #37](https://github.com/devmogged/moddedMC-rust/issues/37) and [issue #38](https://github.com/devmogged/moddedMC-rust/issues/38). All 18 window and glass panes craft or stonecut, connect to stock panes and bars, waterlog, and move on contraptions. Their connected textures and stock-client seams are tracked in [issue #39](https://github.com/devmogged/moddedMC-rust/issues/39). Create metal bars still need registration and models. Copper slabs wait on oxidation and waxing. Metal Ladders and Scaffolds need climbable stock carriers and support rules. Copper shingles and tiles need oxidation and waxing. Sliding Doors and Trapdoors need their ordinary hand and redstone behavior. Metal Girders, encased cogs, colored sails, Table Covers, Cardboard Blocks and Copycat Step, Panel and Bars remain. |
 | 3 | **Item storage and control.** Funnels, Chutes, Tunnels, the Mechanical Arm, Threshold Switch and Smart Observer cover basic routing and sensing. Item Vaults, Redstone Links and the Linked Controller, Item Hatches, Factory Gauges, Redstone Requesters, Creative Crates, Toolboxes, analog levers and brass diodes remain. Attribute Filter creative-tab matching and special Arm targets sit behind these paths. |
 | 4 | **Farm, belts and processing.** Stationary Drills, stationary and mounted Saws, moving Harvesters, and piston-mounted Ploughs cover tested jobs. Ploughs still need falling-block handling, the flying-anvil advancement and train-mounted actors ([issue #29](https://github.com/devmogged/moddedMC-rust/issues/29)). Mounted Deployers, Portable Storage and Fluid Interfaces, Smart Fluid Pipes, and more custom filling and sequenced recipes remain. Belt slicing, dyes, stock-client slope transport, and full bulk blasting and smoking coverage remain. |
 | 5 | **Packages, displays and notes.** Packagers and Repackagers, Frogports and Postboxes, Chain Conveyors, Stock Links and Stock Tickers, address filters and Shopping Lists remain. Display Links and Boards, Nixie Tubes, Clipboards, Placards, bells, and lectern controls remain. |
@@ -24,6 +24,13 @@ its runtime mechanic or an optional mod to run.
 Stone slabs, stairs and walls move on contraptions and retain their stock-client models. Stair corners and wall arms update against their new neighbors on disassembly.
 
 The 56 walls add 18,144 complete block states. A fresh Create-only world reaches runtime state 60,805, leaving 4,730 IDs in the current 16-bit range. In two matched 4,096-wall placement runs, the wall overlays used 417–423 MiB server RSS and sent 1.124–1.126 MB of captured payload per bot. The stock walls used 387–395 MiB and sent 42–50 KB. The stock-client frame and seam checks are in [CLIENT-CHECKS.md](../CLIENT-CHECKS.md).
+
+The 18 pane families add 576 states, bringing the Create-only runtime maximum to 61,381.
+The three framed and tiled textures using spare waxed copper bar states spawn no placed entities.
+In two 4,096-pane captures, those carriers sent 54–55 KB per bot at 369–395 MiB server RSS.
+Vanilla panes sent 39–44 KB at 388–394 MiB RSS. The Oak Window display path sent
+1.044–1.047 MB at 406–426 MiB RSS with 4,096 displays. These runs measured packets
+and server memory. The frame timing and transparency checks need the official client.
 
 ## Recipe gaps by serializer
 

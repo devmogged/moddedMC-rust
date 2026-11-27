@@ -171,6 +171,7 @@ impl BlockMovementChecks {
             || crate::sail::is_sail(&entry.name)
             || decor::is_stone_partial(&entry.name)
             || entry.is_vanilla_wall()
+            || entry.is_pane_or_bars()
             || matches!(
                 entry.name.as_str(),
                 BELT | sticker::ID
@@ -763,7 +764,10 @@ impl Blocks {
                 if entry.name == saw::ID {
                     flags |= content::UPDATE_MOVED;
                 }
-                if entry.name.ends_with("_stairs") || entry.name.ends_with("_wall") {
+                if entry.name.ends_with("_stairs")
+                    || entry.name.ends_with("_wall")
+                    || entry.is_pane_or_bars()
+                {
                     flags |= content::UPDATE_FROM_NEIGHBOR_SHAPES;
                 }
                 Some((
@@ -892,21 +896,40 @@ pub fn detach_moved_belts(world: World<'_>, remove: &[BlockUpdate], kinetics: &m
 #[derive(Clone, Debug, Default)]
 pub struct ContraptionDisplays {
     blocks: Vec<i32>,
-    walls: Option<HashMap<usize, WallDisplay>>,
+    shaped: Option<HashMap<usize, ShapedBlockDisplay>>,
     belts: Option<Vec<(Chain, BeltInventory)>>,
     saw_blades: Option<Vec<(usize, saw::SawBlock, ModelDisplay)>>,
 }
 
 #[derive(Clone, Debug)]
-struct WallDisplay {
+struct ShapedBlockDisplay {
     model: String,
     item: Vec<u8>,
     display: ModelDisplay,
 }
 
-impl WallDisplay {
+impl ShapedBlockDisplay {
     fn new(entry: &PaletteEntry) -> Option<Self> {
         let path = entry.name.strip_prefix("create:")?;
+        if decor::is_display_pane(path) {
+            let mut mask = 0;
+            for (bit, side) in ["north", "east", "south", "west"].into_iter().enumerate() {
+                if entry.properties.get(side)? == "true" {
+                    mask |= 1 << bit;
+                }
+            }
+            let model = format!("create:moddedmc/pane/{path}/{mask}");
+            let stack = fastnbt::nbt!({
+                "id": "minecraft:paper",
+                "count": 1i32,
+                "components": {"minecraft:item_model": &model},
+            });
+            return Some(Self {
+                model,
+                item: fastnbt::to_bytes(&stack).ok()?,
+                display: ModelDisplay::default(),
+            });
+        }
         if !path.ends_with("_wall") || !decor::is_stone_partial(&entry.name) {
             return None;
         }
@@ -939,9 +962,9 @@ impl ContraptionDisplays {
                 displays.remove(world, id);
             }
         }
-        if let Some(walls) = self.walls.take() {
-            for mut wall in walls.into_values() {
-                wall.display.clear(world);
+        if let Some(shaped) = self.shaped.take() {
+            for mut block in shaped.into_values() {
+                block.display.clear(world);
             }
         }
         if let Some(blades) = self.saw_blades.take() {
@@ -987,20 +1010,20 @@ impl ContraptionDisplays {
         let Some(displays) = BLOCK_DISPLAYS.get() else {
             return;
         };
-        let walls = self.walls.get_or_insert_with(|| {
+        let shaped = self.shaped.get_or_insert_with(|| {
             blocks
                 .block_list
                 .iter()
                 .enumerate()
                 .filter_map(|(i, block)| {
                     let entry = blocks.palette.get(block.palette_index())?;
-                    Some((i, WallDisplay::new(entry)?))
+                    Some((i, ShapedBlockDisplay::new(entry)?))
                 })
                 .collect()
         });
         self.blocks.resize(blocks.block_list.len(), 0);
         for (i, (block, id)) in blocks.block_list.iter().zip(&mut self.blocks).enumerate() {
-            if let Some(wall) = walls.get_mut(&i) {
+            if let Some(part) = shaped.get_mut(&i) {
                 let shown = ItemDisplay {
                     position: block.local_pos().map(|coord| f64::from(coord) + 0.5),
                     rotation: [0.0, 0.0, 0.0, 1.0],
@@ -1008,10 +1031,10 @@ impl ContraptionDisplays {
                     context: 0,
                     interpolation: 1,
                 };
-                wall.display.show_stack(
+                part.display.show_stack(
                     world,
-                    &wall.model,
-                    &wall.item,
+                    &part.model,
+                    &part.item,
                     &transform.item_display(shown, translation),
                 );
                 continue;
@@ -1118,6 +1141,18 @@ impl PaletteEntry {
         self.name.starts_with("minecraft:") && self.name.ends_with("_wall")
     }
 
+    fn is_pane_or_bars(&self) -> bool {
+        if self.name.ends_with("_pane") {
+            TAGS.get()
+                .is_some_and(|tags| tags.contains("block", "c:glass_panes", &self.name))
+        } else if self.name.ends_with("_bars") {
+            TAGS.get()
+                .is_some_and(|tags| tags.contains("block", "minecraft:bars", &self.name))
+        } else {
+            false
+        }
+    }
+
     fn can_waterlog_on_placement(&self) -> bool {
         matches!(
             self.name.as_str(),
@@ -1126,6 +1161,7 @@ impl PaletteEntry {
             || bogey::is_bogey(&self.name)
             || decor::is_stone_partial(&self.name)
             || self.is_vanilla_wall()
+            || self.is_pane_or_bars()
     }
 
     fn bogey_axis(&self) -> Option<u8> {

@@ -155,6 +155,9 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         register_stairs(content, registry, stairs, stairs_name, &material)?;
         register_wall(content, registry, stairs, stairs_name, &material)?;
     }
+    for &(path, name, map_color) in data::PANES {
+        register_pane(content, registry, path, name, map_color)?;
+    }
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for &(path, display_name, carrier) in data::ITEMS {
         items.add_item(
@@ -164,6 +167,74 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
                 display_name,
                 carrier,
                 model: &format!("create:item/{path}"),
+            },
+        )?;
+    }
+    Ok(())
+}
+
+pub fn is_pane(path: &str) -> bool {
+    data::PANES.iter().any(|(id, ..)| *id == path)
+}
+
+pub fn is_display_pane(path: &str) -> bool {
+    is_pane(path)
+        && !matches!(
+            path,
+            "framed_glass_pane" | "horizontal_framed_glass_pane" | "tiled_glass_pane"
+        )
+}
+
+fn register_pane(
+    content: Content,
+    registry: &mut Registry<'_>,
+    path: &str,
+    name: &str,
+    map_color: Option<&str>,
+) -> Result<(), RegistrationError> {
+    let id = format!("create:{path}");
+    let post = format!("create:block/{path}_post");
+    let variants: [(String, String); 32] = std::array::from_fn(|index| {
+        let flag = |bit: usize| index & (1usize << bit) != 0;
+        let properties = format!(
+            "east={},north={},south={},waterlogged={},west={}",
+            flag(1),
+            flag(0),
+            flag(2),
+            flag(4),
+            flag(3)
+        );
+        let physical = format!("minecraft:glass_pane[{properties}]");
+        (properties, physical)
+    });
+    let states = variants.each_ref().map(|(properties, physical)| {
+        let mut variant = state(properties, physical, &post, 0, 0);
+        // Use three spare cutout carriers for the framed and tiled families.
+        if is_display_pane(path) {
+            variant.model = "";
+            variant.rotating_model = &post;
+        }
+        variant
+    });
+    content.add_block(
+        registry,
+        &Block {
+            id: &id,
+            display_name: name,
+            entity: "",
+            item_model: &format!("create:item/{path}"),
+            states: &states,
+        },
+        None,
+    )?;
+    if map_color.is_some() {
+        content.set_block_material(
+            registry,
+            &id,
+            &BlockMaterial {
+                template: "minecraft:glass_pane",
+                hardness: None,
+                map_color,
             },
         )?;
     }

@@ -18,6 +18,7 @@ use pumpkin_core::{
         PathComputationType, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
         UseWithItemArgs,
         blocks::{
+            iron_bars::IronBarsBlock,
             redstone::{block_receives_redstone_power, get_redstone_power},
             slabs::SlabBlock,
             stairs::StairBlock,
@@ -66,7 +67,10 @@ use pumpkin_util::{
 use pumpkin_world::world::BlockFlags;
 use uuid::Uuid;
 
-use crate::{MAX_STATE_BYTES, content_pack, content_walls, interaction, load_mods, lock, native};
+use crate::{
+    MAX_STATE_BYTES, content_pack, content_panes, content_walls, interaction, load_mods, lock,
+    native,
+};
 
 const MAX_STATES_PER_BLOCK: usize = 1_024;
 
@@ -250,6 +254,7 @@ struct RuntimeBlock {
     slab: Option<&'static Block>,
     stairs: bool,
     wall: bool,
+    pane: bool,
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
     item_input: Option<abi::ItemInputFn>,
@@ -508,6 +513,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
                 straight_stair_display: false,
                 block_display_carrier: None,
                 wall: None,
+                pane: false,
             },
         });
     }
@@ -1134,6 +1140,10 @@ fn reserve_dry_leaves() -> impl Iterator<Item = (BlockStateId, BlockStateId)> {
 
 /// Engine definitions for the staged blocks. States with the same model and rotation share a
 /// carrier, since the carrier only decides what a stock client draws.
+#[expect(
+    clippy::too_many_lines,
+    reason = "allocate stock carriers alongside physical states"
+)]
 fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
     // Keep each note and instrument and each hive's facing and visible honey.
     let notes = reserve_variants(&Block::NOTE_BLOCK, "powered", &["true"], "false");
@@ -1147,6 +1157,7 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
         .flat_map(|block| reserve_variants(block, "honey_level", &["1", "2", "3", "4"], "0"));
     let mut carriers = notes.chain(targets).chain(hives);
     let mut dry_leaves = reserve_dry_leaves();
+    let mut pane_carriers = content_panes::CARRIERS.into_iter();
     let mut slab_carriers = crate::content_slab::CARRIERS.into_iter();
     let mut straight_carriers = crate::content_stairs::STRAIGHT_CARRIERS.into_iter();
     let mut corner_carriers = crate::content_stairs::corner_carriers();
@@ -1155,6 +1166,10 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
     for (_, block) in blocks {
         let slab = crate::content_slab::template(&block.states);
         let slab_carrier = slab.and_then(|_| slab_carriers.next());
+        let pane = content_panes::has_pane_shape(&block.states);
+        let pane_carrier = (pane && block.states[0].visual.rotating_model.is_empty())
+            .then(|| pane_carriers.next())
+            .flatten();
         let wall_overlay = content_walls::has_wall_overlay(&block.states);
         let stairs = crate::content_stairs::has_stair_shape(&block.states)
             && block
@@ -1175,7 +1190,10 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
                 visual.x.rem_euclid(360),
                 visual.y.rem_euclid(360),
             );
-            let (carrier, replacement) = if wall_overlay {
+            let (carrier, replacement) = if pane {
+                visual.pane = true;
+                content_panes::allocate(state.physical.id, pane_carrier)
+            } else if wall_overlay {
                 // The stock wall keeps the client's collision and fluid state.
                 visual.wall = Some(content_walls::WallSelector::from_state(state.physical.id));
                 (state.physical.id, state.physical.id)
@@ -1388,6 +1406,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
                 slab: crate::content_slab::template(&block.states),
                 stairs: crate::content_stairs::has_stair_shape(&block.states),
                 wall: content_walls::has_wall_shape(&block.states),
+                pane: content_panes::has_pane_shape(&block.states),
                 placement: block.placement,
                 random_tick: block.random_tick,
                 item_input: block.item_input,
@@ -1542,6 +1561,7 @@ impl BlockBehaviour for Behaviour {
         match runtime_block(state.id.to_block().id) {
             Some(block) if block.stairs => StairBlock.is_pathfindable(state, computation),
             Some(block) if block.wall => WallBlock.is_pathfindable(state, computation),
+            Some(block) if block.pane => IronBarsBlock.is_pathfindable(state, computation),
             Some(block) if block.slab.is_some() => SlabBlock.is_pathfindable(state, computation),
             _ => DefaultBlockBehaviour.is_pathfindable(state, computation),
         }
@@ -1637,6 +1657,9 @@ impl BlockBehaviour for Behaviour {
         if block.wall {
             return WallBlock.get_state_for_neighbor_update(args);
         }
+        if block.pane {
+            return IronBarsBlock.get_state_for_neighbor_update(args);
+        }
         block.slab.map_or(args.state_id, |slab| {
             crate::content_slab::neighbor_update(&args, slab)
         })
@@ -1656,6 +1679,9 @@ impl BlockBehaviour for Behaviour {
             }
             if block.wall {
                 return WallBlock.on_place(args);
+            }
+            if block.pane {
+                return IronBarsBlock.on_place(args);
             }
             return block
                 .slab
