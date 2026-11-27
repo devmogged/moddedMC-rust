@@ -1,0 +1,51 @@
+# Bamboo scaffolding extends from its clicked column or row and spends exactly one item.
+start
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 1026.5 105 1024.5 -90 10
+await 10 \[bot\] teleported to .*1026\.5.*1024\.5
+wait 2
+cmd fill 1024 105 1024 1035 110 1030 minecraft:air
+cmd fill 1024 104 1024 1035 104 1030 minecraft:stone
+await 5 Successfully filled
+cmd gamemode survival tester
+cmd setblock 1026 105 1026 minecraft:scaffolding[distance=0,bottom=false]
+await 5 Changed the block
+cmd item replace entity tester hotbar.0 with minecraft:scaffolding 3
+wait 0.4
+bot use 1026 105 1026 north
+wait 0.4
+bot use 1026 105 1026 north
+wait 0.4
+cmd execute if block 1026 106 1026 minecraft:scaffolding[distance=0,bottom=false] if block 1026 107 1026 minecraft:scaffolding[distance=0,bottom=false] if block 1026 105 1025 minecraft:air
+await 5 Test passed
+
+cmd fill 1027 105 1026 1033 105 1026 minecraft:scaffolding[distance=0,bottom=false]
+await 5 Successfully filled
+bot use 1026 105 1026 up
+wait 0.4
+cmd execute if block 1034 105 1026 minecraft:air
+await 5 Test passed
+cmd clear tester minecraft:scaffolding 0
+await 5 Found 1 matching item
+
+cmd setblock 1033 105 1026 minecraft:air
+await 5 Changed the block
+bot use 1026 105 1026 up
+wait 0.4
+cmd execute if block 1033 105 1026 minecraft:scaffolding[distance=0,bottom=false] if block 1026 108 1026 minecraft:air
+await 5 Test passed
+cmd clear tester minecraft:scaffolding 0
+await 5 No items were found on player tester
+
+cmd save-all flush
+await 10 Saved the game
+stop
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if block 1026 107 1026 minecraft:scaffolding[distance=0,bottom=false] if block 1033 105 1026 minecraft:scaffolding[distance=0,bottom=false]
+await 5 Test passed
+reject (?i)panicked|\[bot\] error
+stop

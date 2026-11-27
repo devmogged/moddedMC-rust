@@ -338,6 +338,7 @@ struct RuntimeBlock {
     wall: bool,
     pane: bool,
     ladder: bool,
+    scaffolding: bool,
     weathering: bool,
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
@@ -596,6 +597,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
                 uvlock: false,
                 straight_stair_display: false,
                 block_display_carrier: None,
+                scaffolding: None,
                 wall: None,
                 pane: false,
             },
@@ -1290,6 +1292,7 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
     let mut dry_leaves = reserve_dry_leaves();
     let mut pane_carriers = content_panes::CARRIERS.into_iter();
     let mut ladder_carriers = crate::content_ladders::CARRIERS.into_iter();
+    let mut scaffolding_carriers = crate::content_ladders::CARRIERS.into_iter();
     let mut slab_carriers = crate::content_slab::CARRIERS.into_iter();
     let mut straight_carriers = crate::content_stairs::STRAIGHT_CARRIERS.into_iter();
     let mut corner_carriers = crate::content_stairs::corner_carriers();
@@ -1316,6 +1319,14 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
         } else {
             None
         };
+        let scaffold_carrier =
+            if crate::content_scaffolding::has_scaffolding_shape(&block.states) {
+                Some(scaffolding_carriers.next().ok_or_else(|| {
+                    io::Error::other("custom scaffolding carrier slots exhausted")
+                })?)
+            } else {
+                None
+            };
         let slab = crate::content_slab::template(&block.states);
         let slab_carrier = slab.and_then(|_| slab_carriers.next());
         let pane = content_panes::has_pane_shape(&block.states);
@@ -1344,6 +1355,11 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
             );
             let (carrier, replacement) = if let Some(carrier) = ladder_carrier {
                 crate::content_ladders::allocate(state.physical.id, carrier)
+            } else if let Some(carrier) = scaffold_carrier {
+                let (carrier, replacement, bottom) =
+                    crate::content_scaffolding::allocate(state.physical.id, carrier);
+                visual.scaffolding = Some(bottom);
+                (carrier, replacement)
             } else if pane {
                 visual.pane = true;
                 content_panes::allocate(state.physical.id, pane_carrier)
@@ -1567,6 +1583,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
                 slab: crate::content_slab::template(&block.states),
                 stairs: crate::content_stairs::has_stair_shape(&block.states),
                 ladder: crate::content_ladders::has_ladder_shape(&block.states),
+                scaffolding: crate::content_scaffolding::has_scaffolding_shape(&block.states),
                 weathering: matches!(block.copper_stage, Some(0..=2)),
                 wall: content_walls::has_wall_shape(&block.states),
                 pane: content_panes::has_pane_shape(&block.states),
@@ -1811,6 +1828,10 @@ impl BlockBehaviour for Behaviour {
         true
     }
 
+    fn extends_scaffolding(&self, block: &Block) -> bool {
+        runtime_block(block.id).is_some_and(|runtime| runtime.scaffolding)
+    }
+
     fn can_update_at(&self, args: CanUpdateAtArgs<'_>) -> bool {
         runtime_block(args.block.id)
             .and_then(|block| block.slab)
@@ -1836,6 +1857,9 @@ impl BlockBehaviour for Behaviour {
         if block.ladder {
             return LadderBlock.get_state_for_neighbor_update(args);
         }
+        if block.scaffolding {
+            return crate::content_scaffolding::neighbor_update(args);
+        }
         block.slab.map_or(args.state_id, |slab| {
             crate::content_slab::neighbor_update(&args, slab)
         })
@@ -1850,6 +1874,9 @@ impl BlockBehaviour for Behaviour {
             return default;
         };
         let Some(callback) = block.placement else {
+            if block.scaffolding {
+                return crate::content_scaffolding::on_place(args);
+            }
             if block.stairs {
                 return StairBlock.on_place(args);
             }

@@ -1,0 +1,20 @@
+# A metal scaffold survives with no supports and updates bottom when the block below changes.
+seed 20261126
+area 0 149 0 9 158 9
+start
+cmd fill 0 150 0 8 155 8 minecraft:air
+cmd fill 0 150 0 8 150 8 minecraft:stone
+cmd setblock 5 152 4 minecraft:stone
+cmd setblock 5 153 4 create:brass_scaffolding[bottom=false,distance=0,waterlogged=false]
+tick 1
+probe execute if block 5 153 4 create:brass_scaffolding[bottom=false,distance=0,waterlogged=false]
+expect Test passed
+cmd setblock 5 152 4 minecraft:air
+tick 20
+probe execute if block 5 153 4 create:brass_scaffolding[bottom=true,distance=0,waterlogged=false]
+expect Test passed
+cmd setblock 5 152 4 create:brass_scaffolding[bottom=true,distance=7,waterlogged=false]
+tick 20
+probe execute if block 5 153 4 create:brass_scaffolding[bottom=false,distance=0,waterlogged=false] if block 5 152 4 create:brass_scaffolding[bottom=true,distance=7,waterlogged=false]
+expect Test passed
+stop

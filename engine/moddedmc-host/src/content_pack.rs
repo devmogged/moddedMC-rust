@@ -74,6 +74,7 @@ pub struct StateAssets {
     pub uvlock: bool,
     pub straight_stair_display: bool,
     pub block_display_carrier: Option<BlockStateId>,
+    pub scaffolding: Option<bool>,
     pub wall: Option<WallSelector>,
     pub pane: bool,
 }
@@ -277,6 +278,7 @@ fn build_pack(
             }
         }
     }
+    pack.scaffolding_catalog(blocks)?;
     for (name, variants) in carrier_variants {
         if let Some(block) = Block::from_name(name) {
             pack.carrier_variants(block, variants)?;
@@ -883,6 +885,75 @@ impl Pack {
             self.missing = true;
             PLACEHOLDER
         }
+    }
+
+    fn scaffolding_catalog(&mut self, blocks: &[BlockAssets]) -> io::Result<()> {
+        let mut carriers = BTreeMap::new();
+        let mut models = HashMap::new();
+        for block in blocks {
+            if !block
+                .states
+                .first()
+                .is_some_and(|state| state.scaffolding.is_some())
+            {
+                continue;
+            }
+            let Some(registered) = Block::from_name(&block.id) else {
+                continue;
+            };
+            for (state, assets) in registered.states.iter().zip(&block.states) {
+                let Some(bottom) = assets.scaffolding else {
+                    continue;
+                };
+                let shifts = models
+                    .entry(assets.model.as_str())
+                    .or_insert_with(|| self.scaffolding_textures(&assets.model));
+                carriers.insert(
+                    state.id.vanilla_view().as_u16(),
+                    json!([bottom, block.id, shifts]),
+                );
+            }
+        }
+        if !carriers.is_empty() {
+            self.json(
+                "assets/moddedmc/moddedmc/scaffolding.json",
+                &serde_json::to_value(carriers)?,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn scaffolding_textures(&mut self, model: &str) -> BTreeMap<String, u8> {
+        let Some((namespace, path)) = model.split_once(':') else {
+            return BTreeMap::new();
+        };
+        let key = format!("assets/{namespace}/models/{path}.json");
+        let Some(model) = self
+            .files
+            .get(&key)
+            .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        else {
+            return BTreeMap::new();
+        };
+        let mut shifts = BTreeMap::new();
+        for (slot, size) in [("side", 2), ("inside", 2), ("casing", 8)] {
+            let Some(id) = model["textures"][slot]
+                .as_str()
+                .filter(|id| valid_model(id))
+            else {
+                continue;
+            };
+            let (source, path) = id.split_once(':').unwrap_or((namespace, id));
+            let key = format!("assets/{source}/textures/{path}_connected.png");
+            if !self.files.contains_key(&key) {
+                let Some(texture) = self.read_asset(source, &key) else {
+                    continue;
+                };
+                self.files.insert(key, texture);
+            }
+            shifts.insert(format!("{source}:{path}"), size);
+        }
+        shifts
     }
 
     fn asset(&mut self, namespace: &str, path: &str) -> Option<Vec<u8>> {

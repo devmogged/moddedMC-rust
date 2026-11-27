@@ -4,6 +4,9 @@
     "create:brass_bars",
     "create:copper_bars",
     "create:industrial_iron_block",
-    "create:weathered_iron_block"
+    "create:weathered_iron_block",
+    "create:andesite_scaffolding",
+    "create:brass_scaffolding",
+    "create:copper_scaffolding"
   ]
 }

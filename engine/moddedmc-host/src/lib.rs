@@ -16,6 +16,7 @@ mod content;
 mod content_ladders;
 mod content_pack;
 mod content_panes;
+mod content_scaffolding;
 mod content_slab;
 mod content_stairs;
 mod content_walls;

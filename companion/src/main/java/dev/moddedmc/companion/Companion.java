@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
+import java.util.Map;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationNetworking;
@@ -19,6 +20,7 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +31,7 @@ public final class Companion implements ClientModInitializer {
     private static final class Session {
         private final Protocol.Offer offer;
         private volatile byte[] creativeCatalog;
+        private volatile Map<BlockState, ScaffoldingCatalog.Entry> scaffolding = Map.of();
 
         private Session(Protocol.Offer offer) {
             this.offer = offer;
@@ -63,6 +66,11 @@ public final class Companion implements ClientModInitializer {
         return current == null ? null : current.creativeCatalog;
     }
 
+    public static ScaffoldingCatalog.Entry scaffold(BlockState state) {
+        var current = session;
+        return current == null ? null : current.scaffolding.get(state);
+    }
+
     public static Path materialize(URL url, String zipSha1, Proxy proxy) throws IOException {
         var current = session;
         if (current == null || !current.offer.zipSha1().equals(zipSha1)) return null;
@@ -75,6 +83,7 @@ public final class Companion implements ClientModInitializer {
         Path cache = FabricLoader.getInstance().getGameDir().resolve("moddedmc");
         Path local = PackCache.materialize(cache, current.offer.manifest(), key -> open(base.resolve(key), proxy));
         current.creativeCatalog = CreativeCatalog.load(local);
+        current.scaffolding = ScaffoldingCatalog.load(local);
         LOGGER.info("Loaded verified moddedMC asset pack {}", current.offer.manifest());
         return local;
     }
