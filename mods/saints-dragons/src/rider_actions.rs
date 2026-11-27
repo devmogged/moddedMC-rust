@@ -53,6 +53,10 @@ fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
     };
     // shortcut: only route mounted dragon input; individual ability implementations follow.
     let _ = entities.with_entity(world, vehicle, |dragon| {
+        if mobs.kind(dragon) == Some("saintsdragons:stegonaut") {
+            crate::combat_stegonaut::rider_action(world, dragon, player, action, phase);
+            return;
+        }
         if phase != ACTION_HELD
             && mobs
                 .kind(dragon)

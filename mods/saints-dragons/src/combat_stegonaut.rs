@@ -363,6 +363,9 @@ fn play(world: World<'_>, mob: Entity<'_>, attack: i32) {
 }
 
 pub fn clip(mob: Entity<'_>) -> Option<&'static str> {
+    if let Some(clip) = RiderState::load(mob).clip() {
+        return Some(clip);
+    }
     let attack = State::load(mob).attack;
     (attack != 0).then(|| attack_spec(attack).4)
 }
@@ -504,6 +507,600 @@ pub fn fight(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         _ => {}
     }
     false
+}
+
+const RIDER_DATA: &str = "saintsdragons:stegonaut_rider";
+const EATING: i32 = 3;
+const SHOOT: i32 = 4;
+const CANCEL: i32 = 5;
+const SLAM: i32 = 6;
+const SLAM2: i32 = 7;
+const FLEX: i32 = 8;
+
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+struct RiderState {
+    action: i32,
+    age: i32,
+    melee: i32,
+    eating_cd: i32,
+    slam_cd: i32,
+    flex_cd: i32,
+    released: bool,
+    chain: bool,
+    accelerating: bool,
+    jump_held: bool,
+    chunks: Vec<GroundChunk>,
+    pillars: Vec<Pillar>,
+}
+
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
+struct GroundChunk {
+    position: [f64; 3],
+    motion: [f64; 3],
+    age: i32,
+}
+
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
+struct Pillar {
+    position: [f64; 3],
+    age: i32,
+    damage: f32,
+    hits: Vec<i32>,
+}
+
+impl RiderState {
+    fn load(mob: Entity<'_>) -> Self {
+        mob.data(RIDER_DATA)
+            .and_then(|bytes| fastnbt::from_bytes(&bytes).ok())
+            .unwrap_or_default()
+    }
+    fn save(&self, mob: Entity<'_>) {
+        if let Ok(bytes) = fastnbt::to_bytes(self) {
+            mob.set_data(RIDER_DATA, &bytes);
+        }
+    }
+    fn clip(&self) -> Option<&'static str> {
+        match self.action {
+            1 | 2 => Some(attack_spec(self.action).4),
+            EATING if self.age >= 29 => Some("ground_eating_hold"),
+            EATING => Some("ground_eating"),
+            SHOOT => Some("ground_eating_shoot"),
+            CANCEL => Some("ground_eating_cancel"),
+            SLAM => Some("ground_slam"),
+            SLAM2 => Some("ground_slam2"),
+            FLEX => Some("flex"),
+            _ => None,
+        }
+    }
+    fn begin(&mut self, action: i32) {
+        self.action = action;
+        self.age = 0;
+        self.released = false;
+        self.chain = false;
+    }
+    fn release_eating(&mut self) {
+        self.begin(if self.age >= 29 { SHOOT } else { CANCEL });
+    }
+    fn finish(&mut self) {
+        match self.action {
+            EATING | SHOOT | CANCEL => self.eating_cd = 30,
+            SLAM | SLAM2 => self.slam_cd = 60,
+            _ => {}
+        }
+        self.begin(0);
+    }
+
+    fn chain_slam(&self) -> bool {
+        !self.released || self.chain
+    }
+}
+
+fn look(yaw: f32, pitch: f32) -> [f64; 3] {
+    let y = f64::from(yaw).to_radians();
+    let p = f64::from(pitch).to_radians();
+    [-y.sin() * p.cos(), -p.sin(), y.cos() * p.cos()]
+}
+
+fn scale(a: [f64; 3], n: f64) -> [f64; 3] {
+    a.map(|v| v * n)
+}
+
+fn normalized(a: [f64; 3], fallback: [f64; 3]) -> [f64; 3] {
+    let len = flight::length_squared(a).sqrt();
+    if len < 1e-4 {
+        fallback
+    } else {
+        scale(a, 1.0 / len)
+    }
+}
+
+fn wet(world: World<'_>, mob: Entity<'_>) -> bool {
+    mob.view().is_some_and(|v| {
+        world
+            .fluid_id(flight::cell(v.position))
+            .is_some_and(|id| id.ends_with("water"))
+    })
+}
+
+fn rider_sound(world: World<'_>, mob: Entity<'_>, name: &str, volume: f32) {
+    if let (Some(effects), Some(view)) = (EFFECTS.get(), mob.view()) {
+        let id = if cfg!(feature = "original-assets") {
+            format!("saintsdragons:stegonaut_{name}")
+        } else {
+            "minecraft:entity.ravager.roar".into()
+        };
+        effects.play_sound(world, view.position, &id, SOUND_NEUTRAL, volume, 1.0);
+    }
+}
+
+/// Stegonaut's release binding uses attack, G/H hold and X mode selection.
+pub fn rider_action(
+    world: World<'_>,
+    mob: Entity<'_>,
+    player: Entity<'_>,
+    action: &str,
+    phase: u8,
+) {
+    use moddedmc_api::player_actions::{ACTION_HELD, ACTION_PRESSED, ACTION_RELEASED};
+    if !taming::is_owner(mob, player)
+        || eggs::is_juvenile(mob)
+        || !MOBS
+            .get()
+            .is_some_and(|m| m.passengers(mob).first() == Some(&player.id()))
+    {
+        return;
+    }
+    let mut s = RiderState::load(mob);
+    let old = s.clone();
+    let key = action.strip_prefix("saintsdragons:").unwrap_or(action);
+    if key == "accelerate" {
+        s.accelerating = phase == ACTION_PRESSED || phase == ACTION_HELD;
+    } else if key == "ability_tertiary" && phase == ACTION_RELEASED && s.action == EATING {
+        s.release_eating();
+        rider_sound(
+            world,
+            mob,
+            if s.action == SHOOT {
+                "ground_eating_shoot"
+            } else {
+                "ground_eating_cancel"
+            },
+            1.0,
+        );
+    } else if key == "ability_secondary" && s.action == SLAM {
+        if phase == ACTION_RELEASED {
+            s.released = true;
+        }
+        if phase == ACTION_PRESSED {
+            s.chain = true;
+        }
+    } else if phase == ACTION_PRESSED && s.action == 0 && State::load(mob).attack == 0 {
+        match key {
+            "toggle_melee" => s.melee = 1 - s.melee,
+            // shortcut: primary R is a temporary substitute until the shared companion
+            // delivers the release's vanilla attack key as its own action.
+            "attack" | "ability_primary" => {
+                let combat = State::load(mob);
+                let attack = if s.melee == 0 { 1 } else { 2 };
+                if (attack == 1 && combat.bite_cooldown == 0)
+                    || (attack == 2 && combat.chin_cooldown == 0)
+                {
+                    s.begin(attack);
+                    play(world, mob, attack);
+                }
+            }
+            "ability_tertiary" if s.eating_cd == 0 && !wet(world, mob) => {
+                s.begin(EATING);
+                rider_sound(world, mob, "ground_eating", 1.0);
+            }
+            "ability_secondary" if s.slam_cd == 0 && !wet(world, mob) => {
+                s.begin(SLAM);
+                rider_sound(world, mob, "slam", 1.35);
+            }
+            "flex"
+                if s.flex_cd == 0
+                    && !wet(world, mob)
+                    && mob.view().is_some_and(|v| v.on_ground)
+                    && taming::order_name(mob) != "stay" =>
+            {
+                s.begin(FLEX);
+                s.flex_cd = 160;
+                rider_sound(world, mob, "flex", 1.4);
+            }
+            _ => {}
+        }
+    }
+    if s != old {
+        s.save(mob);
+    }
+}
+
+/// Ground-only movement from StegonautRiderController.
+pub fn ride(mob: Entity<'_>, rider: Entity<'_>) {
+    use moddedmc_api::{
+        entities::SET_HEAD_YAW,
+        mobs::{PLAYER_INPUT_JUMP, PLAYER_INPUT_SPRINT},
+    };
+    let (Some(mobs), Some(view), Some(r), Some(body)) =
+        (MOBS.get(), mob.view(), rider.view(), rider.body())
+    else {
+        return;
+    };
+    let mut s = RiderState::load(mob);
+    let old = s.clone();
+    let keys = mobs.player_input(rider).unwrap_or(0);
+    let jumping = keys & PLAYER_INPUT_JUMP != 0;
+    let locked = matches!(s.action, SLAM | SLAM2 | FLEX);
+    let speed = if s.accelerating || keys & PLAYER_INPUT_SPRINT != 0 {
+        0.25
+    } else {
+        0.1
+    } * hunger::speed_multiplier(taming::happiness(mob).unwrap_or(100));
+    let turn = (r.yaw - view.yaw + 180.0).rem_euclid(360.0) - 180.0;
+    let yaw = if locked {
+        view.yaw
+    } else {
+        view.yaw + turn * 0.28
+    };
+    let f = look(yaw, 0.0);
+    let right = [f[2], 0.0, -f[0]];
+    let forward = body.input[2] * 0.9 * if body.input[2] < 0.0 { 0.5 } else { 1.0 };
+    let mut motion = flight::add(
+        scale(f, forward * speed),
+        scale(right, body.input[0] * 0.5 * speed),
+    );
+    motion[1] = view.motion[1];
+    if locked {
+        motion[0] = 0.0;
+        motion[2] = 0.0;
+    } else if jumping && !s.jump_held && s.action == 0 && view.on_ground {
+        motion = flight::add(motion, scale(f, 0.7));
+        motion[1] = 0.75;
+    }
+    s.jump_held = jumping;
+    mob.change(&EntityChange {
+        mask: SET_MOTION | SET_YAW | SET_BODY_YAW | SET_HEAD_YAW,
+        motion,
+        yaw,
+        body_yaw: yaw,
+        head_yaw: yaw,
+        ..EntityChange::default()
+    });
+    mob.reset_fall_distance();
+    rider.reset_fall_distance();
+    if s != old {
+        s.save(mob);
+    }
+}
+
+/// DragonMeleeGeometry's mounted sweep uses the rider's view, dragon dimensions
+/// and closest point of each target box rather than the autonomous AI target.
+fn rider_melee(world: World<'_>, mob: Entity<'_>, aim: [f64; 3], attack: i32) {
+    let (Some(entities), Some(v), Some(b)) = (ENTITIES.get(), mob.view(), mob.body()) else {
+        return;
+    };
+    let (range, inflate, angle, close): (f64, f64, f64, f64) = if attack == 1 {
+        (4.0, 4.0, 80.0, 1.4)
+    } else {
+        (5.0, 4.5, 95.0, 2.0)
+    };
+    let horizontal = normalized([aim[0], 0.0, aim[2]], look(v.yaw, 0.0));
+    let origin = flight::add(
+        [
+            v.position[0],
+            v.position[1] + (b.max[1] - b.min[1]) * 0.52,
+            v.position[2],
+        ],
+        scale(horizontal, (b.max[0] - b.min[0]) * 0.35),
+    );
+    let end = flight::add(origin, scale(aim, range));
+    let min = std::array::from_fn(|i| origin[i].min(end[i]) - inflate);
+    let max = std::array::from_fn(|i| origin[i].max(end[i]) + inflate);
+    for id in entities.entities_in(world, min, max, mob.id()) {
+        let eligible = entities
+            .with_entity(world, id, |target| {
+                let Some(tb) = target.body() else {
+                    return false;
+                };
+                let nearest = std::array::from_fn(|i| origin[i].clamp(tb.min[i], tb.max[i]));
+                let delta = flight::offset(nearest, origin);
+                let dist = flight::length_squared(delta).sqrt();
+                let dot: f64 = normalized(delta, aim)
+                    .iter()
+                    .zip(aim)
+                    .map(|(a, b)| a * b)
+                    .sum();
+                dist <= range + inflate
+                    && (dist <= close
+                        || (dot > 0.0 && (dot >= angle.to_radians().cos() || dist < range * 0.35)))
+            })
+            .unwrap_or(false);
+        if eligible {
+            hit(world, mob, id, attack);
+        }
+    }
+}
+
+fn damage_push(
+    mob: Entity<'_>,
+    target: Entity<'_>,
+    origin: [f64; 3],
+    damage: f32,
+    push: f64,
+    lift: f64,
+    horizontal: bool,
+) {
+    let Some(v) = target.view() else { return };
+    target.hurt_by(mob.id(), "minecraft:mob_attack", damage);
+    let mut d = flight::offset(v.position, origin);
+    if horizontal {
+        d[1] = 0.0;
+    }
+    let n = normalized(d, [0.0, 0.0, 1.0]);
+    target.change(&EntityChange {
+        mask: SET_MOTION,
+        motion: flight::add(v.motion, [n[0] * push, lift, n[2] * push]),
+        ..EntityChange::default()
+    });
+}
+
+fn slam(world: World<'_>, mob: Entity<'_>, second: bool, s: &mut RiderState) {
+    let (Some(entities), Some(v), Some(b)) = (ENTITIES.get(), mob.view(), mob.body()) else {
+        return;
+    };
+    let (radius, height, damage, push, lift) = if second {
+        (20.0, 6.0, 25.0, 1.8, 0.5)
+    } else {
+        (10.0, 3.0, 20.0, 1.35, 0.38)
+    };
+    let ext = [radius, height, radius];
+    let min = std::array::from_fn(|i| b.min[i] - ext[i]);
+    let max = std::array::from_fn(|i| b.max[i] + ext[i]);
+    for id in entities.entities_in(world, min, max, mob.id()) {
+        entities.with_entity(world, id, |target| {
+            if enemy(mob, target)
+                && target
+                    .view()
+                    .is_some_and(|t| distance(v.position, t.position) <= radius)
+            {
+                damage_push(
+                    mob,
+                    target,
+                    v.position,
+                    damage * hunger::melee_multiplier(mob),
+                    push,
+                    lift,
+                    true,
+                );
+            }
+        });
+    }
+    if let Some(effects) = EFFECTS.get() {
+        effects.particles(
+            world,
+            "minecraft:poof",
+            v.position,
+            [
+                if second { 7.0 } else { 5.0 },
+                0.2,
+                if second { 7.0 } else { 5.0 },
+            ],
+            0.24,
+            if second { 70 } else { 42 },
+        );
+    }
+    if second {
+        let f = look(v.yaw, 0.0);
+        let right = [-f[2], 0.0, f[0]];
+        for step in 1..=4 {
+            for dir in [f, scale(f, -1.0), right, scale(right, -1.0)] {
+                let mut position = flight::add(v.position, scale(dir, 4.5 * f64::from(step)));
+                position[1] = (v.position[1] - 0.05).floor() + 1.0;
+                s.pillars.push(Pillar {
+                    position,
+                    age: 0,
+                    damage: 10.0 * hunger::melee_multiplier(mob),
+                    hits: Vec::new(),
+                });
+            }
+        }
+    }
+}
+
+/// GroundChunkEntity: gravity, drag, swept collision and a 3.2-block impact box.
+/// shortcut: use particles and sampled collision in place of the native block renderer.
+fn tick_chunk(world: World<'_>, mob: Entity<'_>, chunk: &mut GroundChunk) -> bool {
+    let Some(entities) = ENTITIES.get() else {
+        return false;
+    };
+    chunk.age += 1;
+    chunk.motion[1] -= 0.05;
+    let mut impact = false;
+    let steps = (flight::length_squared(chunk.motion).sqrt() * 8.0)
+        .ceil()
+        .max(1.0) as usize;
+    let increment = scale(chunk.motion, 1.0 / steps as f64);
+    for _ in 0..steps {
+        chunk.position = flight::add(chunk.position, increment);
+        let p = chunk.position;
+        let local = p.map(|x| x - x.floor());
+        let block = world.collision_shape(flight::cell(p)).is_some_and(|boxes| {
+            boxes
+                .iter()
+                .any(|b| (0..3).all(|i| (b.min[i]..=b.max[i]).contains(&local[i])))
+        });
+        let entity = entities
+            .entities_in(world, p.map(|x| x - 0.3), p.map(|x| x + 0.3), mob.id())
+            .into_iter()
+            .any(|id| {
+                entities
+                    .with_entity(world, id, |t| enemy(mob, t))
+                    .unwrap_or(false)
+            });
+        if block || entity {
+            impact = true;
+            break;
+        }
+    }
+    chunk.motion = scale(chunk.motion, 0.99);
+    if let Some(effects) = EFFECTS.get() {
+        effects.particles(world, "minecraft:poof", chunk.position, [0.2; 3], 0.01, 3);
+    }
+    if !impact && chunk.age <= 80 {
+        return true;
+    }
+    let p = chunk.position;
+    for id in entities.entities_in(world, p.map(|x| x - 3.2), p.map(|x| x + 3.2), mob.id()) {
+        entities.with_entity(world, id, |target| {
+            if enemy(mob, target) {
+                damage_push(mob, target, p, 10.0, 0.66, 0.16, false);
+            }
+        });
+    }
+    if let Some(effects) = EFFECTS.get() {
+        effects.particles(world, "minecraft:poof", p, [0.54, 0.42, 0.54], 0.05, 28);
+        effects.play_sound(
+            world,
+            p,
+            "minecraft:block.stone.break",
+            SOUND_NEUTRAL,
+            1.2,
+            0.9,
+        );
+    }
+    false
+}
+
+/// Amethyst pillars retain independent hit sets, warm up for four ticks and
+/// strike through tick 26. shortcut: particles approximate the original animated models.
+fn tick_pillar(world: World<'_>, mob: Entity<'_>, pillar: &mut Pillar) -> bool {
+    pillar.age += 1;
+    if pillar.age > 36 {
+        return false;
+    }
+    let [x, y, z] = pillar.position;
+    if let Some(effects) = EFFECTS.get() {
+        effects.particles(
+            world,
+            "minecraft:end_rod",
+            [x, y + 1.5, z],
+            [0.3, 1.5, 0.3],
+            0.02,
+            2,
+        );
+    }
+    if (4..=26).contains(&pillar.age)
+        && let Some(entities) = ENTITIES.get()
+    {
+        for id in entities.entities_in(
+            world,
+            [x - 4.5, y - 0.5, z - 4.5],
+            [x + 4.5, y + 7.5, z + 4.5],
+            mob.id(),
+        ) {
+            if !pillar.hits.contains(&id)
+                && entities
+                    .with_entity(world, id, |target| {
+                        if !enemy(mob, target) {
+                            return false;
+                        }
+                        damage_push(mob, target, pillar.position, pillar.damage, 0.9, 0.32, true);
+                        true
+                    })
+                    .unwrap_or(false)
+            {
+                pillar.hits.push(id);
+            }
+        }
+    }
+    true
+}
+
+fn rider_tick(world: World<'_>, mob: Entity<'_>) {
+    let mut s = RiderState::load(mob);
+    let old = s.clone();
+    s.eating_cd = (s.eating_cd - 1).max(0);
+    s.slam_cd = (s.slam_cd - 1).max(0);
+    s.flex_cd = (s.flex_cd - 1).max(0);
+    s.chunks.retain_mut(|chunk| tick_chunk(world, mob, chunk));
+    s.pillars.retain_mut(|p| tick_pillar(world, mob, p));
+    let rider_aim = MOBS
+        .get()
+        .and_then(|mobs| mobs.passengers(mob).first().copied())
+        .and_then(|id| {
+            ENTITIES
+                .get()?
+                .with_entity(world, id, |r| {
+                    if !taming::is_owner(mob, r) {
+                        return None;
+                    }
+                    r.view().map(|v| look(v.yaw, v.pitch))
+                })
+                .flatten()
+        });
+    if let Some(aim) = rider_aim {
+        s.age += i32::from(s.action != 0);
+        match s.action {
+            1 | 2 => {
+                if s.age == 13 {
+                    rider_melee(world, mob, aim, s.action);
+                }
+                if s.age >= attack_spec(s.action).0 {
+                    let mut combat = State::load(mob);
+                    combat.attack = s.action;
+                    finish_attack(&mut combat);
+                    combat.save(mob);
+                    s.finish();
+                }
+            }
+            EATING | SHOOT if wet(world, mob) => s.finish(),
+            SHOOT if s.age >= 18 => {
+                if let (Some(v), Some(b)) = (mob.view(), mob.body()) {
+                    let origin = [
+                        v.position[0],
+                        v.position[1] + (b.max[1] - b.min[1]) * 0.8,
+                        v.position[2],
+                    ];
+                    s.chunks.push(GroundChunk {
+                        position: flight::add(origin, scale(aim, 1.2)),
+                        motion: scale(aim, 2.5),
+                        age: 0,
+                    });
+                }
+                s.finish();
+            }
+            CANCEL if s.age >= 1 => s.finish(),
+            SLAM => {
+                if s.age == 18 {
+                    slam(world, mob, false, &mut s);
+                }
+                if s.age >= 23 {
+                    if !s.chain_slam() {
+                        s.finish();
+                    } else {
+                        s.begin(SLAM2);
+                        rider_sound(world, mob, "slam2", 1.75);
+                    }
+                }
+            }
+            SLAM2 if s.age >= 25 => {
+                slam(world, mob, true, &mut s);
+                s.finish();
+            }
+            FLEX if s.age >= 100 => s.finish(),
+            _ => {}
+        }
+    } else {
+        if s.action != 0 {
+            s.finish();
+        }
+        s.accelerating = false;
+        s.jump_held = false;
+    }
+    if s != old {
+        s.save(mob);
+    }
 }
 
 type Uuid = [u8; 16];
@@ -667,6 +1264,7 @@ pub fn aura(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     if phase != goal_phase::TICK {
         return matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE);
     }
+    rider_tick(world, mob);
     if !moddedmc_api::tick_count().is_multiple_of(20) {
         return false;
     }
@@ -701,6 +1299,38 @@ pub fn aura(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ground_eating_requires_full_charge_and_cooldown() {
+        let mut s = RiderState::default();
+        s.begin(EATING);
+        s.age = 28;
+        s.release_eating();
+        assert_eq!(s.action, CANCEL);
+        s.finish();
+        assert_eq!(s.eating_cd, 30);
+        s.begin(EATING);
+        s.age = 29;
+        assert_eq!(s.clip(), Some("ground_eating_hold"));
+        s.release_eating();
+        assert_eq!((s.action, s.age), (SHOOT, 0));
+    }
+
+    #[test]
+    fn first_slam_chains_on_hold_or_explicit_repress() {
+        let mut s = RiderState::default();
+        s.begin(SLAM);
+        assert!(s.chain_slam());
+        s.released = true;
+        assert!(!s.chain_slam());
+        s.chain = true;
+        assert!(s.chain_slam());
+        s.begin(SLAM2);
+        s.finish();
+        assert_eq!(s.slam_cd, 60);
+        let bytes = fastnbt::to_bytes(&s).unwrap();
+        assert!(fastnbt::from_bytes::<RiderState>(&bytes).unwrap() == s);
+    }
 
     #[test]
     fn portable_aura_requires_bound_binder_with_uuid() {

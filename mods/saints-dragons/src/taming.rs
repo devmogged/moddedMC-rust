@@ -593,6 +593,9 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if let Some(result) = crate::stun::feed(click, item) {
         return result;
     }
+    if mobs.kind(mob) == Some("saintsdragons:stegonaut") {
+        return stegonaut_mount(click, item);
+    }
     if mobs.kind(mob) != Some(crate::CINDERVANE) {
         return UseResult::Pass;
     }
@@ -714,6 +717,56 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     UseResult::Success
 }
 
+/// StegonautInteractionHandler: saddle and single owner seat.
+fn stegonaut_mount(click: &mut UseMob<'_>, item: &str) -> UseResult {
+    let (Some(player), Some(mob), Some(mobs), Some(ai)) =
+        (click.player, click.mob, MOBS.get(), MOB_AI.get())
+    else {
+        return UseResult::Pass;
+    };
+    let Some(mut state) = tamed(mob) else {
+        return UseResult::Pass;
+    };
+    if !click.main_hand || mobs.uuid(player) != Some(state.owner) || crate::eggs::is_juvenile(mob) {
+        return UseResult::Pass;
+    }
+    if item == SADDLE && !state.saddle {
+        state.saddle = true;
+        if !mobs.set_state(mob, &state.encode()) {
+            return UseResult::Fail;
+        }
+        if !click.creative {
+            click.stack.shrink(1);
+        }
+        return UseResult::Success;
+    }
+    if click.sneaking {
+        state.order = match state.order {
+            Order::Follow => Order::Sit,
+            Order::Sit => Order::Wander,
+            Order::Wander => Order::Follow,
+        };
+        return if mobs.set_state(mob, &state.encode()) {
+            UseResult::Success
+        } else {
+            UseResult::Fail
+        };
+    }
+    if !state.saddle || state.happiness <= 30 || !mobs.passengers(mob).is_empty() {
+        return UseResult::Consume;
+    }
+    if !player.start_riding(mob.id(), false) {
+        return UseResult::Fail;
+    }
+    if state.order == Order::Sit {
+        state.order = Order::Follow;
+        mobs.set_state(mob, &state.encode());
+    }
+    ai.stop(mob);
+    ai.set_target(click.world, mob, None);
+    UseResult::Success
+}
+
 /// A successful taming feed: owned, sitting, persistent and calm.
 pub fn tame(world: World<'_>, mob: Entity<'_>, owner: [u8; 16]) -> bool {
     let (Some(mobs), Some(ai)) = (MOBS.get(), MOB_AI.get()) else {
@@ -824,7 +877,11 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             if let Some(&first) = passengers.first() {
                 entities.with_entity(world, first, |rider| {
                     if mobs.uuid(rider) == Some(state.owner) {
-                        ride(mob, rider);
+                        if mobs.kind(mob) == Some("saintsdragons:stegonaut") {
+                            crate::combat_stegonaut::ride(mob, rider);
+                        } else {
+                            ride(mob, rider);
+                        }
                     } else {
                         rider.stop_riding();
                     }

@@ -12,7 +12,7 @@ use std::{
     sync::{Mutex, PoisonError},
 };
 
-pub const GOAL: u64 = 17;
+pub const GOAL: u64 = 200;
 #[derive(Default)]
 struct Hunt {
     prey: Option<i32>,
