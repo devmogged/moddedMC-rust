@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+. "$PSScriptRoot/ivy-house-legacy.ps1"
 
 $source = (Resolve-Path -LiteralPath $Jar).Path
 $releaseHash = '1093be9e314248646162bf8362e30cee63f6c6ed57d1f6590ce784cc69aee532'
@@ -342,6 +343,7 @@ try {
                                 if (!$nbt.Contains($old)) { throw "Missing legacy Ivy house palette name $($pair[0])" }
                                 $nbt = $nbt.Replace($old, $new)
                             }
+                            $nbt = Convert-IvyHouseDecorations $nbt
                             $bytes = $encoding.GetBytes($nbt)
                             $gzip = [IO.Compression.GZipStream]::new($writer, [IO.Compression.CompressionMode]::Compress, $true)
                             try { $gzip.Write($bytes, 0, $bytes.Length) } finally { $gzip.Dispose() }
