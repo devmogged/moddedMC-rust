@@ -1,6 +1,6 @@
 {
   "required": true,
   "package": "dev.moddedmc.companion.mixin",
-  "client": ["DisplayRendererMixin", "DisplayRenderStateMixin", "DownloadQueueMixin"],
+  "client": ["DisplayRendererMixin", "DisplayRenderStateMixin", "DownloadQueueMixin", "OptionsAccessor"],
   "injectors": { "defaultRequire": 1 }
 }

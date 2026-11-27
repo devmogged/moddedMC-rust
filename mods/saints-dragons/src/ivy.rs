@@ -14,12 +14,14 @@ use moddedmc_api::{
     effects::SOUND_NEUTRAL,
     entities::{ENTITY_ALIVE, Entity, EntityChange, SET_MOTION},
     interaction::{UseItem, UseMob, UseResult},
+    inventory_menu::{self, Access, Change, MenuKind, Validated, Validity, ValiditySlots},
     items::{Item, ItemDefaults},
+    mob_ai::goal_phase,
     saved_data::{self, Key, SavedData},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{EFFECTS, ENTITIES, MOBS, RESOURCES, STACKS, codex, flight, taming};
+use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, RESOURCES, STACKS, codex, flight, taming};
 
 pub const KIND: &str = "saintsdragons:ivy_oleander";
 pub const SPECIES: &str = "ivy_oleander";
@@ -51,9 +53,233 @@ struct PlayerMemory {
 static SAVES: OnceLock<SavedData> = OnceLock::new();
 static MEMORY_KEY: OnceLock<Key> = OnceLock::new();
 static MEMORY_WRITE: Mutex<()> = Mutex::new(());
+static INVENTORY_KEY: OnceLock<Key> = OnceLock::new();
+static INVENTORY_MENUS: OnceLock<Validated> = OnceLock::new();
+static INVENTORY_KIND: OnceLock<MenuKind> = OnceLock::new();
+static INVENTORY_WRITE: Mutex<()> = Mutex::new(());
+
+// IvyInventoryMenu: four armor slots, one weapon, and 27 storage slots.
+// A vanilla four-row screen has four padding slots.
+const INVENTORY_SIZE: usize = 36;
+const STORAGE_START: usize = 9;
+
+#[derive(Deserialize, Serialize)]
+struct Inventory {
+    ivy: [u8; 16],
+    slots: Vec<Option<Vec<u8>>>,
+}
+
+fn inventories(world: World<'_>) -> Option<Vec<Inventory>> {
+    match SAVES.get()?.read(&world, *INVENTORY_KEY.get()?) {
+        Some(bytes) => serde_json::from_slice(&bytes).ok(),
+        None => Some(Vec::new()),
+    }
+}
+
+fn inventory(world: World<'_>, uuid: [u8; 16]) -> Option<Vec<Option<Vec<u8>>>> {
+    Some(
+        inventories(world)?
+            .into_iter()
+            .find(|record| record.ivy == uuid)
+            .map_or_else(|| vec![None; INVENTORY_SIZE], |record| record.slots),
+    )
+}
+
+fn can_access(ivy: Entity<'_>, viewer: Entity<'_>) -> bool {
+    MOBS.get().is_some_and(|mobs| mobs.kind(ivy) == Some(KIND))
+        && ivy.flags() & ENTITY_ALIVE != 0
+        && taming::is_owner(ivy, viewer)
+        && ivy.view().zip(viewer.view()).is_some_and(|(a, b)| {
+            flight::length_squared(flight::offset(a.position, b.position)) < RADIUS * RADIUS
+        })
+}
+
+fn open_inventory(world: World<'_>, viewer: Entity<'_>, ivy: Entity<'_>) -> bool {
+    let (Some(menus), Some(&kind), Some(player), Some(uuid)) = (
+        INVENTORY_MENUS.get(),
+        INVENTORY_KIND.get(),
+        viewer.as_player(),
+        MOBS.get().and_then(|mobs| mobs.uuid(ivy)),
+    ) else {
+        return false;
+    };
+    if !can_access(ivy, viewer) {
+        return false;
+    }
+    let mut access = [Access {
+        take: true,
+        insert: true,
+    }; INVENTORY_SIZE];
+    for slot in &mut access[5..STORAGE_START] {
+        *slot = Access {
+            take: false,
+            insert: false,
+        };
+    }
+    menus.open(
+        &player,
+        kind,
+        ivy.id() as u64,
+        NAME,
+        ValiditySlots {
+            world,
+            access: &access,
+            context: &uuid,
+        },
+        || inventory(world, uuid),
+    )
+}
+
+fn valid_inventory(view: Validity<'_>) -> bool {
+    let (Some(mobs), Some(entities), Ok(id)) =
+        (MOBS.get(), ENTITIES.get(), i32::try_from(view.inventory))
+    else {
+        return false;
+    };
+    let mut valid = false;
+    view.player.with_entity_context(|world, viewer| {
+        if world.dimension_id() != view.world.dimension_id() {
+            return;
+        }
+        valid = entities.with_entity(world, id, |ivy| {
+            mobs.uuid(ivy).is_some_and(|uuid| uuid == view.context) && can_access(ivy, viewer)
+        }) == Some(true);
+    });
+    valid
+}
+
+fn component(stack: &[u8], name: &str) -> Option<Value> {
+    let bytes = STACKS.get()?.component(stack, name)?;
+    fastnbt::from_bytes::<Compound>(&bytes)
+        .ok()?
+        .remove("value")
+}
+
+fn attribute(stack: &[u8], name: &str, slot: &str, base: f64) -> Option<f64> {
+    let value = component(stack, "minecraft:attribute_modifiers")?;
+    attribute_from(value, name, slot, base)
+}
+
+fn attribute_from(value: Value, name: &str, slot: &str, base: f64) -> Option<f64> {
+    let Value::List(modifiers) = value else {
+        return None;
+    };
+    let mut additions = 0.0;
+    let mut multiplied_base = 0.0;
+    let mut total = 1.0;
+    let mut found = false;
+    for modifier in modifiers {
+        let Value::Compound(m) = modifier else {
+            continue;
+        };
+        if !matches!(m.get("type"), Some(Value::String(s)) if s.trim_start_matches("minecraft:") == name)
+        {
+            continue;
+        }
+        if matches!(m.get("slot"), Some(Value::String(s)) if s != slot && s != "any" && !(s == "armor" && slot != "mainhand") && !(s == "hand" && slot == "mainhand"))
+        {
+            continue;
+        }
+        let amount = match m.get("amount") {
+            Some(Value::Double(n)) => *n,
+            Some(Value::Float(n)) => f64::from(*n),
+            _ => continue,
+        };
+        match m.get("operation") {
+            Some(Value::String(s)) if s == "add_value" => additions += amount,
+            Some(Value::String(s)) if s == "add_multiplied_base" => multiplied_base += amount,
+            Some(Value::String(s)) if s == "add_multiplied_total" => total *= 1.0 + amount,
+            _ => continue,
+        }
+        found = true;
+    }
+    found.then_some((base + additions + base * multiplied_base) * total)
+}
+
+const ARMOR_SLOTS: [&str; 4] = ["head", "chest", "legs", "feet"];
+
+fn accepts(slot: usize, stack: &[u8]) -> bool {
+    if slot >= STORAGE_START {
+        return true;
+    }
+    if slot >= 5
+        || !STACKS
+            .get()
+            .and_then(|s| s.info(stack))
+            .is_some_and(|s| s.count == 1)
+    {
+        return false;
+    }
+    if slot == 4 {
+        return attribute(stack, "attack_damage", "mainhand", 1.0).is_some();
+    }
+    // The effective equippable component includes vanilla and modded armor.
+    matches!(component(stack, "minecraft:equippable"), Some(Value::Compound(c))
+        if matches!(c.get("slot"), Some(Value::String(s)) if s == ARMOR_SLOTS[slot]))
+        && attribute(stack, "armor", ARMOR_SLOTS[slot], 0.0).is_some()
+}
+
+fn change_inventory(mut change: Change<'_>) {
+    let (Some(mobs), Some(entities), Some(&key), Ok(id)) = (
+        MOBS.get(),
+        ENTITIES.get(),
+        INVENTORY_KEY.get(),
+        i32::try_from(change.inventory),
+    ) else {
+        return;
+    };
+    if change.slots().len() != INVENTORY_SIZE || change.overflow().len() != 0 {
+        return;
+    }
+    let Some(uuid) = entities
+        .with_entity(change.world, id, |ivy| {
+            if mobs.kind(ivy) != Some(KIND)
+                || ivy.flags() & ENTITY_ALIVE == 0
+                || taming::owner(ivy) != Some(change.player_uuid)
+            {
+                return None;
+            }
+            mobs.uuid(ivy)
+        })
+        .flatten()
+    else {
+        return;
+    };
+    let slots: Vec<_> = change
+        .slots()
+        .map(|slot| slot.map(<[u8]>::to_vec))
+        .collect();
+    if !slots
+        .iter()
+        .enumerate()
+        .all(|(i, stack)| stack.as_deref().is_none_or(|s| accepts(i, s)))
+    {
+        return;
+    }
+    let _lock = INVENTORY_WRITE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let Some(mut records) = inventories(change.world) else {
+        return;
+    };
+    records.retain(|record| record.ivy != uuid);
+    records.push(Inventory { ivy: uuid, slots });
+    // shortcut: transactions can only commit saved_data, not entity NBT. Keep the
+    // inventory keyed by Ivy's persistent UUID until the host offers entity commits.
+    if let Ok(bytes) = serde_json::to_vec(&records)
+        && change.commit(key, &bytes)
+        && let Some(state) = FIGHTS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&id)
+    {
+        state.armor_synced = false;
+    }
+}
 
 pub fn require() -> Result<(), InterfaceUnavailable> {
     let _ = SAVES.set(saved_data::require()?);
+    let _ = INVENTORY_MENUS.set(inventory_menu::require_validity()?);
     Ok(())
 }
 
@@ -115,6 +341,7 @@ struct Session {
     actions: Vec<Action>,
     /// An `open_trade` node: a choice opens Ivy's trades.
     trade: bool,
+    inventory: bool,
 }
 
 static SESSIONS: LazyLock<Mutex<HashMap<[u8; 16], Session>>> = LazyLock::new(Mutex::default);
@@ -123,6 +350,11 @@ static NONCE: AtomicU64 = AtomicU64::new(1);
 pub fn register(items: ItemDefaults, reg: &mut Registry<'_>) -> Result<(), RegistrationError> {
     let saves = SAVES.get().ok_or(RegistrationError::InvalidDefinition)?;
     let _ = MEMORY_KEY.set(saves.register(reg, "ivy_memory")?);
+    let _ = INVENTORY_KEY.set(saves.register(reg, "ivy_inventory")?);
+    let menus = INVENTORY_MENUS
+        .get()
+        .ok_or(RegistrationError::InvalidDefinition)?;
+    let _ = INVENTORY_KIND.set(menus.register(reg, change_inventory, valid_inventory)?);
     let components = Value::Compound(HashMap::from([
         ("minecraft:max_stack_size".into(), Value::Int(1)),
         ("minecraft:rarity".into(), Value::String("rare".into())),
@@ -410,6 +642,7 @@ fn show(
             dimension: world.dimension_id()?.to_owned(),
             expires: tick + 1200,
             trade: node.kind == "open_trade",
+            inventory: node.kind == "open_inventory",
         },
     );
     drop(sessions);
@@ -512,9 +745,15 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
                 memory.flags.insert("known_work_done".into());
             }
             if session.trade {
-                // shortcut: Java resumes the dialogue at `next` when the trade screen closes.
+                // shortcut: Java resumes at `next` after the trade screen closes; needs
+                // a merchant menu close callback with the player and merchant identity.
                 save_memory(world, viewer, &memory);
                 open_trades(viewer, ivy);
+                return;
+            }
+            if session.inventory {
+                save_memory(world, viewer, &memory);
+                open_inventory(world, viewer, ivy);
                 return;
             }
             let (path, node) = action
@@ -529,6 +768,488 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
 }
 
 const TRADES_ROLLED: &str = "saintsdragons:ivy_trades_rolled";
+
+pub const COMBAT: u64 = 17;
+
+#[derive(Clone, Copy)]
+struct Hit {
+    tick: u64,
+    damage: f32,
+    range: f64,
+    knockback: f64,
+    lift: f64,
+    sword: bool,
+    reset: bool,
+}
+
+#[derive(Clone, Copy)]
+struct Move {
+    clip: &'static str,
+    duration: u64,
+    hits: &'static [Hit],
+    cooldown: u64,
+}
+
+const fn hit(
+    tick: u64,
+    damage: f32,
+    range: f64,
+    knockback: f64,
+    lift: f64,
+    sword: bool,
+    reset: bool,
+) -> Hit {
+    Hit {
+        tick,
+        damage,
+        range,
+        knockback,
+        lift,
+        sword,
+        reset,
+    }
+}
+
+// IvyCombatBrain.AttackType: the released melee animation/impact schedule.
+const BOXING: [Move; 5] = [
+    Move {
+        clip: "orthodox_left_jab",
+        duration: 10,
+        hits: &[hit(4, 2.5, 2.35, 0.015, 0.0, false, false)],
+        cooldown: 5,
+    },
+    Move {
+        clip: "orthodox_right_hook",
+        duration: 13,
+        hits: &[hit(5, 6.0, 2.45, 0.28, 0.08, false, false)],
+        cooldown: 15,
+    },
+    Move {
+        clip: "orthodox_left_jab_right_cross",
+        duration: 20,
+        hits: &[
+            hit(5, 2.0, 2.55, 0.02, 0.0, false, true),
+            hit(13, 4.0, 2.95, 0.16, 0.04, false, true),
+        ],
+        cooldown: 5,
+    },
+    Move {
+        clip: "orthodox_jab_jab_hook",
+        duration: 25,
+        hits: &[
+            hit(5, 1.8, 2.45, 0.0, 0.0, false, true),
+            hit(11, 1.8, 2.45, 0.0, 0.0, false, true),
+            hit(19, 5.5, 3.05, 0.24, 0.06, false, true),
+        ],
+        cooldown: 5,
+    },
+    Move {
+        clip: "orthodox_right_hook_uppercut",
+        duration: 25,
+        hits: &[
+            hit(8, 4.0, 2.55, 0.015, 0.0, false, true),
+            hit(16, 6.0, 3.05, 0.12, 0.50, false, true),
+        ],
+        cooldown: 15,
+    },
+];
+
+const SWORD: [Move; 6] = [
+    Move {
+        clip: "sword_quick_stab",
+        duration: 8,
+        hits: &[hit(4, 2.5, 2.35, 0.015, 0.0, true, false)],
+        cooldown: 20,
+    },
+    Move {
+        clip: "sword_swing",
+        duration: 12,
+        hits: &[hit(6, 6.0, 2.45, 0.28, 0.08, true, false)],
+        cooldown: 20,
+    },
+    Move {
+        clip: "orthodox_sword_left_jab_right_swing",
+        duration: 20,
+        hits: &[
+            hit(5, 2.0, 2.55, 0.02, 0.0, false, true),
+            hit(13, 4.0, 3.50, 0.16, 0.04, true, true),
+        ],
+        cooldown: 20,
+    },
+    Move {
+        clip: "orthodox_sword_jab_jab_swing",
+        duration: 25,
+        hits: &[
+            hit(5, 1.8, 2.45, 0.0, 0.0, false, true),
+            hit(11, 1.8, 2.45, 0.0, 0.0, false, true),
+            hit(19, 5.5, 3.60, 0.24, 0.06, true, true),
+        ],
+        cooldown: 20,
+    },
+    Move {
+        clip: "sword_swing_slash",
+        duration: 19,
+        hits: &[
+            hit(6, 4.0, 2.55, 0.015, 0.0, true, true),
+            hit(16, 6.0, 3.60, 0.12, 0.50, true, true),
+        ],
+        cooldown: 20,
+    },
+    Move {
+        clip: "sword_slash_stab_stab",
+        duration: 27,
+        hits: &[
+            hit(6, 4.5, 3.1, 0.10, 0.0, true, true),
+            hit(14, 3.5, 2.85, 0.02, 0.0, true, true),
+            hit(22, 3.5, 2.85, 0.12, 0.0, true, true),
+        ],
+        cooldown: 30,
+    },
+];
+
+#[derive(Default)]
+struct Fight {
+    armor_synced: bool,
+    self_hurt: Option<(i32, i32)>,
+    owner_hurt: Option<(i32, i32)>,
+    owner_synced: bool,
+    target: Option<i32>,
+    start: u64,
+    ready: u64,
+    hook_ready: u64,
+    combo_ready: u64,
+    move_: Option<Move>,
+    sword_damage: Option<f32>,
+    stance: bool,
+}
+
+static FIGHTS: LazyLock<Mutex<HashMap<i32, Fight>>> = LazyLock::new(Mutex::default);
+
+pub fn forget(id: i32) {
+    FIGHTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&id);
+}
+
+fn combat_allowed(world: World<'_>, ivy: Entity<'_>) -> bool {
+    taming::is_tamed(ivy)
+        && taming::order_name(ivy) != "stay"
+        && ivy.vehicle().is_none()
+        && ivy.view().is_some_and(|view| {
+            let mut at = view.position;
+            at[1] += 1.0;
+            !matches!(
+                world.fluid_id(flight::cell(at)).as_deref(),
+                Some("minecraft:water" | "minecraft:flowing_water")
+            )
+        })
+}
+
+fn enemy(ivy: Entity<'_>, target: Entity<'_>) -> bool {
+    crate::abilities::enemy(ivy, target)
+        && !matches!(
+            target.type_id().trim_start_matches("minecraft:"),
+            "iron_golem" | "snow_golem" | "villager"
+        )
+        && !(taming::owner(target).is_some() && taming::owner(ivy) == taming::owner(target))
+}
+
+fn target_position(world: World<'_>, ivy: Entity<'_>, id: i32) -> Option<[f64; 3]> {
+    let from = ivy.view()?.position;
+    ENTITIES.get()?.with_entity(world, id, |target| {
+        let at = target.view()?.position;
+        (enemy(ivy, target) && flight::length_squared(flight::offset(at, from)) <= 32.0 * 32.0)
+            .then_some(at)
+    })?
+}
+
+/// IvyCompanionController.OwnerDefenseGoal: react to a new attacker of Ivy or her owner.
+pub fn target_tick(world: World<'_>, ivy: Entity<'_>) {
+    let (Some(ai), Some(mobs), Some(entities), Some(owner)) =
+        (MOB_AI.get(), MOBS.get(), ENTITIES.get(), taming::owner(ivy))
+    else {
+        return;
+    };
+    let own_hurt = ai.last_hurt_by(ivy);
+    let owner_hurt = mobs.by_uuid(world, &owner).and_then(|id| {
+        entities
+            .with_entity(world, id, |owner| ai.last_hurt_by(owner))
+            .flatten()
+    });
+    let (own, defense, sync_armor) = {
+        let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = states.entry(ivy.id()).or_default();
+        let own = own_hurt.filter(|hit| state.self_hurt != Some(*hit));
+        state.self_hurt = own_hurt;
+        let defense = owner_hurt.filter(|hit| state.owner_synced && state.owner_hurt != Some(*hit));
+        state.owner_hurt = owner_hurt;
+        state.owner_synced = true;
+        let sync = !state.armor_synced;
+        state.armor_synced = true;
+        (own, defense, sync)
+    };
+    if sync_armor {
+        update_armor(world, ivy);
+    }
+    if !combat_allowed(world, ivy) {
+        if ai.target(ivy).is_some() {
+            ai.set_target(world, ivy, None);
+        }
+        return;
+    }
+    if ai
+        .target(ivy)
+        .is_some_and(|id| target_position(world, ivy, id).is_none())
+    {
+        ai.set_target(world, ivy, None);
+    }
+    // shortcut: the API exposes last_hurt_by, but not the owner's last_hurt_mob
+    // timestamp; attacking a target first cannot trigger owner defense yet.
+    for (id, _) in own
+        .into_iter()
+        .chain(defense.filter(|_| taming::order_name(ivy) == "follow"))
+    {
+        if target_position(world, ivy, id).is_some() {
+            ai.set_target(world, ivy, Some(id));
+            break;
+        }
+    }
+}
+
+fn choose_move(
+    sword: bool,
+    distance: f64,
+    still: bool,
+    combo: bool,
+    hook: bool,
+    rng: impl Fn(u64) -> u64,
+) -> usize {
+    if distance < 2.15 && combo {
+        return if sword {
+            [2, 3, 5][rng(3) as usize]
+        } else {
+            2 + rng(2) as usize
+        };
+    }
+    if combo && hook && distance <= 2.45 && rng(100) < 40 {
+        return 4;
+    }
+    let mut weights = if sword {
+        [
+            if still { 25 } else { 45 },
+            if still { 25 } else { 30 },
+            if still { 35 } else { 22 },
+            if still { 25 } else { 16 },
+            0,
+            if still { 28 } else { 18 },
+        ]
+    } else {
+        [
+            if still { 25 } else { 50 },
+            if still { 30 } else { 35 },
+            if still { 45 } else { 25 },
+            if still { 30 } else { 18 },
+            0,
+            0,
+        ]
+    };
+    if !hook || distance > 2.15 {
+        weights[1] = 0;
+    }
+    if !combo || distance < 1.65 {
+        weights[2..].fill(0);
+    }
+    let mut roll = rng(weights.iter().sum());
+    for i in [5, 3, 2, 1, 0] {
+        if roll < weights[i] {
+            return i;
+        }
+        roll -= weights[i];
+    }
+    0
+}
+
+fn equipped_weapon(world: World<'_>, ivy: Entity<'_>) -> Option<f32> {
+    let uuid = MOBS.get()?.uuid(ivy)?;
+    let slots = inventory(world, uuid)?;
+    let stack = slots.get(4)?.as_deref()?;
+    attribute(stack, "attack_damage", "mainhand", 1.0).map(|damage| damage.max(0.0) as f32)
+}
+
+fn update_armor(world: World<'_>, ivy: Entity<'_>) {
+    let (Some(health), Some(uuid)) = (
+        crate::MOB_HEALTH.get(),
+        MOBS.get().and_then(|m| m.uuid(ivy)),
+    ) else {
+        return;
+    };
+    let Some(slots) = inventory(world, uuid) else {
+        return;
+    };
+    for name in ["armor", "armor_toughness"] {
+        let value: f64 = ARMOR_SLOTS
+            .iter()
+            .enumerate()
+            .filter_map(|(i, slot)| attribute(slots.get(i)?.as_deref()?, name, slot, 0.0))
+            .sum();
+        health.set_attribute(ivy, &format!("minecraft:{name}"), value.max(0.0));
+    }
+}
+
+fn impact(world: World<'_>, ivy: Entity<'_>, id: i32, hit: Hit, sword_damage: Option<f32>) {
+    let (Some(ai), Some(mobs), Some(entities), Some(body), Some(from)) = (
+        MOB_AI.get(),
+        MOBS.get(),
+        ENTITIES.get(),
+        ivy.body(),
+        ivy.view(),
+    ) else {
+        return;
+    };
+    entities.with_entity(world, id, |target| {
+        let (Some(other), Some(view)) = (target.body(), target.view()) else {
+            return;
+        };
+        let range = [hit.range, 1.15, hit.range];
+        if !enemy(ivy, target)
+            || !(0..3).all(|i| {
+                body.min[i] - range[i] <= other.max[i] && body.max[i] + range[i] >= other.min[i]
+            })
+        {
+            return;
+        }
+        if hit.reset {
+            mobs.reset_hurt_cooldown(target);
+        }
+        let damage = if hit.sword {
+            sword_damage.unwrap_or(4.0)
+        } else {
+            hit.damage
+        };
+        ai.attack(world, ivy, id, damage);
+        let delta = flight::offset(view.position, from.position);
+        if delta[0].hypot(delta[2]) > 0.01 {
+            target.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: flight::add(
+                    view.motion,
+                    [delta[0] * hit.knockback, hit.lift, delta[2] * hit.knockback],
+                ),
+                ..EntityChange::default()
+            });
+        }
+    });
+}
+
+/// IvyCombatBrain's melee stance, timed attacks and cooldowns.
+pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
+    let Some(ai) = MOB_AI.get() else { return false };
+    let target = ai.target(ivy).filter(|_| combat_allowed(world, ivy));
+    let located = target.and_then(|id| Some((id, target_position(world, ivy, id)?)));
+    match phase {
+        goal_phase::CAN_START | goal_phase::CONTINUE => return located.is_some(),
+        goal_phase::STOP => {
+            ai.stop(ivy);
+            let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(state) = states.get_mut(&ivy.id()) {
+                state.move_ = None;
+                state.stance = false;
+                state.target = None;
+            }
+            return false;
+        }
+        goal_phase::TICK => {}
+        _ => return false,
+    }
+    let (Some((id, at)), Some(view)) = (located, ivy.view()) else {
+        return false;
+    };
+    let now = moddedmc_api::tick_count();
+    ai.look_at(ivy, at);
+    let distance = flight::length_squared(flight::offset(at, view.position)).sqrt();
+    let mut state = {
+        let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+        states.remove(&ivy.id()).unwrap_or_default()
+    };
+    if state.target != Some(id) || !state.stance {
+        state.target = Some(id);
+        state.sword_damage = equipped_weapon(world, ivy);
+        state.stance = true;
+        state.move_ = None;
+        state.ready = now + if state.sword_damage.is_some() { 17 } else { 10 };
+    }
+    if let Some(action) = state.move_ {
+        ai.stop(ivy);
+        let elapsed = now.saturating_sub(state.start);
+        for &hit in action.hits.iter().filter(|hit| hit.tick == elapsed) {
+            impact(world, ivy, id, hit, state.sword_damage);
+        }
+        if elapsed >= action.duration {
+            state.move_ = None;
+        }
+    } else if distance > 2.45 {
+        ai.walk_to(ivy, at, 1.0);
+    } else {
+        ai.stop(ivy);
+        if now >= state.ready {
+            state.sword_damage = equipped_weapon(world, ivy);
+            let sword = state.sword_damage.is_some();
+            let still = ENTITIES
+                .get()
+                .and_then(|entities| {
+                    entities.with_entity(world, id, |target| {
+                        target
+                            .view()
+                            .is_some_and(|v| v.motion[0].powi(2) + v.motion[2].powi(2) <= 0.0025)
+                    })
+                })
+                .unwrap_or(false);
+            let index = choose_move(
+                sword,
+                distance,
+                still,
+                now >= state.combo_ready,
+                now >= state.hook_ready,
+                crate::ai::random,
+            );
+            let action = if sword { SWORD[index] } else { BOXING[index] };
+            state.start = now;
+            state.ready = now + action.duration.max(action.cooldown);
+            if index == 1 || index == 4 {
+                state.hook_ready = now + 15;
+            }
+            if index >= 2 {
+                state.combo_ready = now + 30;
+            }
+            state.move_ = Some(action);
+        }
+    }
+    FIGHTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(ivy.id(), state);
+    // shortcut: no reactive attacker in the pre-hurt hook, equipment post-hit
+    // callbacks, or host projectile launch for Ivy's custom venom arrows yet.
+    false
+}
+
+pub fn combat_clip(id: i32, moving: bool) -> Option<&'static str> {
+    let states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+    let state = states.get(&id)?;
+    if !state.stance {
+        return None;
+    }
+    if let Some(action) = state.move_ {
+        return Some(action.clip);
+    }
+    Some(match (state.sword_damage.is_some(), moving) {
+        (true, true) => "sword_walk",
+        (true, false) => "sword_idle",
+        (false, true) => "orthodox_walk",
+        (false, false) => "orthodox_idle",
+    })
+}
 
 /// `IvyTheDragonMerchant.getOffers`: rolled the first time, then kept by her villager carrier.
 fn open_trades(viewer: Entity<'_>, ivy: Entity<'_>) {
@@ -684,6 +1405,43 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equipment_modifiers_obey_slot_and_operation() {
+        let modifier = |slot: &str, operation: &str, amount| {
+            Value::Compound(Compound::from([
+                (
+                    "type".into(),
+                    Value::String("minecraft:attack_damage".into()),
+                ),
+                ("slot".into(), Value::String(slot.into())),
+                ("operation".into(), Value::String(operation.into())),
+                ("amount".into(), Value::Double(amount)),
+            ]))
+        };
+        let value = Value::List(vec![
+            modifier("mainhand", "add_value", 5.0),
+            modifier("offhand", "add_value", 100.0),
+            modifier("hand", "add_multiplied_base", 1.0),
+            modifier("any", "add_multiplied_total", 0.5),
+        ]);
+        assert_eq!(
+            attribute_from(value.clone(), "attack_damage", "mainhand", 1.0),
+            Some(10.5)
+        );
+        assert_eq!(attribute_from(value, "armor", "head", 0.0), None);
+    }
+
+    #[test]
+    fn attack_selection_respects_combo_and_hook_cooldowns() {
+        for sword in [false, true] {
+            assert_eq!(choose_move(sword, 2.0, true, false, false, |_| 0), 0);
+            assert_eq!(choose_move(sword, 2.0, true, false, true, |n| n - 1), 0);
+            assert_eq!(choose_move(sword, 2.3, true, true, true, |_| 0), 4);
+        }
+        assert_eq!(choose_move(false, 2.0, true, true, false, |n| n - 1), 3);
+        assert_eq!(choose_move(true, 2.0, true, true, false, |n| n - 1), 5);
+    }
 
     #[test]
     fn every_released_ivy_dialogue_decodes() {

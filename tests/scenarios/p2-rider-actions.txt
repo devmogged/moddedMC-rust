@@ -1,0 +1,12 @@
+# Stock-client smoke check: the eight rider controls register, but a plain client
+# does not send action packets. The companion packet parser/rate limiter have unit
+# tests; exercise the actual key presses and rebinding with a Fabric 26.3 client.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+expect-all registered player action saintsdragons:ascend && registered player action saintsdragons:descend && registered player action saintsdragons:accelerate && registered player action saintsdragons:ability_primary && registered player action saintsdragons:ability_secondary && registered player action saintsdragons:ability_tertiary && registered player action saintsdragons:toggle_melee && registered player action saintsdragons:flex
+botstart tester
+wait 3
+reject saintsdragons: rider action
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

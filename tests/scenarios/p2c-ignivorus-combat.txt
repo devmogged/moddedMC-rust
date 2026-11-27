@@ -1,0 +1,35 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 121 1033.5
+cmd forceload add 1007 1007 1051 1057
+wait 12
+cmd fill 1007 119 1007 1051 119 1057 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1007 120 1007 1051 129 1057 minecraft:air
+await 30 Successfully filled|No blocks were filled
+cmd time set midnight
+cmd saintsdragons spawn ignivorus 1025 120 1025
+wait 2.5
+cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},x=1025,y=120,z=1025,distance=..8,limit=1] add ignivorus_probe
+cmd damage @e[tag=ignivorus_probe,limit=1] 10 minecraft:in_fire
+cmd data get entity @e[tag=ignivorus_probe,limit=1] Health
+wait 0.5
+expect has the following entity data: 450(?:\.0+)?f
+cmd tp @e[tag=ignivorus_probe,limit=1] 1025.5 120 1025.5 0 0
+cmd summon minecraft:iron_golem 1025.5 120 1028.25 {NoAI:1b,Tags:["ignivorus_target"]}
+wait 0.25
+cmd damage @e[tag=ignivorus_probe,limit=1] 1 minecraft:mob_attack by @e[tag=ignivorus_target,limit=1]
+wait 1.4
+cmd data get entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".last
+cmd data get entity @e[tag=ignivorus_target,limit=1] Health
+wait 0.5
+expect has the following entity data: "(Slam|Bite)"
+expect Iron Golem has the following entity data: [0-9]{1,2}(?:\.[0-9]+)?f
+reject (?i)panic|panicked
+bot quit
+stop
