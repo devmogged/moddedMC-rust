@@ -3,6 +3,7 @@
 //! Cindervane uses a vanilla carrier with its own saved state, AI, combat and rider controls.
 
 mod abilities;
+mod advancements;
 mod ai;
 mod appearance;
 mod armor;

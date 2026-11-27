@@ -408,6 +408,8 @@ fn hatch(
         }]) == 1
     {
         sound(world, pos, "minecraft:entity.turtle.egg_hatch");
+        let advancement = format!("hatch_{}", species.name);
+        award_hatch(world, pos, egg, &advancement, "hatch_dragon");
         return true;
     }
     for id in spawned {
@@ -441,17 +443,31 @@ fn init_hatchling(world: World<'_>, mob: Entity<'_>, species: &Species, egg: &Eg
         return false;
     }
     Appearance::set_female(female, mob);
-    if let Some(owner) = &egg.owner
-        && owner.len() == 4
-    {
-        let mut uuid = [0; 16];
-        for (dst, value) in uuid.as_chunks_mut::<4>().0.iter_mut().zip(owner.iter()) {
-            dst.copy_from_slice(&value.to_be_bytes());
-        }
+    if let Some(uuid) = owner_uuid(egg) {
         taming::inherit_owner(mob, uuid);
         crate::codex::remember(world, mob, None);
     }
     true
+}
+
+fn owner_uuid(egg: &Egg) -> Option<[u8; 16]> {
+    let owner = egg.owner.as_ref().filter(|owner| owner.len() == 4)?;
+    let mut uuid = [0; 16];
+    for (dst, value) in uuid.as_chunks_mut::<4>().0.iter_mut().zip(owner.iter()) {
+        dst.copy_from_slice(&value.to_be_bytes());
+    }
+    Some(uuid)
+}
+
+/// `awardHatchAdvancement`: the egg's owner when online, otherwise every player within 32 blocks.
+fn award_hatch(world: World<'_>, pos: Pos, egg: &Egg, advancement: &str, criterion: &str) {
+    if owner_uuid(egg)
+        .is_some_and(|uuid| crate::advancements::award_uuid(world, uuid, advancement, criterion))
+    {
+        return;
+    }
+    let center = [pos.x, pos.y, pos.z].map(|c| f64::from(c) + 0.5);
+    crate::advancements::award_near(world, center, 32.0, false, advancement, criterion);
 }
 
 pub fn stack_clutch(click: &mut UseBlock<'_>) -> BlockUseResult {
@@ -686,7 +702,8 @@ fn advance(world: World<'_>, pos: Pos, ids: &EggStates) -> bool {
     };
     egg.hatch_progress = (egg.hatch_progress + 1.0 / f64::from(ticks)).min(1.0);
     if egg.hatch_progress >= 1.0 || (raevyx && nearby_lightning(world, pos)) {
-        return !hatch(
+        let by_lightning = egg.hatch_progress < 1.0;
+        let hatched = hatch(
             world,
             pos,
             species,
@@ -694,6 +711,16 @@ fn advance(world: World<'_>, pos: Pos, ids: &EggStates) -> bool {
             if waterlogged { ids.water } else { ids.air },
             count,
         );
+        if hatched && by_lightning {
+            award_hatch(
+                world,
+                pos,
+                &egg,
+                "raevyx_lightning_hatch",
+                "raevyx_lightning_hatch",
+            );
+        }
+        return !hatched;
     }
     let stage = ((egg.hatch_progress * 3.0) as usize).min(2) + group * 3;
     if stages[stage] != states[0]

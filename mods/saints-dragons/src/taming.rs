@@ -499,6 +499,7 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if mobs.kind(mob) == Some(crate::ivy::KIND) {
         return crate::ivy::use_on_mob(click);
     }
+    crate::advancements::award(player, "encounter_dragon", "encounter_dragon");
     let item = held_item(click).unwrap_or_default();
     if item == CREATIVE_MEAL {
         return apply_creative_meal(click);
@@ -659,6 +660,13 @@ pub fn tame(world: World<'_>, mob: Entity<'_>, owner: [u8; 16]) -> bool {
     ai.stop(mob);
     ai.set_target(world, mob, None);
     crate::codex::remember(world, mob, None);
+    if let Some(species) = mobs
+        .kind(mob)
+        .and_then(|kind| kind.strip_prefix("saintsdragons:"))
+    {
+        let advancement = format!("tame_{species}");
+        crate::advancements::award_uuid(world, owner, &advancement, &advancement);
+    }
     true
 }
 

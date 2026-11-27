@@ -290,6 +290,7 @@ fn capture_stack(
     crate::codex::remember(world, mob, Some(&name));
     flight::forget(mob.id());
     say(player, &format!("Bound {name} in the binder!"));
+    crate::advancements::award(player, "pocket_dragon", "bind_dragon");
     Some(UseResult::Success)
 }
 

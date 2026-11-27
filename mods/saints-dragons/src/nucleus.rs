@@ -301,6 +301,9 @@ pub fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         } else if let Some(&wave_size) = WAVE_SIZES.get(usize::from(data.wave - 1)) {
             if data.spawned < wave_size {
                 if let Some(uuid) = spawn(world, pos, data.spawned, data.owner.is_some()) {
+                    if data.wave == 1 && data.spawned == 0 {
+                        award_near(world, pos, "encounter_draconian_swarm");
+                    }
                     if data.wave > 1 && data.spawned == 0 && cfg!(feature = "original-assets") {
                         sound(
                             world,
@@ -316,6 +319,7 @@ pub fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                 if data.wave == 3 {
                     data.complete = true;
                     set_harvestable(world, pos, true);
+                    award_near(world, pos, "vanquish_draconian_swarm");
                 } else {
                     data.wave += 1;
                     data.spawned = 0;
@@ -427,6 +431,11 @@ pub fn defeated(world: World<'_>, mob: Entity<'_>) {
     }
 }
 
+/// `awardNearbyAdvancement`: living players in the nucleus block's box inflated by 64.
+fn award_near(world: World<'_>, pos: Pos, advancement: &str) {
+    crate::advancements::award_near(world, center(pos), 64.5, true, advancement, advancement);
+}
+
 fn change_encounters(world: World<'_>, player: Entity<'_>, sneaking: bool) -> bool {
     let (Some(view), Some(mobs), Some(entities)) = (player.view(), MOBS.get(), ENTITIES.get())
     else {
@@ -479,6 +488,7 @@ fn change_encounters(world: World<'_>, player: Entity<'_>, sneaking: bool) -> bo
         }
         begin(world, pos, &mut data);
         changed |= save(world, pos, &data);
+        crate::advancements::award(player, "summon_draconian_swarm", "summon_draconian_swarm");
     }
     changed
 }

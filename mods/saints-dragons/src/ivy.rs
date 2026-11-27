@@ -431,6 +431,7 @@ pub fn use_on_mob(click: &UseMob<'_>) -> UseResult {
         }
         return UseResult::Consume;
     }
+    crate::advancements::award(viewer, "meet_ivy", "meet_ivy");
     let memory = memory(click.world, viewer);
     let path = if !memory.known && !taming::is_tamed(ivy) {
         "first_meeting"
