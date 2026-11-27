@@ -76,3 +76,9 @@ Run these checks with the official client and the server resource pack.
 - Cover a straight section with a bottom slab, then swap in a top slab. Expect tall arms with the bottom slab and low arms with the top slab. Use a water bucket on a wall and restart. Expect the same post and arms, water inside the wall, and matching geometry from either side.
 - Assemble a Cut Calcite Brick Wall on a Mechanical Bearing and restart while it runs. Expect the wall to keep its material and arms through motion and reload. Change a neighbor at the landing point and stop the bearing. Expect the arms to update against the new neighbor.
 - Build equal large arrays of Cobblestone Walls and Cut Calcite Walls. Pan across them and cross the chunk boundaries in both directions. Record frame timing, overlay pop-in, texture seams, and any exposed Cobblestone Wall surface, especially looking along a row from below or through water.
+
+
+## Vanilla pane and bar connections (Pumpkin `3d233d7d8`)
+
+- Connect a Glass Pane to Iron Bars and a Cobblestone Wall. Add and remove a block above the pane. Expect the horizontal connections to stay in place. Remove one horizontal neighbor and expect only that side to retract.
+- Waterlog Waxed Copper Bars and connect them to a wall. Expect the water to remain when you add a block above or remove the wall. Restart and expect the same connections and water.

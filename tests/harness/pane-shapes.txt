@@ -1,0 +1,31 @@
+# IronBarsBlock updates the side that changed and preserves its other sides.
+seed 12345
+area 0 150 0 6 153 6
+start
+cmd fill 0 150 0 6 150 6 minecraft:stone
+cmd setblock 3 151 3 minecraft:glass_pane[east=false,north=true,south=false,waterlogged=false,west=false] strict
+cmd setblock 3 152 3 minecraft:stone
+probe execute if block 3 151 3 minecraft:glass_pane[east=false,north=true,south=false,west=false]
+expect Test passed
+snapshot above-only
+
+cmd setblock 4 151 3 minecraft:iron_bars
+probe execute if block 3 151 3 minecraft:glass_pane[east=true,north=true,south=false,west=false] if block 4 151 3 minecraft:iron_bars[west=true]
+expect Test passed
+snapshot mixed-side
+
+cmd setblock 3 151 2 minecraft:water
+probe execute if block 3 151 3 minecraft:glass_pane[east=true,north=false,south=false,west=false]
+expect Test passed
+snapshot cleared-north
+
+# Preserve the opposite side on a horizontal update and retain water.
+cmd setblock 2 151 3 minecraft:waxed_copper_bars[east=false,north=true,south=false,waterlogged=true,west=false] strict
+cmd setblock 2 152 3 minecraft:stone
+probe execute if block 2 151 3 minecraft:waxed_copper_bars[east=false,north=true,waterlogged=true]
+expect Test passed
+cmd setblock 2 151 4 minecraft:cobblestone_wall
+probe execute if block 2 151 3 minecraft:waxed_copper_bars[north=true,south=true,waterlogged=true]
+expect Test passed
+snapshot wet-bars
+stop
