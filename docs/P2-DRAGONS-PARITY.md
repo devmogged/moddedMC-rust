@@ -8,7 +8,7 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
-| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table | Ivy's companion inventory and combat, resuming her dialogue after the trade screen closes, exact flight navigation and collision, and exact spawn restrictions and attributes |
+| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table, has persistent companion inventory and recruited melee attacks | Ivy's original inventory UI, recovery and projectile combat, owner-initiated targeting, resuming her dialogue after the trade screen closes, exact flight navigation and collision, and exact spawn restrictions and attributes |
 | Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback, and the custom Raevyx storm, Stegonaut lush cave and Volitans underwater spawners | Per-species brains, navigation, growth and breeding |
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Raevyx retaliation, bite with chain lightning, horn gore, ground rend, dash, lightning beam, roar and inferred rider dive impact. Atroxiia autonomous melee, underwater bite, major attacks, Frost Impact effects and Frost Walker water freezing. Partial Ignivorus ground combat with retaliation, fire immunity, melee and ranged attacks, cooldowns, and Skyfall phase transition. Volitans AI bite, claw, horn gore, water/poison breath, poison ball, roar and burrow approach/exit attack. Stegonaut AI bite, chin slam, retaliation, owner defense, nearby pack and baby protection, and tame owner buff aura. Varasuchus AI bite, phase-two bite, horn gore, claw, tail sweep, slash barrage and phase transition. Nulljaw bite, aerial pack attack runs, retaliation and shulker targeting, with last-chance bullet interception. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Raevyx storm and supercharge, exact flight tactics and rider controls; remaining per-species combat, Stegonaut rider ground eating and ground slam/pillars and portable binder aura, exact Ignivorus targeting and airborne/rider abilities, projectile and hit geometry, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects; Nulljaw rider abilities, exact shulker bullet immunity and shooter/target sensing, flight pathfinding; Varasuchus rider abilities, parry and exact armor penetration; Volitans exact projectile entities and collision, damage-source hooks, special rider abilities and navigation; Atroxiia native freezing and frozen-target combo, exact sight and collision checks, owner offense targeting and rider abilities |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, juvenile food taming, growth feeding and raw-moop stunting including Nulljaw; Codex hunger display; grooming hurt clips and roost damage wake-up reactions | breeding experience orb and stat (host support), owner-bed sleep and sensory disturbances, the hunger hunting behaviour and roster melee scaling; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
@@ -343,11 +343,21 @@ bound to Ivy and her owner. The plushie recalls loaded Ivy in the same
 dimension and sends the teleport sound and particles. The stock-client
 scenario followed the recruitment dialogue, earned the plushie, verified
 its UUID after recall on a restarted server, and rejected a different player.
-The original trade
-and companion inventory screens, custom name input, cross-dimension recall,
-merchant combat, and client dialogue animations remain
-pending.
+Her companion inventory uses a stock chest screen with four armor slots, a
+weapon slot and 27 storage slots, restricted to her recruited owner within
+eight blocks. Inventory transactions persist by Ivy's UUID. Equipment affects
+melee damage and armor attributes. Recruited Ivy retaliates against attackers
+and protects her owner while following, with the released boxing and sword
+attack timings and melee animation clips. The stock menu does not provide the
+original equipment slot layout or automatic shift-click routing. Equipment
+wear, recovery items, venom projectiles, dodges, dash attacks, downed behavior
+and outgoing owner attack detection remain pending. The SDK has no merchant
+menu close callback for automatic dialogue resumption, nor a transactional
+entity inventory API for equipment wear and consumption.
+Custom name input, cross-dimension recall and client dialogue animations
+remain pending.
 [Ivy recruitment scenario](../tests/scenarios/p2ae-saints-dragons-ivy.txt)
+[Ivy companion scenario](../tests/scenarios/p2az-saints-dragons-ivy-companion.txt)
 
 ## Released creative tab
 
