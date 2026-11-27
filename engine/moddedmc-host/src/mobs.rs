@@ -66,7 +66,55 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     award_experience,
     award_stat,
     boolean_gamerule,
+    last_hurt_mob,
+    last_hurt_by_mob,
 };
+
+unsafe extern "C" fn last_hurt_mob(raw: EntityRef, timestamp: *mut i64) -> i32 {
+    // SAFETY: the entity is borrowed for this call.
+    let Some((id, game_time)) = (unsafe { entity(raw) })
+        .and_then(EntityBase::get_living_entity)
+        .and_then(pumpkin_core::entity::living::LivingEntity::get_last_hurt_mob)
+    else {
+        return -1;
+    };
+    // SAFETY: a non-null output slot is writable for the call.
+    if let Some(out) = unsafe { timestamp.as_mut() } {
+        *out = game_time;
+    }
+    id
+}
+
+unsafe extern "C" fn last_hurt_by_mob(raw: EntityRef, timestamp: *mut i64) -> i32 {
+    // SAFETY: the entity is borrowed for this call.
+    let Some((id, game_time)) = (unsafe { entity(raw) })
+        .and_then(EntityBase::get_living_entity)
+        .and_then(pumpkin_core::entity::living::LivingEntity::get_last_hurt_by_mob_game_time)
+    else {
+        return -1;
+    };
+    // SAFETY: a non-null output slot is writable for the call.
+    if let Some(out) = unsafe { timestamp.as_mut() } {
+        *out = game_time;
+    }
+    id
+}
+
+#[cfg(test)]
+mod combat_history_tests {
+    use super::*;
+
+    #[test]
+    fn absent_entity_does_not_write_combat_history_timestamp() {
+        let mut timestamp = 123;
+        // SAFETY: null is the absent entity handle; the timestamp is writable.
+        unsafe {
+            assert_eq!(last_hurt_mob(ptr::null(), &raw mut timestamp), -1);
+            assert_eq!(last_hurt_by_mob(ptr::null(), &raw mut timestamp), -1);
+        }
+        assert_eq!(timestamp, 123);
+    }
+}
 
 unsafe extern "C" fn kill_credit(raw: EntityRef) -> i32 {
     // SAFETY: the entity is borrowed for this call.
