@@ -64,7 +64,6 @@ fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
     let Some(mobs) = crate::MOBS.get() else {
         return;
     };
-    // shortcut: only route mounted dragon input; individual ability implementations follow.
     let _ = entities.with_entity(world, vehicle, |dragon| {
         if mobs.kind(dragon) == Some("saintsdragons:raevyx") {
             crate::combat_raevyx::rider_action(world, dragon, player, action, phase);
@@ -92,6 +91,10 @@ fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
         }
         if mobs.kind(dragon) == Some("saintsdragons:ignivorus") {
             crate::combat_ignivorus::rider_action(world, dragon, player, action, phase);
+            return;
+        }
+        if mobs.kind(dragon) == Some(crate::CINDERVANE) {
+            crate::combat::rider_action(world, dragon, player, action, phase);
             return;
         }
         if phase != ACTION_HELD

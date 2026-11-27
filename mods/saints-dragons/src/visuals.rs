@@ -347,7 +347,9 @@ pub fn tick(world: World<'_>, mob: Entity<'_>) {
         hurt_clip(mob.id(), now)
             .or_else(|| crate::roost::sleep_clip(mob.id()))
             .unwrap_or_else(|| {
-                if attack.is_none() && crate::cindervane_wild::drinking(mob.id()) {
+                if crate::combat::flexing(mob) {
+                    "flex"
+                } else if attack.is_none() && crate::cindervane_wild::drinking(mob.id()) {
                     "drinking"
                 } else {
                     pose.clip(view, now, landing, attack)

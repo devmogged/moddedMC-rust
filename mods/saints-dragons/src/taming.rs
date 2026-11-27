@@ -1057,6 +1057,14 @@ fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
     else {
         return;
     };
+    if crate::combat::flexing(mob) {
+        mob.change(&EntityChange {
+            mask: SET_MOTION,
+            motion: [0.0; 3],
+            ..EntityChange::default()
+        });
+        return;
+    }
     let keys = mobs.player_input(rider).unwrap_or(0);
     if mobs.kind(mob) == Some("saintsdragons:volitans") {
         crate::combat_volitans::ride(world, mob, rider, view, look, body.input, keys);
