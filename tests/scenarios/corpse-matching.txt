@@ -1,0 +1,91 @@
+# A full inventory keeps displaced gear in the Corpse overflow screen across restart.
+mods target\mods\corpse.mmc
+start
+expect moddedmc: loaded corpse
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+cmd gamemode spectator tester
+cmd tp tester 1025.5 300 1025.5
+wait 3
+cmd gamerule minecraft:keep_inventory false
+cmd fill 1024 299 1024 1030 299 1030 minecraft:quartz_block
+wait 0.5
+expect Successfully filled 49 block
+cmd gamemode survival tester
+cmd tp tester 1025.5 300 1025.5
+wait 1
+cmd item replace entity tester armor.head with minecraft:diamond_helmet
+cmd item replace entity tester weapon.offhand with minecraft:shield
+cmd kill tester
+wait 0.5
+bot respawn
+wait 1
+cmd item replace entity tester armor.head with minecraft:iron_helmet
+cmd give tester minecraft:cobblestone 2304
+wait 0.5
+cmd tp tester 1025.5 300 1027.5 180 25
+wait 3
+bot expect entity minecraft:interaction near 1025.5 300 1025.5 within 0.1 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:interaction
+bot use-entity interaction 1025.5 300 1025.5 main
+wait 0.5
+bot expect slot 8 minecraft:hopper 1
+wait 0.5
+expect expect inventory ok slot 8 hopper 1
+bot inventory-click 8 left
+wait 0.5
+bot expect slot 0 minecraft:iron_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 iron_helmet 1
+cmd data get entity tester equipment.head.id
+wait 0.5
+expect minecraft:diamond_helmet
+cmd data get entity tester equipment.offhand.id
+wait 0.5
+expect minecraft:shield
+botstart witness
+wait 4
+cmd tp witness 1026.5 300 1027.5 180 27
+wait 2
+bot use-entity interaction 1025.5 300 1025.5 main
+wait 0.5
+bot expect slot 0 minecraft:iron_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 iron_helmet 1
+botselect tester
+bot inventory-click 53 left
+wait 0.5
+botselect witness
+bot expect slot 0 minecraft:iron_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 iron_helmet 1
+bot quit
+botselect tester
+bot quit
+stop
+start
+expect moddedmc: loaded corpse
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+bot use-entity interaction 1025.5 300 1025.5 main
+wait 0.5
+bot expect slot 0 minecraft:iron_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 iron_helmet 1
+cmd clear tester minecraft:cobblestone 64
+wait 0.5
+bot inventory-click 53 left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:iron_helmet 0
+wait 0.5
+expect Found 1 matching item
+bot quit
+stop

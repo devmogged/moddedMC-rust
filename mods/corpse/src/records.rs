@@ -55,13 +55,30 @@ pub struct Grave {
     pub position: [f64; 3],
     pub body_position: [f64; 3],
     pub yaw: f32,
-    created_at: i64,
+    pub created_at: i64,
     profile: ByteArray,
     pub pending: bool,
     pub present: bool,
     pub items: Vec<SavedStack>,
     pub original: Vec<SavedStack>,
-    pub overflow: Vec<ByteArray>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    overflow: Vec<ByteArray>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    next_page: i32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pages: Vec<OverflowPage>,
+}
+
+fn is_zero(value: &i32) -> bool {
+    *value == 0
+}
+
+pub const PAGE_SLOTS: usize = 45;
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct OverflowPage {
+    pub id: i32,
+    pub slots: Vec<ByteArray>,
 }
 
 impl Grave {
@@ -90,6 +107,8 @@ impl Grave {
             original: items.clone(),
             items,
             overflow: Vec::new(),
+            next_page: 0,
+            pages: Vec::new(),
         }
     }
 
@@ -112,7 +131,43 @@ impl Grave {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty() && self.overflow.is_empty()
+        self.items.is_empty() && self.pages.is_empty() && self.overflow.is_empty()
+    }
+
+    pub fn migrate_overflow(&mut self) -> Option<()> {
+        if self.overflow.is_empty() {
+            return Some(());
+        }
+        let old = std::mem::take(&mut self.overflow);
+        self.append_overflow(old)
+    }
+
+    pub fn append_overflow(&mut self, stacks: Vec<ByteArray>) -> Option<()> {
+        // Existing pages can be open elsewhere. Only new pages receive new stacks.
+        for slots in stacks.chunks(PAGE_SLOTS) {
+            self.next_page = self.next_page.checked_add(1)?;
+            self.pages.push(OverflowPage {
+                id: self.next_page,
+                slots: slots.to_vec(),
+            });
+        }
+        Some(())
+    }
+
+    pub fn save_page(&mut self, page: i32, mut slots: Vec<ByteArray>) -> Option<()> {
+        let index = self.pages.iter().position(|current| current.id == page)?;
+        slots.truncate(
+            slots
+                .iter()
+                .rposition(|stack| !stack.is_empty())
+                .map_or(0, |index| index + 1),
+        );
+        if slots.is_empty() {
+            self.pages.remove(index);
+        } else {
+            self.pages[index].slots = slots;
+        }
+        Some(())
     }
 }
 

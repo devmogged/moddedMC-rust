@@ -1,0 +1,17 @@
+# Compare hanging ladder support and water restoration with Create 6.0.10.
+seed 20261126
+area 0 149 0 8 156 8
+start
+cmd fill 0 150 0 8 155 8 minecraft:air
+cmd fill 0 150 0 8 150 8 minecraft:stone
+cmd setblock 4 153 5 minecraft:stone
+cmd setblock 4 153 4 create:brass_ladder[facing=north,waterlogged=false]
+cmd setblock 4 152 4 create:brass_ladder[facing=north,waterlogged=true]
+tick 1
+probe execute if block 4 153 4 create:brass_ladder[facing=north,waterlogged=false] if block 4 152 4 create:brass_ladder[facing=north,waterlogged=true]
+expect Test passed
+cmd setblock 4 153 5 minecraft:air
+tick 1
+probe execute if block 4 153 4 minecraft:air if block 4 152 4 minecraft:water[level=0]
+expect Test passed
+stop
