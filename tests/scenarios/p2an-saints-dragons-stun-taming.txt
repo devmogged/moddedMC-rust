@@ -188,15 +188,17 @@ expect Raevyx is being healed
 cmd kill @e[tag=stun_probe]
 wait 1
 cmd saintsdragons spawn raevyx 1025 100 1020
+cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1025.5,y=100,z=1020.5,distance=..4,limit=1] add recovery_probe
 wait 1
-cmd damage @e[type=minecraft:ravager,x=1025.5,y=100,z=1020.5,distance=..4,limit=1] 150 minecraft:magic
+cmd damage @e[tag=recovery_probe,limit=1] 150 minecraft:magic
 wait 0.5
-cmd data get entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1020.5,distance=..4,limit=1] Health
+cmd data get entity @e[tag=recovery_probe,limit=1] Health
 wait 0.5
 expect has the following entity data: 60f
 wait 31
 expect You took too long to decide\. Raevyx has recovered
-cmd data get entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1020.5,distance=..4,limit=1] Health
+# Recovery releases AI, so query the same dragon even if it moves away.
+cmd data get entity @e[tag=recovery_probe,limit=1] Health
 wait 0.5
 expect has the following entity data: 180f
 reject (?i)panic|panicked|\[bot\] error

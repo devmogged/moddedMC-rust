@@ -9,11 +9,15 @@ cmd tp tester 1025.5 120 1030.5
 cmd forceload add 1025 1025
 wait 3
 cmd fill 1013 119 1013 1037 119 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd fill 1013 120 1013 1037 129 1037 minecraft:air
+await 30 Successfully filled|No blocks were filled
 cmd saintsdragons spawn ignivorus 1025 120 1025
+await 30 saintsdragons:ignivorus: spawned \d+
 wait 2
 cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] 1025.5 120 1025.5 0 0
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+await 10 Replaced a slot on tester with \[Creative Dragon Taming Meal\]
 wait 0.5
 bot use-entity ravager 1025.5 120 1025.5 off
 wait 0.5

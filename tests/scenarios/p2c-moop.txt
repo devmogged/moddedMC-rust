@@ -16,7 +16,7 @@ wait 1
 expect saintsdragons:moop: spawned \d+
 cmd data get entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},limit=1] Health
 wait 0.5
-expect has the following entity data: 3.0f
+expect has the following entity data: 3(?:\.0)?f$
 wait 10
 cmd execute if entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},x=1025.5,y=104,z=1025.5,distance=1..15,limit=1]
 await 5 Test passed
@@ -24,7 +24,7 @@ cmd damage @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}
 wait 3
 cmd data get entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},limit=1] Health
 wait 0.5
-expect has the following entity data: 2.0f
+expect has the following entity data: 2(?:\.0)?f$
 cmd execute if entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},x=1025.5,y=104,z=1025.5,distance=..15,limit=1]
 await 5 Test passed
 reject (?i)panic|panicked|\[bot\] error

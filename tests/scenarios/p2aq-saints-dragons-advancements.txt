@@ -13,9 +13,18 @@ cmd tp tester 1025.5 100 1029.5
 cmd forceload add 1025 1025
 wait 3
 cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd fill 1013 100 1013 1037 110 1037 minecraft:air
-cmd item replace entity tester hotbar.4 with saintsdragons:draconic_codex
-wait 1
+await 30 Successfully filled|No blocks were filled
+# Exercise the release's actual acquisition trigger. Pumpkin's administrative item replace
+# writes a slot without signaling the inventory_changed advancement listener.
+cmd execute if entity @a[name=tester,advancements={saintsdragons:root=true}]
+wait 0.5
+expect Test failed
+cmd tp tester 1025.5 100 1029.5
+cmd summon minecraft:item 1025.5 100 1029.5 {Item:{id:"saintsdragons:draconic_codex",count:1},PickupDelay:0s,Motion:[0.0d,0.0d,0.0d]}
+await 20 Summoned new
+wait 2
 cmd execute if entity @a[name=tester,advancements={saintsdragons:root=true}]
 wait 0.5
 expect Test passed
