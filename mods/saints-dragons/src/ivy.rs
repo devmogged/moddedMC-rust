@@ -67,6 +67,8 @@ const STORAGE_START: usize = 9;
 struct Inventory {
     ivy: [u8; 16],
     slots: Vec<Option<Vec<u8>>>,
+    #[serde(default)]
+    revision: u32,
 }
 
 fn inventories(world: World<'_>) -> Option<Vec<Inventory>> {
@@ -76,13 +78,26 @@ fn inventories(world: World<'_>) -> Option<Vec<Inventory>> {
     }
 }
 
-fn inventory(world: World<'_>, uuid: [u8; 16]) -> Option<Vec<Option<Vec<u8>>>> {
+fn inventory_record(world: World<'_>, uuid: [u8; 16]) -> Option<Inventory> {
     Some(
         inventories(world)?
             .into_iter()
             .find(|record| record.ivy == uuid)
-            .map_or_else(|| vec![None; INVENTORY_SIZE], |record| record.slots),
+            .unwrap_or_else(|| Inventory {
+                ivy: uuid,
+                slots: vec![None; INVENTORY_SIZE],
+                revision: 0,
+            }),
     )
+}
+
+fn inventory(world: World<'_>, uuid: [u8; 16]) -> Option<Vec<Option<Vec<u8>>>> {
+    Some(inventory_record(world, uuid)?.slots)
+}
+
+// A new revision invalidates the old native view when Ivy consumes a stack.
+fn inventory_id(id: i32, revision: u32) -> u64 {
+    (u64::from(revision) << 32) | u64::from(id as u32)
 }
 
 fn can_access(ivy: Entity<'_>, viewer: Entity<'_>) -> bool {
@@ -107,6 +122,9 @@ fn open_inventory(world: World<'_>, viewer: Entity<'_>, ivy: Entity<'_>) -> bool
     if !can_access(ivy, viewer) {
         return false;
     }
+    let Some(record) = inventory_record(world, uuid) else {
+        return false;
+    };
     let mut access = [Access {
         take: true,
         insert: true,
@@ -120,21 +138,23 @@ fn open_inventory(world: World<'_>, viewer: Entity<'_>, ivy: Entity<'_>) -> bool
     menus.open(
         &player,
         kind,
-        ivy.id() as u64,
+        inventory_id(ivy.id(), record.revision),
         NAME,
         ValiditySlots {
             world,
             access: &access,
             context: &uuid,
         },
-        || inventory(world, uuid),
+        || Some(record.slots),
     )
 }
 
 fn valid_inventory(view: Validity<'_>) -> bool {
-    let (Some(mobs), Some(entities), Ok(id)) =
-        (MOBS.get(), ENTITIES.get(), i32::try_from(view.inventory))
-    else {
+    let (Some(mobs), Some(entities), Ok(id)) = (
+        MOBS.get(),
+        ENTITIES.get(),
+        i32::try_from(view.inventory as u32),
+    ) else {
         return false;
     };
     let mut valid = false;
@@ -143,7 +163,11 @@ fn valid_inventory(view: Validity<'_>) -> bool {
             return;
         }
         valid = entities.with_entity(world, id, |ivy| {
-            mobs.uuid(ivy).is_some_and(|uuid| uuid == view.context) && can_access(ivy, viewer)
+            mobs.uuid(ivy).is_some_and(|uuid| {
+                uuid == view.context
+                    && inventory_record(world, uuid)
+                        .is_some_and(|record| view.inventory == inventory_id(id, record.revision))
+            }) && can_access(ivy, viewer)
         }) == Some(true);
     });
     valid
@@ -225,7 +249,7 @@ fn change_inventory(mut change: Change<'_>) {
         MOBS.get(),
         ENTITIES.get(),
         INVENTORY_KEY.get(),
-        i32::try_from(change.inventory),
+        i32::try_from(change.inventory as u32),
     ) else {
         return;
     };
@@ -263,8 +287,19 @@ fn change_inventory(mut change: Change<'_>) {
     let Some(mut records) = inventories(change.world) else {
         return;
     };
+    let revision = records
+        .iter()
+        .find(|record| record.ivy == uuid)
+        .map_or(0, |record| record.revision);
+    if change.inventory != inventory_id(id, revision) {
+        return;
+    }
     records.retain(|record| record.ivy != uuid);
-    records.push(Inventory { ivy: uuid, slots });
+    records.push(Inventory {
+        ivy: uuid,
+        slots,
+        revision,
+    });
     // shortcut: transactions can only commit saved_data, not entity NBT. Keep the
     // inventory keyed by Ivy's persistent UUID until the host offers entity commits.
     if let Ok(bytes) = serde_json::to_vec(&records)
@@ -910,6 +945,7 @@ struct DownedState {
     downed_revive_progress: i32,
     grace: i32,
     arise: i32,
+    totem_pending: bool,
 }
 
 impl DownedState {
@@ -1011,7 +1047,125 @@ pub fn hurt(world: World<'_>, ivy: Entity<'_>, damage_type: &str, amount: f32) -
     false
 }
 
-/// IvyTheDragonMerchant.actuallyHurt: enter the downed state on lethal damage.
+/// IvyTheDragonMerchant.consumeOneInventoryItem: consume the first matching storage stack.
+fn consume_totem(slots: &mut [Option<Vec<u8>>]) -> bool {
+    for slot in slots.iter_mut().skip(STORAGE_START) {
+        let Some(mut stack) = slot
+            .as_deref()
+            .and_then(|bytes| fastnbt::from_bytes::<Compound>(bytes).ok())
+        else {
+            continue;
+        };
+        if !matches!(stack.get("id"), Some(Value::String(id)) if id == "minecraft:totem_of_undying")
+        {
+            continue;
+        }
+        match stack.get("count") {
+            Some(Value::Int(1)) => *slot = None,
+            Some(Value::Int(count)) if *count > 1 => {
+                stack.insert("count".into(), Value::Int(count - 1));
+                let Ok(bytes) = fastnbt::to_bytes(&stack) else {
+                    return false;
+                };
+                *slot = Some(bytes);
+            }
+            _ => continue,
+        }
+        return true;
+    }
+    false
+}
+
+fn use_totem(world: World<'_>, ivy: Entity<'_>) -> Option<()> {
+    let uuid = MOBS.get()?.uuid(ivy)?;
+    let _lock = INVENTORY_WRITE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let mut records = inventories(world)?;
+    let record = records.iter_mut().find(|record| record.ivy == uuid)?;
+    if !consume_totem(&mut record.slots) {
+        return None;
+    }
+    record.revision = record.revision.checked_add(1)?;
+    let bytes = serde_json::to_vec(&records).ok()?;
+    SAVES
+        .get()?
+        .write(&world, *INVENTORY_KEY.get()?, &bytes)
+        .then_some(())
+}
+
+/// IvyTheDragonMerchant.tryUseInventoryTotem: vanilla effects after the final hit commits.
+fn totem_effects(world: World<'_>, ivy: Entity<'_>) {
+    // shortcut: the host exposes individual vanilla effect removal, not removeAllEffects
+    // or enumeration of active effects. Remove every vanilla effect supported by this release.
+    for effect in [
+        "speed",
+        "slowness",
+        "haste",
+        "mining_fatigue",
+        "strength",
+        "instant_health",
+        "instant_damage",
+        "jump_boost",
+        "nausea",
+        "regeneration",
+        "resistance",
+        "fire_resistance",
+        "water_breathing",
+        "invisibility",
+        "blindness",
+        "night_vision",
+        "hunger",
+        "weakness",
+        "poison",
+        "wither",
+        "health_boost",
+        "absorption",
+        "saturation",
+        "glowing",
+        "levitation",
+        "luck",
+        "unluck",
+        "slow_falling",
+        "conduit_power",
+        "dolphins_grace",
+        "bad_omen",
+        "hero_of_the_village",
+        "darkness",
+        "trial_omen",
+        "raid_omen",
+        "wind_charged",
+        "weaving",
+        "oozing",
+        "infested",
+    ] {
+        ivy.remove_effect(&format!("minecraft:{effect}"));
+    }
+    ivy.add_effect("minecraft:regeneration", 900, 1, false, true);
+    ivy.add_effect("minecraft:absorption", 100, 1, false, true);
+    ivy.add_effect("minecraft:fire_resistance", 800, 0, false, true);
+    if let (Some(effects), Some(view)) = (EFFECTS.get(), ivy.view()) {
+        effects.play_sound(
+            world,
+            view.position,
+            "minecraft:item.totem.use",
+            SOUND_NEUTRAL,
+            1.0,
+            1.0,
+        );
+        // shortcut: no entity-event 35 host call; send its totem particles directly.
+        effects.particles(
+            world,
+            "minecraft:totem_of_undying",
+            flight::add(view.position, [0.0, 1.0, 0.0]),
+            [0.5, 0.8, 0.5],
+            0.1,
+            30,
+        );
+    }
+}
+
+/// IvyTheDragonMerchant.actuallyHurt: consume an inventory totem before entering downed.
 pub fn hurt_final(
     world: World<'_>,
     ivy: Entity<'_>,
@@ -1021,18 +1175,37 @@ pub fn hurt_final(
     absorption: f32,
 ) -> f32 {
     if !lethal
-        || !taming::is_tamed(ivy)
         || matches!(
             damage_type,
             "minecraft:out_of_world" | "minecraft:generic_kill"
         )
+        || crate::TAGS.get().is_some_and(|tags| {
+            tags.contains(
+                "damage_type",
+                "minecraft:bypasses_invulnerability",
+                damage_type,
+            )
+        })
     {
         return amount;
     }
     let Some((health, _)) = MOBS.get().and_then(|mobs| mobs.health(ivy)) else {
         return amount;
     };
-    // shortcut: inventory totem rescue requires consuming a saved stack and applying all effects.
+    if use_totem(world, ivy).is_some() {
+        let mut state = downed_state(ivy);
+        state.totem_pending = true;
+        save_downed(ivy, &state);
+        if health < 1.0
+            && let Some(vitals) = crate::MOB_HEALTH.get()
+        {
+            vitals.set(ivy, 1.0);
+        }
+        return (health - 1.0).max(0.0) + absorption;
+    }
+    if !taming::is_tamed(ivy) {
+        return amount;
+    }
     save_downed(
         ivy,
         &DownedState {
@@ -1056,6 +1229,12 @@ pub fn hurt_final(
 /// IvyTheDragonMerchant.tickDownedState, including the stock-client animation and revive timer.
 pub fn downed_tick(world: World<'_>, ivy: Entity<'_>) {
     let mut state = downed_state(ivy);
+    if state.totem_pending {
+        // Apply absorption after the host has deducted the lethal hit's old absorption.
+        state.totem_pending = false;
+        save_downed(ivy, &state);
+        totem_effects(world, ivy);
+    }
     if !state.active() {
         return;
     }
@@ -1916,6 +2095,41 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn totem_consumes_one_in_storage_order_and_preserves_components() {
+        let stack = |id: &str, count: i32| {
+            fastnbt::to_bytes(&Compound::from([
+                ("id".into(), Value::String(id.into())),
+                ("count".into(), Value::Int(count)),
+                (
+                    "components".into(),
+                    Value::Compound(Compound::from([(
+                        "minecraft:custom_data".into(),
+                        Value::Compound(Compound::new()),
+                    )])),
+                ),
+            ]))
+            .unwrap()
+        };
+        let mut slots = vec![None; INVENTORY_SIZE];
+        slots[4] = Some(stack("minecraft:totem_of_undying", 1));
+        slots[9] = Some(stack("minecraft:bread", 3));
+        slots[10] = Some(stack("minecraft:totem_of_undying", 2));
+        slots[11] = Some(stack("minecraft:totem_of_undying", 1));
+        assert!(consume_totem(&mut slots));
+        assert_eq!(
+            fastnbt::from_bytes::<Compound>(slots[10].as_deref().unwrap()).unwrap(),
+            fastnbt::from_bytes::<Compound>(&stack("minecraft:totem_of_undying", 1)).unwrap()
+        );
+        assert!(consume_totem(&mut slots));
+        assert!(slots[10].is_none());
+        assert!(consume_totem(&mut slots));
+        assert!(slots[11].is_none());
+        assert!(!consume_totem(&mut slots));
+        assert!(slots[4].is_some());
+        assert!(slots[9].is_some());
+    }
 
     #[test]
     fn trade_resume_only_schedules_matching_close_once() {
