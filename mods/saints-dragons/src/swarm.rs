@@ -139,7 +139,7 @@ fn can_hit(mob: Entity<'_>, target: Entity<'_>) -> bool {
         && target
             .view()
             .is_some_and(|view| view.kind & ENTITY_LIVING != 0)
-        && target.type_id() != "minecraft:enderman"
+        && target.type_id() != "enderman"
         && Member::of(target).is_none()
         && !matches!(
             MOBS.get().and_then(|mobs| mobs.game_mode(target)),

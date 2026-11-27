@@ -19,15 +19,15 @@ cmd saintsdragons spawn whettled 1031 120 1025
 wait 3
 cmd data get entity @e[type=minecraft:enderman,limit=1] Health
 wait 0.5
-expect following entity data: 40f$
+expect Enderman has the following entity data: 40f$
 cmd data get entity @e[type=minecraft:spider,limit=1] Health
 wait 0.5
-expect following entity data: 12f$
+expect Spider has the following entity data: 12f$
 cmd damage @e[type=minecraft:spider,limit=1] 1 minecraft:mob_attack by @e[type=minecraft:enderman,limit=1]
 wait 2
 cmd data get entity @e[type=minecraft:enderman,limit=1] Health
 wait 0.5
-expect following entity data: 40f$
+expect Enderman has the following entity data: 40f$
 cmd kill @e[type=minecraft:spider]
 cmd kill @e[type=minecraft:ravager]
 cmd kill @e[type=minecraft:enderman]
@@ -38,7 +38,7 @@ cmd saintsdragons spawn latcher 1025 120 1025
 wait 2
 cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
 wait 0.5
-expect following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
+expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
 cmd kill @e[type=minecraft:spider]
 cmd kill @e[type=minecraft:iron_golem]
 wait 2
@@ -48,7 +48,7 @@ cmd saintsdragons spawn winged 1025 120 1025
 wait 7
 cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
 wait 0.5
-expect following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
+expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
 cmd kill @e[type=minecraft:ravager]
 cmd kill @e[type=minecraft:iron_golem]
 wait 2
@@ -58,7 +58,7 @@ cmd saintsdragons spawn whettled 1025 120 1025
 wait 4
 cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
 wait 0.5
-expect following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
+expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop
