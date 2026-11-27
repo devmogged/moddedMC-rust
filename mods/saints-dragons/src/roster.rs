@@ -314,7 +314,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             || stun
             || species.name == "stegonaut"
             || species.name == "varasuchus"
-            || (species.name != "moop" && cfg!(feature = "original-assets"))
+            || cfg!(feature = "original-assets")
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
         }
