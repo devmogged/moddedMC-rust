@@ -13,6 +13,7 @@ mod binders;
 mod blocks;
 mod breed;
 mod catalog;
+mod cindervane_wild;
 mod codex;
 mod combat;
 mod combat_atroxiia;
@@ -245,9 +246,19 @@ impl Mod for SaintsDragons {
             (taming::FOLLOW, 2, goal_control::MOVE),
             (breed::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
             (hunt::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
-            (flight::GOAL, 2, goal_control::MOVE | goal_control::LOOK),
-            (ai::IDLE_LOOK, 3, goal_control::LOOK),
-            (ai::GROUND_WANDER, 4, goal_control::MOVE),
+            (
+                cindervane_wild::SOCIAL,
+                2,
+                goal_control::MOVE | goal_control::LOOK,
+            ),
+            (
+                cindervane_wild::DRINK,
+                3,
+                goal_control::MOVE | goal_control::LOOK,
+            ),
+            (flight::GOAL, 4, goal_control::MOVE | goal_control::LOOK),
+            (ai::IDLE_LOOK, 5, goal_control::LOOK),
+            (ai::GROUND_WANDER, 6, goal_control::MOVE),
             (combat::TARGETING, 1, goal_control::TARGET),
             (ai::AMBIENT, 0, 0),
         ] {

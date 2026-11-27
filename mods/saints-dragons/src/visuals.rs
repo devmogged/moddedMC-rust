@@ -341,9 +341,13 @@ pub fn tick(world: World<'_>, mob: Entity<'_>) {
     let landing = crate::flight::landing(mob.id());
     let descriptions = frames(view, now + (mob.id() as u64 % 47), attack.is_some());
     draw(world, mob, "cindervane", view, &descriptions, |pose| {
-        hurt_clip(mob.id(), now)
-            .or_else(|| crate::roost::sleep_clip(mob.id()))
-            .unwrap_or_else(|| pose.clip(view, now, landing, attack))
+        hurt_clip(mob.id(), now).or_else(|| crate::roost::sleep_clip(mob.id())).unwrap_or_else(|| {
+            if attack.is_none() && crate::cindervane_wild::drinking(mob.id()) {
+                "drinking"
+            } else {
+                pose.clip(view, now, landing, attack)
+            }
+        })
     });
 }
 
