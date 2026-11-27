@@ -179,6 +179,17 @@ const SPECIES: [Species; 13] = [
 
 pub const SWARM_EGG: &str = "draconian_swarm";
 
+/// The current carrier melee bases (ravager 12, spider 2), except Ignivorus,
+/// whose release growth profile already sets 50 for adults and 0 for babies.
+pub fn melee_base(name: &str, juvenile: bool) -> Option<f64> {
+    match name {
+        "ignivorus" => Some(if juvenile { 0.0 } else { 50.0 }),
+        "raevyx" | "stegonaut" | "varasuchus" | "volitans" | "atroxiia" => Some(12.0),
+        "nulljaw" => Some(2.0),
+        _ => None,
+    }
+}
+
 impl Species {
     fn clip(&self, view: EntityView, wet: bool) -> &'static str {
         match self.name {
@@ -233,6 +244,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             ("minecraft:max_health", species.health),
             ("minecraft:movement_speed", species.speed),
         ];
+        if let Some(damage) = melee_base(species.name, false) {
+            attributes.push(("minecraft:attack_damage", damage));
+        }
         if species.name == crate::ivy::SPECIES {
             attributes.extend([
                 ("minecraft:attack_damage", 4.0),
@@ -591,7 +605,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         return false;
     };
     if crate::hunger::DRAGONS.contains(&name) {
-        crate::hunger::tick(world, mob, species.speed, None);
+        crate::hunger::tick(world, mob, species.speed, None, name);
     }
     if crate::eggs::grow(mob, name) {
         let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
@@ -645,6 +659,16 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn melee_bases_preserve_carriers_and_ignivorus_growth() {
+        assert_eq!(melee_base("raevyx", false), Some(12.0));
+        assert_eq!(melee_base("nulljaw", false), Some(2.0));
+        assert_eq!(melee_base("ignivorus", false), Some(50.0));
+        assert_eq!(melee_base("ignivorus", true), Some(0.0));
+        assert_eq!(melee_base("cindervane", false), None);
+        assert_eq!(melee_base("mossback", false), None);
+    }
 
     #[test]
     fn moop_uses_the_released_swim_speeds_and_land_clip() {

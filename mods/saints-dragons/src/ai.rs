@@ -96,7 +96,7 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         AMBIENT => match phase {
             goal_phase::CAN_START | goal_phase::CONTINUE => true,
             goal_phase::TICK => {
-                crate::hunger::tick(world, mob, 0.30, Some(0.60));
+                crate::hunger::tick(world, mob, 0.30, Some(0.60), "cindervane");
                 if crate::eggs::grow(mob, "cindervane") {
                     if let Some(view) = mob.view() {
                         let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
