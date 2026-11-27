@@ -40,6 +40,7 @@ use tokio::{
 use uuid::Uuid;
 
 pub const PACKET_TIMEOUT: Duration = Duration::from_secs(60);
+const COMPANION_CHANNEL: &str = "moddedmc:negotiate";
 
 pub struct HeadlessBot {
     pub name: String,
@@ -196,8 +197,8 @@ impl HeadlessBot {
             } else if pkt.id == CPluginMessage::to_id(CURRENT_MC_VERSION) && companion_version != 0
             {
                 let mut data = &pkt.payload[..];
-                const CHANNEL: &str = "moddedmc:negotiate";
-                if data.get_str_borrowed().map_err(|error| error.to_string())? == CHANNEL {
+                if data.get_str_borrowed().map_err(|error| error.to_string())? == COMPANION_CHANNEL
+                {
                     challenged = true;
                     received_answer |= self.companion_message(data, companion_version).await?;
                 }
@@ -237,12 +238,11 @@ impl HeadlessBot {
         reason = "the bot reports configuration evidence to stdout"
     )]
     async fn companion_message(&mut self, data: &[u8], version: u16) -> Result<bool, String> {
-        const CHANNEL: &str = "moddedmc:negotiate";
         if data.is_empty() {
             let mut hello = version.to_be_bytes().to_vec();
             hello.extend_from_slice(&1u32.to_be_bytes());
             self.send_packet(&SPluginMessage {
-                channel: CHANNEL,
+                channel: COMPANION_CHANNEL,
                 data: &hello,
             })
             .await?;
