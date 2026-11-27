@@ -2,7 +2,7 @@
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, abilities, taming};
 use moddedmc_api::{
-    abi::{SOUND_NEUTRAL, heightmap},
+    abi::{CollisionBox, SOUND_NEUTRAL, heightmap},
     content::World,
     entities::{Entity, EntityChange, SET_BODY_YAW, SET_MOTION, SET_YAW},
     mob_ai::goal_phase,
@@ -91,10 +91,14 @@ struct State {
 }
 #[derive(Serialize, Deserialize)]
 struct Shot {
+    #[serde(default)]
+    id: Option<i32>,
     position: [f64; 3],
     velocity: [f64; 3],
     age: i32,
     multiplier: f32,
+    #[serde(default)]
+    travelled: f64,
 }
 impl State {
     fn load(mob: Entity<'_>) -> Self {
@@ -626,15 +630,29 @@ fn tick_attack(
                 sound(world, p, "magma_pillar");
             }
         }
-        Attack::Fireball if age == s.charge => {
+        Attack::Fireball if age == s.charge + 15 => {
             if let Some((target, _)) = target_at(world, mob, s.target) {
                 let origin = add(add(at, [0.0, 3.0, 0.0]), scale(f, 4.0));
-                s.shots.push(Shot {
-                    position: origin,
-                    velocity: scale(unit(sub(add(target, [0.0, 1.0, 0.0]), origin)), 5.0),
-                    age: 0,
-                    multiplier: charge_multiplier(s.charge),
-                });
+                let velocity = scale(unit(sub(add(target, [0.0, 1.0, 0.0]), origin)), 5.0);
+                if let Some(id) = ENTITIES.get().and_then(|entities| {
+                    entities.spawn_projectile(
+                        world,
+                        "minecraft:fireball",
+                        mob.id(),
+                        None,
+                        origin,
+                        velocity,
+                    )
+                }) {
+                    s.shots.push(Shot {
+                        id: Some(id),
+                        position: origin,
+                        velocity,
+                        age: 0,
+                        multiplier: charge_multiplier(s.charge),
+                        travelled: 0.0,
+                    });
+                }
             }
         }
         Attack::Skyfall if (125..145).contains(&age) => {
@@ -688,57 +706,138 @@ fn charge_multiplier(charge: i32) -> f32 {
     }
 }
 
+/// IgnivorusFireballEntity.explode: charge-scaled explosion in an AABB.
+fn fireball_impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], multiplier: f32) {
+    let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
+        return;
+    };
+    let radius = 8.0 * f64::from(multiplier);
+    let visual_scale = 4.0 * f64::from(multiplier);
+    for id in entities.entities_in(world, add(at, [-radius; 3]), add(at, [radius; 3]), mob.id()) {
+        entities.with_entity(world, id, |target| {
+            if !abilities::enemy(mob, target)
+                || crate::TAGS.get().is_some_and(|tags| {
+                    tags.contains(
+                        "entity_type",
+                        "saintsdragons:immune_to/fire",
+                        mobs.kind(target).unwrap_or_else(|| target.type_id()),
+                    )
+                })
+            {
+                return;
+            }
+            // Java explosion(direct projectile, causing dragon) selects player_explosion.
+            target.hurt_by(mob.id(), "minecraft:player_explosion", 70.0 * multiplier);
+            mobs.set_on_fire(target, (80.0 * visual_scale) as u32);
+            if let Some(view) = target.view()
+                && visual_scale >= 6.0
+            {
+                let (strength, lift) = if visual_scale >= 8.0 {
+                    (visual_scale * 0.25, 0.5)
+                } else {
+                    (visual_scale * 0.15, 0.3)
+                };
+                let push = scale(unit(sub(view.position, at)), strength);
+                target.change(&EntityChange {
+                    mask: SET_MOTION,
+                    motion: add(view.motion, add(push, [0.0, lift, 0.0])),
+                    ..Default::default()
+                });
+            }
+        });
+    }
+    particles(world, at, 2.0, "minecraft:explosion");
+    if let Some(effects) = EFFECTS.get() {
+        effects.play_sound(
+            world,
+            at,
+            "minecraft:entity.generic.explode",
+            SOUND_NEUTRAL,
+            1.0 + visual_scale as f32 * 0.2,
+            (0.9 / visual_scale as f32).max(0.4),
+        );
+    }
+}
+
+/// IgnivorusFireballEntity.motionForTick: delayed gravity by charge stage.
+fn shot_motion(velocity: [f64; 3], travelled: f64, multiplier: f32) -> [f64; 3] {
+    let straight = if multiplier >= 2.0 {
+        85.0
+    } else if multiplier >= 1.5 {
+        50.0
+    } else {
+        25.0
+    };
+    if travelled >= straight {
+        add(velocity, [0.0, -0.01, 0.0])
+    } else {
+        velocity
+    }
+}
+
+fn point_in_collision_shape(point: [f64; 3], shape: &[CollisionBox]) -> bool {
+    let local = point.map(|v| v - v.floor());
+    shape
+        .iter()
+        .any(|b| (0..3).all(|i| local[i] >= b.min[i] && local[i] <= b.max[i]))
+}
+
 /// Fireball flight and impact continue independently of the ability's recovery.
 pub fn ambient(world: World<'_>, mob: Entity<'_>) {
     let mut s = State::load(mob);
     if s.shots.is_empty() {
         return;
     }
+    let Some(entities) = ENTITIES.get() else {
+        return;
+    };
     s.shots.retain_mut(|shot| {
+        let Some(id) = shot.id else {
+            return false;
+        };
+        let Some(view) = entities
+            .with_entity(world, id, |projectile| {
+                (projectile.projectile_owner() == Some(mob.id())
+                    && projectile.type_id().trim_start_matches("minecraft:") == "fireball")
+                    .then(|| projectile.view())
+                    .flatten()
+            })
+            .flatten()
+        else {
+            // An unloaded/removed projectile cannot safely be treated as an impact.
+            return false;
+        };
         shot.age += 1;
-        let next = add(shot.position, shot.velocity);
+        shot.travelled += length(sub(view.position, shot.position));
+        shot.position = view.position;
+        shot.velocity = shot_motion(shot.velocity, shot.travelled, shot.multiplier);
+        // shortcut: the host has no cancellable projectile impact event or custom projectile
+        // dimensions. Sweep ahead of vanilla motion and replace the impact when observed;
+        // native collisions that occur between mod ticks still use vanilla behavior.
         for step in 1..=20 {
             let p = add(shot.position, scale(shot.velocity, f64::from(step) / 20.0));
             let collision = world
                 .collision_shape(crate::flight::cell(p))
-                .is_none_or(|shape| !shape.is_empty());
-            let entity = ENTITIES.get().is_some_and(|e| {
-                e.entities_in(world, add(p, [-0.5; 3]), add(p, [0.5; 3]), mob.id())
-                    .into_iter()
-                    .any(|id| target_at(world, mob, id).is_some())
-            });
-            if collision || entity || shot.age >= 200 {
-                area(
-                    world,
-                    mob,
-                    p,
-                    8.0 * f64::from(shot.multiplier),
-                    8.0 * f64::from(shot.multiplier),
-                    Hit {
-                        damage: 70.0 * shot.multiplier,
-                        fire: (320.0 * shot.multiplier) as u32,
-                        push: 0.0,
-                        lift: 0.0,
-                        melee: false,
-                    },
-                    &mut HashSet::new(),
-                );
-                particles(world, p, 2.0, "minecraft:explosion");
+                .is_some_and(|shape| point_in_collision_shape(p, &shape));
+            let entity = entities
+                .entities_in(world, add(p, [-0.5; 3]), add(p, [0.5; 3]), mob.id())
+                .into_iter()
+                .any(|id| target_at(world, mob, id).is_some());
+            if collision || entity || (shot.age > 200 && step == 20) {
+                if entities.with_entity(world, id, |projectile| projectile.discard()) == Some(true)
+                {
+                    fireball_impact(world, mob, p, shot.multiplier);
+                }
                 return false;
             }
         }
-        particles(world, next, 0.5, "minecraft:flame");
-        shot.position = next;
-        let straight = if shot.multiplier == 2.0 {
-            85.0
-        } else if shot.multiplier == 1.5 {
-            50.0
-        } else {
-            25.0
-        };
-        if f64::from(shot.age) * 5.0 >= straight {
-            shot.velocity[1] -= 0.01;
-        }
+        entities.with_entity(world, id, |projectile| {
+            projectile.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: shot.velocity,
+                ..Default::default()
+            })
+        });
         true
     });
     s.save(mob);
@@ -774,5 +873,28 @@ mod tests {
         assert_eq!(decoded.hit, vec![42]);
         assert_eq!(decoded.previous, None);
         let _: State = fastnbt::from_bytes(&fastnbt::to_bytes(&State::default()).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn charged_fireball_delays_gravity_by_distance() {
+        let velocity = [5.0, 0.0, 0.0];
+        for (multiplier, distance) in [(1.0, 25.0), (1.5, 50.0), (2.0, 85.0)] {
+            assert_eq!(shot_motion(velocity, distance - 0.1, multiplier), velocity);
+            assert_eq!(
+                shot_motion(velocity, distance, multiplier),
+                [5.0, -0.01, 0.0]
+            );
+        }
+    }
+
+    #[test]
+    fn fireball_sweep_respects_partial_block_shapes() {
+        let slab = [CollisionBox {
+            min: [0.0; 3],
+            max: [1.0, 0.5, 1.0],
+        }];
+        assert!(point_in_collision_shape([-1.25, 10.25, 5.5], &slab));
+        assert!(!point_in_collision_shape([-1.25, 10.75, 5.5], &slab));
+        assert!(!point_in_collision_shape([-1.25, 10.25, 5.5], &[]));
     }
 }

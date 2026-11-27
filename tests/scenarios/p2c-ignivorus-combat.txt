@@ -30,6 +30,19 @@ cmd data get entity @e[tag=ignivorus_target,limit=1] Health
 wait 0.5
 expect has the following entity data: "(Slam|Bite)"
 expect Iron Golem has the following entity data: [0-9]{1,2}(?:\.[0-9]+)?f
+wait 1
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".next_decision set value 2147483647L
+cmd tp @e[tag=ignivorus_probe,limit=1] 1025.5 120 1025.5 0 0
+cmd tp @e[tag=ignivorus_target,limit=1] 1025.5 120 1048.5
+cmd summon minecraft:iron_golem 1031.5 120 1048.5 {NoAI:1b,Tags:["ignivorus_blast_probe"]}
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".phase_two set value 1b
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".charge set value 3
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".age set value 0
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".attack set value "Fireball"
+wait 2
+cmd data get entity @e[tag=ignivorus_blast_probe,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: (?:[0-2]?[0-9]|30)(?:\.0+)?f
 reject (?i)panic|panicked
 bot quit
 stop
