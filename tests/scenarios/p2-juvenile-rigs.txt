@@ -1,5 +1,6 @@
 # A Cindervane changes between its one-display juvenile rig and five-display adult rig.
 # Stegonaut uses the same item-model switch without a change in display count.
+# The item ID selects its registered default model; saved stack NBT only stores component patches.
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 start
 botstart tester
@@ -16,7 +17,7 @@ cmd saintsdragons spawn cindervane 1025 100 1025
 wait 1
 cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] {data:{"saintsdragons:growth":{remaining:20000}}}
 wait 1
-cmd execute if entity @e[type=minecraft:item_display,nbt={item:{components:{"minecraft:item_model":"saintsdragons:baby_cindervane_display"}}}]
+cmd execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:baby_cindervane_display"}}]
 wait 0.5
 expect Test passed
 cmd execute if entity @e[type=minecraft:item_display]
@@ -24,10 +25,10 @@ wait 0.5
 expect Test passed\. Count: 1
 cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] {data:{"saintsdragons:growth":{remaining:1}}}
 wait 1
-cmd execute if entity @e[type=minecraft:item_display,nbt={item:{components:{"minecraft:item_model":"saintsdragons:cindervane_display"}}}]
+cmd execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:cindervane_display"}}]
 wait 0.5
 expect Test passed
-cmd execute unless entity @e[type=minecraft:item_display,nbt={item:{components:{"minecraft:item_model":"saintsdragons:baby_cindervane_display"}}}]
+cmd execute unless entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:baby_cindervane_display"}}]
 wait 0.5
 expect Test passed
 cmd execute if entity @e[type=minecraft:item_display]
@@ -37,15 +38,15 @@ cmd saintsdragons spawn stegonaut 1031 100 1031
 wait 1
 cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] {data:{"saintsdragons:growth":{remaining:20000}}}
 wait 1
-cmd execute if entity @e[type=minecraft:item_display,nbt={item:{components:{"minecraft:item_model":"saintsdragons:baby_stegonaut_display"}}}]
+cmd execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:baby_stegonaut_display"}}]
 wait 0.5
 expect Test passed
 cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] {data:{"saintsdragons:growth":{remaining:1}}}
 wait 1
-cmd execute if entity @e[type=minecraft:item_display,nbt={item:{components:{"minecraft:item_model":"saintsdragons:stegonaut_display"}}}]
+cmd execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:stegonaut_display"}}]
 wait 0.5
 expect Test passed
-cmd execute unless entity @e[type=minecraft:item_display,nbt={item:{components:{"minecraft:item_model":"saintsdragons:baby_stegonaut_display"}}}]
+cmd execute unless entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:baby_stegonaut_display"}}]
 wait 0.5
 expect Test passed
 reject (?i)panic|panicked|\[bot\] error

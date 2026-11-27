@@ -9,7 +9,7 @@ use fastnbt::Value;
 use moddedmc_api::{
     InterfaceUnavailable, RegistrationError, Registry,
     content::{ContentEvent, World},
-    entities::{Entity, EntityView},
+    entities::{ENTITY_ALIVE, Entity, EntityView},
     items::{Item, Items},
     stacks::{self, Displays, ItemDisplay},
     tick_count,
@@ -52,6 +52,7 @@ const LEASE: u64 = 40;
 struct Rig {
     ids: [i32; PARTS],
     seen: u64,
+    last_refresh: u64,
     frames: [ItemDisplay; PARTS],
     pose: Pose,
     clip: &'static str,
@@ -336,6 +337,9 @@ pub fn start() -> Result<(), InterfaceUnavailable> {
 }
 
 pub fn tick(world: World<'_>, mob: Entity<'_>) {
+    if mob.flags() & ENTITY_ALIVE == 0 {
+        return;
+    }
     let Some(view) = mob.view() else { return };
     crate::particles::flight_dust(world, mob, view);
     let now = tick_count();
@@ -365,6 +369,9 @@ pub fn tick_species(
     view: EntityView,
     clip: &'static str,
 ) {
+    if mob.flags() & ENTITY_ALIVE == 0 {
+        return;
+    }
     if matches!(species, "raevyx" | "ignivorus" | "volitans") {
         crate::particles::flight_dust(world, mob, view);
     }
@@ -456,7 +463,12 @@ fn draw(
                     }
                 }
             }
-            (now + mob.id() as u64).is_multiple_of(REFRESH)
+            if now.saturating_sub(rig.last_refresh) >= REFRESH {
+                rig.last_refresh = now;
+                true
+            } else {
+                false
+            }
         } else {
             let mut pose = Pose::new(view);
             let clip = select(&mut pose);
@@ -479,6 +491,7 @@ fn draw(
             rigs.push(Rig {
                 ids,
                 seen: now,
+                last_refresh: now,
                 frames: std::array::from_fn(|i| *descriptions.get(i).unwrap_or(&descriptions[0])),
                 pose,
                 clip,

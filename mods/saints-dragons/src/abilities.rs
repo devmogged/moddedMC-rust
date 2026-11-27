@@ -65,6 +65,7 @@ pub struct Abilities {
 struct Running {
     kind: Attack,
     target: i32,
+    strike_target: Option<i32>,
     start: u64,
     held: bool,
     rider: Option<i32>,
@@ -151,6 +152,7 @@ impl Abilities {
         self.running = Some(Running {
             kind,
             target,
+            strike_target: None,
             start: now,
             held: false,
             rider: None,
@@ -185,6 +187,7 @@ impl Abilities {
         self.running = Some(Running {
             kind,
             target: -1,
+            strike_target: None,
             start: now,
             held: false,
             rider: Some(rider),
@@ -329,18 +332,35 @@ impl Abilities {
             }
             return;
         }
+        if action.kind == Attack::SlashGrab && age <= 26 {
+            // The release retains its first living strike candidate throughout startup,
+            // even if it leaves the slash box before either hit.
+            if action
+                .strike_target
+                .is_none_or(|id| !strike_alive(world, mob, id))
+            {
+                action.strike_target = strike_candidate(world, mob);
+            }
+        }
         match (action.kind, age) {
             (Attack::Bite, 5) => melee(world, mob, action.target, 12.0, 4.5, false),
             (Attack::DoubleBite, 4 | 11) => melee(world, mob, action.target, 15.0, 4.75, age == 11),
-            (Attack::SlashGrab, 16) => action.held = slash(world, mob, action.target, 5.0, true),
+            (Attack::SlashGrab, 16) => {
+                let grab = rider_grab_candidate(world, mob);
+                action.target = grab.or(action.strike_target).unwrap_or(-1);
+                action.held = slash_primary(world, mob, action.target, 5.0, grab.is_some(), false);
+                slash(world, mob, action.target, 5.0, false);
+            }
             (Attack::SlashGrab, 26) => {
                 let excluded = if action.held {
                     release(world, mob, action.target, true);
                     action.target
                 } else {
-                    -1
+                    let id = action.strike_target.unwrap_or(-1);
+                    slash_primary(world, mob, id, 7.0, false, true);
+                    id
                 };
-                slash(world, mob, excluded, 7.0, false);
+                slash(world, mob, excluded, 7.0, true);
                 action.held = false;
             }
             (Attack::MagmaVolley, 3 | 13 | 23) => {
@@ -498,7 +518,7 @@ fn rider_slash(world: World<'_>, mob: Entity<'_>, primary: i32, damage: f32) {
             }
         });
     }
-    slash(world, mob, primary, damage, false);
+    slash(world, mob, primary, damage, true);
 }
 
 fn rider_volley(world: World<'_>, mob: Entity<'_>, rider: i32) -> Vec<Shot> {
@@ -668,32 +688,59 @@ fn melee(world: World<'_>, mob: Entity<'_>, id: i32, damage: f32, reach: f64, re
     });
 }
 
-fn slash(world: World<'_>, mob: Entity<'_>, primary: i32, damage: f32, grab: bool) -> bool {
-    let (Some(ai), Some(entities), Some(mobs), Some(view)) =
-        (MOB_AI.get(), ENTITIES.get(), MOBS.get(), mob.view())
-    else {
-        return false;
-    };
+fn strike_alive(world: World<'_>, mob: Entity<'_>, id: i32) -> bool {
+    ENTITIES.get().is_some_and(|entities| {
+        entities.with_entity(world, id, |target| {
+            enemy(mob, target) && target.vehicle().is_none()
+        }) == Some(true)
+    })
+}
+
+fn strike_candidate(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
+    let (entities, view) = (ENTITIES.get()?, mob.view()?);
     let (sin, cos) = f64::from(view.yaw).to_radians().sin_cos();
     let center = add(
         view.position,
         [-sin * 5.25 - cos * 1.6, 1.15, cos * 5.25 - sin * 1.6],
     );
-    let mut holding = false;
-    for id in entities.entities_in(
-        world,
-        add(center, [-3.0; 3]),
-        add(center, [3.0; 3]),
-        mob.id(),
-    ) {
-        if !grab && id == primary {
-            continue;
-        }
-        entities.with_entity(world, id, |target| {
+    entities
+        .entities_in(
+            world,
+            add(center, [-3.0; 3]),
+            add(center, [3.0; 3]),
+            mob.id(),
+        )
+        .into_iter()
+        .filter_map(|id| {
+            entities
+                .with_entity(world, id, |target| {
+                    let at = target.view()?;
+                    (enemy(mob, target) && target.vehicle().is_none())
+                        .then_some((id, length_squared(offset(at.position, center))))
+                })
+                .flatten()
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(id, _)| id)
+}
+
+fn slash_primary(
+    world: World<'_>,
+    mob: Entity<'_>,
+    id: i32,
+    damage: f32,
+    grab: bool,
+    repeat: bool,
+) -> bool {
+    let (Some(ai), Some(entities), Some(mobs)) = (MOB_AI.get(), ENTITIES.get(), MOBS.get()) else {
+        return false;
+    };
+    entities
+        .with_entity(world, id, |target| {
             if !enemy(mob, target) || target.vehicle().is_some() {
-                return;
+                return false;
             }
-            if !grab {
+            if repeat {
                 mobs.reset_hurt_cooldown(target);
             }
             let hit = ai.attack(
@@ -702,21 +749,50 @@ fn slash(world: World<'_>, mob: Entity<'_>, primary: i32, damage: f32, grab: boo
                 id,
                 damage * crate::hunger::melee_multiplier(mob),
             );
-            if grab
-                && id == primary
-                && hit
+            grab && hit
                 && target.flags() & ENTITY_ALIVE != 0
                 && mobs.passengers(mob).is_empty()
                 && mobs.passengers(target).is_empty()
-                && target
-                    .body()
-                    .is_some_and(|body| (0..3).all(|i| body.max[i] - body.min[i] <= 4.30))
-            {
-                holding = target.start_riding(mob.id(), true);
+                && target.start_riding(mob.id(), true)
+        })
+        .unwrap_or(false)
+}
+
+fn slash(world: World<'_>, mob: Entity<'_>, primary: i32, damage: f32, repeat: bool) {
+    let (Some(ai), Some(entities), Some(mobs), Some(view)) =
+        (MOB_AI.get(), ENTITIES.get(), MOBS.get(), mob.view())
+    else {
+        return;
+    };
+    let (sin, cos) = f64::from(view.yaw).to_radians().sin_cos();
+    let center = add(
+        view.position,
+        [-sin * 5.25 - cos * 1.6, 1.15, cos * 5.25 - sin * 1.6],
+    );
+    for id in entities.entities_in(
+        world,
+        add(center, [-3.0; 3]),
+        add(center, [3.0; 3]),
+        mob.id(),
+    ) {
+        if id == primary {
+            continue;
+        }
+        entities.with_entity(world, id, |target| {
+            if !enemy(mob, target) || target.vehicle().is_some() {
+                return;
             }
+            if repeat {
+                mobs.reset_hurt_cooldown(target);
+            }
+            ai.attack(
+                world,
+                mob,
+                id,
+                damage * crate::hunger::melee_multiplier(mob),
+            );
         });
     }
-    holding
 }
 
 fn release(world: World<'_>, mob: Entity<'_>, id: i32, damage: bool) {
