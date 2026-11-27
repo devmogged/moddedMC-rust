@@ -696,6 +696,14 @@ at startup when the corresponding group is mandatory.
   the new entity ID. `Entity::projectile_owner()` returns the resolved owner
   ID or `None`.
 
+- `Entity::can_freeze()` reads Pumpkin's existing vanilla freeze eligibility
+  predicate, including entity type, mob overrides, spectator status and
+  freeze-immune wearables. Require `EntitiesExtension::CanFreeze`; an older
+  host returns `None`.
+- `Entity::shulker_bullet_target()` returns the bullet's current loaded target
+  ID, or `None` for other entities, missing targets or older hosts (ABI -1
+  for absent targets). Require `EntitiesExtension::ShulkerBulletTarget`.
+
 `moddedmc:block_world` v1 appends `World::set_weather(mode, ticks)` and
 `World::raycast(from, to, except)` after `can_see_sky`. Weather modes are
 0 (clear), 1 (rain), and 2 (thunder), with positive durations in ticks.
@@ -708,9 +716,8 @@ and rays longer than 256 blocks. A successful miss is `Some((None, None))`;
 invalid input or a missing host field is `None`.
 The engine treats unloaded blocks as air; the ray does not load chunks.
 
-Current Pumpkin does not expose damage-event causing/direct entities,
-outgoing last-hurt history, its internal freeze eligibility predicate, or
-the shulker bullet's current target. These require engine changes before
+Current Pumpkin does not expose damage-event causing/direct entities or
+outgoing last-hurt history. These require engine changes before
 they can be exposed accurately. `MobAi::last_hurt_by` remains available
 and returns the victim's tick count at the last attributed hit.
 

@@ -449,7 +449,9 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, set_ticks_frozen), 288);
         assert_eq!(offset_of!(EntitiesV1, spawn_projectile), 296);
         assert_eq!(offset_of!(EntitiesV1, projectile_owner), 304);
-        assert_eq!(size_of::<EntitiesV1>(), 312);
+        assert_eq!(offset_of!(EntitiesV1, can_freeze), 312);
+        assert_eq!(offset_of!(EntitiesV1, shulker_bullet_target), 320);
+        assert_eq!(size_of::<EntitiesV1>(), 328);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -1072,6 +1074,10 @@ pub struct EntitiesV1 {
     ) -> i32,
     /// Loaded owner id, or -1 when absent.
     pub projectile_owner: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    /// Vanilla freeze eligibility; false for an invalid handle.
+    pub can_freeze: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// The shulker bullet's loaded target id, or -1 when absent or not a shulker bullet.
+    pub shulker_bullet_target: unsafe extern "C" fn(entity: EntityRef) -> i32,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.
