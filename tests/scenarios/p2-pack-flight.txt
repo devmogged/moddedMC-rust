@@ -1,0 +1,39 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Cindervane wild airborne leader: two adult followers take off and then land.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd time set day
+cmd tp tester 1025.5 121 1025.5
+cmd forceload add 1000 1000 1050 1050
+wait 5
+cmd fill 1000 119 1000 1050 119 1050 minecraft:stone
+cmd fill 1000 120 1000 1050 130 1050 minecraft:air
+cmd fill 1000 131 1000 1050 142 1050 minecraft:air
+cmd cindervane spawn 1025 120 1025
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=120,z=1025,distance=..3,limit=1] {Tags:["pack_leader"],NoAI:1b,NoGravity:1b,data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
+cmd cindervane spawn 1018 120 1015
+cmd data merge entity @e[type=minecraft:ravager,x=1018,y=120,z=1015,distance=..3,limit=1] {Tags:["pack_follower"],data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+cmd cindervane spawn 1032 120 1015
+cmd data merge entity @e[type=minecraft:ravager,x=1032,y=120,z=1015,distance=..3,limit=1] {Tags:["pack_follower"],data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+wait 4
+cmd tp @e[tag=pack_leader,limit=1] 1025.5 132 1025.5 0 0
+wait 7
+cmd execute if entity @e[tag=pack_follower,x=1005,y=125,z=1005,dx=40,dy=17,dz=40]
+wait 0.5
+expect Test passed
+cmd cindervane find 1025 132 1025
+wait 0.5
+expect flight=active
+cmd tp @e[tag=pack_leader,limit=1] 1025.5 120 1025.5
+cmd data merge entity @e[tag=pack_leader,limit=1] {NoGravity:0b}
+wait 8
+cmd execute if entity @e[tag=pack_follower,x=1005,y=119,z=1005,dx=40,dy=3,dz=40]
+wait 0.5
+expect Test passed
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

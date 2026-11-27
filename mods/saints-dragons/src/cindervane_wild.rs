@@ -12,7 +12,9 @@ use moddedmc_api::{
     tick_count,
 };
 
-use crate::{CINDERVANE, ENTITIES, MOB_AI, MOBS, appearance::Appearance, eggs, flight, taming};
+use crate::{
+    CINDERVANE, ENTITIES, MOB_AI, MOBS, appearance::Appearance, eggs, flight, pack_flight, taming,
+};
 
 pub const SOCIAL: u64 = 40;
 pub const DRINK: u64 = 41;
@@ -219,9 +221,15 @@ fn find_leader(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
     selected.map(|m| m.id)
 }
 
-/// Ground part of CindervanePackFollowBehaviour and DragonFollowParentBehaviour.
-/// shortcut: the host has no flight-path requests or arrival-radius navigation; ground
-/// paths are stopped explicitly at the released thresholds. Air formation remains pending.
+/// CindervaneAutonomousFlightBehaviour.isGroundedPackFollower.
+pub fn assigned_follower(mob: Entity<'_>) -> bool {
+    pack_member(mob)
+        && link(mob, PACK)
+            .is_some_and(|leader| MOBS.get().and_then(|m| m.uuid(mob)) != Some(leader))
+}
+
+/// CindervanePackFollowBehaviour and DragonFollowParentBehaviour.
+/// Ground paths stop explicitly at the released arrival thresholds.
 pub fn social(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let (Some(ai), Some(mobs), Some(entities), Some(view)) =
         (MOB_AI.get(), MOBS.get(), ENTITIES.get(), mob.view())
@@ -231,6 +239,7 @@ pub fn social(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let baby = eggs::is_juvenile(mob);
     if phase == goal_phase::STOP {
         ai.stop(mob);
+        pack_flight::stop(mob.id());
         return false;
     }
     if taming::is_tamed(mob)
@@ -238,7 +247,7 @@ pub fn social(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         || !mobs.passengers(mob).is_empty()
         || mob.vehicle().is_some()
         || eggs::water_at(world, flight::cell(view.position))
-        || flight::active(mob.id())
+        || flight::autonomous_landing(mob.id()).is_some()
         || protecting(mob.id())
     {
         return false;
@@ -267,28 +276,78 @@ pub fn social(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             .unwrap_or_else(PoisonError::into_inner)
             .insert(mob.id(), state);
     }
-    let Some(target) = state.target else {
+    let target = state.target.and_then(|target| {
+        entities
+            .with_entity(world, target, |other| {
+                if !adult(other) || (!baby && !pack_member(other)) {
+                    return None;
+                }
+                let other_view = other.view()?;
+                let body = other.body()?;
+                let airborne = !other_view.on_ground
+                    && flight::autonomous_landing(other.id()) != Some(true)
+                    && (flight::autonomous_landing(other.id()) == Some(false)
+                        || (1..=4)
+                            .all(|y| flight::clear_body(world, body, [0.0, -f64::from(y), 0.0])));
+                Some((
+                    pack_flight::Leader {
+                        id: other.id(),
+                        view: other_view,
+                        height: body.max[1] - body.min[1],
+                        airborne,
+                    },
+                    if baby {
+                        parent_minimum(width(mob), width(other))
+                    } else {
+                        100.0
+                    },
+                ))
+            })
+            .flatten()
+    });
+    let following_air = !baby && pack_flight::landing(mob.id()).is_some();
+    if !baby {
+        let leader = target.map(|(leader, _)| leader);
+        if let Some(leader) = leader.filter(|leader| {
+            leader.airborne && distance(view.position, leader.view.position) <= PACK_RADIUS.powi(2)
+        }) {
+            return match phase {
+                goal_phase::CAN_START | goal_phase::CONTINUE => {
+                    !view.on_ground
+                        || mob.body().is_some_and(|body| {
+                            (1..=8)
+                                .all(|y| flight::clear_body(world, body, [0.0, f64::from(y), 0.0]))
+                        })
+                }
+                goal_phase::START | goal_phase::TICK => {
+                    ai.stop(mob);
+                    pack_flight::follow(world, mob, view, leader);
+                    false
+                }
+                _ => false,
+            };
+        }
+        if following_air && !view.on_ground {
+            return match phase {
+                goal_phase::CAN_START | goal_phase::CONTINUE => true,
+                goal_phase::START | goal_phase::TICK => {
+                    pack_flight::land(world, mob, view, leader);
+                    false
+                }
+                _ => false,
+            };
+        }
+        if following_air {
+            pack_flight::stop(mob.id());
+        }
+    }
+    let Some((leader, minimum)) = target else {
         return false;
     };
-    let Some(Some((at, minimum))) = entities.with_entity(world, target, |other| {
-        if !adult(other) || (!baby && !pack_member(other)) {
-            return None;
-        }
-        let other_view = other.view()?;
-        if !baby && !other_view.on_ground {
-            return None;
-        }
-        Some((
-            other_view.position,
-            if baby {
-                parent_minimum(width(mob), width(other))
-            } else {
-                100.0
-            },
-        ))
-    }) else {
+    if !baby && !leader.view.on_ground {
         return false;
-    };
+    }
+    let at = leader.view.position;
     let d = distance(view.position, at);
     let in_range = if baby {
         d >= minimum && d <= 576.0
