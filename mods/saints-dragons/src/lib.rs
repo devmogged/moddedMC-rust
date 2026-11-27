@@ -99,6 +99,7 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::Weather)?;
         content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::Surface)?;
+        content.require_extension(WorldExtension::ContentEntityTransaction)?;
         content.require_comparator_output()?;
         let _ = CONTENT.set(content);
         let _ = EFFECTS.set(effects::require()?);
@@ -135,6 +136,7 @@ impl Mod for SaintsDragons {
         interaction.require_extension(InteractionExtension::ImmediateItemUse)?;
         interaction.require_extension(InteractionExtension::PlayerPlaced)?;
         codex::require()?;
+        crucible::require()?;
         ivy::require()?;
         nucleus::require()?;
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
