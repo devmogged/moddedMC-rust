@@ -54,11 +54,12 @@ wait 1.2
 cmd tick rate 20
 wait 1
 bot expect block 2601 102 2601 minecraft:note_block
-bot expect entity minecraft:item near 2601.5 101.5 2601.5 within 4 count 1
+# The ejected stack can still be airborne and has a randomized drop velocity.
+bot expect entity minecraft:item near 2601.5 103.5 2600.5 within 7 count 1
 wait 0.5
 expect ^\[bot\] expect block ok 2601 102 2601
 expect ^\[bot\] expect entity ok minecraft:item near
-cmd data get entity @e[type=minecraft:item,x=2601.5,y=101.5,z=2601.5,distance=..4,limit=1] Item.count
+cmd data get entity @e[type=minecraft:item,x=2601.5,y=103.5,z=2600.5,distance=..7,limit=1] Item.count
 await 5 following entity data: 3$
 cmd kinetics 2601 104 2601
 cmd kinetics 2601 102 2601
