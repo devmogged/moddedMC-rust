@@ -49,6 +49,9 @@ struct Combat {
     decision: i32,
     repath: i32,
     abilities: Abilities,
+    slash_mode: bool,
+    flex_until: u64,
+    flex_cooldown: u64,
 }
 
 // shortcut: per-mob entries stay until the server stops, like ai.rs's.
@@ -203,7 +206,9 @@ pub fn ground_combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         }
         goal_phase::STOP => {
             let mut attacks = with_combat(mob, |c| std::mem::take(&mut c.abilities));
-            attacks.cancel(world, mob);
+            if !attacks.rider_attack() {
+                attacks.cancel(world, mob);
+            }
             with_combat(mob, |c| c.abilities = attacks);
             ai.stop(mob);
             false
@@ -221,6 +226,10 @@ type Located = (i32, ([f64; 3], f64));
 fn tick(world: World<'_>, mob: Entity<'_>, position: [f64; 3], yaw: f32, target: Option<Located>) {
     let Some(ai) = MOB_AI.get() else { return };
     let mut attacks = with_combat(mob, |c| std::mem::take(&mut c.abilities));
+    if attacks.rider_attack() {
+        with_combat(mob, |c| c.abilities = attacks);
+        return;
+    }
     if attacks.busy() {
         attacks.tick_attack(world, mob);
         with_combat(mob, |c| c.abilities = attacks);
@@ -278,12 +287,121 @@ fn tick(world: World<'_>, mob: Entity<'_>, position: [f64; 3], yaw: f32, target:
 }
 
 pub fn ambient(world: World<'_>, mob: Entity<'_>) {
+    let rider = controlling_rider(world, mob);
+    let mut abilities = with_combat(mob, |c| std::mem::take(&mut c.abilities));
+    abilities.rider_tick(world, mob, rider);
+    with_combat(mob, |c| {
+        c.abilities = abilities;
+        if mob.view().is_some_and(|v| !v.on_ground) {
+            c.slash_mode = false;
+        }
+    });
     let (mut shots, fire) = with_combat(mob, |c| c.abilities.take_effects());
     if shots.is_empty() && !fire {
         return;
     }
     abilities::effects(world, mob, &mut shots, fire);
     with_combat(mob, |c| c.abilities.keep_shots(shots));
+}
+
+fn controlling_rider(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
+    let id = *MOBS.get()?.passengers(mob).first()?;
+    ENTITIES
+        .get()?
+        .with_entity(world, id, |rider| {
+            (crate::taming::is_owner(mob, rider)
+                && rider
+                    .view()
+                    .is_some_and(|v| v.kind & moddedmc_api::entities::ENTITY_PLAYER != 0))
+            .then_some(id)
+        })
+        .flatten()
+}
+
+pub fn rider_action(
+    world: World<'_>,
+    mob: Entity<'_>,
+    player: Entity<'_>,
+    action: &str,
+    phase: u8,
+) {
+    use moddedmc_api::player_actions::{ACTION_PRESSED, ACTION_RELEASED, MOUNTED_ATTACK};
+    if controlling_rider(world, mob) != Some(player.id()) || crate::eggs::is_juvenile(mob) {
+        return;
+    }
+    let Some(view) = mob.view() else { return };
+    let now = moddedmc_api::tick_count();
+    if action == "saintsdragons:ability_tertiary" {
+        if phase == ACTION_RELEASED {
+            with_combat(mob, |c| c.abilities.stop_fire(now));
+        } else if phase == ACTION_PRESSED
+            && !world
+                .fluid_id(crate::flight::cell(view.position))
+                .is_some_and(|f| f.ends_with("water"))
+            && with_combat(mob, |c| c.abilities.start_fire(now, player.id()))
+        {
+            crate::audio::fire_body_start(world, mob);
+        }
+        return;
+    }
+    if phase != ACTION_PRESSED || flexing(mob) {
+        return;
+    }
+    if action == "saintsdragons:toggle_melee" {
+        if !view.on_ground {
+            if let Some(mobs) = MOBS.get() {
+                mobs.message(
+                    player,
+                    "Cindervane can only use Slashing while grounded.",
+                    true,
+                );
+            }
+        } else {
+            with_combat(mob, |c| c.slash_mode = !c.slash_mode);
+        }
+        return;
+    }
+    if action == "saintsdragons:flex" {
+        if view.on_ground
+            && !world
+                .fluid_id(crate::flight::cell(view.position))
+                .is_some_and(|f| f.ends_with("water"))
+            && crate::roost::sleep_clip(mob.id()).is_none()
+            && with_combat(mob, |c| {
+                if c.abilities.busy() || now < c.flex_cooldown {
+                    return false;
+                }
+                c.flex_until = now + 69;
+                c.flex_cooldown = now + 120;
+                true
+            })
+        {
+            crate::audio::flex(world, mob);
+        }
+        return;
+    }
+    let attack = match action {
+        MOUNTED_ATTACK => {
+            if with_combat(mob, |c| c.slash_mode) {
+                Attack::SlashGrab
+            } else {
+                Attack::Bite
+            }
+        }
+        "saintsdragons:ability_primary" => Attack::DoubleBite,
+        "saintsdragons:ability_secondary" => Attack::MagmaVolley,
+        _ => return,
+    };
+    if attack == Attack::SlashGrab && !view.on_ground {
+        return;
+    }
+    if with_combat(mob, |c| c.abilities.start_rider(now, player.id(), attack)) {
+        crate::audio::attack(world, mob, attack);
+    }
+}
+
+pub fn flexing(mob: Entity<'_>) -> bool {
+    with_combat(mob, |c| moddedmc_api::tick_count() < c.flex_until)
 }
 
 pub fn holding(mob: Entity<'_>, rider: i32) -> bool {

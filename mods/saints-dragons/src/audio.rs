@@ -232,6 +232,29 @@ fn play(world: World<'_>, dragon: Entity<'_>, id: &str, volume: f32, pitch: f32)
     }
 }
 
+pub fn fire_body_start(world: World<'_>, dragon: Entity<'_>) {
+    moving(
+        world,
+        dragon,
+        event(
+            "entity.blaze.shoot",
+            "saintsdragons:cindervane_fire_body_start",
+        ),
+        1.0,
+        1.0,
+    );
+}
+
+pub fn flex(world: World<'_>, dragon: Entity<'_>) {
+    moving(
+        world,
+        dragon,
+        event("entity.ender_dragon.growl", "saintsdragons:cindervane_flex"),
+        1.4,
+        0.95,
+    );
+}
+
 pub fn tick(world: World<'_>, id: i32, view: EntityView, now: u64) {
     if cfg!(feature = "original-assets") {
         return;

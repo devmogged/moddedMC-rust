@@ -913,6 +913,14 @@ fn ride(mob: Entity<'_>, rider: Entity<'_>) {
     else {
         return;
     };
+    if crate::combat::flexing(mob) {
+        mob.change(&EntityChange {
+            mask: SET_MOTION,
+            motion: [0.0; 3],
+            ..EntityChange::default()
+        });
+        return;
+    }
     let keys = mobs.player_input(rider).unwrap_or(0);
     let sprint = keys & PLAYER_INPUT_SPRINT != 0;
     let jump = keys & PLAYER_INPUT_JUMP != 0;
