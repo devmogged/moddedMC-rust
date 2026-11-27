@@ -35,7 +35,9 @@ struct Kind {
 pub struct Registration {
     binding: Option<(u64, abi::InventoryMenuCallback)>,
     managed: Option<(u64, abi::InventoryMenuManagedCallback)>,
-    action: Option<abi::InventoryMenuActionCallback>,
+    legacy_action: Option<abi::InventoryMenuActionCallback>,
+    managed_action: Option<abi::InventoryMenuActionCallback>,
+    last_managed: bool,
 }
 
 type InventoryId = (Uuid, u64, u64);
@@ -90,11 +92,12 @@ unsafe extern "C" fn stage_kind(
     }
     // SAFETY: the staging argument and output belong to the current registration.
     let staging = unsafe { native::staging(reg) };
-    if staging.inventory_menu.binding.is_some() || staging.inventory_menu.managed.is_some() {
+    if staging.inventory_menu.binding.is_some() {
         return code::DUPLICATE_ID;
     }
     let id = NEXT_KIND.fetch_add(1, Ordering::Relaxed);
     staging.inventory_menu.binding = Some((id, callback));
+    staging.inventory_menu.last_managed = false;
     // SAFETY: a successful registration receives the assigned ID in the caller's output.
     unsafe { out.write(id) };
     code::OK
@@ -110,11 +113,12 @@ unsafe extern "C" fn stage_managed(
     }
     // SAFETY: the staging context and output belong to the current registration.
     let staging = &mut unsafe { native::staging(reg) }.inventory_menu;
-    if staging.binding.is_some() || staging.managed.is_some() {
+    if staging.managed.is_some() {
         return code::DUPLICATE_ID;
     }
     let id = NEXT_KIND.fetch_add(1, Ordering::Relaxed);
     staging.managed = Some((id, callback));
+    staging.last_managed = true;
     // SAFETY: the caller supplies a valid output for the assigned kind.
     unsafe { out.write(id) };
     code::OK
@@ -126,10 +130,15 @@ unsafe extern "C" fn stage_action(reg: Reg, callback: abi::InventoryMenuActionCa
     if staged.binding.is_none() && staged.managed.is_none() {
         return code::INVALID_DEFINITION;
     }
-    if staged.action.is_some() {
+    let action = if staged.last_managed {
+        &mut staged.managed_action
+    } else {
+        &mut staged.legacy_action
+    };
+    if action.is_some() {
         return code::DUPLICATE_ID;
     }
-    staged.action = Some(callback);
+    *action = Some(callback);
     code::OK
 }
 
@@ -141,7 +150,7 @@ pub fn register(owner: &'static str, registration: Registration) {
                 owner,
                 callback: Some(callback),
                 managed: None,
-                action: registration.action,
+                action: registration.legacy_action,
             },
         );
     }
@@ -152,9 +161,78 @@ pub fn register(owner: &'static str, registration: Registration) {
                 owner,
                 callback: None,
                 managed: Some(callback),
-                action: registration.action,
+                action: registration.managed_action,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod registration_tests {
+    use super::*;
+
+    unsafe extern "C" fn legacy(_: *const abi::InventoryMenuChange) {}
+    unsafe extern "C" fn managed(_: *const abi::InventoryMenuManagedChange) {}
+    unsafe extern "C" fn legacy_action(_: *const abi::InventoryMenuAction) {}
+    unsafe extern "C" fn managed_action(_: *const abi::InventoryMenuAction) {}
+
+    #[test]
+    fn legacy_and_managed_menus_have_distinct_registrations() {
+        let registry = crate::Registry::default();
+        let mut staging = crate::Staging {
+            registry: &registry,
+            mod_idx: 0,
+            entity_types: Vec::new(),
+            blocks: Vec::new(),
+            commands: Vec::new(),
+            command_trees: Vec::new(),
+            on_stopping: None,
+            content: Vec::new(),
+            content_items: Vec::new(),
+            content_hooks: Default::default(),
+            mobs: Vec::new(),
+            mob_ai: Default::default(),
+            saved_keys: Vec::new(),
+            player_death: None,
+            inventory_menu: Registration::default(),
+            native_actor: None,
+            services: Vec::new(),
+            equipment: Vec::new(),
+        };
+        let reg = (&raw mut staging).cast();
+        let mut legacy_id = 0;
+        let mut managed_id = 0;
+        // SAFETY: reg points to the live staging record and outputs are writable.
+        unsafe {
+            assert_eq!(stage_action(reg, legacy_action), code::INVALID_DEFINITION);
+            assert_eq!(stage_kind(reg, legacy, &raw mut legacy_id), code::OK);
+            assert_eq!(stage_action(reg, legacy_action), code::OK);
+            assert_eq!(stage_managed(reg, managed, &raw mut managed_id), code::OK);
+            assert_eq!(stage_action(reg, managed_action), code::OK);
+            assert_eq!(
+                stage_kind(reg, legacy, &raw mut legacy_id),
+                code::DUPLICATE_ID
+            );
+            assert_eq!(
+                stage_managed(reg, managed, &raw mut managed_id),
+                code::DUPLICATE_ID
+            );
+        }
+        assert_ne!(legacy_id, managed_id);
+        register("test:mixed_menu", staging.inventory_menu);
+        let mut kinds = lock(&KINDS);
+        let legacy_kind = kinds.remove(&legacy_id).unwrap();
+        let managed_kind = kinds.remove(&managed_id).unwrap();
+        assert!(legacy_kind.callback.is_some() && legacy_kind.managed.is_none());
+        assert!(managed_kind.callback.is_none() && managed_kind.managed.is_some());
+        assert!(std::ptr::fn_addr_eq(
+            legacy_kind.action.unwrap(),
+            legacy_action as abi::InventoryMenuActionCallback
+        ));
+        assert!(std::ptr::fn_addr_eq(
+            managed_kind.action.unwrap(),
+            managed_action as abi::InventoryMenuActionCallback
+        ));
     }
 }
 

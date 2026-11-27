@@ -547,6 +547,10 @@ the 56-byte validity prefix with `register_managed` (56),
 `open_managed` (64), and `mutate` (72), for a total of 80 bytes.
 Older hosts return interface unavailable.
 
+A mod may register one legacy menu kind and one managed menu kind together.
+Their callbacks are independent. The v1 action registration attaches to the
+most recently registered kind; register each action immediately after its kind.
+
 `Managed::register` registers the change, deferred action, validity,
 insertion predicate and quick-move routing callbacks. `Managed::open`
 combines controls and validity; it copies the immutable context. Unlike
