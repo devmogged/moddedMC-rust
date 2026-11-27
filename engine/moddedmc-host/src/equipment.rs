@@ -197,7 +197,7 @@ impl EventHandler<EntityDamageEvent> for WornHurtHandler {
             let base: &dyn EntityBase = player.as_ref();
             for (item, callback) in worn {
                 // SAFETY: the world, player and ids outlive this synchronous callback.
-                let amount = unsafe {
+                let amount = crate::mob_ai::with_damage_source(event, || unsafe {
                     callback(
                         ptr::from_ref(world.as_ref()).cast(),
                         Str::new(item.as_bytes()),
@@ -207,7 +207,7 @@ impl EventHandler<EntityDamageEvent> for WornHurtHandler {
                         event.damage,
                         fall,
                     )
-                };
+                });
                 if amount < 0.0 {
                     event.set_cancelled(true);
                     return;

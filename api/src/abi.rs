@@ -2018,6 +2018,9 @@ pub struct MobAiV1 {
     /// when it took the hit.
     pub attack:
         unsafe extern "C" fn(world: WorldRef, mob: EntityRef, target: i32, amount: f32) -> bool,
+    /// During a mob hurt or worn hurt callback: write the causing and direct entity ids
+    /// (-1 for either absent id). False outside these callbacks.
+    pub damage_source: unsafe extern "C" fn(causing: *mut i32, direct: *mut i32) -> bool,
 }
 
 /// A hit a mod mob is about to take: the vanilla damage type id (`minecraft:fall`) and the
@@ -2046,7 +2049,8 @@ mod mob_ai_layout {
         assert_eq!(MOB_AI_V1_BASE_SIZE, 72);
         assert_eq!(offset_of!(MobAiV1, last_hurt_by), 80);
         assert_eq!(offset_of!(MobAiV1, attack), 88);
-        assert_eq!(size_of::<MobAiV1>(), 96);
+        assert_eq!(offset_of!(MobAiV1, damage_source), 96);
+        assert_eq!(size_of::<MobAiV1>(), 104);
         assert_eq!(offset_of!(GoalDefinition, key), 16);
         assert_eq!(offset_of!(GoalDefinition, controls), 28);
         assert_eq!(offset_of!(GoalDefinition, callback), 32);
