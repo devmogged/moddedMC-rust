@@ -239,6 +239,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:follow_range", 32.0),
             ]);
         }
+        if species.name == "nulljaw" {
+            attributes.extend([("minecraft:armor", 4.0), ("minecraft:follow_range", 48.0)]);
+        }
         if let Some(damage) = swarm_damage {
             attributes.extend([
                 ("minecraft:attack_damage", damage),
@@ -369,6 +372,25 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK,
                 },
             )?;
+        }
+        if species.name == "nulljaw" {
+            for (key, controls) in [
+                (crate::combat_nulljaw::TARGETING, 0),
+                (
+                    crate::combat_nulljaw::COMBAT,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority: 1,
+                        controls,
+                    },
+                )?;
+            }
         }
         ai.add_goal(
             registry,
@@ -631,7 +653,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         None
     };
     let clip = clip.or_else(|| {
-        if name == "varasuchus" {
+        if name == "nulljaw" {
+            crate::combat_nulljaw::clip(mob)
+        } else if name == "varasuchus" {
             crate::baby::eating_clip(mob.id())
         } else {
             None
