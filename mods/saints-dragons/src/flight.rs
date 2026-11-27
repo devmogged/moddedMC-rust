@@ -46,6 +46,7 @@ pub fn forget(id: i32) {
     {
         states.remove(&id);
     }
+    crate::pack_flight::forget(id);
 }
 
 pub fn active(id: i32) -> bool {
@@ -54,6 +55,10 @@ pub fn active(id: i32) -> bool {
 
 /// Whether autonomous flight is heading back to land, if a flight is active.
 pub fn landing(id: i32) -> Option<bool> {
+    autonomous_landing(id).or_else(|| crate::pack_flight::landing(id))
+}
+
+pub fn autonomous_landing(id: i32) -> Option<bool> {
     FLIGHTS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -152,6 +157,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 || now < state.retry
                 || ai.target(mob).is_some()
                 || crate::cindervane_wild::protecting(mob.id())
+                || crate::cindervane_wild::assigned_follower(mob)
                 || taming::is_tamed(mob)
                 || world
                     .day_time()
