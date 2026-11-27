@@ -1,0 +1,190 @@
+# Steam output requires a boiler, heat and moving water. The powered shaft drives a relay and reloads its output.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:steam_engine \(24 states\) && registered content block create:powered_shaft \(6 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1029.5 105 1028.5
+cmd gamemode creative tester
+wait 4
+cmd fill 1020 100 1020 1033 114 1031 minecraft:air
+cmd fill 1020 99 1020 1033 99 1031 minecraft:stone
+cmd setblock 1027 103 1026 minecraft:magma_block
+cmd fill 1027 104 1026 1027 107 1026 create:fluid_tank
+cmd fill 1027 111 1026 1027 112 1026 create:fluid_tank
+cmd setblock 1027 108 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1027 109 1026 create:mechanical_pump[facing=down,waterlogged=false]
+cmd setblock 1027 110 1026 create:fluid_pipe[down=true,up=true,north=false,south=false,west=false,east=false,waterlogged=false]
+cmd setblock 1025 107 1025 create:creative_motor[facing=up]
+cmd setblock 1025 108 1025 create:shaft[axis=y,waterlogged=false]
+cmd setblock 1025 109 1025 create:large_cogwheel[axis=y,waterlogged=false]
+cmd setblock 1026 109 1026 create:cogwheel[axis=y,waterlogged=false]
+cmd setblock 1030 105 1026 create:shaft[axis=z,waterlogged=false]
+cmd setblock 1030 105 1027 create:shaft[axis=z,waterlogged=false]
+wait 0.75
+cmd kinetics 1025 107 1025 0
+cmd recipe give tester create:crafting/kinetics/steam_engine
+wait 0.4
+expect Unlocked 1 recipe
+cmd item replace entity tester weapon.mainhand with create:steam_engine
+wait 0.4
+bot place 1027 105 1026 east
+wait 0.6
+cmd execute if block 1028 105 1026 create:steam_engine[face=wall,facing=east,waterlogged=false] if block 1030 105 1026 create:powered_shaft[axis=z,waterlogged=false]
+wait 0.4
+expect Test passed
+cmd kinetics 1030 105 1027
+cmd data get block 1027 104 1026 Boiler
+wait 0.4
+expect-all create:shaft.*Speed=0 && PassiveHeat: 1b && Engines: 1
+bot expect entity minecraft:item_display near 1030.5 105.5 1026.5 within 0.05 count 2
+wait 0.4
+expect ^\[bot\] expect entity ok minecraft:item_display
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 1027 105 1026
+wait 0.35
+cmd fluidpipe 1027 104 1026
+wait 0.4
+expect shape=plain.*Tank\(empty 0/32000 mB\)
+
+# Pump water into the tank from above. It becomes supply and never fills the boiler inventory.
+cmd tp tester 1028.5 112 1028.5
+cmd item replace entity tester weapon.mainhand with minecraft:water_bucket
+wait 0.6
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.2
+bot use 1027 111 1026
+wait 0.5
+cmd fluidpipe 1027 112 1026
+wait 0.4
+expect Tank\(minecraft:water 12000/16000 mB\)
+cmd kinetics 1025 107 1025 32
+wait 3
+cmd kinetics 1030 105 1027
+cmd fluidpipe 1027 104 1026
+wait 0.4
+expect-all create:shaft.*Speed=-16 .*Capacity=2048 && shape=plain.*Tank\(empty 0/32000 mB\)
+
+cmd setblock 1027 103 1026 create:blaze_burner
+cmd tp tester 1028.5 103 1028.5
+cmd item replace entity tester weapon.mainhand with minecraft:coal 1
+wait 0.6
+bot use 1027 103 1026
+wait 0.75
+cmd kinetics 1030 105 1027
+cmd data get block 1030 105 1026 EnginePower
+wait 0.4
+expect-all create:shaft.*Speed=-64 .*Capacity=16384 && block data: 1(?:\.0)?f
+
+# Two engines share one level of heat. Both outputs recover when the second engine is removed.
+cmd setblock 1024 105 1026 create:shaft[axis=z,waterlogged=false]
+cmd setblock 1024 105 1027 create:shaft[axis=z,waterlogged=false]
+cmd setblock 1026 105 1026 create:steam_engine[face=wall,facing=west,waterlogged=false]
+wait 0.65
+cmd kinetics 1030 105 1027
+cmd kinetics 1024 105 1027
+cmd data get block 1027 104 1026 Boiler.Engines
+wait 0.4
+expect-all at 1030 105 1027 Speed=-48 .*Capacity=8192 && at 1024 105 1027 Speed=48 .*Capacity=8192 && block data: 2$
+cmd setblock 1026 105 1026 minecraft:air
+wait 0.45
+cmd kinetics 1030 105 1027
+cmd kinetics 1024 105 1027
+wait 0.4
+expect-all at 1030 105 1027 Speed=-64 .*Capacity=16384 && at 1024 105 1027 Speed=0
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd kinetics 1030 105 1027
+cmd data get block 1030 105 1026 EnginePos
+wait 0.4
+expect-all create:shaft.*Speed=-64 .*Capacity=16384 && \[I; 2, 0, 0\]
+cmd tp tester 1029.5 105 1028.5
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 1028 105 1026
+wait 0.5
+cmd kinetics 1030 105 1027
+wait 0.4
+expect create:shaft.*Speed=64 .*Capacity=16384
+cmd kinetics 1025 107 1025 0
+wait 6
+cmd kinetics 1030 105 1027
+cmd data get block 1027 104 1026 Boiler.Supply
+wait 0.4
+expect-all create:shaft.*Speed=0 .*Capacity=0 && block data: 0f
+cmd setblock 1028 105 1026 minecraft:air
+wait 0.5
+cmd execute if block 1030 105 1026 create:shaft[axis=z,waterlogged=false]
+wait 0.4
+expect Test passed
+cmd kinetics 1030 105 1027
+wait 0.4
+expect create:shaft.*Speed=0
+bot expect entity minecraft:item_display near 1030.5 105.5 1026.5 within 0.05 count 1
+wait 0.4
+expect ^\[bot\] expect entity ok minecraft:item_display
+
+# The shaft placement helper picks a perpendicular axis and keeps the contained water.
+cmd item replace entity tester weapon.mainhand with create:steam_engine
+wait 0.45
+bot place 1027 105 1026 east
+wait 0.6
+cmd setblock 1030 105 1026 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:shaft 2
+cmd gamemode survival tester
+bot look 0 0
+wait 0.45
+bot use 1028 105 1026 east
+wait 0.4
+cmd execute if block 1030 105 1026 minecraft:stone
+wait 0.4
+expect Test passed
+cmd clear tester create:shaft 0
+wait 0.4
+expect Found 2 matching item
+cmd setblock 1030 105 1026 minecraft:water
+wait 0.3
+bot use 1028 105 1026 east
+wait 0.6
+cmd execute if block 1030 105 1026 create:powered_shaft[axis=z,waterlogged=true]
+wait 0.4
+expect Test passed
+cmd clear tester create:shaft 0
+wait 0.4
+expect Found 1 matching item
+cmd setblock 1028 105 1026 minecraft:air
+wait 0.5
+cmd execute if block 1030 105 1026 create:shaft[axis=z,waterlogged=true]
+wait 0.4
+expect Test passed
+reject (?i)panicked|trapped|\[bot\] error|failed to register
+stop

@@ -105,6 +105,26 @@ pub unsafe extern "C" fn with_entity(
     true
 }
 
+pub unsafe extern "C" fn hurt(raw: abi::EntityRef, damage_type: Str, amount: f32) -> bool {
+    if !amount.is_finite() || amount < 0.0 || damage_type.len == 0 || damage_type.len > 256 {
+        return false;
+    }
+    // SAFETY: the entity handle and damage key are borrowed for this call.
+    let (Some(entity), Ok(key)) = (
+        unsafe { entity(raw) },
+        std::str::from_utf8(unsafe { damage_type.bytes() }),
+    ) else {
+        return false;
+    };
+    let Some(server) = entity.get_entity().world.load().server.upgrade() else {
+        return false;
+    };
+    server
+        .datapack_manager
+        .get_damage_type(key)
+        .is_some_and(|damage| entity.damage_with_context(entity, amount, damage, None, None, None))
+}
+
 pub unsafe extern "C" fn flags(raw: abi::EntityRef) -> u32 {
     // SAFETY: the entity is live for the callback.
     let Some(base) = (unsafe { entity(raw) }) else {

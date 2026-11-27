@@ -5,6 +5,7 @@ import { applyAppearance } from "./settings";
 import "./theme.css";
 
 applyAppearance();
+document.addEventListener("contextmenu", (event) => event.preventDefault());
 const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(

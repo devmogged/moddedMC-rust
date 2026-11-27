@@ -185,6 +185,20 @@ impl DepotBehaviour {
             || !self.processing_output_buffer.is_empty()
     }
 
+    pub(crate) fn stock_slots(
+        &self,
+    ) -> (
+        Option<&TransportedItemStack>,
+        impl Iterator<Item = &TransportedItemStack>,
+        usize,
+    ) {
+        (
+            self.held_item.as_ref(),
+            self.processing_output_buffer.values(),
+            usize::from(OUTPUT_SLOTS),
+        )
+    }
+
     // TODO(abi): analog output
     #[allow(
         dead_code,
@@ -262,15 +276,24 @@ impl DepotBehaviour {
     }
 
     /// `ItemHelper.extract` from the held slot and then compatible output slots.
-    pub fn extract_items(&mut self, world: World<'_>, limit: i32, simulate: bool) -> Option<Value> {
+    pub fn extract_items(
+        &mut self,
+        world: World<'_>,
+        limit: i32,
+        simulate: bool,
+        accepts: Option<&dyn Fn(&Value) -> bool>,
+    ) -> Option<Value> {
         let mut result = None;
         if let Some(item) = &mut self.held_item
+            && accepts.is_none_or(|test| test(&item.item))
             && extract_matching(world, item, &mut result, limit, simulate)
         {
             self.held_item = None;
         }
-        self.processing_output_buffer
-            .retain(|_, item| !extract_matching(world, item, &mut result, limit, simulate));
+        self.processing_output_buffer.retain(|_, item| {
+            !accepts.is_none_or(|test| test(&item.item))
+                || !extract_matching(world, item, &mut result, limit, simulate)
+        });
         self.dirty |= !simulate && result.is_some();
         result
     }
@@ -330,11 +353,11 @@ fn extract_matching(
     let total = result.as_ref().map_or(0, count);
     let amount = count(&stack.item);
     let max = stack.max_count();
-    let taken = (limit - total).min(amount).min(max);
+    let taken = (limit.min(max) - total).min(amount);
     if taken <= 0
-        || result.as_ref().is_some_and(|result| {
-            with_count(result, 1) != with_count(&stack.item, 1) || total + taken > max
-        })
+        || result
+            .as_ref()
+            .is_some_and(|result| with_count(result, 1) != with_count(&stack.item, 1))
     {
         return false;
     }
@@ -412,10 +435,24 @@ pub fn try_inserting_from_side(
     item: &TransportedItemStack,
     side: u8,
 ) -> i32 {
+    offer_from_side(world, pos, depot, item, side, false)
+}
+
+pub(crate) fn offer_from_side(
+    world: World<'_>,
+    pos: Pos,
+    depot: &mut DepotBehaviour,
+    item: &TransportedItemStack,
+    side: u8,
+    simulate: bool,
+) -> i32 {
     if depot.is_occupied() {
         return 0;
     }
     let max = item.max_count();
+    if simulate {
+        return count(&item.item).min(max);
+    }
     let inserted = depot.insert_from_side(item, side, max);
     if inserted > 0 {
         play_insert(world, pos, side);
@@ -638,7 +675,7 @@ impl DepotBehaviour {
                 self.dirty |= !item.locked;
                 item.locked = true;
             }
-            ProcessingResult::Convert(outputs) => {
+            ProcessingResult::Convert { outputs, .. } => {
                 item.locked = true;
                 let rest = count(&item.item) - 1;
                 if rest == 0 {

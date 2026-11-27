@@ -1,8 +1,9 @@
 //! Station placement follows TrackTargetingBlockItem and TrackTargetingBehaviour.
 use super::{
     bogey::{AssemblyTrack, Placement as BogeyPlacement},
-    carriage::{DockedTrain, TrainDisplays},
-    railway, runtime, signal,
+    carriage::Train,
+    driving::TrainRuntime,
+    railway, runtime, schedule, signal,
     targeting::{
         Selection, TargetUse, coords, directed_edge, place_block, placement, pos, sound, state_at,
         use_target,
@@ -48,11 +49,11 @@ struct Station {
 }
 
 #[derive(Default, Deserialize, Serialize)]
-struct Stations {
+pub(super) struct Stations {
     #[serde(rename = "Stations")]
     stations: Vec<Station>,
     #[serde(rename = "Trains", default, skip_serializing_if = "Vec::is_empty")]
-    trains: Vec<DockedTrain>,
+    pub(super) trains: Vec<Train>,
 }
 
 pub(crate) fn register(
@@ -93,12 +94,52 @@ pub(crate) fn register(
     )
 }
 
-fn read(world: World<'_>) -> Option<Stations> {
+pub(super) fn read(world: World<'_>) -> Option<Stations> {
     let &(save, key) = SAVE.get()?;
-    match save.read(&world, key) {
-        Some(bytes) => fastnbt::from_bytes(&bytes).ok(),
-        None => Some(Stations::default()),
+    let mut data: Stations = match save.read(&world, key) {
+        Some(bytes) => fastnbt::from_bytes(&bytes).ok()?,
+        None => return Some(Stations::default()),
+    };
+    let mut id = data.trains.iter().map(|train| train.id).max().unwrap_or(0);
+    for train in data.trains.iter_mut().filter(|train| train.id == 0) {
+        id = id.checked_add(1)?;
+        train.id = id;
     }
+    Some(data)
+}
+
+pub(super) fn stops(world: World<'_>, dimension: &str) -> Vec<Selection> {
+    let Some(data) = read(world) else {
+        return Vec::new();
+    };
+    data.stations
+        .iter()
+        .filter(|station| station.dimension == dimension)
+        .filter_map(|station| {
+            let selection = station.selection();
+            (!data
+                .trains
+                .iter()
+                .any(|train| train.dock() == Some(&selection)))
+            .then_some(selection)
+        })
+        .collect()
+}
+
+pub(super) fn save_positions<'a>(
+    world: World<'_>,
+    trains: impl Iterator<Item = &'a Train>,
+) -> bool {
+    let Some(mut data) = read(world) else {
+        return false;
+    };
+    for train in trains {
+        let Some(saved) = data.trains.iter_mut().find(|saved| saved.id == train.id) else {
+            return false;
+        };
+        saved.copy_position(train);
+    }
+    write(world, &data)
 }
 
 fn write(world: World<'_>, stations: &Stations) -> bool {
@@ -176,6 +217,101 @@ pub(super) fn claimed(world: World<'_>, selection: &Selection) -> bool {
     read(world).is_none_or(|stations| occupied(&stations, selection))
 }
 
+pub(crate) fn use_schedule(context: &mut UseOnBlock<'_>, content: Content) -> UseResult {
+    let world = context.world;
+    let (Some(player), Some(dimension)) = (context.player, world.dimension_id()) else {
+        return UseResult::Pass;
+    };
+    if !state_at(world, context.position).is_some_and(|state| is_station(content, state)) {
+        return UseResult::Pass;
+    }
+    if !player.may_build() {
+        return UseResult::Fail;
+    }
+    crate::with_world(world, |kinetics| {
+        let Some(mut data) = read(world) else {
+            return UseResult::Fail;
+        };
+        let Some(station) = data.at(dimension, context.position) else {
+            return UseResult::Fail;
+        };
+        let selection = station.selection();
+        if let Some(train) = data
+            .trains
+            .iter_mut()
+            .find(|train| train.dock() == Some(&selection))
+        {
+            if train.schedule.is_some() {
+                super::driving::message(
+                    player,
+                    "Sneak-use with an empty hand to reclaim the installed schedule",
+                );
+                return UseResult::Fail;
+            }
+            let Some(destination) = context
+                .stack
+                .data()
+                .and_then(|bytes| fastnbt::from_bytes::<Selection>(&bytes).ok())
+                .filter(|destination| {
+                    destination.dimension == dimension && *destination != selection
+                })
+            else {
+                super::driving::message(
+                    player,
+                    "Use the schedule on the destination station first",
+                );
+                return UseResult::Fail;
+            };
+            if !can_schedule(world, content, &destination) {
+                super::driving::message(player, "The destination station is unavailable");
+                return UseResult::Fail;
+            }
+            let Some(schedule) =
+                schedule::Schedule::new(world, content, train, selection, destination)
+            else {
+                super::driving::message(player, "The train has no route to that station");
+                return UseResult::Fail;
+            };
+            let status = schedule.status();
+            train.schedule = Some(schedule);
+            if !write(world, &data) {
+                return UseResult::Fail;
+            }
+            kinetics.train_runtime.refresh(world);
+            if !context.creative {
+                context.stack.shrink(1);
+            }
+            super::driving::message(player, status);
+            UseResult::Success
+        } else {
+            let Ok(bytes) = fastnbt::to_bytes(&selection) else {
+                return UseResult::Fail;
+            };
+            if !context.stack.set_data(&bytes) {
+                return UseResult::Fail;
+            }
+            super::driving::message(
+                player,
+                "Destination selected. Use the schedule on a docked train's station",
+            );
+            UseResult::Success
+        }
+    })
+}
+
+pub(super) fn can_schedule(world: World<'_>, content: Content, destination: &Selection) -> bool {
+    let Some(data) = read(world) else {
+        return false;
+    };
+    data.stations
+        .iter()
+        .find(|station| station.selection() == *destination)
+        .is_some_and(|station| {
+            state_at(world, pos(station.position))
+                .is_none_or(|state| station_states(content)[..2].contains(&Some(state)))
+        })
+}
+
 pub(crate) fn use_station(context: &UseBlock<'_>, content: Content) -> Option<BlockUseResult> {
     let row = station_states(content)
         .iter()
@@ -215,13 +351,23 @@ pub(crate) fn use_station(context: &UseBlock<'_>, content: Content) -> Option<Bl
                 return BlockUseResult::Fail;
             };
             let selection = station.selection();
-            if stations
+            if let Some(train) = stations
                 .trains
                 .iter()
-                .any(|train| train.station == selection)
+                .find(|train| train.dock() == Some(&selection))
             {
-                context.action_bar("Sneak-use the station to disassemble the train");
-                return BlockUseResult::Success;
+                return if context
+                    .player
+                    .is_some_and(|player| kinetics.train_runtime.board(world, train, player))
+                {
+                    context.action_bar(
+                        "Drive with W/S, steer with A/D, hold Space to stop at a station",
+                    );
+                    BlockUseResult::Success
+                } else {
+                    context.action_bar("The train controls are occupied or unavailable");
+                    BlockUseResult::Fail
+                };
             }
             if assembly_track(world, content, station).is_none()
                 || !railway::read(&world)
@@ -267,8 +413,44 @@ fn use_assembly(
     if let Some(index) = data
         .trains
         .iter()
-        .position(|train| train.station == selection)
+        .position(|train| train.dock() == Some(&selection))
     {
+        if kinetics
+            .train_runtime
+            .has_driver(world, data.trains[index].id)
+        {
+            return Err("The driver must leave the train before disassembly");
+        }
+        if let Some(schedule) = data.trains[index].schedule.take() {
+            let bytes = fastnbt::to_bytes(schedule.second_stop())
+                .map_err(|_| "Could not encode the Train Schedule")?;
+            let stack = fastnbt::nbt!({
+                "id": schedule::ID,
+                "count": 1i32,
+                "components": { "minecraft:custom_data": { "moddedmc:data": fastnbt::ByteArray::new(bytes.into_iter().map(|byte| byte as i8).collect()) } }
+            });
+            let stack =
+                fastnbt::to_bytes(&stack).map_err(|_| "Could not encode the Train Schedule")?;
+            if !write(world, &data) {
+                return Err("Could not save the train");
+            }
+            let drop = crate::STACKS.get().and_then(|stacks| {
+                let [x, y, z] = coords(context.position).map(f64::from);
+                stacks.spawn(world, [x + 0.5, y + 1.0, z + 0.5], [0.0, 0.1, 0.0], &stack)
+            });
+            if drop.is_none() {
+                data.trains[index].schedule = Some(schedule);
+                if !write(world, &data) {
+                    moddedmc_api::warn(
+                        "Could not restore train save after reclaiming its schedule failed",
+                    );
+                }
+                return Err("Could not reclaim the Train Schedule");
+            }
+            kinetics.train_runtime.refresh(world);
+            context.action_bar("Reclaimed the Train Schedule");
+            return Ok(BlockUseResult::Success);
+        }
         let train = data.trains.remove(index);
         if !write(world, &data) {
             return Err("Could not save the train");
@@ -283,7 +465,7 @@ fn use_assembly(
     } else if row >= 2 {
         let track = assembly_track(world, content, station)
             .ok_or("The station needs straight, level track")?;
-        let train = DockedTrain::capture(
+        let mut train = Train::capture(
             world,
             content,
             selection,
@@ -300,6 +482,14 @@ fn use_assembly(
             state: station_states(content)[row ^ 2].ok_or("Could not update the station flag")?,
             flags: content::UPDATE_ALL,
         });
+        train.id = data
+            .trains
+            .iter()
+            .map(|train| train.id)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or("Too many trains in this world")?;
         data.trains.push(train);
         if !write(world, &data) {
             return Err("Could not save the train");
@@ -318,7 +508,7 @@ fn use_assembly(
     } else {
         return Ok(BlockUseResult::Pass);
     }
-    kinetics.train_displays.refresh(world);
+    kinetics.train_runtime.refresh(world);
     sound(world, context.position, "minecraft:block.lever.click", 1.0);
     Ok(BlockUseResult::Success)
 }
@@ -416,13 +606,22 @@ pub(crate) fn use_assembly_track(
         return (context.stack.read().is_none()).then_some(BlockUseResult::TryEmptyHand);
     }
     let world = context.world;
-    let result = crate::with_world(world, |_| {
-        bogey(world, content, context.position, context.creative)
-    });
-    match result {
-        BogeyPlacement::Place | BogeyPlacement::Resized => Some(BlockUseResult::Success),
-        BogeyPlacement::None | BogeyPlacement::Rejected => None,
-    }
+    crate::with_world(world, |kinetics| {
+        if !context.sneaking
+            && context.player.is_some_and(|player| {
+                kinetics
+                    .train_runtime
+                    .board_at_rail(world, context.position, player)
+            })
+        {
+            context.action_bar("Drive with W/S, steer with A/D, hold Space to stop at a station");
+            return Some(BlockUseResult::Success);
+        }
+        match bogey(world, content, context.position, context.creative) {
+            BogeyPlacement::Place | BogeyPlacement::Resized => Some(BlockUseResult::Success),
+            BogeyPlacement::None | BogeyPlacement::Rejected => None,
+        }
+    })
 }
 
 pub(crate) fn tick(
@@ -430,11 +629,9 @@ pub(crate) fn tick(
     content: Content,
     events: &[ContentEvent],
     time: u64,
-    displays: &mut TrainDisplays,
-) {
-    displays.tick(world, time, events, || {
-        read(world).map(|stations| stations.trains)
-    });
+    trains: &mut TrainRuntime,
+) -> bool {
+    let moved = trains.tick(world, content, time, events);
     let removed: Vec<_> = events
         .iter()
         .filter_map(|event| {
@@ -447,10 +644,10 @@ pub(crate) fn tick(
         .filter(|&pos| state_at(world, pos).is_some_and(|state| !is_station(content, state)))
         .collect();
     if removed.is_empty() {
-        return;
+        return moved;
     }
     let (Some(dimension), Some(mut stations)) = (world.dimension_id(), read(world)) else {
-        return;
+        return moved;
     };
     let count = stations.stations.len();
     stations.stations.retain(|station| {
@@ -459,6 +656,7 @@ pub(crate) fn tick(
     if stations.stations.len() != count && !write(world, &stations) {
         moddedmc_api::warn("Could not save the updated train stations");
     }
+    moved
 }
 
 pub(crate) fn describe(world: World<'_>, content: Content, position: Pos) -> Option<String> {
@@ -480,12 +678,21 @@ pub(crate) fn describe(world: World<'_>, content: Content, position: Pos) -> Opt
         .is_some_and(|state| station_states(content)[2..].contains(&Some(state)));
     let mode = if assembling {
         " Assembling".to_owned()
-    } else if let Some(train) = data.trains.iter().find(|train| train.station == selection) {
-        format!(
+    } else if let Some(train) = data
+        .trains
+        .iter()
+        .find(|train| train.dock() == Some(&selection))
+    {
+        let mut message = format!(
             " Docked Carriages={} WheelPoints={}",
             train.count(),
             train.wheel_count()
-        )
+        );
+        if let Some(schedule) = &train.schedule {
+            message.push(' ');
+            message.push_str(schedule.status());
+        }
+        message
     } else {
         String::new()
     };

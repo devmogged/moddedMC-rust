@@ -1,0 +1,280 @@
+# Craft a Mechanical Crafter in Survival and use a covered 5x5 rig to make Crushing Wheels.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_crafter \(16 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2496.5 106 2498.5 0 0
+wait 4
+cmd fill 2490 106 2495 2502 113 2505 minecraft:air
+cmd fill 2490 105 2495 2502 105 2505 minecraft:stone
+cmd tp tester 2496.5 106 2498.5 0 0
+cmd gamemode survival tester
+cmd setblock 2497 106 2499 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:electron_tube
+cmd item replace entity tester hotbar.1 with create:brass_casing
+cmd item replace entity tester hotbar.2 with minecraft:crafting_table
+wait 0.5
+bot use 2497 106 2499 north
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.25
+bot inventory-click 39 left
+wait 0.25
+bot inventory-click 7 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:mechanical_crafter 0
+wait 0.5
+expect Found 3 matching item
+cmd setblock 2496 106 2501 minecraft:stone
+wait 0.5
+bot place 2496 106 2501 north
+wait 0.5
+cmd clear tester create:mechanical_crafter 0
+wait 0.5
+expect Found 2 matching item
+cmd kinetics 2496 106 2500
+wait 0.5
+expect create:mechanical_crafter\[facing=north,pointing=up\] at 2496 106 2500 Speed=0
+
+# Build a chain toward the center bottom slot and the barrel beneath it.
+cmd setblock 2496 105 2500 minecraft:barrel
+cmd setblock 2494 110 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2495 110 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2496 110 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2497 110 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2494 109 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2495 109 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2496 109 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2497 109 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2498 109 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2494 108 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2495 108 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2496 108 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2497 108 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2498 108 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2494 107 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2495 107 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2496 107 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2497 107 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2498 107 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2495 106 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2497 106 2500 create:mechanical_crafter[facing=north]
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 2494 110 2500 north
+wait 0.18
+bot use 2494 110 2500 north
+wait 0.18
+bot use 2495 110 2500 north
+wait 0.18
+bot use 2495 110 2500 north
+wait 0.18
+bot use 2496 110 2500 north
+wait 0.18
+bot use 2496 110 2500 north
+wait 0.18
+bot use 2497 110 2500 north
+wait 0.18
+bot use 2497 110 2500 north
+wait 0.18
+bot use 2494 109 2500 north
+wait 0.18
+bot use 2494 109 2500 north
+wait 0.18
+bot use 2495 109 2500 north
+wait 0.18
+bot use 2495 109 2500 north
+wait 0.18
+bot use 2496 109 2500 north
+wait 0.18
+bot use 2496 109 2500 north
+wait 0.18
+bot use 2497 109 2500 north
+wait 0.18
+bot use 2497 109 2500 north
+wait 0.18
+bot use 2498 109 2500 north
+wait 0.18
+bot use 2498 109 2500 north
+wait 0.18
+bot use 2494 108 2500 north
+wait 0.18
+bot use 2494 108 2500 north
+wait 0.18
+bot use 2495 108 2500 north
+wait 0.18
+bot use 2495 108 2500 north
+wait 0.18
+bot use 2496 108 2500 north
+wait 0.18
+bot use 2496 108 2500 north
+wait 0.18
+bot use 2497 108 2500 north
+wait 0.18
+bot use 2497 108 2500 north
+wait 0.18
+bot use 2498 108 2500 north
+wait 0.18
+bot use 2498 108 2500 north
+wait 0.18
+bot use 2494 107 2500 north
+wait 0.18
+bot use 2495 107 2500 north
+wait 0.18
+bot use 2495 107 2500 north
+wait 0.18
+bot use 2496 107 2500 north
+wait 0.18
+bot use 2496 107 2500 north
+wait 0.18
+bot use 2497 107 2500 north
+wait 0.18
+bot use 2497 107 2500 north
+wait 0.18
+bot use 2498 107 2500 north
+wait 0.18
+bot use 2498 107 2500 north
+wait 0.18
+bot use 2498 107 2500 north
+wait 0.18
+bot use 2495 106 2500 north
+wait 0.18
+bot use 2496 106 2500 north
+wait 0.18
+bot use 2496 106 2500 north
+wait 0.18
+bot use 2497 106 2500 north
+wait 0.18
+bot use 2497 106 2500 north
+wait 0.18
+bot use 2497 106 2500 north
+wait 0.18
+cmd kinetics 2496 106 2500
+wait 0.5
+expect create:mechanical_crafter\[facing=north,pointing=down\] at 2496 106 2500 Speed=0
+
+# Insert one stack per slot from the front. The covered slot contributes an empty cell.
+cmd item replace entity tester weapon.mainhand with create:crafter_slot_cover 1
+wait 0.5
+bot use 2494 110 2500 north
+wait 0.18
+cmd clear tester create:crafter_slot_cover 0
+wait 0.5
+expect No items were found
+bot expect entity minecraft:item_display near 2494.5 110.5 2499.98 within 0.08 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2494.5 110.5 2499.98
+cmd item replace entity tester weapon.mainhand with create:andesite_alloy 16
+wait 0.5
+bot use 2495 110 2500 north
+wait 0.18
+bot use 2496 110 2500 north
+wait 0.18
+bot use 2497 110 2500 north
+wait 0.18
+bot use 2494 109 2500 north
+wait 0.18
+bot use 2495 109 2500 north
+wait 0.18
+bot use 2497 109 2500 north
+wait 0.18
+bot use 2498 109 2500 north
+wait 0.18
+bot use 2494 108 2500 north
+wait 0.18
+bot use 2498 108 2500 north
+wait 0.18
+bot use 2494 107 2500 north
+wait 0.18
+bot use 2495 107 2500 north
+wait 0.18
+bot use 2497 107 2500 north
+wait 0.18
+bot use 2498 107 2500 north
+wait 0.18
+bot use 2495 106 2500 north
+wait 0.18
+bot use 2496 106 2500 north
+wait 0.18
+bot use 2497 106 2500 north
+wait 0.18
+cmd clear tester create:andesite_alloy 0
+wait 0.5
+expect No items were found
+cmd item replace entity tester weapon.mainhand with minecraft:spruce_planks 4
+wait 0.5
+bot use 2496 109 2500 north
+wait 0.18
+bot use 2495 108 2500 north
+wait 0.18
+bot use 2497 108 2500 north
+wait 0.18
+bot use 2496 107 2500 north
+wait 0.18
+cmd clear tester minecraft:spruce_planks 0
+wait 0.5
+expect No items were found
+cmd item replace entity tester weapon.mainhand with minecraft:granite 1
+wait 0.5
+bot use 2496 108 2500 north
+wait 0.18
+cmd clear tester minecraft:granite 0
+wait 0.5
+expect No items were found
+
+cmd data get block 2496 108 2500 Crafter.Slot.id
+wait 0.5
+expect block data: "minecraft:granite"
+bot expect entity minecraft:item_display near 2496.5 108.5 2499.98 within 0.08 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2496.5 108.5 2499.98
+
+# Start at low speed and stop the server before the recipe reaches the output.
+cmd setblock 2493 108 2500 create:cogwheel[axis=z,waterlogged=false]
+cmd setblock 2493 108 2501 create:creative_motor[facing=north]
+wait 0.5
+cmd kinetics 2493 108 2501 4
+wait 0.5
+cmd data get block 2494 110 2500 Crafter.Phase
+wait 0.5
+expect block data: "Waiting"
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+stop
+
+start
+cmd difficulty peaceful
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2494 110 2500 Crafter.Phase
+wait 0.5
+expect block data: "Waiting"
+cmd kinetics 2493 108 2501 128
+wait 8
+cmd data get block 2496 105 2500 Items[0].id
+cmd data get block 2496 105 2500 Items[0].count
+wait 0.5
+expect block data: "create:crushing_wheel"
+expect block data: 2$
+cmd data get block 2496 106 2500 Crafter.Phase
+wait 0.5
+expect block data: "Idle"
+reject (?i)panicked|trapped|failed to register|Failed to save player data|Error loading player data|\[bot\] error
+bot quit
+stop

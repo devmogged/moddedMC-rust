@@ -1,0 +1,97 @@
+# A stationary drill mines in front, stops with its shaft, and saves in-flight progress.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_drill
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2582.5 105 2582.5
+wait 3
+cmd fill 2577 99 2577 2587 108 2587 minecraft:air
+cmd fill 2577 99 2577 2587 99 2587 minecraft:stone
+cmd tp tester 2582.5 100 2582.5
+cmd gamemode survival tester
+cmd recipe give tester create:crafting/kinetics/mechanical_drill
+wait 0.5
+expect Unlocked 1 recipe
+cmd setblock 2580 100 2580 create:creative_motor[facing=east]
+wait 0.5
+cmd kinetics 2580 100 2580 0
+wait 0.5
+expect at 2580 100 2580 Speed=0\b
+cmd setblock 2582 100 2580 minecraft:stone
+cmd item replace entity tester hotbar.0 with create:mechanical_drill
+wait 0.5
+bot place 2580 100 2580 east
+wait 1
+cmd execute if block 2581 100 2580 create:mechanical_drill[facing=east]
+wait 0.5
+expect Test passed
+bot expect block 2582 100 2580 minecraft:stone
+wait 0.5
+expect ^\[bot\] expect block ok 2582 100 2580 stone
+
+cmd kinetics 2580 100 2580 16
+wait 2
+cmd kinetics 2580 100 2580 0
+wait 0.5
+cmd data get block 2581 100 2580 Drill.Progress
+bot expect block 2582 100 2580 minecraft:stone
+wait 0.5
+expect-all block data: [1-9]$ && ^\[bot\] expect block ok 2582 100 2580 stone
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2581 100 2580 Drill.Progress
+bot expect block 2582 100 2580 minecraft:stone
+wait 0.5
+expect-all block data: [1-9]$ && ^\[bot\] expect block ok 2582 100 2580 stone
+cmd kinetics 2580 100 2580 -128
+wait 2
+bot expect block 2582 100 2580 minecraft:air
+wait 0.5
+expect ^\[bot\] expect block ok 2582 100 2580 air
+cmd data get entity @e[type=minecraft:item,x=2582.5,y=100,z=2580.5,distance=..2,limit=1] Item.id
+wait 0.5
+expect entity data: "minecraft:cobblestone"
+
+# A neighbor change wakes the drill, but bedrock remains intact.
+cmd setblock 2582 100 2580 minecraft:bedrock
+wait 1
+bot expect block 2582 100 2580 minecraft:bedrock
+wait 0.5
+expect ^\[bot\] expect block ok 2582 100 2580 bedrock
+cmd setblock 2582 100 2580 minecraft:oak_planks
+wait 3
+bot expect block 2582 100 2580 minecraft:air
+wait 0.5
+expect ^\[bot\] expect block ok 2582 100 2580 air
+cmd data get entity @e[type=minecraft:item,x=2582.5,y=100,z=2580.5,distance=..2,nbt={Item:{id:"minecraft:oak_planks"}},limit=1] Item.id
+wait 0.5
+expect entity data: "minecraft:oak_planks"
+# The drill can harvest consecutive blocks from a cobblestone generator.
+cmd kill @e[type=minecraft:item,x=2582.5,y=100,z=2580.5,distance=..2]
+cmd setblock 2582 98 2580 minecraft:barrel
+cmd setblock 2582 99 2580 minecraft:hopper[facing=down]
+cmd setblock 2582 99 2581 minecraft:air
+cmd setblock 2582 98 2581 minecraft:stone
+cmd setblock 2581 100 2581 minecraft:stone
+cmd setblock 2583 100 2581 minecraft:stone
+cmd setblock 2582 100 2582 minecraft:stone
+cmd setblock 2582 100 2579 minecraft:stone
+cmd setblock 2583 100 2579 minecraft:stone
+cmd setblock 2584 100 2580 minecraft:stone
+cmd setblock 2582 100 2581 minecraft:water
+cmd setblock 2583 100 2580 minecraft:lava
+wait 12
+cmd data get block 2582 98 2580 Items[0].id
+cmd data get block 2582 98 2580 Items[0].count
+wait 0.5
+expect-all block data: "minecraft:cobblestone" && block data: (?:[2-9]|[1-9][0-9]+)$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

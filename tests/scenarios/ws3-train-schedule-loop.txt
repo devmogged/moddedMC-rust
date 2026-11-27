@@ -1,0 +1,197 @@
+# A schedule repeats two stops across a four-curve loop while the train runs without a rider.
+mods target\mods\create.mmc
+start
+expect registered content item create:schedule
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2455.5 102 2438.5 90 35
+wait 6
+cmd fill 2432 100 2434 2472 108 2466 minecraft:air
+cmd fill 2432 99 2434 2472 99 2466 minecraft:stone
+cmd execute if block 2444 99 2440 minecraft:stone if block 2460 99 2440 minecraft:stone
+await 10 Test passed
+cmd item replace entity tester weapon.mainhand with create:track 64
+cmd tp tester 2444.5 101 2438.5 90 35
+wait 0.75
+bot use 2444 99 2440
+wait 0.5
+cmd tp tester 2460.5 101 2438.5 90 35
+wait 0.75
+bot use 2460 99 2440
+wait 0.5
+cmd execute if block 2444 100 2440 create:track if block 2460 100 2440 create:track
+wait 0.5
+expect Test passed
+cmd tp tester 2436.5 101 2446.5 0 35
+wait 0.75
+bot use 2436 99 2448
+wait 0.5
+cmd tp tester 2436.5 101 2450.5 0 35
+wait 0.75
+bot use 2436 99 2452
+wait 0.5
+cmd tp tester 2444.5 101 2458.5 -90 35
+wait 0.75
+bot use 2444 99 2460
+wait 0.5
+cmd tp tester 2460.5 101 2458.5 -90 35
+wait 0.75
+bot use 2460 99 2460
+wait 0.5
+cmd tp tester 2468.5 101 2450.5 180 35
+wait 0.75
+bot use 2468 99 2452
+wait 0.5
+cmd tp tester 2468.5 101 2446.5 180 35
+wait 0.75
+bot use 2468 99 2448
+wait 0.5
+
+# Join the four straight runs, then close the corners with the Track item.
+cmd tp tester 2444.5 101 2438.5 90 35
+wait 0.75
+bot use 2444 100 2440
+wait 0.5
+cmd tp tester 2460.5 101 2438.5 90 35
+wait 0.75
+bot use 2460 100 2440
+wait 0.5
+cmd tp tester 2436.5 101 2446.5 0 35
+wait 0.75
+bot use 2436 100 2448
+wait 0.5
+cmd tp tester 2436.5 101 2450.5 0 35
+wait 0.75
+bot use 2436 100 2452
+wait 0.5
+cmd tp tester 2444.5 101 2458.5 -90 35
+wait 0.75
+bot use 2444 100 2460
+wait 0.5
+cmd tp tester 2460.5 101 2458.5 -90 35
+wait 0.75
+bot use 2460 100 2460
+wait 0.5
+cmd tp tester 2468.5 101 2450.5 180 35
+wait 0.75
+bot use 2468 100 2452
+wait 0.5
+cmd tp tester 2468.5 101 2446.5 180 35
+wait 0.75
+bot use 2468 100 2448
+wait 0.5
+cmd tp tester 2444.5 101 2438.5 90 35
+wait 0.75
+bot use 2444 100 2440
+wait 0.5
+cmd tp tester 2436.5 101 2446.5 0 35
+wait 0.75
+bot use 2436 100 2448
+wait 0.5
+cmd tp tester 2436.5 101 2450.5 0 35
+wait 0.75
+bot use 2436 100 2452
+wait 0.5
+cmd tp tester 2444.5 101 2458.5 -90 35
+wait 0.75
+bot use 2444 100 2460
+wait 0.5
+cmd tp tester 2460.5 101 2458.5 -90 35
+wait 0.75
+bot use 2460 100 2460
+wait 0.5
+cmd tp tester 2468.5 101 2450.5 180 35
+wait 0.75
+bot use 2468 100 2452
+wait 0.5
+cmd tp tester 2468.5 101 2446.5 180 35
+wait 0.75
+bot use 2468 100 2448
+wait 0.5
+cmd tp tester 2460.5 101 2438.5 90 35
+wait 0.75
+bot use 2460 100 2440
+wait 0.5
+
+cmd railway 2454 100 2440
+wait 1
+expect Create railway: Graphs=1 .* Curves=4
+cmd item replace entity tester weapon.mainhand with create:track_station
+cmd tp tester 2453.5 101 2458.5 -90 35
+wait 0.75
+bot use 2454 100 2460
+wait 0.5
+bot use 2453 99 2461
+wait 0.5
+cmd station 2453 100 2461
+wait 0.5
+expect Track Station targets 2454 100 2460 Connected
+cmd tp tester 2454.5 101 2438.5 90 35
+wait 0.75
+bot use 2453 100 2440
+wait 0.5
+bot use 2454 99 2441
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:air
+wait 0.5
+bot use 2454 100 2441
+wait 0.5
+cmd item replace entity tester weapon.mainhand with create:railway_casing
+wait 0.5
+bot use 2454 100 2440
+wait 0.5
+cmd setblock 2454 102 2440 create:controls[facing=east,open=false,waterlogged=false]
+cmd item replace entity tester weapon.mainhand with create:super_glue
+wait 0.5
+bot use 2454 101 2440 south
+wait 0.5
+bot use 2454 102 2440 south
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:air
+bot input sneak
+wait 0.5
+bot use 2454 100 2441
+wait 0.5
+cmd station 2454 100 2441
+wait 0.5
+expect Track Station targets 2453 100 2440 Connected .* Docked Carriages=1 WheelPoints=2$
+bot input none
+
+cmd tp tester 2453.5 101 2462.5 180 35
+cmd item replace entity tester weapon.mainhand with create:schedule
+wait 0.75
+bot use 2453 100 2461
+wait 0.5
+expect Destination selected
+cmd tp tester 2454.5 101 2442.5 180 35
+wait 0.75
+bot use 2454 100 2441
+wait 0.5
+expect Cyclic schedule
+wait 14
+cmd station 2453 100 2461
+wait 0.5
+expect Track Station targets 2454 100 2460 Connected .* Docked Carriages=1 WheelPoints=2 Cyclic schedule$
+bot expect riding none
+wait 0.5
+expect ^\[bot\] expect riding ok none
+reject (?i)panicked|trapped|could not save|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 12
+expect \[bot\] joined as tester
+cmd station 2454 100 2441
+wait 0.5
+expect Track Station targets 2453 100 2440 Connected .* Docked Carriages=1 WheelPoints=2 Cyclic schedule$
+bot expect riding none
+wait 0.5
+expect ^\[bot\] expect riding ok none
+reject (?i)panicked|trapped|could not save|\[bot\] error
+bot quit
+stop

@@ -1,15 +1,18 @@
-//! Create 6.0.10's DrillMovementBehaviour and BlockBreakingMovementBehaviour.
+//! Create 6.0.10's stationary drill and contraption block breaking.
 
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
     content::{self, Block, Content, ShapeBox, State, World},
+    entities::{ENTITY_ITEM, Entity},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CONTENT, DIRECTIONS, STONE, StateIds, TAGS,
+    CONTENT, DIRECTIONS, STACKS, STONE, StateIds, TAGS,
+    belt_tunnel::{read, shift},
     collider::Frame,
-    kinetics::{FACES, Kind, face_axis, positive},
+    kinetics::{Be, FACES, Kind, Kinetics, face_axis, positive},
+    plough, saw,
 };
 
 pub const ID: &str = "create:mechanical_drill";
@@ -82,29 +85,167 @@ fn block_pos([x, y, z]: [i32; 3]) -> Pos {
     Pos { x, y, z }
 }
 
-pub fn breakable(world: World<'_>, position: Pos) -> Option<f32> {
-    let mut states = [content::UNLOADED_STATE];
-    world.read(&[position], &mut states);
-    let name = CONTENT.get()?.describe_state(states[0])?;
-    let block = name.split('[').next()?;
+fn breakable_block(world: World<'_>, position: Pos, state: u32) -> Option<(f32, String)> {
+    let mut block = CONTENT.get()?.describe_state(state)?;
+    if let Some(properties) = block.find('[') {
+        block.truncate(properties);
+    }
     let hardness = world.destroy_speed(position)?;
     let tags = TAGS.get()?;
     if hardness < 0.0
         || matches!(
-            block,
+            block.as_str(),
             "minecraft:air"
                 | "minecraft:cave_air"
                 | "minecraft:void_air"
                 | "minecraft:water"
                 | "minecraft:lava"
         )
-        || tags.contains("block", "create:non_breakable", block)
-        || tags.contains("block", "create:tracks", block)
-        || world.collision_shape(position)?.is_empty()
+        || tags.contains("block", "create:non_breakable", &block)
     {
         return None;
     }
-    Some(hardness)
+    Some((hardness, block))
+}
+
+fn moving_breakable(world: World<'_>, position: Pos, saw: bool) -> Option<(f32, String)> {
+    let (hardness, block) = breakable_block(world, position, read(world, position))?;
+    if TAGS.get()?.contains("block", "create:tracks", &block)
+        || world.collision_shape(position)?.is_empty()
+        || (saw && !saw::is_sawable(&block))
+    {
+        return None;
+    }
+    Some((hardness, block))
+}
+
+pub(crate) fn can_break_moving(world: World<'_>, pos: Pos, saw: bool) -> bool {
+    moving_breakable(world, pos, saw).is_some()
+}
+
+const IDLE: i32 = -1;
+const LAZY_TICK_RATE: u64 = 10;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub(crate) struct Stationary {
+    progress: i32,
+    next_tick: i32,
+}
+
+impl Stationary {
+    pub(crate) fn wake(&mut self) {
+        self.next_tick = 1;
+    }
+
+    fn tick(&mut self, world: World<'_>, pos: Pos, kind: Kind, speed: f32, lazy_tick: bool) {
+        if self.next_tick < 0 && lazy_tick {
+            self.wake();
+        }
+        if speed == 0.0 || self.next_tick < 0 {
+            return;
+        }
+        if self.next_tick > 0 {
+            self.next_tick -= 1;
+            return;
+        }
+        let (facing, saw) = match kind {
+            Kind::Drill(facing) => (facing, false),
+            Kind::Saw(block) if block.horizontal() => (block.facing, true),
+            _ => return,
+        };
+        let target = shift(pos, facing);
+        let state = read(world, target);
+        if state == content::UNLOADED_STATE {
+            return;
+        }
+        let Some((hardness, block)) = breakable_block(world, target, state)
+            .filter(|(_, block)| !saw || saw::is_sawable(block))
+        else {
+            self.progress = 0;
+            self.next_tick = IDLE;
+            return;
+        };
+
+        let break_speed = (speed / 100.0).abs();
+        self.progress = self.progress.clamp(0, 9);
+        self.progress += ((break_speed / hardness) as i32).clamp(1, 10 - self.progress);
+        if self.progress < 10 {
+            self.next_tick = (hardness / break_speed) as i32;
+            return;
+        }
+
+        if break_and_drop(world, target, [0.0; 3]) && saw {
+            saw::cut_tree(world, target, facing, &block);
+        }
+        self.progress = 0;
+        self.next_tick = IDLE;
+    }
+}
+
+fn destroy_and_drops(world: World<'_>, pos: Pos) -> Option<Vec<Vec<u8>>> {
+    let drops = world.block_drops(pos, None)?;
+    world.destroy(pos, false).then_some(drops)
+}
+
+pub(crate) fn break_and_drop(world: World<'_>, pos: Pos, motion: [f64; 3]) -> bool {
+    let Some(drops) = destroy_and_drops(world, pos) else {
+        return false;
+    };
+    if let Some(&stacks) = STACKS.get() {
+        let center = [pos.x, pos.y, pos.z].map(|coord| f64::from(coord) + 0.5);
+        for drop in drops {
+            stacks.spawn(world, center, motion, &drop);
+        }
+    }
+    true
+}
+
+pub(crate) fn tick(world: World<'_>, kinetics: &mut Kinetics, time: u64) {
+    let lazy_tick = time.is_multiple_of(LAZY_TICK_RATE);
+    for pos in kinetics.positions(|kind| matches!(kind, Kind::Drill(_) | Kind::Saw(_))) {
+        let Some(be) = kinetics.get_mut(pos) else {
+            continue;
+        };
+        let kind = be.kind;
+        let speed = be.get_speed();
+        if !matches!(kind, Kind::Saw(block) if !block.horizontal()) {
+            let breaker = be.block_breaking.get_or_insert_with(Default::default);
+            let previous = *breaker;
+            breaker.tick(world, pos, kind, speed, lazy_tick);
+            be.dirty |= previous != *breaker;
+        }
+        if let Kind::Saw(block) = kind {
+            let display = kinetics.saw_blades.entry(pos).or_default();
+            saw::show_blade(world, pos, block, speed, display);
+            crate::saw_processing::tick(world, kinetics, pos, block, speed);
+        }
+    }
+}
+
+pub(crate) fn entity_inside(world: World<'_>, pos: Pos, entity: Entity<'_>, damage_type: &str) {
+    if entity
+        .view()
+        .is_none_or(|view| view.kind & ENTITY_ITEM != 0)
+    {
+        return;
+    }
+    let Some(body) = entity.body() else {
+        return;
+    };
+    // DrillBlock checks a full block box deflated by 0.1, including the exposed drill head.
+    let coords = [pos.x, pos.y, pos.z].map(f64::from);
+    if !(0..3).all(|i| body.max[i] > coords[i] + 0.1 && body.min[i] < coords[i] + 0.9) {
+        return;
+    }
+    let speed = crate::with_world(world, |kinetics| kinetics.get(pos).map(Be::get_speed))
+        .unwrap_or_default()
+        .abs();
+    if speed != 0.0 {
+        let damage = ((speed / 16.0).min(2.0) + (speed / 32.0).min(4.0) + (speed / 64.0).min(4.0))
+            .clamp(1.0, 10.0);
+        entity.hurt(damage_type, damage);
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -135,14 +276,20 @@ impl BreakProgress {
 pub enum Tick {
     Travel,
     Stalled,
-    Broke(Pos, Vec<Vec<u8>>),
+    Broke(Vec<(Pos, Vec<Vec<u8>>)>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct DrillMovementBehaviour {
-    local: [i32; 3],
+pub struct BlockBreakingMovementBehaviour {
+    pub(crate) local: [i32; 3],
     facing: u8,
+    #[serde(default)]
+    pub(crate) saw: bool,
+    #[serde(default)]
+    plough: bool,
+    #[serde(skip)]
+    pub(crate) moving: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_pos: Option<[i32; 3]>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -151,11 +298,14 @@ pub struct DrillMovementBehaviour {
     breaker: BreakProgress,
 }
 
-impl DrillMovementBehaviour {
-    pub fn new(local: [i32; 3], facing: u8) -> Self {
+impl BlockBreakingMovementBehaviour {
+    pub fn new(local: [i32; 3], facing: u8, saw: bool) -> Self {
         Self {
             local,
             facing,
+            saw,
+            plough: false,
+            moving: false,
             last_pos: None,
             breaking_pos: None,
             speed: 0.0,
@@ -163,13 +313,33 @@ impl DrillMovementBehaviour {
         }
     }
 
+    pub(crate) fn plough(local: [i32; 3], facing: u8) -> Self {
+        Self {
+            plough: true,
+            ..Self::new(local, facing, false)
+        }
+    }
+
+    fn breakable(&self, world: World<'_>, pos: Pos) -> Option<(f32, String)> {
+        if self.plough {
+            plough::breakable(world, pos)
+        } else {
+            moving_breakable(world, pos, self.saw)
+        }
+    }
+
     pub fn tick(&mut self, world: World<'_>, previous: Frame, next: Frame) -> Tick {
+        self.moving = false;
         let Some(step) = FACES.get(usize::from(self.facing)) else {
             return Tick::Travel;
         };
         let step = step.map(f64::from);
-        let point =
-            std::array::from_fn(|i| f64::from(self.local[i]) + 0.5 + ACTIVE_AREA_OFFSET * step[i]);
+        let offset = if self.plough {
+            plough::ACTIVE_AREA_OFFSET
+        } else {
+            ACTIVE_AREA_OFFSET
+        };
+        let point = std::array::from_fn(|i| f64::from(self.local[i]) + 0.5 + offset * step[i]);
         let (before, after) = (previous.to_world(point), next.to_world(point));
         let motion: [f64; 3] = std::array::from_fn(|i| after[i] - before[i]);
         let local_motion = next.to_local(before);
@@ -189,18 +359,32 @@ impl DrillMovementBehaviour {
             return Tick::Travel;
         }
 
+        self.moving = true;
         let grid = after.map(|n| n.floor() as i32);
-        if self.breaking_pos.is_none()
-            && self.last_pos.replace(grid) != Some(grid)
-            && breakable(world, block_pos(grid)).is_some()
-        {
-            self.breaking_pos = Some(grid);
-            self.speed = block_breaking_speed(speed);
+        if self.saw {
+            let center = next.to_world(self.local.map(|n| f64::from(n) + 0.5));
+            let [dx, dy, dz] = std::array::from_fn(|i| (after[i] - center[i]).abs());
+            if dy >= dx.max(dz) {
+                self.breaking_pos = None;
+                self.breaker = BreakProgress::default();
+                self.last_pos = Some(grid);
+                return Tick::Travel;
+            }
+        }
+        if self.breaking_pos.is_none() && self.last_pos.replace(grid) != Some(grid) {
+            let pos = block_pos(grid);
+            if self.breakable(world, pos).is_some() {
+                self.breaking_pos = Some(grid);
+                self.speed = block_breaking_speed(speed);
+            }
+            if self.plough {
+                plough::visit(world, pos, motion, speed);
+            }
         }
         let Some(target) = self.breaking_pos.map(block_pos) else {
             return Tick::Travel;
         };
-        let Some(hardness) = breakable(world, target) else {
+        let Some((hardness, block)) = self.breakable(world, target) else {
             self.breaking_pos = None;
             self.breaker = BreakProgress::default();
             return Tick::Travel;
@@ -209,13 +393,23 @@ impl DrillMovementBehaviour {
             return Tick::Stalled;
         }
         self.breaking_pos = None;
-        if let Some(drops) = world.block_drops(target, None)
-            && world.destroy(target, false)
-        {
-            Tick::Broke(target, drops)
+        let snow = if self.plough && block == "minecraft:snow" {
+            plough::snow_drops(world, target)
         } else {
-            Tick::Travel
+            Vec::new()
+        };
+        let Some(mut drops) = destroy_and_drops(world, target) else {
+            return Tick::Travel;
+        };
+        drops.extend(snow);
+        let mut broken = vec![(target, drops)];
+        if self.saw && !saw::is_leaf(&block) {
+            broken.extend(
+                saw::tree_positions(world, target, &block)
+                    .filter_map(|pos| Some((pos, destroy_and_drops(world, pos)?))),
+            );
         }
+        Tick::Broke(broken)
     }
 }
 

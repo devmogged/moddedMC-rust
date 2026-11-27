@@ -3,20 +3,29 @@
 //! Restricted assets stay in the user's local original JAR, never in this library.
 
 use std::sync::OnceLock;
+mod blocks;
+mod equipment;
+mod encounters;
 
 use moddedmc_api::{
     InterfaceUnavailable, Mod, RegistrationError, Registry,
-    items::{self, Item, Items},
+    items::{self, Item, ItemDefaults, Items},
 };
 
 static ITEMS: OnceLock<Items> = OnceLock::new();
+static DEFAULTS: OnceLock<ItemDefaults> = OnceLock::new();
+static CONTENT: OnceLock<moddedmc_api::content::Content> = OnceLock::new();
+static PHYSICS: OnceLock<moddedmc_api::block_physics::BlockPhysics> = OnceLock::new();
+static MOBS: OnceLock<moddedmc_api::mobs::Mobs> = OnceLock::new();
+static MOB_AI: OnceLock<moddedmc_api::mob_ai::MobAi> = OnceLock::new();
+static ENTITIES: OnceLock<moddedmc_api::entities::Entities> = OnceLock::new();
+static COMMANDS: OnceLock<moddedmc_api::commands::Commands> = OnceLock::new();
 
 struct LegendaryMonsters;
 
 /// Items registered as new Item(new Properties()), plus those with only fireResistant().
 /// Netherite ingot carriers provide vanilla fire resistance; the other carriers are plain
-/// stack-64 items. Active use handlers, foods, equipment and items with distinct rarity wait
-/// until those host interfaces are available.
+/// stack-64 items.
 const PASSIVE_MATERIALS: &[(&str, &str, &str)] = &[
     (
         "dinosaur_bone",
@@ -112,9 +121,30 @@ const PASSIVE_MATERIALS: &[(&str, &str, &str)] = &[
     ("metal_debris", "Metal Debris", "minecraft:iron_ingot"),
 ];
 
+// Named-root ItemStack NBT: amethyst shard carrier with epic rarity.
+// Both source items are plain Item instances with stack size 64.
+const EPIC_DEFAULTS: &[u8] = b"\x0a\x00\x00\x08\x00\x02id\x00\x18minecraft:amethyst_shard\x0a\x00\x0acomponents\x08\x00\x10minecraft:rarity\x00\x04epic\x00\x00";
+const EPIC_MATERIALS: &[(&str, &str, &str)] = &[
+    ("portal_shard", "Portal Shard", "minecraft:amethyst_shard"),
+    ("eye_crystal", "Eye Crystal", "minecraft:amethyst_shard"),
+];
+
 impl Mod for LegendaryMonsters {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let _ = ITEMS.set(items::require()?);
+        let _ = DEFAULTS.set(items::require_defaults()?);
+        let _ = CONTENT.set(moddedmc_api::content::require()?);
+        let _ = PHYSICS.set(moddedmc_api::block_physics::require()?);
+        let mobs = moddedmc_api::mobs::require()?;
+        mobs.require_extension(moddedmc_api::mobs::MobsExtension::Taming)?;
+        let _ = MOBS.set(mobs);
+        let ai = moddedmc_api::mob_ai::require()?;
+        ai.require_extension(moddedmc_api::mob_ai::MobAiExtension::Combat)?;
+        let _ = MOB_AI.set(ai);
+        let entities = moddedmc_api::entities::require()?;
+        entities.require_extension(moddedmc_api::entities::EntitiesExtension::Carriers)?;
+        let _ = ENTITIES.set(entities);
+        let _ = COMMANDS.set(moddedmc_api::commands::require()?);
         Ok(())
     }
 
@@ -131,7 +161,31 @@ impl Mod for LegendaryMonsters {
                 },
             )?;
         }
+        let defaults = DEFAULTS.get().ok_or(RegistrationError::InvalidDefinition)?;
+        for &(id, display_name, carrier) in EPIC_MATERIALS {
+            defaults.add_item(
+                registry,
+                &Item {
+                    id: &format!("legendary_monsters:{id}"),
+                    display_name,
+                    carrier,
+                    model: &format!("legendary_monsters:item/{id}"),
+                },
+                EPIC_DEFAULTS,
+            )?;
+        }
+        equipment::register(*defaults, registry)?;
+        blocks::register(
+            *CONTENT.get().ok_or(RegistrationError::InvalidDefinition)?,
+            *PHYSICS.get().ok_or(RegistrationError::InvalidDefinition)?,
+            registry,
+        )?;
+        encounters::register(registry)?;
         Ok(())
+    }
+
+    fn command(&self, tag: u64, command: moddedmc_api::Command<'_>) -> i32 {
+        encounters::command(tag, command)
     }
 }
 

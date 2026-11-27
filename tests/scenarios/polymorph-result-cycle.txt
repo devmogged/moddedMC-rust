@@ -1,0 +1,81 @@
+# Fully stock protocol: right-click output selects another real recipe while
+# the table remains open, WITHOUT issuing chat commands or consuming items.
+# Shift-click then crafts the selected result, and a second player's menu
+# stays on the vanilla default.
+mods target\mods\polymorph.mmc
+start
+expect moddedmc: loaded polymorph
+cmd datapack enable "file/conflicts" last
+wait 1
+expect Loaded datapack 'conflicts'
+stop
+start
+botstart alice
+botstart bob
+wait 3
+cmd gamemode survival alice
+cmd gamemode survival bob
+cmd tp alice 1025.5 101 1023.5
+cmd tp bob 1025.5 101 1023.5
+wait 2
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:crafting_table
+cmd item replace entity alice hotbar.0 with minecraft:stone 3
+cmd item replace entity bob hotbar.0 with minecraft:stone 1
+botselect alice
+bot use 1025 100 1025
+wait 0.5
+bot inventory-click 37 left
+bot inventory-click 1 left
+wait 1
+bot expect slot 0 minecraft:stone_button 1
+bot inventory-click 0 right
+wait 0.5
+bot expect slot 0 minecraft:diamond 1
+bot expect cursor minecraft:air 0
+bot inventory-click 0 right
+wait 0.5
+bot expect slot 0 minecraft:emerald 1
+bot expect slot 1 minecraft:stone 3
+botselect bob
+bot use 1025 100 1025
+wait 0.5
+bot inventory-click 37 left
+bot inventory-click 1 left
+wait 1
+bot expect slot 0 minecraft:stone_button 1
+botselect alice
+bot expect slot 0 minecraft:emerald 1
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-click 0 shift-left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+bot inventory-close
+botselect bob
+bot expect slot 0 minecraft:stone_button 1
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+cmd clear alice minecraft:emerald 0
+wait 0.5
+expect Found 3 matching item
+cmd clear alice minecraft:stone 0
+wait 0.5
+expect No items were found
+cmd clear alice minecraft:diamond 0
+wait 0.5
+expect No items were found
+cmd clear bob minecraft:stone_button 0
+wait 0.5
+expect Found 1 matching item
+cmd clear bob minecraft:emerald 0
+wait 0.5
+expect No items were found
+reject (?i)panicked|\[bot\] error:
+bot quit
+botselect alice
+bot quit
+stop

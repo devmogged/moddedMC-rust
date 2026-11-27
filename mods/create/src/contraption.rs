@@ -18,11 +18,13 @@ use crate::{
     belt_movement::can_transport_objects,
     chassis,
     collider::{Collider, Frame},
-    drill::{self, DrillMovementBehaviour},
+    decor,
+    display_model::ModelDisplay,
+    drill::{self, BlockBreakingMovementBehaviour},
     glue::{self, GlueBox, GlueScan},
     harvester,
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
-    seat, states, sticker,
+    plough, saw, seat, states, sticker,
     trains::{bogey, controls},
 };
 
@@ -155,19 +157,28 @@ impl BlockMovementChecks {
         }
         if matches!(
             entry.name.as_str(),
-            "create:track" | "create:track_station" | "create:track_signal"
+            "create:track"
+                | "create:track_station"
+                | "create:track_signal"
+                | crate::large_water_wheel::ID
+                | crate::large_water_wheel::STRUCTURE
         ) {
             return Some(BlockMovement::Immovable);
         }
         if chassis::is_chassis(&entry.name)
             || seat::is_seat(&entry.name)
             || bogey::is_bogey(&entry.name)
+            || crate::sail::is_sail(&entry.name)
+            || decor::is_stone_partial(&entry.name)
+            || entry.is_vanilla_wall()
             || matches!(
                 entry.name.as_str(),
                 BELT | sticker::ID
                     | crate::elevator::CONTACT
                     | drill::ID
+                    | saw::ID
                     | harvester::ID
+                    | plough::ID
                     | controls::ID
             )
         {
@@ -234,7 +245,7 @@ impl BlockMovementChecks {
                     .map(|(_, step)| offset(pos, step)),
             );
         }
-        if let Some(face) = harvester::facing(entry) {
+        if let Some(face) = harvester::attached_facing(entry) {
             attached.push(offset(pos, FACES[usize::from(face ^ 1)]));
         }
         if entry.name == BELT {
@@ -284,7 +295,7 @@ pub struct Blocks {
     #[serde(skip)]
     glue_to_remove: Vec<i32>,
     #[serde(default, rename = "Actors", skip_serializing_if = "Vec::is_empty")]
-    drills: Vec<DrillMovementBehaviour>,
+    breakers: Vec<BlockBreakingMovementBehaviour>,
 }
 
 impl Blocks {
@@ -304,17 +315,21 @@ impl Blocks {
         }
     }
 
-    pub fn tick_drills(&mut self, world: World<'_>, before: Frame, after: Frame) -> bool {
-        let mut drills = std::mem::take(&mut self.drills);
+    pub fn tick_breakers(&mut self, world: World<'_>, before: Frame, after: Frame) -> bool {
+        let mut breakers = std::mem::take(&mut self.breakers);
         let mut stalled = false;
-        for actor in &mut drills {
+        for actor in &mut breakers {
             match actor.tick(world, before, after) {
                 drill::Tick::Stalled => stalled = true,
-                drill::Tick::Broke(pos, drops) => self.collect_or_drop_items(world, pos, drops),
+                drill::Tick::Broke(blocks) => {
+                    for (pos, drops) in blocks {
+                        self.collect_or_drop_items(world, pos, drops);
+                    }
+                }
                 drill::Tick::Travel => {}
             }
         }
-        self.drills = drills;
+        self.breakers = breakers;
         stalled
     }
 
@@ -503,8 +518,19 @@ impl Blocks {
                         .collision_shape(pos)
                         .is_none_or(|shape| !shape.is_empty())
                     && match self.palette[block.palette_index()].name.as_str() {
-                        drill::ID => drill::breakable(world, pos).is_none(),
+                        drill::ID => !drill::can_break_moving(world, pos, false),
+                        saw::ID => {
+                            let block = states()
+                                .and_then(|states| states.kind(self.palette[block.palette_index()].state()?));
+                            !matches!(block, Some(Kind::Saw(saw)) if saw.horizontal() && saw.facing ^ 1 != direction)
+                                || !drill::can_break_moving(world, pos, true)
+                        }
                         harvester::ID => !harvester::can_harvest(world, pos),
+                        plough::ID => {
+                            harvester::attached_facing(&self.palette[block.palette_index()])
+                                == Some(direction ^ 1)
+                                || plough::breakable(world, pos).is_none()
+                        }
                         _ => true,
                     }
             })
@@ -527,12 +553,22 @@ impl Blocks {
             if shapes.as_slice() != [Collider::BLOCK] {
                 block.shapes = Some(shapes);
             }
-            if entry.name == drill::ID {
-                let Some(Kind::Drill(facing)) = states()?.kind(entry.state()?) else {
-                    return None;
+            if entry.name == plough::ID {
+                self.breakers.push(BlockBreakingMovementBehaviour::plough(
+                    block.local_pos(),
+                    harvester::attached_facing(entry)?,
+                ));
+            } else if matches!(entry.name.as_str(), drill::ID | saw::ID) {
+                let (facing, saw) = match states()?.kind(entry.state()?)? {
+                    Kind::Drill(facing) => (facing, false),
+                    Kind::Saw(block) => (block.facing, true),
+                    _ => return None,
                 };
-                self.drills
-                    .push(DrillMovementBehaviour::new(block.local_pos(), facing));
+                self.breakers.push(BlockBreakingMovementBehaviour::new(
+                    block.local_pos(),
+                    facing,
+                    saw,
+                ));
             }
             if entry.name == BELT {
                 let be = kinetics.get(position)?;
@@ -555,6 +591,7 @@ impl Blocks {
                 }
                 block.nbt = Some(fastnbt::from_bytes(&fastnbt::to_bytes(&data).ok()?).ok()?);
             } else if entry.has_storage()
+                || entry.name == saw::ID
                 || chassis::is_chassis(&entry.name)
                 || bogey::is_bogey(&entry.name)
             {
@@ -626,8 +663,10 @@ impl Blocks {
                 if let BlockMovement::Movable(next) = get(adjacent)?
                     && (glue.is_glued(world, pos, adjacent)
                         || sticker::attachment(&next, adjacent) == Some(pos)
-                        || harvester::facing(&next) == Some(face as u8)
+                        || harvester::attached_facing(&next) == Some(face as u8)
                         || next.bogey_axis() == Some(face_axis(face as u8))
+                        || crate::sail::plane(&next)
+                            .is_some_and(|axis| axis != face_axis(face as u8))
                         || can_stick(&entry.name, &next.name)
                             && !entry.is_not_supportive(face as u8)
                             && !next.is_not_supportive(face as u8 ^ 1))
@@ -720,11 +759,18 @@ impl Blocks {
                         .properties
                         .insert("waterlogged".into(), wet.to_string());
                 }
+                let mut flags = content::UPDATE_ALL;
+                if entry.name == saw::ID {
+                    flags |= content::UPDATE_MOVED;
+                }
+                if entry.name.ends_with("_stairs") || entry.name.ends_with("_wall") {
+                    flags |= content::UPDATE_FROM_NEIGHBOR_SHAPES;
+                }
                 Some((
                     BlockUpdate {
                         position,
                         state: state.state()?,
-                        flags: content::UPDATE_ALL,
+                        flags,
                     },
                     (
                         belt,
@@ -746,7 +792,7 @@ impl Blocks {
             };
             glue_placed.push(id);
         }
-        if world.write(&place) != place.len() {
+        if world.write_with_neighbor_shapes(&place) != place.len() {
             for id in glue_placed {
                 glue::discard(world, id);
             }
@@ -802,6 +848,12 @@ impl Blocks {
                 if let Ok(bytes) = fastnbt::to_bytes(&item) {
                     stacks.spawn(world, position, [0.0, 0.1, 0.0], &bytes);
                 }
+                if entry.name == saw::ID
+                    && let Some(data) = block.nbt.as_ref().and_then(|nbt| nbt.get("SawProcessing"))
+                    && let Ok(data) = fastnbt::from_value(data)
+                {
+                    crate::saw_processing::Processing::load(data).drop_contents(world, pos);
+                }
                 if entry.name == BELT
                     && let Some(inventory) = block.belt_inventory()
                 {
@@ -840,7 +892,44 @@ pub fn detach_moved_belts(world: World<'_>, remove: &[BlockUpdate], kinetics: &m
 #[derive(Clone, Debug, Default)]
 pub struct ContraptionDisplays {
     blocks: Vec<i32>,
+    walls: Option<HashMap<usize, WallDisplay>>,
     belts: Option<Vec<(Chain, BeltInventory)>>,
+    saw_blades: Option<Vec<(usize, saw::SawBlock, ModelDisplay)>>,
+}
+
+#[derive(Clone, Debug)]
+struct WallDisplay {
+    model: String,
+    item: Vec<u8>,
+    display: ModelDisplay,
+}
+
+impl WallDisplay {
+    fn new(entry: &PaletteEntry) -> Option<Self> {
+        let path = entry.name.strip_prefix("create:")?;
+        if !path.ends_with("_wall") || !decor::is_stone_partial(&entry.name) {
+            return None;
+        }
+        let model = format!("create:moddedmc/wall/{path}");
+        let flags = vec![i8::from(entry.properties.get("up")? == "true")];
+        let sides = ["north", "east", "south", "west"]
+            .into_iter()
+            .map(|side| entry.properties.get(side))
+            .collect::<Option<Vec<_>>>()?;
+        let stack = fastnbt::nbt!({
+            "id": "minecraft:paper",
+            "count": 1i32,
+            "components": {
+                "minecraft:item_model": &model,
+                "minecraft:custom_model_data": {"flags": flags, "strings": sides}
+            }
+        });
+        Some(Self {
+            model,
+            item: fastnbt::to_bytes(&stack).ok()?,
+            display: ModelDisplay::default(),
+        })
+    }
 }
 
 impl ContraptionDisplays {
@@ -848,6 +937,16 @@ impl ContraptionDisplays {
         if let Some(displays) = BLOCK_DISPLAYS.get() {
             for id in self.blocks.drain(..).filter(|&id| id != 0) {
                 displays.remove(world, id);
+            }
+        }
+        if let Some(walls) = self.walls.take() {
+            for mut wall in walls.into_values() {
+                wall.display.clear(world);
+            }
+        }
+        if let Some(blades) = self.saw_blades.take() {
+            for (_, _, mut display) in blades {
+                display.clear(world);
             }
         }
         if let Some(belts) = self.belts.take() {
@@ -864,14 +963,69 @@ impl ContraptionDisplays {
         transform: StructureTransform,
         translation: [f32; 3],
     ) {
+        self.render(world, blocks, transform, translation, false);
+    }
+
+    pub(crate) fn show_moving(
+        &mut self,
+        world: World<'_>,
+        blocks: &Blocks,
+        transform: StructureTransform,
+        translation: [f32; 3],
+    ) {
+        self.render(world, blocks, transform, translation, true);
+    }
+
+    fn render(
+        &mut self,
+        world: World<'_>,
+        blocks: &Blocks,
+        transform: StructureTransform,
+        translation: [f32; 3],
+        moving: bool,
+    ) {
         let Some(displays) = BLOCK_DISPLAYS.get() else {
             return;
         };
+        let walls = self.walls.get_or_insert_with(|| {
+            blocks
+                .block_list
+                .iter()
+                .enumerate()
+                .filter_map(|(i, block)| {
+                    let entry = blocks.palette.get(block.palette_index())?;
+                    Some((i, WallDisplay::new(entry)?))
+                })
+                .collect()
+        });
         self.blocks.resize(blocks.block_list.len(), 0);
-        for (block, id) in blocks.block_list.iter().zip(&mut self.blocks) {
+        for (i, (block, id)) in blocks.block_list.iter().zip(&mut self.blocks).enumerate() {
+            if let Some(wall) = walls.get_mut(&i) {
+                let shown = ItemDisplay {
+                    position: block.local_pos().map(|coord| f64::from(coord) + 0.5),
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    scale: 1.0,
+                    context: 0,
+                    interpolation: 1,
+                };
+                wall.display.show_stack(
+                    world,
+                    &wall.model,
+                    &wall.item,
+                    &transform.item_display(shown, translation),
+                );
+                continue;
+            }
             let mut shown = transform.block_display(block.local_pos());
-            for (shown, shift) in shown.translation.iter_mut().zip(translation) {
-                *shown += shift;
+            if moving {
+                for (position, shift) in shown.position.iter_mut().zip(translation) {
+                    *position += f64::from(shift);
+                }
+                shown.position_interpolation = 1;
+            } else {
+                for (offset, shift) in shown.translation.iter_mut().zip(translation) {
+                    *offset += shift;
+                }
             }
             if (*id == 0 || !displays.update(world, *id, &shown))
                 && let Some(state) = blocks
@@ -885,6 +1039,35 @@ impl ContraptionDisplays {
         let (Some(&stacks), Some(&displays)) = (STACKS.get(), DISPLAYS.get()) else {
             return;
         };
+        let saw_blades = self.saw_blades.get_or_insert_with(|| {
+            blocks
+                .breakers
+                .iter()
+                .enumerate()
+                .filter_map(|(index, actor)| {
+                    if !actor.saw {
+                        return None;
+                    }
+                    let state = blocks
+                        .block_list
+                        .iter()
+                        .find(|block| block.local_pos() == actor.local)
+                        .and_then(|block| blocks.palette[block.palette_index()].state())?;
+                    let Kind::Saw(block) = states()?.kind(state)? else {
+                        return None;
+                    };
+                    Some((index, block, ModelDisplay::default()))
+                })
+                .collect()
+        });
+        for (index, block, display) in saw_blades {
+            let actor = &blocks.breakers[*index];
+            let [x, y, z] = actor.local;
+            let rpm = if actor.moving { 1.0 } else { 0.0 };
+            let (model, mut shown) = saw::blade(Pos { x, y, z }, *block, rpm);
+            shown.interpolation = 1;
+            display.show(world, model, &transform.item_display(shown, translation));
+        }
         let belts = self.belts.get_or_insert_with(|| {
             blocks
                 .block_list
@@ -931,12 +1114,18 @@ pub struct PaletteEntry {
 }
 
 impl PaletteEntry {
+    fn is_vanilla_wall(&self) -> bool {
+        self.name.starts_with("minecraft:") && self.name.ends_with("_wall")
+    }
+
     fn can_waterlog_on_placement(&self) -> bool {
         matches!(
             self.name.as_str(),
-            BELT | drill::ID | harvester::ID | controls::ID
+            BELT | drill::ID | harvester::ID | plough::ID | controls::ID
         ) || seat::is_seat(&self.name)
             || bogey::is_bogey(&self.name)
+            || decor::is_stone_partial(&self.name)
+            || self.is_vanilla_wall()
     }
 
     fn bogey_axis(&self) -> Option<u8> {
@@ -952,11 +1141,14 @@ impl PaletteEntry {
 
     pub(crate) fn is_not_supportive(&self, face: u8) -> bool {
         sticker::blocks_attachment(self, face)
-            || matches!(self.name.as_str(), drill::ID | harvester::ID)
-                && self
-                    .properties
-                    .get("facing")
-                    .is_some_and(|facing| facing == DIRECTIONS[usize::from(face)])
+            || crate::sail::plane(self) == Some(face_axis(face))
+            || matches!(
+                self.name.as_str(),
+                drill::ID | saw::ID | harvester::ID | plough::ID
+            ) && self
+                .properties
+                .get("facing")
+                .is_some_and(|facing| facing == DIRECTIONS[usize::from(face)])
     }
 
     pub(crate) fn parse(selector: &str) -> Self {
@@ -1102,7 +1294,7 @@ pub struct StructureTransform {
 }
 
 impl StructureTransform {
-    fn item_display(self, mut shown: ItemDisplay, translation: [f32; 3]) -> ItemDisplay {
+    pub(crate) fn item_display(self, mut shown: ItemDisplay, translation: [f32; 3]) -> ItemDisplay {
         let axis = usize::from(self.axis);
         let u = (axis + 1) % 3;
         let v = (axis + 2) % 3;
@@ -1163,6 +1355,9 @@ impl StructureTransform {
         if entry.name == sticker::ID {
             return sticker::apply_rotation(entry, self).unwrap_or(rotated);
         }
+        if let Some(chain) = crate::chain_drive::transform(entry, self) {
+            return chain;
+        }
         if entry.name == BELT {
             return crate::belt::transform(rotated, self, turns).unwrap_or_else(|| entry.clone());
         }
@@ -1173,6 +1368,17 @@ impl StructureTransform {
             step[index] = 1;
             if let Some(index) = self.rotate(step).iter().position(|&step| step != 0) {
                 *axis = AXES[index].to_owned();
+            }
+        }
+        if self.axis != 1
+            && turns == 2
+            && entry.name.ends_with("_slab")
+            && let Some(slab_type) = rotated.properties.get_mut("type")
+        {
+            match slab_type.as_str() {
+                "bottom" => *slab_type = "top".into(),
+                "top" => *slab_type = "bottom".into(),
+                _ => {}
             }
         }
         let Some(mut face) = rotated
@@ -1327,5 +1533,26 @@ mod tests {
                 "minecraft:oak_stairs[facing=north,half=top,shape=straight,waterlogged=false]"
             )
         );
+    }
+
+    #[test]
+    fn horizontal_half_turn_flips_single_slabs() {
+        let transform = StructureTransform {
+            anchor: p(0, 0, 0),
+            axis: 0,
+            angle: 180.0,
+        };
+        for (ty, expected) in [("bottom", "top"), ("top", "bottom"), ("double", "double")] {
+            let slab = PaletteEntry::parse(&format!(
+                "create:cut_calcite_slab[type={ty},waterlogged=false]"
+            ));
+            let rotated = transform.block_state(&slab);
+            assert_eq!(
+                rotated,
+                PaletteEntry::parse(&format!(
+                    "create:cut_calcite_slab[type={expected},waterlogged=false]"
+                ))
+            );
+        }
     }
 }

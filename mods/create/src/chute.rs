@@ -16,10 +16,13 @@ use crate::{
     belt_inventory::{
         self, TransportedItemStack, count, item_display, remove_display, render_stack, with_count,
     },
+    filtering::{self, Extraction, Filter},
+    funnel,
     kinetics::{FACES, Kind, Kinetics, offset},
 };
 
 pub const ID: &str = "create:chute";
+const SMART: &str = "create:smart_chute";
 const DOWN: u8 = 0;
 const UP: u8 = 1;
 const HORIZONTAL: [u8; 4] = [3, 4, 2, 5];
@@ -38,23 +41,50 @@ pub struct ChuteState {
     facing: u8,
     shape: Shape,
     wet: bool,
+    powered: Option<bool>,
 }
 
 impl ChuteState {
     fn all() -> impl Iterator<Item = Self> {
-        [DOWN, 3, 4, 2, 5].into_iter().flat_map(|facing| {
-            [
-                Shape::Normal,
-                Shape::Window,
-                Shape::Intersection,
-                Shape::Encased,
-            ]
+        [DOWN, 3, 4, 2, 5]
             .into_iter()
-            .flat_map(move |shape| [false, true].map(|wet| Self { facing, shape, wet }))
-        })
+            .flat_map(|facing| {
+                [
+                    Shape::Normal,
+                    Shape::Window,
+                    Shape::Intersection,
+                    Shape::Encased,
+                ]
+                .into_iter()
+                .flat_map(move |shape| {
+                    [false, true].map(|wet| Self {
+                        facing,
+                        shape,
+                        wet,
+                        powered: None,
+                    })
+                })
+            })
+            .chain([true, false].map(|powered| Self {
+                facing: DOWN,
+                shape: Shape::Normal,
+                wet: false,
+                powered: Some(powered),
+            }))
+    }
+
+    fn id(self) -> &'static str {
+        if self.powered.is_some() { SMART } else { ID }
+    }
+
+    fn state_id(self, states: &StateIds) -> Option<u32> {
+        states.lookup(&format!("{}[{}]", self.id(), self.properties()))
     }
 
     fn properties(self) -> String {
+        if let Some(powered) = self.powered {
+            return format!("powered={powered}");
+        }
         let shape = match self.shape {
             Shape::Normal => "normal",
             Shape::Window => "window",
@@ -69,6 +99,13 @@ impl ChuteState {
     }
 
     fn model(self) -> &'static str {
+        if let Some(powered) = self.powered {
+            return if powered {
+                "create:block/smart_chute/block_powered"
+            } else {
+                "create:block/smart_chute/block"
+            };
+        }
         match (self.facing == DOWN, self.shape) {
             (true, Shape::Normal) => "create:block/chute/block",
             (true, Shape::Window) => "create:block/chute/block_windowed",
@@ -133,46 +170,62 @@ impl ChuteState {
         }
     }
 
+    fn active(self) -> bool {
+        self.powered != Some(true)
+    }
+
     const fn is_open(self) -> bool {
         self.facing == DOWN || matches!(self.shape, Shape::Intersection)
     }
 }
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
-    let rows: Vec<_> = ChuteState::all()
-        .map(|state| (state, state.properties(), state.collision_shape()))
-        .collect();
-    let states: Vec<_> = rows
-        .iter()
-        .map(|(state, properties, shape)| State {
-            properties,
-            physical: "minecraft:iron_block",
-            model: state.model(),
-            rotating_model: "",
-            x: 0,
-            y: state.rotation(),
-            orientation: [0., 0., 0., 1.],
-            shape,
-        })
-        .collect();
-    content.add_block(
-        registry,
-        &Block {
-            id: ID,
-            display_name: "Chute",
-            entity: ID,
-            item_model: "create:item/chute",
-            states: &states,
-        },
-        Some(crate::placed_state),
-    )
+    for (id, name, physical, item_model) in [
+        (ID, "Chute", "minecraft:iron_block", "create:item/chute"),
+        (
+            SMART,
+            "Smart Chute",
+            "minecraft:copper_grate",
+            "create:block/smart_chute/block",
+        ),
+    ] {
+        let rows: Vec<_> = ChuteState::all()
+            .filter(|state| state.id() == id)
+            .map(|state| (state, state.properties(), state.collision_shape()))
+            .collect();
+        let states: Vec<_> = rows
+            .iter()
+            .map(|(state, properties, shape)| State {
+                properties,
+                physical,
+                model: state.model(),
+                rotating_model: "",
+                x: 0,
+                y: state.rotation(),
+                orientation: [0., 0., 0., 1.],
+                shape,
+            })
+            .collect();
+        content.add_block(
+            registry,
+            &Block {
+                id,
+                display_name: name,
+                entity: id,
+                item_model,
+                states: &states,
+            },
+            Some(crate::placed_state),
+        )?;
+    }
+    Ok(())
 }
 
 pub fn add_states(content: Content, states: &mut StateIds) {
     for state in ChuteState::all() {
         let properties = state.properties();
-        states.add(content, ID, &properties, None);
-        if let Some(id) = states.lookup(&format!("{ID}[{properties}]")) {
+        states.add(content, state.id(), &properties, None);
+        if let Some(id) = state.state_id(states) {
             states.chutes.insert(id, state);
         }
     }
@@ -194,6 +247,10 @@ fn update_chute_state(
     pos: Pos,
     mut state: ChuteState,
 ) -> ChuteState {
+    if state.powered.is_some() {
+        state.powered = Some(world.has_neighbor_signal(pos));
+        return state;
+    }
     if state.facing != DOWN && !states.chutes.contains_key(&read(world, state.target(pos))) {
         state.facing = DOWN;
         state.shape = Shape::Normal;
@@ -239,10 +296,16 @@ fn update_chute_state(
 }
 
 pub fn placed_state(args: Placement<'_>, states: &StateIds) -> Option<u32> {
+    if let Some(&state) = states.chutes.get(&args.state)
+        && state.powered.is_some()
+    {
+        return update_chute_state(args.world, states, args.position, state).state_id(states);
+    }
     let mut state = ChuteState {
         facing: DOWN,
         shape: Shape::Normal,
         wet: states.wet(read(args.world, args.position)),
+        powered: None,
     };
     if args.face >= 2 && !args.sneak {
         state.facing = args.face;
@@ -273,9 +336,11 @@ pub fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
             facing: DOWN,
             shape: Shape::Normal,
             wet: states.wet(old),
+            powered: None,
         }
     } else if let Some(&state) = states.chutes.get(&old)
         && state.facing == DOWN
+        && state.powered.is_none()
     {
         state
     } else {
@@ -315,6 +380,8 @@ struct ChuteData {
     pull: f32,
     push: f32,
     bottom_air_flow_distance: f32,
+    #[serde(flatten)]
+    filter: Filter,
 }
 
 impl Default for ChuteData {
@@ -325,6 +392,7 @@ impl Default for ChuteData {
             pull: 0.0,
             push: 0.0,
             bottom_air_flow_distance: 0.0,
+            filter: Filter::default(),
         }
     }
 }
@@ -333,10 +401,16 @@ pub struct ChuteBlockEntity {
     state: ChuteState,
     item: Option<TransportedItemStack>,
     item_position: f32,
+    filter: Filter,
+    filter_display: Option<TransportedItemStack>,
     dirty: bool,
 }
 
 impl ChuteBlockEntity {
+    pub(crate) fn held(&self) -> Option<&TransportedItemStack> {
+        self.item.as_ref()
+    }
+
     fn load(world: World<'_>, pos: Pos, state: ChuteState) -> Self {
         let data: ChuteData = world
             .entity(pos)
@@ -347,12 +421,17 @@ impl ChuteBlockEntity {
             state,
             item,
             item_position: data.item_position,
+            filter: data.filter,
+            filter_display: None,
             dirty: false,
         }
     }
 
     pub fn insert(&mut self, stack: &TransportedItemStack, position: f32, simulate: bool) -> i32 {
-        if self.item.is_some() {
+        if self.item.is_some()
+            || !self.state.active()
+            || (self.state.powered.is_some() && !self.filter.matches(&stack.item))
+        {
             return 0;
         }
         let inserted = stack.max_count().min(count(&stack.item));
@@ -386,6 +465,9 @@ impl ChuteBlockEntity {
     }
 
     fn remove(self, world: World<'_>, pos: Pos, drop: bool) {
+        if let Some(item) = self.filter_display {
+            remove_display(world, &item);
+        }
         if let Some(item) = self.item {
             remove_display(world, &item);
             if drop && let (Some(&stacks), Some(bytes)) = (STACKS.get(), item.bytes()) {
@@ -408,6 +490,9 @@ pub fn event(world: World<'_>, chutes: &mut Chutes, states: &StateIds, event: &C
     }
     if event.reason == content::UNLOADED || after.is_none() {
         if let Some(old) = chutes.entries.remove(&pos) {
+            if event.reason == content::STATE_CHANGED {
+                old.filter.drop_item(world, pos);
+            }
             old.remove(world, pos, event.reason != content::UNLOADED);
             chutes.order.retain(|other| *other != pos);
         }
@@ -436,6 +521,7 @@ pub fn direct_insert(
     chutes: &mut Chutes,
     pos: Pos,
     item: &TransportedItemStack,
+    simulate: bool,
 ) -> i32 {
     let Some(chute) = chutes.entries.get_mut(&pos) else {
         return 0;
@@ -443,11 +529,24 @@ pub fn direct_insert(
     if !can_directly_insert(world, states, pos, chute.state) {
         return 0;
     }
-    chute.insert(item, 1.0, false)
+    chute.insert(item, 1.0, simulate)
+}
+
+pub(crate) fn supports_direct_input(
+    world: World<'_>,
+    states: &StateIds,
+    pos: Pos,
+    state: u32,
+) -> bool {
+    states
+        .chutes
+        .get(&state)
+        .is_some_and(|&chute| can_directly_insert(world, states, pos, chute))
 }
 
 fn can_directly_insert(world: World<'_>, states: &StateIds, pos: Pos, state: ChuteState) -> bool {
-    state.is_open()
+    state.active()
+        && state.is_open()
         && !states
             .chutes
             .get(&read(world, shift(pos, UP)))
@@ -522,17 +621,35 @@ pub fn use_item_on(
     chutes: &mut Chutes,
     context: &mut UseBlock<'_>,
 ) -> BlockUseResult {
-    if !context.with_item {
-        return BlockUseResult::TryEmptyHand;
-    }
     let Some(chute) = chutes.entries.get_mut(&context.position) else {
         return BlockUseResult::TryEmptyHand;
     };
+    if chute.state.powered.is_some()
+        && (context.hit[1] - 11.0 / 16.0).abs() <= 0.16
+        && let Some(column) = filtering::slot_column(context.face, context.hit)
+    {
+        let sample = context
+            .stack
+            .read()
+            .and_then(|bytes| fastnbt::from_bytes::<Value>(&bytes).ok());
+        let count_visible = extraction_count_visible(world, context.position);
+        if chute
+            .filter
+            .configure(context, sample.as_ref(), column, count_visible)
+        {
+            chute.dirty = true;
+            return BlockUseResult::Success;
+        }
+    }
+    if !context.with_item {
+        return BlockUseResult::TryEmptyHand;
+    }
     if let Some(bytes) = context.stack.read() {
         let Some(Value::Compound(item)) = fastnbt::from_bytes::<Value>(&bytes).ok() else {
             return BlockUseResult::TryEmptyHand;
         };
         if !matches!(item.get("id"), Some(Value::String(id)) if id == WRENCH)
+            || chute.state.powered.is_some()
             || chute.state.shape == Shape::Intersection
         {
             return BlockUseResult::TryEmptyHand;
@@ -581,9 +698,16 @@ fn handle_downward_output(
     item: &TransportedItemStack,
     simulate: bool,
 ) -> i32 {
+    if !state.active() {
+        return 0;
+    }
     let below = shift(pos, DOWN);
     let amount = count(&item.item);
-    let via_inventory = if matches!(kinetics.kind(below), Some(Kind::Belt(_))) {
+    let via_inventory = if kinetics.tunnels.contains_key(&below) {
+        Some(crate::belt_tunnel::insert(
+            world, kinetics, below, item, simulate,
+        ))
+    } else if matches!(kinetics.kind(below), Some(Kind::Belt(_))) {
         Some(belt_inventory::insert_into_segment(
             kinetics, below, item, simulate,
         ))
@@ -593,6 +717,8 @@ fn handle_downward_output(
         Some(crate::millstone::insert(
             kinetics, below, &item.item, simulate,
         ))
+    } else if let Some(accepted) = crate::crafter::insert(kinetics, below, &item.item, simulate) {
+        Some(accepted)
     } else if let Some(accepted) = crate::deployer::insert(kinetics, below, item, simulate) {
         Some(accepted)
     } else if crate::crusher::is_controller(kinetics, below, DOWN) {
@@ -646,38 +772,41 @@ fn stack_count(bytes: &[u8]) -> i32 {
     fastnbt::from_bytes::<Value>(bytes).map_or(0, |item| count(&item))
 }
 
-fn extract_from_above(world: World<'_>, kinetics: &mut Kinetics, pos: Pos) -> Option<Value> {
-    let source = shift(pos, UP);
-    if let Some(depot) = kinetics.depots.get_mut(&source) {
-        return depot.extract_items(world, EXTRACTION_AMOUNT as i32, false);
-    }
-    if matches!(kinetics.kind(source), Some(Kind::Belt(_))) {
-        return belt_inventory::extract_from_segment(
-            world,
-            kinetics,
-            source,
-            EXTRACTION_AMOUNT as i32,
-            false,
-        );
-    }
-    if kinetics.kind(source) == Some(Kind::Millstone) {
-        return crate::millstone::extract(kinetics, source, EXTRACTION_AMOUNT as i32, false);
-    }
-    if matches!(kinetics.kind(source), Some(Kind::Deployer { .. })) {
-        return crate::deployer::extract(kinetics, source, EXTRACTION_AMOUNT as i32, false);
-    }
-    if let Some(item) = crate::basin::extract(world, source, EXTRACTION_AMOUNT as i32, false) {
-        return Some(item);
-    }
-    let container = CONTAINERS.get()?.at(world, source, DOWN)?;
-    extract_container(container, EXTRACTION_AMOUNT, false)
+fn extraction_count_visible(world: World<'_>, pos: Pos) -> bool {
+    let Some(states) = crate::states() else {
+        return false;
+    };
+    let state = read(world, shift(pos, DOWN));
+    state != content::UNLOADED_STATE
+        && !states.chutes.contains_key(&state)
+        && !states.replaceable.contains(&state)
 }
 
-/// `ItemHelper.extract`, UPTO mode for an unfiltered handler.
-pub fn extract_container(
+fn extract_from_above(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    chute: &ChuteBlockEntity,
+) -> Option<Value> {
+    let source = shift(pos, UP);
+    if kinetics.chutes.entries.contains_key(&source) || !chute.state.active() {
+        return None;
+    }
+    let extraction = if chute.state.powered.is_some() {
+        chute
+            .filter
+            .extraction(extraction_count_visible(world, pos))
+    } else {
+        Extraction::up_to(EXTRACTION_AMOUNT as i32)
+    };
+    funnel::extract_at(world, kinetics, source, DOWN, extraction, false)
+}
+
+pub(crate) fn extract_container_when(
     container: moddedmc_api::containers::Container<'_>,
     limit: u32,
     simulate: bool,
+    accepts: impl Fn(&Value) -> bool,
 ) -> Option<Value> {
     let mut extracting: Option<Value> = None;
     let mut total = 0;
@@ -688,14 +817,15 @@ pub fn extract_container(
         let Ok(item) = fastnbt::from_bytes::<Value>(&bytes) else {
             continue;
         };
-        let amount = count(&item).max(0) as u32;
         let Some(info) = STACKS.get().and_then(|stacks| stacks.info(&bytes)) else {
             continue;
         };
+        let amount = (count(&item).max(0) as u32).min(info.max_count.saturating_sub(total));
         if amount == 0
-            || extracting.as_ref().is_some_and(|prior| {
-                with_count(prior, 1) != with_count(&item, 1) || total + amount > info.max_count
-            })
+            || !accepts(&item)
+            || extracting
+                .as_ref()
+                .is_some_and(|prior| with_count(prior, 1) != with_count(&item, 1))
         {
             continue;
         }
@@ -711,7 +841,7 @@ pub fn extract_container(
         }
         total += taken;
         extracting = Some(with_count(&item, total as i32));
-        if total >= limit {
+        if total >= limit.min(info.max_count) {
             break;
         }
     }
@@ -736,7 +866,7 @@ fn tick_items(
     chute: &mut ChuteBlockEntity,
 ) {
     let Some(item) = &mut chute.item else {
-        if let Some(item) = extract_from_above(world, kinetics, pos) {
+        if let Some(item) = extract_from_above(world, kinetics, pos, chute) {
             chute.item = Some(TransportedItemStack::new(item));
             chute.item_position = 1.;
             chute.dirty = true;
@@ -769,6 +899,26 @@ fn tick_items(
 }
 
 fn flush(world: World<'_>, pos: Pos, chute: &mut ChuteBlockEntity) {
+    if chute.state.powered.is_some() {
+        let side = chute.filter.side(3);
+        let [x, _, z] = FACES[usize::from(side)].map(f64::from);
+        let mut shown = item_display(
+            [
+                f64::from(pos.x) + 0.5 + x * 0.484375,
+                f64::from(pos.y) + 11.0 / 16.0,
+                f64::from(pos.z) + 0.5 + z * 0.484375,
+            ],
+            filtering::preview_angle(side),
+            true,
+        );
+        shown.scale = 0.24;
+        filtering::render(
+            world,
+            chute.filter.stack.as_ref(),
+            &mut chute.filter_display,
+            shown,
+        );
+    }
     if let Some(item) = &mut chute.item {
         if chute.state.facing == DOWN && chute.state.shape == Shape::Window {
             if let Some(&displays) = DISPLAYS.get() {
@@ -788,6 +938,7 @@ fn flush(world: World<'_>, pos: Pos, chute: &mut ChuteBlockEntity) {
     if chute.dirty {
         let mut data = ChuteData {
             item_position: chute.item_position,
+            filter: chute.filter.clone(),
             ..ChuteData::default()
         };
         if let Some(item) = &chute.item {
@@ -808,11 +959,15 @@ pub fn tick(world: World<'_>, states: &StateIds, kinetics: &mut Kinetics) {
         };
         let updated = update_chute_state(world, states, pos, chute.state);
         if updated != chute.state
-            && let Some(id) = states.lookup(&format!("{ID}[{}]", updated.properties()))
+            && let Some(id) = updated.state_id(states)
             && world.write(&[BlockUpdate {
                 position: pos,
                 state: id,
-                flags: content::UPDATE_ALL,
+                flags: if updated.powered.is_some() {
+                    content::UPDATE_CLIENTS
+                } else {
+                    content::UPDATE_ALL
+                },
             }]) == 1
         {
             chute.state = updated;

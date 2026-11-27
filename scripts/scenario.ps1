@@ -4,13 +4,17 @@
 # A passing run deletes its run dir, because worlds add up fast. -Keep leaves it; a failing run is always kept.
 # Scenario lines (blank lines and # comments ignored):
 #   mods <path> [...]        copy mods (.mmc, .jar, .dll) into the run dir's mods/ (before the first start)
+#   datapack <path> <name>   copy an existing fixture directory into world/datapacks before start
 #   start                    start the server and wait until it is ready
 #   cmd <console line>       send a console line
 #   wait <seconds>
 #   expect <regex>           fail unless a log line since the previous expect/start matches
+#   expect-all <regex> && <regex>  require each pattern in the same log window, in any order
+#   await [seconds] <regex>  wait for acknowledgement; default 5s when no timeout supplied
 #   reject <regex>           fail if any log line since the previous expect/start matches
 #   stop                     send stop and wait for exit
 #   botstart <name>          join with moddedmc-bot (its output goes into the log)
+#   botselect <name>         switch the active bot when multiple are connected
 #   measure <seconds>        log server memory and CPU use over a window
 #   bot <step>               send a step to the bot: cmd <command> | use <x> <y> <z> | quit
 param(
@@ -98,6 +102,7 @@ allowed_permissions = ["fs.read.data", "fs.write.data"]
 "@)
 }
 $script:bot = $null
+$bots = @{}
 
 foreach ($raw in Get-Content $Scenario) {
     $line = $raw.Trim()
@@ -106,9 +111,23 @@ foreach ($raw in Get-Content $Scenario) {
     Write-Host "> $line"
     switch ($verb) {
         'mods' { foreach ($m in $arg -split '\s+') { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'mods') -Force } }
+        'datapack' {
+            $source, $name = $arg -split '\s+', 2
+            if (-not $source -or $name -notmatch '^[a-zA-Z0-9_.-]+$') { throw 'datapack requires a fixture path and simple destination name' }
+            $sourcePath = Join-Path $root $source
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) { throw "datapack fixture not found: $source" }
+            $destinationRoot = Join-Path $RunDir 'world\datapacks'
+            New-Item -ItemType Directory -Force $destinationRoot | Out-Null
+            $destination = Join-Path $destinationRoot $name
+            if (Test-Path -LiteralPath $destination) { throw "datapack destination already exists: $destination" }
+            Copy-Item -LiteralPath $sourcePath -Destination $destination -Recurse
+        }
         'start' { Start-Server }
         'cmd' { $script:p.StandardInput.WriteLine($arg) }
         'botstart' {
+            if ($bots.ContainsKey($arg) -and -not $bots[$arg].HasExited) {
+                throw "bot $arg is already running"
+            }
             $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $BotExe), "127.0.0.1:${Port} $arg")
             $psi.UseShellExecute = $false
             $psi.RedirectStandardInput = $true
@@ -121,6 +140,11 @@ foreach ($raw in Get-Content $Scenario) {
             Register-ObjectEvent $script:bot ErrorDataReceived -Action $handler -MessageData $script:log | Out-Null
             $script:bot.Start() | Out-Null
             $script:bot.BeginOutputReadLine(); $script:bot.BeginErrorReadLine()
+            $bots[$arg] = $script:bot
+        }
+        'botselect' {
+            if (-not $bots.ContainsKey($arg)) { throw "unknown bot: $arg" }
+            $script:bot = $bots[$arg]
         }
         'bot' { $script:bot.StandardInput.WriteLine($arg) }
         'measure' {
@@ -134,13 +158,39 @@ foreach ($raw in Get-Content $Scenario) {
             Write-Host "  $line"
         }
         'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000)) }
-        'expect' {
-            # Consume up to the first match only, so the next expect can match later lines.
-            $new = @(Get-NewLines)
-            $i = 0
-            while ($i -lt $new.Count -and $new[$i] -notmatch $arg) { $i++ }
-            if ($i -lt $new.Count) { Write-Host "  ok: $($new[$i])" -ForegroundColor Green; $script:cursor += $i + 1 }
-            else { Write-Host "  FAIL: no line matches /$arg/" -ForegroundColor Red; $failures++ }
+        { $_ -in 'expect', 'expect-all', 'await' } {
+            if ($_ -eq 'await') {
+                $seconds = 5
+                if ($arg -match '^([0-9]+(?:\.[0-9]+)?)\s+(.+)$') {
+                    $seconds = [double]$Matches[1]
+                    $arg = $Matches[2]
+                }
+                $deadline = [Diagnostics.Stopwatch]::StartNew()
+                do {
+                    $new = @(Get-NewLines)
+                    if ($new -match $arg) { break }
+                    $script:p.Refresh()
+                    if ($script:p.HasExited) { break }
+                    Start-Sleep -Milliseconds 25
+                } while ($deadline.Elapsed.TotalSeconds -lt [double]$seconds)
+            } else {
+                $new = @(Get-NewLines)
+            }
+            $patterns = if ($_ -eq 'expect-all') { $arg -split ' && ' } else { $arg }
+            $consumed = 0
+            foreach ($pattern in $patterns) {
+                $i = 0
+                while ($i -lt $new.Count -and $new[$i] -notmatch $pattern) { $i++ }
+                if ($i -lt $new.Count) {
+                    Write-Host "  ok: $($new[$i])" -ForegroundColor Green
+                    $consumed = [Math]::Max($consumed, $i + 1)
+                } else {
+                    Write-Host "  FAIL: no line matches /$pattern/" -ForegroundColor Red
+                    $failures++
+                }
+            }
+            # Keep later log lines for the next check.
+            $script:cursor += $consumed
         }
         'reject' {
             $hits = @(Get-NewLines | Where-Object { $_ -match $arg })
@@ -156,7 +206,9 @@ foreach ($raw in Get-Content $Scenario) {
         default { throw "unknown scenario verb: $verb" }
     }
 }
-if ($script:bot -and -not $script:bot.HasExited) { $script:bot.Kill() }
+foreach ($bot in $bots.Values) {
+    if (-not $bot.HasExited) { $bot.Kill() }
+}
 if ($script:p -and -not $script:p.HasExited) { $script:p.Kill() }
 Get-NewLines | Out-Null
 $script:all | Set-Content -Encoding utf8 (Join-Path $RunDir 'scenario.log')

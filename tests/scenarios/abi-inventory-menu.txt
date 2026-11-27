@@ -1,0 +1,123 @@
+# Take-only slots must behave like stock slots and commit before items move to the player.
+mods target\mods\abi-inventory-menu.mmc
+start
+expect abi_inventory_menu ready
+botstart tester
+wait 3
+cmd gamemode survival tester
+bot cmd abi_menu
+wait 1
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+botstart witness
+wait 3
+cmd gamemode survival witness
+bot cmd abi_menu
+wait 1
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+botselect tester
+bot inventory-click 0 right
+wait 0.5
+expect abi_inventory_menu committed
+bot expect slot 0 minecraft:diamond 3
+wait 0.5
+expect expect inventory ok slot 0 diamond 3
+bot expect cursor minecraft:diamond 4
+wait 0.5
+expect expect inventory ok cursor diamond 4
+botselect witness
+bot expect slot 0 minecraft:diamond 3
+wait 0.5
+expect expect inventory ok slot 0 diamond 3
+botselect tester
+bot inventory-click 1 left
+wait 0.5
+bot expect cursor minecraft:diamond 4
+wait 0.5
+expect expect inventory ok cursor diamond 4
+bot expect slot 1 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 1 air 0
+bot inventory-click 36 left
+wait 0.5
+bot inventory-click 36 shift-left
+wait 0.5
+bot expect slot 0 minecraft:diamond 3
+wait 0.5
+expect expect inventory ok slot 0 diamond 3
+bot inventory-click 0 shift-left
+wait 0.5
+expect abi_inventory_menu committed
+botselect witness
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-click 0 shift-left
+wait 0.5
+cmd clear witness minecraft:diamond 0
+wait 0.5
+expect No items were found on player witness
+bot quit
+botselect tester
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:diamond 0
+wait 0.5
+expect Found 7 matching item
+bot cmd abi_menu_deny
+wait 1
+bot inventory-click 0 right
+wait 0.5
+expect abi_inventory_menu rejected
+bot expect cursor minecraft:air 0
+wait 0.5
+expect expect inventory ok cursor air 0
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:diamond 0
+wait 0.5
+expect Found 7 matching item
+cmd item replace entity tester armor.head with minecraft:iron_helmet
+cmd give tester minecraft:cobblestone 2240
+wait 0.5
+bot cmd abi_menu_equipment
+wait 0.5
+bot expect slot 0 minecraft:diamond_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 diamond_helmet 1
+bot cmd abi_menu_restore
+wait 0.5
+expect abi_inventory_menu committed overflow=1
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+cmd data get entity tester equipment.head.id
+wait 0.5
+expect minecraft:diamond_helmet
+bot inventory-close
+wait 0.5
+bot quit
+stop
+start
+expect abi_inventory_menu ready
+botstart tester
+wait 3
+cmd clear tester minecraft:diamond 0
+wait 0.5
+expect Found 7 matching item
+cmd data get entity tester equipment.head.id
+wait 0.5
+expect minecraft:diamond_helmet
+bot cmd abi_menu_saved
+wait 0.5
+bot inventory-click 0 right
+wait 0.5
+expect abi_inventory_menu saved slots and overflow survived restart
+bot quit
+stop

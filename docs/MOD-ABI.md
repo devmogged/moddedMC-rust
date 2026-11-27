@@ -123,6 +123,17 @@ The Rust SDK checks the host's size before reading `get_interface` and checks th
 | | `integer(source, name, out)` | Copy a parsed integer to the caller's output slot. False means the argument was absent. |
 | | `feedback(source, text)` | Send command feedback using the source's feedback settings. |
 | `moddedmc:lifecycle` | `on_stopping(reg, callback)` | Stage one callback per mod. The host runs it on a blocking thread and waits for it before world save. |
+| `moddedmc:worldgen_lookup` | `biomes(world, out)` | Enumerate biome identifiers from the active dimension generator, including its datapack biome source. Does not load chunks. |
+| | `noise_biomes(world, positions, count, out)` | Sample up to 256 quart-coordinate positions; the sink key is the input index. False on invalid input or unsupported generator. |
+| | `height_bounds(world, bottom, top)` | Dimension's minimum block Y and exclusive maximum block Y. |
+| `moddedmc:worldgen_structures` | `structures(world, out)` | Enumerate locatable structures with enabled placements in the current generator. |
+| | `placements(world, target, out)` | Sink key is the placement index; value is a little-endian signed 32-bit spacing in chunks (zero for concentric rings). Indices refer to the active registry. |
+| | `spread_candidate(world, placement, x, z, out)` | Resolve a random-spread placement candidate from a chunk position. The output is a chunk position, not a confirmed structure start. |
+| | `ring_chunks(world, placement, out)` | Return 1 and emit indexed pairs of little-endian signed 32-bit chunk coordinates, 2 while calculation is pending, or -1 if unavailable. |
+| | `structure_start(world, placement, target, x, z, out)` | Check a candidate's actual generator-derived structure start. 1 means found with block coordinates, 0 absent, 2 pending, -1 unavailable. |
+| `moddedmc:container_loot` | `generate(world, player, table, seed, pos, size, out)` | Generate an independent 1–54 slot loot inventory from the active loot table registry, including player luck and chest position. Emit only occupied slots, keyed by slot index, as named-root stack NBT. Does not consume a vanilla block entity's loot table or mutate an inventory. |
+| `moddedmc:player_stack_data` | `compare(player, item, expected, new, replace)` | Match exactly one single-item stack by item id and nonempty expected mod data in the main inventory or offhand. Check only, or replace and synchronize that same stack. Absent or ambiguous matches fail. |
+| | `compare_lodestone(player, item, expected, new, dimension, pos)` | Atomically replace matching stack data and its untracked lodestone target. Empty dimension clears tracking. |
 
 Chunk requests take chunk coordinates and return immediately. A false return means the request was rejected with no callback. For an accepted request the host returns the opaque context exactly once, possibly before submission returns, on a server runtime thread. Keep callbacks short. Chunky uses a coordinator thread per active dimension to plan work, receive callbacks, log progress and save task files. The server stops accepting chunk requests on shutdown and drains accepted work before it saves worlds.
 
@@ -141,11 +152,14 @@ A `.mmc` is a zip with
 
 Built-in mod datapacks can also add world generation features through `data/<namespace>/neoforge/biome_modifier/*.json`. The `neoforge:add_features` modifier takes biome IDs or a biome tag, placed feature IDs, and a generation step. It appends features to the selected biomes at world startup. Create uses this to generate its registered zinc ores in new Overworld chunks.
 
+To use the vanilla wall placement and neighbor rules, register the complete wall state set with matching vanilla wall physics templates. An opaque wall can use one `*_wall_post` model in every state and leave the rotating model empty. The host generates a multipart item model at `<namespace>:moddedmc/wall/<block_path>` and keeps the matching stock wall state for collision and water. The item model reads the post from custom model data flag 0 and the north, east, south and west arms from strings 0 through 3. The arm values are `none`, `low` and `tall`. A moving contraption can display that same item model with its captured selectors.
+
 ### Real content tables
 
 | Interface | Function | Contract |
 | --- | --- | --- |
-| `moddedmc:content` v1 | `add_block(reg, definition)` | Stage the block, its item, its block entity name and an ordered list of states. The first state is the default. States provide exact property strings, a vanilla physics template, optional collision and outline boxes in sixteenths, model resource locations, and a display orientation. |
+| `moddedmc:content` v1 | `add_block(reg, definition)` | Stage the block, its item, its block entity name and 1 to 1,024 ordered states. The first state is the default. States provide exact property strings, a vanilla physics template, optional collision and outline boxes in sixteenths, model resource locations, and a display orientation. |
+| | `set_block_material(reg, block, material)` | Copy a vanilla block's hardness, blast resistance, place and step sounds, note instrument, tool requirement, and map color to a staged content block. Geometry and waterlogging come from its physical states. The definition can override hardness and set a named vanilla map color. Appended: check `Content::require_block_material()`. |
 | | `set_comparator_output(reg, selector, strength)` | Assign a fixed analog output (0 to 15) to an exact state of a block already staged by this mod. Zero is a readable signal. Unknown states and duplicate assignments are rejected. Appended: require with `Content::require_comparator_output()`. |
 | | `state(selector)` | Resolve a block name or exact `namespace:path[key=value,...]` after registration. Missing definitions return `UNLOADED_STATE`. |
 | | `on_tick(reg, callback)` | Call the mod once per loaded dimension in the server tick with queued state, neighbor and chunk lifecycle changes. The callback and its world handle are synchronous. |
@@ -156,11 +170,15 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | `moddedmc:block_world` v1 | `read(world, positions, out, count)` | Read at most 4,096 positions without loading chunks. Unloaded positions return `UNLOADED_STATE`. |
 | | `dimension_id(world)` | Canonical dimension registry ID for the callback world, such as `minecraft:the_nether`. Require `WorldExtension::Dimension`. |
 | | `write(world, updates, count)` | Validate the batch before applying edits in input order. Each edit explicitly chooses neighbor and client notifications. `UPDATE_MOVED` is vanilla's move-by-piston and suppress-drops write: the replaced block entity is removed without side effects, so a container captured with `read_block_entity` doesn't scatter. Older hosts reject a batch using it. |
+| | `write_with_neighbor_shapes(world, updates, count)` | Like `write`. For an entry with `UPDATE_FROM_NEIGHBOR_SHAPES`, resolve the new state's shape against the world just before applying that entry. Earlier edits in the batch are visible to the shape update. Require `WorldExtension::NeighborShapes`. |
 | | `command_world(source)` | Borrow the command source's world for the callback. |
 | | `read_entity`, `write_entity` | Copy Java named-root NBT for a loaded custom block entity. The write keeps its registered id and position and updates the chunk's saved copy. Writes have a 64 KiB limit. |
 | | `rotate(world, position, axis, rpm)` | Set a rotating model's signed RPM around its positive X, Y or Z axis. |
 | | `has_neighbor_signal(world, position)` | Vanilla `Level.hasNeighborSignal`. False when unloaded. Appended after the first release: require `WorldExtension::NeighborSignal`. |
+| | `best_neighbor_signal(world, position)` | Vanilla `Level.getBestNeighborSignal`, with strength from 0 to 15. Returns 0 when unloaded. Appended: require `WorldExtension::BestNeighborSignal`. |
 | | `destroy(world, position, drop)` | Vanilla `Level.destroyBlock`: break particles, loot when `drop`, then air or the block's water. Appended: require `WorldExtension::Destroy`. |
+| | `game_time(world, out)` | Appended: the persisted overworld `getGameTime` / world-age tick clock, shared across dimensions. Continues while daylight cycle is disabled and is not changed by `/time set`. Returns false if the world handle is unavailable. Require `WorldExtension::GameTime` on servers supporting this entry. For refresh/decay deadlines, use this clock rather than `day_time` or `tick_count()`; saving a deadline does not by itself authorize destructive block replacement without an identity-guarded transaction. |
+| | `compare_replace_content_entity(world, pos, expected_state, incarnation, expected, destination, replacement)` | Appended: identity-bound no-drop replacement of a loaded custom block and its block entity. Requires the exact state, process-local incarnation and full Java named-root NBT snapshot to still match. Destination must be a registered block state; a destination with a block entity needs full saved NBT of that entity ID and the exact site coordinates, while an entityless destination requires empty replacement NBT. A successful swap closes any open container screens and sends ordinary state/neighbor notifications after world locks are released. The chunk's state and pending entity NBT are updated together. Failure changes nothing. Require `WorldExtension::ContentEntityReplacement` and obtain the source with `World::entity_snapshot`; use `World::compare_replace_entity` for the operation. **This produces no drops**, and does not make an independent item-transfer/saved-data transaction crash-atomic. |
 | | `face_sturdy(world, position, face)` | Vanilla `BlockState.isFaceSturdy`. False when unloaded. Appended: require `WorldExtension::FaceSturdy`. |
 | | `collision_shape(world, position, out, capacity)` | Vanilla `BlockState.getCollisionShape(level, pos)` with an empty context, as f64 boxes relative to the block (random offset included); returns the box count, -1 when unloaded. Appended: require `WorldExtension::CollisionShape`. |
 | | `describe_state(state, out)` | The full `namespace:block[key=value,...]` selector `Content::state` reads back, every property included. False for an unknown state. Appended: require `WorldExtension::DescribeState`. |
@@ -176,6 +194,7 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | | `schedule_tick(world, position, fluid, delay)` | Schedule a normal-priority vanilla fluid tick at a loaded position. Accepts a registered non-empty fluid id and a delay of at most 255 ticks, or `DEFAULT_FLUID_TICK_DELAY` for the fluid's usual delay in that dimension. |
 | | `would_regenerate_source(world, position, fluid)` | Predict source conversion for a hypothetical flowing liquid at the position. Uses the world's gamerules, horizontal collision faces and the supporting block. Returns 1 or 0, or -1 if the required state is unavailable. |
 | | `clear_ticks(world, position)` | Clear pending fluid ticks at a loaded position. The appended entry also indicates that block-world writes accept `UPDATE_KNOWN_SHAPE`, which skips neighbor shape updates independently of neighbor and client notifications. Require both with `fluid_world::require_tick_control()`. |
+| | `velocity(world, position, out)` | Read the flow vector at a loaded vanilla fluid cell. A dry cell gives zero. The appended entry is available through `fluid_world::require_flow()`. |
 | | `water_evaporates(world, position)` | Read the world's 26.3 water evaporation setting for a loaded position. |
 | `moddedmc:entities` v1 | `has_scoreboard_tag(entity, tag)` | Appended scoreboard tag membership check. Require `EntitiesExtension::ScoreboardTags` before relying on the result. |
 | `moddedmc:entities` v1 | `players(world, out, capacity)` | Appended. The ids of the world's players, spectators and dead ones included; returns the total, which can exceed `capacity`. Require `EntitiesExtension::Players`. |
@@ -202,8 +221,9 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | | `place_held_block(player, clicked, face)` | Place the current hand's block during a content block use through the normal player placement pipeline. The caller spends the item for each successful placement. Require `InteractionExtension::PlaceHeldBlock`. |
 | | `on_item_use(reg, callback)` | Normal use for this mod's items. Borrows both hand stacks and passes the initial outline ray hit. Return 0 to continue default dispatch, -1 to handle the action, or a positive tick count on start to enter timed use. Finish and release receive the original hand only while it still holds the original item and components. A handled finish replaces default consumption. Require `InteractionExtension::ItemUse`. |
 | | `item_use_animation(reg, item, ticks)` | Add held-use prediction to the stock Java view of a registered standalone item. The client can release early. The server still uses the callback's timer and never consumes the rendered carrier. Require `InteractionExtension::ItemUse`. |
-| | `UseBlock::action_bar(text)` | Send an action bar message to the player using a content block. The SDK checks the appended field and skips the message on older hosts. |
+| | `UseBlock::action_bar(text)`, `ItemUse::action_bar(text)` | Send an action bar message to the player using a block or item. The SDK checks the appended field and skips the message on older hosts. |
 | | `on_melee_damage(reg, callback)` | Appended. Require `InteractionExtension::MeleeDamage`. The item's owning mod can modify a player's direct melee damage before target defenses. The callback receives the item ID, the target's registered mod mob ID (empty for vanilla), and the damage. Invalid return values preserve the original damage. |
+| | `add_exhaustion(player, amount)` | Add food exhaustion through the vanilla player method, which skips invulnerable players and fires the exhaustion event. Require `InteractionExtension::Exhaustion`. |
 | | `on_use_item(reg, callback)` | Immediate use of this mod?s content item from either hand, after the timed callback if it passes. Supplies the held stack and packet yaw and pitch. Require `InteractionExtension::ImmediateItemUse`. |
 | | `on_player_placed(reg, callback)` | Observe a successful player placement of this mod?s content block. Require `InteractionExtension::PlayerPlaced`. |
 | | `on_use_mob(reg, kind, callback)` | Appended. Require `InteractionExtension::MobUse`. Stage one right-click callback per registered mod mob type. It receives the world, player, mob, held stack, hand, sneaking and creative state. `PASS` lets the carrier handle the click. |
@@ -214,21 +234,35 @@ Built-in mod datapacks can also add world generation features through `data/<nam
 | | `on_player_will_destroy(reg, callback)` | Vanilla `Block.playerWillDestroy` for the mod's content blocks: called with the player, position, state and creative after the break is accepted, before drops and removal. Appended: require `InteractionExtension::PlayerWillDestroy`. |
 | | `on_redstone(reg, signal, connects)` | Redstone output for the mod's content blocks. `connects(state, direction)` is vanilla `isSignalSource()` with NeoForge `canConnectRedstone(direction)` and decides where wire connects; `signal(world, pos, state, direction, direct)` is vanilla `getSignal`, or `getDirectSignal` when `direct`, called for every neighbour query as vanilla does, clamped to 15. Directions are vanilla's argument in order down, up, north, south, west, east. Block writes that change a state already notify neighbours, so wire and lamps update. Appended: require `InteractionExtension::Redstone`. |
 | | `stack_read`, `stack_write` | The held stack as saved NBT, or replace it from saved NBT; empty clears it. |
+| | `compare_lodestone`, `stack_set_lodestone` | Setting a nonempty dimension assigns an untracked lodestone target while replacing stack mod data. An empty dimension **removes** the `minecraft:lodestone_tracker` component, restoring the stock compass spawn needle branch instead of retaining a present-but-empty tracker. The host resource pack uses `minecraft:has_component` to select the vanilla 26.3 spawn versus lodestone compass frame dispatcher; this is a stock-client model adaptation, not a graphical verification claim. |
 | | `give(player, stack)` | Vanilla `Inventory.placeItemBackInInventory` for a saved stack: what doesn't fit drops at the player. Inside a use callback it merges into the used stack as vanilla's live held slot would, so read it again with `stack_read` afterwards. |
 | `moddedmc:effects` v1 | `play_sound(world, position, sound, source, volume, pitch)` | Vanilla `Level.playSound(null, ...)` for players in range. Ids outside `minecraft:` play from the resource pack. `source` follows vanilla `SoundSource` order. |
 | | `particles(world, particle, position, spread, speed, count)` | Vanilla `ServerLevel.sendParticles` for a particle type without options. |
-| `moddedmc:resources` v1 | `list(directory, out)` | Vanilla `ResourceManager.listResources`: every file under `data/<namespace>/<directory>/` across mod data, the world's datapacks and Pumpkin's bundled packs, as sorted `namespace:directory/...` ids. Directory packs only. Vanilla cooking recipes, which Pumpkin compiles in, are listed and read under `recipe` as their vanilla JSON when no pack overrides them. |
+| | `play_entity_sound(world, entity, sound, source, volume, pitch)` | Send a sound bound to an entity to its Java trackers and to the entity itself if it is a Java player. The client follows the entity and stops playback when it is removed. Returns false if the emitter is missing or untracked. Appended: check `Effects::require_entity_sound()`. |
+| `moddedmc:resources` v1 | `list(directory, out)` | Vanilla `ResourceManager.listResources`: every file under `data/<namespace>/<directory>/` across mod data, the world's datapacks and Pumpkin's bundled packs, as sorted `namespace:directory/...` ids. Directory packs only. Vanilla cooking and stonecutting recipes, which Pumpkin compiles in, are listed and read under `recipe` as their vanilla JSON when no pack overrides them. |
 | | `read(id, out)` | The highest-priority pack's bytes for an id, at most 4 MiB. |
 | | `generation()` | 0 before datapacks first load, then a new value after each load, `/reload` included. Calls read the disk, so cache parsed data and reparse when it changes. |
+| `moddedmc:crafting` v1 | `match_recipe(world, width, height, grid, out)` | Match a row-major grid of saved stacks against the same recipes as the crafting table, including loaded datapacks. Empty slices are empty slots. Each side is 1 to 9. The sink receives the product as saved NBT at key 0, the recipe id when known at key 1, and the matching engine serializer id at key 2. The query leaves the grid untouched. |
+| | `remainder(stack, out)` | The ingredient's default crafting remainder as saved NBT, such as the bucket from a milk bucket. Returns false when absent. |
+| | `enumerate_recipes(world, width, height, grid, limit, out)` | Appended to the original crafting table. Enumerate up to 64 actual matching vanilla and datapack recipes in normal engine order, without changing the default match. The sink emits triples at keys `index * 3` (saved result-stack NBT), `index * 3 + 1` (recipe ID when known), and `index * 3 + 2` (serializer ID). Pumpkin's generated vanilla crafting definitions contain no source IDs, so they use synthetic `moddedmc:generated_crafting/v2/<128-bit-definition-fingerprint>` identifiers, stable across table reordering rather than tied to a generated ordinal; these are **not** Mojang resource-location IDs. Previously stored `moddedmc:generated_crafting/<table-index>` choices are deliberately invalidated, not silently mapped to a different recipe. Real datapack recipe IDs are preserved. Return bits 0–13 contain emitted count; bit 15 (`0x8000`) means more matching recipes exist. Invalid grids/worlds return 0. Use `Crafting::enumerate_recipes` and check `Crafting::supports_player_selection()` before relying on the appended table. |
+| | `current_choices(player, limit, out)` | Enumerates the player's current 3×3 crafting table or 2×2 inventory grid, using the same sink layout and limits. Bit 14 (`0x4000`) means a supported crafting screen was found, even when it has no matching recipes. No menu bit means the request cannot access a supported screen. The function does not choose or consume anything. |
+| | `select_recipe(player, index)` | Pins the zero-based match index (0–63) to that player's active crafting result slot. An out-of-range, stale or nonmatching choice fails without granting items. The selected result, ingredient use and remainders remain coupled through the engine's ordinary take/shift-click code, and a real ingredient replacement or datapack catalog change revalidates the choice. Selection is menu-local and is not a persistent recipe preference. The host sends the updated slot while leaving the crafting screen open. This is a stock-client-compatible command surface, **not** proof of the original Polymorph graphical arrow UI or automation/crafter parity. |
+| | `enable_result_cycle()` | Explicitly opt in to right-click result-slot cycling for ordinary stock Java clients on the current 2×2/3×3 crafting menu. Right-click with an empty cursor rotates through genuine matching results **without taking ingredients**, synchronizing the full menu revision to counter client-side pickup prediction. Left-click and shift-click still craft, and no Polymorph mod means unchanged vanilla behavior. This is a practical vanilla UI, not a claim of original mod overlay parity. |
+| | `current_machine_choices(player, limit, out)` | Append-only capability using the exact same bounded sink/flag format as `current_choices`. Requires a non-spectator player with a genuine placed vanilla Crafter menu open; enumerates recipes against a frozen snapshot of that machine's current nine slots without consumption. Older hosts omit this appended field and the SDK returns `None`. |
+| | `select_machine_recipe(player, index)` | Append-only machine-local selection for the genuine placed Crafter currently opened by the player. The host checks live block-entity incarnation, exact open menu, ingredient snapshot and recipe catalog revision, persists the selected definition identity on the machine, and updates the stock Crafter's read-only result preview. No synthetic item grants. Stale or invalid choices fail. This is not a durable ingredient/output transaction or visual parity proof; ordinary vanilla Crafter behavior remains the default without Polymorph. |
 | `moddedmc:tags` v1 | `values(registry, tag, out)` | A tag's entry ids by string, so content blocks and items count: Pumpkin's generated vanilla entries plus every loaded pack's, nested tags flattened, sorted. A pack's `replace` drops lower packs' and the generated vanilla entries, as in vanilla. |
 | | `contains(registry, tag, id)` | Whether the id is in the tag. Cache results per `moddedmc:resources` generation. |
+| | `memberships(registry, id, out)` | The sorted tags that contain an entry, using the same pack merge as `values`. An unknown registry or an older host without the appended field returns `None` through the SDK. |
 | `moddedmc:containers` v1 | `slots(world, position, face)` | NeoForge `Capabilities.ItemHandler.BLOCK` for the vanilla container at a position (what a hopper sees, the composter included), as `InvWrapper` or, for a sided container, `SidedInvWrapper` for that face. `NO_FACE` is the null side. -1 when there is none. |
+| `moddedmc:container_conversion` v1 | `register(reg, callback)` | One synchronous callback per mod, registered before a world is loaded, proposing `Pass`, `Defer` or a destination block-state ID and complete named-root Java NBT. For replacement, the callback emits one named-root NBT value with the destination state ID as its sink key. Callbacks are consulted in mod load order, and the first non-pass decision stops the search. The host visits eligible loaded vanilla deferred-loot containers; proposals run without world/inventory locks and are not themselves writes. It validates NBT (at most 2 MiB), ownership of the registered destination state and unchanged source loot table/seed. A change commits only at the active-chunk migration boundary after loaded-neighborhood/post-processing checks and a source state/entity compare, and pending data plus the replacement entity are saved together with the state. `Defer` retains vanilla unopened loot and queues a later attempt. The initial Pumpkin conversion supports **only untouched single vanilla chests** with deferred `LootTable`, no nonempty `Items`, and no `Lock`/`lock` NBT; exposed inventories, double chests, barrels and other variants are not yet eligible. This is not a cross-file crash-atomicity guarantee. |
 | | `stack`, `slot_limit` | `getStackInSlot` as saved NBT, `getSlotLimit` (brewing stand bottles 1). |
 | | `insert(..., slot, stack, simulate, out)`, `insert_stacked(..., stack, simulate, out)` | `insertItem` and `ItemHandlerHelper.insertItemStacked`; the remainder goes to `out`. Includes NeoForge's one-bucket furnace fuel limit and `VanillaHopperItemHandler`'s cooldown when filling an empty hopper. |
 | | `extract(..., slot, amount, simulate, out)` | `extractItem`, honouring `canTakeItemThroughFace` for a side. |
-| `moddedmc:block_displays` v1 | `spawn(world, state, display)`, `update`, `set_state`, `remove` | Block displays that are never saved, for blocks that aren't in the world (a moving contraption). The display gives the position, the model translation, a left rotation quaternion, per-axis scale, the transformation blend in ticks (`interpolation_duration`, restarted on each update), the position interpolation (`teleport_duration`) and a brightness override. Content states show as their carrier on stock clients. |
+| `moddedmc:item_input` v1 | `add(reg, block, receive)` | Register an item input for a content block staged by the same mod. Hoppers and droppers offer one item as saved stack NBT with the current block state and the receiving face. Return 1 to accept or 0 to keep the item in the sender. A simulation must leave the receiver unchanged. |
+| `moddedmc:block_displays` v1 | `spawn(world, state, display)`, `update`, `set_state`, `remove` | Block displays that are never saved, for blocks that aren't in the world (a moving contraption). The display gives the position, the model translation, a left rotation quaternion, per-axis scale, the transformation blend in ticks (`interpolation_duration`, restarted on each update), the position interpolation (`teleport_duration`) and a brightness override. Content states use their baked model on stock clients. When a placed block hides its carrier under a static display, the host can assign a separate baked carrier for the moving display. |
 | `moddedmc:item_stacks` v1 | `entity_stack`, `set_entity_stack` | Read an item entity's stack, or replace it; an empty stack discards the entity. Stacks are vanilla saved `ItemStack` NBT (`id`, `count`, `components`) as Java named-root binary, at most 64 KiB, so mods can keep them in their own block entity data. |
 | | `fuel(stack, remainder)` | Regular furnace burn time from the stack's effective cooking fuel component. Returns zero for a non-fuel or invalid stack. The sink gets the crafting remainder as saved stack NBT when present. Require the appended entry with `StacksExtension::Fuel`. |
+| | `has_maxed_enchantment(stack)` | Whether an applied enchantment meets or exceeds its defined maximum. The SDK returns false on older hosts without this appended entry. |
 | | `spawn(world, position, motion, stack)` | Vanilla `new ItemEntity`, `setDeltaMovement`, `setDefaultPickUpDelay` and `addFreshEntity`, firing the plugin item spawn event like block drops. Returns the entity id. |
 | | `info(stack, out)` | Count, vanilla `getMaxStackSize`, and whether the item places a block. |
 | | `component(stack, component, out)` | Vanilla `ItemStack.get(component)`: the patch over the item defaults, as `{value: <component>}` named-root NBT, an empty root for unit components or ones Pumpkin doesn't encode yet. False when absent. Appended: require `StacksExtension::Component`. |
@@ -304,6 +338,11 @@ the calls through `mobs::require_storage()`. The saved data is limited to 64 KiB
 content item, world and player, and the look angles for the action. It edits
 the borrowed hand stack through the existing stack calls. Success or consume
 writes the hand back. Pass and fail leave that slot alone.
+
+`moddedmc:entities.damage` (`EntitiesExtension::Damage`) adds `Entity::hurt`.
+It resolves a registered damage type, including types defined in mod datapacks,
+and applies damage without an attacker through the normal entity damage path.
+The return value reports whether the hit took effect.
 
 `moddedmc:entities.player` (`EntitiesExtension::Player`) exposes a borrowed
 player handle for a player entity, so item and entity callbacks can use the
@@ -392,6 +431,133 @@ Create content-tick callback). Do not read a world in `Mod::start`; do not persi
 handles across restarts. Use SDK `saved_data::{require, SavedData, Key}`. A server lacking
 the named table fails the mod's `start` requirement without changing ABI major 1.
 
+## Player death drops (`moddedmc:player_death` v1)
+
+`on_drops(reg, callback)` stages one callback per mod. Call it through
+`player_death::require()` in `Mod::start` and
+`PlayerDeaths::on_drops` in `Mod::register`. The callback borrows the player,
+world, UUID, death position and a batch of saved ItemStack NBT. Slots
+0–8 are the hotbar, 9–35 are storage, 36 is feet, 37 is legs, 38 is chest,
+39 is head and 40 is the offhand. Use the world to query the death dimension.
+
+The host invokes the callback after removing the inventory stacks and
+releasing the inventory locks. Empty batches, retained inventories and
+items destroyed by Curse of Vanishing do not enter the callback. Call
+`Death::claim(key, record)` to save a record of the entire batch under
+one of the mod's saved-data keys. The host replaces the save file before
+committing the claim. A failed write restores the previous value and leaves
+the batch available. The first successful claim suppresses world drops and
+stops dispatch, even if the callback fails after it committed. If no mod
+claims the batch, the engine drops each stack normally. Callbacks for
+different players can overlap.
+
+The claim covers one live death event and its committed data can be read
+after a normal restart. Pumpkin saves player inventory and mod-owned data
+in separate files, so cross-file crash recovery requires a joint journal.
+
+`tests/scenarios/abi-player-death.txt` exercises accepted and declined
+claims, a failed write, keepInventory and saved data after a restart.
+
+## Inventory menus (`moddedmc:inventory_menu` v1)
+
+Use `inventory_menu::require()` at startup and `Menus::register` to register
+one change callback. `Menus::open` opens a stock chest screen with one to six
+rows. Each slot has independent take and insert permissions and carries saved
+ItemStack NBT. Views with the same world, menu kind and inventory ID share one
+slot array while any view is open. The host calls the initializer on the first
+open to read the latest saved slots. Slot permissions apply to each view.
+
+The host stages vanilla clicks against the displayed slots, player inventory
+and cursor. If a click changes mod-owned slots, the callback receives the
+complete proposed slot array and the acting player's UUID. Call
+`Change::commit(key, record)` with the mod's replacement saved-data value.
+Only a successful write applies the click. A declined or failed write
+preserves the menu, player inventory, cursor and pending drops. Keep the
+callback focused on validation and persistence, as the host holds the
+inventory locks until it returns.
+
+If multiple inventories share one saved-data record, the mod must serialize
+read-modify-write operations on that record, including writes from other hook
+types. Acquire the mod's record lock inside the change callback and initializer.
+Release it before calling any operation that opens or mutates a menu.
+
+`Menus::restore_matching` works on the active view. Pass unique source slots
+and unique destination slots in the order to restore. Player slots use the
+same indices as the death-drop interface. Once all matching stacks are in
+place, the host tries to pack displaced stacks and stacks marked
+`ANY_PLAYER_SLOT` into free inventory space. The callback receives any
+remainder in `Change::overflow()`. Include those stacks in the replacement
+record to keep them available to the player.
+
+Mods with clickable controls require `inventory_menu::require_actions()` at startup.
+Use `Actions::menus()` to register the inventory kind, then `Actions::on_action`
+to register the control callback. `Actions::open` takes the world that supplied
+the items, unique control slots, and their mod-chosen tags. Each control slot
+must forbid taking and inserting.
+The initializer supplies an ordinary item stack as the control's display.
+All live views of one inventory must declare the same control slot positions.
+
+A left click with an empty cursor calls the action handler with the player, world,
+inventory ID, and tag after releasing the screen lock. The handler can restore
+matching slots or open another view. Other click modes leave the control item
+in place. Existing mods can continue using the original v1 table prefix.
+
+For a position- or identity-bound inventory, use
+`inventory_menu::require_validity()`. Register a change callback and a
+read-only validity callback with `Validated::register`. Open with
+`ValiditySlots { world, access, context }`; the host copies at most 4096
+bytes of immutable per-view context and checks that the player remains in
+the opening world. The callback receives the live player, world, inventory
+ID and copied context before opening, during screen ticks and before
+clicks or matching-slot restoration. Returning false rejects interaction
+and closes the invalid screen through the existing player tick path.
+Keep the check inexpensive: validate the backing block/entity identity
+and reach directly, without loading chunks, reading whole archives, opening
+menus, mutating inventory or acquiring locks held by menu callbacks.
+Change callbacks must still validate backing state at commit time.
+
+These transactions cover live interactions and clean restarts. Cross-file
+crash recovery between the player save and mod data requires a joint journal.
+
+`tests/scenarios/abi-inventory-menu.txt` exercises taking and quick moves,
+two viewers, rejected changes, and equipment restoration with overflow.
+`tests/scenarios/abi-inventory-actions.txt` exercises matching-slot restoration
+and opening another view from controls on a stock client connection.
+
+## Persistent nonliving actors (`moddedmc:native_entities` v1)
+
+Require the interface in `Mod::start` and use `Actors::register` to register
+one actor kind per native mod. `Actors::spawn` creates a stock
+`minecraft:interaction` carrier in a loaded chunk with the given width,
+height, position, UUID and opaque state. Use a stable nonzero UUID to identify
+an actor across saves. Spawn rejects an already loaded UUID.
+
+Actor events borrow the world and actor. The host delivers `Loaded` when a
+carrier joins the world, `Tick` after the world's parallel entity workers
+have joined, and
+`Used` with the acting player on a right click. Return true from `Used` to
+consume the use. `Unloaded` follows a chunk unload and leaves the saved actor
+available. `Removed` follows permanent removal. The state is still readable
+in both callbacks. The other phases ignore the callback's return value.
+
+Use `Actor::data` and `Actor::set_data` to read and replace up to 64 KiB of
+opaque bytes. The carrier saves this data with the entity. It stays nonliving
+and the host applies no gravity. Set `Spawn::physics` to enable collision for
+movement that the mod applies through `actor.entity`.
+
+`Actors::require_visual` checks the visual extension. `Actor::show_sleeping`
+attaches a stock mannequin or skeleton to an actor.
+The model follows the actor with the supplied offset, and Java right-clicks on
+the model are routed to the actor after the normal reach checks. The model
+disappears with the actor and is recreated by the mod on `Loaded`.
+`Actors::player_profile` captures the player's profile for the mannequin,
+including available signed skin properties, visible skin layers, and the
+main arm. The visual also accepts
+saved item stacks for both hands and the four armor slots.
+
+`tests/scenarios/abi-native-entity.txt` covers use, chunk unload and load,
+clean restart, the two stock models, and permanent removal.
+
 ## Inter-mod services (`moddedmc:services` v1)
 
 Mods can publish immutable, process-lifetime `#[repr(C)]` function tables to other native
@@ -431,3 +597,61 @@ trait objects. The table is synchronous and its callbacks must not unwind across
 Tests: `tests/fixtures/abi-services` packs two independent native DLLs;
 `tests/scenarios/abi-services.txt` verifies startup ordering and round trips, and
 `tests/scenarios/abi-services-missing.txt` verifies a missing provider is skipped.
+
+`moddedmc:content` v1 appends `on_random_tick(reg, block, callback)`.
+Bind one callback per block already staged by the calling mod. The SDK uses
+one Rust callback for the list of block IDs passed to `Content::on_random_tick`.
+Pumpkin selects positions from ticking chunk sections using the world's random
+tick speed. It dispatches custom samples in dimension order on the server
+tick thread after the parallel world workers have joined. It skips samples
+whose state has changed or whose chunk is no longer loaded.
+Require the field with `Content::require_random_tick()` in `Mod::start`.
+
+`moddedmc:block_world` v1 appends `raw_brightness(world, pos, sky_darken)`.
+It returns the greater of block light and sky light minus the supplied darkening,
+or -1 outside loaded positions. This query never loads a chunk. Require
+`WorldExtension::RawBrightness` and call `World::raw_brightness`.
+
+The fixture in `tests/fixtures/abi-random-tick` and scenario
+`tests/scenarios/abi-random-tick.txt` check disabled ticking, a callback that
+replaces its sampled block, and raw light in both loaded and unloaded chunks.
+
+Three appended `moddedmc:block_world` v1 operations support saved tools and block interactions.
+
+- `apply_block_transformer(world, origin, direction, tool)` traces a one-block outline ray
+  from the center of a loaded position, ignoring fluids. On a hit it applies the saved
+  tool's block transformer, including its world effects. The caller owns the saved stack.
+  Require `WorldExtension::BlockTransformer`.
+- `redstone_conductor(world, pos)` queries the loaded state's redstone conduction.
+  It returns 1 for a conductor, 0 otherwise, and -1 when unloaded.
+  Require `WorldExtension::RedstoneConductor`.
+- `block_drops_with_player_actor(world, pos, tool, out)` rolls block loot with the saved
+  tool and an unspawned player-typed loot actor. It uses the same stack sink as
+  `block_drops` and leaves the block and world unchanged.
+  Require `WorldExtension::PlayerActorBlockDrops`.
+
+The appended `InteractionExtension::HeldTracker` exposes the player's sneak
+state through `UseItem::sneaking` and permits a borrowed held stack's mod data
+and lodestone target to be updated together through `Stack::set_lodestone`.
+A target of None clears the tracker. Immediate item-use writeback checks the
+original inventory slot and stack before committing; this is not a rollback
+mechanism for arbitrary callback side effects.
+
+`WorldExtension::ChestObstruction` exposes `World::chest_blocked`, using the
+host's vanilla chest obstruction logic, including sitting cats. Unloaded
+positions return None.
+
+`WorldExtension::ContentEntityTransaction` provides `World::entity_snapshot`
+and `World::compare_entity` for loaded custom block entities. A snapshot
+contains the exact block state, live incarnation and full saved NBT. A
+compare-and-replace rejects mismatched state, incarnation or NBT, preserving
+the entity type and position. A successful update changes the live fields and
+pending chunk record together. Incarnations identify live objects only and
+must never be persisted as durable container IDs. These operations neither
+convert vanilla block entities nor provide cross-file crash atomicity.
+
+The published block-world v1 prefix includes `write_with_neighbor_shapes`
+at byte 216 on 64-bit targets. Chest obstruction, guarded entity operations
+and game time follow it. Rebuild packages compiled with the alternate
+workstream layout before using them on main. The two layouts report the same
+table size.

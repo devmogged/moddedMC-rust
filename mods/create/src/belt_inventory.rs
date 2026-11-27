@@ -163,12 +163,6 @@ impl TransportedItemStack {
         self.display = None;
     }
 
-    pub fn processed(&self, item: Value) -> Self {
-        let mut output = self.similar(item);
-        output.locked = true;
-        output
-    }
-
     pub fn similar(&self, item: Value) -> Self {
         let mut output = self.copy_with_item(item);
         output.angle = next_int(360);
@@ -215,7 +209,7 @@ pub struct Chain {
 }
 
 impl Chain {
-    fn of(kinetics: &Kinetics, pos: Pos) -> Option<Self> {
+    pub(crate) fn of(kinetics: &Kinetics, pos: Pos) -> Option<Self> {
         let be = kinetics.get(pos)?;
         let Kind::Belt(belt) = be.kind else {
             return None;
@@ -234,7 +228,7 @@ impl Chain {
     }
 
     /// `getDirectionAwareBeltMovementSpeed`.
-    fn direction_aware_speed(self) -> f32 {
+    pub(crate) fn direction_aware_speed(self) -> f32 {
         let mut offset = if positive(self.belt.facing) {
             1.0
         } else {
@@ -520,6 +514,27 @@ impl BeltInventory {
                 continue;
             }
 
+            if horizontal {
+                use crate::belt_tunnel::{Crossing, handle_crossing};
+                let (action, split) =
+                    handle_crossing(world, kinetics, chain, item, item.pos + limited);
+                changed |= split;
+                match action {
+                    Crossing::Pass => {}
+                    Crossing::Held => {
+                        changed |= item.pos != current_pos;
+                        current = Some(item.pos);
+                        continue;
+                    }
+                    Crossing::Buffered => {
+                        remove_display(world, item);
+                        self.items.remove(index - 1);
+                        index -= 1;
+                        changed = true;
+                        continue;
+                    }
+                }
+            }
             item.pos += limited;
             let diff_to_middle = target_side_offset(item.angle) - item.offset;
             item.offset += (diff_to_middle * limited.abs() * 6.0)
@@ -543,6 +558,7 @@ impl BeltInventory {
                                     &mut kinetics.chutes,
                                     next,
                                     item,
+                                    false,
                                 )
                             }),
                             false,
@@ -562,7 +578,7 @@ impl BeltInventory {
                         )
                     } else if crate::funnel::direct_input_present(&kinetics.funnels, next) {
                         (
-                            crate::funnel::insert_from_belt_end(world, kinetics, next, item),
+                            crate::funnel::insert_from_belt_end(world, kinetics, next, item, false),
                             false,
                         )
                     } else if kinetics.kind(next) == Some(Kind::Millstone) {
@@ -576,6 +592,7 @@ impl BeltInventory {
                             false,
                         )
                     } else if try_inserting_from_side(
+                        world,
                         kinetics,
                         Some(chain.pos),
                         next,
@@ -661,10 +678,17 @@ fn belt_processing(
                 BeltProcessing::Pass
             }
             ProcessingResult::Hold => BeltProcessing::Held,
-            ProcessingResult::Convert(outputs) => {
+            ProcessingResult::Convert {
+                outputs,
+                lock_belt_outputs,
+            } => {
                 let mut converted: Vec<_> = outputs
                     .into_iter()
-                    .map(|value| item.processed(value))
+                    .map(|value| {
+                        let mut output = item.similar(value);
+                        output.locked = lock_belt_outputs;
+                        output
+                    })
                     .collect();
                 let rest = count(&item.item) - 1;
                 if rest > 0 {
@@ -778,6 +802,60 @@ pub fn insert_into_segment(
     accepted
 }
 
+pub(crate) fn stack_at_segment(kinetics: &Kinetics, pos: Pos) -> Option<&TransportedItemStack> {
+    let segment = kinetics.get(pos)?;
+    let start = segment.belt_index as f32;
+    kinetics
+        .get(segment.controller?)?
+        .inventory
+        .as_ref()?
+        .items
+        .iter()
+        .find(|stack| !stack.is_empty() && stack.pos > start && stack.pos <= start + 1.0)
+}
+
+pub(crate) fn centered_match(
+    kinetics: &Kinetics,
+    pos: Pos,
+    filter: &crate::filtering::Filter,
+) -> bool {
+    let Some(segment) = kinetics.get(pos) else {
+        return false;
+    };
+    let center = segment.belt_index as f32 + 0.5;
+    segment
+        .controller
+        .and_then(|controller| kinetics.get(controller))
+        .and_then(|be| be.inventory.as_ref())
+        .is_some_and(|inventory| {
+            inventory.items.iter().any(|stack| {
+                !stack.is_empty()
+                    && (stack.pos - center).abs() <= 0.45
+                    && filter.matches(&stack.item)
+            })
+        })
+}
+
+pub(crate) fn lock_segment(kinetics: &mut Kinetics, pos: Pos) {
+    let Some(segment) = kinetics.get(pos) else {
+        return;
+    };
+    let Some(controller) = segment.controller else {
+        return;
+    };
+    let start = segment.belt_index as f32;
+    if let Some(inventory) = kinetics
+        .get_mut(controller)
+        .and_then(|be| be.inventory.as_mut())
+        && let Some(stack) = inventory
+            .items
+            .iter_mut()
+            .find(|stack| !stack.is_empty() && stack.pos > start && stack.pos <= start + 1.0)
+    {
+        stack.locked_externally = true;
+    }
+}
+
 /// `ItemHandlerBeltSegment.extractItem` uses the first stack within (offset, offset + 1].
 pub fn extract_from_segment(
     world: World<'_>,
@@ -817,6 +895,7 @@ pub fn extract_from_segment(
 /// `BeltBlockEntity.tryInsertingFromSide` on the segment at `pos`, for a stack arriving through
 /// `side`. True when it was taken.
 pub fn try_inserting_from_side(
+    world: World<'_>,
     kinetics: &mut Kinetics,
     ticking: Option<Pos>,
     pos: Pos,
@@ -830,12 +909,11 @@ pub fn try_inserting_from_side(
     let Kind::Belt(belt) = segment.kind else {
         return false;
     };
-    let (speed, index) = (segment.get_speed(), segment.belt_index);
-    let facing = movement_facing(belt, speed);
-    // DirectBeltInputBehaviour.canInsertFromSide: BeltBlockEntity.canInsertFrom.
-    if speed == 0.0 || !can_transport_objects(belt) || facing == opposite(side) {
+    if !can_insert_from(segment, belt, side) {
         return false;
     }
+    let (speed, index) = (segment.get_speed(), segment.belt_index);
+    let facing = movement_facing(belt, speed);
     // A chain's own inventory is out of its block entity while it ticks.
     let Some(controller) = segment
         .controller
@@ -846,6 +924,16 @@ pub fn try_inserting_from_side(
     let Some(chain) = Chain::of(kinetics, controller) else {
         return false;
     };
+    if let Some(accepted) = crate::brass_tunnel::offer_from(
+        world,
+        kinetics,
+        step_pos(pos, UP),
+        stack,
+        Some(opposite(side)),
+        simulate,
+    ) {
+        return accepted > 0;
+    }
     let previous_is_belt = matches!(
         kinetics.kind(step_pos(pos, opposite(facing))),
         Some(Kind::Belt(_))
@@ -897,6 +985,12 @@ pub fn try_inserting_from_side(
     true
 }
 
+/// BeltBlockEntity.canInsertFrom, without the occupancy test.
+pub(crate) fn can_insert_from(segment: &crate::kinetics::Be, belt: Belt, side: u8) -> bool {
+    let speed = segment.get_speed();
+    speed != 0.0 && can_transport_objects(belt) && movement_facing(belt, speed) != opposite(side)
+}
+
 pub fn facing_at(kinetics: &Kinetics, pos: Pos) -> Option<u8> {
     Chain::of(kinetics, kinetics.get(pos)?.controller?).map(|chain| chain.movement_facing())
 }
@@ -911,9 +1005,9 @@ fn step_pos(pos: Pos, face: u8) -> Pos {
 }
 
 /// `BeltInventory.eject`.
-fn eject(world: World<'_>, chain: Chain, item: &TransportedItemStack) {
+pub(crate) fn eject(world: World<'_>, chain: Chain, item: &TransportedItemStack) -> bool {
     let (Some(&stacks), Some(bytes)) = (STACKS.get(), item.bytes()) else {
-        return;
+        return false;
     };
     let out = chain.vector_for_offset(item.pos);
     let speed = f64::from(chain.movement_speed().abs().max(1.0 / 8.0));
@@ -925,7 +1019,7 @@ fn eject(world: World<'_>, chain: Chain, item: &TransportedItemStack) {
         out[1] + nudge[1] + f64::from(6.0_f32 / 16.0),
         out[2] + nudge[2],
     ];
-    let _ = stacks.spawn(world, position, motion, &bytes);
+    stacks.spawn(world, position, motion, &bytes).is_some()
 }
 
 /// `BeltBlockEntity.destroy` on a controller: `ejectAll`.

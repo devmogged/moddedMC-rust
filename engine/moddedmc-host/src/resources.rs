@@ -1,16 +1,18 @@
 //! `moddedmc:resources` v1: the merged datapack files.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::Read,
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
 use moddedmc_api::abi::{self, MAX_RESOURCE_BYTES, Sink, Str};
 use pumpkin_core::data::datapack::LoadedDatapack;
 use pumpkin_data::recipes::{
-    CookingRecipe, CookingRecipeType, RECIPES_COOKING, RecipeCategoryTypes, RecipeIngredientTypes,
+    CookingRecipe, CookingRecipeType, RECIPES_COOKING, RECIPES_STONECUTTING, RecipeCategoryTypes,
+    RecipeIngredientTypes, RecipeResultStruct, StonecutterRecipe,
 };
 
 use crate::native::SERVER;
@@ -44,13 +46,44 @@ fn packs() -> Option<Vec<LoadedDatapack>> {
     (manager.generation() != 0).then(|| manager.get_loaded_packs())
 }
 
-/// Pumpkin compiles vanilla's cooking recipes in instead of shipping them as datapack files, so
-/// they are the lowest-priority source here, under ids like
-/// `minecraft:recipe/baked_potato_from_smoking.json`.
-fn vanilla_cooking() -> impl Iterator<Item = (String, &'static CookingRecipeType)> {
-    RECIPES_COOKING.iter().filter_map(|recipe| {
-        let (namespace, path) = cooking(recipe).1.recipe_id.split_once(':')?;
-        Some((format!("{namespace}:recipe/{path}.json"), recipe))
+enum VanillaRecipe {
+    Cooking(&'static CookingRecipeType),
+    Stonecutting(&'static StonecutterRecipe),
+}
+
+impl VanillaRecipe {
+    fn source(&self) -> String {
+        match self {
+            Self::Cooking(recipe) => cooking_json(recipe),
+            Self::Stonecutting(recipe) => {
+                let ingredient = ingredient_json(&recipe.ingredient);
+                let result = result_json(&recipe.result);
+                let group = group_json(recipe.group);
+                format!(
+                    r#"{{"type":"minecraft:stonecutting"{group},"ingredient":{ingredient},"result":{result}}}"#
+                )
+            }
+        }
+    }
+}
+
+/// Compiled vanilla recipes are the lowest-priority entries in the resource view.
+fn vanilla_recipes() -> &'static BTreeMap<String, VanillaRecipe> {
+    static RECIPES: OnceLock<BTreeMap<String, VanillaRecipe>> = OnceLock::new();
+    RECIPES.get_or_init(|| {
+        RECIPES_COOKING
+            .iter()
+            .map(|recipe| (cooking(recipe).1.recipe_id, VanillaRecipe::Cooking(recipe)))
+            .chain(
+                RECIPES_STONECUTTING
+                    .iter()
+                    .map(|recipe| (recipe.recipe_id, VanillaRecipe::Stonecutting(recipe))),
+            )
+            .filter_map(|(id, recipe)| {
+                let (namespace, path) = id.split_once(':')?;
+                Some((format!("{namespace}:recipe/{path}.json"), recipe))
+            })
+            .collect()
     })
 }
 
@@ -72,26 +105,42 @@ fn cooking_json(recipe: &CookingRecipeType) -> String {
         RecipeCategoryTypes::Blocks => ",\"category\":\"blocks\"",
         _ => "",
     };
-    let ingredient = match &recipe.ingredient {
+    let ingredient = ingredient_json(&recipe.ingredient);
+    let group = group_json(recipe.group);
+    let result = result_json(&recipe.result);
+    format!(
+        r#"{{"type":"{kind}"{category},"cookingtime":{},"experience":{}{group},"ingredient":{ingredient},"result":{result}}}"#,
+        recipe.cookingtime, recipe.experience
+    )
+}
+
+fn ingredient_json(ingredient: &RecipeIngredientTypes) -> String {
+    match ingredient {
         RecipeIngredientTypes::Simple(id) | RecipeIngredientTypes::Tagged(id) => {
-            format!("\"{id}\"")
+            format!(r#""{id}""#)
         }
         RecipeIngredientTypes::OneOf(ids) => {
-            let ids: Vec<String> = ids.iter().map(|id| format!("\"{id}\"")).collect();
+            let ids: Vec<_> = ids.iter().map(|id| format!(r#""{id}""#)).collect();
             format!("[{}]", ids.join(","))
         }
-    };
-    let group = recipe
-        .group
-        .map_or_else(String::new, |group| format!(",\"group\":\"{group}\""));
-    let count = match recipe.result.count {
+    }
+}
+
+fn group_json(group: Option<&str>) -> String {
+    group.map_or_else(String::new, |group| {
+        format!(
+            r#","group":{group}"#,
+            group = serde_json::Value::from(group)
+        )
+    })
+}
+
+fn result_json(result: &RecipeResultStruct) -> String {
+    let count = match result.count {
         1 => String::new(),
-        count => format!(",\"count\":{count}"),
+        count => format!(r#","count":{count}"#),
     };
-    format!(
-        "{{\"type\":\"{kind}\"{category},\"cookingtime\":{},\"experience\":{}{group},\"ingredient\":{ingredient},\"result\":{{\"id\":\"{}\"{count}}}}}",
-        recipe.cookingtime, recipe.experience, recipe.result.id
-    )
+    format!(r#"{{"id":"{}"{count}}}"#, result.id)
 }
 
 fn walk(dir: &Path, prefix: &str, depth: usize, out: &mut BTreeSet<String>) {
@@ -127,7 +176,7 @@ unsafe extern "C" fn list(directory: Str, out: Sink) -> bool {
     };
     let mut ids = BTreeSet::new();
     if directory == "recipe" {
-        ids.extend(vanilla_cooking().map(|(id, _)| id));
+        ids.extend(vanilla_recipes().keys().cloned());
     }
     for pack in &packs {
         let Ok(namespaces) = fs::read_dir(pack.root_path.join("data")) else {
@@ -168,10 +217,10 @@ unsafe extern "C" fn read(id: Str, out: Sink) -> bool {
         return false;
     };
     let Some(file) = resolve(&packs, id) else {
-        let Some((_, recipe)) = vanilla_cooking().find(|(vanilla, _)| vanilla == id) else {
+        let Some(recipe) = vanilla_recipes().get(id) else {
             return false;
         };
-        let json = cooking_json(recipe);
+        let json = recipe.source();
         // SAFETY: the bytes are live until the synchronous sink returns.
         unsafe { (out.put)(out.ctx, 0, Str::new(json.as_bytes())) };
         return true;
@@ -206,11 +255,11 @@ pub static RESOURCES: abi::ResourcesV1 = abi::ResourcesV1 {
 mod tests {
     use serde_json::{Value, from_str};
 
-    use super::{cooking_json, vanilla_cooking};
+    use super::vanilla_recipes;
 
     fn generated(id: &str) -> Option<Value> {
-        let (_, recipe) = vanilla_cooking().find(|(vanilla, _)| vanilla == id)?;
-        from_str(&cooking_json(recipe)).ok()
+        let recipe = vanilla_recipes().get(id)?;
+        from_str(&recipe.source()).ok()
     }
 
     /// Both expected files are copied from the 26.3 server jar.
@@ -229,6 +278,19 @@ mod tests {
             Some(smoking)
         );
         assert_eq!(generated("minecraft:recipe/charcoal.json"), Some(charcoal));
+        Ok(())
+    }
+
+    #[test]
+    fn stonecutting_matches_vanilla_file() -> serde_json::Result<()> {
+        let slab: Value = from_str(
+            r#"{"type":"minecraft:stonecutting","ingredient":"minecraft:stone",
+            "result":{"count":2,"id":"minecraft:stone_slab"}}"#,
+        )?;
+        assert_eq!(
+            generated("minecraft:recipe/stone_slab_from_stone_stonecutting.json"),
+            Some(slab)
+        );
         Ok(())
     }
 }

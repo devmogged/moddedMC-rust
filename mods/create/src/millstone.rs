@@ -166,16 +166,38 @@ impl Millstone {
         accepted
     }
 
-    fn extract(&mut self, limit: i32, simulate: bool) -> Option<Value> {
-        let slot = self.output.iter_mut().find(|slot| slot.is_some())?;
-        let item = slot.as_ref()?;
-        let taken = limit.min(count(item));
-        let result = with_count(item, taken);
-        if !simulate {
-            let remaining = count(item) - taken;
-            *slot = (remaining > 0).then(|| with_count(item, remaining));
+    fn extract(
+        &mut self,
+        limit: i32,
+        simulate: bool,
+        accepts: Option<&dyn Fn(&Value) -> bool>,
+    ) -> Option<Value> {
+        let mut result = None;
+        for slot in &mut self.output {
+            let Some(item) = slot.as_ref() else { continue };
+            if !accepts.is_none_or(|test| test(item))
+                || result
+                    .as_ref()
+                    .is_some_and(|prior| with_count(prior, 1) != with_count(item, 1))
+            {
+                continue;
+            }
+            let total = result.as_ref().map_or(0, count);
+            let limit = limit.min(max_count(item));
+            let taken = (limit - total).min(count(item));
+            if taken <= 0 {
+                break;
+            }
+            result = Some(with_count(item, total + taken));
+            if !simulate {
+                let remaining = count(item) - taken;
+                *slot = (remaining > 0).then(|| with_count(item, remaining));
+            }
+            if total + taken == limit {
+                break;
+            }
         }
-        Some(result)
+        result
     }
 
     fn insert_output(&mut self, product: Value, capacity: i32) {
@@ -270,9 +292,15 @@ pub fn insert(kinetics: &mut Kinetics, pos: Pos, item: &Value, simulate: bool) -
     accepted
 }
 
-pub fn extract(kinetics: &mut Kinetics, pos: Pos, limit: i32, simulate: bool) -> Option<Value> {
+pub fn extract(
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    limit: i32,
+    simulate: bool,
+    accepts: Option<&dyn Fn(&Value) -> bool>,
+) -> Option<Value> {
     let be = kinetics.get_mut(pos)?;
-    let item = be.millstone.as_mut()?.extract(limit, simulate)?;
+    let item = be.millstone.as_mut()?.extract(limit, simulate, accepts)?;
     be.dirty |= !simulate;
     Some(item)
 }

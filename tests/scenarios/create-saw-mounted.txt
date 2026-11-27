@@ -1,0 +1,80 @@
+# A mounted saw pauses at a tree, fills its attached chest, and continues after restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_saw
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2582.5 100 2582.5
+wait 2
+cmd fill 2575 98 2575 2588 98 2588 minecraft:stone
+cmd fill 2575 99 2575 2588 106 2588 minecraft:air
+cmd setblock 2580 100 2580 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2580 100 2580 0
+cmd item replace entity tester hotbar.0 with create:sticky_mechanical_piston
+bot look 90 0
+wait 0.3
+bot place 2580 100 2580 up
+wait 0.5
+cmd kinetics 2580 101 2580
+wait 0.25
+expect create:sticky_mechanical_piston\[axis_along_first=true,facing=east,state=retracted\] at 2580 101 2580
+cmd fill 2577 101 2580 2579 101 2580 create:piston_extension_pole[facing=east,waterlogged=false]
+cmd setblock 2581 101 2580 minecraft:slime_block
+cmd setblock 2581 102 2580 create:mechanical_saw[facing=east]
+cmd setblock 2581 101 2581 minecraft:chest
+cmd setblock 2581 101 2579 create:mechanical_saw[facing=up]
+cmd item replace entity tester hotbar.0 with create:shaft
+wait 0.5
+bot use 2581 101 2579 up main 0.5 0.75 0.6875
+wait 0.5
+expect Filter: create:shaft
+cmd fill 2582 102 2580 2582 104 2580 minecraft:oak_log
+cmd setblock 2582 104 2581 minecraft:oak_leaves[distance=1,persistent=true]
+wait 0.5
+cmd kinetics 2580 100 2580 -128
+wait 0.35
+bot expect block 2582 102 2580 minecraft:oak_log
+bot expect entity minecraft:block_display near 2580.5 101.5 2580.5 within 0.05
+bot expect entity minecraft:item_display near 2581.5 102.5 2580.5 within 0.55 count 1
+wait 0.35
+expect ^\[bot\] expect block ok 2582 102 2580 oak_log
+expect ^\[bot\] expect entity ok minecraft:block_display
+expect ^\[bot\] expect entity ok minecraft:item_display
+reject (?i)panicked|trapped|\[bot\] error
+cmd data get block 2580 101 2580 Piston.Contraption.Blocks.Actors[0].Breaker.Progress
+wait 0.25
+expect has the following block data: [1-9]$
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+wait 2.3
+cmd execute if block 2582 102 2580 minecraft:air if block 2582 104 2580 minecraft:air if block 2582 104 2581 minecraft:air
+wait 0.5
+expect Test passed
+cmd data get block 2584 101 2581 Items[0].id
+cmd data get block 2584 101 2581 Items[0].count
+wait 0.5
+expect-all block data: "minecraft:oak_log" && block data: 3$
+cmd data get block 2584 101 2579 SawProcessing.Filter.Filter.id
+wait 0.5
+expect block data: "create:shaft"
+cmd execute if block 2584 102 2580 create:mechanical_saw[facing=east]
+wait 0.25
+expect Test passed
+
+# The extended saw faces away from the log when the piston tries to retract.
+cmd setblock 2583 102 2580 minecraft:oak_log
+cmd kinetics 2580 100 2580 128
+wait 1.5
+cmd execute if block 2583 102 2580 minecraft:oak_log if block 2584 102 2580 create:mechanical_saw[facing=east]
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|\[bot\] error
+stop

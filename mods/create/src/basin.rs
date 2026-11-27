@@ -115,7 +115,13 @@ pub fn insert(world: World<'_>, pos: Pos, item: &Value, simulate: bool) -> Optio
 }
 
 /// `CombinedInvWrapper` exposes input slots first, then output slots, to extractors.
-pub fn extract(world: World<'_>, pos: Pos, limit: i32, simulate: bool) -> Option<Value> {
+pub fn extract(
+    world: World<'_>,
+    pos: Pos,
+    limit: i32,
+    simulate: bool,
+    accepts: Option<&dyn Fn(&Value) -> bool>,
+) -> Option<Value> {
     let limit = u32::try_from(limit).ok()?;
     if limit == 0 || !basin_at(world, pos) {
         return None;
@@ -125,7 +131,7 @@ pub fn extract(world: World<'_>, pos: Pos, limit: i32, simulate: bool) -> Option
         .inventories
         .iter()
         .flat_map(|inventory| (0..BASIN_SLOTS).filter_map(|slot| inventory.slot(slot)))
-        .next()?
+        .find(|item| accepts.is_none_or(|test| test(&item.nbt())))?
         .clone();
     let limit = limit.min(max_stack(&taken.nbt())?);
     taken.amount = 0;

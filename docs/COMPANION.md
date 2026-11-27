@@ -26,21 +26,14 @@ The host uses the generated stock pack's file list. A manifest contains `pack_ve
 
 The game status JSON advertises `moddedmc: {"protocol": 1, "pack_url": "...", "manifest_sha256": "..."}` when a catalog exists. Replace `{host}` in the URL with the game handshake host, bracketed for IPv6. Fetch `manifest-<sha256>.json` and `assets/<sha256>` relative to the ZIP URL. All three routes use the same pack listener. When `MODDEDMC_PACK_URL` points to a proxy, forward the manifest and blob routes alongside the ZIP. The status request and pack routes need no device-agent access.
 
-The app and companion share `<gameDir>/moddedmc/manifest-<sha256>.json` and `<gameDir>/moddedmc/assets/<sha256>`. Both verify hashes and lengths before using cache entries or publishing replacements. The manifest is limited to 2 MiB and 10,000 paths. Each asset is limited to 8 MiB and the total to 256 MiB. The companion uses verified blobs to assemble the pack locally on vanilla's pack download worker, after vanilla's pack consent. A complete app-prefetched cache works with the pack HTTP listener unreachable. An invalid or missing blob that cannot be repaired fails the required pack load.
-
-## Join from the app
-
-With a JDK 25+ configured, run `npm run companion` in `app/` when developing the desktop app. The Tauri build runs this automatically and bundles the companion JAR. The app gets the official launcher version JSON from Fabric Meta. The friend server provides the assets.
-
-Click **Join** on a friend. The app checks the official launcher's standard game directory first, then Prism Launcher and MultiMC. It installs the `moddedMC` profile or instance for 26.3 and writes the friend into that game's `servers.dat`. Each modified launcher file gets a sibling `.backup-…` copy before replacement. With no detected launcher, the app exports an importable instance ZIP to Downloads. Launchers still fetch Minecraft and Fabric Loader on first use.
+The companion caches `<gameDir>/moddedmc/manifest-<sha256>.json` and `<gameDir>/moddedmc/assets/<sha256>`. It verifies hashes and lengths before using cache entries or publishing replacements. The manifest is limited to 2 MiB and 10,000 paths. Each asset is limited to 8 MiB and the total to 256 MiB. The companion uses verified blobs to assemble the pack locally on vanilla's pack download worker, after vanilla's pack consent. An invalid or missing blob that cannot be repaired fails the required pack load.
 
 ## Owner play test
 
-1. Start a scratch pack server with `create.mmc` and your local Create JAR. Add its address in the app. Close any running launcher, then click **Join**. Expect the app to name the launcher and tell you to press **Play**.
-2. Open that launcher. Select **moddedMC** and press **Play**. Open **Multiplayer** and expect the friend server in the list. Join it and accept the required pack if asked. Expect Create items and placed gears to appear. Check `logs/latest.log` in the instance for `active capabilities 1` and `Loaded verified moddedMC asset pack`.
+1. Start a scratch pack server with `create.mmc` and your local Create JAR. Install the companion JAR into a Fabric 26.3 instance named **moddedMC** in your launcher.
+2. Open that launcher. Select **moddedMC** and press **Play**. Open **Multiplayer** and add the server. Join it and accept the required pack if asked. Expect Create items and placed gears to appear. Check `logs/latest.log` in the instance for `active capabilities 1` and `Loaded verified moddedMC asset pack`.
 3. Disconnect. Keep the game port reachable and block only the pack HTTP port from the test client. Rejoin from the prepared instance. Expect the same models and verified asset log using only the existing cache. Restore the pack HTTP route afterward.
 4. Join the same server from a stock 26.3 installation with the HTTP route available. Accept its pack and expect the same stock models. Then join an ordinary 26.3 server from **moddedMC** and expect a normal join with no companion negotiation log for that connection.
-5. Click **Join** again for the same friend. Expect one saved server entry. On a machine with Prism or MultiMC, repeat using its instance. On a machine without a detected launcher, import the exported ZIP in Prism or MultiMC and expect the server already listed.
 
 ## Animated displays
 
@@ -73,6 +66,10 @@ data merge entity @e[type=minecraft:item_display,tag=rig_test,limit=1] {item:{id
 ```
 
 The first command shows a swinging arm and the second parks it upright. The item model is a gold block on a stock client with the test pack enabled.
+
+## Item display parts
+
+A mod can put an object mapping part paths to block or item models in `assets/<namespace>/moddedmc/display_parts.json`. For example, `{"hinge/arm": "example:block/hinge_arm"}` supplies the item model `example:moddedmc/parts/hinge/arm`. Put that ID in a vanilla item's `minecraft:item_model` component and show it with the existing item display interface. The generated resource pack includes the referenced model and textures. This works in stock clients and requires no additional registry entries.
 
 ## Server Mods Creative tab
 

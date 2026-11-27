@@ -162,6 +162,16 @@ mod tests {
     }
 
     #[test]
+    fn zero_samples_still_probes_origin_but_zero_radius_disables_search() {
+        let mut spiral = BiomeSpiral::new((100, -100), 64, 10_000, 0).unwrap();
+        assert_eq!(spiral.next_probe(), Some((100, -100)));
+        spiral.finish_probe();
+        assert_eq!(spiral.samples(), 1);
+        assert_eq!(spiral.next_probe(), None);
+        assert!(BiomeSpiral::new((0, 0), 64, 0, 100).is_none());
+    }
+
+    #[test]
     fn quart_conversion_floors_negative_blocks() {
         assert_eq!(BiomeSpiral::quart(-1), -1);
         assert_eq!(BiomeSpiral::quart(-5), -2);

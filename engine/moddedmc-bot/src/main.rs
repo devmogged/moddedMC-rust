@@ -4,6 +4,7 @@
 //!   use <x> <y> <z>        right-click the top face of a block with the main hand
 //!   break <x> <y> <z>      start digging the block (instant in Creative)
 //!   click <action-id>      press a dialog button whose action is a custom click
+//!   click-match <prefix> <suffix>  press the unique matching action in the latest dialog
 //!   quit
 //! Usage: moddedmc-bot <host:port> <name>
 
@@ -26,7 +27,7 @@ use pumpkin_data::{
     BlockDirection,
     packet::{
         CURRENT_MC_VERSION,
-        clientbound::play::{CHUNK_BATCH_FINISHED, SOUND},
+        clientbound::play::{CHUNK_BATCH_FINISHED, SOUND, SOUND_ENTITY},
     },
     sound::Sound,
 };
@@ -69,6 +70,8 @@ async fn main() -> Result<(), String> {
     let writer: Writer = Arc::new(Mutex::new(bot.writer));
     let player = Arc::new(Mutex::new(bot.player));
     let actions = Arc::new(Mutex::new(bot.actions));
+    let dialog_actions = Arc::new(Mutex::new(Vec::<DialogButton>::new()));
+    let mut last_action: Option<String> = None;
 
     let harness = std::env::var_os("MODDEDMC_BOT_HARNESS").is_some();
     if !harness {
@@ -86,6 +89,7 @@ async fn main() -> Result<(), String> {
         harness,
         bot.capture,
         Arc::clone(&actions),
+        Arc::clone(&dialog_actions),
     ));
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
@@ -95,9 +99,8 @@ async fn main() -> Result<(), String> {
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
             "cmd" => send(&writer, &SChatCommand { command: rest }).await,
-            "use" | "place" | "use-item" | "release-item" | "break" | "dig" => {
-                world_actions.perform(&player, &writer, verb, rest).await
-            }
+            "use" | "place" | "use-item" | "release-item" | "break" | "dig" | "swap-hands"
+            | "drop-item" => world_actions.perform(&player, &writer, verb, rest).await,
             "click" => {
                 send(
                     &writer,
@@ -108,8 +111,45 @@ async fn main() -> Result<(), String> {
                 )
                 .await
             }
+            "click-match" | "click-label" | "click-find" | "click-replay" => {
+                let matched = if verb == "click-replay" {
+                    last_action
+                        .clone()
+                        .ok_or_else(|| "no previous dialog action".into())
+                } else {
+                    let buttons = dialog_actions.lock().await;
+                    if verb == "click-match" {
+                        match_dialog_action(&buttons, rest)
+                    } else {
+                        match_dialog_label(&buttons, rest).or_else(|error| {
+                            if verb == "click-find" && error == "no matching dialog label" {
+                                match_dialog_label(&buttons, "Next page")
+                            } else {
+                                Err(error)
+                            }
+                        })
+                    }
+                };
+                match matched {
+                    Ok(action) => {
+                        println!("[bot] matched dialog action: {action}");
+                        last_action = Some(action.clone());
+                        send(
+                            &writer,
+                            &SCustomClickAction {
+                                action_id: &action,
+                                payload: None,
+                            },
+                        )
+                        .await
+                    }
+                    Err(error) => Err(error),
+                }
+            }
             "look" | "hotbar" | "attack" | "interact" | "use-entity" | "inventory-click"
-            | "inventory-close" => actions::perform(&actions, &player, &writer, verb, rest).await,
+            | "inventory-close" | "respawn" => {
+                actions::perform(&actions, &player, &writer, verb, rest).await
+            }
             "move" if harness => actions::perform(&actions, &player, &writer, verb, rest).await,
             "physics" if harness && rest == "on" => {
                 Err("use physics manual in a frozen harness scenario".into())
@@ -117,11 +157,17 @@ async fn main() -> Result<(), String> {
             "physics" => player.lock().await.set_mode(rest),
             "input" | "fly" => movement::control(&player, &writer, verb, rest).await,
             "physics-tick" => manual_ticks(&player, &writer, &actions, rest).await,
-            "expect" if rest.starts_with("slot ") || rest.starts_with("cursor ") => actions
-                .lock()
-                .await
-                .check_inventory(rest)
-                .map(|result| println!("[bot] expect inventory ok {result}")),
+            "expect"
+                if rest.starts_with("slot ")
+                    || rest.starts_with("cursor ")
+                    || rest.starts_with("tracker ") =>
+            {
+                actions
+                    .lock()
+                    .await
+                    .check_inventory(rest)
+                    .map(|result| println!("[bot] expect inventory ok {result}"))
+            }
             "expect" if let Some(vehicle) = rest.strip_prefix("riding ") => {
                 let player = player.lock().await;
                 player
@@ -169,6 +215,7 @@ async fn pump(
     harness: bool,
     mut capture: Option<capture::Capture>,
     actions: Arc<Mutex<actions::State>>,
+    dialog_actions: Arc<Mutex<Vec<DialogButton>>>,
 ) {
     let keep_alive_id = CKeepAlive::to_id(CURRENT_MC_VERSION);
     let position_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
@@ -239,26 +286,22 @@ async fn pump(
         } else if packet.id == system_chat {
             println!("[bot] chat: {}", printable_text(&packet.payload));
         } else if packet.id == show_dialog {
-            println!("[bot] dialog: {}", printable_text(&packet.payload));
-        } else if packet.id == SOUND.0 {
-            use pumpkin_protocol::ser::NetworkReadExt as _;
-            if let Ok(id) = payload.get_var_int() {
-                let name = if id.0 == 0 {
-                    payload
-                        .get_var_int()
-                        .ok()
-                        .and_then(|len| usize::try_from(len.0).ok())
-                        .and_then(|len| payload.get(..len))
-                        .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                } else {
-                    usize::try_from(id.0)
-                        .ok()
-                        .and_then(|id| id.checked_sub(1))
-                        .and_then(|id| Sound::NAMES.get(id).copied())
-                };
-                if let Some(name) = name {
-                    println!("[bot] sound: {name}");
+            match dialog_buttons(&packet.payload) {
+                Ok(buttons) => {
+                    for button in &buttons {
+                        println!("[bot] dialog button: {} -> {}", button.label, button.id);
+                    }
+                    *dialog_actions.lock().await = buttons;
                 }
+                Err(error) => {
+                    dialog_actions.lock().await.clear();
+                    println!("[bot] error: bad dialog packet: {error}");
+                }
+            }
+            println!("[bot] dialog: {}", printable_text(&packet.payload));
+        } else if packet.id == SOUND.0 || packet.id == SOUND_ENTITY.0 {
+            if let Err(error) = log_sound(payload, packet.id == SOUND_ENTITY.0) {
+                println!("[bot] error: bad sound packet: {error}");
             }
         } else if trace {
             println!(
@@ -268,6 +311,42 @@ async fn pump(
             );
         }
     }
+}
+
+#[expect(
+    clippy::print_stdout,
+    reason = "the bot reports to the scenario runner on stdout"
+)]
+fn log_sound(
+    mut payload: &[u8],
+    entity_bound: bool,
+) -> Result<(), pumpkin_protocol::ser::ReadingError> {
+    use pumpkin_protocol::ser::NetworkReadExt;
+
+    let id = payload.get_var_int()?.0;
+    let custom;
+    let name = if id == 0 {
+        custom = payload.get_str()?;
+        payload.get_option(NetworkReadExt::get_f32)?;
+        custom.as_ref()
+    } else {
+        let Some(name) = usize::try_from(id)
+            .ok()
+            .and_then(|id| id.checked_sub(1))
+            .and_then(|id| Sound::NAMES.get(id))
+        else {
+            return Ok(());
+        };
+        name
+    };
+    if entity_bound {
+        payload.get_var_int()?;
+        let entity = payload.get_var_int()?.0;
+        println!("[bot] entity sound: {name} (entity {entity})");
+    } else {
+        println!("[bot] sound: {name}");
+    }
+    Ok(())
 }
 
 async fn manual_ticks(
@@ -352,6 +431,18 @@ impl WorldActions {
                 self.sequence = next;
                 send(writer, &player_action(status, position, face, next)).await
             }
+            "swap-hands" | "drop-item" if args.is_empty() => {
+                let status = if verb == "swap-hands" {
+                    Status::SwapItem
+                } else {
+                    Status::DropItem
+                };
+                send(
+                    writer,
+                    &player_action(status, BlockPos::new(0, 0, 0), BlockDirection::Down, 0),
+                )
+                .await
+            }
             "release-item" if args.is_empty() => {
                 send(
                     writer,
@@ -413,13 +504,23 @@ fn use_item_on(args: &str, sequence: i32) -> Result<SUseItemOn, String> {
         return Err("use requires x y z with optional face and hand".into());
     };
     let position = parse_block(&[x, y, z])?;
-    let (face, hand) = match options {
-        [] => ("up", "main"),
-        [face] => (*face, "main"),
-        [face, hand] => (*face, *hand),
-        _ => return Err("use requires x y z with optional face and hand".into()),
+    let (face, hand, hit) = match options {
+        [] => ("up", "main", None),
+        [face] => (*face, "main", None),
+        [face, hand] => (*face, *hand, None),
+        [face, hand, x, y, z] => (*face, *hand, Some([*x, *y, *z])),
+        _ => return Err("use requires x y z [face [hand [hit-x hit-y hit-z]]]".into()),
     };
-    let (face, cursor_pos) = face_hit(face)?;
+    let (face, mut cursor_pos) = face_hit(face)?;
+    if let Some(hit) = hit {
+        let [Ok(x), Ok(y), Ok(z)] = hit.map(str::parse::<f32>) else {
+            return Err("use hit coordinates must be numbers between 0 and 1".into());
+        };
+        if ![x, y, z].iter().all(|part| (0.0..=1.0).contains(part)) {
+            return Err("use hit coordinates must be numbers between 0 and 1".into());
+        }
+        cursor_pos = Vector3::new(x, y, z);
+    }
     Ok(SUseItemOn {
         hand: self::hand(hand)?,
         position,
@@ -461,6 +562,177 @@ fn parse_block(parts: &[&str]) -> Result<BlockPos, String> {
         "expected three integer block coordinates, got {}",
         parts.join(" ")
     ))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct DialogButton {
+    label: String,
+    id: String,
+}
+
+fn dialog_buttons(mut payload: &[u8]) -> Result<Vec<DialogButton>, String> {
+    use pumpkin_protocol::ser::{NetworkReadExt, NetworkReadSliceExt};
+    if payload.get_var_int().map_err(|e| e.to_string())?.0 != 0 {
+        return Ok(Vec::new());
+    }
+    let tag = payload
+        .get_nbt(&CURRENT_MC_VERSION)
+        .map_err(|e| e.to_string())?
+        .ok_or("missing dialog NBT")?;
+    let root = tag.extract_compound().ok_or("dialog is not a compound")?;
+    let mut buttons = Vec::new();
+    let mut add = |button: &pumpkin_nbt::compound::NbtCompound| {
+        let Some(action) = button.get_compound("action") else {
+            return;
+        };
+        if action.get_string("type") != Some("minecraft:custom") {
+            return;
+        }
+        let Some(id) = action.get_string("id") else {
+            return;
+        };
+        let Some(label_tag) = button.get("label") else {
+            return;
+        };
+        let Some(label) = label_tag
+            .extract_string()
+            .or_else(|| label_tag.extract_compound()?.get_string("text"))
+        else {
+            return;
+        };
+        buttons.push(DialogButton {
+            label: label.to_owned(),
+            id: id.to_owned(),
+        });
+    };
+    if let Some(list) = root.get_list("actions") {
+        for button in list.iter().filter_map(|tag| tag.extract_compound()) {
+            add(button);
+        }
+    }
+    for key in ["action", "yes", "no"] {
+        if let Some(button) = root.get_compound(key) {
+            add(button);
+        }
+    }
+    Ok(buttons)
+}
+
+fn unique_dialog_action<'a>(
+    mut matches: impl Iterator<Item = &'a DialogButton>,
+    missing: &str,
+) -> Result<String, String> {
+    let first = matches.next().ok_or(missing)?;
+    if matches.next().is_some() {
+        return Err("ambiguous dialog action".into());
+    }
+    Ok(first.id.clone())
+}
+
+fn match_dialog_action(buttons: &[DialogButton], args: &str) -> Result<String, String> {
+    let parts: Vec<_> = args.split_whitespace().collect();
+    let [prefix, suffix] = parts.as_slice() else {
+        return Err("click-match requires prefix suffix".into());
+    };
+    unique_dialog_action(
+        buttons
+            .iter()
+            .filter(|b| b.id.starts_with(prefix) && b.id.ends_with(suffix)),
+        "no matching dialog action",
+    )
+}
+
+fn match_dialog_label(buttons: &[DialogButton], label: &str) -> Result<String, String> {
+    unique_dialog_action(
+        buttons.iter().filter(|b| b.label == label),
+        "no matching dialog label",
+    )
+}
+
+#[cfg(test)]
+mod dialog_tests {
+    use super::*;
+
+    #[test]
+    fn parses_wire_dialog_without_confusing_body_or_tooltip_for_actions() {
+        use pumpkin_protocol::{
+            ClientPacket, IdOr,
+            java::client::dialog::{ActionButton, Dialog, DialogAction, DialogBody, DialogNBT},
+        };
+        use pumpkin_util::text::TextComponent;
+        let dialog = Dialog {
+            r#type: "minecraft:multi_action".into(),
+            title: TextComponent::text("Compass"),
+            body: vec![DialogBody::PlainMessage {
+                contents: TextComponent::text("compasses:pick/decoy/3"),
+            }],
+            inputs: vec![],
+            buttons: vec![
+                ActionButton {
+                    text: TextComponent::text("minecraft:birch_forest"),
+                    tooltip: Some(TextComponent::text("compasses:pick/tooltip/3")),
+                    width: None,
+                    action: DialogAction::Custom {
+                        id: "compasses:pick/actual/3".into(),
+                        payload: None,
+                    },
+                },
+                ActionButton {
+                    text: TextComponent::text("Help"),
+                    tooltip: None,
+                    width: None,
+                    action: DialogAction::OpenUrl {
+                        url: "https://example.com".into(),
+                    },
+                },
+            ],
+            links: vec![],
+            exit_action: None,
+            after_action: None,
+            can_close_with_escape: true,
+            external_title: None,
+        };
+        let mut payload = Vec::new();
+        CPlayShowDialog::new(IdOr::Value(DialogNBT::from_dialog(&dialog)))
+            .write_packet_data(&mut payload, &CURRENT_MC_VERSION)
+            .unwrap();
+        let buttons = dialog_buttons(&payload).unwrap();
+        assert_eq!(buttons.len(), 1);
+        assert_eq!(
+            match_dialog_label(&buttons, "minecraft:birch_forest").unwrap(),
+            "compasses:pick/actual/3"
+        );
+        assert_eq!(
+            match_dialog_action(&buttons, "compasses:pick/ /3").unwrap(),
+            "compasses:pick/actual/3"
+        );
+        assert!(dialog_buttons(&[]).is_err());
+        assert!(dialog_buttons(&[1]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn matches_dynamic_action_and_exact_label() {
+        let buttons = vec![
+            DialogButton {
+                label: "minecraft:plains".into(),
+                id: "compasses:pick/abc/1".into(),
+            },
+            DialogButton {
+                label: "minecraft:forest".into(),
+                id: "compasses:pick/abc/11".into(),
+            },
+        ];
+        assert_eq!(
+            match_dialog_action(&buttons, "compasses:pick/ /1").unwrap(),
+            "compasses:pick/abc/1"
+        );
+        assert!(match_dialog_action(&buttons, "compasses:pick/ 1").is_err());
+        assert_eq!(
+            match_dialog_label(&buttons, "minecraft:forest").unwrap(),
+            "compasses:pick/abc/11"
+        );
+        assert!(match_dialog_label(&buttons, "forest").is_err());
+    }
 }
 
 /// Chat arrives as network NBT; the readable strings are enough for test assertions.

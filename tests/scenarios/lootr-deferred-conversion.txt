@@ -1,0 +1,47 @@
+# A vanilla deferred-loot chest converts before opening and retains its claim after restart.
+mods target/mods/lootr.mmc
+start
+await 10 moddedmc: loaded lootr
+botstart alice
+await 10 \[bot\] joined as alice
+cmd tp alice 1025.5 105 1024.5 0 0
+await 10 \[bot\] teleported to .*1025\.5.*1024\.5
+wait 2
+cmd fill 1022 105 1022 1029 108 1029 minecraft:air
+cmd fill 1022 104 1022 1029 104 1029 minecraft:stone
+cmd gamemode survival alice
+cmd setblock 1025 105 1026 minecraft:chest[facing=north]
+cmd data merge block 1025 105 1026 {LootTable:"lootr:tests/full_chest",LootTableSeed:12345L}
+await 5 Modified block data
+wait 2
+cmd execute if block 1025 105 1026 lootr:chest[facing=north,type=single,waterlogged=false]
+await 5 Test passed
+cmd data get block 1025 105 1026 LootTableSeed
+await 5 12345L
+bot use 1025 105 1026 north
+wait 0.75
+bot expect slot 0 minecraft:wooden_sword 1
+await 5 expect inventory ok slot 0 wooden_sword 1
+bot inventory-click 0 shift-left
+wait 0.75
+bot expect slot 0 minecraft:air 0
+await 5 expect inventory ok slot 0 air 0
+bot inventory-close
+cmd save-all flush
+await 10 Saved the game
+stop
+
+start
+botstart alice
+await 10 \[bot\] joined as alice
+wait 2
+cmd execute if block 1025 105 1026 lootr:chest[facing=north,type=single,waterlogged=false]
+await 5 Test passed
+bot use 1025 105 1026 north
+wait 0.75
+bot expect slot 0 minecraft:air 0
+await 5 expect inventory ok slot 0 air 0
+bot expect slot 1 minecraft:wooden_sword 1
+await 5 expect inventory ok slot 1 wooden_sword 1
+reject (?i)panicked|trapped|\[bot\] error
+stop

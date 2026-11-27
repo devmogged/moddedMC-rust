@@ -1,0 +1,169 @@
+# Use an ordinary vanilla recipe and a loaded Create crafting recipe in a mechanical grid.
+mods target\mods\create.mmc
+start
+expect registered content block create:mechanical_crafter \(16 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2496.5 106 2498.5 0 0
+wait 4
+cmd fill 2490 106 2495 2502 113 2505 minecraft:air
+cmd fill 2490 105 2495 2502 105 2505 minecraft:stone
+cmd tp tester 2496.5 106 2498.5 0 0
+cmd gamemode survival tester
+
+# The cake outputs down to a barrel. Its three empty milk buckets must survive crafting.
+cmd setblock 2496 105 2500 minecraft:barrel
+cmd setblock 2495 108 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2496 108 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2497 108 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2495 107 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2496 107 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2497 107 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2495 106 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2496 106 2500 create:mechanical_crafter[facing=north]
+cmd setblock 2497 106 2500 create:mechanical_crafter[facing=north]
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 2495 108 2500 north
+wait 0.18
+bot use 2495 108 2500 north
+wait 0.18
+bot use 2496 108 2500 north
+wait 0.18
+bot use 2496 108 2500 north
+wait 0.18
+bot use 2497 108 2500 north
+wait 0.18
+bot use 2497 108 2500 north
+wait 0.18
+bot use 2495 107 2500 north
+wait 0.18
+bot use 2495 107 2500 north
+wait 0.18
+bot use 2496 107 2500 north
+wait 0.18
+bot use 2496 107 2500 north
+wait 0.18
+bot use 2497 107 2500 north
+wait 0.18
+bot use 2497 107 2500 north
+wait 0.18
+bot use 2495 106 2500 north
+wait 0.18
+bot use 2496 106 2500 north
+wait 0.18
+bot use 2496 106 2500 north
+wait 0.18
+bot use 2497 106 2500 north
+wait 0.18
+bot use 2497 106 2500 north
+wait 0.18
+bot use 2497 106 2500 north
+wait 0.18
+cmd item replace entity tester weapon.mainhand with minecraft:milk_bucket
+wait 0.3
+bot use 2495 108 2500 north
+wait 0.25
+cmd item replace entity tester weapon.mainhand with minecraft:milk_bucket
+wait 0.3
+bot use 2496 108 2500 north
+wait 0.25
+cmd item replace entity tester weapon.mainhand with minecraft:milk_bucket
+wait 0.3
+bot use 2497 108 2500 north
+wait 0.25
+cmd item replace entity tester weapon.mainhand with minecraft:sugar 2
+wait 0.3
+bot use 2495 107 2500 north
+wait 0.25
+bot use 2497 107 2500 north
+wait 0.25
+cmd item replace entity tester weapon.mainhand with minecraft:egg
+wait 0.3
+bot use 2496 107 2500 north
+wait 0.25
+cmd item replace entity tester weapon.mainhand with minecraft:wheat 3
+wait 0.3
+bot use 2495 106 2500 north
+wait 0.25
+bot use 2496 106 2500 north
+wait 0.25
+bot use 2497 106 2500 north
+wait 0.25
+cmd clear tester minecraft:wheat 0
+wait 0.5
+expect No items were found
+cmd setblock 2494 107 2500 create:cogwheel[axis=z,waterlogged=false]
+cmd setblock 2494 107 2501 create:creative_motor[facing=north]
+wait 0.5
+cmd kinetics 2494 107 2501 4
+wait 0.5
+cmd data get block 2495 108 2500 Crafter.Phase
+wait 0.5
+expect block data: "Exporting"
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2495 108 2500 Crafter.Phase
+wait 0.5
+expect block data: "Exporting"
+cmd kinetics 2494 107 2501 128
+wait 5
+cmd data get block 2496 105 2500 Items[0].id
+wait 0.5
+expect block data: "minecraft:cake"
+cmd data get block 2496 105 2500 Items[0].count
+wait 0.5
+expect block data: 1$
+cmd data get block 2496 105 2500 Items[1].id
+wait 0.5
+expect block data: "minecraft:bucket"
+cmd data get block 2496 105 2500 Items[1].count
+wait 0.5
+expect block data: 3$
+cmd data get block 2496 106 2500 Crafter.Phase
+wait 0.5
+expect block data: "Idle"
+
+# A second grid resolves Create's regular shaft recipe from the server's datapacks.
+cmd tp tester 2499.5 106 2502.5 0 0
+wait 1
+cmd setblock 2499 105 2504 minecraft:barrel
+cmd setblock 2499 106 2504 create:mechanical_crafter[facing=north]
+cmd setblock 2499 107 2504 create:mechanical_crafter[facing=north]
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.5
+bot use 2499 106 2504 north
+wait 0.18
+bot use 2499 106 2504 north
+wait 0.18
+bot use 2499 107 2504 north
+wait 0.18
+bot use 2499 107 2504 north
+wait 0.18
+cmd item replace entity tester weapon.mainhand with create:andesite_alloy 2
+wait 0.5
+bot use 2499 106 2504 north
+wait 0.25
+bot use 2499 107 2504 north
+wait 0.25
+cmd setblock 2498 106 2504 create:cogwheel[axis=z,waterlogged=false]
+cmd setblock 2498 106 2505 create:creative_motor[facing=north]
+wait 0.5
+cmd kinetics 2498 106 2505 128
+wait 4
+cmd data get block 2499 105 2504 Items[0].id
+wait 0.5
+expect block data: "create:shaft"
+cmd data get block 2499 105 2504 Items[0].count
+wait 0.5
+expect block data: 8$
+reject (?i)panicked|trapped|failed to register|Failed to save player data|Error loading player data|\[bot\] error
+bot quit
+stop

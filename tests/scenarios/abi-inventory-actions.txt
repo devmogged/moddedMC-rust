@@ -1,0 +1,62 @@
+# A stock left click invokes matching restoration without taking the control item.
+mods target\mods\abi-inventory-menu.mmc
+start
+expect abi_inventory_menu ready
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd item replace entity tester armor.head with minecraft:iron_helmet
+cmd give tester minecraft:cobblestone 2304
+wait 0.5
+bot cmd abi_menu_equipment
+wait 0.5
+bot expect slot 8 minecraft:barrier 1
+wait 0.5
+expect expect inventory ok slot 8 barrier 1
+bot cmd abi_menu_alias
+wait 0.5
+expect abi_inventory_menu rejected unlocked alias
+bot inventory-click 8 shift-left
+wait 0.5
+bot expect slot 0 minecraft:diamond_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 diamond_helmet 1
+bot inventory-click 8 left
+wait 0.5
+expect abi_inventory_menu committed overflow=1
+bot expect slot 0 minecraft:air 0
+bot expect slot 8 minecraft:barrier 1
+bot expect cursor minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+expect expect inventory ok slot 8 barrier 1
+expect expect inventory ok cursor air 0
+cmd data get entity tester equipment.head.id
+wait 0.5
+expect minecraft:diamond_helmet
+bot inventory-click 36 left
+wait 0.5
+bot expect cursor minecraft:cobblestone 64
+wait 0.5
+expect expect inventory ok cursor cobblestone 64
+bot inventory-click 7 left
+wait 0.5
+bot expect slot 7 minecraft:compass 1
+bot expect cursor minecraft:cobblestone 64
+wait 0.5
+expect expect inventory ok slot 7 compass 1
+expect expect inventory ok cursor cobblestone 64
+bot inventory-click 36 left
+wait 0.5
+bot inventory-click 7 left
+wait 0.5
+bot expect slot 0 minecraft:arrow 1
+wait 0.5
+expect expect inventory ok slot 0 arrow 1
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:barrier 0
+wait 0.5
+expect No items were found on player tester
+bot quit
+stop

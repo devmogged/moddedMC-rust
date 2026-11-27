@@ -1,0 +1,7 @@
+{
+  "parent": "create:block/belt_casing/horizontal_end",
+  "textures": {
+    "4": "create:block/belt/andesite_belt_casing",
+    "particle": "create:block/andesite_casing"
+  }
+}

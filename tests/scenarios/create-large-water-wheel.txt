@@ -1,0 +1,163 @@
+# Craft the Large Water Wheel, place its ring across a chunk boundary, and restart it under load.
+mods target\mods\create.mmc
+start
+expect registered content block create:large_water_wheel \(6 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd tp tester 2447.5 102 2445.5 -90 25
+wait 4
+cmd fill 2443 102 2443 2453 110 2453 minecraft:air
+cmd fill 2443 101 2443 2453 101 2453 minecraft:stone
+cmd setblock 2447 102 2446 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with minecraft:spruce_planks 8
+cmd item replace entity tester hotbar.1 with create:water_wheel 1
+wait 0.5
+bot use 2447 102 2446 north
+wait 0.75
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 4 right
+wait 0.25
+bot inventory-click 6 right
+wait 0.25
+bot inventory-click 7 right
+wait 0.25
+bot inventory-click 8 right
+wait 0.25
+bot inventory-click 9 right
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 5 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:large_water_wheel 0
+wait 0.5
+expect Found 1 matching item
+cmd setblock 2448 104 2449 create:shaft[axis=z,waterlogged=false]
+cmd setblock 2447 105 2448 minecraft:stone
+cmd tp tester 2448.5 102 2446.3 0 -25
+wait 0.5
+bot place 2448 104 2449 north
+wait 0.5
+cmd clear tester create:large_water_wheel 0
+wait 0.5
+expect Found 1 matching item
+cmd execute if block 2448 104 2448 minecraft:air
+wait 0.5
+expect Test passed
+cmd setblock 2447 105 2448 minecraft:air
+wait 0.5
+bot place 2448 104 2449 north
+wait 0.5
+cmd clear tester create:large_water_wheel 0
+wait 0.5
+expect No items were found
+cmd kinetics 2448 104 2448
+wait 0.5
+expect create:large_water_wheel\[axis=z,extension=false\] at 2448 104 2448 Speed=0
+cmd execute if block 2447 105 2448 create:water_wheel_structure if block 2449 103 2448 create:water_wheel_structure
+wait 0.5
+expect Test passed
+bot expect entity minecraft:item_display near 2448.5 104.5 2448.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2448.5 104.5 2448.5
+
+# Water falls two blocks west of the axle. Keep it in a one-block-wide flume.
+cmd fill 2445 102 2448 2445 107 2448 minecraft:stone
+cmd fill 2446 102 2447 2446 107 2447 minecraft:stone
+cmd fill 2446 102 2449 2446 107 2449 minecraft:stone
+cmd fill 2447 106 2448 2447 107 2448 minecraft:stone
+cmd setblock 2447 102 2448 minecraft:stone
+cmd setblock 2446 107 2448 minecraft:water
+wait 4
+cmd kinetics 2448 104 2449
+wait 0.5
+expect at 2448 104 2449 Speed=4 Stress=0 Capacity=512
+cmd data get block 2448 104 2448 FlowScore
+wait 0.5
+expect block data: 3$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop
+
+start
+cmd difficulty peaceful
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd execute if block 2447 105 2448 create:water_wheel_structure if block 2449 103 2448 create:water_wheel_structure
+wait 0.5
+expect Test passed
+cmd kinetics 2448 104 2449
+wait 0.5
+expect at 2448 104 2449 Speed=4 Stress=0 Capacity=512
+bot expect entity minecraft:item_display near 2448.5 104.5 2448.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2448.5 104.5 2448.5
+cmd fill 2446 102 2448 2446 107 2448 minecraft:air
+wait 4
+cmd kinetics 2448 104 2449
+wait 0.5
+expect at 2448 104 2449 Speed=0
+
+# Mine a corner, which removes the axle and both halves of the ring with one drop.
+cmd item replace entity tester weapon.mainhand with minecraft:iron_axe
+wait 0.5
+bot dig start 2447 105 2448 north
+wait 1
+bot dig finish
+wait 0.15
+cmd tp tester 2452.5 102 2446.5
+wait 2
+cmd execute if block 2448 104 2448 minecraft:air if block 2447 105 2448 minecraft:air if block 2449 103 2448 minecraft:air
+wait 0.5
+expect Test passed
+bot expect entity minecraft:item near 2448.5 102.2 2448.5 within 3.5 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item near 2448.5 102.2 2448.5 within 3.5 count 1
+cmd data get entity @e[type=minecraft:item,x=2448.5,y=102.2,z=2448.5,distance=..3.5,limit=1] Item.id
+cmd data get entity @e[type=minecraft:item,x=2448.5,y=102.2,z=2448.5,distance=..3.5,limit=1] Item.count
+wait 0.5
+expect following entity data: "create:large_water_wheel"
+expect following entity data: 1$
+cmd kill @e[type=minecraft:item,x=2448.5,y=102.2,z=2448.5,distance=..3.5]
+
+# Adjacent axles update the extension flag and a Creative break adds no drop.
+cmd setblock 2448 104 2448 create:large_water_wheel[axis=z]
+cmd setblock 2448 104 2447 create:large_water_wheel[axis=z]
+wait 0.5
+cmd kinetics 2448 104 2448
+wait 0.5
+expect create:large_water_wheel\[axis=z,extension=true\] at 2448 104 2448 Speed=0
+cmd gamemode creative tester
+cmd tp tester 2448.5 102 2446.3
+wait 0.5
+bot break 2447 105 2447
+wait 0.5
+cmd execute if block 2448 104 2447 minecraft:air if block 2449 103 2447 minecraft:air
+wait 0.5
+expect Test passed
+cmd kinetics 2448 104 2448
+wait 0.5
+expect create:large_water_wheel\[axis=z,extension=false\] at 2448 104 2448 Speed=0
+bot expect entity minecraft:item near 2448.5 102.2 2447.5 within 3.5 count 0
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item near 2448.5 102.2 2447.5 within 3.5 count 0
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

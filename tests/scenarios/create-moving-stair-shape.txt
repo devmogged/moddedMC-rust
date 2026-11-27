@@ -1,0 +1,55 @@
+# Recalculate stair corners against the world when a bearing disassembles.
+mods target/mods/create.mmc
+start
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 2261.5 101 2263.5
+wait 3
+cmd fill 2256 100 2256 2266 104 2266 minecraft:air
+cmd fill 2256 99 2256 2266 99 2266 minecraft:stone
+cmd execute if block 2260 99 2260 minecraft:stone
+await 10 Test passed
+cmd setblock 2260 99 2260 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2260 99 2260 0
+await 5 create:creative_motor.*Speed=0
+cmd setblock 2260 100 2260 create:mechanical_bearing[facing=up]
+cmd setblock 2260 101 2260 create:cut_calcite_stairs[facing=north,half=top,shape=straight,waterlogged=false]
+cmd setblock 2260 101 2259 minecraft:stone_stairs[facing=west,half=top,shape=straight,waterlogged=false]
+cmd execute if block 2260 101 2260 create:cut_calcite_stairs[shape=outer_left]
+await 5 Test passed
+
+cmd kinetics 2260 99 2260 1
+await 5 create:creative_motor.*Speed=1
+wait 0.5
+cmd execute if block 2260 101 2260 minecraft:air if block 2260 101 2259 minecraft:stone_stairs
+await 5 Test passed
+cmd setblock 2260 101 2259 minecraft:air
+cmd kinetics 2260 99 2260 0
+await 5 create:creative_motor.*Speed=0
+wait 0.5
+cmd execute if block 2260 101 2260 create:cut_calcite_stairs[facing=north,half=top,shape=straight,waterlogged=false]
+await 5 Test passed
+
+cmd kinetics 2260 99 2260 1
+await 5 create:creative_motor.*Speed=1
+wait 0.5
+cmd execute if block 2260 101 2260 minecraft:air
+await 5 Test passed
+cmd setblock 2260 101 2261 minecraft:stone_stairs[facing=east,half=top,shape=straight,waterlogged=false]
+cmd kinetics 2260 99 2260 0
+await 5 create:creative_motor.*Speed=0
+wait 0.5
+cmd execute if block 2260 101 2260 create:cut_calcite_stairs[facing=north,half=top,shape=inner_right,waterlogged=false]
+await 5 Test passed
+cmd save-all flush
+await 10 Saved the game
+stop
+
+start
+botstart tester
+await 10 \[bot\] joined as tester
+cmd execute if block 2260 101 2260 create:cut_calcite_stairs[facing=north,half=top,shape=inner_right,waterlogged=false]
+await 5 Test passed
+reject (?i)panicked|trapped|\[bot\] error
+stop

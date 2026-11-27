@@ -96,6 +96,7 @@ pub fn add_states(content: Content, states: &mut StateIds) {
 #[derive(Clone, Debug, Default)]
 pub struct MechanicalBearing {
     pub data: BearingData,
+    pub(crate) counter_clockwise: bool,
     displays: ContraptionDisplays,
     minute_displays: ContraptionDisplays,
     assemble_next_tick: bool,
@@ -178,7 +179,12 @@ fn clockwork_angle(angle: f32, target: f32, speed: f32) -> f32 {
 impl MechanicalBearing {
     pub fn get_generated_speed(&self) -> i32 {
         self.data.contraption.as_ref().map_or(0, |contraption| {
-            (contraption.sails / WINDMILL_SAILS_PER_RPM).clamp(1, 16)
+            let speed = (contraption.sails / WINDMILL_SAILS_PER_RPM).clamp(1, 16);
+            if self.counter_clockwise {
+                -speed
+            } else {
+                speed
+            }
         })
     }
 
@@ -361,7 +367,7 @@ impl MechanicalBearing {
             if let Some(hand) = hand
                 && let Some(anchor) = hand.anchor()
             {
-                let stalled = hand.blocks.tick_drills(
+                let stalled = hand.blocks.tick_breakers(
                     world,
                     collider::Frame::rotating(anchor, axis, before),
                     collider::Frame::rotating(anchor, axis, *angle),
@@ -447,7 +453,7 @@ impl MechanicalBearing {
             if let Some(contraption) = &mut self.data.contraption
                 && let Some(anchor) = contraption.anchor()
             {
-                if contraption.blocks.tick_drills(
+                if contraption.blocks.tick_breakers(
                     world,
                     collider::Frame::rotating(anchor, axis, before),
                     collider::Frame::rotating(anchor, axis, angle),
@@ -478,7 +484,26 @@ pub fn use_item_on(
     if context.sneaking {
         return BlockUseResult::Fail;
     }
-    if context.stack.read().is_some() {
+    if let Some(bytes) = context.stack.read() {
+        if let Some(be) = kinetics.get_mut(context.position)
+            && matches!(be.kind, Kind::Windmill(_))
+            && context.player.is_some_and(|player| player.may_build())
+            && let Some(bearing) = &mut be.bearing
+            && fastnbt::from_bytes::<fastnbt::Value>(&bytes)
+                .ok()
+                .as_ref()
+                .and_then(crate::processing_recipes::item_id)
+                == Some(crate::WRENCH)
+        {
+            bearing.counter_clockwise = !bearing.counter_clockwise;
+            be.dirty = true;
+            context.action_bar(if bearing.counter_clockwise {
+                "Windmill direction is counterclockwise"
+            } else {
+                "Windmill direction is clockwise"
+            });
+            return BlockUseResult::Success;
+        }
         return BlockUseResult::TryEmptyHand;
     }
     let Some(be) = kinetics.get_mut(context.position) else {

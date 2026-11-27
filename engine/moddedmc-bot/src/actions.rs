@@ -5,8 +5,8 @@ use pumpkin_protocol::{
     VarInt,
     codec::item_stack_seralizer::OptionalItemStackHash,
     java::server::play::{
-        ActionType, SAttack, SClickSlot, SClientTickEnd, SCloseContainer, SInteract,
-        SPlayerPosition, SPlayerRotation, SSetHeldItem, SlotActionType,
+        ActionType, SAttack, SClickSlot, SClientCommand, SClientTickEnd, SCloseContainer,
+        SInteract, SPlayerPosition, SPlayerRotation, SSetHeldItem, SlotActionType,
     },
     ser::NetworkReadExt as _,
 };
@@ -199,6 +199,13 @@ pub async fn perform(
         ("inventory-close", []) => {
             let packet = state.lock().await.close()?;
             send(writer, &packet).await
+        }
+        ("respawn", []) => {
+            send(
+                writer,
+                &SClientCommand::new(SClientCommand::PERFORM_RESPAWN.into()),
+            )
+            .await
         }
         _ => Err(format!("invalid {verb} arguments")),
     }

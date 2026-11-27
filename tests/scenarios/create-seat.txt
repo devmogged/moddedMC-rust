@@ -22,9 +22,14 @@ wait 0.5
 bot expect riding minecraft:item_display
 wait 0.25
 expect ^\[bot\] expect riding ok minecraft:item_display
+cmd tick rate 1
+await 5 Set the target tick rate to 1\.0
 cmd kinetics 2540 99 2540 15
-wait 0.95
+cmd tick sprint 20t
+await 5 \[bot\].*commands.tick.sprint.report
 cmd kinetics 2540 99 2540 0
+wait 1.2
+cmd tick rate 20
 wait 0.5
 bot expect riding minecraft:item_display
 bot expect entity minecraft:item_display near 2540.5 101.0625 2539.5 within 0.1 count 1

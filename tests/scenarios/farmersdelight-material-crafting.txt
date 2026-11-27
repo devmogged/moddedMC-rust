@@ -2,7 +2,7 @@
 # Source uses shaped lead and shapeless packed mud/paper; assert inputs consumed.
 mods target\mods\farmersdelight.mmc
 start
-expect Loaded built-in datapack 'mod/farmersdelight': 13 recipe\(s\), 7 loot table\(s\), 1 tag\(s\)
+expect Loaded built-in datapack 'mod/farmersdelight': 23 recipe\(s\), 14 loot table\(s\), 3 tag\(s\)
 botstart tester
 wait 3
 expect \[bot\] joined as tester

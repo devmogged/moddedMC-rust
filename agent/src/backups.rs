@@ -24,7 +24,7 @@ use tracing::{info, warn};
 
 use crate::{
     App,
-    servers::{bad_name, error, valid_name},
+    servers::{bad_name, error, server_key, valid_name},
 };
 
 /// Chunk sizes: small enough that a changed region of a world file costs little, large enough
@@ -46,15 +46,16 @@ static STORE: RwLock<()> = RwLock::const_new(());
 /// Servers with a backup or restore in progress.
 static BUSY: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
 
-struct Busy(String);
+pub struct Busy(String);
 
 impl Busy {
-    fn claim(server: &str) -> Result<Self, (StatusCode, String)> {
+    pub fn claim(server: &str) -> Result<Self, (StatusCode, String)> {
         let mut busy = BUSY
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if busy.insert(server.to_string()) {
-            Ok(Self(server.to_string()))
+        let key = server_key(server);
+        if busy.insert(key.clone()) {
+            Ok(Self(key))
         } else {
             Err((
                 StatusCode::CONFLICT,
@@ -365,12 +366,12 @@ fn internal_error(err: impl std::fmt::Display) -> (StatusCode, String) {
 
 /// Takes a snapshot. A running server saves first and doesn't write while the files are read.
 async fn back_up(app: &App, name: &str, scheduled: bool) -> Result<Snapshot, (StatusCode, String)> {
+    let _busy = Busy::claim(name)?;
     let dir = app
         .servers
         .folder(name)
         .await
         .ok_or((StatusCode::NOT_FOUND, format!("no server named {name}")))?;
-    let _busy = Busy::claim(name)?;
     let running = app.servers.is_running(name).await;
     if running {
         app.servers.command(name, "save-off").await?;
@@ -464,6 +465,41 @@ pub async fn restore_one(
     }
 }
 
+/// Removes this server's backup data while it is locked against start and folder changes.
+pub async fn purge_server(name: &str) -> Result<(), (StatusCode, String)> {
+    let _store = STORE.write().await;
+    let name = name.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let mut schedules = read_schedules();
+        let before = schedules.len();
+        let key = server_key(&name);
+        schedules.retain(|server, _| server_key(server) != key);
+        if schedules.len() != before {
+            write_schedules(&schedules)?;
+        }
+        match std::fs::remove_dir_all(snapshots_dir(&name)) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
+        }
+        if root().join("snapshots").try_exists()? && root().join("blobs").try_exists()? {
+            collect_garbage()?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(internal_error)?
+    .map_err(internal_error)
+}
+
+fn write_schedules(schedules: &BTreeMap<String, Schedule>) -> std::io::Result<()> {
+    std::fs::create_dir_all(root())?;
+    let json = serde_json::to_vec_pretty(schedules).map_err(std::io::Error::other)?;
+    let partial = root().join(".schedules.partial");
+    std::fs::write(&partial, json)?;
+    std::fs::rename(&partial, schedules_path())
+}
+
 /// Removes snapshots, then the blobs nothing names any more.
 async fn remove(server: String, ids: Vec<String>) -> std::io::Result<u64> {
     let _store = STORE.write().await;
@@ -527,6 +563,10 @@ pub async fn put_schedule(
     if let Some(response) = bad_name(&name) {
         return response;
     }
+    let _busy = match Busy::claim(&name) {
+        Ok(busy) => busy,
+        Err((status, message)) => return error(status, message),
+    };
     if app.servers.folder(&name).await.is_none() {
         return error(StatusCode::NOT_FOUND, format!("no server named {name}"));
     }
@@ -546,11 +586,7 @@ pub async fn put_schedule(
             Some(s) => schedules.insert(name, s),
             None => schedules.remove(&name),
         };
-        std::fs::create_dir_all(root())?;
-        let json = serde_json::to_vec_pretty(&schedules).map_err(std::io::Error::other)?;
-        let partial = root().join(".schedules.partial");
-        std::fs::write(&partial, json)?;
-        std::fs::rename(&partial, schedules_path())
+        write_schedules(&schedules)
     })
     .await;
     match written {

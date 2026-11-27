@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap, hash_map::Entry},
+    collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
     ffi::c_void,
     io,
     path::Path,
@@ -12,10 +12,17 @@ use moddedmc_api::abi::{self, BlockUpdate, ContentEvent, Pos, Reg, Sink, Str, Wo
 use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
-        BlockBehaviour, BlockHitResult, EmitsRedstonePowerArgs, GetComparatorOutputArgs,
-        GetRedstonePowerArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
-        OnPlaceArgs, PlayerPlacedArgs, PlayerWillDestroyArgs, UseWithItemArgs,
-        blocks::redstone::block_receives_redstone_power,
+        BlockBehaviour, BlockHitResult, CanUpdateAtArgs, EmitsRedstonePowerArgs,
+        GetComparatorOutputArgs, GetRedstonePowerArgs, GetStateForNeighborUpdateArgs,
+        ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
+        PathComputationType, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
+        UseWithItemArgs,
+        blocks::{
+            redstone::{block_receives_redstone_power, get_redstone_power},
+            slabs::SlabBlock,
+            stairs::StairBlock,
+            walls::WallBlock,
+        },
         entities::{
             BlockEntity,
             content::{self as engine, Change, ContentBlockEntity},
@@ -31,11 +38,12 @@ use pumpkin_core::{
     },
     item::items::bucket::{CustomFishBuckets, install_custom_fish_buckets},
     server::Server,
-    world::{World, loot::LootContextParameters},
+    world::{World, container_conversion, install_entity_added_hook, loot::LootContextParameters},
 };
 use pumpkin_data::{
-    Block, BlockDirection, BlockState, BlockStateId, Property,
-    content::{self, BlockDefinition, ItemDefinition, StateDefinition},
+    Block, BlockDirection, BlockId, BlockState, BlockStateId, Mirror, Property, Rotation,
+    block_properties::SlabProperties,
+    content::{self, BlockDefinition, BlockMaterial, ItemDefinition, StateDefinition},
     data_component::DataComponent,
     data_component_impl::{
         ConsumableImpl, ConsumeAnimation, DamageImpl, DataComponentImpl, EquipmentSlot, IdOr,
@@ -46,9 +54,11 @@ use pumpkin_data::{
     fluid::Fluid,
     item::Item,
     item_stack::ItemStack,
+    map_color::MapColor,
     sound::Sound,
+    tag,
 };
-use pumpkin_nbt::Nbt;
+use pumpkin_nbt::{Nbt, compound::NbtCompound};
 use pumpkin_util::{
     Hand,
     math::{position::BlockPos, vector3::Vector3},
@@ -56,7 +66,9 @@ use pumpkin_util::{
 use pumpkin_world::world::BlockFlags;
 use uuid::Uuid;
 
-use crate::{MAX_STATE_BYTES, content_pack, interaction, load_mods, lock, native};
+use crate::{MAX_STATE_BYTES, content_pack, content_walls, interaction, load_mods, lock, native};
+
+const MAX_STATES_PER_BLOCK: usize = 1_024;
 
 pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     size: size_of::<abi::ContentV1>(),
@@ -65,6 +77,8 @@ pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     on_tick,
     on_replaced,
     set_comparator_output,
+    on_random_tick,
+    set_block_material,
 };
 pub static ITEMS: abi::ItemsV1 = abi::ItemsV1 {
     size: size_of::<abi::ItemsV1>(),
@@ -106,6 +120,17 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     block_item,
     dimension_id,
     is_thundering,
+    best_neighbor_signal,
+    raw_brightness,
+    apply_block_transformer,
+    redstone_conductor,
+    block_drops_with_player_actor,
+    chest_blocked,
+    content_entity_snapshot,
+    compare_content_entity,
+    game_time,
+    compare_replace_content_entity,
+    write_with_neighbor_shapes: write,
     in_biome,
     surface_height,
     can_see_sky,
@@ -166,15 +191,32 @@ unsafe extern "C" fn can_see_sky(raw: WorldRef, pos: Pos) -> bool {
     unsafe { world(raw) }.is_some_and(|world| world.can_see_sky(&block_pos(pos)))
 }
 
+unsafe extern "C" fn raw_brightness(raw: WorldRef, position: Pos, sky_darken: u8) -> i32 {
+    // SAFETY: the host owns the borrowed world for the duration of the callback.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    let pos = block_pos(position);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return -1;
+    }
+    i32::from(world.get_raw_brightness(&pos, sky_darken))
+}
+
 const MAX_BATCH: usize = 4096;
 
 pub struct Registration {
     id: String,
     name: String,
     entity: String,
+    default_entity: bool,
     item_model: String,
     states: Vec<RegisteredState>,
+    material: Option<BlockMaterial>,
     placement: Option<abi::ContentPlacement>,
+    item_input: Option<abi::ItemInputFn>,
+    random_tick: Option<abi::ContentRandomTick>,
+    physics: Option<content::BlockPhysics>,
 }
 
 pub struct ItemRegistration {
@@ -195,17 +237,22 @@ struct ArrowRegistration {
     after_hurt: abi::ArrowHurtFn,
 }
 
-struct RegisteredState {
-    properties: BTreeMap<String, String>,
+pub struct RegisteredState {
+    pub properties: BTreeMap<String, String>,
     comparator_output: Option<u8>,
-    physical: &'static BlockState,
-    shape: Vec<pumpkin_util::math::boundingbox::BoundingBox>,
-    visual: content_pack::StateAssets,
+    pub physical: &'static BlockState,
+    pub(crate) shape: Vec<pumpkin_util::math::boundingbox::BoundingBox>,
+    pub(crate) visual: content_pack::StateAssets,
 }
 
 struct RuntimeBlock {
     owner: usize,
+    slab: Option<&'static Block>,
+    stairs: bool,
+    wall: bool,
     placement: Option<abi::ContentPlacement>,
+    random_tick: Option<abi::ContentRandomTick>,
+    item_input: Option<abi::ItemInputFn>,
 }
 
 struct Runtime {
@@ -221,6 +268,7 @@ struct Runtime {
     player_placed: BTreeMap<usize, abi::PlayerPlacedFn>,
     melee_damage: BTreeMap<usize, abi::MeleeDamageFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
+    conversion: BTreeMap<usize, abi::ContainerConversionFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
     /// Owning mod of each content item, block items included.
@@ -240,6 +288,7 @@ pub struct Hooks {
     pub player_placed: Option<abi::PlayerPlacedFn>,
     pub melee_damage: Option<abi::MeleeDamageFn>,
     pub use_block: Option<abi::UseBlockFn>,
+    conversion: Option<abi::ContainerConversionFn>,
     pub player_will_destroy: Option<abi::PlayerWillDestroyFn>,
     pub redstone: Option<(abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
 }
@@ -258,6 +307,7 @@ struct Pending {
     player_placed: BTreeMap<usize, abi::PlayerPlacedFn>,
     melee_damage: BTreeMap<usize, abi::MeleeDamageFn>,
     use_block: BTreeMap<usize, abi::UseBlockFn>,
+    conversion: BTreeMap<usize, abi::ContainerConversionFn>,
     player_will_destroy: BTreeMap<usize, abi::PlayerWillDestroyFn>,
     redstone: BTreeMap<usize, (abi::RedstoneSignalFn, abi::RedstoneConnectsFn)>,
 }
@@ -274,6 +324,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     player_placed: BTreeMap::new(),
     melee_damage: BTreeMap::new(),
     use_block: BTreeMap::new(),
+    conversion: BTreeMap::new(),
     player_will_destroy: BTreeMap::new(),
     redstone: BTreeMap::new(),
 });
@@ -383,7 +434,10 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
     let (staging, Some(def)) = (unsafe { (native::staging(reg), def.as_ref()) }) else {
         return code::INVALID_DEFINITION;
     };
-    if RUNTIME.get().is_some() || def.states.is_null() || !(1..=256).contains(&def.count) {
+    if RUNTIME.get().is_some()
+        || def.states.is_null()
+        || !(1..=MAX_STATES_PER_BLOCK).contains(&def.count)
+    {
         return code::INVALID_DEFINITION;
     }
     // SAFETY: the definition and its state array are live for the call.
@@ -449,6 +503,11 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
                 x: state.x,
                 y: state.y,
                 orientation: state.orientation,
+                bounded: false,
+                uvlock: false,
+                straight_stair_display: false,
+                block_display_carrier: None,
+                wall: None,
             },
         });
     }
@@ -460,10 +519,52 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         } else {
             entity.into()
         },
+        default_entity: entity.is_empty(),
         item_model: item_model.into(),
         states: registered,
+        material: None,
         placement: def.on_place,
+        random_tick: None,
+        item_input: None,
+        physics: None,
     });
+    code::OK
+}
+
+unsafe extern "C" fn add_item_input(reg: Reg, block: Str, receive: abi::ItemInputFn) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration and the id are borrowed for this call.
+    let (staging, id) = unsafe { (native::staging(reg), block.str()) };
+    let Some(block) = staging.content.iter_mut().find(|entry| entry.id == id) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.item_input.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.item_input = Some(receive);
+    code::OK
+}
+
+pub static ITEM_INPUT: abi::ItemInputV1 = abi::ItemInputV1 {
+    size: size_of::<abi::ItemInputV1>(),
+    add: add_item_input,
+};
+
+unsafe extern "C" fn on_random_tick(reg: Reg, block: Str, callback: abi::ContentRandomTick) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the staging handle and names are borrowed for registration.
+    let (staging, name) = unsafe { (native::staging(reg), block.str()) };
+    let Some(block) = staging.content.iter_mut().find(|block| block.id == name) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.random_tick.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.random_tick = Some(callback);
     code::OK
 }
 
@@ -493,6 +594,96 @@ unsafe extern "C" fn set_comparator_output(reg: Reg, id: Str, strength: u8) -> i
         return code::DUPLICATE_ID;
     }
     state.comparator_output = Some(strength);
+    code::OK
+}
+
+pub static BLOCK_PHYSICS: abi::BlockPhysicsV1 = abi::BlockPhysicsV1 {
+    size: size_of::<abi::BlockPhysicsV1>(),
+    set: set_block_physics,
+};
+
+unsafe extern "C" fn set_block_physics(
+    reg: Reg,
+    block: Str,
+    hardness: f32,
+    blast_resistance: f32,
+    tool_required: bool,
+    sound_from: Str,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: all parameters are borrowed for registration.
+    let (staging, name, sound_from) =
+        unsafe { (native::staging(reg), block.str(), sound_from.str()) };
+    let Some(sound_state) = physical(sound_from) else {
+        return code::INVALID_DEFINITION;
+    };
+    let properties = content::BlockPhysics {
+        hardness,
+        blast_resistance,
+        tool_required,
+        sound_type: sound_state.sound_type,
+    };
+    if !properties.valid() {
+        return code::INVALID_DEFINITION;
+    }
+    let Some(block) = staging.content.iter_mut().find(|b| b.id == name) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.physics.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.physics = Some(properties);
+    code::OK
+}
+
+unsafe extern "C" fn set_block_material(
+    reg: Reg,
+    id: Str,
+    material: *const abi::ContentMaterialDefinition,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the registration and material are borrowed for this call.
+    let (staging, Some(material), id) = (
+        unsafe { native::staging(reg) },
+        unsafe { material.as_ref() },
+        unsafe { id.str() },
+    ) else {
+        return code::INVALID_DEFINITION;
+    };
+    // SAFETY: both strings belong to the live material definition.
+    let (template, map_color) = unsafe { (material.template.str(), material.map_color.str()) };
+    let Some(template) = Block::from_name(template.strip_prefix("minecraft:").unwrap_or(template))
+        .filter(|block| block.id.as_u16() < pumpkin_data::BlockId::COUNT)
+    else {
+        return code::INVALID_DEFINITION;
+    };
+    let map_color = if map_color.is_empty() {
+        None
+    } else {
+        let Some(color) = MapColor::from_name(map_color) else {
+            return code::INVALID_DEFINITION;
+        };
+        Some(color.id)
+    };
+    let hardness = material.override_hardness.then_some(material.hardness);
+    if hardness.is_some_and(|value| !value.is_finite() || value < 0.0 && value != -1.0) {
+        return code::INVALID_DEFINITION;
+    }
+    let Some(block) = staging.content.iter_mut().find(|block| block.id == id) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.material.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.material = Some(BlockMaterial {
+        template,
+        hardness,
+        map_color,
+    });
     code::OK
 }
 
@@ -841,6 +1032,9 @@ pub fn register(
     if let Some(callback) = hooks.use_block {
         pending.use_block.insert(owner, callback);
     }
+    if let Some(callback) = hooks.conversion {
+        pending.conversion.insert(owner, callback);
+    }
     if let Some(callback) = hooks.player_will_destroy {
         pending.player_will_destroy.insert(owner, callback);
     }
@@ -902,28 +1096,78 @@ fn split_items(
         .unzip()
 }
 
-/// Engine definitions for the staged blocks. States that look the same to a stock client (model
-/// and rotation) share a note block carrier, since the carrier only decides what the client draws.
-fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
-    // Preserve instrument and note for ordinary note blocks by borrowing only powered variants.
-    let mut carriers = Block::NOTE_BLOCK.states.iter().filter_map(|state| {
-        let mut props = Block::NOTE_BLOCK.properties(state.id)?.to_props();
-        let powered = props.iter_mut().find(|p| p.key_str() == "powered")?;
-        if powered.value_str() != "true" {
+fn reserve_variants(
+    block: &'static Block,
+    property: &'static str,
+    values: &'static [&'static str],
+    replacement: &'static str,
+) -> impl Iterator<Item = (BlockStateId, BlockStateId)> {
+    block.states.iter().filter_map(move |state| {
+        let mut props = block.properties(state.id)?.to_props();
+        let variant = props.iter_mut().find(|prop| prop.key_str() == property)?;
+        if !values.contains(&variant.value_str()) {
             return None;
         }
-        *powered = Property::from_str_pair("powered", "false")?;
-        let replacement = Block::NOTE_BLOCK
-            .from_properties(&props)
-            .to_state_id(&Block::NOTE_BLOCK);
+        *variant = Property::from_str_pair(property, replacement)?;
+        let replacement = block.from_properties(&props).to_state_id(block);
         Some((state.id, replacement))
-    });
+    })
+}
+
+fn reserve_dry_leaves() -> impl Iterator<Item = (BlockStateId, BlockStateId)> {
+    tag::Block::MINECRAFT_LEAVES
+        .0
+        .iter()
+        .filter_map(|name| Block::from_name(name))
+        .flat_map(|block| {
+            reserve_variants(block, "distance", &["1", "2", "3", "4", "5", "6"], "7").filter(
+                move |(state, _)| {
+                    block.properties(*state).is_some_and(|properties| {
+                        properties.to_props().iter().any(|property| {
+                            property.key_str() == "waterlogged" && property.value_str() == "false"
+                        })
+                    })
+                },
+            )
+        })
+}
+
+/// Engine definitions for the staged blocks. States with the same model and rotation share a
+/// carrier, since the carrier only decides what a stock client draws.
+fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
+    // Keep each note and instrument and each hive's facing and visible honey.
+    let notes = reserve_variants(&Block::NOTE_BLOCK, "powered", &["true"], "false");
+    let target = Block::TARGET.default_state.id;
+    let targets = Block::TARGET
+        .states
+        .iter()
+        .filter_map(|state| (state.id != target).then_some((state.id, target)));
+    let hives = [&Block::BEEHIVE, &Block::BEE_NEST]
+        .into_iter()
+        .flat_map(|block| reserve_variants(block, "honey_level", &["1", "2", "3", "4"], "0"));
+    let mut carriers = notes.chain(targets).chain(hives);
+    let mut dry_leaves = reserve_dry_leaves();
+    let mut slab_carriers = crate::content_slab::CARRIERS.into_iter();
+    let mut straight_carriers = crate::content_stairs::STRAIGHT_CARRIERS.into_iter();
+    let mut corner_carriers = crate::content_stairs::corner_carriers();
     let mut assigned = HashMap::new();
     let mut definitions = Vec::with_capacity(blocks.len());
     for (_, block) in blocks {
+        let slab = crate::content_slab::template(&block.states);
+        let slab_carrier = slab.and_then(|_| slab_carriers.next());
+        let wall_overlay = content_walls::has_wall_overlay(&block.states);
+        let stairs = crate::content_stairs::has_stair_shape(&block.states)
+            && block
+                .states
+                .iter()
+                .all(|state| state.visual.rotating_model.is_empty());
+        let straights = stairs.then(|| straight_carriers.next()).flatten();
+        let corners = (stairs && crate::content_stairs::corners_share_models(&block.states))
+            .then(|| corner_carriers.next())
+            .flatten();
         let mut states = Vec::with_capacity(block.states.len());
-        for state in &block.states {
-            let visual = &state.visual;
+        for state in &mut block.states {
+            let visual = &mut state.visual;
             // A display-only state draws the empty model, a state with neither draws a note block.
             let look = (
                 visual.model.clone(),
@@ -931,19 +1175,54 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
                 visual.x.rem_euclid(360),
                 visual.y.rem_euclid(360),
             );
-            let (carrier, replacement) = match assigned.entry(look) {
-                Entry::Occupied(entry) => *entry.get(),
-                Entry::Vacant(entry) => *entry.insert(
-                    carriers
-                        .next()
-                        .ok_or_else(|| io::Error::other("custom block carrier slots exhausted"))?,
-                ),
+            let (carrier, replacement) = if wall_overlay {
+                // The stock wall keeps the client's collision and fluid state.
+                visual.wall = Some(content_walls::WallSelector::from_state(state.physical.id));
+                (state.physical.id, state.physical.id)
+            } else if stairs {
+                crate::content_stairs::allocate(state, corners, straights)
+            } else if slab.is_some() {
+                let props = SlabProperties::from_state_id(state.physical.id);
+                let shared_cube = (props.r#type
+                    == pumpkin_data::block_properties::SlabType::Double
+                    && !props.waterlogged)
+                    .then(|| assigned.get(&look).copied())
+                    .flatten();
+                shared_cube.unwrap_or_else(|| {
+                    let (carrier, replacement) =
+                        slab_carrier.unwrap_or(crate::content_slab::DISPLAY_CARRIER);
+                    if slab_carrier.is_none() {
+                        visual.rotating_model = std::mem::take(&mut visual.model);
+                        visual.bounded = true;
+                    }
+                    (props.to_state_id(carrier), props.to_state_id(replacement))
+                })
+            } else {
+                match assigned.entry(look) {
+                    Entry::Occupied(entry) => *entry.get(),
+                    Entry::Vacant(entry) => {
+                        // Keep leaf carriers for opaque cubes with no mod-specific block entity.
+                        let carrier = if block.default_entity
+                            && visual.rotating_model.is_empty()
+                            && state.shape.is_empty()
+                            && state.physical.is_solid_render()
+                        {
+                            dry_leaves.next().or_else(|| carriers.next())
+                        } else {
+                            carriers.next()
+                        };
+                        *entry.insert(carrier.ok_or_else(|| {
+                            io::Error::other("custom block carrier slots exhausted")
+                        })?)
+                    }
+                }
             };
             states.push(StateDefinition {
                 properties: state.properties.clone(),
                 physical: state.physical,
+                random_ticks: block.random_tick.is_some(),
                 carrier,
-                carrier_replacement: Some(replacement),
+                carrier_replacement: (carrier != replacement).then_some(replacement),
                 shape: state.shape.clone(),
             });
         }
@@ -952,6 +1231,7 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
             display_name: block.name.clone(),
             entity: Some(block.entity.clone()),
             item_carrier: &Item::PAPER,
+            material: block.material.take(),
             states,
         });
     }
@@ -960,11 +1240,11 @@ fn block_definitions(blocks: &[(usize, Registration)]) -> io::Result<Vec<BlockDe
 
 fn open_registry(
     path: &Path,
-    blocks: &[(usize, Registration)],
+    blocks: &mut [(usize, Registration)],
     items: &[ItemDefinition],
 ) -> io::Result<content::Registry> {
     let definitions = block_definitions(blocks)?;
-    content::Registry::open_with_comparator_outputs(
+    let mut registry = content::Registry::open_with_properties(
         &path.join("moddedmc/registry.dat"),
         &definitions,
         items,
@@ -974,9 +1254,62 @@ fn open_registry(
                 .ok()?;
             blocks[index].1.states[state_index].comparator_output
         },
-    )
+        |name| {
+            let index = blocks
+                .binary_search_by(|(_, block)| block.id.as_str().cmp(name))
+                .ok()?;
+            blocks[index].1.physics
+        },
+    )?;
+    assign_block_display_carriers(blocks, &definitions, &mut registry)?;
+    Ok(registry)
 }
 
+fn assign_block_display_carriers(
+    blocks: &mut [(usize, Registration)],
+    definitions: &[BlockDefinition],
+    registry: &mut content::Registry,
+) -> io::Result<()> {
+    let placed: HashSet<_> = definitions
+        .iter()
+        .flat_map(|block| block.states.iter().map(|state| state.carrier))
+        .collect();
+    let mut spare =
+        crate::content_stairs::corner_aliases().filter(|(carrier, _)| !placed.contains(carrier));
+    let mut by_model = HashMap::new();
+    for (_, block) in blocks {
+        let registered = registry
+            .block(&block.id)
+            .ok_or_else(|| io::Error::other("custom block missing after registration"))?;
+        for (state, definition) in registered.states.iter().zip(&mut block.states) {
+            let visual = &mut definition.visual;
+            if !visual.bounded {
+                continue;
+            }
+            let look = (
+                visual.rotating_model.clone(),
+                visual.x,
+                visual.y,
+                visual.uvlock,
+            );
+            if let Some((carrier, replacement)) =
+                *by_model.entry(look).or_insert_with(|| spare.next())
+            {
+                registry.set_block_display_carrier(state.id, carrier, replacement)?;
+                visual.block_display_carrier = Some(carrier);
+            }
+        }
+    }
+    if by_model.values().any(Option::is_none) {
+        tracing::warn!("moddedmc: stock block display carriers exhausted");
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "install the registry, callbacks, and pack together"
+)]
 pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result<()> {
     load_mods();
     let Pending {
@@ -992,6 +1325,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         player_placed,
         melee_damage,
         use_block,
+        conversion,
         player_will_destroy,
         redstone,
     } = std::mem::take(&mut *lock(&PENDING));
@@ -1020,7 +1354,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         .filter_map(|(_, item)| item.arrow.take().map(|arrow| (item.id.clone(), arrow)))
         .collect();
     let (item_definitions, item_assets) = split_items(items);
-    let registry = open_registry(path, &blocks, &item_definitions)?;
+    let registry = open_registry(path, &mut blocks, &item_definitions)?;
     for item in &item_assets {
         tracing::info!("moddedmc: registered content item {}", item.id);
     }
@@ -1037,6 +1371,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
         player_placed,
         melee_damage,
         use_block,
+        conversion,
         player_will_destroy,
         redstone,
         item_owners: HashMap::new(),
@@ -1050,7 +1385,12 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
             entry.id.as_u16(),
             RuntimeBlock {
                 owner,
+                slab: crate::content_slab::template(&block.states),
+                stairs: crate::content_stairs::has_stair_shape(&block.states),
+                wall: content_walls::has_wall_shape(&block.states),
                 placement: block.placement,
+                random_tick: block.random_tick,
+                item_input: block.item_input,
             },
         );
         tracing::info!(
@@ -1081,12 +1421,14 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
 }
 
 fn install_runtime(runtime: Runtime) -> io::Result<()> {
+    let has_conversion = !runtime.conversion.is_empty();
     if RUNTIME.set(runtime).is_err()
         || !install_content_behaviour(Arc::new(Behaviour))
         || !crate::interaction::install()
-        || !crate::mob_ai::install()
+        || !install_entity_added_hook(on_entity_added)
         || !crate::mobs::install_structure_mobs()
         || !crate::mobs::install_natural_spawns()
+        || (has_conversion && !container_conversion::install(propose_container_conversion))
         || !engine::observe(observe)
     {
         return Err(io::Error::other("content hooks already installed"));
@@ -1094,17 +1436,230 @@ fn install_runtime(runtime: Runtime) -> io::Result<()> {
     Ok(())
 }
 
+pub static CONTAINER_CONVERSION: abi::ContainerConversionV1 = abi::ContainerConversionV1 {
+    size: size_of::<abi::ContainerConversionV1>(),
+    register: register_container_conversion,
+};
+
+unsafe extern "C" fn register_container_conversion(
+    reg: Reg,
+    callback: abi::ContainerConversionFn,
+) -> i32 {
+    if RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the registration handle is borrowed for this call.
+    let slot = &mut unsafe { native::staging(reg) }.content_hooks.conversion;
+    if slot.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    code::OK
+}
+
+fn propose_container_conversion(
+    world: &World,
+    pos: BlockPos,
+    state: BlockStateId,
+    source: &NbtCompound,
+) -> container_conversion::Proposal {
+    use container_conversion::Proposal;
+
+    let Some(runtime) = RUNTIME.get() else {
+        return Proposal::Pass;
+    };
+    let bytes = Nbt::from(source.clone()).write();
+    if bytes.len() > abi::MAX_BLOCK_ENTITY_BYTES {
+        return Proposal::Pass;
+    }
+    let candidate = abi::ConversionCandidate {
+        world: ptr::from_ref(world).cast(),
+        position: abi_pos(pos),
+        state: u32::from(state.as_u16()),
+        nbt: Str::new(&bytes),
+    };
+    for (&owner, callback) in &runtime.conversion {
+        let mut output: Result<Option<(BlockStateId, NbtCompound)>, ()> = Ok(None);
+        let sink = Sink {
+            ctx: ptr::from_mut(&mut output).cast(),
+            put: collect_container_conversion,
+        };
+        // SAFETY: the candidate and sink are borrowed for the synchronous callback.
+        match unsafe { callback(&raw const candidate, sink) } {
+            abi::CONVERSION_PASS => {}
+            abi::CONVERSION_REPLACE => {
+                if let Ok(Some((state, nbt))) = output
+                    && runtime_block(state.to_block().id).is_some_and(|block| block.owner == owner)
+                {
+                    return Proposal::Replace(state, nbt);
+                }
+                return Proposal::Defer;
+            }
+            _ => return Proposal::Defer,
+        }
+    }
+    Proposal::Pass
+}
+
+unsafe extern "C" fn collect_container_conversion(ctx: *mut c_void, key: u64, bytes: Str) {
+    // SAFETY: the synchronous proposal supplied a live output slot.
+    let output = unsafe { &mut *ctx.cast::<Result<Option<(BlockStateId, NbtCompound)>, ()>>() };
+    if !matches!(output, Ok(None)) || !(1..=abi::MAX_BLOCK_ENTITY_BYTES).contains(&bytes.len) {
+        *output = Err(());
+        return;
+    }
+    let state = u16::try_from(key)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id);
+    // SAFETY: the mod lends the replacement NBT to the sink for this call.
+    *output = state
+        .zip(read_nbt(unsafe { bytes.bytes() }))
+        .map(Some)
+        .ok_or(());
+}
+
+fn on_entity_added(_world: &World, entity: &Arc<dyn EntityBase>) {
+    crate::mob_ai::attach(entity);
+    crate::native_entity::attach(entity);
+}
+
 struct Behaviour;
 
+fn item_input(block: &Block) -> Option<abi::ItemInputFn> {
+    RUNTIME.get()?.blocks.get(&block.id.as_u16())?.item_input
+}
+
+fn runtime_block(id: BlockId) -> Option<&'static RuntimeBlock> {
+    RUNTIME.get()?.blocks.get(&id.as_u16())
+}
+
+struct DefaultBlockBehaviour;
+
+impl BlockBehaviour for DefaultBlockBehaviour {}
+
 impl BlockBehaviour for Behaviour {
-    fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
-        let default = args.block.default_state.id;
+    fn is_pathfindable(&self, state: &BlockState, computation: PathComputationType) -> bool {
+        match runtime_block(state.id.to_block().id) {
+            Some(block) if block.stairs => StairBlock.is_pathfindable(state, computation),
+            Some(block) if block.wall => WallBlock.is_pathfindable(state, computation),
+            Some(block) if block.slab.is_some() => SlabBlock.is_pathfindable(state, computation),
+            _ => DefaultBlockBehaviour.is_pathfindable(state, computation),
+        }
+    }
+
+    fn rotate(
+        &self,
+        block: &Block,
+        state: BlockStateId,
+        rotation: Rotation,
+    ) -> &'static BlockState {
+        if runtime_block(block.id).is_some_and(|block| block.stairs) {
+            StairBlock.rotate(block, state, rotation)
+        } else {
+            block.rotate(state, rotation)
+        }
+    }
+
+    fn mirror(&self, block: &Block, state: BlockStateId, mirror: Mirror) -> &'static BlockState {
+        if runtime_block(block.id).is_some_and(|block| block.stairs) {
+            StairBlock.mirror(block, state, mirror)
+        } else {
+            block.mirror(state, mirror)
+        }
+    }
+
+    fn random_tick_sampled(&self, args: RandomTickArgs<'_>, state: BlockStateId) {
         let Some(callback) = RUNTIME
             .get()
+            .and_then(|runtime| runtime.blocks.get(&args.block.id.as_u16()))
+            .and_then(|block| block.random_tick)
+        else {
+            return;
+        };
+        // SAFETY: the world is borrowed and the library stays loaded during ordered dispatch.
+        unsafe {
+            callback(
+                ptr::from_ref(args.world.as_ref()).cast(),
+                abi_pos(*args.position),
+                u32::from(state.as_u16()),
+            );
+        }
+    }
+
+    fn has_item_input(&self, block: &Block) -> bool {
+        item_input(block).is_some()
+    }
+
+    fn insert_item(&self, args: ItemInputArgs<'_>) -> u8 {
+        if args.world.get_block_state_id(&args.position) != args.state {
+            return 0;
+        }
+        let (Some(receive), Some(saved)) = (
+            item_input(Block::from_state_id(args.state)),
+            args.stack.to_nbt(),
+        ) else {
+            return 0;
+        };
+        let bytes = Nbt::from(saved).write();
+        if bytes.len() > abi::MAX_STACK_BYTES {
+            return 0;
+        }
+        // SAFETY: the callback borrows the world and saved stack for this call.
+        let accepted = unsafe {
+            receive(
+                ptr::from_ref(args.world).cast(),
+                abi_pos(args.position),
+                u32::from(args.state.as_u16()),
+                args.face.to_index(),
+                Str::new(&bytes),
+                args.simulate,
+            )
+        };
+        accepted.min(u32::from(args.stack.item_count)) as u8
+    }
+
+    fn can_update_at(&self, args: CanUpdateAtArgs<'_>) -> bool {
+        runtime_block(args.block.id)
+            .and_then(|block| block.slab)
+            .is_some_and(|slab| crate::content_slab::can_update_at(&args, slab))
+    }
+
+    fn get_state_for_neighbor_update(
+        &self,
+        args: GetStateForNeighborUpdateArgs<'_>,
+    ) -> BlockStateId {
+        let Some(block) = runtime_block(args.block.id) else {
+            return args.state_id;
+        };
+        if block.stairs {
+            return StairBlock.get_state_for_neighbor_update(args);
+        }
+        if block.wall {
+            return WallBlock.get_state_for_neighbor_update(args);
+        }
+        block.slab.map_or(args.state_id, |slab| {
+            crate::content_slab::neighbor_update(&args, slab)
+        })
+    }
+
+    fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
+        let default = args.block.default_state.id;
+        let Some(block) = RUNTIME
+            .get()
             .and_then(|r| r.blocks.get(&args.block.id.as_u16()))
-            .and_then(|block| block.placement)
         else {
             return default;
+        };
+        let Some(callback) = block.placement else {
+            if block.stairs {
+                return StairBlock.on_place(args);
+            }
+            if block.wall {
+                return WallBlock.on_place(args);
+            }
+            return block
+                .slab
+                .map_or(default, |slab| crate::content_slab::on_place(args, slab));
         };
         let entity = args.player.get_entity();
         let placement = abi::Placement {
@@ -1398,9 +1953,10 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
             continue;
         };
         let overlay = displays.entry(pos).or_insert_with(|| {
+            let y_offset = if model.bounded { 0.0 } else { 0.5 };
             let center = Vector3::new(
                 f64::from(pos.0.x) + 0.5,
-                f64::from(pos.0.y) + 0.5,
+                f64::from(pos.0.y) + y_offset,
                 f64::from(pos.0.z) + 0.5,
             );
             let entity = Entity::new(world.clone(), center, &EntityType::ITEM_DISPLAY);
@@ -1411,8 +1967,25 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
             stack.set_data_component(ItemModelImpl {
                 id: Cow::Owned(model.id.clone()),
             });
+            if let Some(wall) = model.wall {
+                stack.set_data_component(wall.component());
+                // Keep the wall render just outside the matching stock carrier.
+                display.display.set_scale(Vector3::new(
+                    content_walls::WALL_OVERLAY_SCALE,
+                    content_walls::WALL_OVERLAY_SCALE,
+                    content_walls::WALL_OVERLAY_SCALE,
+                ));
+            }
             display.set_item(stack);
             display.display.set_right_rotation(model.orientation);
+            if model.bounded {
+                // Java anchors its culling box at the entity's lower Y.
+                display.display.set_translation(Vector3::new(0.0, 0.5, 0.0));
+                display.display.set_display_width(1.0);
+                display.display.set_display_height(1.0);
+                // New trackers receive the initial non-default metadata when they pair.
+                display.get_entity().synched_data.clear_dirty();
+            }
             world.spawn_entity_non_save(display.clone());
             Overlay {
                 entity: display,
@@ -1421,6 +1994,9 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
                 moving: true,
             }
         });
+        if model.bounded {
+            continue;
+        }
         let (axis, rpm) = rotation.get(&pos).copied().unwrap_or((1, 0.0));
         let delta = rpm * std::f32::consts::TAU / 1200.0;
         let interval = (1.5 / delta.abs()).clamp(1.0, 5.0) as u64;
@@ -1497,7 +2073,12 @@ unsafe extern "C" fn write(raw: WorldRef, updates: *const BlockUpdate, count: us
         .map(|update| {
             let pos = block_pos(update.position);
             let state = BlockStateId::from_runtime_id(u16::try_from(update.state).ok()?)?;
-            if update.flags & !(abi::UPDATE_ALL | abi::UPDATE_MOVED | abi::UPDATE_KNOWN_SHAPE) != 0
+            if update.flags
+                & !(abi::UPDATE_ALL
+                    | abi::UPDATE_MOVED
+                    | abi::UPDATE_KNOWN_SHAPE
+                    | abi::UPDATE_FROM_NEIGHBOR_SHAPES)
+                != 0
             {
                 return None;
             }
@@ -1511,13 +2092,17 @@ unsafe extern "C" fn write(raw: WorldRef, updates: *const BlockUpdate, count: us
                 flags |= BlockFlags::UPDATE_KNOWN_SHAPE;
             }
             world.get_block_state_id_if_loaded(&pos)?;
-            Some((pos, state, flags))
+            let resolve_shape = update.flags & abi::UPDATE_FROM_NEIGHBOR_SHAPES != 0;
+            Some((pos, state, flags, resolve_shape))
         })
         .collect::<Option<Vec<_>>>()
     else {
         return 0;
     };
-    for (pos, state, flags) in validated {
+    for (pos, mut state, flags, resolve_shape) in validated {
+        if resolve_shape {
+            state = world.update_from_neighbor_shapes(state, &pos);
+        }
         world.set_block_state(&pos, state, flags);
     }
     count
@@ -1549,6 +2134,120 @@ unsafe extern "C" fn read_entity(raw: WorldRef, pos: Pos, out: Sink) -> bool {
     // SAFETY: bytes are valid until the synchronous sink returns.
     unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
     true
+}
+
+unsafe extern "C" fn chest_blocked(raw: WorldRef, pos: Pos) -> i32 {
+    // SAFETY: the world is borrowed for the synchronous callback.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return -1;
+    }
+    i32::from(pumpkin_core::block::blocks::chests::is_chest_blocked(
+        world, &pos,
+    ))
+}
+
+unsafe extern "C" fn content_entity_snapshot(
+    raw: WorldRef,
+    pos: Pos,
+    state: *mut u32,
+    incarnation: *mut u64,
+    out: Sink,
+) -> bool {
+    // SAFETY: the callback borrows the world and distinct output slots.
+    let (Some(world), Some(state), Some(incarnation)) =
+        (unsafe { (world(raw), state.as_mut(), incarnation.as_mut()) })
+    else {
+        return false;
+    };
+    let Some((current, identity, nbt)) = world.content_entity_snapshot(&block_pos(pos)) else {
+        return false;
+    };
+    let bytes = Nbt::from(nbt).write();
+    if bytes.len() > abi::MAX_BLOCK_ENTITY_BYTES {
+        return false;
+    }
+    *state = u32::from(current.as_u16());
+    *incarnation = identity;
+    // SAFETY: bytes and the sink are live until the synchronous call returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
+unsafe extern "C" fn compare_content_entity(
+    raw: WorldRef,
+    pos: Pos,
+    state: u32,
+    incarnation: u64,
+    expected: Str,
+    replacement: Str,
+) -> bool {
+    if expected.len > abi::MAX_BLOCK_ENTITY_BYTES || replacement.len > abi::MAX_BLOCK_ENTITY_BYTES {
+        return false;
+    }
+    // SAFETY: the caller borrows the world and both NBT inputs for this call.
+    let (world, expected, replacement) = unsafe {
+        (
+            world(raw),
+            read_nbt(expected.bytes()),
+            read_nbt(replacement.bytes()),
+        )
+    };
+    let state = u16::try_from(state)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id);
+    match (world, state, expected, replacement) {
+        (Some(world), Some(state), Some(expected), Some(replacement)) => world
+            .compare_content_entity(&block_pos(pos), state, incarnation, &expected, &replacement),
+        _ => false,
+    }
+}
+
+unsafe extern "C" fn compare_replace_content_entity(
+    raw: WorldRef,
+    pos: Pos,
+    expected_state: u32,
+    incarnation: u64,
+    expected: Str,
+    destination: u32,
+    replacement: Str,
+) -> bool {
+    if expected.len > abi::MAX_BLOCK_ENTITY_BYTES || replacement.len > abi::MAX_BLOCK_ENTITY_BYTES {
+        return false;
+    }
+    // SAFETY: the caller borrows the world and both NBT inputs for this call.
+    let (world, expected) = unsafe { (world(raw), read_nbt(expected.bytes())) };
+    let state = u16::try_from(expected_state)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id);
+    let destination = u16::try_from(destination)
+        .ok()
+        .and_then(BlockStateId::from_runtime_id);
+    let (Some(world), Some(state), Some(expected), Some(destination)) =
+        (world.and_then(shared), state, expected, destination)
+    else {
+        return false;
+    };
+    let replacement = if replacement.len == 0 {
+        None
+    } else {
+        // SAFETY: replacement is a bounded borrowed byte string.
+        let Some(nbt) = read_nbt(unsafe { replacement.bytes() }) else {
+            return false;
+        };
+        Some(nbt)
+    };
+    world.compare_replace_content_entity(
+        &block_pos(pos),
+        state,
+        incarnation,
+        &expected,
+        destination,
+        replacement.as_ref(),
+    )
 }
 
 unsafe extern "C" fn write_entity(raw: WorldRef, pos: Pos, nbt: Str) -> bool {
@@ -1603,12 +2302,89 @@ unsafe extern "C" fn read_block_entity(raw: WorldRef, pos: Pos, out: Sink) -> bo
     true
 }
 
+unsafe extern "C" fn redstone_conductor(raw: WorldRef, pos: Pos) -> i32 {
+    // SAFETY: the world is borrowed for this call.
+    unsafe { world(raw) }
+        .and_then(|world| world.get_block_state_id_if_loaded(&block_pos(pos)))
+        .map_or(-1, |state| i32::from(state.to_state().is_solid_block()))
+}
+
+unsafe extern "C" fn apply_block_transformer(
+    raw: WorldRef,
+    origin: Pos,
+    direction: u8,
+    tool: Str,
+) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let (Some(world), Some(direction), Some(tool)) = (
+        (unsafe { world(raw) }).and_then(shared),
+        BlockDirection::all().get(usize::from(direction)).copied(),
+        crate::stacks::read_stack(tool),
+    ) else {
+        return false;
+    };
+    let origin = block_pos(origin);
+    let delta = direction.to_offset();
+    let (Some(x), Some(y), Some(z)) = (
+        origin.0.x.checked_add(delta.x),
+        origin.0.y.checked_add(delta.y),
+        origin.0.z.checked_add(delta.z),
+    ) else {
+        return false;
+    };
+    let end = BlockPos(Vector3::new(x, y, z));
+    if world.get_block_state_id_if_loaded(&origin).is_none()
+        || world.get_block_state_id_if_loaded(&end).is_none()
+    {
+        return false;
+    }
+    let Some((pos, face, _)) =
+        world.ray_trace_block(origin.to_centered_f64(), end.to_centered_f64(), false)
+    else {
+        return false;
+    };
+    pumpkin_core::item::items::hoe::apply_block_transformer(
+        &world,
+        &tool,
+        pos,
+        face,
+        world.get_block(&pos),
+    )
+    .is_some()
+}
+
 unsafe extern "C" fn block_drops(raw: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    unsafe { world(raw) }
+        .and_then(shared)
+        .is_some_and(|world| collect_block_drops(&world, block_pos(pos), tool, &out, None))
+}
+
+unsafe extern "C" fn block_drops_with_player_actor(
+    raw: WorldRef,
+    pos: Pos,
+    tool: Str,
+    out: Sink,
+) -> bool {
     // SAFETY: the world is borrowed for this call.
     let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
         return false;
     };
     let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return false;
+    }
+    let actor = Entity::new(world.clone(), pos.to_centered_f64(), &EntityType::PLAYER);
+    collect_block_drops(&world, pos, tool, &out, Some(&actor))
+}
+
+fn collect_block_drops(
+    world: &Arc<World>,
+    pos: BlockPos,
+    tool: Str,
+    out: &Sink,
+    actor: Option<&dyn EntityBase>,
+) -> bool {
     let Some(id) = world.get_block_state_id_if_loaded(&pos) else {
         return false;
     };
@@ -1625,9 +2401,10 @@ unsafe extern "C" fn block_drops(raw: WorldRef, pos: Pos, tool: Str, out: Sink) 
         tool,
         block_state: Some(BlockState::from_id(id)),
         position: Some(pos.to_f64()),
+        this_entity: actor,
         ..Default::default()
     };
-    let drops = pumpkin_core::block::collect_loot(&world, Block::from_state_id(id), &pos, &params);
+    let drops = pumpkin_core::block::collect_loot(world, Block::from_state_id(id), &pos, &params);
     for (index, stack) in (0u64..).zip(drops) {
         if let Some(saved) = stack.to_nbt() {
             let bytes = Nbt::from(saved).write();
@@ -1685,7 +2462,8 @@ unsafe extern "C" fn rotate(raw: WorldRef, pos: Pos, axis: u8, rpm: f32) -> bool
     if !w.blocks.get(&pos).is_some_and(|state| {
         RUNTIME
             .get()
-            .is_some_and(|r| r.overlays.contains_key(&state.as_u16()))
+            .and_then(|runtime| runtime.overlays.get(&state.as_u16()))
+            .is_some_and(|model| !model.bounded)
     }) {
         return false;
     }
@@ -1700,6 +2478,29 @@ unsafe extern "C" fn has_neighbor_signal(raw: WorldRef, pos: Pos) -> bool {
     };
     let pos = block_pos(pos);
     world.get_block_state_id_if_loaded(&pos).is_some() && block_receives_redstone_power(world, &pos)
+}
+
+unsafe extern "C" fn best_neighbor_signal(raw: WorldRef, pos: Pos) -> u8 {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return 0;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return 0;
+    }
+    let mut best = 0;
+    for direction in BlockDirection::all() {
+        let neighbor = pos.offset(direction.to_offset());
+        let (block, state) = world.get_block_and_state(&neighbor);
+        best = best.max(get_redstone_power(
+            block, state, world, &neighbor, direction,
+        ));
+        if best >= 15 {
+            return 15;
+        }
+    }
+    best
 }
 
 unsafe extern "C" fn destroy(raw: WorldRef, pos: Pos, drop: bool) -> bool {
@@ -1821,6 +2622,19 @@ unsafe extern "C" fn day_time(raw: WorldRef, out: *mut abi::DayTime) -> bool {
         ticks,
         fixed_time: world.dimension.has_fixed_time,
     };
+    true
+}
+
+unsafe extern "C" fn game_time(raw: WorldRef, out: *mut i64) -> bool {
+    // SAFETY: the caller borrows the world and a writable output slot.
+    let (Some(world), Some(out)) = (unsafe { world(raw) }, unsafe { out.as_mut() }) else {
+        return false;
+    };
+    let overworld = world
+        .server
+        .upgrade()
+        .map(|server| server.get_world_from_dimension(&Dimension::OVERWORLD));
+    *out = overworld.as_deref().unwrap_or(world).get_world_age();
     true
 }
 
@@ -1948,6 +2762,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     entities_matching: crate::entities::entities_matching,
     as_player: crate::entities::as_player,
     with_player_context: crate::entities::with_player_context,
+    hurt: crate::entities::hurt,
     has_scoreboard_tag: crate::entities::has_scoreboard_tag,
     players: crate::entities::players,
 };

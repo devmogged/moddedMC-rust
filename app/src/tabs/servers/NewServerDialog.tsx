@@ -93,11 +93,12 @@ export function NewServerDialog({
     if (open) {
       setStep(1);
       setName("");
+      setPort(25565);
       setBusy(false);
     }
   }, [open]);
 
-  const valid = NAME.test(name) && port >= 1024 && port <= 65535;
+  const valid = NAME.test(name) && Number.isInteger(port) && port >= 1 && port <= 65535;
 
   const create = async () => {
     setBusy(true);
@@ -139,6 +140,9 @@ export function NewServerDialog({
               <Field label="Port" hint="25565 is Minecraft's default. Each server on a PC needs its own.">
                 <Input
                   type="number"
+                  min={1}
+                  max={65535}
+                  step={1}
                   className="w-32 tabular-nums"
                   value={port}
                   onChange={(e) => setPort(Number(e.target.value) || 0)}

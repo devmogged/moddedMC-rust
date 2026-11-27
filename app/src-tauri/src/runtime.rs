@@ -9,6 +9,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::io::Write as _;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
@@ -30,8 +31,14 @@ pub struct RuntimeFile {
     /// `windows-x86_64`, `linux-x86_64`, `linux-aarch64`.
     pub target: String,
     pub url: String,
+    /// Of the program itself, also when it is downloaded compressed.
     pub sha256: String,
     pub size: u64,
+    /// The same program gzipped. Releases before v0.2.0 have only `url`.
+    #[serde(default)]
+    pub gz_url: Option<String>,
+    #[serde(default)]
+    pub gz_size: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -173,7 +180,10 @@ pub async fn runtime_install(app: AppHandle) -> Result<String, String> {
             .iter()
             .find(|f| f.role == role && f.target == target())
             .ok_or_else(|| format!("This release has no {role} for {}.", target()))?;
-        download(&app, file, &exe(&dir, role)).await?;
+        let dest = exe(&dir, role);
+        if sha256_of(&dest).await.as_deref() != Some(&*file.sha256.to_ascii_lowercase()) {
+            download(&app, file, &dest).await?;
+        }
     }
     tokio::fs::write(dir.join("version.txt"), &manifest.version)
         .await
@@ -181,9 +191,59 @@ pub async fn runtime_install(app: AppHandle) -> Result<String, String> {
     Ok(manifest.version)
 }
 
+/// The hex SHA-256 of an installed file, or `None` if it's missing.
+async fn sha256_of(path: &Path) -> Option<String> {
+    let path = path.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let mut file = std::fs::File::open(path).ok()?;
+        let mut hash = Sha256::new();
+        std::io::copy(&mut file, &mut hash).ok()?;
+        Some(hex(&hash.finalize()))
+    })
+    .await
+    .ok()?
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Turns downloaded chunks into the program's bytes: gunzips them when the download is the .gz.
+enum Unpack {
+    Plain,
+    Gzip(Box<flate2::write::GzDecoder<Vec<u8>>>),
+}
+
+impl Unpack {
+    fn feed(&mut self, chunk: &[u8]) -> std::io::Result<Vec<u8>> {
+        match self {
+            Unpack::Plain => Ok(chunk.to_vec()),
+            Unpack::Gzip(gz) => {
+                gz.write_all(chunk)?;
+                Ok(std::mem::take(gz.get_mut()))
+            }
+        }
+    }
+
+    fn finish(self) -> std::io::Result<Vec<u8>> {
+        match self {
+            Unpack::Plain => Ok(Vec::new()),
+            Unpack::Gzip(gz) => gz.finish(),
+        }
+    }
+}
+
 async fn download(app: &AppHandle, file: &RuntimeFile, dest: &Path) -> Result<(), String> {
+    let (url, total, mut unpack) = match (&file.gz_url, file.gz_size) {
+        (Some(url), Some(size)) => (
+            url,
+            size,
+            Unpack::Gzip(Box::new(flate2::write::GzDecoder::new(Vec::new()))),
+        ),
+        _ => (&file.url, file.size, Unpack::Plain),
+    };
     let mut response = crate::agent::http()
-        .get(&file.url)
+        .get(url)
         .timeout(Duration::from_secs(30 * 60))
         .send()
         .await
@@ -195,35 +255,47 @@ async fn download(app: &AppHandle, file: &RuntimeFile, dest: &Path) -> Result<()
         .map_err(|e| e.to_string())?;
     let mut hash = Sha256::new();
     let mut received = 0u64;
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| format!("Downloading the {}: {e}", file.role))?
-    {
-        received += chunk.len() as u64;
-        if received > file.size {
+    let mut written = 0u64;
+    let damaged = || format!("The {} download is damaged. Try again.", file.role);
+    loop {
+        let chunk = response
+            .chunk()
+            .await
+            .map_err(|e| format!("Downloading the {}: {e}", file.role))?;
+        let bytes = match &chunk {
+            Some(chunk) => {
+                received += chunk.len() as u64;
+                unpack.feed(chunk)
+            }
+            None => std::mem::replace(&mut unpack, Unpack::Plain).finish(),
+        }
+        .map_err(|_| damaged())?;
+        written += bytes.len() as u64;
+        if received > total || written > file.size {
             return Err(format!(
                 "The {} download is larger than expected.",
                 file.role
             ));
         }
-        hash.update(&chunk);
-        out.write_all(&chunk).await.map_err(|e| e.to_string())?;
+        hash.update(&bytes);
+        out.write_all(&bytes).await.map_err(|e| e.to_string())?;
+        if chunk.is_none() {
+            break;
+        }
         let _ = app.emit(
             "runtime-progress",
             Progress {
                 role: file.role.clone(),
                 received,
-                total: file.size,
+                total,
             },
         );
     }
     out.flush().await.map_err(|e| e.to_string())?;
     drop(out);
-    let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    if digest != file.sha256.to_ascii_lowercase() {
+    if hex(&hash.finalize()) != file.sha256.to_ascii_lowercase() {
         let _ = tokio::fs::remove_file(&part).await;
-        return Err(format!("The {} download is damaged. Try again.", file.role));
+        return Err(damaged());
     }
     // Windows can rename a running program but not overwrite it: move the old one aside first.
     let old = dest.with_extension("old");
@@ -276,6 +348,12 @@ pub async fn agent_ensure(app: AppHandle) -> Result<(), String> {
         .stdin(std::process::Stdio::null())
         .stdout(log)
         .stderr(err);
+    if let Ok(resources) = app.path().resource_dir() {
+        let playit = resources.join("playitd.exe");
+        if playit.is_file() {
+            command.env("MODDEDMC_PLAYIT_DAEMON", playit);
+        }
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -303,4 +381,38 @@ pub async fn agent_shutdown() {
         .timeout(Duration::from_secs(3))
         .send()
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gzip_download_unpacks_across_chunks() {
+        let program: Vec<u8> = (0..200_000u32)
+            .flat_map(|i| (i % 251).to_le_bytes())
+            .collect();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        gz.write_all(&program).unwrap();
+        let packed = gz.finish().unwrap();
+        let mut unpack = Unpack::Gzip(Box::new(flate2::write::GzDecoder::new(Vec::new())));
+        let mut out = Vec::new();
+        for chunk in packed.chunks(1000) {
+            out.extend(unpack.feed(chunk).unwrap());
+        }
+        out.extend(unpack.finish().unwrap());
+        assert_eq!(out, program);
+    }
+
+    #[tokio::test]
+    async fn sha256_of_matches_and_misses() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a");
+        assert_eq!(sha256_of(&path).await, None);
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            sha256_of(&path).await.unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 }

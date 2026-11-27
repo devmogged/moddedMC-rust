@@ -8,7 +8,7 @@ use crate::{
 pub use abi::{
     BlockUpdate, CollisionBox, ContentEvent, LOADED, MOVED_STATE_CHANGED, NEIGHBOR_CHANGED,
     STATE_CHANGED, ShapeBox, UNLOADED, UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS,
-    UPDATE_KNOWN_SHAPE, UPDATE_MOVED, UPDATE_NEIGHBORS,
+    UPDATE_FROM_NEIGHBOR_SHAPES, UPDATE_KNOWN_SHAPE, UPDATE_MOVED, UPDATE_NEIGHBORS,
 };
 
 #[derive(Clone, Copy)]
@@ -24,6 +24,14 @@ pub struct World<'a> {
     scope: PhantomData<&'a ()>,
 }
 
+/// The state, process-local identity and complete saved NBT of a custom block entity.
+#[derive(Clone, Debug)]
+pub struct EntitySnapshot {
+    pub state: u32,
+    pub incarnation: u64,
+    pub nbt: Vec<u8>,
+}
+
 pub struct Placement<'a> {
     pub world: World<'a>,
     pub state: u32,
@@ -36,6 +44,8 @@ pub struct Placement<'a> {
 
 pub type Place = fn(Placement<'_>) -> Option<u32>;
 pub type Tick = fn(World<'_>, u64, &[ContentEvent]);
+pub type RandomTick = fn(World<'_>, Pos, u32);
+
 pub type Replaced = fn(World<'_>, &ContentEvent);
 
 pub struct State<'a> {
@@ -66,6 +76,16 @@ pub enum WorldExtension {
     /// `World::dimension_id`.
     Dimension,
     Weather,
+    BestNeighborSignal,
+    RawBrightness,
+    BlockTransformer,
+    RedstoneConductor,
+    PlayerActorBlockDrops,
+    ChestObstruction,
+    ContentEntityTransaction,
+    GameTime,
+    ContentEntityReplacement,
+    NeighborShapes,
     /// `in_biome`, `surface_height` and `can_see_sky`.
     Surface,
 }
@@ -105,6 +125,26 @@ impl WorldExtension {
                 std::mem::offset_of!(abi::BlockWorldV1, restore_block_entity),
                 "moddedmc:block_world.restore_block_entity",
             ),
+            Self::BestNeighborSignal => (
+                std::mem::offset_of!(abi::BlockWorldV1, best_neighbor_signal),
+                "moddedmc:block_world.best_neighbor_signal",
+            ),
+            Self::PlayerActorBlockDrops => (
+                std::mem::offset_of!(abi::BlockWorldV1, block_drops_with_player_actor),
+                "moddedmc:block_world.block_drops_with_player_actor",
+            ),
+            Self::RedstoneConductor => (
+                std::mem::offset_of!(abi::BlockWorldV1, redstone_conductor),
+                "moddedmc:block_world.redstone_conductor",
+            ),
+            Self::BlockTransformer => (
+                std::mem::offset_of!(abi::BlockWorldV1, apply_block_transformer),
+                "moddedmc:block_world.apply_block_transformer",
+            ),
+            Self::RawBrightness => (
+                std::mem::offset_of!(abi::BlockWorldV1, raw_brightness),
+                "moddedmc:block_world.raw_brightness",
+            ),
             Self::Weather => (
                 std::mem::offset_of!(abi::BlockWorldV1, is_thundering),
                 "moddedmc:block_world.is_thundering",
@@ -120,6 +160,26 @@ impl WorldExtension {
             Self::Dimension => (
                 std::mem::offset_of!(abi::BlockWorldV1, dimension_id),
                 "moddedmc:block_world.dimension_id",
+            ),
+            Self::NeighborShapes => (
+                std::mem::offset_of!(abi::BlockWorldV1, write_with_neighbor_shapes),
+                "moddedmc:block_world.write_with_neighbor_shapes",
+            ),
+            Self::ChestObstruction => (
+                std::mem::offset_of!(abi::BlockWorldV1, chest_blocked),
+                "moddedmc:block_world.chest_blocked",
+            ),
+            Self::ContentEntityTransaction => (
+                std::mem::offset_of!(abi::BlockWorldV1, compare_content_entity),
+                "moddedmc:block_world.compare_content_entity",
+            ),
+            Self::GameTime => (
+                std::mem::offset_of!(abi::BlockWorldV1, game_time),
+                "moddedmc:block_world.game_time",
+            ),
+            Self::ContentEntityReplacement => (
+                std::mem::offset_of!(abi::BlockWorldV1, compare_replace_content_entity),
+                "moddedmc:block_world.compare_replace_content_entity",
             ),
         }
     }
@@ -137,8 +197,16 @@ pub struct Block<'a> {
     pub states: &'a [State<'a>],
 }
 
+/// Mining, sound and map settings copied from a vanilla block.
+pub struct BlockMaterial<'a> {
+    pub template: &'a str,
+    pub hardness: Option<f32>,
+    pub map_color: Option<&'a str>,
+}
+
 static WORLD_TABLE: OnceLock<InterfacePrefix<abi::BlockWorldV1>> = OnceLock::new();
 static TICK: OnceLock<Tick> = OnceLock::new();
+static RANDOM_TICK: OnceLock<RandomTick> = OnceLock::new();
 static REPLACED: OnceLock<Replaced> = OnceLock::new();
 static PLACE: OnceLock<Place> = OnceLock::new();
 
@@ -176,6 +244,22 @@ unsafe extern "C" fn place(args: *const abi::Placement) -> u32 {
         })
         .unwrap_or(UNLOADED_STATE)
     })
+}
+
+unsafe extern "C" fn random_tick(raw: abi::WorldRef, pos: Pos, state: u32) {
+    guard("content random tick", (), || {
+        if let Some((&api, callback)) = WORLD_TABLE.get().zip(RANDOM_TICK.get()) {
+            callback(
+                World {
+                    raw,
+                    api,
+                    scope: PhantomData,
+                },
+                pos,
+                state,
+            );
+        }
+    });
 }
 
 unsafe extern "C" fn replaced(world: abi::WorldRef, event: *const ContentEvent) {
@@ -274,13 +358,13 @@ impl Content {
     }
 
     pub fn require_comparator_output(self) -> Result<(), InterfaceUnavailable> {
-        self.0
-            .upto(std::mem::offset_of!(abi::ContentV1, set_comparator_output))
-            .map(|_| ())
-            .ok_or(InterfaceUnavailable {
+        if self.0.size < std::mem::offset_of!(abi::ContentV1, on_random_tick) {
+            return Err(InterfaceUnavailable {
                 name: "moddedmc:content.set_comparator_output",
                 version: 1,
-            })
+            });
+        }
+        Ok(())
     }
 
     /// Register a comparator strength (0 to 15) after adding the block with an exact state selector.
@@ -290,13 +374,15 @@ impl Content {
         selector: &str,
         strength: u8,
     ) -> Result<(), RegistrationError> {
-        let api = self
-            .0
-            .upto(std::mem::offset_of!(abi::ContentV1, set_comparator_output))
-            .ok_or(RegistrationError::InvalidDefinition)?;
+        self.require_comparator_output()
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
         // SAFETY: the table includes the function and both arguments are live for the call.
         RegistrationError::from_code(unsafe {
-            ((&raw const (*api).set_comparator_output).read())(reg.reg, s(selector), strength)
+            ((&raw const (*self.0.ptr).set_comparator_output).read())(
+                reg.reg,
+                s(selector),
+                strength,
+            )
         })
     }
 
@@ -306,6 +392,71 @@ impl Content {
         // SAFETY: live registration and a callback defined for the life of the mod.
         RegistrationError::from_code(unsafe {
             ((&raw const (*self.0.ptr).on_tick).read())(reg.reg, tick)
+        })
+    }
+
+    pub fn require_random_tick(self) -> Result<(), InterfaceUnavailable> {
+        if self.0.size < std::mem::offset_of!(abi::ContentV1, on_random_tick) + size_of::<usize>() {
+            return Err(InterfaceUnavailable {
+                name: "moddedmc:content.on_random_tick",
+                version: 1,
+            });
+        }
+        Ok(())
+    }
+
+    /// Enable scheduler-selected random ticks for these blocks already staged by this mod.
+    /// Random ticks are delivered in order after world workers have joined.
+    pub fn on_random_tick(
+        self,
+        reg: &mut Registry<'_>,
+        blocks: &[&str],
+        callback: RandomTick,
+    ) -> Result<(), RegistrationError> {
+        self.require_random_tick()
+            .map_err(|_| RegistrationError::InvalidDefinition)?;
+        RANDOM_TICK
+            .set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        for block in blocks {
+            // SAFETY: this field is size-checked and the registration and name are borrowed.
+            RegistrationError::from_code(unsafe {
+                ((&raw const (*self.0.ptr).on_random_tick).read())(reg.reg, s(block), random_tick)
+            })?;
+        }
+        Ok(())
+    }
+
+    pub fn require_block_material(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(std::mem::offset_of!(abi::ContentV1, set_block_material))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:content.set_block_material",
+                version: 1,
+            })
+    }
+
+    /// Set a staged block's material independently of its physical state shapes.
+    pub fn set_block_material(
+        self,
+        reg: &mut Registry<'_>,
+        id: &str,
+        material: &BlockMaterial<'_>,
+    ) -> Result<(), RegistrationError> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::ContentV1, set_block_material))
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        let definition = abi::ContentMaterialDefinition {
+            template: s(material.template),
+            map_color: s(material.map_color.unwrap_or_default()),
+            hardness: material.hardness.unwrap_or_default(),
+            override_hardness: material.hardness.is_some(),
+        };
+        // SAFETY: the registration, definition and borrowed strings live through the call.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).set_block_material).read())(reg.reg, s(id), &definition)
         })
     }
 
@@ -443,6 +594,21 @@ impl World<'_> {
         }
     }
 
+    /// Apply an ordered batch, resolving neighbor shapes for entries that request it.
+    pub fn write_with_neighbor_shapes(self, updates: &[BlockUpdate]) -> usize {
+        if !WorldExtension::NeighborShapes.available(self.api) {
+            return 0;
+        }
+        // SAFETY: the complete callback field and borrowed slice are live for the call.
+        unsafe {
+            ((&raw const (*self.api.ptr).write_with_neighbor_shapes).read())(
+                self.raw,
+                updates.as_ptr(),
+                updates.len(),
+            )
+        }
+    }
+
     pub fn entity(self, pos: Pos) -> Option<Vec<u8>> {
         let mut data = Vec::new();
         let sink = abi::Sink {
@@ -471,6 +637,15 @@ impl World<'_> {
         // SAFETY: the size check covers the appended field; world is borrowed for this call.
         WorldExtension::NeighborSignal.available(self.api)
             && unsafe { ((&raw const (*self.api.ptr).has_neighbor_signal).read())(self.raw, pos) }
+    }
+
+    /// Vanilla `Level.getBestNeighborSignal`, from 0 to 15. Gives 0 when unloaded or unavailable.
+    pub fn best_neighbor_signal(self, pos: Pos) -> u8 {
+        if !WorldExtension::BestNeighborSignal.available(self.api) {
+            return 0;
+        }
+        // SAFETY: the size check covers the appended field; world is borrowed for this call.
+        unsafe { ((&raw const (*self.api.ptr).best_neighbor_signal).read())(self.raw, pos) }
     }
 
     /// Vanilla `Level.destroyBlock(pos, drop)`. False when nothing broke or the server lacks it.
@@ -558,21 +733,158 @@ impl World<'_> {
             }
     }
 
+    /// Whether a loaded chest is obstructed. Requires `WorldExtension::ChestObstruction`.
+    pub fn chest_blocked(self, pos: Pos) -> Option<bool> {
+        if !WorldExtension::ChestObstruction.available(self.api) {
+            return None;
+        }
+        // SAFETY: the checked callback borrows the world for this call.
+        let blocked = unsafe { ((&raw const (*self.api.ptr).chest_blocked).read())(self.raw, pos) };
+        (blocked >= 0).then_some(blocked != 0)
+    }
+
+    /// Snapshot a loaded custom block entity for a later guarded update.
+    pub fn entity_snapshot(self, pos: Pos) -> Option<EntitySnapshot> {
+        if !WorldExtension::ContentEntityTransaction.available(self.api) {
+            return None;
+        }
+        let mut state = UNLOADED_STATE;
+        let mut incarnation = 0;
+        let mut nbt = Vec::new();
+        // SAFETY: all output slots and the sink are live for this synchronous call.
+        unsafe {
+            ((&raw const (*self.api.ptr).content_entity_snapshot).read())(
+                self.raw,
+                pos,
+                &mut state,
+                &mut incarnation,
+                sink(&mut nbt),
+            )
+        }
+        .then_some(EntitySnapshot {
+            state,
+            incarnation,
+            nbt,
+        })
+    }
+
+    /// Write custom fields if the state, entity identity and NBT still match.
+    pub fn compare_entity(self, pos: Pos, expected: &EntitySnapshot, replacement: &[u8]) -> bool {
+        // SAFETY: the checked callback borrows the world and both snapshots.
+        WorldExtension::ContentEntityTransaction.available(self.api)
+            && unsafe {
+                ((&raw const (*self.api.ptr).compare_content_entity).read())(
+                    self.raw,
+                    pos,
+                    expected.state,
+                    expected.incarnation,
+                    abi::Str::new(&expected.nbt),
+                    abi::Str::new(replacement),
+                )
+            }
+    }
+
+    /// Replace a custom block and entity if the snapshot still matches. Produces no drops.
+    pub fn compare_replace_entity(
+        self,
+        pos: Pos,
+        expected: &EntitySnapshot,
+        destination: u32,
+        replacement: Option<&[u8]>,
+    ) -> bool {
+        // SAFETY: the checked callback borrows the world and both snapshots.
+        WorldExtension::ContentEntityReplacement.available(self.api)
+            && unsafe {
+                ((&raw const (*self.api.ptr).compare_replace_content_entity).read())(
+                    self.raw,
+                    pos,
+                    expected.state,
+                    expected.incarnation,
+                    abi::Str::new(&expected.nbt),
+                    destination,
+                    abi::Str::new(replacement.unwrap_or_default()),
+                )
+            }
+    }
+
+    /// The persisted overworld tick clock, shared by dimensions.
+    pub fn game_time(self) -> Option<i64> {
+        if !WorldExtension::GameTime.available(self.api) {
+            return None;
+        }
+        let mut ticks = 0;
+        // SAFETY: the checked callback borrows the world and a live output slot.
+        unsafe { ((&raw const (*self.api.ptr).game_time).read())(self.raw, &mut ticks) }
+            .then_some(ticks)
+    }
+
+    /// Use a saved tool stack on the first outline hit along a one-block ray.
+    /// The ray starts at the origin block's center and ignores fluids.
+    /// Requires `WorldExtension::BlockTransformer`.
+    pub fn apply_block_transformer(self, origin: Pos, direction: u8, tool: &[u8]) -> bool {
+        if !WorldExtension::BlockTransformer.available(self.api) {
+            return false;
+        }
+        // SAFETY: the table includes the callback and the world and stack are borrowed.
+        unsafe {
+            ((&raw const (*self.api.ptr).apply_block_transformer).read())(
+                self.raw,
+                origin,
+                direction,
+                abi::Str::new(tool),
+            )
+        }
+    }
+
+    /// Reports the loaded state's redstone conduction, or `None` when unloaded.
+    /// Requires `WorldExtension::RedstoneConductor`.
+    pub fn redstone_conductor(self, pos: Pos) -> Option<bool> {
+        if !WorldExtension::RedstoneConductor.available(self.api) {
+            return None;
+        }
+        // SAFETY: the table includes the callback and the world is borrowed.
+        let value =
+            unsafe { ((&raw const (*self.api.ptr).redstone_conductor).read())(self.raw, pos) };
+        (value >= 0).then_some(value != 0)
+    }
+
     /// Vanilla `Block.getDrops` with `tool` (`None` for an empty hand), as saved stacks, without
     /// breaking the block or spawning them. `None` when unloaded or on a server without it.
     pub fn block_drops(self, pos: Pos, tool: Option<&[u8]>) -> Option<Vec<Vec<u8>>> {
         if !WorldExtension::BlockDrops.available(self.api) {
             return None;
         }
+        // SAFETY: the size check covers the appended field.
+        self.collect_block_drops(pos, tool, unsafe {
+            (&raw const (*self.api.ptr).block_drops).read()
+        })
+    }
+
+    /// Roll loot with an unspawned player-typed actor at the block.
+    /// Requires `WorldExtension::PlayerActorBlockDrops`.
+    pub fn block_drops_with_player_actor(self, pos: Pos, tool: &[u8]) -> Option<Vec<Vec<u8>>> {
+        if !WorldExtension::PlayerActorBlockDrops.available(self.api) {
+            return None;
+        }
+        // SAFETY: the size check covers the appended field.
+        let callback = unsafe { (&raw const (*self.api.ptr).block_drops_with_player_actor).read() };
+        self.collect_block_drops(pos, Some(tool), callback)
+    }
+
+    fn collect_block_drops(
+        self,
+        pos: Pos,
+        tool: Option<&[u8]>,
+        callback: unsafe extern "C" fn(abi::WorldRef, Pos, abi::Str, abi::Sink) -> bool,
+    ) -> Option<Vec<Vec<u8>>> {
         let mut stacks: Vec<Vec<u8>> = Vec::new();
         let sink = abi::Sink {
             ctx: (&raw mut stacks).cast(),
             put: each,
         };
         let tool = abi::Str::new(tool.unwrap_or_default());
-        // SAFETY: the size check covers the appended field; the sink fills `stacks` for the call.
-        unsafe { ((&raw const (*self.api.ptr).block_drops).read())(self.raw, pos, tool, sink) }
-            .then_some(stacks)
+        // SAFETY: the callback borrows the world and tool, and the sink fills stacks during the call.
+        unsafe { callback(self.raw, pos, tool, sink) }.then_some(stacks)
     }
 
     /// The overworld clock's ticks and whether this dimension has a fixed time. See
@@ -611,6 +923,18 @@ impl World<'_> {
             1 => Some(true),
             _ => None,
         }
+    }
+
+    /// Returns vanilla raw brightness at a loaded position.
+    pub fn raw_brightness(self, pos: Pos, sky_darken: u8) -> Option<u8> {
+        if !WorldExtension::RawBrightness.available(self.api) {
+            return None;
+        }
+        // SAFETY: the size check covers the appended field and the world is borrowed.
+        let light = unsafe {
+            ((&raw const (*self.api.ptr).raw_brightness).read())(self.raw, pos, sky_darken)
+        };
+        u8::try_from(light).ok()
     }
 
     pub fn is_thundering(self) -> bool {

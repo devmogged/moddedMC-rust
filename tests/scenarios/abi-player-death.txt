@@ -1,0 +1,104 @@
+# Build with tests/fixtures/abi-player-death/pack.ps1.
+# Test durable claiming, normal drops after a decline or failed write, and keepInventory.
+mods target\mods\abi-player-death.mmc target\mods\z-abi-player-death-observer.mmc
+start
+expect abi_player_death ready
+expect abi_player_death_observer ready
+cmd forceload add 1024 1024
+botstart tester
+wait 5
+cmd gamemode survival tester
+cmd fill 1024 299 1024 1039 299 1028 minecraft:stone
+cmd tp tester 1026.5 300 1026.5
+wait 2
+cmd gamerule minecraft:keep_inventory false
+cmd item replace entity tester hotbar.0 with minecraft:iron_sword
+cmd enchant tester minecraft:vanishing_curse 1
+wait 0.5
+expect Applied enchantment
+cmd item replace entity tester hotbar.1 with minecraft:diamond 7
+cmd item replace entity tester inventory.0 with minecraft:emerald 3
+cmd item replace entity tester armor.head with minecraft:iron_helmet
+cmd item replace entity tester weapon.offhand with minecraft:shield
+wait 1
+cmd kill tester
+wait 1
+expect abi_player_death accepted 1/minecraft:diamond:7 9/minecraft:emerald:3 39/minecraft:iron_helmet:1 40/minecraft:shield:1
+expect abi_player_death repeated claim returned false
+cmd kill tester
+wait 1
+reject abi_player_death accepted|abi_player_death declined|abi_player_death_observer received
+cmd execute positioned 1026 300 1026 unless entity @e[type=minecraft:item,distance=..6]
+wait 0.5
+expect Test passed
+bot respawn
+wait 3
+cmd tp tester 1034.5 300 1026.5
+cmd item replace entity tester hotbar.0 with minecraft:gold_ingot 3
+cmd item replace entity tester armor.chest with minecraft:leather_chestplate
+cmd item replace entity tester weapon.offhand with minecraft:torch 4
+wait 1
+cmd kill tester
+wait 1
+expect abi_player_death declined
+expect abi_player_death_observer received unclaimed drops
+cmd execute positioned 1034 300 1026 if entity @e[type=minecraft:item,distance=..6,nbt={Item:{id:"minecraft:gold_ingot",count:3}}]
+wait 0.5
+expect Test passed
+cmd execute positioned 1034 300 1026 if entity @e[type=minecraft:item,distance=..6,nbt={Item:{id:"minecraft:leather_chestplate"}}]
+wait 0.5
+expect Test passed
+cmd execute positioned 1034 300 1026 if entity @e[type=minecraft:item,distance=..6,nbt={Item:{id:"minecraft:torch",count:4}}]
+wait 0.5
+expect Test passed
+bot respawn
+wait 3
+cmd tp tester 1026.5 300 1026.5
+cmd item replace entity tester hotbar.0 with minecraft:copper_ingot 5
+wait 0.5
+cmd kill tester
+wait 1
+expect abi_player_death failed write returned false
+expect abi_player_death_observer received unclaimed drops
+cmd execute positioned 1026 300 1026 if entity @e[type=minecraft:item,distance=..6,nbt={Item:{id:"minecraft:copper_ingot",count:5}}]
+wait 0.5
+expect Test passed
+bot respawn
+wait 3
+cmd tp tester 1026.5 300 1026.5
+cmd gamerule minecraft:keep_inventory true
+cmd item replace entity tester hotbar.0 with minecraft:diamond 2
+wait 0.5
+cmd kill tester
+wait 1
+reject abi_player_death accepted|abi_player_death declined|abi_player_death_observer received
+bot respawn
+wait 3
+cmd clear tester minecraft:diamond 0
+wait 0.5
+expect Found 2 matching item
+bot quit
+stop
+start
+expect abi_player_death ready
+cmd forceload add 1024 1024
+wait 5
+cmd abi_death_view
+wait 1
+expect abi_player_death persisted 1/minecraft:diamond:7 9/minecraft:emerald:3 39/minecraft:iron_helmet:1 40/minecraft:shield:1
+botstart tester
+wait 3
+cmd clear tester minecraft:diamond 0
+wait 0.5
+expect Found 2 matching item
+cmd clear tester minecraft:emerald 0
+wait 0.5
+expect No items were found
+cmd clear tester minecraft:iron_helmet 0
+wait 0.5
+expect No items were found
+cmd clear tester minecraft:shield 0
+wait 0.5
+expect No items were found
+bot quit
+stop

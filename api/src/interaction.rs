@@ -11,6 +11,81 @@ use crate::{
 pub use abi::MAX_STACK_DATA;
 
 #[derive(Clone, Copy)]
+pub struct PlayerStackData(&'static abi::PlayerStackDataV1);
+
+pub fn require_player_stack_data() -> Result<PlayerStackData, InterfaceUnavailable> {
+    // SAFETY: this is the published table for player_stack_data v1.
+    unsafe { crate::require_interface(abi::PLAYER_STACK_DATA, 1) }.map(PlayerStackData)
+}
+
+impl PlayerStackData {
+    /// Update a persistent compass target alongside its state, or clear the target with None.
+    pub fn replace_lodestone(
+        self,
+        player: &crate::Player<'_>,
+        item: &str,
+        expected: &[u8],
+        new: &[u8],
+        target: Option<(&str, Pos)>,
+    ) -> bool {
+        if expected.is_empty() || expected.len() > MAX_STACK_DATA || new.len() > MAX_STACK_DATA {
+            return false;
+        }
+        let (dimension, pos) = target.unwrap_or(("", Pos::default()));
+        // SAFETY: player and slices are borrowed during the call.
+        unsafe {
+            (self.0.compare_lodestone)(
+                player.raw,
+                crate::s(item),
+                abi::Str::new(expected),
+                abi::Str::new(new),
+                crate::s(dimension),
+                pos,
+            )
+        }
+    }
+
+    pub fn contains(self, player: &crate::Player<'_>, item: &str, expected: &[u8]) -> bool {
+        self.compare(player, item, expected, None)
+    }
+
+    pub fn replace(
+        self,
+        player: &crate::Player<'_>,
+        item: &str,
+        expected: &[u8],
+        new: &[u8],
+    ) -> bool {
+        self.compare(player, item, expected, Some(new))
+    }
+
+    fn compare(
+        self,
+        player: &crate::Player<'_>,
+        item: &str,
+        expected: &[u8],
+        new: Option<&[u8]>,
+    ) -> bool {
+        if expected.is_empty()
+            || expected.len() > MAX_STACK_DATA
+            || new.is_some_and(|v| v.len() > MAX_STACK_DATA)
+        {
+            return false;
+        }
+        // SAFETY: player and slices are borrowed during the call.
+        unsafe {
+            (self.0.compare)(
+                player.raw,
+                crate::s(item),
+                abi::Str::new(expected),
+                abi::Str::new(new.unwrap_or_default()),
+                new.is_some(),
+            )
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Interaction(InterfacePrefix<abi::InteractionV1>);
 
 /// Vanilla `InteractionResult` for a use on a block.
@@ -84,6 +159,8 @@ pub enum InteractionExtension {
     MeleeDamage,
     ImmediateItemUse,
     PlayerPlaced,
+    Exhaustion,
+    HeldTracker,
 }
 
 /// Vanilla Item.use, with the held stack and the look reported by this action.
@@ -97,6 +174,20 @@ pub struct UseItem<'a> {
 }
 
 impl UseItem<'_> {
+    /// Read the player's sneaking state during this item callback.
+    pub fn sneaking(&self) -> bool {
+        let Some(player) = self.player else {
+            return false;
+        };
+        if self.stack.api.size
+            < std::mem::offset_of!(abi::InteractionV1, player_sneaking) + size_of::<usize>()
+        {
+            return false;
+        }
+        // SAFETY: the checked callback borrows the player for this call.
+        unsafe { ((&raw const (*self.stack.api.ptr).player_sneaking).read())(player.raw()) }
+    }
+
     /// Start the cooldown for the held item.
     pub fn cooldown(&self, ticks: u32) {
         if let Some(player) = self.player {
@@ -407,19 +498,21 @@ unsafe extern "C" fn use_block(
 }
 
 impl UseBlock<'_> {
-    /// Show a status message to this player. Older hosts omit the message.
-    pub fn action_bar(&self, text: &str) {
+    /// Add food exhaustion to the player who clicked the block.
+    pub fn add_exhaustion(&self, amount: f32) {
         if self.api.size
-            >= std::mem::offset_of!(abi::InteractionV1, action_bar) + size_of::<usize>()
+            >= std::mem::offset_of!(abi::InteractionV1, add_exhaustion) + size_of::<usize>()
         {
-            // SAFETY: the function is present and both arguments are borrowed for this call.
+            // SAFETY: the function is present and the player is borrowed for the call.
             unsafe {
-                ((&raw const (*self.api.ptr).action_bar).read())(
-                    self.raw_player,
-                    abi::Str::from(text),
-                )
+                ((&raw const (*self.api.ptr).add_exhaustion).read())(self.raw_player, amount)
             };
         }
+    }
+
+    /// Show a status message to this player. Older hosts omit the message.
+    pub fn action_bar(&self, text: &str) {
+        action_bar(self.api, self.raw_player, text);
     }
 
     /// Vanilla `Inventory.placeItemBackInInventory` with a saved stack; what doesn't fit drops.
@@ -473,9 +566,21 @@ pub struct ItemUse<'a> {
 }
 
 impl ItemUse<'_> {
+    /// Show a status message to this player. Older hosts omit the message.
+    pub fn action_bar(&self, text: &str) {
+        action_bar(self.api, self.raw_player, text);
+    }
+
     pub fn give(&self, stack: &[u8]) -> bool {
         // SAFETY: requiring ItemUse covers the earlier give field. The player and bytes are live.
         unsafe { ((&raw const (*self.api.ptr).give).read())(self.raw_player, abi::Str::new(stack)) }
+    }
+}
+
+fn action_bar(api: InterfacePrefix<abi::InteractionV1>, player: abi::EntityRef, text: &str) {
+    if api.size >= std::mem::offset_of!(abi::InteractionV1, action_bar) + size_of::<usize>() {
+        // SAFETY: the function is present and both arguments are borrowed for this call.
+        unsafe { ((&raw const (*api.ptr).action_bar).read())(player, abi::Str::from(text)) };
     }
 }
 
@@ -600,6 +705,14 @@ impl Interaction {
             InteractionExtension::PlayerPlaced => (
                 std::mem::offset_of!(abi::InteractionV1, on_player_placed),
                 "moddedmc:interaction.player_placed",
+            ),
+            InteractionExtension::Exhaustion => (
+                std::mem::offset_of!(abi::InteractionV1, add_exhaustion),
+                "moddedmc:interaction.add_exhaustion",
+            ),
+            InteractionExtension::HeldTracker => (
+                std::mem::offset_of!(abi::InteractionV1, stack_set_lodestone),
+                "moddedmc:interaction.stack_set_lodestone",
             ),
             InteractionExtension::ImmediateItemUse => (
                 std::mem::offset_of!(abi::InteractionV1, on_use_item),
@@ -858,6 +971,11 @@ unsafe fn dispatch_use(
 }
 
 impl UseOnBlock<'_> {
+    /// Show a status message to this player. Older hosts omit the message.
+    pub fn action_bar(&self, text: &str) {
+        action_bar(self.api, self.raw_player, text);
+    }
+
     /// Add a saved stack to the player's inventory, dropping any remainder.
     pub fn give(&self, stack: &[u8]) -> bool {
         if self.api.size < std::mem::offset_of!(abi::InteractionV1, give) + size_of::<usize>() {
@@ -881,6 +999,25 @@ impl UseOnBlock<'_> {
 }
 
 impl Stack<'_> {
+    /// Replace the callback stack's mod data and lodestone target in one operation.
+    pub fn set_lodestone(&mut self, data: &[u8], tracker: Option<(&str, Pos)>) -> bool {
+        if self.api.size
+            < std::mem::offset_of!(abi::InteractionV1, stack_set_lodestone) + size_of::<usize>()
+        {
+            return false;
+        }
+        let (dimension, pos) = tracker.unwrap_or_default();
+        // SAFETY: the checked callback borrows the stack, data and dimension for this call.
+        unsafe {
+            ((&raw const (*self.api.ptr).stack_set_lodestone).read())(
+                self.raw,
+                abi::Str::new(data),
+                crate::s(dimension),
+                pos,
+            )
+        }
+    }
+
     pub fn count(&self) -> u32 {
         // SAFETY: the stack is live for this callback.
         unsafe { ((&raw const (*self.api.ptr).stack_count).read())(self.raw) }

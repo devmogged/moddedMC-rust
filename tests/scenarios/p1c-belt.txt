@@ -6,12 +6,15 @@ mods target\mods\create.mmc
 start
 expect registered content item create:belt_connector
 expect registered content block create:belt
+cmd difficulty peaceful
 botstart tester
 wait 3
 expect \[bot\] joined as tester
 cmd tp tester 2050.5 101 2012.5
 wait 3
 cmd fill 2045 99 2005 2056 104 2020 minecraft:air
+cmd fill 2045 99 2005 2056 99 2020 minecraft:stone
+cmd tp tester 2050.5 101 2012.5
 cmd gamemode survival tester
 cmd give tester create:belt_connector 2
 wait 1

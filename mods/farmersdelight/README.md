@@ -13,8 +13,15 @@ included as `LICENSE.md`.
   `Block.Properties.ofFullCopy(Blocks.OAK_PLANKS).strength(2, 3).sound(WOOD)`.
   The matching `ModItems.java` entries are ordinary `BlockItem` instances.
 - Rice bag, a plain block with `Block.Properties.ofFullCopy(Blocks.WHITE_WOOL)`.
-- Four plain items, as `new Item(basicItem())`: straw, canvas, tree bark
-  and rice panicle.
+- Straw, canvas, tree bark, rice panicles and raw rice.
+- Raw cabbage, tomato and onion can be eaten with their original hunger,
+  saturation and consumption timing.
+- Plant onions and cabbage seeds in farmland, rice in source water over soil,
+  and tomato seeds in farmland. The crops use scheduled random ticks and raw
+  light, with rice forming a second block and budding tomatoes becoming a
+  fruiting vine. Picking a ripe vine drops tomatoes and resets its age.
+- The released recipes for packing and unpacking the cabbage, tomato and
+  onion crates and rice bag, and for turning rice panicles into rice.
 - Original block models, textures, loot tables and axe mineability tags.
 - Thirteen original vanilla-format recipes: three vanilla-crop crates and
   their unpacking recipes; canvas, book, painting and scaffolding from canvas;
@@ -57,20 +64,16 @@ food, always-edible food and bowl remainders. The manifest retains literal
 Java saturation/chance values. The unusual `KELP_ROLL` direct constructor
 remains explicitly unresolved; missing builder fields are `null`, not guessed
 defaults. These are **Java 1.21.1 reference values**, not ready-made 26.3
-components. No food is registered until the generic WS-0 item-components
-request is implemented and validated against Java gameplay.
+components. The raw crop items use the item-defaults ABI to translate the
+recorded nutrition and saturation modifiers into 26.3 food components.
 
 ## Remaining behavior
 
-Cabbage, tomato and onion crate recipes, and the rice bag recipe, depend on
-unported ingredients and are intentionally excluded until their item mechanics
-can be represented exactly. Those four blocks can currently be obtained
-through Creative or commands, placed, broken, and saved, but not crafted in
-Survival. Straw harvesting, rice farming, bark extraction, cooking, foods,
-tools, other crops, decorations and most loot are still missing.
-
-Food items need generic default-component registration (coordination request
-`WS-1-01`); substituting approximate vanilla food properties would change
-hunger, saturation and consumption effects. Original NeoForge gameplay oracle
-and stock-client appearance remain unverified. See `docs/ws/buja.md` for
-the exact test scenarios and progress.
+Wild crop acquisition and cultivation on ropes are pending. Straw harvesting,
+bark extraction, cooking, prepared foods, tools, decorations and most loot
+are still missing.
+The original 1.3.4 NeoForge server confirmed mature onions, cabbages,
+rice and rooted tomatoes, including the rice panicle's light threshold.
+Run `tests/scenarios/farmersdelight-crop-growth.txt` to exercise the port's
+planting, growth, harvesting and persistence on the 26.3 server. See
+`docs/ws/buja.md` for the earlier milestones.

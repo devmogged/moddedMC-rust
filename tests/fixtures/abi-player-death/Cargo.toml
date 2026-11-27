@@ -1,0 +1,20 @@
+[package]
+name = "abi-player-death"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fastnbt = { version = "2", optional = true }
+moddedmc-api = { path = "../../../api" }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+default = ["claimant"]
+claimant = ["dep:fastnbt", "dep:serde"]
+observer = []
+
+[workspace]

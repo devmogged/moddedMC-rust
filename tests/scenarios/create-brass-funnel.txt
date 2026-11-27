@@ -1,0 +1,214 @@
+# Craft and use Brass Funnels to transfer one exact batch down a belt across restart.
+mods target\mods\create.mmc
+start
+expect-all registered content block create:brass_belt_funnel \(64 states\) && registered content block create:brass_funnel \(48 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2121.5 101 2112.5 0 0
+wait 3
+cmd fill 2116 99 2109 2128 99 2118 minecraft:stone
+cmd fill 2116 100 2109 2128 105 2118 minecraft:air
+cmd tp tester 2121.5 100 2112.5 0 0
+cmd gamemode survival tester
+cmd setblock 2122 100 2112 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:electron_tube
+cmd item replace entity tester hotbar.1 with create:brass_ingot
+cmd item replace entity tester hotbar.2 with minecraft:dried_kelp
+wait 0.5
+bot use 2122 100 2112 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.25
+bot inventory-click 39 left
+wait 0.25
+bot inventory-click 7 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:brass_funnel 0
+wait 0.5
+expect Found 2 matching item
+
+cmd setblock 2119 100 2110 create:creative_motor[facing=east]
+cmd setblock 2120 100 2110 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2120 100 2114 create:shaft[axis=x,waterlogged=false]
+cmd item replace entity tester hotbar.1 with create:belt_connector
+wait 0.5
+bot hotbar 1
+bot use 2120 100 2110
+wait 0.5
+bot use 2120 100 2114
+wait 1
+bot hotbar 0
+cmd setblock 2119 101 2111 minecraft:chest
+cmd setblock 2121 101 2113 minecraft:barrel
+wait 0.5
+bot input sneak
+wait 0.25
+bot place 2119 101 2111 east
+wait 0.5
+bot place 2121 101 2113 west
+wait 0.25
+bot input none
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 2120 101 2111 east
+wait 0.5
+cmd execute if block 2120 101 2111 create:brass_belt_funnel[facing=east,shape=pushing]
+wait 0.5
+expect Test passed
+cmd execute if block 2120 101 2113 create:brass_belt_funnel[facing=west,shape=pulling]
+wait 0.5
+expect Test passed
+
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot
+wait 0.5
+bot use 2120 101 2111 east main 1 0.76 0.5
+wait 0.5
+expect minecraft:iron_ingot . Up to 64
+bot use 2120 101 2113 west main 0 0.76 0.5
+wait 0.5
+expect minecraft:iron_ingot . Up to 64
+cmd clear tester minecraft:iron_ingot 0
+wait 0.5
+expect Found 1 matching item
+cmd item replace entity tester hotbar.0 with minecraft:air
+wait 0.5
+bot use 2120 101 2111 east main 1 0.76 0.67
+wait 0.25
+bot use 2120 101 2111 east main 1 0.76 0.67
+wait 0.25
+bot use 2120 101 2111 east main 1 0.76 0.67
+wait 0.25
+bot use 2120 101 2111 east main 1 0.76 0.67
+wait 0.25
+bot use 2120 101 2111 east main 1 0.76 0.42
+wait 0.25
+bot use 2120 101 2111 east main 1 0.76 0.42
+wait 0.25
+bot use 2120 101 2111 east main 1 0.76 0.5
+wait 0.5
+expect minecraft:iron_ingot . Exactly 3
+
+cmd item replace block 2119 101 2111 container.0 with minecraft:gold_ingot 4
+cmd item replace block 2119 101 2111 container.1 with minecraft:iron_ingot 2
+wait 1
+cmd data get block 2119 101 2111 Items[{Slot:1b}].count
+wait 0.5
+expect block data: 2$
+cmd data get block 2120 101 2111 Filter.id
+wait 0.5
+expect block data: "minecraft:iron_ingot"
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2120 101 2111 FilterAmount
+wait 0.5
+expect block data: 3$
+cmd data get block 2120 101 2111 UpTo
+wait 0.5
+expect block data: 0b$
+cmd data get block 2120 101 2113 Filter.id
+wait 0.5
+expect block data: "minecraft:iron_ingot"
+bot expect entity minecraft:item_display near 2120.57 101.765 2111.5 within 0.08 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok
+cmd item replace block 2119 101 2111 container.2 with minecraft:iron_ingot
+wait 8
+cmd data get block 2121 101 2113 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 3$
+cmd data get block 2121 101 2113 Items[{Slot:0b}].id
+wait 0.5
+expect block data: "minecraft:iron_ingot"
+cmd data get block 2119 101 2111 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 4$
+cmd data get block 2119 101 2111 Items[{Slot:1b}]
+wait 0.5
+expect Found no elements matching Items
+cmd data get block 2119 101 2111 Items[{Slot:2b}]
+wait 0.5
+expect Found no elements matching Items
+
+# Removing the belt switches the Brass Belt Funnel back to a Brass Funnel with its filter.
+cmd setblock 2120 100 2112 minecraft:air
+wait 0.5
+cmd execute if block 2120 101 2111 create:brass_funnel[extracting=true,facing=east]
+wait 0.5
+expect Test passed
+cmd data get block 2120 101 2111 Filter.id
+wait 0.5
+expect block data: "minecraft:iron_ingot"
+
+# A vertical collector filters hand insertion and pauses under redstone.
+cmd tp tester 2124.5 100 2112.5
+await 5 \[bot\] teleported to .*2124\.5.*2112\.5
+cmd setblock 2124 100 2114 minecraft:barrel
+cmd item replace entity tester hotbar.0 with create:brass_funnel
+wait 0.5
+bot input sneak
+wait 0.25
+bot place 2124 100 2114 up
+wait 1
+cmd execute if block 2124 101 2114 create:brass_funnel
+await 5 Test passed
+bot input none
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot
+wait 0.5
+bot expect slot 36 minecraft:iron_ingot 1
+await 5 \[bot\] expect inventory ok slot 36
+bot use 2124 101 2114 north main 0.5 0.125 0
+await 5 Filter: minecraft:iron_ingot
+cmd item replace entity tester hotbar.0 with minecraft:gold_ingot 4
+wait 0.5
+bot use 2124 101 2114 up
+wait 0.5
+cmd clear tester minecraft:gold_ingot 0
+wait 0.5
+expect Found 4 matching item
+cmd setblock 2125 101 2114 minecraft:redstone_block
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot 2
+wait 0.5
+bot use 2124 101 2114 up
+wait 0.5
+cmd clear tester minecraft:iron_ingot 0
+wait 0.5
+expect Found 2 matching item
+cmd setblock 2125 101 2114 minecraft:air
+wait 0.5
+bot use 2124 101 2114 up
+wait 0.5
+cmd data get block 2124 100 2114 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 2$
+
+# A borrowed target visual still leaves the vanilla block's server-side power intact.
+cmd setblock 2122 100 2114 minecraft:target[power=1] strict
+wait 0.5
+cmd execute if block 2122 100 2114 minecraft:target[power=1]
+wait 0.5
+expect Test passed
+bot expect block 2122 100 2114 minecraft:target[power=0]
+wait 0.5
+expect ^\[bot\] expect block ok
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

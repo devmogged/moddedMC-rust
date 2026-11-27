@@ -1,0 +1,46 @@
+# Seed 42. Offhand search and invalidation by changing dimension.
+mods target\mods\compasses.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd item replace entity tester weapon.offhand with naturescompass:naturescompass
+bot use-item off
+wait 1
+expect \[bot\] dialog: .*Nature's Compass
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+bot expect tracker 45 minecraft:overworld -287 6
+wait 1
+expect \[bot\] expect inventory ok tracker 45 minecraft:overworld -287 6
+bot use-item off
+wait 1
+expect \[bot\] dialog: .*minecraft:birch_forest in minecraft:overworld.*Distance: [0-9]+ blocks
+cmd execute in minecraft:the_nether run tp tester 0 80 0
+wait 6
+bot click-label Find next / retry
+wait 2
+expect Compass or dimension changed
+reject Compass search started
+bot use-item off
+wait 2
+reject \[bot\] dialog button: minecraft:birch_forest ->|\[bot\] dialog button: Find next / retry ->
+reject \[bot\] dialog: .*Distance: [0-9]+ blocks
+expect \[bot\] dialog button: minecraft:basalt_deltas ->
+expect \[bot\] dialog: .*Return to the target dimension to follow the needle
+bot expect tracker 45 minecraft:overworld -287 6
+wait 1
+expect \[bot\] expect inventory ok tracker 45 minecraft:overworld -287 6
+cmd execute in minecraft:overworld run tp tester 0 100 0
+wait 6
+bot use-item off
+wait 1
+expect \[bot\] dialog button: Find next / retry ->
+expect \[bot\] dialog: .*minecraft:birch_forest in minecraft:overworld.*Distance: [0-9]+ blocks
+bot expect tracker 45 minecraft:overworld -287 6
+wait 1
+expect \[bot\] expect inventory ok tracker 45 minecraft:overworld -287 6
+reject \[bot\] error:|panicked
+stop

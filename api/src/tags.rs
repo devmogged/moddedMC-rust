@@ -3,11 +3,18 @@
 use crate::{InterfaceUnavailable, abi, require_interface};
 
 #[derive(Clone, Copy)]
-pub struct Tags(&'static abi::TagsV1);
+pub struct Tags(
+    &'static abi::TagsV1,
+    Option<&'static abi::TagsV1Memberships>,
+);
 
 pub fn require() -> Result<Tags, InterfaceUnavailable> {
+    // SAFETY: this is the extended table type for moddedmc:tags v1.
+    if let Ok(table) = unsafe { require_interface::<abi::TagsV1Memberships>(abi::TAGS, 1) } {
+        return Ok(Tags(&table.base, Some(table)));
+    }
     // SAFETY: this is the published table type for moddedmc:tags v1.
-    unsafe { require_interface(abi::TAGS, 1) }.map(Tags)
+    unsafe { require_interface(abi::TAGS, 1) }.map(|table| Tags(table, None))
 }
 
 unsafe extern "C" fn id(ctx: *mut std::ffi::c_void, _key: u64, value: abi::Str) {
@@ -20,6 +27,25 @@ unsafe extern "C" fn id(ctx: *mut std::ffi::c_void, _key: u64, value: abi::Str) 
 }
 
 impl Tags {
+    /// Tags containing `entry`, sorted. `None` if the host lacks the extension or registry.
+    pub fn memberships(self, registry: &str, entry: &str) -> Option<Vec<String>> {
+        let table = self.1?;
+        let mut ids = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut ids).cast(),
+            put: id,
+        };
+        // SAFETY: the strings and sink are borrowed for the call.
+        unsafe {
+            (table.memberships)(
+                abi::Str::new(registry.as_bytes()),
+                abi::Str::new(entry.as_bytes()),
+                sink,
+            )
+        }
+        .then_some(ids)
+    }
+
     /// The tag's entry ids, sorted, nested tags flattened. `registry` is a name such as `item`;
     /// `tag` is `namespace:path`, `#` optional. `None` when no pack defines the tag.
     pub fn values(self, registry: &str, tag: &str) -> Option<Vec<String>> {

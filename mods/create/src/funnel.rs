@@ -1,4 +1,4 @@
-//! Create 6.0.10's Andesite Funnel and Belt Funnel.
+//! Create 6.0.10's funnels and belt funnels.
 
 use std::collections::HashMap;
 
@@ -14,14 +14,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CONTAINERS, DIRECTIONS, EFFECTS, ENTITIES, STACKS, STONE, StateIds, WRENCH,
-    belt_inventory::{self, Chain, TransportedItemStack, count},
+    belt_inventory::{self, Chain, TransportedItemStack, count, with_count},
     belt_movement::can_transport_objects,
     chute,
+    filtering::{self, Extraction, Filter},
     kinetics::{FACES, Kind, Kinetics, Slope, face_axis, offset},
 };
 
 pub const ID: &str = "create:andesite_funnel";
 pub const BELT_ID: &str = "create:andesite_belt_funnel";
+const BRASS_ID: &str = "create:brass_funnel";
+const BRASS_BELT_ID: &str = "create:brass_belt_funnel";
 const DOWN: u8 = 0;
 const UP: u8 = 1;
 const DEFAULT_EXTRACTION_TIMER: u32 = 8;
@@ -47,6 +50,7 @@ impl Shape {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct FunnelState {
+    pub(crate) brass: bool,
     facing: u8,
     shape: Option<Shape>,
     extracting: bool,
@@ -55,7 +59,27 @@ pub struct FunnelState {
 }
 
 impl FunnelState {
-    fn all(belt: bool) -> Vec<Self> {
+    pub(crate) const fn extends_towards(self, facing: u8) -> bool {
+        matches!(self.shape, Some(Shape::Extended)) && self.facing == facing
+    }
+
+    pub(crate) const fn pulls_towards(self, facing: u8) -> bool {
+        matches!(self.shape, Some(Shape::Pulling)) && self.facing == facing
+    }
+
+    pub(crate) const fn supports_direct_input(self) -> bool {
+        self.shape.is_none() && !self.extracting && self.facing == UP
+    }
+
+    pub(crate) const fn is_arm_point(self) -> bool {
+        !self.extracting && !matches!(self.shape, Some(Shape::Pushing))
+    }
+
+    pub(crate) const fn covers_belt(self) -> bool {
+        self.facing == UP
+    }
+
+    fn all(belt: bool, brass: bool) -> Vec<Self> {
         let mut states = Vec::new();
         for facing in [2, 3, 4, 5, UP, DOWN] {
             let configs = if belt {
@@ -77,6 +101,7 @@ impl FunnelState {
                 for powered in [false, true] {
                     for wet in [false, true] {
                         states.push(Self {
+                            brass,
                             facing,
                             shape,
                             extracting,
@@ -107,7 +132,12 @@ impl FunnelState {
     }
 
     const fn id(self) -> &'static str {
-        if self.shape.is_some() { BELT_ID } else { ID }
+        match (self.brass, self.shape.is_some()) {
+            (false, false) => ID,
+            (false, true) => BELT_ID,
+            (true, false) => BRASS_ID,
+            (true, true) => BRASS_BELT_ID,
+        }
     }
 
     fn state_id(self, states: &StateIds) -> Option<u32> {
@@ -115,17 +145,23 @@ impl FunnelState {
     }
 
     fn model(self) -> String {
+        let material = if self.brass { "brass" } else { "andesite" };
         let power = if self.powered { "powered" } else { "unpowered" };
         if let Some(shape) = self.shape {
-            format!("create:block/andesite_belt_funnel_{}_{power}", shape.name())
+            format!(
+                "create:block/{material}_belt_funnel_{}_{power}",
+                shape.name()
+            )
         } else {
             let geometry = if self.facing >= 2 {
                 "horizontal"
+            } else if self.brass {
+                "vertical"
             } else {
                 "vertical_filterless"
             };
             let mode = if self.extracting { "push" } else { "pull" };
-            format!("create:block/andesite_funnel_{geometry}_{mode}_{power}")
+            format!("create:block/{material}_funnel_{geometry}_{mode}_{power}")
         }
     }
 
@@ -142,6 +178,28 @@ impl FunnelState {
 
     fn storage(self, pos: Pos) -> Pos {
         shift(pos, self.facing ^ 1)
+    }
+
+    fn filter_side(self, face: u8, hit: [f32; 3]) -> Option<f32> {
+        if self.shape == Some(Shape::Extended) {
+            if face != UP {
+                return None;
+            }
+            let normal = FACES[usize::from(self.facing)];
+            let along = (hit[0] - 0.5) * normal[0] as f32 + (hit[2] - 0.5) * normal[2] as f32;
+            if !(0.14..=0.5).contains(&along) {
+                return None;
+            }
+        } else if self.facing < 2 {
+            let height = if self.facing == DOWN { 14.0 } else { 2.0 } / 16.0;
+            if face < 2 || (hit[1] - height).abs() > 0.12 {
+                return None;
+            }
+        } else if face != self.facing || !(0.58..=0.94).contains(&hit[1]) {
+            return None;
+        }
+        let side = if face == UP { self.facing } else { face };
+        filtering::slot_column(side, hit)
     }
 }
 
@@ -200,11 +258,13 @@ fn rotate_bounds(face: u8, (min, max): ([i16; 3], [i16; 3])) -> ShapeBox {
 }
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
-    for (belt, id, name) in [
-        (false, ID, "Andesite Funnel"),
-        (true, BELT_ID, "Andesite Belt Funnel"),
+    for (belt, brass, id, name) in [
+        (false, false, ID, "Andesite Funnel"),
+        (true, false, BELT_ID, "Andesite Belt Funnel"),
+        (false, true, BRASS_ID, "Brass Funnel"),
+        (true, true, BRASS_BELT_ID, "Brass Belt Funnel"),
     ] {
-        let rows: Vec<_> = FunnelState::all(belt)
+        let rows: Vec<_> = FunnelState::all(belt, brass)
             .into_iter()
             .map(|state| (state, state.properties(), state.model(), bounds(state)))
             .collect();
@@ -214,7 +274,7 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
                 let (x, y) = state.rotation();
                 State {
                     properties,
-                    physical: STONE,
+                    physical: if brass { "minecraft:gold_block" } else { STONE },
                     model,
                     rotating_model: "",
                     x,
@@ -230,7 +290,11 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
                 id,
                 display_name: name,
                 entity: "create:funnel",
-                item_model: "create:item/andesite_funnel",
+                item_model: if brass {
+                    "create:item/brass_funnel"
+                } else {
+                    "create:item/andesite_funnel"
+                },
                 states: &states,
             },
             Some(crate::placed_state),
@@ -240,10 +304,11 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
 }
 
 pub fn add_states(content: Content, states: &mut StateIds) {
-    for state in FunnelState::all(false)
-        .into_iter()
-        .chain(FunnelState::all(true))
-    {
+    for state in [false, true].into_iter().flat_map(|brass| {
+        FunnelState::all(false, brass)
+            .into_iter()
+            .chain(FunnelState::all(true, brass))
+    }) {
         states.add(content, state.id(), &state.properties(), None);
         if let Some(id) = state.state_id(states) {
             states.funnels.insert(id, state);
@@ -288,6 +353,7 @@ pub fn placed_state(args: Placement<'_>, default: FunnelState, states: &StateIds
         shape_for_position(belt, facing, extracting)
     });
     let state = FunnelState {
+        brass: default.brass,
         facing,
         powered,
         wet,
@@ -307,11 +373,14 @@ pub struct Funnels {
 #[serde(default, rename_all = "PascalCase")]
 struct FunnelData {
     transfer_cooldown: u32,
+    #[serde(flatten)]
+    filter: Filter,
 }
 
 struct FunnelBlockEntity {
     state: FunnelState,
     data: FunnelData,
+    filter_display: Option<TransportedItemStack>,
     dirty: bool,
 }
 
@@ -332,12 +401,19 @@ pub fn event(world: World<'_>, funnels: &mut Funnels, states: &StateIds, event: 
                 FunnelBlockEntity {
                     state,
                     data,
+                    filter_display: None,
                     dirty: false,
                 },
             );
             funnels.order.push(pos);
         }
-    } else if funnels.entries.remove(&pos).is_some() {
+    } else if let Some(funnel) = funnels.entries.remove(&pos) {
+        if event.reason == content::STATE_CHANGED {
+            funnel.data.filter.drop_item(world, pos);
+        }
+        if let Some(display) = funnel.filter_display {
+            belt_inventory::remove_display(world, &display);
+        }
         funnels.order.retain(|other| *other != pos);
     }
 }
@@ -377,6 +453,8 @@ pub fn update_states(world: World<'_>, states: &StateIds, kinetics: &mut Kinetic
                 flags: content::UPDATE_CLIENTS,
             }]) == 1
         {
+            // The normal and belt blocks have separate engine IDs. Save into the new entity.
+            funnel.dirty |= state.id() != funnel.state.id();
             funnel.state = state;
         }
     }
@@ -390,6 +468,9 @@ pub fn insert(
     item: &TransportedItemStack,
     simulate: bool,
 ) -> i32 {
+    if kinetics.tunnels.contains_key(&pos) {
+        return crate::belt_tunnel::insert(world, kinetics, pos, item, simulate);
+    }
     if let Some(depot) = kinetics.depots.get_mut(&pos) {
         return depot.insert_item(world, pos, item, simulate);
     }
@@ -402,7 +483,14 @@ pub fn insert(
     if kinetics.kind(pos) == Some(Kind::Millstone) {
         return crate::millstone::insert(kinetics, pos, &item.item, simulate);
     }
+    if let Some(accepted) = crate::crafter::insert(kinetics, pos, &item.item, simulate) {
+        return accepted;
+    }
     if let Some(accepted) = crate::deployer::insert(kinetics, pos, item, simulate) {
+        return accepted;
+    }
+    if let Some(accepted) = crate::saw_processing::insert(kinetics, pos, face, &item.item, simulate)
+    {
         return accepted;
     }
     if kinetics.crushers.contains_key(&pos) {
@@ -422,34 +510,116 @@ pub fn insert(
         .map_or(0, |bytes| count(&item.item) - stack_count(&bytes))
 }
 
+fn extract_custom(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    amount: i32,
+    simulate: bool,
+    accepts: Option<&dyn Fn(&Value) -> bool>,
+) -> Option<Value> {
+    let pos = crate::belt_tunnel::item_target(kinetics, pos);
+    if let Some(depot) = kinetics.depots.get_mut(&pos) {
+        return depot.extract_items(world, amount, simulate, accepts);
+    }
+    if let Some(chute) = kinetics.chutes.entries.get_mut(&pos) {
+        return extract_single(simulate, accepts, |sim| chute.extract(world, amount, sim));
+    }
+    if matches!(kinetics.kind(pos), Some(Kind::Belt(_))) {
+        return extract_single(simulate, accepts, |sim| {
+            belt_inventory::extract_from_segment(world, kinetics, pos, amount, sim)
+        });
+    }
+    if kinetics.kind(pos) == Some(Kind::Millstone) {
+        return crate::millstone::extract(kinetics, pos, amount, simulate, accepts);
+    }
+    if matches!(kinetics.kind(pos), Some(Kind::Deployer { .. })) {
+        return extract_single(simulate, accepts, |sim| {
+            crate::deployer::extract(kinetics, pos, amount, sim)
+        });
+    }
+    crate::basin::extract(world, pos, amount, simulate, accepts)
+}
+
+fn extract_single(
+    simulate: bool,
+    accepts: Option<&dyn Fn(&Value) -> bool>,
+    mut take: impl FnMut(bool) -> Option<Value>,
+) -> Option<Value> {
+    let Some(accepts) = accepts else {
+        return take(simulate);
+    };
+    let item = take(true).filter(accepts)?;
+    if simulate { Some(item) } else { take(false) }
+}
+
 fn extract(
     world: World<'_>,
     kinetics: &mut Kinetics,
     pos: Pos,
-    face: u8,
-    amount: i32,
+    funnel: &FunnelBlockEntity,
     simulate: bool,
 ) -> Option<Value> {
-    if let Some(depot) = kinetics.depots.get_mut(&pos) {
-        return depot.extract_items(world, amount, simulate);
+    let state = funnel.state;
+    let extraction = if state.brass {
+        funnel.data.filter.extraction(true)
+    } else {
+        Extraction::up_to(1)
+    };
+    extract_at(
+        world,
+        kinetics,
+        state.storage(pos),
+        state.facing,
+        extraction,
+        simulate,
+    )
+}
+
+pub(crate) fn extract_at(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    source: Pos,
+    face: u8,
+    extraction: Extraction<'_>,
+    simulate: bool,
+) -> Option<Value> {
+    let amount = extraction.amount;
+    let mut take = |simulate, accepts: Option<&dyn Fn(&Value) -> bool>| {
+        extract_custom(world, kinetics, source, amount, simulate, accepts).or_else(|| {
+            let container = CONTAINERS.get()?.at(world, source, face)?;
+            chute::extract_container_when(container, amount as u32, simulate, |item| {
+                accepts.is_none_or(|test| test(item))
+            })
+        })
+    };
+    let matches = |item: &Value| extraction.filter.is_none_or(|filter| filter.matches(item));
+    if !extraction.exact {
+        return take(
+            simulate,
+            extraction
+                .filter
+                .map(|_| &matches as &dyn Fn(&Value) -> bool),
+        );
     }
-    if let Some(chute) = kinetics.chutes.entries.get_mut(&pos) {
-        return chute.extract(world, amount, simulate);
+    // Dry-run exact batches before taking anything. Try the next item identity if the
+    // first matching identity cannot supply a full batch.
+    let mut skipped = Vec::new();
+    loop {
+        let batch = take(
+            true,
+            Some(&|item| matches(item) && !skipped.contains(&with_count(item, 1))),
+        )?;
+        let identity = with_count(&batch, 1);
+        if count(&batch) == amount {
+            return if simulate {
+                Some(batch)
+            } else {
+                take(false, Some(&|item| with_count(item, 1) == identity))
+            };
+        }
+        skipped.push(identity);
     }
-    if matches!(kinetics.kind(pos), Some(Kind::Belt(_))) {
-        return belt_inventory::extract_from_segment(world, kinetics, pos, amount, simulate);
-    }
-    if kinetics.kind(pos) == Some(Kind::Millstone) {
-        return crate::millstone::extract(kinetics, pos, amount, simulate);
-    }
-    if matches!(kinetics.kind(pos), Some(Kind::Deployer { .. })) {
-        return crate::deployer::extract(kinetics, pos, amount, simulate);
-    }
-    if let Some(item) = crate::basin::extract(world, pos, amount, simulate) {
-        return Some(item);
-    }
-    let container = CONTAINERS.get()?.at(world, pos, face)?;
-    chute::extract_container(container, amount as u32, simulate)
 }
 
 fn stack_count(bytes: &[u8]) -> i32 {
@@ -531,10 +701,10 @@ fn activate_extractor(
     world: World<'_>,
     kinetics: &mut Kinetics,
     pos: Pos,
-    state: FunnelState,
+    funnel: &FunnelBlockEntity,
 ) -> bool {
-    let source = state.storage(pos);
-    if extract(world, kinetics, source, state.facing, 1, true).is_none() {
+    let state = funnel.state;
+    if extract(world, kinetics, pos, funnel, true).is_none() {
         return false;
     }
     let Some(&entities) = ENTITIES.get() else {
@@ -558,9 +728,10 @@ fn activate_extractor(
     {
         return false;
     }
-    let Some(item) = extract(world, kinetics, source, state.facing, 1, false) else {
+    let Some(item) = extract(world, kinetics, pos, funnel, false) else {
         return false;
     };
+    crate::content_observer::funnel_transfer(world, kinetics, pos, &item);
     flap(world, pos, state);
     let (position, motion) = output_location(pos, state);
     if let (Some(&stacks), Ok(bytes)) = (STACKS.get(), fastnbt::to_bytes(&item)) {
@@ -587,7 +758,7 @@ fn insert_below(
         }
         return crate::depot::try_inserting_from_side(world, below, depot, item, face);
     }
-    if belt_inventory::try_inserting_from_side(kinetics, None, below, item, face, simulate) {
+    if belt_inventory::try_inserting_from_side(world, kinetics, None, below, item, face, simulate) {
         count(&item.item)
     } else {
         0
@@ -598,18 +769,18 @@ fn activate_extracting_belt_funnel(
     world: World<'_>,
     kinetics: &mut Kinetics,
     pos: Pos,
-    state: FunnelState,
+    funnel: &FunnelBlockEntity,
 ) -> bool {
+    let state = funnel.state;
     let below = shift(pos, DOWN);
-    let source = state.storage(pos);
-    let Some(item) = extract(world, kinetics, source, state.facing, 1, true) else {
+    let Some(item) = extract(world, kinetics, pos, funnel, true) else {
         return false;
     };
     let item = TransportedItemStack::new(item);
     if insert_below(world, kinetics, below, &item, state.facing, true) != count(&item.item) {
         return false;
     }
-    let Some(item) = extract(world, kinetics, source, state.facing, 1, false) else {
+    let Some(item) = extract(world, kinetics, pos, funnel, false) else {
         return false;
     };
     let item = TransportedItemStack::new(item);
@@ -617,6 +788,7 @@ fn activate_extracting_belt_funnel(
     if accepted == 0 {
         return false;
     }
+    crate::content_observer::funnel_transfer(world, kinetics, pos, &item.item);
     flap(world, pos, state);
     true
 }
@@ -637,9 +809,9 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
                     funnel.data.transfer_cooldown -= 1;
                     false
                 }
-                Mode::Extract => activate_extractor(world, kinetics, pos, funnel.state),
+                Mode::Extract => activate_extractor(world, kinetics, pos, &funnel),
                 Mode::PushingToBelt => {
-                    activate_extracting_belt_funnel(world, kinetics, pos, funnel.state)
+                    activate_extracting_belt_funnel(world, kinetics, pos, &funnel)
                 }
                 _ => false,
             };
@@ -654,9 +826,49 @@ pub fn tick(world: World<'_>, kinetics: &mut Kinetics) {
         {
             funnel.dirty = false;
         }
+        render_filter(world, pos, &mut funnel);
         kinetics.funnels.entries.insert(pos, funnel);
     }
     kinetics.funnels.order = order;
+}
+
+fn render_filter(world: World<'_>, pos: Pos, funnel: &mut FunnelBlockEntity) {
+    let active = funnel
+        .data
+        .filter
+        .stack
+        .as_ref()
+        .filter(|_| funnel.state.brass);
+    if active.is_none() && funnel.filter_display.is_none() {
+        return;
+    }
+    let state = funnel.state;
+    let side = if state.facing < 2 {
+        funnel.data.filter.side(2)
+    } else {
+        state.facing
+    };
+    let [x, _, z] = FACES[usize::from(side)].map(f64::from);
+    let (height, distance) = if state.facing < 2 {
+        (if state.facing == DOWN { 0.875 } else { 0.125 }, 0.49)
+    } else {
+        match state.shape {
+            Some(Shape::Extended) => (0.985, 0.31),
+            Some(Shape::Retracted) => (0.82, 0.04),
+            _ => (0.765, 0.07),
+        }
+    };
+    let mut shown = belt_inventory::item_display(
+        [
+            f64::from(pos.x) + 0.5 + x * distance,
+            f64::from(pos.y) + height,
+            f64::from(pos.z) + 0.5 + z * distance,
+        ],
+        filtering::preview_angle(side),
+        state.shape != Some(Shape::Extended),
+    );
+    shown.scale = 0.24;
+    filtering::render(world, active, &mut funnel.filter_display, shown);
 }
 
 fn try_insert(
@@ -665,19 +877,50 @@ fn try_insert(
     pos: Pos,
     state: FunnelState,
     item: &TransportedItemStack,
+    from_belt: bool,
+    simulate: bool,
 ) -> i32 {
     if state.powered {
         return 0;
     }
-    let amount = insert(
-        world,
-        kinetics,
-        state.storage(pos),
-        state.facing,
-        item,
-        false,
-    );
-    if amount > 0 {
+    let mut exact_batch = None;
+    if state.brass {
+        let Some(data) = kinetics
+            .funnels
+            .entries
+            .get(&pos)
+            .map(|funnel| &funnel.data.filter)
+        else {
+            return 0;
+        };
+        if !data.matches(&item.item) {
+            return 0;
+        }
+        if from_belt && data.exact() {
+            if count(&item.item) < data.amount() {
+                return 0;
+            }
+            exact_batch = Some(TransportedItemStack::new(with_count(
+                &item.item,
+                data.amount(),
+            )));
+        }
+    }
+    let target = state.storage(pos);
+    let amount = if let Some(batch) = &exact_batch {
+        if insert(world, kinetics, target, state.facing, batch, true) != count(&batch.item) {
+            return 0;
+        }
+        if simulate {
+            count(&batch.item)
+        } else {
+            insert(world, kinetics, target, state.facing, batch, false)
+        }
+    } else {
+        insert(world, kinetics, target, state.facing, item, simulate)
+    };
+    if amount > 0 && !simulate {
+        crate::content_observer::funnel_transfer(world, kinetics, pos, &item.item);
         flap(world, pos, state);
     }
     amount
@@ -690,11 +933,31 @@ pub fn direct_input_present(funnels: &Funnels, pos: Pos) -> bool {
         .is_some_and(|funnel| funnel.state.shape.is_none())
 }
 
+pub(crate) fn insert_from_arm(
+    world: World<'_>,
+    kinetics: &mut Kinetics,
+    pos: Pos,
+    item: &TransportedItemStack,
+    simulate: bool,
+) -> i32 {
+    let Some(state) = kinetics
+        .funnels
+        .entries
+        .get(&pos)
+        .map(|funnel| funnel.state)
+        .filter(|state| state.is_arm_point())
+    else {
+        return 0;
+    };
+    try_insert(world, kinetics, pos, state, item, false, simulate)
+}
+
 pub fn insert_from_belt_end(
     world: World<'_>,
     kinetics: &mut Kinetics,
     pos: Pos,
     item: &TransportedItemStack,
+    simulate: bool,
 ) -> i32 {
     let Some(state) = kinetics
         .funnels
@@ -704,10 +967,10 @@ pub fn insert_from_belt_end(
     else {
         return 0;
     };
-    if state.shape.is_some() || state.extracting || state.facing != UP {
+    if !state.supports_direct_input() {
         return 0;
     }
-    try_insert(world, kinetics, pos, state, item)
+    try_insert(world, kinetics, pos, state, item, false, simulate)
 }
 
 pub fn blocks_chute(funnels: &Funnels, pos: Pos) -> bool {
@@ -764,7 +1027,7 @@ pub fn check_for_funnels(
             changed |= item.pos != entry;
             item.pos = entry;
         }
-        let accepted = try_insert(world, kinetics, pos, state, item);
+        let accepted = try_insert(world, kinetics, pos, state, item, true, false);
         if accepted > 0 {
             item.resize(world, count(&item.item) - accepted);
             changed = true;
@@ -803,7 +1066,9 @@ pub fn pull_from_depots(world: World<'_>, kinetics: &mut Kinetics) {
         let Some(mut depot) = kinetics.depots.remove(&below) else {
             continue;
         };
-        depot.export_to_funnel(world, |item| try_insert(world, kinetics, pos, state, item));
+        depot.export_to_funnel(world, |item| {
+            try_insert(world, kinetics, pos, state, item, false, false)
+        });
         kinetics.depots.insert(below, depot);
     }
 }
@@ -817,13 +1082,28 @@ pub fn use_item_on(
     let Some(&state) = states.funnels.get(&context.state) else {
         return BlockUseResult::Pass;
     };
-    let Some(bytes) = context.stack.read() else {
+    let item = context
+        .stack
+        .read()
+        .and_then(|bytes| fastnbt::from_bytes::<Value>(&bytes).ok());
+    let pos = context.position;
+    if state.brass
+        && context.main_hand
+        && let Some(side) = state.filter_side(context.face, context.hit)
+        && let Some(funnel) = kinetics.funnels.entries.get_mut(&pos)
+        && funnel.data.filter.configure(
+            context,
+            item.as_ref(),
+            side,
+            state.shape.is_some() || state.extracting,
+        )
+    {
+        funnel.dirty = true;
+        return BlockUseResult::Success;
+    }
+    let Some(item) = item else {
         return BlockUseResult::TryEmptyHand;
     };
-    let Ok(item) = fastnbt::from_bytes::<Value>(&bytes) else {
-        return BlockUseResult::Fail;
-    };
-    let pos = context.position;
     if matches!(&item, Value::Compound(tag) if matches!(tag.get("id"), Some(Value::String(id)) if id == WRENCH))
     {
         let mut next = state;
@@ -861,7 +1141,7 @@ pub fn use_item_on(
         return BlockUseResult::TryEmptyHand;
     }
     let item = TransportedItemStack::new(item);
-    let accepted = try_insert(world, kinetics, pos, state, &item);
+    let accepted = try_insert(world, kinetics, pos, state, &item, false, false);
     if accepted > 0 {
         context.stack.shrink(accepted as u32);
     }
@@ -898,7 +1178,7 @@ pub fn entity_inside(
         return;
     };
     let mut item = TransportedItemStack::new(item);
-    let accepted = try_insert(world, kinetics, pos, state, &item);
+    let accepted = try_insert(world, kinetics, pos, state, &item, false, false);
     if accepted > 0 {
         let rest = count(&item.item) - accepted;
         if rest == 0 {
@@ -915,6 +1195,34 @@ pub fn entity_inside(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrapped_filter_loads_the_existing_flat_funnel_tags() {
+        let saved = HashMap::from([
+            ("TransferCooldown".into(), Value::Int(7)),
+            ("FilterAmount".into(), Value::Int(3)),
+            ("UpTo".into(), Value::Byte(0)),
+            (
+                "Filter".into(),
+                Value::Compound(HashMap::from([
+                    ("id".into(), Value::String("minecraft:iron_ingot".into())),
+                    ("count".into(), Value::Int(1)),
+                ])),
+            ),
+        ]);
+        let bytes = fastnbt::to_bytes(&Value::Compound(saved)).expect("legacy funnel");
+        let data: FunnelData = fastnbt::from_bytes(&bytes).expect("load filter");
+        assert!(data.filter.exact());
+        assert_eq!(data.filter.amount(), 3);
+        assert_eq!(data.transfer_cooldown, 7);
+        assert_eq!(
+            data.filter
+                .stack
+                .as_ref()
+                .and_then(crate::processing_recipes::item_id),
+            Some("minecraft:iron_ingot")
+        );
+    }
 
     #[test]
     fn entry_is_on_the_approach_side_of_an_extended_funnel() {

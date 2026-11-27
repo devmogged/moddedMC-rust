@@ -10,7 +10,7 @@ pub struct SavedData(&'static abi::SavedDataV1);
 
 /// Opaque runtime key, obtained during a successful mod registration. Re-register after restart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Key(u64);
+pub struct Key(pub(crate) u64);
 
 pub fn require() -> Result<SavedData, InterfaceUnavailable> {
     // SAFETY: moddedmc:saved_data v1 has the complete published table.

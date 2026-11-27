@@ -1,0 +1,162 @@
+# Craft and configure a List Filter, save it in a Smart Chute, then recover and invert it.
+mods target\mods\create.mmc
+start
+expect registered content item create:filter
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2601.5 105 2600.5 0 0
+wait 3
+cmd fill 2597 101 2597 2606 109 2606 minecraft:air
+cmd fill 2597 100 2597 2606 100 2606 minecraft:stone
+cmd tp tester 2601.5 101 2600.5 0 0
+cmd gamemode survival tester
+cmd setblock 2602 101 2600 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with minecraft:iron_nugget 2
+cmd item replace entity tester hotbar.1 with minecraft:white_wool
+wait 0.5
+bot use 2602 101 2600 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 2 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:filter 0
+wait 0.5
+expect Found 1 matching item
+
+cmd item replace entity tester weapon.offhand with minecraft:iron_ingot 4
+wait 0.5
+bot use-item main
+wait 0.5
+expect Allow list 1/18 - Match item type - iron ingot
+cmd data get entity tester Inventory[{Slot:-106b}].count
+wait 0.5
+expect entity data: 4$
+cmd item replace entity tester weapon.offhand with minecraft:wooden_pickaxe[minecraft:damage=7]
+wait 0.5
+bot use-item main
+wait 0.5
+expect Allow list 2/18 - Match item type - iron ingot - wooden pickaxe
+bot input sneak
+wait 0.25
+bot use-item main
+wait 0.5
+expect Allow list 2/18 - Match components
+bot input none
+cmd data get entity tester Inventory[{Slot:-106b}].components."minecraft:damage"
+wait 0.5
+expect entity data: 7$
+cmd item replace entity tester weapon.offhand with minecraft:air
+
+cmd setblock 2601 100 2602 minecraft:barrel
+cmd setblock 2602 101 2602 minecraft:redstone_block
+cmd setblock 2601 101 2602 create:smart_chute[powered=true]
+cmd setblock 2601 102 2602 minecraft:chest
+wait 0.5
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:filter - Up to 64
+cmd clear tester create:filter 0
+wait 0.5
+expect No items were found
+cmd item replace block 2601 102 2602 container.0 with minecraft:gold_ingot 4
+cmd item replace block 2601 102 2602 container.1 with minecraft:wooden_pickaxe[minecraft:damage=2]
+cmd item replace block 2601 102 2602 container.2 with minecraft:iron_ingot 3
+cmd item replace block 2601 102 2602 container.3 with minecraft:wooden_pickaxe[minecraft:damage=7]
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2601 101 2602 Filter.id
+wait 0.5
+expect block data: "create:filter"
+cmd setblock 2602 101 2602 minecraft:air
+wait 3
+cmd data get block 2601 100 2602 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 3$
+cmd data get block 2601 100 2602 Items[{Slot:1b}].components."minecraft:damage"
+wait 0.5
+expect block data: 7$
+cmd data get block 2601 102 2602 Items[{Slot:0b}].count
+wait 0.5
+expect block data: 4$
+cmd data get block 2601 102 2602 Items[{Slot:1b}].components."minecraft:damage"
+wait 0.5
+expect block data: 2$
+
+cmd setblock 2602 101 2602 minecraft:redstone_block
+bot input sneak
+wait 0.25
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect any item - Up to 64
+cmd clear tester create:filter 0
+wait 0.5
+expect Found 1 matching item
+bot use-item main
+wait 0.5
+expect Deny list 2/18 - Match components
+bot input none
+wait 0.25
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:filter - Up to 64
+cmd item replace block 2601 102 2602 container.2 with minecraft:iron_ingot 2
+cmd setblock 2602 101 2602 minecraft:air
+wait 3
+cmd data get block 2601 100 2602 Items[{Slot:2b}].count
+wait 0.5
+expect block data: 4$
+cmd data get block 2601 100 2602 Items[{Slot:3b}].components."minecraft:damage"
+wait 0.5
+expect block data: 2$
+cmd data get block 2601 102 2602 Items[{Slot:2b}].id
+wait 0.5
+expect block data: "minecraft:iron_ingot"
+
+# Replacing the List Filter with a ghost sample returns the configured physical item.
+cmd item replace entity tester hotbar.0 with minecraft:iron_ingot
+wait 0.5
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect minecraft:iron_ingot - Up to 64
+cmd clear tester create:filter 0
+wait 0.5
+expect Found 1 matching item
+cmd clear tester minecraft:iron_ingot 0
+wait 0.5
+expect Found 1 matching item
+bot hotbar 1
+wait 0.25
+bot use-item main
+wait 0.5
+expect Deny list 2/18 - Match components
+bot use 2601 101 2602 north main 0.5 0.6875 0
+wait 0.5
+expect create:filter - Up to 64
+cmd setblock 2601 101 2602 minecraft:air destroy
+wait 1
+cmd data get entity @e[type=minecraft:item,nbt={Item:{id:"create:filter"}},limit=1] Item.components."minecraft:custom_data"."create:list_filter".Deny
+wait 0.5
+expect entity data: 1b$
+reject (?i)panicked|trapped|failed to register|\[bot\] error
+bot quit
+stop

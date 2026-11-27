@@ -114,7 +114,8 @@ cmd loot spawn 2450 102 2449 mine 2450 101 2449
 wait 0.5
 expect Dropped 1 .*Train Casing
 cmd item replace entity tester weapon.mainhand with minecraft:air
-wait 0.5
+cmd tp tester 2451.5 101 2451.5 180 35
+wait 0.75
 bot use 2451 100 2450
 wait 0.5
 cmd station 2451 100 2450

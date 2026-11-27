@@ -1,0 +1,65 @@
+# Release palette and recipe data load, place, drop, and survive a restart.
+mods target\mods\create.mmc
+start
+expect-all registered content block create:cut_andesite \(1 states\) && registered content block create:granite_pillar \(3 states\) && registered content block create:oak_window \(1 states\)
+expect Loaded built-in datapack 'mod/create': [1-9][0-9]* recipe\(s\), [1-9][0-9]* loot table\(s\), [1-9][0-9]* tag\(s\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 2722.5 101 2722.5
+wait 2
+cmd fill 2717 99 2717 2726 99 2726 minecraft:stone
+cmd fill 2717 100 2717 2726 104 2726 minecraft:air
+cmd setblock 2720 100 2720 minecraft:stone
+cmd gamemode survival tester
+cmd item replace entity tester hotbar.0 with create:granite_pillar 2
+wait 0.5
+bot place 2720 100 2720 east
+wait 0.65
+cmd execute if block 2721 100 2720 create:granite_pillar[axis=x]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with create:oak_window
+wait 0.5
+bot place 2720 100 2720 up
+wait 0.65
+cmd execute if block 2720 101 2720 create:oak_window
+wait 0.5
+expect Test passed
+bot expect entity minecraft:item_display near 2720.5 101.5 2720.5 within 0.05 count 1
+wait 0.4
+expect \[bot\] expect entity ok minecraft:item_display
+cmd recipe give tester create:oak_window
+wait 0.3
+expect Unlocked 1 recipe
+cmd recipe give tester create:cut_andesite_from_stone_types_andesite_stonecutting
+wait 0.3
+expect Unlocked 1 recipe
+cmd setblock 2719 100 2720 create:cut_andesite
+cmd loot spawn 2719 101 2720 mine 2719 100 2720 minecraft:iron_pickaxe
+wait 0.4
+expect Dropped 1 .*Cut Andesite
+bot expect entity minecraft:item_display near 2719.5 100.5 2720.5 within 0.05 count 0
+wait 0.4
+expect \[bot\] expect entity ok minecraft:item_display
+cmd setblock 2718 100 2719 minecraft:jungle_log
+cmd setblock 2718 101 2719 minecraft:jungle_leaves[distance=1,persistent=true,waterlogged=false]
+cmd execute if block 2718 101 2719 minecraft:jungle_leaves[distance=1,persistent=true,waterlogged=false]
+wait 0.4
+expect Test passed
+bot expect block 2718 101 2719 minecraft:jungle_leaves[distance=7,persistent=true,waterlogged=false]
+wait 0.4
+expect \[bot\] expect block ok 2718 101 2719
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 2721 100 2720 create:granite_pillar[axis=x] if block 2720 101 2720 create:oak_window if block 2719 100 2720 create:cut_andesite
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|\[bot\] error
+stop

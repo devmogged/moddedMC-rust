@@ -12,13 +12,16 @@ use moddedmc_api::{
         self, Block, BlockUpdate, Content, ContentEvent, Placement, ShapeBox, State, World,
         WorldExtension,
     },
+    crafting::{self, Crafting},
     effects::{self, Effects},
     entities::{
         self, ENTITY_LIVING, ENTITY_PLAYER, Entities, EntitiesExtension, Entity, EntityChange,
     },
     interaction::{
-        self, BlockUseResult, Interaction, InteractionExtension, UseBlock, UseOnBlock, UseResult,
+        self, BlockUseResult, Interaction, InteractionExtension, ItemUse, ItemUseResult, UseBlock,
+        UseOnBlock, UseResult,
     },
+    item_input::{self, ItemInput},
     items::{self, Item, Items},
     resources::{self, Resources},
     stacks::{self, Displays, ItemStacks},
@@ -26,42 +29,67 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
+mod arm;
+mod arm_display;
+mod attribute_filter;
 mod basin;
 pub mod basin_inventory;
 mod bearing;
 mod belt;
+mod belt_casing;
 mod belt_inventory;
 mod belt_movement;
+mod belt_tunnel;
 mod blaze_burner;
+mod brass_tunnel;
+mod chain_drive;
 mod chassis;
 mod chute;
 mod collider;
+mod content_observer;
 mod contraption;
+mod crafter;
 mod crusher;
+mod decor;
 mod deployer;
 mod depot;
+mod directed_detector;
+mod display_model;
 mod drill;
 mod elevator;
 mod fan;
+mod filtering;
 mod funnel;
 // WS-2 Create fluids
 pub mod fluids;
 mod gantry;
 mod glue;
+mod hand_crank;
 mod harvester;
 mod kinetics;
+mod large_water_wheel;
+mod list_filter;
 mod manual_application;
 mod millstone;
 mod mixer;
 mod piston;
+mod plough;
 mod press;
 mod processing_recipes;
 mod pulley;
+mod sail;
 mod sandpaper;
+mod saw;
+mod saw_processing;
 mod seat;
 mod shaft_casing;
+mod speed_controller;
+mod steam_engine;
+mod steam_whistle;
 mod sticker;
+mod threshold_switch;
 mod trains;
+mod water_wheel;
 mod zinc;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
@@ -94,8 +122,10 @@ const STONE: &str = "minecraft:andesite";
 static CONTENT: OnceLock<Content> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ITEMS: OnceLock<Items> = OnceLock::new();
+static ITEM_INPUT: OnceLock<ItemInput> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
 static INTERACTION: OnceLock<Interaction> = OnceLock::new();
+static CRAFTING: OnceLock<Crafting> = OnceLock::new();
 static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static DISPLAYS: OnceLock<Displays> = OnceLock::new();
 static BLOCK_DISPLAYS: OnceLock<BlockDisplays> = OnceLock::new();
@@ -155,9 +185,12 @@ impl Mod for Create {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
         let content = content::require()?;
         content.require_replaced()?;
+        content.require_block_material()?;
         fluids::tank_connectivity::require()?;
         fluids::open_end_runtime::require()?;
+        water_wheel::require()?;
         content.require_extension(WorldExtension::NeighborSignal)?;
+        content.require_extension(WorldExtension::BestNeighborSignal)?;
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
         content.require_extension(WorldExtension::CollisionShape)?;
@@ -167,6 +200,10 @@ impl Mod for Create {
         content.require_extension(WorldExtension::Survival)?;
         content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::BlockDrops)?;
+        content.require_extension(WorldExtension::BlockTransformer)?;
+        content.require_extension(WorldExtension::RedstoneConductor)?;
+        content.require_extension(WorldExtension::PlayerActorBlockDrops)?;
+        content.require_extension(WorldExtension::NeighborShapes)?;
         let _ = CONTENT.set(content);
         // WS-3: save-global Create railway data through the generic ABI.
         trains::require_saved()?;
@@ -177,20 +214,27 @@ impl Mod for Create {
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::MayBuild)?;
         entities.require_extension(EntitiesExtension::Carriers)?;
+        entities.require_extension(EntitiesExtension::Damage)?;
         let _ = ENTITIES.set(entities);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::BlockUse)?;
         interaction.require_extension(InteractionExtension::ItemUse)?;
         interaction.require_extension(InteractionExtension::VanillaItemUse)?;
         interaction.require_extension(InteractionExtension::PlaceHeldBlock)?;
+        interaction.require_extension(InteractionExtension::Exhaustion)?;
         interaction.require_extension(InteractionExtension::Redstone)?;
         interaction.require_extension(InteractionExtension::PlayerWillDestroy)?;
+        interaction.require_extension(InteractionExtension::PlayerPlaced)?;
         let _ = INTERACTION.set(interaction);
-        let _ = EFFECTS.set(effects::require()?);
+        let effects = effects::require()?;
+        effects.require_entity_sound()?;
+        let _ = EFFECTS.set(effects);
         let item_stacks = stacks::require()?;
         item_stacks.require_extension(stacks::StacksExtension::Component)?;
         item_stacks.require_extension(stacks::StacksExtension::Fuel)?;
         let _ = STACKS.set(item_stacks);
+        let _ = CRAFTING.set(crafting::require()?);
+        let _ = ITEM_INPUT.set(item_input::require()?);
         let _ = DISPLAYS.set(stacks::require_displays()?);
         let _ = BLOCK_DISPLAYS.set(block_displays::require()?);
         let _ = CONTAINERS.set(containers::require()?);
@@ -230,10 +274,29 @@ impl Mod for Create {
                     },
                 )?;
         }
+        ITEMS
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .add_item(
+                registry,
+                &Item {
+                    id: "create:brass_nugget",
+                    display_name: "Brass Nugget",
+                    carrier: "minecraft:iron_nugget",
+                    model: "create:item/brass_nugget",
+                },
+            )?;
         register_relays(content, registry)?;
         register_motor(content, registry)?;
+        crafter::register(*content, registry)?;
+        water_wheel::register(*content, registry)?;
+        large_water_wheel::register(*content, registry)?;
+        hand_crank::register(*content, registry)?;
+        speed_controller::register(*content, registry)?;
+        chain_drive::register(*content, registry)?;
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
+        decor::register(*content, registry)?;
         for (path, name) in [
             ("sturdy_sheet", "Sturdy Sheet"),
             ("unprocessed_obsidian_sheet", "Unprocessed Obsidian Sheet"),
@@ -255,11 +318,24 @@ impl Mod for Create {
         trains::register(content, registry)?;
         trains::register_saved(*content, registry)?;
         belt::register(content, registry)?;
+        belt_tunnel::register(*content, registry)?;
+        arm::register(*content, registry)?;
+        threshold_switch::register(*content, registry)?;
+        content_observer::register(*content, registry)?;
+        ITEM_INPUT
+            .get()
+            .ok_or(RegistrationError::InvalidDefinition)?
+            .register(
+                registry,
+                &[crafter::ID, belt_tunnel::ID, belt_tunnel::BRASS],
+                receive_item,
+            )?;
         depot::register(*content, registry)?;
         deployer::register(*content, registry)?;
         chute::register(*content, registry)?;
         funnel::register(*content, registry)?;
         press::register(*content, registry)?;
+        saw::register(*content, registry)?;
         basin::register(*content, registry)?;
         mixer::register(*content, registry)?;
         blaze_burner::register(*content, registry)?;
@@ -274,6 +350,7 @@ impl Mod for Create {
         fluids::hose_pulley::register(*content, registry)?;
         fan::register(*content, registry)?;
         bearing::register(*content, registry)?;
+        sail::register(*content, registry)?;
         piston::register(*content, registry)?;
         gantry::register(*content, registry)?;
         pulley::register(*content, registry)?;
@@ -284,6 +361,9 @@ impl Mod for Create {
         seat::register(*content, registry)?;
         drill::register(*content, registry)?;
         harvester::register(*content, registry)?;
+        plough::register(*content, registry)?;
+        steam_engine::register(*content, registry)?;
+        steam_whistle::register(*content, registry)?;
         millstone::register(*content, registry)?;
         crusher::register(*content, registry)?;
         ITEMS
@@ -314,12 +394,15 @@ impl Mod for Create {
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?;
         interaction.on_use_on_block(registry, use_on_block)?;
-        interaction.on_item_use(registry, sandpaper::item_use)?;
+        interaction.on_item_use(registry, item_use)?;
         sandpaper::register(registry)?;
+        list_filter::register(registry)?;
+        attribute_filter::register(registry)?;
         interaction.on_vanilla_use_on_block(registry, manual_application::use_on_block)?;
         interaction.on_use_block(registry, use_block)?;
-        interaction.on_redstone(registry, elevator::signal, elevator::connects)?;
-        interaction.on_player_will_destroy(registry, piston::player_will_destroy)?;
+        interaction.on_redstone(registry, redstone_signal, redstone_connects)?;
+        interaction.on_player_will_destroy(registry, player_will_destroy)?;
+        interaction.on_player_placed(registry, player_placed)?;
         content.on_tick(registry, tick)?;
         ENTITIES
             .get()
@@ -872,14 +955,22 @@ struct KnownState {
 #[derive(Default)]
 struct StateIds {
     contraption_blocks: contraption::BlockMovementChecks,
+    steam_engines: HashMap<u32, steam_engine::EngineBlock>,
+    steam_whistles: HashMap<u32, steam_whistle::WhistleBlock>,
+    whistle_extensions: HashMap<u32, steam_whistle::Extension>,
     chutes: HashMap<u32, chute::ChuteState>,
     funnels: HashMap<u32, funnel::FunnelState>,
+    tunnels: HashMap<u32, belt_tunnel::Tunnel>,
     contacts: HashMap<u32, elevator::Contact>,
+    switches: HashMap<u32, threshold_switch::SwitchState>,
+    observers: HashMap<u32, content_observer::ObserverState>,
     crusher_controllers: HashMap<u32, (u8, bool)>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
     /// Vanilla blocks a belt may run through (`canBeReplaced`).
     replaceable: HashSet<u32>,
+    wheel_replaceable: HashSet<u32>,
+    wheel_parts: [Option<u32>; 6],
     /// Vanilla blocks with `getDestroySpeed == -1`.
     unbreakable: HashSet<u32>,
     /// States holding water: water itself and waterlogged content states.
@@ -925,11 +1016,12 @@ impl StateIds {
         self.water.contains(&state)
     }
 
-    /// The state for a clutch or gearshift `POWERED` toggle.
+    /// The state for a relay reconfiguration.
     fn state_of(&self, kind: Kind) -> Option<u32> {
         let (block, axis, powered) = match kind {
             Kind::Clutch(axis, powered) => (CLUTCH, axis, powered),
             Kind::Gearshift(axis, powered) => (GEARSHIFT, axis, powered),
+            Kind::ChainDrive(drive) => return self.lookup(&drive.selector()),
             _ => return None,
         };
         self.by_selector
@@ -1027,17 +1119,33 @@ fn states() -> Option<&'static StateIds> {
             ids.add(content, depot::ID, properties, None);
         }
         belt::add_states(&mut ids, content);
+        belt_tunnel::add_states(content, &mut ids);
+        arm::add_states(content, &mut ids);
+        threshold_switch::add_states(content, &mut ids);
+        content_observer::add_states(content, &mut ids);
+        ids.add(content, fluids::item_drain::ID, "", None);
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
+        crafter::add_states(content, &mut ids);
         press::add_states(content, &mut ids);
+        saw::add_states(content, &mut ids);
+        water_wheel::add_states(content, &mut ids);
+        large_water_wheel::add_states(content, &mut ids);
+        hand_crank::add_states(content, &mut ids);
+        speed_controller::add_states(content, &mut ids);
+        chain_drive::add_states(content, &mut ids);
         deployer::add_states(content, &mut ids);
         basin::add_states(content, &mut ids);
         ids.add(content, mixer::ID, "", Some(Kind::Mixer));
         fan::add_states(content, &mut ids);
         bearing::add_states(content, &mut ids);
+        sail::add_states(content, &mut ids);
         seat::add_states(content, &mut ids);
         drill::add_states(content, &mut ids);
-        harvester::add_states(content, &mut ids);
+        harvester::add_states(content, &mut ids, harvester::ID);
+        harvester::add_states(content, &mut ids, plough::ID);
+        steam_engine::add_states(content, &mut ids);
+        steam_whistle::add_states(content, &mut ids);
         piston::add_states(content, &mut ids);
         gantry::add_states(content, &mut ids);
         pulley::add_states(content, &mut ids);
@@ -1071,6 +1179,14 @@ fn states() -> Option<&'static StateIds> {
                 ids.unbreakable.insert(id);
             }
         }
+        ids.wheel_replaceable.extend(
+            ["water", "lava"]
+                .into_iter()
+                .flat_map(|fluid| {
+                    (0..16).map(move |level| format!("minecraft:{fluid}[level={level}]"))
+                })
+                .filter_map(|selector| content.state(&selector)),
+        );
         ids.water = ids
             .by_id
             .iter()
@@ -1102,18 +1218,39 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return Some(track);
     }
     let states = states()?;
+    if states.observers.contains_key(&args.state) {
+        return content_observer::place(&args, states);
+    }
+    if states.switches.contains_key(&args.state) {
+        return threshold_switch::place(&args, states);
+    }
+    if states.tunnels.contains_key(&args.state) {
+        return belt_tunnel::placed_state(args);
+    }
     if states.chutes.contains_key(&args.state) {
         return chute::placed_state(args, states);
     }
     if let Some(&default) = states.funnels.get(&args.state) {
         return funnel::placed_state(args, default, states);
     }
-    let placed = states.by_id.get(&args.state)?;
+    let Some(placed) = states.by_id.get(&args.state) else {
+        return decor::placed_state(&args, *CONTENT.get()?);
+    };
     if seat::is_seat(placed.block) {
         return seat::placed_state(args, placed.block);
     }
-    if placed.block == harvester::ID {
-        return harvester::placed_state(&args, nearest_looking_direction(args.yaw, 0.0));
+    if placed.block == steam_whistle::ID {
+        return steam_whistle::place(args, states);
+    }
+    if placed.block == steam_engine::ID {
+        return steam_engine::place(args);
+    }
+    if matches!(placed.block, harvester::ID | plough::ID) {
+        return harvester::placed_state(
+            placed.block,
+            &args,
+            nearest_looking_direction(args.yaw, 0.0),
+        );
     }
     if placed.block == press::ID {
         return press::placed_state(args, states);
@@ -1151,7 +1288,55 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         (None, _) => face_axis(look),
     };
     let selector = match placed.kind {
+        Some(Kind::Arm(_)) => return arm::placed(args, states),
+        Some(Kind::Crafter(_)) => {
+            return crafter::placed(
+                states,
+                ids[usize::from(args.face)],
+                args.face ^ 1,
+                nearest_looking_direction(args.yaw, 0.0),
+                args.sneak,
+            );
+        }
+        None if sail::is_sail(placed.block) => {
+            let facing = if args.sneak {
+                look ^ 1
+            } else {
+                sail::prefer_neighbor(states, ids[usize::from(args.face)], args.face)
+                    .unwrap_or(look ^ 1)
+            };
+            format!(
+                "{}[facing={}]",
+                placed.block,
+                DIRECTIONS[usize::from(facing)]
+            )
+        }
+        Some(Kind::LargeWaterWheel(_)) => {
+            return large_water_wheel::placed(
+                args.world,
+                states,
+                args.position,
+                ids[large_water_wheel::negative(pillar_axis)],
+                pillar_axis,
+            );
+        }
+        Some(Kind::HandCrank(_)) => {
+            let face = if args.sneak || preferred.is_none() {
+                args.face ^ 1
+            } else {
+                connected.clone().next_back()? ^ 1
+            };
+            if !hand_crank::supported(args.world, args.position, face)? {
+                return None;
+            }
+            format!(
+                "{}[facing={},waterlogged={wet}]",
+                hand_crank::ID,
+                DIRECTIONS[usize::from(face)]
+            )
+        }
         Some(Kind::Deployer { .. }) => return deployer::placed(&args, look, states, &ids),
+        Some(Kind::Saw(_)) => return saw::placed(&args, look, states, &ids),
         Some(Kind::HosePulley(_)) => {
             return fluids::hose_pulley::placed_state(&args, &ids, states);
         }
@@ -1176,7 +1361,11 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             return elevator::placed_contact(&args, look, states);
         }
         Some(Kind::Elevator(_)) => return elevator::placed_pulley(args.yaw),
-        Some(Kind::Pulley(_)) => {
+        Some(Kind::ChainDrive(drive)) => {
+            let axis = if args.sneak { None } else { preferred }.unwrap_or(face_axis(look));
+            return chain_drive::placed(args.world, states, args.position, drive, axis, &ids[..6]);
+        }
+        Some(Kind::SpeedController(_)) | Some(Kind::Pulley(_)) => {
             let horizontal = connected
                 .filter(|&direction| face_axis(direction) != 1)
                 .map(face_axis);
@@ -1185,7 +1374,11 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                 .next()
                 .filter(|first| horizontal.clone().all(|axis| *first == axis));
             let look_axis = face_axis(nearest_looking_direction(args.yaw, 0.0));
-            return pulley::placed_state(preferred.unwrap_or(look_axis ^ 2));
+            let axis = preferred.unwrap_or(look_axis ^ 2);
+            if matches!(placed.kind, Some(Kind::SpeedController(_))) {
+                return speed_controller::placed(states, ids[1], axis);
+            }
+            return pulley::placed_state(axis);
         }
         Some(Kind::GantryShaft(_)) => return gantry::place_shaft(args, states, &ids, look),
         Some(Kind::GantryCarriage(_)) => {
@@ -1229,7 +1422,13 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             };
             format!("{}[facing={}]", fan::ID, DIRECTIONS[usize::from(face)])
         }
-        Some(Kind::Bearing(_) | Kind::Windmill(_) | Kind::Drill(_) | Kind::Clockwork(_)) => {
+        Some(
+            Kind::Bearing(_)
+            | Kind::Windmill(_)
+            | Kind::Drill(_)
+            | Kind::Clockwork(_)
+            | Kind::WaterWheel(_),
+        ) => {
             let face = if args.sneak {
                 look
             } else {
@@ -1240,6 +1439,11 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
                     .unwrap_or(look)
                     ^ 1
             };
+            if placed.block == water_wheel::ID
+                && !water_wheel::can_place(states, &ids, face_axis(face))
+            {
+                return None;
+            }
             let direction = DIRECTIONS[usize::from(face)];
             if placed.block == drill::ID {
                 format!("{}[facing={direction},waterlogged={wet}]", placed.block)
@@ -1248,11 +1452,19 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
             }
         }
         None if placed.block == piston::POLE => return piston::pole_placement(args, wet),
-        Some(Kind::Shaft(_)) => format!(
-            "{SHAFT}[axis={},waterlogged={wet}]",
-            AXES[usize::from(pillar_axis)]
-        ),
+        Some(Kind::Shaft(_) | Kind::PoweredShaft(_)) => {
+            return steam_engine::shaft_state(states, args.position, pillar_axis, wet);
+        }
         Some(Kind::Small(_) | Kind::Large(_)) => {
+            if placed.block == LARGE
+                && !args.sneak
+                && let Some(Kind::SpeedController(axis)) = states.kind(ids[0])
+            {
+                return states.lookup(&format!(
+                    "{LARGE}[axis={},waterlogged={wet}]",
+                    AXES[usize::from(axis ^ 2)]
+                ));
+            }
             // CogWheelBlock.getAxisForPlacement
             let against = states.kind(ids[usize::from(args.face ^ 1)]);
             let axis = if args.sneak {
@@ -1344,9 +1556,21 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pointer: Option<fluids::valve::Pointer>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    powered_shaft: Option<steam_engine::PoweredShaftData>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
     press: Option<press::PressingData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     deployer: Option<deployer::Deployer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    drill: Option<drill::Stationary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    saw_breaking: Option<drill::Stationary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    saw_processing: Option<saw_processing::SawData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    arm: Option<arm::Arm>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    crafter: Option<crafter::CrafterData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     basin_recipe: Option<String>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
@@ -1366,7 +1590,15 @@ struct KineticData {
     #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<NetworkData>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    flow_score: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    in_use: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backwards: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     scroll_value: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signal: Option<i32>,
     // BeltBlockEntity.write and read.
     #[serde(skip_serializing_if = "Option::is_none")]
     controller: Option<fastnbt::IntArray>,
@@ -1416,7 +1648,24 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     else {
         return be;
     };
+    if kind.fluid_wheel() {
+        be.generated = data.flow_score.unwrap_or(0);
+    }
+    if matches!(kind, Kind::HandCrank(_)) {
+        let in_use = data.in_use.unwrap_or(0).clamp(0, hand_crank::USE_TICKS);
+        be.generated = if data.backwards == Some(true) {
+            -in_use
+        } else {
+            in_use
+        };
+    }
+    if matches!(kind, Kind::PoweredShaft(_)) {
+        be.powered_shaft = Some(Box::new(data.powered_shaft.unwrap_or_default()));
+    }
     be.speed = data.speed;
+    if chain_drive::from_kind(Some(kind)).is_some_and(|drive| drive.powered.is_some()) {
+        be.chain_signal = data.signal.unwrap_or(0).clamp(0, 15) as u8;
+    }
     be.valve = data.pointer;
     if let Some(press) = &mut be.press {
         press.data = data.press.unwrap_or_default();
@@ -1425,6 +1674,23 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
     if matches!(kind, Kind::Deployer { .. }) {
         be.deployer = Some(Box::new(data.deployer.unwrap_or_default()));
     }
+    be.block_breaking = match kind {
+        Kind::Drill(_) => data.drill,
+        Kind::Saw(_) => data.saw_breaking,
+        _ => None,
+    };
+    if matches!(kind, Kind::Saw(_)) {
+        be.saw_processing = data
+            .saw_processing
+            .map(saw_processing::Processing::load)
+            .map(Box::new);
+    }
+    if matches!(kind, Kind::Arm(_)) {
+        be.arm = Some(Box::new(data.arm.unwrap_or_default()));
+    }
+    if let Some(crafter) = &mut be.crafter {
+        crafter.data = data.crafter.unwrap_or_default();
+    }
     if kind == Kind::Mixer {
         be.mixer = data.mixer.map(mixer::Mixer::load).map(Box::new);
     }
@@ -1432,11 +1698,12 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         be.millstone = data.millstone.map(millstone::Millstone::load).map(Box::new);
     }
     if kind.is_bearing()
-        && let Some(data) = data.bearing
+        && let Some(saved) = data.bearing
     {
         let mut bearing = bearing::MechanicalBearing::default();
-        bearing.data = data;
+        bearing.data = saved;
         if matches!(kind, Kind::Windmill(_)) {
+            bearing.counter_clockwise = data.scroll_value == Some(1);
             be.generated = bearing.get_generated_speed();
         }
         be.bearing = Some(Box::new(bearing));
@@ -1471,10 +1738,13 @@ fn load(world: World<'_>, pos: Pos, kind: Kind) -> Be {
         be.last_capacity_provided = network.added_capacity;
         be.overstressed = be.capacity < be.stress;
     }
-    if let Some(value) = data.scroll_value {
+    if let Some(value) = data.scroll_value
+        && !matches!(kind, Kind::Windmill(_))
+    {
         be.generated = value.clamp(-MAX_SPEED, MAX_SPEED);
     }
     if matches!(kind, Kind::Belt(_)) {
+        be.belt_casing = belt_casing::Casing::load(data.casing.as_deref());
         be.controller = if data.is_controller == Some(true) {
             Some(pos)
         } else {
@@ -1496,8 +1766,18 @@ fn save(pos: Pos, be: &Be) -> KineticData {
     KineticData {
         speed: be.speed,
         pointer: be.valve,
+        powered_shaft: be.powered_shaft.as_deref().cloned(),
         press: be.press.as_ref().map(|press| press.data),
         deployer: be.deployer.as_deref().cloned(),
+        drill: be
+            .block_breaking
+            .filter(|_| matches!(be.kind, Kind::Drill(_))),
+        saw_breaking: be
+            .block_breaking
+            .filter(|_| matches!(be.kind, Kind::Saw(_))),
+        saw_processing: be.saw_processing.as_ref().map(|saw| saw.data.clone()),
+        arm: be.arm.as_deref().cloned(),
+        crafter: be.crafter.as_ref().map(|crafter| crafter.data.clone()),
         basin_recipe: be
             .press
             .as_ref()
@@ -1519,7 +1799,20 @@ fn save(pos: Pos, be: &Be) -> KineticData {
             added_stress: be.last_stress_applied,
             added_capacity: be.last_capacity_provided,
         }),
-        scroll_value: matches!(be.kind, Kind::Motor(_)).then_some(be.generated),
+        signal: chain_drive::from_kind(Some(be.kind))
+            .and_then(|drive| drive.powered)
+            .map(|_| i32::from(be.chain_signal)),
+        scroll_value: match be.kind {
+            Kind::Motor(_) | Kind::SpeedController(_) => Some(be.generated),
+            Kind::Windmill(_) => be
+                .bearing
+                .as_ref()
+                .map(|bearing| i32::from(bearing.counter_clockwise)),
+            _ => None,
+        },
+        flow_score: be.kind.fluid_wheel().then_some(be.generated),
+        in_use: matches!(be.kind, Kind::HandCrank(_)).then_some(be.generated.abs()),
+        backwards: matches!(be.kind, Kind::HandCrank(_)).then_some(be.generated < 0),
         ..belt_data(pos, be)
     }
 }
@@ -1535,7 +1828,7 @@ fn belt_data(pos: Pos, be: &Be) -> KineticData {
         is_controller: Some(be.controller == Some(pos)),
         length: Some(be.belt_length),
         index: Some(be.belt_index),
-        casing: Some("NONE".to_owned()),
+        casing: Some(be.belt_casing.saved().to_owned()),
         covered: Some(false),
         inventory: (be.controller == Some(pos)).then(|| {
             be.inventory
@@ -1552,6 +1845,7 @@ fn restore_moved_belt(world: World<'_>, pos: Pos, saved: &[u8]) -> bool {
     };
     let data = KineticData {
         is_controller: saved.is_controller,
+        casing: saved.casing,
         inventory: saved.inventory,
         ..KineticData::default()
     };
@@ -1570,6 +1864,10 @@ impl Level for WorldLevel<'_> {
 
     fn has_neighbor_signal(&self, pos: Pos) -> bool {
         self.world.has_neighbor_signal(pos)
+    }
+
+    fn best_neighbor_signal(&self, pos: Pos) -> u8 {
+        self.world.best_neighbor_signal(pos)
     }
 
     fn is_loaded(&self, pos: Pos) -> bool {
@@ -1608,6 +1906,24 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         let mut level = WorldLevel { world, states };
         let mut gantry_changed = false;
         for event in events {
+            if states.observers.contains_key(&event.state)
+                || states.observers.contains_key(&event.previous)
+            {
+                content_observer::event(world, states, &mut kinetics.content_observers, event);
+            }
+            if states.switches.contains_key(&event.state)
+                || states.switches.contains_key(&event.previous)
+            {
+                threshold_switch::event(world, states, &mut kinetics.threshold_switches, event);
+            }
+            large_water_wheel::event(world, states, &mut kinetics.pending_wheel_parts, event);
+            if [event.state, event.previous].into_iter().any(|state| {
+                states.steam_whistles.contains_key(&state)
+                    || states.whistle_extensions.contains_key(&state)
+            }) {
+                steam_whistle::event(world, states, &mut kinetics.steam_whistles, event);
+            }
+
             // WS-2: recalculate fluid pipe faces when adjacent blocks change.
             fluids::runtime::event(world, event);
             fluids::item_drain::event(world, &mut kinetics.item_drains, event);
@@ -1626,12 +1942,75 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             if states
                 .by_id
                 .get(&event.state)
-                .is_some_and(|entry| entry.block == harvester::ID)
+                .is_some_and(|entry| matches!(entry.block, harvester::ID | plough::ID))
             {
                 harvester::event(world, event);
             }
             let pos = event.position;
             let (before, after) = (states.kind(event.previous), states.kind(event.state));
+            if (event.reason == content::UNLOADED || !matches!(after, Some(Kind::Saw(_))))
+                && let Some(mut display) = kinetics.saw_blades.remove(&pos)
+            {
+                display.clear(world);
+            }
+            if (event.reason == content::UNLOADED || !matches!(after, Some(Kind::Saw(_))))
+                && let Some(processing) = kinetics
+                    .get_mut(pos)
+                    .and_then(|be| be.saw_processing.as_mut())
+            {
+                processing.clear_displays(world);
+                if event.reason == content::STATE_CHANGED {
+                    processing.drop_contents(world, pos);
+                }
+            }
+            if (after.is_none_or(|kind| !matches!(kind, Kind::Belt(_)))
+                || event.reason == content::UNLOADED)
+                && let Some(mut displays) = kinetics.belt_casing_displays.remove(&pos)
+            {
+                displays.clear(world);
+            }
+            if matches!(
+                event.reason,
+                content::STATE_CHANGED | content::MOVED_STATE_CHANGED | content::LOADED
+            ) {
+                let (previous, current) = (
+                    chain_drive::from_kind(before),
+                    chain_drive::from_kind(after),
+                );
+                if match (previous, current) {
+                    (Some(previous), Some(current)) => !previous.same_topology(current),
+                    (None, None) => false,
+                    _ => true,
+                } {
+                    chain_drive::refresh(world, states, pos);
+                }
+            }
+            if matches!(event.reason, content::STATE_CHANGED)
+                && let Some(Kind::Crafter(block)) = before
+                && !matches!(after, Some(Kind::Crafter(_)))
+            {
+                crafter::remove(world, kinetics, pos, block);
+            }
+            if matches!(event.reason, content::NEIGHBOR_CHANGED | content::LOADED)
+                && let Some(Kind::HandCrank(facing)) = after.or(before)
+                && hand_crank::supported(world, pos, facing) == Some(false)
+            {
+                world.destroy(pos, true);
+                continue;
+            }
+            if (event.reason == content::UNLOADED
+                || (matches!(before, Some(Kind::Arm(_))) && !matches!(after, Some(Kind::Arm(_)))))
+                && let Some(mut display) = kinetics.arm_displays.remove(&pos)
+            {
+                display.clear(world);
+            }
+            if (event.reason == content::UNLOADED
+                || (matches!(before, Some(Kind::Deployer { .. }))
+                    && !matches!(after, Some(Kind::Deployer { .. }))))
+                && let Some(mut displays) = kinetics.deployer_displays.remove(&pos)
+            {
+                displays.clear(world);
+            }
             if before == Some(Kind::Mixer)
                 && after != before
                 && let Some(mixer) = kinetics.get_mut(pos).and_then(|be| be.mixer.as_mut())
@@ -1648,6 +2027,9 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                 }
                 content::UNLOADED => {
                     if let Some(be) = kinetics.get_mut(pos) {
+                        if let Some(crafter) = &mut be.crafter {
+                            crafter.hide(world);
+                        }
                         if let Some(bearing) = &mut be.bearing {
                             bearing.clear_displays(world);
                         }
@@ -1664,20 +2046,33 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                     kinetics.unload(pos);
                 }
                 content::NEIGHBOR_CHANGED => {
-                    if let Some(be) = kinetics.get_mut(pos)
-                        && matches!(be.kind, Kind::Fan(_))
-                    {
-                        be.fan = None;
+                    if let Some(be) = kinetics.get_mut(pos) {
+                        match be.kind {
+                            Kind::Fan(_) => be.fan = None,
+                            Kind::Drill(_) | Kind::Saw(_) => {
+                                be.block_breaking
+                                    .get_or_insert_with(Default::default)
+                                    .wake();
+                                be.dirty = true;
+                            }
+                            _ => {}
+                        }
+                        if be.belt_casing != belt_casing::Casing::None {
+                            be.dirty = true;
+                        }
                     }
                     kinetics.neighbor_changed(&mut level, pos);
                 }
                 _ => match (before, after) {
+                    (Some(before), Some(Kind::ChainDrive(drive)))
+                        if before.same_block(Kind::ChainDrive(drive)) =>
+                    {
+                        kinetics.reconfigure_chain(&mut level, pos, drive);
+                    }
                     (Some(before), Some(after)) if before.equivalent(after) => {
                         kinetics.set_kind(pos, after);
                     }
-                    (Some(before), Some(after))
-                        if std::mem::discriminant(&before) == std::mem::discriminant(&after) =>
-                    {
+                    (Some(before), Some(after)) if before.same_block(after) => {
                         kinetics.reset(pos, after);
                     }
                     _ => {
@@ -1689,10 +2084,23 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
                             }
                         }
                         if let Some(kind) = after {
-                            let mut be = Be::new(kind);
-                            if matches!(kind, Kind::Belt(belt) if belt.part == kinetics::Part::Start)
+                            let mut be = if matches!(kind, Kind::Arm(_) | Kind::Saw(_))
+                                && event.reason == content::MOVED_STATE_CHANGED
                             {
-                                be.inventory = load(world, pos, kind).inventory;
+                                load(world, pos, kind)
+                            } else {
+                                Be::new(kind)
+                            };
+                            if let Kind::Belt(belt) = kind {
+                                let cased = states
+                                    .by_id
+                                    .get(&event.state)
+                                    .is_some_and(|state| state.selector.contains("casing=true"));
+                                if cased || belt.part == kinetics::Part::Start {
+                                    let saved = load(world, pos, kind);
+                                    be.belt_casing = saved.belt_casing;
+                                    be.inventory = saved.inventory;
+                                }
                             }
                             kinetics.insert(pos, be);
                         }
@@ -1704,22 +2112,29 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             gantry::refresh_lines(world, &mut level, kinetics);
         }
         kinetics.tick(&mut level);
+        water_wheel::tick(world, time, events, states, kinetics, &mut level);
         if let Some(&content) = CONTENT.get() {
             let rails_changed = kinetics.rail_updates.tick(world, content, time, events);
             kinetics
                 .signal_updates
                 .tick(world, content, time, events, rails_changed);
-            trains::station::tick(world, content, events, time, &mut kinetics.train_displays);
+            if trains::station::tick(world, content, events, time, &mut kinetics.train_runtime) {
+                kinetics.signal_updates.trains_changed();
+            }
         }
         kinetics.fluid_tanks.tick(world, time, events);
+        steam_engine::tick(world, states, kinetics, &mut level, events, time);
         // WS-2: distribute pump RPM as directional pipe pressures.
         let valve_changed = fluids::runtime::tick_valves(world, kinetics);
         fluids::hose_pulley::tick(world, kinetics);
         fluids::runtime::pressure_tick(world, kinetics, events, valve_changed);
         fluids::spout::tick(world, &mut kinetics.spouts);
         funnel::update_states(world, states, kinetics);
+        belt_tunnel::update(world, states, kinetics, events);
         press::tick(world, states, kinetics);
-        deployer::tick(world, kinetics);
+        deployer::tick(world, time, kinetics);
+        drill::tick(world, kinetics, time);
+        crafter::tick(world, kinetics, time);
         blaze_burner::tick(world, &mut kinetics.blaze_burners);
         mixer::tick(world, time, states, kinetics);
         bearing::tick(world, &states.contraption_blocks, kinetics, &mut level);
@@ -1731,10 +2146,14 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         }
         millstone::tick(world, kinetics);
         belt_movement::tick(world, kinetics, states);
+        arm::tick(world, states, kinetics, time);
+        threshold_switch::tick(world, states, kinetics, time);
         belt_inventory::tick(world, kinetics);
+        brass_tunnel::tick(world, states, kinetics);
         fluids::item_drain::tick(world, kinetics);
         chute::tick(world, states, kinetics);
         funnel::tick(world, kinetics);
+        content_observer::tick(world, states, kinetics);
         funnel::pull_from_depots(world, kinetics);
         depot::tick(world, kinetics);
         fan::tick(world, kinetics);
@@ -1743,17 +2162,114 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
     });
 }
 
+fn redstone_signal(query: &interaction::RedstoneQuery<'_>) -> u8 {
+    if let Some(state) = states().and_then(|states| states.observers.get(&query.state)) {
+        content_observer::signal(*state, query)
+    } else if states().is_some_and(|states| states.switches.contains_key(&query.state)) {
+        threshold_switch::signal(query)
+    } else {
+        elevator::signal(query)
+    }
+}
+
+fn redstone_connects(state: u32, direction: u8) -> bool {
+    if let Some(observer) = states().and_then(|states| states.observers.get(&state)) {
+        content_observer::connects(*observer, direction)
+    } else {
+        threshold_switch::connects(state, direction) || elevator::connects(state, direction)
+    }
+}
+
+fn player_placed(world: World<'_>, player: Entity<'_>, pos: Pos, state: u32) {
+    if states().is_some_and(|states| matches!(states.kind(state), Some(Kind::Arm(_)))) {
+        arm::player_placed(world, player, pos);
+    } else {
+        belt_tunnel::player_placed(world, player, pos, state);
+    }
+}
+
 fn content_replaced(world: World<'_>, event: &ContentEvent) {
     fluids::tank_connectivity::replaced(world, event);
     basin::replaced(world, event);
 }
 
+fn player_will_destroy(context: &moddedmc_api::interaction::PlayerWillDestroy<'_>) {
+    piston::player_will_destroy(context);
+    large_water_wheel::player_will_destroy(context);
+}
+
+fn validate_kinetic_placement(context: &UseOnBlock<'_>) -> UseResult {
+    let (Some(content), Some(states), Some(player), Some(step)) = (
+        CONTENT.get(),
+        states(),
+        context.player.and_then(|player| player.view()),
+        FACES.get(usize::from(context.face)),
+    ) else {
+        return UseResult::Fail;
+    };
+    let mut clicked = [content::UNLOADED_STATE];
+    if !context.world.read(&[context.position], &mut clicked)
+        || clicked[0] == content::UNLOADED_STATE
+    {
+        return UseResult::Fail;
+    }
+    let position = if states.replaceable.contains(&clicked[0]) {
+        context.position
+    } else {
+        offset(context.position, *step)
+    };
+    let Some(state) = content.state(context.item) else {
+        return UseResult::Fail;
+    };
+    if placed_state(Placement {
+        world: context.world,
+        state,
+        position,
+        // The placement callback sees the direction from the new block to its support.
+        face: context.face ^ 1,
+        sneak: context.sneaking,
+        yaw: player.yaw,
+        pitch: player.pitch,
+    })
+    .is_some()
+    {
+        UseResult::Pass
+    } else {
+        UseResult::Fail
+    }
+}
+
+fn receive_item(offer: item_input::Offer<'_>) -> u32 {
+    if states().is_some_and(|states| states.tunnels.contains_key(&offer.state)) {
+        belt_tunnel::receive_item(offer)
+    } else {
+        crafter::receive_item(offer)
+    }
+}
+
+fn item_use(context: &mut ItemUse<'_>) -> ItemUseResult {
+    match context.item {
+        list_filter::ID => list_filter::use_item(context),
+        attribute_filter::ID => attribute_filter::use_item(context),
+        _ => sandpaper::item_use(context),
+    }
+}
+
 fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
+    if context.item == arm::ID {
+        return states().map_or(UseResult::Fail, |states| arm::select(context, states));
+    }
     if context.item == blaze_burner::EMPTY {
         return blaze_burner::capture(context);
     }
     if matches!(context.item, CASING | BRASS_CASING | WRENCH)
         && let Some(result) = shaft_casing::use_on_shaft(context)
+    {
+        return result;
+    }
+    if context.item == WRENCH
+        && let Some(states) = states()
+        && let Some(result) = chain_drive::wrench(context, states)
     {
         return result;
     }
@@ -1763,6 +2279,28 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     // TrackBlockItem's two-click rail placement.
     if context.item == "create:track" {
         return trains::use_on_block(context);
+    }
+    if matches!(
+        context.item,
+        water_wheel::ID
+            | large_water_wheel::ID
+            | hand_crank::ID
+            | belt_tunnel::ID
+            | belt_tunnel::BRASS
+            | harvester::ID
+            | plough::ID
+            | steam_engine::ID
+            | steam_whistle::ID
+    ) {
+        return validate_kinetic_placement(context);
+    }
+    if context.item == large_water_wheel::STRUCTURE {
+        return UseResult::Fail;
+    }
+    if context.item == trains::schedule::ID
+        && let Some(&content) = CONTENT.get()
+    {
+        return trains::station::use_schedule(context, content);
     }
     if context.item == trains::station::ID {
         let Some(&content) = CONTENT.get() else {
@@ -1797,6 +2335,45 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
 
 /// `useItemOn` for the mod's blocks.
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
+    if let Some(states) = states() {
+        if let Some(&block) = states.steam_engines.get(&context.state) {
+            return steam_engine::use_block(context, states, block);
+        }
+        if let Some(result) = steam_whistle::use_block(context, states) {
+            return result;
+        }
+        if let Some(result) = arm::select_custom(context, states) {
+            return result;
+        }
+        if let Some(&state) = states.observers.get(&context.state) {
+            return with_world(context.world, |kinetics| {
+                let observer = kinetics
+                    .content_observers
+                    .entry(context.position)
+                    .or_insert_with(|| {
+                        content_observer::Observer::load(context.world, context.position)
+                    });
+                content_observer::use_block(context, states, state, observer)
+            });
+        }
+        if states.switches.contains_key(&context.state) {
+            return with_world(context.world, |kinetics| {
+                let switch = kinetics
+                    .threshold_switches
+                    .entry(context.position)
+                    .or_insert_with(|| {
+                        threshold_switch::Switch::load(context.world, context.position)
+                    });
+                threshold_switch::use_block(context, states, switch)
+            });
+        }
+        if matches!(states.kind(context.state), Some(Kind::Arm(_))) {
+            return with_world(context.world, |kinetics| arm::use_block(context, kinetics));
+        }
+    }
+    if let Some(result) = states().and_then(|states| belt_tunnel::use_block(context, states)) {
+        return result;
+    }
     if let Some(&content) = CONTENT.get() {
         if let Some(result) = trains::station::use_station(context, content) {
             return result;
@@ -1805,6 +2382,12 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
             return result;
         }
     }
+    if matches!(
+        states().and_then(|states| states.kind(context.state)),
+        Some(Kind::HandCrank(_))
+    ) {
+        return hand_crank::turn(context);
+    }
     if let Some(Kind::Deployer { facing, .. }) =
         states().and_then(|states| states.kind(context.state))
     {
@@ -1812,7 +2395,27 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
             deployer::use_block(kinetics, context, facing)
         });
     }
+    if let Some(states) = states()
+        && let Some(Kind::SpeedController(axis)) = states.kind(context.state)
+    {
+        return speed_controller::use_block(context, states, axis);
+    }
+    if states().is_some_and(|states| states.chutes.contains_key(&context.state)) {
+        return with_world(context.world, |kinetics| {
+            chute::use_item_on(context.world, &mut kinetics.chutes, context)
+        });
+    }
     if !context.with_item {
+        if let Some(states) = states()
+            && states
+                .funnels
+                .get(&context.state)
+                .is_some_and(|state| state.brass)
+        {
+            return with_world(context.world, |kinetics| {
+                funnel::use_item_on(context.world, states, kinetics, context)
+            });
+        }
         return BlockUseResult::Pass;
     }
     if !context.sneaking
@@ -1841,6 +2444,11 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     let Some(states) = states() else {
         return BlockUseResult::Pass;
     };
+    if let Some(entry) = states.by_id.get(&context.state)
+        && sail::is_sail(entry.block)
+    {
+        return sail::use_item_on(context, states, &entry.selector);
+    }
     if let Some(entry) = states
         .by_id
         .get(&context.state)
@@ -1854,11 +2462,6 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         .is_some_and(|state| chassis::is_chassis(state.block))
     {
         return chassis::use_item_on(context);
-    }
-    if states.chutes.contains_key(&context.state) {
-        return with_world(context.world, |kinetics| {
-            chute::use_item_on(context.world, &mut kinetics.chutes, context)
-        });
     }
     if states.funnels.contains_key(&context.state) {
         return with_world(context.world, |kinetics| {
@@ -1874,11 +2477,15 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         return basin::use_item_on(context);
     }
     match states.kind(context.state) {
-        Some(Kind::Belt(_)) => with_world(context.world, |kinetics| {
-            belt_inventory::use_item_on(kinetics, context)
+        Some(Kind::Belt(belt)) => with_world(context.world, |kinetics| {
+            belt_casing::apply(context, kinetics, states, belt)
+                .unwrap_or_else(|| belt_inventory::use_item_on(kinetics, context))
         }),
         Some(Kind::Millstone) => with_world(context.world, |kinetics| {
             millstone::use_item_on(kinetics, context)
+        }),
+        Some(Kind::Crafter(block)) => with_world(context.world, |kinetics| {
+            crafter::use_item_on(kinetics, states, block, context)
         }),
         Some(Kind::Bearing(_) | Kind::Windmill(_) | Kind::Clockwork(_)) => {
             with_world(context.world, |kinetics| {
@@ -1887,6 +2494,9 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         }
         Some(Kind::Piston(block)) => with_world(context.world, |kinetics| {
             piston::use_item_on(kinetics, block, context)
+        }),
+        Some(Kind::Saw(block)) => with_world(context.world, |kinetics| {
+            saw_processing::use_block(kinetics, context, block)
         }),
         Some(Kind::GantryCarriage(_)) => with_world(context.world, |kinetics| {
             gantry::use_item_on(kinetics, context)
@@ -1946,6 +2556,8 @@ fn entity_inside(world: World<'_>, pos: Pos, state: u32, entity: Entity<'_>) {
     }
     match states.kind(state) {
         Some(Kind::Turntable) => turntable_entity_inside(world, pos, entity),
+        Some(Kind::Drill(_)) => drill::entity_inside(world, pos, entity, drill::ID),
+        Some(Kind::Saw(block)) => saw_processing::entity_inside(world, pos, block, entity),
         Some(Kind::Belt(belt)) => with_world(world, |kinetics| {
             belt_movement::entity_inside(kinetics, pos, state, belt, entity);
         }),
@@ -1988,13 +2600,23 @@ fn turntable_entity_inside(world: World<'_>, pos: Pos, entity: Entity<'_>) {
 /// Save changed block entities and show their speed (`getSpeed`, zero when overstressed).
 fn flush(world: World<'_>, kinetics: &mut Kinetics) {
     for (pos, be) in kinetics.drain_dirty() {
-        let data = save(pos, &be);
+        let mut data = save(pos, &be);
+        if matches!(be.kind, Kind::Belt(_))
+            && let Some(states) = states()
+        {
+            data.covered = Some(belt_casing::display(world, pos, &be, kinetics, states));
+        }
         if matches!(be.kind, Kind::HosePulley(_)) {
             fluids::hose_pulley::save_kinetics(world, pos, &data);
         } else if let Ok(bytes) = fastnbt::to_bytes(&data) {
             let _ = world.set_entity(pos, &bytes);
         }
-        let _ = world.rotate(pos, be.kind.axis(), be.get_speed());
+        let rpm = if matches!(be.kind, Kind::Crafter(_)) {
+            0.0
+        } else {
+            be.get_speed()
+        };
+        let _ = world.rotate(pos, be.kind.axis(), rpm);
     }
 }
 

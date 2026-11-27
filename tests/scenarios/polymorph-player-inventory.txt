@@ -1,0 +1,39 @@
+# Player 2x2 inventory must support the identical selection semantics with
+# window id zero, without a crafting table or a second custom menu.
+mods target\mods\polymorph.mmc
+start
+cmd datapack enable "file/conflicts" last
+wait 1
+expect Loaded datapack 'conflicts'
+stop
+start
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd item replace entity alice hotbar.0 with minecraft:stone 2
+wait 1
+bot inventory-click 36 left
+wait 0.5
+bot inventory-click 1 left
+wait 1
+bot cmd polymorph list
+wait 1
+expect polymorph_test:02_emerald
+bot cmd polymorph choose 3
+wait 1
+bot expect slot 0 minecraft:emerald 1
+bot inventory-click 0 shift-left
+wait 1
+bot expect slot 0 minecraft:emerald 1
+bot inventory-click 0 shift-left
+wait 1
+bot expect slot 0 minecraft:air 0
+cmd clear alice minecraft:emerald 0
+wait 1
+expect Found 2 matching item
+cmd clear alice minecraft:stone 0
+wait 1
+expect No items were found
+reject (?i)panicked|\[bot\] error:
+bot quit
+stop

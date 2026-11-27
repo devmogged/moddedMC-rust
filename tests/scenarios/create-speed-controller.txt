@@ -1,0 +1,143 @@
+# Craft, place and adjust a Rotation Speed Controller in Survival, then reload its setting.
+mods target\mods\create.mmc
+start
+expect registered content block create:rotation_speed_controller \(2 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2496.5 106 2498.5 0 0
+wait 4
+cmd fill 2490 106 2495 2502 113 2505 minecraft:air
+cmd fill 2490 105 2495 2502 105 2505 minecraft:stone
+cmd tp tester 2496.5 106 2498.5 0 0
+cmd gamemode survival tester
+cmd setblock 2497 106 2499 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:precision_mechanism
+cmd item replace entity tester hotbar.1 with create:brass_casing
+wait 0.5
+bot use 2497 106 2499 north
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:rotation_speed_controller 0
+wait 0.5
+expect Found 1 matching item
+bot place 2496 105 2500 up
+wait 0.5
+cmd kinetics 2496 106 2500
+wait 0.5
+expect create:rotation_speed_controller\[axis=x\] at 2496 106 2500 Speed=0
+
+# Using the large gear against the controller places it above and perpendicular to the output.
+# A conflicting side cog prevents placement without consuming the held gear.
+cmd item replace entity tester weapon.mainhand with create:large_cogwheel
+cmd setblock 2497 107 2500 create:cogwheel[axis=y,waterlogged=false]
+wait 0.5
+bot use 2496 106 2500 north
+wait 0.5
+cmd execute if block 2496 107 2500 minecraft:air
+wait 0.5
+expect Test passed
+cmd clear tester create:large_cogwheel 0
+wait 0.5
+expect Found 1 matching item
+cmd setblock 2497 107 2500 minecraft:air
+wait 0.5
+bot use 2496 106 2500 north
+wait 0.5
+cmd kinetics 2496 107 2500
+wait 0.5
+expect create:large_cogwheel\[axis=z,waterlogged=false\] at 2496 107 2500 Speed=0
+cmd clear tester create:large_cogwheel 0
+wait 0.5
+expect No items were found
+cmd setblock 2497 106 2500 create:shaft[axis=x,waterlogged=false]
+cmd setblock 2496 107 2501 create:creative_motor[facing=north]
+wait 0.5
+cmd kinetics 2496 107 2501 32
+wait 0.5
+cmd kinetics 2496 107 2500
+wait 0.5
+expect create:large_cogwheel\[axis=z,waterlogged=false\] at 2496 107 2500 Speed=-32
+cmd kinetics 2497 106 2500
+wait 0.5
+expect create:shaft\[axis=x,waterlogged=false\] at 2497 106 2500 Speed=16
+
+# Normal clicks adjust by one. Sneaking adjusts by 16.
+bot use 2496 106 2500 north main 0.8 0.6875 0
+wait 0.5
+cmd kinetics 2497 106 2500
+wait 0.5
+expect create:shaft\[axis=x,waterlogged=false\] at 2497 106 2500 Speed=15
+bot use 2496 106 2500 north main 0.2 0.6875 0
+wait 0.5
+expect Rotation speed 16 RPM
+bot input sneak
+wait 0.5
+bot use 2496 106 2500 north main 0.8 0.6875 0
+wait 0.5
+expect Rotation speed 0 RPM
+cmd data get block 2496 106 2500 ScrollValue
+wait 0.5
+expect block data: 0$
+cmd kinetics 2497 106 2500
+wait 0.5
+expect create:shaft\[axis=x,waterlogged=false\] at 2497 106 2500 Speed=0
+bot use 2496 106 2500 north main 0.8 0.6875 0
+wait 0.5
+bot input none
+cmd data get block 2496 106 2500 ScrollValue
+wait 0.5
+expect block data: -16$
+cmd kinetics 2497 106 2500
+wait 0.5
+expect create:shaft\[axis=x,waterlogged=false\] at 2497 106 2500 Speed=-16
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2496 106 2500 ScrollValue
+wait 0.5
+expect block data: -16$
+cmd kinetics 2497 106 2500
+wait 0.5
+expect create:shaft\[axis=x,waterlogged=false\] at 2497 106 2500 Speed=-16
+cmd kinetics 2496 107 2500
+wait 0.5
+expect create:large_cogwheel\[axis=z,waterlogged=false\] at 2496 107 2500 Speed=-32
+
+# Driving through a side shaft instead makes the cog the controlled output.
+cmd setblock 2496 107 2501 minecraft:air
+wait 0.5
+cmd kinetics 2496 107 2500
+wait 0.5
+expect create:large_cogwheel\[axis=z,waterlogged=false\] at 2496 107 2500 Speed=0
+cmd setblock 2498 106 2500 create:creative_motor[facing=west]
+wait 0.5
+cmd kinetics 2498 106 2500 32
+wait 0.5
+cmd kinetics 2497 106 2500
+wait 0.5
+expect create:shaft\[axis=x,waterlogged=false\] at 2497 106 2500 Speed=-32
+cmd kinetics 2496 107 2500
+wait 0.5
+expect create:large_cogwheel\[axis=z,waterlogged=false\] at 2496 107 2500 Speed=-16
+reject (?i)panicked|trapped|failed to register|Failed to save player data|Error loading player data|\[bot\] error
+bot quit
+stop

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Port a Mod"
+  short_description: "Port a Java mod to a drop-in Rust mod"
+  default_prompt: "Use $port-mod to continue the port you have claimed."

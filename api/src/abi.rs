@@ -417,6 +417,8 @@ mod layout {
         assert_eq!(offset_of!(ContentV1, on_tick), 24);
         assert_eq!(offset_of!(ContentV1, on_replaced), 32);
         assert_eq!(offset_of!(ContentV1, set_comparator_output), 40);
+        assert_eq!(offset_of!(ContentV1, on_random_tick), 48);
+        assert_eq!(offset_of!(BlockWorldV1, raw_brightness), 184);
         assert_eq!(offset_of!(ItemsV1, size), 0);
         assert_eq!(offset_of!(ItemsV1, add_item), 8);
         assert_eq!(offset_of!(ContentItemDefinition, carrier), 32);
@@ -433,8 +435,8 @@ mod layout {
         assert_eq!(offset_of!(BlockWorldV1, rotate), 48);
         assert_eq!(offset_of!(BlockWorldV1, dimension_id), 160);
         assert_eq!(offset_of!(BlockWorldV1, is_thundering), 168);
-        assert_eq!(offset_of!(BlockWorldV1, in_biome), 176);
-        assert_eq!(offset_of!(BlockWorldV1, can_see_sky), 192);
+        assert_eq!(offset_of!(BlockWorldV1, in_biome), 264);
+        assert_eq!(offset_of!(BlockWorldV1, can_see_sky), 280);
         assert_eq!(
             offset_of!(EntitiesV1, players),
             offset_of!(EntitiesV1, has_scoreboard_tag) + 8
@@ -489,6 +491,8 @@ pub const UPDATE_ALL: u8 = UPDATE_NEIGHBORS | UPDATE_CLIENTS;
 pub const UPDATE_MOVED: u8 = 4;
 /// Skip neighbour shape updates. Requires the fluid world tick-control extension.
 pub const UPDATE_KNOWN_SHAPE: u8 = 8;
+/// Resolve the new state's neighbor shapes just before placing it in the batch.
+pub const UPDATE_FROM_NEIGHBOR_SHAPES: u8 = 16;
 
 #[repr(C)]
 pub struct StateDefinition {
@@ -579,7 +583,17 @@ pub struct ContentEvent {
 pub type ContentTick =
     unsafe extern "C" fn(world: WorldRef, tick: u64, events: *const ContentEvent, count: usize);
 
+pub type ContentRandomTick = unsafe extern "C" fn(world: WorldRef, pos: Pos, state: u32);
+
 pub type ContentReplaced = unsafe extern "C" fn(world: WorldRef, event: *const ContentEvent);
+
+#[repr(C)]
+pub struct ContentMaterialDefinition {
+    pub template: Str,
+    pub map_color: Str,
+    pub hardness: f32,
+    pub override_hardness: bool,
+}
 
 #[repr(C)]
 pub struct ContentV1 {
@@ -592,6 +606,13 @@ pub struct ContentV1 {
     pub on_replaced: unsafe extern "C" fn(reg: Reg, callback: ContentReplaced) -> i32,
     /// Sets the comparator output of a state already staged by this mod.
     pub set_comparator_output: unsafe extern "C" fn(reg: Reg, selector: Str, strength: u8) -> i32,
+    pub on_random_tick:
+        unsafe extern "C" fn(reg: Reg, block: Str, callback: ContentRandomTick) -> i32,
+    pub set_block_material: unsafe extern "C" fn(
+        reg: Reg,
+        block: Str,
+        material: *const ContentMaterialDefinition,
+    ) -> i32,
 }
 
 pub const CONTENT_V1_BASE_SIZE: usize = std::mem::offset_of!(ContentV1, on_replaced);
@@ -683,6 +704,56 @@ pub struct BlockWorldV1 {
     /// The world's canonical dimension registry id. Static, or empty for an invalid handle.
     pub dimension_id: unsafe extern "C" fn(world: WorldRef) -> Str,
     pub is_thundering: unsafe extern "C" fn(world: WorldRef) -> bool,
+    /// Vanilla `Level.getBestNeighborSignal`. Gives 0 for unloaded positions.
+    pub best_neighbor_signal: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> u8,
+    /// Vanilla raw brightness with explicit sky darkening; -1 when unloaded.
+    pub raw_brightness: unsafe extern "C" fn(world: WorldRef, pos: Pos, sky_darken: u8) -> i32,
+    /// Apply a tool's block transformer along a one-block outline ray from the origin's center.
+    pub apply_block_transformer:
+        unsafe extern "C" fn(world: WorldRef, origin: Pos, direction: u8, tool: Str) -> bool,
+    /// -1 when unloaded, 1 if the state conducts redstone, 0 otherwise.
+    pub redstone_conductor: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> i32,
+    /// Roll block loot with the saved tool and an unspawned player-typed actor.
+    pub block_drops_with_player_actor:
+        unsafe extern "C" fn(world: WorldRef, pos: Pos, tool: Str, out: Sink) -> bool,
+    /// Like `write`, with `UPDATE_FROM_NEIGHBOR_SHAPES` supported per entry.
+    pub write_with_neighbor_shapes:
+        unsafe extern "C" fn(world: WorldRef, updates: *const BlockUpdate, count: usize) -> usize,
+    /// Vanilla chest obstruction (solid block above or a sitting cat).
+    /// -1 for unloaded positions, 0 for clear, 1 for blocked.
+    pub chest_blocked: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> i32,
+    /// Snapshot a custom block entity and its process-local incarnation.
+    pub content_entity_snapshot: unsafe extern "C" fn(
+        world: WorldRef,
+        pos: Pos,
+        state: *mut u32,
+        incarnation: *mut u64,
+        out: Sink,
+    ) -> bool,
+    /// Compare the exact state, incarnation and full NBT before replacing custom fields.
+    pub compare_content_entity: unsafe extern "C" fn(
+        world: WorldRef,
+        pos: Pos,
+        state: u32,
+        incarnation: u64,
+        expected: Str,
+        replacement: Str,
+    ) -> bool,
+    /// Persisted global game-tick clock shared by dimensions (overworld `getGameTime()`).
+    /// Unlike `day_time`, not affected by a player's `/time set` or daylight-cycle gamerule.
+    pub game_time: unsafe extern "C" fn(world: WorldRef, ticks: *mut i64) -> bool,
+    /// Identity-guarded no-drop custom block/entity replacement. When the new
+    /// state has no block entity the replacement NBT must be empty; otherwise
+    /// it must be a complete named-root entity NBT of the destination type.
+    pub compare_replace_content_entity: unsafe extern "C" fn(
+        world: WorldRef,
+        pos: Pos,
+        expected_state: u32,
+        incarnation: u64,
+        expected: Str,
+        destination: u32,
+        replacement: Str,
+    ) -> bool,
     /// Whether the loaded biome at `pos` is `biomes`, a biome id or a `#tag`: 1 or 0, or -1
     /// when the chunk isn't loaded.
     pub in_biome: unsafe extern "C" fn(world: WorldRef, pos: Pos, biomes: Str) -> i32,
@@ -711,6 +782,28 @@ pub struct DayTime {
 
 /// Size of the block world table before `has_neighbor_signal` was appended.
 pub const BLOCK_WORLD_V1_BASE_SIZE: usize = std::mem::offset_of!(BlockWorldV1, has_neighbor_signal);
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod block_world_layout {
+    use super::*;
+    use std::mem::{offset_of, size_of};
+
+    #[test]
+    fn append_only_custom_transactions_and_game_time() {
+        assert_eq!(BLOCK_WORLD_V1_BASE_SIZE, 56);
+        assert_eq!(offset_of!(BlockWorldV1, write_with_neighbor_shapes), 216);
+        assert_eq!(offset_of!(BlockWorldV1, chest_blocked), 224);
+        assert_eq!(offset_of!(BlockWorldV1, content_entity_snapshot), 232);
+        assert_eq!(offset_of!(BlockWorldV1, compare_content_entity), 240);
+        assert_eq!(offset_of!(BlockWorldV1, game_time), 248);
+        assert_eq!(
+            offset_of!(BlockWorldV1, compare_replace_content_entity),
+            256
+        );
+        assert_eq!(size_of::<BlockWorldV1>(), 288);
+        assert_eq!(size_of::<DayTime>(), 16);
+    }
+}
 
 pub const FLUID_SOURCE: u32 = 1;
 pub const FLUID_REPLACEABLE: u32 = 2;
@@ -748,6 +841,13 @@ pub struct FluidWorldV1TickControl {
     pub base: FluidWorldV1,
     /// Clear pending fluid ticks at a loaded position.
     pub clear_ticks: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
+}
+
+#[repr(C)]
+pub struct FluidWorldV1Flow {
+    pub base: FluidWorldV1TickControl,
+    /// Read the flow vector of a loaded cell. Loaded dry cells return a zero vector.
+    pub velocity: unsafe extern "C" fn(world: WorldRef, pos: Pos, out: *mut Vec3) -> bool,
 }
 
 pub const ENTITIES: &str = "moddedmc:entities";
@@ -915,6 +1015,8 @@ pub struct EntitiesV1 {
         context: *mut c_void,
         visit: unsafe extern "C" fn(*mut c_void, WorldRef, EntityRef),
     ) -> bool,
+    /// Hurt this entity with a registered, unattributed damage type.
+    pub hurt: unsafe extern "C" fn(entity: EntityRef, damage_type: Str, amount: f32) -> bool,
     /// Whether the entity has this vanilla scoreboard tag.
     pub has_scoreboard_tag: unsafe extern "C" fn(entity: EntityRef, tag: Str) -> bool,
     /// Ids of the world's players, spectators and dead ones included. Returns how many there
@@ -1060,6 +1162,14 @@ pub struct InteractionV1 {
     /// One Item.use callback per mod, staged during registration.
     pub on_use_item: unsafe extern "C" fn(reg: Reg, callback: UseItemFn) -> i32,
     pub on_player_placed: unsafe extern "C" fn(reg: Reg, callback: PlayerPlacedFn) -> i32,
+    /// Vanilla Player.causeFoodExhaustion.
+    pub add_exhaustion: unsafe extern "C" fn(player: EntityRef, amount: f32),
+    /// Read the player's actual sneaking state during an immediate item callback.
+    pub player_sneaking: unsafe extern "C" fn(player: EntityRef) -> bool,
+    /// Replace mod data and lodestone tracker on the callback's borrowed stack.
+    /// An empty dimension clears the target. Does not acquire player inventory locks.
+    pub stack_set_lodestone:
+        unsafe extern "C" fn(stack: StackRef, data: Str, dimension: Str, pos: Pos) -> bool,
 }
 
 /// A content item used in the air, with the rotation sent for that action.
@@ -1153,6 +1263,7 @@ pub const EFFECTS: &str = "moddedmc:effects";
 
 /// Vanilla `SoundSource` ids, in declaration order.
 pub const SOUND_MASTER: u8 = 0;
+pub const SOUND_RECORDS: u8 = 2;
 pub const SOUND_BLOCKS: u8 = 4;
 pub const SOUND_NEUTRAL: u8 = 6;
 pub const SOUND_PLAYERS: u8 = 7;
@@ -1180,6 +1291,15 @@ pub struct EffectsV1 {
         spread: Vec3,
         speed: f32,
         count: u32,
+    ) -> bool,
+    /// Play a sound on an entity for its Java trackers. Removing the entity stops the sound.
+    pub play_entity_sound: unsafe extern "C" fn(
+        world: WorldRef,
+        entity: i32,
+        sound: Str,
+        source: u8,
+        volume: f32,
+        pitch: f32,
     ) -> bool,
 }
 
@@ -1222,6 +1342,13 @@ pub struct ItemStacksV1Fuel {
 }
 
 #[repr(C)]
+pub struct ItemStacksV1MaxEnchantment {
+    pub base: ItemStacksV1Fuel,
+    /// Whether an applied enchantment reaches its defined maximum level.
+    pub has_maxed_enchantment: unsafe extern "C" fn(stack: Str) -> bool,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StackInfo {
     pub count: u32,
@@ -1261,6 +1388,66 @@ pub struct DisplaysV1 {
     /// Replace the displayed stack.
     pub set_item: unsafe extern "C" fn(world: WorldRef, id: i32, stack: Str) -> bool,
     pub remove: unsafe extern "C" fn(world: WorldRef, id: i32),
+}
+
+pub const CRAFTING: &str = "moddedmc:crafting";
+pub const MAX_CRAFTING_SIDE: u8 = 9;
+pub const MAX_CRAFTING_CHOICES: u16 = 64;
+
+/// The engine's crafting matcher and effective crafting remainders.
+#[repr(C)]
+pub struct CraftingV1 {
+    pub size: usize,
+    /// The grid is width * height saved-stack slices in row order. Empty slices mean empty slots.
+    /// Each side is 1..=MAX_CRAFTING_SIDE. On success the sink receives the saved result (key 0),
+    /// a recipe id if known (key 1), and a serializer id (key 2).
+    pub match_recipe: unsafe extern "C" fn(
+        world: WorldRef,
+        width: u8,
+        height: u8,
+        grid: *const Str,
+        out: Sink,
+    ) -> bool,
+    /// The ingredient's default crafting remainder as saved stack NBT, if any.
+    pub remainder: unsafe extern "C" fn(stack: Str, out: Sink) -> bool,
+    /// Bounded enumeration in the exact engine order used by ordinary crafting.
+    /// The callback's key is `index * 3 + field`: 0 saved result stack, 1 recipe
+    /// id (if known), 2 serializer id. Each result is delivered synchronously;
+    /// `index` is zero-based. The low 15 return bits are the complete number of
+    /// emitted choices, bit 15 means another matching recipe existed. A zero
+    /// limit, invalid grid or serialization failure returns zero. The caller
+    /// must check `size` before accessing this appended function pointer.
+    pub enumerate_recipes: unsafe extern "C" fn(
+        world: WorldRef,
+        width: u8,
+        height: u8,
+        grid: *const Str,
+        limit: u16,
+        out: Sink,
+    ) -> u16,
+    /// Enumerate the active player's 2x2 or 3x3 crafting grid against the
+    /// current world's recipes. The return format adds bit 14 (0x4000) when a
+    /// crafting menu is available, even if it has no recipe. Zero otherwise.
+    /// The low 14 bits hold the number of matches; bit 15 marks truncation.
+    /// Never opens a UI or mutates the player's ingredients.
+    pub current_choices: unsafe extern "C" fn(player: PlayerRef, limit: u16, out: Sink) -> u16,
+    /// Select an index from `current_choices` in the player's current menu.
+    /// The engine pins the selection to the exact input stack snapshot,
+    /// invalidates it on any input edit, and synchronizes the result slot.
+    /// False leaves the menu and all inventories unchanged.
+    pub select_recipe: unsafe extern "C" fn(player: PlayerRef, index: u16) -> bool,
+    /// Enable stock-client right-click cycling on the crafting result slot.
+    /// Append-only capability; without the Polymorph mod, normal vanilla
+    /// result-click semantics remain active. Returns false if unavailable.
+    pub enable_result_cycle: unsafe extern "C" fn() -> bool,
+    /// Enumerate recipes for the genuine placed Crafter whose stock 3x3 menu
+    /// the player currently has open. Shares current_choices' bit flags.
+    /// Append-only: older hosts intentionally do not expose machine selection.
+    pub current_machine_choices:
+        unsafe extern "C" fn(player: PlayerRef, limit: u16, out: Sink) -> u16,
+    /// Set this machine's durable recipe identity without consuming inputs.
+    /// Invalid/stale grids and spectator menus fail closed.
+    pub select_machine_recipe: unsafe extern "C" fn(player: PlayerRef, index: u16) -> bool,
 }
 
 pub const RESOURCES: &str = "moddedmc:resources";
@@ -1344,6 +1531,46 @@ pub struct ContainersV1 {
     ) -> bool,
 }
 
+/// Active structure-set membership, independent of a dimension's enabled placements.
+pub const WORLDGEN_STRUCTURE_GROUPS: &str = "moddedmc:worldgen_structure_groups";
+
+#[repr(C)]
+pub struct WorldgenStructureGroupsV1 {
+    pub size: usize,
+    /// One record per group, in registry order. Key is its zero-based index;
+    /// payload is group id followed by member ids, separated by NUL bytes.
+    pub groups: unsafe extern "C" fn(WorldRef, Sink) -> bool,
+}
+
+pub const ITEM_INPUT: &str = "moddedmc:item_input";
+
+pub const BLOCK_PHYSICS: &str = "moddedmc:block_physics";
+
+#[repr(C)]
+pub struct BlockPhysicsV1 {
+    pub size: usize,
+    /// Set the physics of a block already staged by the calling mod. Sound is
+    /// inherited from the specified vanilla state; other template properties remain unchanged.
+    pub set: unsafe extern "C" fn(Reg, Str, f32, f32, bool, Str) -> i32,
+}
+
+/// A hopper or dropper offers saved stack NBT. Return the accepted item count.
+pub type ItemInputFn = unsafe extern "C" fn(
+    world: WorldRef,
+    position: Pos,
+    state: u32,
+    face: u8,
+    stack: Str,
+    simulate: bool,
+) -> u32;
+
+#[repr(C)]
+pub struct ItemInputV1 {
+    pub size: usize,
+    /// Attach to a previously staged content block of the registering mod.
+    pub add: unsafe extern "C" fn(reg: Reg, block: Str, receive: ItemInputFn) -> i32,
+}
+
 pub const TAGS: &str = "moddedmc:tags";
 
 /// Vanilla tags merged with every loaded datapack's, by id string so content mods' blocks and
@@ -1358,6 +1585,13 @@ pub struct TagsV1 {
     pub values: unsafe extern "C" fn(registry: Str, tag: Str, out: Sink) -> bool,
     /// Whether `id` is in the tag.
     pub contains: unsafe extern "C" fn(registry: Str, tag: Str, id: Str) -> bool,
+}
+
+#[repr(C)]
+pub struct TagsV1Memberships {
+    pub base: TagsV1,
+    /// Every tag containing an entry, sorted by resource location.
+    pub memberships: unsafe extern "C" fn(registry: Str, id: Str, out: Sink) -> bool,
 }
 
 pub const BLOCK_DISPLAYS: &str = "moddedmc:block_displays";
@@ -1788,8 +2022,315 @@ mod saved_data_layout {
     }
 }
 
+/// A claim on the pending inventory drops from one player death.
+pub const PLAYER_DEATH: &str = "moddedmc:player_death";
+
+#[repr(C)]
+pub struct PlayerDeathStack {
+    pub slot: u32,
+    pub stack: Str,
+}
+
+#[repr(C)]
+pub struct PlayerDeathContext {
+    pub world: WorldRef,
+    pub player: PlayerRef,
+    pub player_uuid: [u8; 16],
+    pub position: [f64; 3],
+    pub drops: *const PlayerDeathStack,
+    pub count: usize,
+    /// Opaque handle for the current callback only.
+    pub transaction: *mut c_void,
+    /// Commit one value under a registered key owned by this mod and claim the pending drops.
+    pub claim: unsafe extern "C" fn(transaction: *mut c_void, key: u64, value: Str) -> bool,
+}
+
+pub type PlayerDeathCallback = unsafe extern "C" fn(context: *const PlayerDeathContext);
+
+#[repr(C)]
+pub struct PlayerDeathV1 {
+    pub size: usize,
+    /// One callback per mod. A committed claim stops dispatch.
+    pub on_drops: unsafe extern "C" fn(reg: Reg, callback: PlayerDeathCallback) -> i32,
+}
+
+pub const NATIVE_ENTITIES: &str = "moddedmc:native_entities";
+
+pub mod native_entity_phase {
+    pub const LOADED: u8 = 0;
+    pub const TICK: u8 = 1;
+    pub const USED: u8 = 2;
+    pub const UNLOADED: u8 = 3;
+    pub const REMOVED: u8 = 4;
+}
+
+#[repr(C)]
+pub struct NativeEntitySpawn {
+    pub world: WorldRef,
+    pub kind: u64,
+    pub uuid: [u8; 16],
+    pub position: Vec3,
+    pub width: f32,
+    pub height: f32,
+    /// Enable collision for moves made by the mod. The host applies no gravity.
+    pub physics: bool,
+    pub data: Str,
+}
+
+#[repr(C)]
+pub struct NativeEntityContext {
+    pub world: WorldRef,
+    pub entity: EntityRef,
+    pub player: PlayerRef,
+    pub uuid: [u8; 16],
+    pub phase: u8,
+}
+
+pub type NativeEntityCallback = unsafe extern "C" fn(*const NativeEntityContext) -> bool;
+
+pub const ACTOR_VISUAL_PLAYER: u8 = 0;
+pub const ACTOR_VISUAL_SKELETON: u8 = 1;
+
+#[repr(C)]
+pub struct NativeEntityVisual {
+    pub model: u8,
+    pub yaw: f32,
+    pub offset: Vec3,
+    /// Profile NBT saved by player_profile, or empty for the default skin.
+    pub profile: Str,
+    /// Main hand, offhand, feet, legs, chest and head.
+    pub equipment: [Str; 6],
+}
+
+#[repr(C)]
+pub struct NativeEntitiesV1 {
+    pub size: usize,
+    pub register: unsafe extern "C" fn(Reg, NativeEntityCallback, out: *mut u64) -> i32,
+    pub spawn: unsafe extern "C" fn(*const NativeEntitySpawn) -> bool,
+    pub data: unsafe extern "C" fn(EntityRef, Sink) -> bool,
+    pub set_data: unsafe extern "C" fn(EntityRef, Str) -> bool,
+}
+
+#[repr(C)]
+pub struct NativeEntitiesV1Visual {
+    pub base: NativeEntitiesV1,
+    pub player_profile: unsafe extern "C" fn(PlayerRef, Sink) -> bool,
+    pub show_sleeping: unsafe extern "C" fn(EntityRef, *const NativeEntityVisual) -> bool,
+}
+
+pub const INVENTORY_MENU: &str = "moddedmc:inventory_menu";
+pub const MENU_TAKE: u8 = 1;
+pub const MENU_INSERT: u8 = 2;
+pub const MENU_ANY_SLOT: u8 = u8::MAX;
+
+#[repr(C)]
+pub struct InventoryMenuOpen {
+    pub player: PlayerRef,
+    pub kind: u64,
+    pub inventory: u64,
+    pub title: Str,
+    pub access: *const u8,
+    pub count: usize,
+    pub initialize_context: *mut c_void,
+    /// Load the current saved stacks on the first open. Fill all `count` entries.
+    pub initialize: unsafe extern "C" fn(*mut c_void, *mut Str, usize) -> bool,
+}
+
+#[repr(C)]
+pub struct InventoryMenuChange {
+    pub world: WorldRef,
+    pub player_uuid: [u8; 16],
+    pub inventory: u64,
+    /// Proposed complete menu, using saved item stacks. Empty bytes indicate an empty slot.
+    pub stacks: *const Str,
+    pub count: usize,
+    /// Stacks displaced during matching-slot restore that did not fit in the player inventory.
+    pub overflow: *const Str,
+    pub overflow_count: usize,
+    pub transaction: *mut c_void,
+    pub commit: unsafe extern "C" fn(transaction: *mut c_void, key: u64, value: Str) -> bool,
+}
+
+pub type InventoryMenuCallback = unsafe extern "C" fn(*const InventoryMenuChange);
+
+#[repr(C)]
+pub struct InventoryMenuV1 {
+    pub size: usize,
+    pub register: unsafe extern "C" fn(Reg, InventoryMenuCallback, out: *mut u64) -> i32,
+    pub open: unsafe extern "C" fn(*const InventoryMenuOpen) -> bool,
+    pub restore_matching:
+        unsafe extern "C" fn(PlayerRef, u64, u64, *const InventoryMenuTarget, usize) -> bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct InventoryMenuControl {
+    pub slot: u8,
+    pub tag: u64,
+}
+
+#[repr(C)]
+pub struct InventoryMenuAction {
+    pub player: PlayerRef,
+    pub world: WorldRef,
+    pub inventory: u64,
+    pub tag: u64,
+}
+
+pub type InventoryMenuActionCallback = unsafe extern "C" fn(*const InventoryMenuAction);
+
+#[repr(C)]
+pub struct InventoryMenuV1Actions {
+    pub base: InventoryMenuV1,
+    pub on_action: unsafe extern "C" fn(Reg, InventoryMenuActionCallback) -> i32,
+    pub open_with_actions: unsafe extern "C" fn(
+        *const InventoryMenuOpen,
+        WorldRef,
+        *const InventoryMenuControl,
+        usize,
+    ) -> bool,
+}
+
+#[repr(C)]
+pub struct InventoryMenuValidity {
+    pub player: PlayerRef,
+    pub world: WorldRef,
+    pub inventory: u64,
+    pub context: Str,
+}
+
+pub const MAX_MENU_VALIDITY_CONTEXT: usize = 4096;
+pub type InventoryMenuValidityCallback = unsafe extern "C" fn(*const InventoryMenuValidity) -> bool;
+
+#[repr(C)]
+pub struct InventoryMenuV1Validity {
+    pub base: InventoryMenuV1Actions,
+    pub open_validated: unsafe extern "C" fn(
+        *const InventoryMenuOpen,
+        WorldRef,
+        Str,
+        InventoryMenuValidityCallback,
+    ) -> bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct InventoryMenuTarget {
+    pub menu_slot: u8,
+    pub player_slot: u8,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+#[test]
+fn player_death_v1_layout() {
+    use std::mem::offset_of;
+
+    assert_eq!(size_of::<PlayerDeathV1>(), 16);
+    assert_eq!(size_of::<PlayerDeathStack>(), 24);
+    assert_eq!(offset_of!(PlayerDeathContext, position), 32);
+    assert_eq!(offset_of!(PlayerDeathContext, drops), 56);
+    assert_eq!(offset_of!(PlayerDeathContext, claim), 80);
+    assert_eq!(size_of::<PlayerDeathContext>(), 88);
+}
+
 /// Register process-lifetime, independently versioned C interface tables supplied by mods.
 pub const SERVICES: &str = "moddedmc:services";
+
+/// Queries the active generator without loading or generating chunks.
+pub const WORLDGEN_LOOKUP: &str = "moddedmc:worldgen_lookup";
+
+#[repr(C)]
+pub struct WorldgenLookupV1 {
+    pub size: usize,
+    /// Enumerate dimension-specific biome identifiers; one UTF-8 identifier per sink call.
+    pub biomes: unsafe extern "C" fn(WorldRef, Sink) -> bool,
+    /// Sample up to 256 quart-coordinate positions. Sink keys are input indices.
+    pub noise_biomes: unsafe extern "C" fn(WorldRef, *const Pos, usize, Sink) -> bool,
+    /// Inclusive bottom and exclusive top in block coordinates.
+    pub height_bounds: unsafe extern "C" fn(WorldRef, *mut i32, *mut i32) -> bool,
+}
+
+/// Dimension-specific structure placement and deterministic start lookup.
+pub const WORLDGEN_STRUCTURES: &str = "moddedmc:worldgen_structures";
+
+/// Generate a container's loot using the active world's datapacks and player context.
+pub const CONTAINER_LOOT: &str = "moddedmc:container_loot";
+
+#[repr(C)]
+pub struct ContainerLootV1 {
+    pub size: usize,
+    /// Emit only occupied slots, using their zero-based index and serialized ItemStack NBT.
+    /// Unknown loot tables, invalid sizes, or a player in another world fail the entire call.
+    pub generate: unsafe extern "C" fn(WorldRef, PlayerRef, Str, i64, Pos, usize, Sink) -> bool,
+}
+
+pub const CONTAINER_CONVERSION: &str = "moddedmc:container_conversion";
+pub const CONVERSION_PASS: i32 = 0;
+pub const CONVERSION_DEFER: i32 = 1;
+pub const CONVERSION_REPLACE: i32 = 2;
+
+#[repr(C)]
+pub struct ConversionCandidate {
+    pub world: WorldRef,
+    pub position: Pos,
+    pub state: u32,
+    pub nbt: Str,
+}
+/// The first non-pass proposal wins. For replacement, emit one NBT value
+/// through the sink using the destination runtime state ID as its key.
+pub type ContainerConversionFn = unsafe extern "C" fn(*const ConversionCandidate, Sink) -> i32;
+
+#[repr(C)]
+pub struct ContainerConversionV1 {
+    pub size: usize,
+    pub register: unsafe extern "C" fn(Reg, ContainerConversionFn) -> i32,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod container_conversion_layout {
+    use super::*;
+    use std::mem::{offset_of, size_of};
+
+    #[test]
+    fn conversion_table_and_candidate_are_stable_c_layout() {
+        assert_eq!(size_of::<ContainerConversionV1>(), 16);
+        assert_eq!(offset_of!(ContainerConversionV1, register), 8);
+        assert_eq!(offset_of!(ConversionCandidate, world), 0);
+        assert_eq!(offset_of!(ConversionCandidate, position), 8);
+        assert_eq!(offset_of!(ConversionCandidate, state), 20);
+        assert_eq!(offset_of!(ConversionCandidate, nbt), 24);
+        assert_eq!(size_of::<ConversionCandidate>(), 40);
+    }
+}
+
+/// Update an identified player-owned stack after a delayed action.
+pub const PLAYER_STACK_DATA: &str = "moddedmc:player_stack_data";
+
+#[repr(C)]
+pub struct PlayerStackDataV1 {
+    pub size: usize,
+    /// Exactly one single-count stack of this item must have the nonempty expected data.
+    /// If replace is false, only test ownership. Otherwise atomically replace its mod data.
+    pub compare: unsafe extern "C" fn(PlayerRef, Str, Str, Str, bool) -> bool,
+    /// Atomically update mod data and an untracked lodestone target. Empty dimension clears it.
+    pub compare_lodestone: unsafe extern "C" fn(PlayerRef, Str, Str, Str, Str, Pos) -> bool,
+}
+
+#[repr(C)]
+pub struct WorldgenStructuresV1 {
+    pub size: usize,
+    pub structures: unsafe extern "C" fn(WorldRef, Sink) -> bool,
+    /// Each entry's key is a placement index and value is a little-endian i32 spacing.
+    /// Zero spacing identifies a concentric ring placement.
+    pub placements: unsafe extern "C" fn(WorldRef, Str, Sink) -> bool,
+    /// Convert a sample chunk to its placement's potential start chunk.
+    pub spread_candidate: unsafe extern "C" fn(WorldRef, u32, i32, i32, *mut Pos) -> bool,
+    /// 1 = ready, 2 = pending, -1 = unavailable. Sink values are two little-endian i32s.
+    pub ring_chunks: unsafe extern "C" fn(WorldRef, u32, Sink) -> i32,
+    /// 1 = found, 0 = absent, 2 = pending, -1 = unavailable.
+    /// Coordinates are start chunk coordinates; out receives the locate block position.
+    pub structure_start: unsafe extern "C" fn(WorldRef, u32, Str, i32, i32, *mut Pos) -> i32,
+}
 
 #[repr(C)]
 pub struct ServicesV1 {

@@ -1,0 +1,64 @@
+# Staged datapack defines two genuine recipe conflicts for the vanilla stone
+# button recipe. The player chooses emerald while the crafting table stays open.
+# No synthetic item grants are permitted in the results under test.
+mods target\mods\polymorph.mmc
+start
+expect moddedmc: loaded polymorph
+cmd datapack enable "file/conflicts" last
+wait 1
+expect Loaded datapack 'conflicts'
+stop
+start
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 2
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:crafting_table
+cmd item replace entity alice hotbar.0 with minecraft:stone 3
+wait 1
+bot use 1025 100 1025
+wait 1
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 1 left
+wait 1
+bot expect slot 0 minecraft:stone_button 1
+bot cmd polymorph list
+wait 1
+expect polymorph_test:01_diamond
+expect polymorph_test:02_emerald
+bot cmd polymorph choose 3
+wait 1
+bot expect slot 0 minecraft:emerald 1
+bot inventory-click 0 shift-left
+wait 1
+bot expect slot 0 minecraft:emerald 1
+bot inventory-click 0 shift-left
+wait 1
+bot expect slot 0 minecraft:emerald 1
+bot inventory-click 0 shift-left
+wait 1
+bot expect slot 0 minecraft:air 0
+bot inventory-close
+cmd clear alice minecraft:emerald 0
+wait 1
+expect Found 3 matching item
+cmd clear alice minecraft:stone 0
+wait 1
+expect No items were found
+cmd clear alice minecraft:diamond 0
+wait 1
+expect No items were found
+bot quit
+stop
+start
+botstart alice
+wait 2
+cmd clear alice minecraft:emerald 0
+wait 1
+expect Found 3 matching item
+reject (?i)panicked|\[bot\] error:
+bot quit
+stop

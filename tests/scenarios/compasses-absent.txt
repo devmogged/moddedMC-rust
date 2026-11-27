@@ -1,0 +1,61 @@
+# Seed 42. Stage the zero-frequency datapack (see compasses-fixtures.md).
+# Check the existing item target, enable an override, and retry after restart.
+mods target\mods\compasses.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+bot click-label Next page
+wait 1
+bot click-label minecraft:desert_pyramid
+wait 2
+expect Compass search started
+await 45 Found minecraft:desert_pyramid at X -1376, Z -1760 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld -1376 -1760
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -1376 -1760
+bot quit
+wait 1
+cmd datapack enable "file/zero-frequency" last
+wait 2
+expect Loaded datapack 'zero-frequency'
+stop
+start
+expect Loaded datapack 'zero-frequency'
+botstart tester
+wait 3
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*minecraft:desert_pyramid in minecraft:overworld
+bot click-label Find next / retry
+wait 2
+expect Compass search started
+await 30 No minecraft:desert_pyramid found within the search limits
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Previous search for minecraft:desert_pyramid failed
+cmd gamemode creative tester
+cmd tp tester -1368 100 -1752
+wait 3
+bot use-item main
+wait 1
+expect \[bot\] dialog button: aaa_compass_test:desert_pyramid ->
+bot click-label aaa_compass_test:desert_pyramid
+wait 2
+expect Compass search started
+await 15 Found aaa_compass_test:desert_pyramid at X -1376, Z -1760 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld -1376 -1760
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -1376 -1760
+reject \[bot\] error:|panicked
+stop

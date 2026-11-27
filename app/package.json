@@ -1,12 +1,12 @@
 {
   "name": "moddedmc-app",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "companion": "node scripts/build-companion.mjs",
+    "playit": "node scripts/prepare-playit.mjs",
     "tauri": "tauri",
     "format": "prettier --write src",
     "check": "tsc --noEmit && prettier --check src"

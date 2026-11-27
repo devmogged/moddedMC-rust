@@ -212,6 +212,29 @@ impl Burner {
         fastnbt::to_bytes(&self).is_ok_and(|bytes| world.set_entity(pos, &bytes))
     }
 
+    fn with_fuel(self, kind: u8, mut duration: u32, force_overflow: bool) -> Option<Self> {
+        if self.creative || kind < self.fuel {
+            return None;
+        }
+        if kind == self.fuel {
+            if self.remaining <= INSERTION_THRESHOLD {
+                duration = duration.saturating_add(self.remaining);
+            } else if force_overflow && kind == NORMAL {
+                duration = self
+                    .remaining
+                    .saturating_add(duration)
+                    .min(MAX_HEAT_CAPACITY.max(self.remaining));
+            } else {
+                return None;
+            }
+        }
+        Some(Self {
+            fuel: kind,
+            remaining: duration,
+            creative: false,
+        })
+    }
+
     fn consume_tick(mut self) -> Self {
         self.remaining = self.remaining.saturating_sub(1);
         if self.remaining == 0 {
@@ -331,6 +354,55 @@ fn fuel(id: &str, bytes: &[u8]) -> Option<(u8, u32, Vec<u8>)> {
         .then_some((NORMAL, 1_600, Vec::new()))
 }
 
+/// An arm supplies one fuel without extending an already hot burn. The replacement
+/// item stays in the claw if it was carrying a single fuel.
+pub(crate) fn insert_from_arm(
+    world: World<'_>,
+    burners: &mut HashMap<Pos, Burner>,
+    pos: Pos,
+    item: &Value,
+    simulate: bool,
+) -> Option<Option<Value>> {
+    let state = crate::belt_tunnel::read(world, pos);
+    let &(heat, facing) = states()?.get(&state)?;
+    if heat == Heat::None {
+        return None;
+    }
+    let id = crate::processing_recipes::item_id(item)?;
+    let bytes = fastnbt::to_bytes(item).ok()?;
+    let old = burners
+        .get(&pos)
+        .copied()
+        .unwrap_or_else(|| Burner::load(world, pos));
+    let (kind, duration, remainder) = fuel(id, &bytes)?;
+    let next = old.with_fuel(kind, duration, false)?;
+    if simulate {
+        return Some(None);
+    }
+    let replacement = if remainder.is_empty() {
+        None
+    } else {
+        Some(fastnbt::from_bytes(&remainder).ok()?)
+    };
+    if !next.save(world, pos) {
+        return None;
+    }
+    if !remainder.is_empty() && crate::belt_inventory::count(item) > 1 {
+        let center = [pos.x, pos.y, pos.z].map(|coordinate| f64::from(coordinate) + 0.5);
+        if STACKS
+            .get()
+            .and_then(|stacks| stacks.spawn(world, center, [0.0; 3], &remainder))
+            .is_none()
+        {
+            old.save(world, pos);
+            return None;
+        }
+    }
+    burners.insert(pos, next);
+    set_heat(world, pos, facing, next.heat());
+    Some(replacement.filter(|_| crate::belt_inventory::count(item) == 1))
+}
+
 pub fn use_item(
     burners: &mut HashMap<Pos, Burner>,
     context: &mut UseBlock<'_>,
@@ -357,27 +429,8 @@ pub fn use_item(
         *burner = next;
         heat.cycle()
     } else {
-        let (kind, mut duration, remainder) = fuel(id, &bytes)?;
-        if burner.creative || kind < burner.fuel {
-            return None;
-        }
-        if kind == burner.fuel {
-            if burner.remaining <= INSERTION_THRESHOLD {
-                duration = duration.saturating_add(burner.remaining);
-            } else if kind == NORMAL {
-                duration = burner
-                    .remaining
-                    .saturating_add(duration)
-                    .min(MAX_HEAT_CAPACITY.max(burner.remaining));
-            } else {
-                return None;
-            }
-        }
-        let next = Burner {
-            fuel: kind,
-            remaining: duration,
-            creative: false,
-        };
+        let (kind, duration, remainder) = fuel(id, &bytes)?;
+        let next = burner.with_fuel(kind, duration, true)?;
         if !next.save(world, pos) {
             return Some(BlockUseResult::Fail);
         }

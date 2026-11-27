@@ -1,0 +1,56 @@
+# A formed boiler has a gauge and dial on each exposed side. Its dial responds to water supply.
+mods target/mods/create.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1029.5 105 1028.5
+wait 4
+cmd fill 1024 103 1023 1032 110 1030 minecraft:air
+cmd setblock 1027 103 1026 minecraft:magma_block
+cmd fill 1027 104 1026 1027 107 1026 create:fluid_tank
+cmd setblock 1028 105 1026 create:steam_engine[face=wall,facing=east,waterlogged=false]
+wait 1
+bot expect entity minecraft:item_display near 1027.5 104.5 1026.5 within 0.3 count 8
+bot expect entity minecraft:item_display near 1027.625 104.375 1026.625 within 0.025 count 1
+wait 0.5
+expect-all ^\[bot\] expect entity ok.*count 8 && ^\[bot\] expect entity ok.*count 1
+
+cmd item replace entity tester weapon.mainhand with minecraft:water_bucket
+wait 0.4
+bot use 1027 105 1026
+wait 1.6
+bot expect entity minecraft:item_display near 1027.625 104.414 1026.619 within 0.025 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok.*count 1
+
+cmd setblock 1027 104 1027 minecraft:stone
+wait 0.8
+bot expect entity minecraft:item_display near 1027.5 104.5 1026.5 within 0.3 count 6
+wait 0.5
+expect ^\[bot\] expect entity ok.*count 6
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+bot expect entity minecraft:item_display near 1027.5 104.5 1026.5 within 0.3 count 6
+wait 0.4
+expect ^\[bot\] expect entity ok.*count 6
+cmd setblock 1027 104 1027 minecraft:air
+wait 0.8
+bot expect entity minecraft:item_display near 1027.5 104.5 1026.5 within 0.3 count 8
+wait 0.5
+expect ^\[bot\] expect entity ok.*count 8
+cmd setblock 1028 105 1026 minecraft:air
+wait 0.7
+bot expect entity minecraft:item_display near 1027.5 104.5 1026.5 within 0.3 count 0
+wait 0.5
+expect ^\[bot\] expect entity ok.*count 0
+reject (?i)panicked|trapped|\[bot\] error
+stop

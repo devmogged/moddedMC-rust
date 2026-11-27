@@ -1,0 +1,48 @@
+# A vanilla hopper keeps its inventory when the last player leaves its chunk and during server stop.
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2496.5 106 2498.5
+wait 4
+cmd fill 2494 105 2496 2501 105 2504 minecraft:stone
+cmd setblock 2496 107 2500 minecraft:stone
+cmd setblock 2496 108 2500 minecraft:hopper[facing=down]
+cmd item replace block 2496 108 2500 container.0 with minecraft:iron_ingot 3
+wait 0.5
+cmd data get block 2496 108 2500 Items[0].count
+wait 0.5
+expect 2496, 108, 2500 has the following block data: 3$
+bot quit
+wait 4
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2496 108 2500 Items[0].id
+wait 0.5
+expect block data: "minecraft:iron_ingot"
+cmd data get block 2496 108 2500 Items[0].count
+wait 0.5
+expect 2496, 108, 2500 has the following block data: 3$
+cmd item replace block 2496 108 2500 container.0 with minecraft:copper_ingot 4
+wait 0.5
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd execute if block 2496 108 2500 minecraft:hopper
+wait 0.5
+expect Test passed
+cmd data get block 2496 108 2500 Items[0].id
+wait 0.5
+expect block data: "minecraft:copper_ingot"
+cmd data get block 2496 108 2500 Items[0].count
+wait 0.5
+expect 2496, 108, 2500 has the following block data: 4$
+reject (?i)panicked|Failed to save player data|Error loading player data|\[bot\] error
+bot quit
+stop

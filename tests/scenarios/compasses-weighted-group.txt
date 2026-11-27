@@ -1,0 +1,73 @@
+# Seed 42, stage weighted-group fixture. Requires the group SDK/UI integration.
+# At the two ring chunks, the weighted winner is B then A from the default spawn.
+# Offset [9,7,-5] is added to the chunk minimum, never its center.
+mods target\mods\compasses.mmc
+start
+cmd datapack enable "file/weighted-group" last
+wait 2
+expect Loaded datapack 'weighted-group'
+stop
+start
+expect Loaded datapack 'weighted-group'
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+bot click-label Search groups
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+await 30 Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+bot quit
+wait 1
+stop
+start
+botstart tester
+wait 3
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*aaa_compass_test:member_b in minecraft:overworld
+bot click-label Find next / retry
+wait 2
+expect Compass search started
+await 30 Found aaa_compass_test:member_a at X -151, Z -1141 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld -151 7 -1141
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -151 7 -1141
+bot use-item main
+wait 1
+bot click-label Find next / retry
+wait 2
+expect Compass search started
+await 10 No aaa_compass_test:member_a found within the search limits
+bot expect tracker 36 none
+wait 1
+expect \[bot\] expect inventory ok tracker 36 none
+bot use-item main
+wait 1
+reject \[bot\] dialog button: Find next / retry ->
+expect \[bot\] dialog: .*Previous search for aaa_compass_test:member_a failed
+bot click-label Search groups
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+await 10 Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+reject \[bot\] error:|panicked
+stop

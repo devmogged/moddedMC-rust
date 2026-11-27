@@ -1,0 +1,21 @@
+# Build create.mmc with scripts/pack-mod.ps1 -Crate create.
+mods target\mods\create.mmc
+start
+expect registered content block create:blaze_burner
+cmd forceload add 1024 1024
+wait 5
+cmd setblock 1026 100 1026 create:blaze_burner
+wait 0.3
+cmd execute if block 1026 100 1026 create:blaze_burner
+wait 0.3
+expect Test passed
+cmd execute if block 1026 100 1026 create:blaze_burner[blaze=smouldering]
+wait 0.3
+expect Test passed
+cmd execute unless block 1026 100 1026 create:blaze_burner[blaze=kindled]
+wait 0.3
+expect Test passed
+cmd execute if block 1026 100 1026 create:blaze_burner[blaze=sideways]
+wait 0.3
+expect does not accept.*sideways
+stop

@@ -29,6 +29,7 @@ use crate::App;
 const API: &str = "https://api.playit.gg";
 const DAEMON_URL: &str = "https://github.com/playit-cloud/playit-agent/releases/latest/download/playitd-windows-x86_64-signed.exe";
 const MAX_DAEMON: usize = 64 << 20;
+const VERSION_TOO_OLD: &str = "playit.gg: \"AgentVersionTooOld\"";
 
 fn dir() -> PathBuf {
     crate::config::home().join("playit")
@@ -164,10 +165,15 @@ pub fn stop_started() {
     }
 }
 
-/// playitd: ours, downloaded on first use on Windows; elsewhere the one on PATH.
+/// Prefer the Windows installer resource, with a download fallback for standalone agents.
 async fn daemon() -> Result<PathBuf, String> {
     if !cfg!(windows) {
         return Ok(PathBuf::from("playitd"));
+    }
+    if let Some(bundled) = std::env::var_os("MODDEDMC_PLAYIT_DAEMON").map(PathBuf::from)
+        && bundled.is_file()
+    {
+        return Ok(bundled);
     }
     let path = dir().join("playitd.exe");
     if path.is_file() {
@@ -266,6 +272,7 @@ pub struct Address {
 enum PlayitState {
     /// Not signed in to playit on this machine.
     SignedOut,
+    Reconnect,
     /// Signed in, but no tunnel points at this server.
     NoTunnel,
     /// A tunnel points here, but playit isn't running.
@@ -287,6 +294,7 @@ pub async fn get(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) ->
     let playit = match secret().await {
         None => PlayitState::SignedOut,
         Some(key) => match run_data(&key).await {
+            Err(err) if invalid_key(&err) => PlayitState::Reconnect,
             Err(_) => PlayitState::Unknown,
             Ok(data) => {
                 let found = tunnels_to(&data, port);
@@ -333,12 +341,19 @@ pub async fn start(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) 
         return (StatusCode::CONFLICT, "Sign in to playit first.").into_response();
     };
     let result = async {
-        let data = run_data(&key).await?;
+        let data = run_data(&key).await.map_err(|err| {
+            if invalid_key(&err) {
+                "Playit rejected this sign-in. Sign in with moddedMC to reconnect.".into()
+            } else {
+                err
+            }
+        })?;
+        // Playit checks the registered daemon version before it allows tunnel creation.
+        if !running() {
+            start_daemon().await?;
+        }
         if tunnels_to(&data, port).is_empty() {
-            // The agent-key endpoint playit's own CLI uses (`ReqTunnelsCreate`).
-            let _: Value = api(
-                "/tunnels/create",
-                json!({
+            let request = json!({
                     "name": format!("moddedMC {name}"),
                     "tunnel_type": "minecraft-java",
                     "port_type": "tcp",
@@ -352,22 +367,23 @@ pub async fn start(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) 
                     "alloc": null,
                     "firewall_id": null,
                     "proxy_protocol": null,
-                }),
-                Some(&key),
-            )
-            .await
-            .map_err(|e| {
-                if e.contains("NotAllowedWithReadOnly") {
-                    // Keys from playit's own app can't make tunnels; one from our sign-in can.
-                    READ_ONLY.to_owned()
-                } else {
-                    e
+                });
+            for attempt in 0..=5 {
+                match api::<Value>("/tunnels/create", request.clone(), Some(&key)).await {
+                    Ok(_) => break,
+                    Err(e) if e == VERSION_TOO_OLD && attempt < 5 => {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                    Err(e) if e == VERSION_TOO_OLD => {
+                        return Err("Playit hasn't registered a compatible agent yet. Try again in a moment.".into());
+                    }
+                    Err(e) if e.contains("NotAllowedWithReadOnly") => {
+                        return Err(READ_ONLY.to_owned());
+                    }
+                    Err(e) => return Err(e),
                 }
-            })?;
+            }
             info!("created a playit tunnel for {name} (port {port})");
-        }
-        if !running() {
-            start_daemon().await?;
         }
         Ok::<_, String>(())
     }
@@ -376,6 +392,13 @@ pub async fn start(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) 
         Ok(()) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::BAD_GATEWAY, e).into_response(),
     }
+}
+
+fn invalid_key(error: &str) -> bool {
+    error
+        .strip_prefix("playit.gg: ")
+        .and_then(|data| serde_json::from_str::<Value>(data).ok())
+        .is_some_and(|data| data["type"] == "auth" && data["message"] == "InvalidAgentKey")
 }
 
 /// The error the app answers by signing in with moddedMC (sign-out, then claim).
@@ -472,7 +495,16 @@ pub async fn claim() -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_secret;
+    use super::{invalid_key, parse_secret};
+
+    #[test]
+    fn only_invalid_agent_credentials_require_reconnecting() {
+        assert!(invalid_key(
+            r#"playit.gg: {"message":"InvalidAgentKey","type":"auth"}"#
+        ));
+        assert!(!invalid_key(r#"playit.gg: "AgentVersionTooOld""#));
+        assert!(!invalid_key("Can't reach playit.gg. Are you online?"));
+    }
 
     #[test]
     fn secret_files() {

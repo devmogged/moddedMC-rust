@@ -1,0 +1,66 @@
+# Original-release Enderitium tools: survival interactions and durability.
+mods target\mods\legendary-monsters.mmc
+start
+expect Loaded built-in datapack 'mod/legendary-monsters': 23 recipe\(s\)
+botstart smith
+wait 3
+expect \[bot\] joined as smith
+cmd tp smith 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 100 1020 1031 100 1030 minecraft:quartz_block
+cmd gamemode survival smith
+cmd setblock 1025 101 1025 minecraft:oak_log
+cmd setblock 1024 100 1025 minecraft:grass_block
+cmd setblock 1026 100 1025 minecraft:dirt
+cmd item replace entity smith hotbar.0 with legendary_monsters:enderitium_axe
+cmd item replace entity smith hotbar.1 with legendary_monsters:enderitium_shovel
+cmd item replace entity smith hotbar.2 with legendary_monsters:enderitium_hoe
+wait 1
+bot hotbar 0
+wait 1
+bot use 1025 101 1025 up
+wait 1
+cmd execute if block 1025 101 1025 minecraft:stripped_oak_log
+wait 1
+expect Test passed
+cmd data get entity smith Inventory[{Slot:0b}].components."minecraft:damage"
+wait 1
+expect following entity data: 1\b
+bot hotbar 1
+wait 1
+bot use 1024 100 1025 up
+wait 1
+cmd execute if block 1024 100 1025 minecraft:dirt_path
+wait 1
+expect Test passed
+cmd data get entity smith Inventory[{Slot:1b}].components."minecraft:damage"
+wait 1
+expect following entity data: 1\b
+bot hotbar 2
+wait 1
+bot use 1026 100 1025 up
+wait 1
+cmd execute if block 1026 100 1025 minecraft:farmland
+wait 1
+expect Test passed
+cmd data get entity smith Inventory[{Slot:2b}].components."minecraft:damage"
+wait 1
+expect following entity data: 1\b
+bot quit
+stop
+start
+botstart smith
+wait 3
+cmd data get entity smith Inventory[{Slot:0b}].components."minecraft:damage"
+wait 1
+expect following entity data: 1\b
+cmd data get entity smith Inventory[{Slot:1b}].components."minecraft:damage"
+wait 1
+expect following entity data: 1\b
+cmd data get entity smith Inventory[{Slot:2b}].components."minecraft:damage"
+wait 1
+expect following entity data: 1\b
+reject \[bot\] error:|panicked|Unknown item
+bot quit
+stop

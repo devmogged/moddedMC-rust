@@ -25,9 +25,9 @@ use pumpkin_core::{
         },
     },
     server::Server,
-    world::{World, install_entity_added_hook},
+    world::World,
 };
-use pumpkin_data::{damage::DamageType, data_component_impl::IDSetContent};
+use pumpkin_data::{damage::DamageType, tag::Taggable};
 use pumpkin_util::math::vector3::Vector3;
 
 use crate::{
@@ -229,7 +229,8 @@ impl EventHandler<EntityDeathEvent> for DeathHandler {
                 return;
             };
             let base: &dyn EntityBase = entity.as_ref();
-            // SAFETY: the world and the mob outlive this synchronous callback.
+            // SAFETY: the world and mob outlive this synchronous callback. The
+            // event is dispatched while the dying entity is still indexed.
             unsafe {
                 callback(
                     ptr::from_ref(world.as_ref()).cast(),
@@ -274,7 +275,10 @@ impl EventHandler<EntityDamageEvent> for HurtHandler {
             else {
                 return;
             };
-            let name = event.damage_type.to_string();
+            // Native hurt callbacks expect the stable Minecraft registry key.
+            // The display string is not a protocol identifier and can differ
+            // from the original resource location (or be locale-dependent).
+            let name = format!("minecraft:{}", event.damage_type.registry_key());
             let base: &dyn EntityBase = entity.as_ref();
             // SAFETY: the world, the mob and the name outlive this synchronous callback.
             let take = unsafe {
@@ -292,12 +296,8 @@ impl EventHandler<EntityDamageEvent> for HurtHandler {
     }
 }
 
-pub fn install() -> bool {
-    install_entity_added_hook(attach)
-}
-
 /// Give a mod mob its type's goals as it joins a world.
-fn attach(_world: &World, entity: &Arc<dyn EntityBase>) {
+pub fn attach(entity: &Arc<dyn EntityBase>) {
     let Some(mob) = entity.get_mob() else { return };
     let Some(kind) = mobs::registered_kind(entity.as_ref()) else {
         return;

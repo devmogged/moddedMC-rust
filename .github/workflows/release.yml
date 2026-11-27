@@ -40,10 +40,6 @@ jobs:
             . -> target
             engine -> target
             app/src-tauri -> ../../target
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
-        with:
-          distribution: temurin
-          java-version: "25"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
@@ -92,14 +88,20 @@ jobs:
           $base = "https://github.com/${{ github.repository }}/releases/download/$env:TAG"
           $files = foreach ($role in 'server', 'agent') {
             $path = "out/moddedmc-$role-windows-x86_64.exe"
+            # The app downloads the .gz; the plain .exe stays for apps from v0.1.0, which don't read gz_url.
+            $in = [IO.File]::OpenRead($path)
+            $gz = [IO.Compression.GZipStream]::new([IO.File]::Create("$path.gz"), [IO.Compression.CompressionLevel]::SmallestSize)
+            $in.CopyTo($gz); $gz.Dispose(); $in.Dispose()
             [ordered]@{
-              role   = $role
-              target = 'windows-x86_64'
-              url    = "$base/moddedmc-$role-windows-x86_64.exe"
-              sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLower()
-              size   = (Get-Item $path).Length
+              role    = $role
+              target  = 'windows-x86_64'
+              url     = "$base/moddedmc-$role-windows-x86_64.exe"
+              sha256  = (Get-FileHash $path -Algorithm SHA256).Hash.ToLower()
+              size    = (Get-Item $path).Length
+              gz_url  = "$base/moddedmc-$role-windows-x86_64.exe.gz"
+              gz_size = (Get-Item "$path.gz").Length
             }
           }
           [ordered]@{ version = $env:TAG; files = @($files) } | ConvertTo-Json -Depth 5 |
             Set-Content -Encoding utf8NoBOM out/runtime.json
-          gh release upload $env:TAG out/moddedmc-server-windows-x86_64.exe out/moddedmc-agent-windows-x86_64.exe out/runtime.json --clobber
+          gh release upload $env:TAG out/moddedmc-server-windows-x86_64.exe out/moddedmc-agent-windows-x86_64.exe out/moddedmc-server-windows-x86_64.exe.gz out/moddedmc-agent-windows-x86_64.exe.gz out/runtime.json --clobber

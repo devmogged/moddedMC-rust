@@ -19,6 +19,24 @@ const ROTATION: [i16; 4] = [0, 180, 270, 90];
 const ACTIVE_AREA_OFFSET: f64 = 0.45;
 
 pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
+    register_attached(
+        content,
+        registry,
+        ID,
+        "Mechanical Harvester",
+        "create:block/mechanical_harvester/block",
+        "create:item/mechanical_harvester",
+    )
+}
+
+pub(crate) fn register_attached(
+    content: Content,
+    registry: &mut Registry<'_>,
+    id: &str,
+    name: &str,
+    model: &str,
+    item_model: &str,
+) -> Result<(), RegistrationError> {
     let properties: Vec<_> = HORIZONTAL
         .into_iter()
         .flat_map(|face| {
@@ -46,7 +64,7 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         .map(|(i, properties)| State {
             properties,
             physical: STONE,
-            model: "create:block/mechanical_harvester/block",
+            model,
             rotating_model: "",
             x: 0,
             y: ROTATION[i / 2],
@@ -57,22 +75,22 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
     content.add_block(
         registry,
         &Block {
-            id: ID,
-            display_name: "Mechanical Harvester",
-            entity: ID,
-            item_model: "create:item/mechanical_harvester",
+            id,
+            display_name: name,
+            entity: id,
+            item_model,
             states: &states,
         },
         Some(crate::placed_state),
     )
 }
 
-pub fn add_states(content: Content, states: &mut StateIds) {
+pub fn add_states(content: Content, states: &mut StateIds, id: &'static str) {
     for face in HORIZONTAL {
         for wet in [false, true] {
             states.add(
                 content,
-                ID,
+                id,
                 &format!("facing={},waterlogged={wet}", DIRECTIONS[usize::from(face)]),
                 None,
             );
@@ -82,6 +100,13 @@ pub fn add_states(content: Content, states: &mut StateIds) {
 
 pub fn facing(entry: &PaletteEntry) -> Option<u8> {
     if entry.name != ID {
+        return None;
+    }
+    attached_facing(entry)
+}
+
+pub(crate) fn attached_facing(entry: &PaletteEntry) -> Option<u8> {
+    if !matches!(entry.name.as_str(), ID | crate::plough::ID) {
         return None;
     }
     let name = entry.properties.get("facing")?;
@@ -97,23 +122,70 @@ fn state_at(world: World<'_>, pos: Pos) -> Option<(u32, PaletteEntry)> {
     Some((state[0], PaletteEntry::parse(&selector)))
 }
 
-pub fn placed_state(args: &Placement<'_>, horizontal_look: u8) -> Option<u32> {
-    let support = offset(args.position, FACES[usize::from(args.face ^ 1)]);
+fn supports_actor(world: World<'_>, pos: Pos, face: u8) -> Option<bool> {
+    let (_, entry) = state_at(world, pos)?;
+    if TAGS
+        .get()?
+        .contains("block", "minecraft:leaves", &entry.name)
+    {
+        return Some(false);
+    }
+    let axis = usize::from(crate::kinetics::face_axis(face));
+    let [u, v] = [(1, 2), (0, 2), (0, 1)][axis].into();
+    let shapes = world.collision_shape(pos)?;
+    let touching: Vec<_> = shapes
+        .iter()
+        .filter(|bounds| {
+            if crate::kinetics::positive(face) {
+                bounds.max[axis] >= 1.0
+            } else {
+                bounds.min[axis] <= 0.0
+            }
+        })
+        .collect();
+    if touching.iter().any(|bounds| {
+        bounds.min[u] <= 0.0 && bounds.min[v] <= 0.0 && bounds.max[u] >= 1.0 && bounds.max[v] >= 1.0
+    }) {
+        return Some(true);
+    }
+    let cuts = |axis| {
+        let mut cuts = vec![0.0, 1.0];
+        for bounds in &touching {
+            cuts.extend([bounds.min[axis], bounds.max[axis]].map(|edge: f64| edge.clamp(0.0, 1.0)));
+        }
+        cuts.sort_unstable_by(f64::total_cmp);
+        cuts.dedup();
+        cuts
+    };
+    let (u_cuts, v_cuts) = (cuts(u), cuts(v));
+    Some(u_cuts.windows(2).all(|a| {
+        v_cuts.windows(2).all(|b| {
+            touching.iter().any(|bounds| {
+                bounds.min[u] <= a[0]
+                    && bounds.max[u] >= a[1]
+                    && bounds.min[v] <= b[0]
+                    && bounds.max[v] >= b[1]
+            })
+        })
+    }))
+}
+
+pub fn placed_state(id: &str, args: &Placement<'_>, horizontal_look: u8) -> Option<u32> {
+    let support = offset(args.position, FACES[usize::from(args.face)]);
     let face = if args.face < 2 {
         horizontal_look ^ 1
     } else {
         state_at(args.world, support)
-            .filter(|(_, entry)| entry.name == ID)
-            .and_then(|(_, entry)| facing(&entry))
-            .unwrap_or(args.face)
+            .and_then(|(_, entry)| attached_facing(&entry))
+            .unwrap_or(args.face ^ 1)
     };
     let support = offset(args.position, FACES[usize::from(face ^ 1)]);
-    if !args.world.face_sturdy(support, face) {
+    if !supports_actor(args.world, support, face)? {
         return None;
     }
     let wet = args.world.fluid_id(args.position)? == "minecraft:water";
     CONTENT.get()?.state(&format!(
-        "{ID}[facing={},waterlogged={wet}]",
+        "{id}[facing={},waterlogged={wet}]",
         DIRECTIONS[usize::from(face)]
     ))
 }
@@ -220,8 +292,12 @@ pub fn event(world: World<'_>, event: &content::ContentEvent) {
     if event.reason == content::NEIGHBOR_CHANGED
         && let Some((state, entry)) = state_at(world, event.position)
         && event.state == state
-        && let Some(face) = facing(&entry)
-        && !world.face_sturdy(offset(event.position, FACES[usize::from(face ^ 1)]), face)
+        && let Some(face) = attached_facing(&entry)
+        && supports_actor(
+            world,
+            offset(event.position, FACES[usize::from(face ^ 1)]),
+            face,
+        ) == Some(false)
     {
         world.destroy(event.position, true);
     }

@@ -1,0 +1,66 @@
+# Genuine placed vanilla Crafter: selection is machine-local, survives a real
+# stop/restart, shows the selected result to a fresh stock-client menu and
+# consumes exactly one input to emit the selected datapack output.
+# A passing clean restart is not a journaled crash-interruption guarantee.
+mods target\mods\polymorph.mmc
+datapack tests\fixtures\polymorph-crafter-conflicts conflicts
+start
+expect moddedmc: loaded polymorph
+cmd datapack enable "file/conflicts" last
+wait 1
+expect Loaded datapack 'conflicts'
+stop
+start
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 4
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:crafter[orientation=up_north]
+wait 2
+cmd item replace entity alice hotbar.0 with minecraft:stone 3
+bot use 1025 100 1025 north
+wait 1
+bot inventory-click 36 left
+bot inventory-click 1 left
+wait 1
+bot expect slot 45 minecraft:stone_button 1
+bot cmd polymorph choose 3
+wait 1
+bot expect slot 45 minecraft:emerald 1
+bot inventory-close
+cmd data get block 1025 100 1025
+wait 1
+expect moddedmc:selected_crafter_recipe: "polymorph_test:02_emerald"
+bot quit
+stop
+
+# The new server process reconstructs its CrafterBlockEntity from world NBT.
+# No /polymorph choose command is sent after restart.
+start
+botstart alice
+wait 4
+cmd data get block 1025 100 1025
+wait 1
+expect moddedmc:selected_crafter_recipe: "polymorph_test:02_emerald"
+bot use 1025 100 1025 north
+wait 1
+bot expect slot 45 minecraft:emerald 1
+bot expect slot 1 minecraft:stone 3
+bot inventory-close
+cmd setblock 1025 101 1025 minecraft:redstone_block
+wait 0.35
+cmd data get block 1025 100 1025 Items
+wait 1
+expect count: 2
+bot expect entity minecraft:item near 1025.5 100.5 1025.5 within 4 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+cmd data get entity @e[type=minecraft:item,x=1025.5,y=100.5,z=1025.5,distance=..4,nbt={Item:{id:"minecraft:emerald"}},limit=1] Item.id
+wait 1
+expect minecraft:emerald
+reject (?i)panicked|\[bot\] error:
+bot quit
+stop

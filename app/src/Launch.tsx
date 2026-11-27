@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import banner from "~/assets/intro-banner.png";
-import pumpkin from "~/assets/intro-pumpkin.png";
+import pumpkin from "~/assets/intro-pumpkin.svg";
 import { api } from "~/api";
 import { formatBytes } from "~/lib/hooks";
 import { getSettings } from "~/settings";

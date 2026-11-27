@@ -21,24 +21,34 @@
 
 pub mod abi;
 pub mod block_displays;
+pub mod block_physics;
 pub mod chunks;
 pub mod commands;
+pub mod container_conversion;
+pub mod container_loot;
 pub mod containers;
 pub mod content;
+pub mod crafting;
 pub mod effects;
 pub mod entities;
 pub mod fluid_world;
 pub mod interaction;
+pub mod inventory_menu;
+pub mod item_input;
 pub mod items;
 pub mod lifecycle;
 pub mod mob_ai;
 pub mod mobs;
+pub mod native_entity;
+pub mod player_death;
 pub mod resources;
 pub mod saved_data;
 pub mod services;
 pub mod stacks;
 pub mod tags;
 pub mod world;
+mod worldgen_groups;
+pub mod worldgen_lookup;
 
 use std::{
     ffi::c_void,

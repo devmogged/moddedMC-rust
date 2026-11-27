@@ -1,0 +1,42 @@
+# Build tests/fixtures/abi-content-replacement/pack.ps1 under the gate.
+# Use default Lootr lifecycle; fixture directly exercises the shared CAS.
+mods target\mods\lootr.mmc target\mods\abi-content-replacement.mmc
+start
+expect moddedmc: loaded 2 mods
+botstart alice
+wait 3
+cmd tp alice 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd setblock 1025 100 1025 lootr:barrel[facing=up,open=false]
+cmd data merge block 1025 100 1025 {LootrId:"00000000000000000000000000000001",LootrIsCustomInventory:1b,LootrCustomInventory:[{Slot:0b,id:"minecraft:diamond",count:7}]}
+cmd abi_replacement_capture
+wait 0.5
+expect abi replacement captured
+cmd setblock 1025 100 1025 minecraft:air
+cmd setblock 1025 100 1025 lootr:barrel[facing=up,open=false]
+cmd data merge block 1025 100 1025 {LootrId:"00000000000000000000000000000001",LootrIsCustomInventory:1b,LootrCustomInventory:[{Slot:0b,id:"minecraft:diamond",count:7}]}
+cmd abi_replacement_stale
+wait 0.5
+expect abi replacement guard same_state=true same_incarnation=false same_nbt=true committed=false preserved=true
+cmd abi_replacement_capture
+wait 0.5
+expect abi replacement captured
+cmd abi_replacement_changed
+wait 0.5
+expect abi replacement guard same_state=true same_incarnation=true same_nbt=false committed=false preserved=true
+cmd execute if block 1025 100 1025 lootr:barrel[facing=up,open=false]
+wait 0.5
+expect Test passed
+cmd abi_replacement_fresh
+wait 0.5
+expect abi replacement fresh committed=true removed=true
+cmd execute if block 1025 100 1025 minecraft:air
+wait 0.5
+expect Test passed
+cmd execute unless entity @e[type=minecraft:item,x=1025,y=100,z=1025,distance=..8]
+wait 0.5
+expect Test passed
+bot quit
+stop

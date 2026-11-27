@@ -1,0 +1,67 @@
+# Group navigation tokens rotate across pages and stack replacement.
+mods target\mods\compasses.mmc
+start
+cmd datapack enable "file/weighted-group" last
+wait 2
+expect Loaded datapack 'weighted-group'
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Explorer's Compass
+bot click-label Search groups
+wait 1
+expect \[bot\] dialog: .*Explorer's Compass: Groups
+bot click-replay
+wait 1
+reject Compass search started|\[bot\] dialog:|\[bot\] error:
+expect \[bot\] did: click-replay
+bot click-label Search individual structures
+wait 1
+expect \[bot\] dialog: .*Select a target in this dimension
+bot click-replay
+wait 1
+reject Compass search started|\[bot\] dialog:|\[bot\] error:
+expect \[bot\] did: click-replay
+bot click-label Search groups
+wait 1
+expect \[bot\] dialog: .*Explorer's Compass: Groups
+# Replace with the same registered item; identity, not item ID, is checked.
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+reject Compass search started|Found aaa_compass_test:
+expect Compass or dimension changed
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot click-replay
+wait 1
+reject Compass search started|\[bot\] dialog:|\[bot\] error:
+expect \[bot\] did: click-replay
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Select a target in this dimension
+bot click-label Search groups
+wait 1
+expect \[bot\] dialog: .*Explorer's Compass: Groups
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+await 30 Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+bot click-replay
+wait 1
+reject Compass search started|Found aaa_compass_test:|\[bot\] error:
+expect \[bot\] did: click-replay
+bot quit
+stop

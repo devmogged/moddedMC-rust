@@ -2071,6 +2071,7 @@ dependencies = [
  "bytes",
  "pumpkin-core",
  "pumpkin-data",
+ "pumpkin-nbt",
  "pumpkin-protocol",
  "pumpkin-util",
  "reqwest",
@@ -2817,6 +2818,8 @@ dependencies = [
  "pumpkin-util",
  "rand 0.10.3",
  "rustc-hash",
+ "serde_json",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "tracing",
 ]

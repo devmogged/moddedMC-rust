@@ -1,0 +1,77 @@
+# Stock click semantics and cursor return must conserve personal items across restart.
+mods target\mods\lootr.mmc
+start
+expect moddedmc: loaded lootr
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd setblock 1025 100 1025 lootr:chest
+cmd item replace entity alice hotbar.0 with minecraft:diamond 7
+wait 1
+bot use 1025 100 1025
+wait 1
+bot inventory-click 54 shift-left
+wait 0.5
+bot expect slot 0 minecraft:diamond 7
+wait 0.5
+expect expect inventory ok slot 0 diamond 7
+bot inventory-click 0 right
+wait 0.5
+bot expect slot 0 minecraft:diamond 3
+wait 0.5
+expect expect inventory ok slot 0 diamond 3
+bot expect cursor minecraft:diamond 4
+wait 0.5
+expect expect inventory ok cursor diamond 4
+bot inventory-click 1 left
+wait 0.5
+bot expect slot 1 minecraft:diamond 4
+wait 0.5
+expect expect inventory ok slot 1 diamond 4
+bot inventory-click 1 right
+wait 0.5
+bot expect slot 1 minecraft:diamond 2
+wait 0.5
+expect expect inventory ok slot 1 diamond 2
+bot expect cursor minecraft:diamond 2
+wait 0.5
+expect expect inventory ok cursor diamond 2
+bot inventory-close
+wait 0.5
+cmd clear alice minecraft:diamond 0
+wait 0.5
+expect Found 2 matching item
+bot quit
+stop
+start
+botstart alice
+wait 3
+bot use 1025 100 1025
+wait 1
+bot expect slot 0 minecraft:diamond 3
+wait 0.5
+expect expect inventory ok slot 0 diamond 3
+bot expect slot 1 minecraft:diamond 2
+wait 0.5
+expect expect inventory ok slot 1 diamond 2
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-click 1 shift-left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot expect slot 1 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 1 air 0
+bot inventory-close
+cmd clear alice minecraft:diamond 0
+wait 0.5
+expect Found 7 matching item
+reject \[bot\] error:|panicked
+bot quit
+stop

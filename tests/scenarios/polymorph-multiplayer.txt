@@ -1,0 +1,78 @@
+# Two simultaneously open 3x3 menus resolve the same conflicts differently.
+# Selected recipe must be per-menu, never a mutable global first-match recipe.
+mods target\mods\polymorph.mmc
+start
+cmd datapack enable "file/conflicts" last
+wait 1
+expect Loaded datapack 'conflicts'
+stop
+start
+botstart alice
+botstart bob
+wait 3
+cmd gamemode survival alice
+cmd gamemode survival bob
+cmd tp alice 1025.5 101 1023.5
+cmd tp bob 1025.5 101 1023.5
+wait 2
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:crafting_table
+cmd item replace entity alice hotbar.0 with minecraft:stone 2
+cmd item replace entity bob hotbar.0 with minecraft:stone 2
+botselect alice
+bot use 1025 100 1025
+wait 1
+bot inventory-click 37 left
+bot inventory-click 1 left
+wait 1
+bot expect slot 0 minecraft:stone_button 1
+bot cmd polymorph choose 3
+wait 1
+bot expect slot 0 minecraft:emerald 1
+botselect bob
+bot use 1025 100 1025
+wait 1
+bot inventory-click 37 left
+bot inventory-click 1 left
+wait 1
+bot expect slot 0 minecraft:stone_button 1
+bot cmd polymorph choose 4
+wait 1
+expect That recipe no longer matches
+bot expect slot 0 minecraft:stone_button 1
+bot cmd polymorph choose 2
+wait 1
+bot expect slot 0 minecraft:diamond 1
+botselect alice
+bot expect slot 0 minecraft:emerald 1
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-click 0 shift-left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+bot inventory-close
+botselect bob
+bot expect slot 0 minecraft:diamond 1
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-click 0 shift-left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+bot inventory-close
+cmd clear alice minecraft:emerald 0
+wait 0.5
+expect Found 2 matching item
+cmd clear alice minecraft:diamond 0
+wait 0.5
+expect No items were found
+cmd clear bob minecraft:diamond 0
+wait 0.5
+expect Found 2 matching item
+cmd clear bob minecraft:emerald 0
+wait 0.5
+expect No items were found
+reject (?i)panicked|\[bot\] error:
+bot quit
+botselect alice
+bot quit
+stop

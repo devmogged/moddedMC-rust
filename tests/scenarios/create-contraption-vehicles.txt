@@ -1,4 +1,4 @@
-# An unridden boat and minecart follow a translating platform.
+# An unridden boat and minecart follow a translating platform and stay there through restart.
 mods target\mods\create.mmc
 start
 botstart tester
@@ -33,4 +33,18 @@ wait 0.5
 expect ^\[bot\] expect entity ok minecraft:oak_boat
 expect ^\[bot\] expect entity ok minecraft:minecart
 reject (?i)panicked|trapped|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+bot expect entity minecraft:oak_boat near 2454.5 103 2450.5 within 0.3 count 1
+bot expect entity minecraft:minecart near 2454.5 103 2453.5 within 0.3 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:oak_boat
+expect ^\[bot\] expect entity ok minecraft:minecart
+reject (?i)panicked|trapped|\[bot\] error
+bot quit
 stop

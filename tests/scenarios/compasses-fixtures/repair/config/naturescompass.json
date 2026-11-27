@@ -1,0 +1,7 @@
+{
+  "defaultXpLevels": 0,
+  "perBiomeXpLevels": [
+    "minecraft:*forest*,0"
+  ],
+  "compassDurability": 0
+}

@@ -2,11 +2,14 @@
 //! `KineticBlockEntity` and `GeneratingKineticBlockEntity`, ported method by method so the same
 //! placements give the same speeds, sources, networks and broken blocks.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use moddedmc_api::Pos;
 
-use crate::belt_inventory::{BeltInventory, Chain};
+use crate::{
+    belt_inventory::{BeltInventory, Chain},
+    chain_drive::{self, Drive},
+};
 
 /// `Direction.values()`: down, up, north, south, west, east.
 pub const FACES: [[i32; 3]; 6] = [
@@ -24,6 +27,7 @@ const NORTH: u8 = 2;
 pub const MAX_ROTATION_SPEED: f32 = 256.0;
 /// `CKinetics.kineticValidationFrequency` default.
 const KINETIC_VALIDATION_FREQUENCY: i32 = 60;
+const CHAIN_GEARSHIFT_LAZY_TICK_RATE: u8 = 40;
 /// `RotationPropagator.MAX_FLICKER_SCORE`.
 const MAX_FLICKER_SCORE: i32 = 128;
 /// The `limit` Create's belt chain walks use.
@@ -88,16 +92,24 @@ fn nearest(diff: [i32; 3]) -> u8 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     Shaft(u8),
+    PoweredShaft(u8),
     Small(u8),
     Large(u8),
     /// Facing.
     Motor(u8),
+    WaterWheel(u8),
+    LargeWaterWheel(u8),
+    HandCrank(u8),
+    Crafter(crate::crafter::CrafterBlock),
     Gearbox(u8),
+    SpeedController(u8),
+    ChainDrive(Drive),
     /// Axis and `powered`.
     Clutch(u8, bool),
     Gearshift(u8, bool),
     EncasedShaft(u8),
     Turntable,
+    Arm(bool),
     Press(u8),
     Deployer {
         facing: u8,
@@ -112,6 +124,7 @@ pub enum Kind {
     Bearing(u8),
     Windmill(u8),
     Drill(u8),
+    Saw(crate::saw::SawBlock),
     Clockwork(u8),
     Piston(crate::piston::PistonBlock),
     GantryShaft(crate::gantry::Shaft),
@@ -238,30 +251,38 @@ impl Kind {
     pub const fn axis(self) -> u8 {
         match self {
             Self::Shaft(axis)
+            | Self::PoweredShaft(axis)
             | Self::Small(axis)
             | Self::Large(axis)
             | Self::Gearbox(axis)
+            | Self::SpeedController(axis)
             | Self::Clutch(axis, _)
             | Self::Gearshift(axis, _)
             | Self::EncasedShaft(axis)
             | Self::Wheel(axis)
+            | Self::LargeWaterWheel(axis)
             | Self::Pulley(axis)
             | Self::Press(axis)
             | Self::Valve(axis) => axis,
+            Self::ChainDrive(drive) => drive.axis,
             Self::Deployer {
                 facing,
                 along_first,
             } => directional_shaft_axis(facing, along_first),
             Self::Pump(facing) => face_axis(facing),
+            Self::Saw(block) => block.axis(),
+            Self::Crafter(crafter) => face_axis(crafter.facing),
             Self::HosePulley(facing) => face_axis(crate::fluids::hose_pulley::shaft_side(facing)),
             Self::Motor(facing)
+            | Self::WaterWheel(facing)
+            | Self::HandCrank(facing)
             | Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
             | Self::Drill(facing)
             | Self::Clockwork(facing) => face_axis(facing),
             Self::Elevator(facing) => crate::elevator::shaft_axis(facing),
-            Self::Turntable | Self::Millstone | Self::Mixer => 1,
+            Self::Turntable | Self::Millstone | Self::Mixer | Self::Arm(_) => 1,
             Self::Piston(block) => block.shaft_axis(),
             Self::GantryShaft(shaft) => face_axis(shaft.facing),
             Self::GantryCarriage(carriage) => carriage.axis(),
@@ -279,13 +300,15 @@ impl Kind {
     pub const fn has_shaft_towards(self, face: u8) -> bool {
         match self {
             Self::Motor(facing) => facing == face,
-            Self::Pump(_) | Self::Mixer => false,
+            Self::Pump(_) | Self::Mixer | Self::Crafter(_) | Self::Arm(_) => false,
             Self::HosePulley(facing) => crate::fluids::hose_pulley::shaft_side(facing) == face,
-            Self::Fan(facing)
+            Self::HandCrank(facing)
+            | Self::Fan(facing)
             | Self::Bearing(facing)
             | Self::Windmill(facing)
             | Self::Drill(facing)
             | Self::Clockwork(facing) => facing ^ 1 == face,
+            Self::Saw(block) if block.horizontal() => block.facing ^ 1 == face,
             Self::Gearbox(axis) => face_axis(face) != axis,
             Self::Turntable | Self::Millstone => face == DOWN,
             Self::Belt(belt) => face_axis(face) == self.axis() && belt.has_pulley(),
@@ -296,7 +319,12 @@ impl Kind {
     const fn small_cog(self) -> bool {
         matches!(
             self,
-            Self::Small(_) | Self::Pump(_) | Self::Millstone | Self::Mixer
+            Self::Small(_)
+                | Self::Pump(_)
+                | Self::Millstone
+                | Self::Mixer
+                | Self::Crafter(_)
+                | Self::Arm(_)
         )
     }
 
@@ -323,12 +351,13 @@ impl Kind {
             | Self::Millstone
             | Self::Bearing(_)
             | Self::Drill(_)
+            | Self::Saw(_)
             | Self::Clockwork(_)
             | Self::Piston(_)
             | Self::Pulley(_)
             | Self::Elevator(_) => 4.0,
             Self::Press(_) | Self::Wheel(_) => 8.0,
-            Self::Fan(_) => 2.0,
+            Self::Fan(_) | Self::Crafter(_) | Self::Arm(_) => 2.0,
             _ => 0.0,
         }
     }
@@ -337,13 +366,24 @@ impl Kind {
     pub const fn capacity(self) -> f32 {
         match self {
             Self::Motor(_) => 16384.0,
+            Self::WaterWheel(_) => 32.0,
+            Self::LargeWaterWheel(_) => 128.0,
+            Self::HandCrank(_) => 8.0,
             Self::Windmill(_) => 512.0,
             _ => 0.0,
         }
     }
 
     const fn generator(self) -> bool {
-        matches!(self, Self::Motor(_) | Self::Windmill(_))
+        self.fluid_wheel()
+            || matches!(
+                self,
+                Self::Motor(_) | Self::HandCrank(_) | Self::Windmill(_) | Self::PoweredShaft(_)
+            )
+    }
+
+    pub const fn fluid_wheel(self) -> bool {
+        matches!(self, Self::WaterWheel(_) | Self::LargeWaterWheel(_))
     }
 
     pub const fn is_bearing(self) -> bool {
@@ -353,8 +393,13 @@ impl Kind {
         )
     }
 
-    fn same_block(self, other: Self) -> bool {
-        std::mem::discriminant(&self) == std::mem::discriminant(&other)
+    pub(crate) fn same_block(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::ChainDrive(a), Self::ChainDrive(b)) => {
+                a.powered.is_some() == b.powered.is_some()
+            }
+            _ => std::mem::discriminant(&self) == std::mem::discriminant(&other),
+        }
     }
 
     /// `KineticBlock.areStatesKineticallyEquivalent`; belts also keep their `PART`.
@@ -367,6 +412,7 @@ impl Kind {
             | (Self::Drill(a), Self::Drill(b))
             | (Self::HosePulley(a), Self::HosePulley(b))
             | (Self::Clockwork(a), Self::Clockwork(b)) => a == b,
+            (Self::Saw(a), Self::Saw(b)) => a.facing == b.facing,
             (Self::Piston(a), Self::Piston(b)) => a == b,
             (Self::GantryShaft(a), Self::GantryShaft(b)) => {
                 a.facing == b.facing && a.powered == b.powered
@@ -443,8 +489,10 @@ pub struct Be {
     pub overstressed: bool,
     pub last_stress_applied: f32,
     pub last_capacity_provided: f32,
-    /// The creative motor's scroll value.
+    /// The generator's input, such as a motor's scroll value or a wheel's flow score.
     pub generated: i32,
+    pub(crate) chain_signal: u8,
+    chain_signal_ticks: u8,
     flicker_tally: i32,
     update_speed: bool,
     validation_countdown: i32,
@@ -457,14 +505,18 @@ pub struct Be {
     pub controller: Option<Pos>,
     pub belt_length: i32,
     pub belt_index: i32,
+    pub(crate) belt_casing: crate::belt_casing::Casing,
     /// A belt controller's entities by id, created on its first moving tick.
     pub passengers: Option<HashMap<i32, Passenger>>,
     /// A belt controller's items, created when the first one arrives.
     pub inventory: Option<BeltInventory>,
     pub press: Option<crate::press::PressingBehaviour>,
     pub deployer: Option<Box<crate::deployer::Deployer>>,
+    pub(crate) arm: Option<Box<crate::arm::Arm>>,
+    pub(crate) crafter: Option<Box<crate::crafter::Crafter>>,
     pub mixer: Option<Box<crate::mixer::Mixer>>,
     pub valve: Option<crate::fluids::valve::Pointer>,
+    pub(crate) powered_shaft: Option<Box<crate::steam_engine::PoweredShaftData>>,
     pub fan: Option<Box<crate::fan::AirCurrent>>,
     pub bearing: Option<Box<crate::bearing::MechanicalBearing>>,
     pub piston: Option<Box<crate::piston::MechanicalPiston>>,
@@ -472,11 +524,13 @@ pub struct Be {
     pub last_gantry_shaft: Option<(crate::gantry::Shaft, f32)>,
     pub pulley: Option<Box<crate::pulley::RopePulley>>,
     pub millstone: Option<Box<crate::millstone::Millstone>>,
+    pub(crate) block_breaking: Option<crate::drill::Stationary>,
+    pub(crate) saw_processing: Option<Box<crate::saw_processing::Processing>>,
 }
 
 impl Be {
     /// A block entity as constructed, before its first tick.
-    pub const fn new(kind: Kind) -> Self {
+    pub fn new(kind: Kind) -> Self {
         Self {
             kind,
             serial: 0,
@@ -489,11 +543,17 @@ impl Be {
             overstressed: false,
             last_stress_applied: 0.0,
             last_capacity_provided: 0.0,
-            generated: if matches!(kind, Kind::Windmill(_)) {
+            generated: if kind.fluid_wheel()
+                || matches!(kind, Kind::HandCrank(_) | Kind::Windmill(_))
+            {
                 0
+            } else if matches!(kind, Kind::SpeedController(_)) {
+                crate::speed_controller::DEFAULT_SPEED
             } else {
                 DEFAULT_SPEED
             },
+            chain_signal: 0,
+            chain_signal_ticks: 0,
             flicker_tally: 0,
             update_speed: true,
             validation_countdown: 0,
@@ -504,7 +564,9 @@ impl Be {
             controller: None,
             belt_length: 0,
             belt_index: 0,
+            belt_casing: crate::belt_casing::Casing::None,
             inventory: None,
+            arm: None,
             passengers: None,
             fan: None,
             bearing: None,
@@ -513,7 +575,10 @@ impl Be {
             last_gantry_shaft: None,
             pulley: None,
             millstone: None,
+            block_breaking: None,
+            saw_processing: None,
             valve: None,
+            powered_shaft: matches!(kind, Kind::PoweredShaft(_)).then(Box::default),
             mixer: None,
             press: if matches!(kind, Kind::Press(_)) {
                 Some(crate::press::PressingBehaviour::new(
@@ -523,6 +588,7 @@ impl Be {
                 None
             },
             deployer: None,
+            crafter: matches!(kind, Kind::Crafter(_)).then(Box::default),
         }
     }
 
@@ -537,6 +603,18 @@ impl Be {
             Kind::Motor(facing) if positive(facing) => self.generated as f32,
             Kind::Motor(_) => -(self.generated as f32),
             Kind::Windmill(_) => self.generated as f32,
+            Kind::PoweredShaft(_) => self
+                .powered_shaft
+                .as_ref()
+                .map_or(0.0, |shaft| shaft.output().0 as f32),
+            Kind::HandCrank(facing) => {
+                let direction = if positive(facing) { 1 } else { -1 };
+                (self.generated.signum() * direction * crate::hand_crank::SPEED) as f32
+            }
+            Kind::WaterWheel(_) => (self.generated.signum() * crate::water_wheel::SPEED) as f32,
+            Kind::LargeWaterWheel(_) => {
+                (self.generated.signum() * crate::large_water_wheel::SPEED) as f32
+            }
             _ => 0.0,
         }
     }
@@ -556,7 +634,10 @@ impl Be {
     }
 
     fn calculate_added_stress_capacity(&mut self) -> f32 {
-        self.last_capacity_provided = self.kind.capacity();
+        self.last_capacity_provided = self
+            .powered_shaft
+            .as_ref()
+            .map_or_else(|| self.kind.capacity(), |shaft| shaft.output().1);
         self.last_capacity_provided
     }
 
@@ -623,6 +704,7 @@ pub trait Level {
     /// `Level.destroyBlock(pos, true)`.
     fn destroy(&mut self, pos: Pos);
     fn has_neighbor_signal(&self, pos: Pos) -> bool;
+    fn best_neighbor_signal(&self, pos: Pos) -> u8;
     fn is_loaded(&self, pos: Pos) -> bool;
     /// Replace the block state with `kind` without neighbor updates (clutch and gearshift
     /// `POWERED` toggles).
@@ -637,15 +719,25 @@ pub trait Level {
 pub struct Kinetics {
     pub(crate) rail_updates: crate::trains::RailUpdates,
     pub(crate) signal_updates: crate::trains::signal::SignalUpdates,
-    pub(crate) train_displays: crate::trains::TrainDisplays,
+    pub(crate) train_runtime: crate::trains::TrainRuntime,
+    pub(crate) pending_wheel_parts: HashSet<Pos>,
     pub blaze_burners: HashMap<Pos, crate::blaze_burner::Burner>,
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
+    pub(crate) threshold_switches: HashMap<Pos, crate::threshold_switch::Switch>,
+    pub(crate) content_observers: HashMap<Pos, crate::content_observer::Observer>,
     pub item_drains: HashMap<Pos, crate::fluids::item_drain::ItemDrain>,
     pub hose_pulleys: crate::fluids::hose_pulley::HosePulleys,
     pub spouts: HashMap<Pos, crate::fluids::spout::Spout>,
     pub fluid_tanks: crate::fluids::tank_connectivity::Connectivity,
+    pub(crate) boilers: crate::fluids::boiler::Boilers,
+    pub(crate) steam_engines: HashMap<Pos, crate::steam_engine::Engine>,
+    pub(crate) steam_displays: HashMap<Pos, crate::steam_engine::SteamDisplays>,
+    pub(crate) steam_whistles: HashMap<Pos, crate::steam_whistle::Whistle>,
     pub chutes: crate::chute::Chutes,
     pub funnels: crate::funnel::Funnels,
+    pub(crate) tunnels: HashMap<Pos, crate::belt_tunnel::Tunnel>,
+    pub(crate) brass_tunnels: HashMap<Pos, crate::brass_tunnel::TunnelData>,
+    pub(crate) pending_tunnel_casings: Vec<Pos>,
     pub crushers: HashMap<Pos, crate::crusher::Controller>,
     pub recipes: Option<std::sync::Arc<crate::processing_recipes::RecipeBook>>,
     bes: HashMap<Pos, Be>,
@@ -658,7 +750,14 @@ pub struct Kinetics {
     /// Belt inventories whose controller left since the last tick.
     dropped: Vec<Dropped>,
     pub dropped_millstones: Vec<(Pos, Box<crate::millstone::Millstone>)>,
+    pub(crate) deployer_displays: HashMap<Pos, crate::deployer::HandDisplays>,
+    pub(crate) belt_casing_displays: HashMap<Pos, crate::belt_casing::CasingDisplay>,
     pub dropped_deployers: Vec<(Pos, fastnbt::Value)>,
+    pub(crate) dropped_arms: Vec<(Pos, fastnbt::Value)>,
+    pub(crate) arm_displays: HashMap<Pos, crate::arm_display::ArmDisplay>,
+    pub(crate) saw_blades: HashMap<Pos, crate::display_model::ModelDisplay>,
+    pub(crate) pending_arm_points: HashMap<(i32, Pos), Vec<crate::arm::Selection>>,
+    pub(crate) placed_arm_points: Vec<(Pos, Vec<crate::arm::Selection>)>,
     pub dropped_bearings: Vec<(Pos, u8, Box<crate::bearing::MechanicalBearing>)>,
     pub dropped_gantries: Vec<crate::gantry::GantryContraption>,
     pub dropped_pulleys: Vec<(Pos, Box<crate::pulley::RopePulley>)>,
@@ -752,6 +851,9 @@ impl Kinetics {
 
     /// A block entity created by placement or loaded with its saved fields.
     pub fn insert(&mut self, pos: Pos, mut be: Be) {
+        if matches!(be.kind, Kind::Arm(_)) && be.arm.is_none() {
+            be.arm = Some(Box::default());
+        }
         if matches!(be.kind, Kind::Deployer { .. }) && be.deployer.is_none() {
             be.deployer = Some(Box::default());
         }
@@ -781,6 +883,9 @@ impl Kinetics {
     }
 
     fn drop_inventory(&mut self, pos: Pos, mut be: Be, eject: bool) {
+        if eject && let Some(item) = be.arm.take().and_then(|arm| arm.take_held()) {
+            self.dropped_arms.push((pos, item));
+        }
         if eject && let Some(item) = be.deployer.take().and_then(|deployer| deployer.held_item) {
             self.dropped_deployers.push((pos, item));
         }
@@ -871,6 +976,12 @@ impl Kinetics {
         let (axis, powered, clutch) = match kind {
             Kind::Clutch(axis, powered) => (axis, powered, true),
             Kind::Gearshift(axis, powered) => (axis, powered, false),
+            Kind::ChainDrive(drive) if drive.powered.is_some() => {
+                if let Some(be) = self.bes.get_mut(&pos) {
+                    be.chain_signal_ticks = 0;
+                }
+                return;
+            }
             _ => return,
         };
         if powered == level.has_neighbor_signal(pos) {
@@ -914,6 +1025,56 @@ impl Kinetics {
         self.update_generated_rotation(level, pos);
     }
 
+    pub(crate) fn set_controller_speed(&mut self, level: &mut dyn Level, pos: Pos, rpm: i32) {
+        let Some(be) = self.bes.get_mut(&pos) else {
+            return;
+        };
+        if be.generated == rpm {
+            return;
+        }
+        let previous = be.clone();
+        be.generated = rpm;
+        be.dirty = true;
+        self.set_network(pos, None);
+        self.handle_removed(level, pos, &previous);
+        self.remove_source(pos);
+        self.handle_added(level, pos);
+    }
+
+    pub(crate) fn reconfigure_chain(&mut self, level: &mut dyn Level, pos: Pos, drive: Drive) {
+        let Some(previous) = chain_drive::from_kind(self.kind(pos)) else {
+            return;
+        };
+        if !previous.same_topology(drive) {
+            self.detach_kinetics(level, pos);
+            self.remove_source(pos);
+            if let Some(be) = self.bes.get_mut(&pos) {
+                be.update_speed = true;
+            }
+        }
+        self.set_kind(pos, Kind::ChainDrive(drive));
+    }
+
+    /// ChainGearshiftBlockEntity.analogSignalChanged.
+    fn update_chain_signal(&mut self, level: &mut dyn Level, pos: Pos, mut drive: Drive) {
+        let signal = level.best_neighbor_signal(pos);
+        let powered = Some(signal != 0);
+        if drive.powered != powered {
+            drive.powered = powered;
+            level.set_kind(pos, Kind::ChainDrive(drive));
+            self.set_kind(pos, Kind::ChainDrive(drive));
+        }
+        if self.bes[&pos].chain_signal != signal {
+            self.detach_kinetics(level, pos);
+            self.remove_source(pos);
+            if let Some(be) = self.bes.get_mut(&pos) {
+                be.chain_signal = signal;
+                be.dirty = true;
+                be.update_speed = true;
+            }
+        }
+    }
+
     /// One server tick: due block ticks, then every block entity's `tick` in ticker order.
     pub fn tick(&mut self, level: &mut dyn Level) {
         for pos in std::mem::take(&mut self.scheduled) {
@@ -945,6 +1106,20 @@ impl Kinetics {
             self.init_belt(level, pos);
             if !self.alive(pos, serial) {
                 return;
+            }
+        }
+        if let Some(be) = self.bes.get_mut(&pos)
+            && let Kind::ChainDrive(drive) = be.kind
+            && drive.powered.is_some()
+        {
+            if be.chain_signal_ticks == 0 {
+                be.chain_signal_ticks = CHAIN_GEARSHIFT_LAZY_TICK_RATE - 1;
+                self.update_chain_signal(level, pos, drive);
+                if !self.alive(pos, serial) {
+                    return;
+                }
+            } else {
+                be.chain_signal_ticks -= 1;
             }
         }
         // KineticBlockEntity.tick
@@ -990,6 +1165,16 @@ impl Kinetics {
             self.update_generated_rotation(level, pos);
             if let Some(be) = self.bes.get_mut(&pos) {
                 be.re_activate_source = false;
+            }
+        }
+        if let Some(be) = self.bes.get_mut(&pos)
+            && matches!(be.kind, Kind::HandCrank(_))
+            && be.generated != 0
+        {
+            be.generated -= be.generated.signum();
+            be.dirty = true;
+            if be.generated == 0 {
+                self.update_generated_rotation(level, pos);
             }
         }
     }
@@ -1096,6 +1281,15 @@ impl Kinetics {
             _ => {}
         }
 
+        if let (Kind::ChainDrive(a), Kind::ChainDrive(b)) = (state_from, state_to) {
+            return if a.connects(b, direction) {
+                chain_drive::modifier(from_be.chain_signal)
+                    / chain_drive::modifier(to_be.chain_signal)
+            } else {
+                0.0
+            };
+        }
+
         if large_to_large(state_from, state_to, diff) {
             let source_axis_diff = diff[usize::from(state_from.axis())];
             let target_axis_diff = diff[usize::from(state_to.axis())];
@@ -1165,11 +1359,20 @@ impl Kinetics {
 
     /// `getConveyedSpeed`.
     fn conveyed_speed(&self, from: Pos, to: Pos) -> f32 {
-        self.bes[&from].speed * self.rotation_speed_modifier(from, to)
+        let source = &self.bes[&from];
+        let target = &self.bes[&to];
+        if crate::speed_controller::is_pair(from, source.kind, to, target.kind) {
+            crate::speed_controller::conveyed(from, source, target, true)
+        } else if crate::speed_controller::is_pair(to, target.kind, from, source.kind) {
+            crate::speed_controller::conveyed(to, target, source, false)
+        } else {
+            source.speed * self.rotation_speed_modifier(from, to)
+        }
     }
 
     fn is_connected(&self, from: Pos, to: Pos) -> bool {
-        self.rotation_speed_modifier(from, to) != 0.0
+        crate::speed_controller::is_pair(from, self.bes[&from].kind, to, self.bes[&to].kind)
+            || self.rotation_speed_modifier(from, to) != 0.0
     }
 
     /// `getPotentialNeighbourLocations` for a block of `kind` at `pos`.
@@ -1716,7 +1919,7 @@ impl Kinetics {
 
     // GeneratingKineticBlockEntity
 
-    fn update_generated_rotation(&mut self, level: &mut dyn Level, pos: Pos) {
+    pub(crate) fn update_generated_rotation(&mut self, level: &mut dyn Level, pos: Pos) {
         let Some(be) = self.bes.get(&pos) else {
             return;
         };
@@ -1852,6 +2055,9 @@ mod tests {
         }
         fn has_neighbor_signal(&self, pos: Pos) -> bool {
             self.signal.contains(&pos)
+        }
+        fn best_neighbor_signal(&self, pos: Pos) -> u8 {
+            if self.has_neighbor_signal(pos) { 15 } else { 0 }
         }
         fn is_loaded(&self, _pos: Pos) -> bool {
             true

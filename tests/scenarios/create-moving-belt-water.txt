@@ -5,6 +5,7 @@ botstart tester
 wait 3
 expect \[bot\] joined as tester
 cmd tp tester 2642.5 101 2642.5
+await 10 \[bot\] teleported to .*2642\.5.*2642\.5
 wait 2
 cmd fill 2636 97 2636 2647 97 2647 minecraft:stone
 cmd fill 2636 98 2636 2647 107 2647 minecraft:air
@@ -16,28 +17,35 @@ cmd setblock 2640 100 2640 minecraft:slime_block
 cmd setblock 2640 101 2640 create:shaft[axis=x,waterlogged=false]
 cmd setblock 2640 101 2641 create:shaft[axis=x,waterlogged=true]
 cmd setblock 2640 101 2642 create:shaft[axis=x,waterlogged=false]
+cmd execute if block 2640 101 2640 create:shaft if block 2640 101 2642 create:shaft
+await 5 Test passed
 cmd item replace entity tester hotbar.0 with create:belt_connector
-wait 0.5
+await 5 Replaced a slot on tester with .*Mechanical Belt
+wait 0.25
 bot use 2640 101 2640
-wait 0.5
+wait 1
 bot use 2640 101 2642
-wait 0.5
+wait 1
 cmd kinetics 2640 101 2641
-wait 0.5
-expect create:belt\[facing=south,part=pulley,slope=horizontal,waterlogged=true\] at 2640 101 2641
+await 5 create:belt\[facing=south,part=pulley,slope=horizontal,waterlogged=true\] at 2640 101 2641
 
+cmd tick rate 1
+await 5 Set the target tick rate to 1\.0
 cmd kinetics 2640 98 2640 15
-wait 0.45
+cmd tick sprint 10t
+await 5 \[bot\].*commands.tick.sprint.report
+wait 0.1
 bot expect block 2640 101 2641 minecraft:water[level=0]
-cmd setblock 2642 101 2640 minecraft:water
-wait 0.5
+await 5 ^\[bot\] expect block ok 2640 101 2641 water\[level=0\]
+cmd setblock 2642 101 2640 minecraft:water strict
+await 5 Changed the block at 2642, 101, 2640
+cmd tick sprint 10t
+await 5 \[bot\].*commands.tick.sprint.report
 cmd kinetics 2640 98 2640 0
+wait 1.2
+cmd tick rate 20
 wait 0.5
-expect ^\[bot\] expect block ok 2640 101 2641 water\[level=0\]
-cmd kinetics 2641 101 2640
-cmd kinetics 2642 101 2640
-wait 0.5
-expect create:belt\[facing=east,part=pulley,slope=horizontal,waterlogged=false\] at 2641 101 2640
-expect create:belt\[facing=east,part=end,slope=horizontal,waterlogged=true\] at 2642 101 2640
+cmd execute if block 2641 101 2640 create:belt[facing=east,part=pulley,slope=horizontal,waterlogged=false] if block 2642 101 2640 create:belt[facing=east,part=end,slope=horizontal,waterlogged=true]
+await 5 Test passed
 reject (?i)panicked|trapped|\[bot\] error
 stop

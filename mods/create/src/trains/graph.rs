@@ -13,7 +13,7 @@ static NODE_NET_IDS: AtomicI32 = AtomicI32::new(0);
 
 /// Create packs horizontal positions in half-blocks and vertical positions in
 /// whole blocks; a second field carries the vertical smoothing in pixels.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub(super) struct TrackNodeLocation {
     pub dimension: String,
     pub x: i32,
@@ -171,7 +171,7 @@ impl TrackEdge {
         }
     }
 
-    fn direction(&self, from_first: bool) -> Vec3 {
+    pub(super) fn direction(&self, from_first: bool) -> Vec3 {
         let (a, b) = if from_first { (0.25, 0.0) } else { (1.0, 0.75) };
         self.position(a).minus(self.position(b)).normalized()
     }

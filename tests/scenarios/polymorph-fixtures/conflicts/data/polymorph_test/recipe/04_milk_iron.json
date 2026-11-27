@@ -1,0 +1,5 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [{"item": "minecraft:milk_bucket"}],
+  "result": {"id": "minecraft:iron_ingot", "count": 1}
+}

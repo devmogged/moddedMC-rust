@@ -2,6 +2,8 @@
 
 use std::{
     collections::{HashMap, VecDeque},
+    io,
+    net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -21,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpListener,
     process::{Child, ChildStdin},
     sync::{Mutex, broadcast},
 };
@@ -89,6 +92,7 @@ struct Managed {
     backlog: VecDeque<String>,
     lines: broadcast::Sender<String>,
     exit_code: Option<i32>,
+    start_error: Option<String>,
 }
 
 impl Managed {
@@ -99,6 +103,7 @@ impl Managed {
             backlog: VecDeque::with_capacity(BACKLOG_LINES),
             lines: broadcast::channel(1024).0,
             exit_code: None,
+            start_error: None,
         }
     }
 
@@ -117,6 +122,7 @@ pub struct Servers {
     root: PathBuf,
     find_in: Vec<PathBuf>,
     managed: Mutex<HashMap<String, Arc<Mutex<Managed>>>>,
+    java_ports: Arc<Mutex<HashMap<u16, String>>>,
 }
 
 #[derive(Serialize)]
@@ -128,6 +134,7 @@ pub struct ServerInfo {
     pid: Option<u32>,
     uptime_secs: Option<u64>,
     exit_code: Option<i32>,
+    start_error: Option<String>,
     health: Option<Health>,
     /// Running on this machine, but not started by the agent: shown, not controlled.
     external: bool,
@@ -174,9 +181,65 @@ pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && !name.starts_with('.')
+        && (!cfg!(windows) || !name.ends_with('.'))
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+pub fn server_key(name: &str) -> String {
+    if cfg!(windows) {
+        name.to_ascii_lowercase()
+    } else {
+        name.to_owned()
+    }
+}
+
+type ServerError = (StatusCode, String);
+
+fn internal(err: impl std::fmt::Display) -> ServerError {
+    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+}
+
+fn missing(name: &str) -> ServerError {
+    (StatusCode::NOT_FOUND, format!("no server named {name}"))
+}
+
+fn blocked_port(port: u16, owner: Option<&str>) -> String {
+    let reason = owner.map_or_else(
+        || "is already in use".to_string(),
+        |name| format!("is in use by {name}"),
+    );
+    format!(
+        "Server cannot start. Java port {port} {reason}. Choose another port in Settings or free this port."
+    )
+}
+
+async fn check_port(address: SocketAddr) -> Result<(), ServerError> {
+    let port = address.port();
+    // Winsock can bind a wildcard even with a listener on one of its interfaces.
+    #[cfg(windows)]
+    if crate::external::listening_ports()
+        .await
+        .values()
+        .any(|ports| ports.contains(&port))
+    {
+        return Err((StatusCode::CONFLICT, blocked_port(port, None)));
+    }
+    TcpListener::bind(address).await.map(drop).map_err(|err| {
+        if err.kind() == io::ErrorKind::AddrInUse {
+            (StatusCode::CONFLICT, blocked_port(port, None))
+        } else {
+            internal(format!("Cannot use Java port {port}: {err}"))
+        }
+    })
+}
+
+async fn write_server_file(dir: &Path, file: &ServerFile) -> io::Result<()> {
+    let json = serde_json::to_vec_pretty(file).map_err(io::Error::other)?;
+    let tmp = dir.join(".server.json.tmp");
+    tokio::fs::write(&tmp, json).await?;
+    tokio::fs::rename(tmp, dir.join("server.json")).await
 }
 
 async fn read_server_file(dir: &Path) -> Option<ServerFile> {
@@ -192,6 +255,7 @@ impl Servers {
             root,
             find_in,
             managed: Mutex::new(HashMap::new()),
+            java_ports: Arc::default(),
         }
     }
 
@@ -199,7 +263,7 @@ impl Servers {
         self.managed
             .lock()
             .await
-            .entry(name.to_owned())
+            .entry(server_key(name))
             .or_insert_with(|| Arc::new(Mutex::new(Managed::new())))
             .clone()
     }
@@ -217,24 +281,102 @@ impl Servers {
         name: &str,
         change: impl AsyncFnOnce(&Path) -> std::io::Result<()>,
     ) -> Result<(), (StatusCode, String)> {
-        let managed = self
-            .existing(name)
-            .await
-            .ok_or((StatusCode::NOT_FOUND, format!("no server named {name}")))?;
+        self.change_folder(name, true, change).await
+    }
+
+    pub async fn with_folder(
+        &self,
+        name: &str,
+        change: impl AsyncFnOnce(&Path) -> io::Result<()>,
+    ) -> Result<(), ServerError> {
+        self.change_folder(name, false, change).await
+    }
+
+    async fn change_folder(
+        &self,
+        name: &str,
+        stopped: bool,
+        change: impl AsyncFnOnce(&Path) -> io::Result<()>,
+    ) -> Result<(), ServerError> {
+        let managed = self.entry(name).await;
         let guard = managed.lock().await;
-        if guard.running.is_some() {
-            return Err((StatusCode::CONFLICT, format!("stop {name} first")));
+        let dir = self.root.join(name);
+        read_server_file(&dir).await.ok_or_else(|| missing(name))?;
+        if stopped && guard.running.is_some() {
+            return Err((StatusCode::CONFLICT, format!("Stop {name} first.")));
         }
-        let result = change(&self.root.join(name)).await;
-        drop(guard);
-        result.map_err(|e| {
-            let status = if e.kind() == std::io::ErrorKind::NotFound {
-                StatusCode::NOT_FOUND
+        change(&dir).await.map_err(|err| {
+            if err.kind() == io::ErrorKind::NotFound {
+                (StatusCode::NOT_FOUND, err.to_string())
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (status, e.to_string())
+                internal(err)
+            }
         })
+    }
+
+    async fn set_port(&self, name: &str, port: u16) -> Result<(), ServerError> {
+        let managed = self.entry(name).await;
+        let mut guard = managed.lock().await;
+        let dir = self.root.join(name);
+        let mut file = read_server_file(&dir).await.ok_or_else(|| missing(name))?;
+        if guard.running.is_some() {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Stop {name} before changing its port."),
+            ));
+        }
+        file.port = Some(port);
+        write_server_file(&dir, &file).await.map_err(internal)?;
+        guard.start_error = None;
+        Ok(())
+    }
+
+    async fn delete(&self, name: &str) -> Result<(), ServerError> {
+        let managed = self.entry(name).await;
+        let mut guard = managed.lock().await;
+        let dir = self.root.join(name);
+        let metadata = tokio::fs::symlink_metadata(&dir).await.map_err(|err| {
+            if err.kind() == io::ErrorKind::NotFound {
+                missing(name)
+            } else {
+                internal(err)
+            }
+        })?;
+        #[cfg(windows)]
+        let is_redirect = {
+            use std::os::windows::fs::MetadataExt;
+            metadata.file_attributes() & 0x400 != 0 // FILE_ATTRIBUTE_REPARSE_POINT
+        };
+        #[cfg(not(windows))]
+        let is_redirect = metadata.is_symlink();
+        if !metadata.is_dir() || is_redirect {
+            return Err((
+                StatusCode::CONFLICT,
+                "The server folder must be a local directory.".into(),
+            ));
+        }
+        let file = read_server_file(&dir).await.ok_or_else(|| missing(name))?;
+        if guard.running.is_some() {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Stop {name} before deleting it."),
+            ));
+        }
+        let _backup = crate::backups::Busy::claim(name)?;
+        crate::backups::purge_server(name).await?;
+        if let Err(err) = tokio::fs::remove_dir_all(&dir).await {
+            // Keep a partially removed server visible so deletion can be retried.
+            if matches!(
+                tokio::fs::try_exists(dir.join("server.json")).await,
+                Ok(false)
+            ) {
+                let _ = write_server_file(&dir, &file).await;
+            }
+            return Err(internal(format!("Could not remove {name}: {err}")));
+        }
+        *guard = Managed::new();
+        info!("deleted {name}");
+        Ok(())
     }
 
     /// The console lines the agent keeps for a server, oldest first.
@@ -323,11 +465,20 @@ impl Servers {
             if !valid_name(&name) {
                 continue;
             }
+            let managed = self.entry(&name).await;
+            let managed = managed.lock().await;
             let Some(file) = read_server_file(&entry.path()).await else {
                 continue;
             };
-            let managed = self.entry(&name).await;
-            let managed = managed.lock().await;
+            let port = if file.port.is_some() {
+                file.port
+            } else {
+                crate::pumpkin_config::read(&entry.path())
+                    .await
+                    .ok()
+                    .and_then(|table| crate::pumpkin_config::java_address(&table).ok())
+                    .map(|address| address.port())
+            };
             let health = if managed.state == ServerState::Running {
                 read_health(&entry.path()).await
             } else {
@@ -337,13 +488,14 @@ impl Servers {
                 name,
                 state: managed.state,
                 pack: file.pack,
-                port: file.port,
+                port,
                 pid: managed.running.as_ref().map(|r| r.pid),
                 uptime_secs: managed
                     .running
                     .as_ref()
                     .map(|r| r.started.elapsed().as_secs()),
                 exit_code: managed.exit_code,
+                start_error: managed.start_error.clone(),
                 health,
                 external: false,
                 program: None,
@@ -382,6 +534,7 @@ impl Servers {
                 pid: Some(found.pid),
                 uptime_secs: None,
                 exit_code: None,
+                start_error: None,
                 health: None,
                 external: true,
                 program: Some(found.program),
@@ -397,6 +550,7 @@ impl Servers {
                 pid: None,
                 uptime_secs: None,
                 exit_code: None,
+                start_error: None,
                 health: None,
                 external: true,
                 program: found.program,
@@ -406,18 +560,32 @@ impl Servers {
         out
     }
 
-    async fn start(&self, name: &str) -> Result<(), (StatusCode, String)> {
+    async fn start(&self, name: &str) -> Result<Option<u16>, ServerError> {
         let dir = self.root.join(name);
-        let file = read_server_file(&dir)
-            .await
-            .ok_or((StatusCode::NOT_FOUND, format!("no server named {name}")))?;
         let managed = self.entry(name).await;
         let mut guard = managed.lock().await;
+        let file = read_server_file(&dir).await.ok_or_else(|| missing(name))?;
         if guard.running.is_some() {
             return Err((StatusCode::CONFLICT, format!("{name} is already running")));
         }
-        if let Some(port) = file.port {
-            crate::pumpkin_config::apply_port(&dir, port).await;
+        guard.start_error = None;
+        let address = crate::pumpkin_config::prepare_java(&dir, file.port)
+            .await
+            .map_err(internal)?;
+        let mut ports = self.java_ports.lock().await;
+        if let Some(address) = address {
+            let port = address.port();
+            let available = if let Some(owner) = ports.get(&port) {
+                Err((StatusCode::CONFLICT, blocked_port(port, Some(owner))))
+            } else {
+                check_port(address).await
+            };
+            if let Err((status, message)) = available {
+                guard.state = ServerState::Stopped;
+                guard.exit_code = None;
+                guard.start_error = Some(message.clone());
+                return Err((status, message));
+            }
         }
         // Health from the last run would look live until it goes stale.
         let _ = tokio::fs::remove_file(dir.join("stats.json")).await;
@@ -460,42 +628,65 @@ impl Servers {
             stdin,
             started: Instant::now(),
         });
+        let port = address.map(|address| address.port());
+        if let Some(port) = port {
+            ports.insert(port, name.to_owned());
+        }
+        drop(ports);
         drop(guard);
 
-        for stream in [
+        let readers = [
             Box::new(stdout) as Box<dyn tokio::io::AsyncRead + Send + Unpin>,
             Box::new(stderr),
-        ] {
+        ]
+        .map(|stream| {
             let managed = managed.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stream).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let mut managed = managed.lock().await;
                     // Pumpkin logs this once it accepts players.
-                    if managed.state == ServerState::Starting && line.contains("Started server") {
-                        managed.state = ServerState::Running;
+                    if managed.state == ServerState::Starting {
+                        if line.contains("Started server") {
+                            managed.state = ServerState::Running;
+                        } else if let Some(port) = port
+                            && line.contains(
+                                "Make sure another instance of the server isn't already running",
+                            )
+                        {
+                            managed.start_error = Some(blocked_port(port, None));
+                        }
                     }
                     managed.push_line(line);
                 }
-            });
-        }
+            })
+        });
+        let ports = self.java_ports.clone();
         let name = name.to_owned();
         tokio::spawn(async move {
             let status = child.wait().await;
+            // The bind error may still be in a pipe when the process exits.
+            for reader in readers {
+                let _ = reader.await;
+            }
             let mut managed = managed.lock().await;
             let code = status.ok().and_then(|s| s.code());
+            if let Some(port) = port {
+                ports.lock().await.remove(&port);
+            }
             let clean = managed.state == ServerState::Stopping || code == Some(0);
-            managed.state = if clean {
+            let blocked = managed.start_error.is_some();
+            managed.state = if clean || blocked {
                 ServerState::Stopped
             } else {
                 ServerState::Crashed
             };
             managed.running = None;
-            managed.exit_code = code;
+            managed.exit_code = if blocked { None } else { code };
             managed.push_line(format!("[agent] {name} exited with {code:?}"));
             info!("{name} exited with {code:?}");
         });
-        Ok(())
+        Ok(port)
     }
 
     async fn stop(&self, name: &str) -> Result<(), (StatusCode, String)> {
@@ -547,16 +738,13 @@ impl Servers {
         pack: String,
     ) -> Result<(), (StatusCode, String)> {
         let dir = self.root.join(name);
-        let mut file = read_server_file(&dir)
-            .await
-            .ok_or((StatusCode::NOT_FOUND, format!("no server named {name}")))?;
         let managed = self.entry(name).await;
         // Held to the end, so nobody starts the server halfway through.
         let guard = managed.lock().await;
+        let mut file = read_server_file(&dir).await.ok_or_else(|| missing(name))?;
         if guard.running.is_some() {
             return Err((StatusCode::CONFLICT, format!("stop {name} first")));
         }
-        let internal = |e: std::io::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
         let mods = dir.join("mods");
         tokio::fs::create_dir_all(&mods).await.map_err(internal)?;
         let mut old = tokio::fs::read_dir(&mods).await.map_err(internal)?;
@@ -578,11 +766,7 @@ impl Servers {
         }
         file.exe = exe;
         file.pack = Some(pack);
-        let json = serde_json::to_string_pretty(&file)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        tokio::fs::write(dir.join("server.json"), json)
-            .await
-            .map_err(internal)?;
+        write_server_file(&dir, &file).await.map_err(internal)?;
         drop(guard);
         info!("{name} now runs {}", build.display());
         Ok(())
@@ -647,24 +831,26 @@ pub async fn create(State(app): State<Arc<App>>, Json(body): Json<CreateServer>)
             format!("bad server name {:?}", body.name),
         );
     }
-    let dir = app.servers.root.join(&body.name);
-    if tokio::fs::try_exists(dir.join("server.json"))
-        .await
-        .unwrap_or(false)
-    {
+    if body.file.port == Some(0) {
         return error(
-            StatusCode::CONFLICT,
-            format!("{} already exists", body.name),
+            StatusCode::BAD_REQUEST,
+            "Choose a port from 1 to 65535.".into(),
         );
     }
-    let json = match serde_json::to_string_pretty(&body.file) {
-        Ok(json) => json,
-        Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
-        return error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    let managed = app.servers.entry(&body.name).await;
+    let _guard = managed.lock().await;
+    let dir = app.servers.root.join(&body.name);
+    match tokio::fs::try_exists(dir.join("server.json")).await {
+        Ok(true) => {
+            return error(
+                StatusCode::CONFLICT,
+                format!("{} already exists", body.name),
+            );
+        }
+        Ok(false) => {}
+        Err(err) => return error(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
     }
-    if let Err(e) = tokio::fs::write(dir.join("server.json"), json).await {
+    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
         return error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     // A folder that already has a config (an imported server) keeps it.
@@ -675,7 +861,49 @@ pub async fn create(State(app): State<Arc<App>>, Json(body): Json<CreateServer>)
     {
         return error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
+    if let Err(err) = write_server_file(&dir, &body.file).await {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
+    }
     StatusCode::CREATED.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct PortSetting {
+    port: u16,
+}
+
+pub async fn set_port(
+    State(app): State<Arc<App>>,
+    UrlPath(name): UrlPath<String>,
+    Json(body): Json<PortSetting>,
+) -> Response {
+    if let Some(response) = bad_name(&name) {
+        return response;
+    }
+    if body.port == 0 {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "Choose a port from 1 to 65535.".into(),
+        );
+    }
+    match app.servers.set_port(&name, body.port).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err((status, message)) => error(status, message),
+    }
+}
+
+pub async fn delete(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) -> Response {
+    if let Some(response) = bad_name(&name) {
+        return response;
+    }
+    let result = tokio::spawn(async move { app.servers.delete(&name).await })
+        .await
+        .map_err(internal)
+        .and_then(|result| result);
+    match result {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err((status, message)) => error(status, message),
+    }
 }
 
 pub fn bad_name(name: &str) -> Option<Response> {
@@ -694,13 +922,7 @@ pub async fn start(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>) 
         return response;
     }
     match app.servers.start(&name).await {
-        Ok(()) => {
-            // Friends joining through playit need it running too.
-            if let Some(port) = crate::playit::port_of(&app, &name).await {
-                tokio::spawn(crate::playit::ensure_for(port));
-            }
-            StatusCode::ACCEPTED.into_response()
-        }
+        Ok(port) => started(port),
         Err((status, message)) => error(status, message),
     }
 }
@@ -722,9 +944,17 @@ pub async fn restart(State(app): State<Arc<App>>, UrlPath(name): UrlPath<String>
     // Not running is fine for a restart.
     let _ = app.servers.stop(&name).await;
     match app.servers.start(&name).await {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Ok(port) => started(port),
         Err((status, message)) => error(status, message),
     }
+}
+
+fn started(port: Option<u16>) -> Response {
+    // Friends joining through playit need it running too.
+    if let Some(port) = port {
+        tokio::spawn(crate::playit::ensure_for(port));
+    }
+    StatusCode::ACCEPTED.into_response()
 }
 
 #[derive(Serialize)]
@@ -838,5 +1068,58 @@ async fn console_session(mut socket: WebSocket, managed: Arc<Mutex<Managed>>) {
                 Some(Err(_)) | None => return,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn busy_java_port_blocks_a_stopped_server_and_can_be_changed() {
+        let root = std::env::temp_dir().join(format!("agent-server-port-{}", std::process::id()));
+        let dir = root.join("test");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let file = ServerFile {
+            exe: "missing-server".into(),
+            args: Vec::new(),
+            pack: None,
+            port: Some(port),
+        };
+        write_server_file(&dir, &file).await.unwrap();
+        let servers = Servers::new(root.clone(), Vec::new());
+
+        let (status, message) = servers.start("test").await.unwrap_err();
+        assert_eq!(status, StatusCode::CONFLICT, "{message}");
+        assert!(message.contains(&format!("Java port {port} is already in use")));
+        let managed = servers.entry("test").await;
+        {
+            let guard = managed.lock().await;
+            assert!(guard.state == ServerState::Stopped && guard.running.is_none());
+            assert_eq!(guard.start_error.as_deref(), Some(message.as_str()));
+        }
+
+        drop(listener);
+        let new_port = TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        servers.set_port("test", new_port).await.unwrap();
+        assert_eq!(read_server_file(&dir).await.unwrap().port, Some(new_port));
+        assert!(managed.lock().await.start_error.is_none());
+        assert_eq!(
+            servers.start("test").await.unwrap_err().0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        let table = crate::pumpkin_config::read(&dir).await.unwrap();
+        assert_eq!(
+            crate::pumpkin_config::java_address(&table).unwrap().port(),
+            new_port
+        );
+        tokio::fs::remove_dir_all(root).await.unwrap();
     }
 }

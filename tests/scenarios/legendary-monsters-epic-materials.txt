@@ -1,0 +1,38 @@
+# Legendary Monsters 2.2.4: epic passive materials, stack limits and persistence.
+mods target\mods\legendary-monsters.mmc
+start
+expect registered content item legendary_monsters:eye_crystal
+expect registered content item legendary_monsters:portal_shard
+botstart collector
+wait 3
+expect \[bot\] joined as collector
+cmd give collector legendary_monsters:portal_shard 65
+wait 1
+expect Gave 65 .*Portal Shard
+cmd give collector legendary_monsters:eye_crystal 65
+wait 1
+expect Gave 65 .*Eye Crystal
+cmd data get entity collector Inventory
+wait 1
+expect-all count: 64, id: "legendary_monsters:portal_shard" && count: 1, id: "legendary_monsters:portal_shard" && count: 64, id: "legendary_monsters:eye_crystal" && count: 1, id: "legendary_monsters:eye_crystal"
+cmd clear collector legendary_monsters:portal_shard 0
+wait 1
+expect Found 65 matching item
+cmd clear collector legendary_monsters:eye_crystal 0
+wait 1
+expect Found 65 matching item
+bot quit
+stop
+start
+botstart collector
+wait 3
+expect \[bot\] joined as collector
+cmd clear collector legendary_monsters:portal_shard 0
+wait 1
+expect Found 65 matching item
+cmd clear collector legendary_monsters:eye_crystal 0
+wait 1
+expect Found 65 matching item
+reject (?i)error|panic|incorrect argument
+bot quit
+stop

@@ -572,9 +572,13 @@ impl PistonContraption {
                 let pos = piston.at(start, distance);
                 match checks.classify(world, pos) {
                     Some(BlockMovement::Movable(entry)) => {
-                        let stop =
-                            matches!(entry.name.as_str(), crate::drill::ID | crate::harvester::ID)
-                                && entry.is_not_supportive(piston.facing);
+                        let stop = matches!(
+                            entry.name.as_str(),
+                            crate::drill::ID
+                                | crate::saw::ID
+                                | crate::harvester::ID
+                                | crate::plough::ID
+                        ) && entry.is_not_supportive(piston.facing);
                         frontier.push_back((pos, entry));
                         if stop {
                             break;
@@ -788,7 +792,7 @@ impl MechanicalPiston {
         let translation = |distance: f32| {
             FACES[usize::from(piston.facing)].map(|axis| f64::from(axis) * f64::from(distance))
         };
-        let stalled = contraption.blocks.tick_drills(
+        let stalled = contraption.blocks.tick_breakers(
             world,
             collider::Frame::translated(base, translation(before)),
             collider::Frame::translated(base, translation(next)),

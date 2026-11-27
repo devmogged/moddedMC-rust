@@ -1,0 +1,145 @@
+# Board with a stock client, cross a periodic node, park, and reload at the new station.
+mods target\mods\create.mmc
+start
+expect registered content block create:track_station
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 2451.5 102 2447.5 90 35
+wait 6
+cmd fill 2434 100 2445 2459 108 2455 minecraft:air
+cmd fill 2434 99 2445 2459 99 2455 minecraft:stone
+cmd item replace entity tester weapon.mainhand with create:track 32
+cmd tp tester 2454.5 101 2447.5 90 35
+wait 1
+bot use 2456 99 2449 up
+wait 0.5
+cmd tp tester 2437.5 101 2447.5 90 35
+wait 1
+bot use 2436 99 2449 up
+wait 0.5
+bot use 2436 100 2449
+wait 0.5
+cmd tp tester 2454.5 101 2447.5 90 35
+wait 1
+bot use 2456 100 2449
+wait 1
+cmd railway 2448 100 2449
+wait 0.5
+expect Create railway: Graphs=1 Nodes=3 DirectedEdges=4
+
+cmd tp tester 2440.5 101 2447.5 90 35
+cmd item replace entity tester weapon.mainhand with create:track_station
+wait 0.75
+bot use 2439 100 2449
+wait 0.5
+bot use 2440 99 2450
+wait 0.5
+cmd station 2440 100 2450
+wait 0.5
+expect Track Station targets 2439 100 2449 Connected
+cmd tp tester 2451.5 101 2447.5 90 35
+wait 0.75
+bot use 2449 100 2449
+wait 0.5
+bot use 2451 99 2450
+wait 0.5
+cmd item replace entity tester weapon.mainhand with minecraft:air
+wait 0.5
+bot use 2451 100 2450
+wait 0.5
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected .* Assembling$
+cmd item replace entity tester weapon.mainhand with create:railway_casing
+wait 0.5
+bot use 2450 100 2449
+wait 0.5
+cmd setblock 2450 102 2449 create:controls[facing=east,open=false,waterlogged=false]
+cmd item replace entity tester weapon.mainhand with create:super_glue
+wait 0.5
+bot use 2450 101 2449 south
+wait 0.5
+bot use 2450 102 2449 south
+wait 0.5
+cmd execute if entity @e[type=minecraft:marker,x=2450.5,y=101,z=2449.5,distance=..0.25]
+wait 0.5
+expect Test passed
+cmd item replace entity tester weapon.mainhand with minecraft:air
+bot input sneak
+wait 0.5
+bot use 2451 100 2450
+wait 0.5
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected .* Docked Carriages=1 WheelPoints=2$
+bot input none
+wait 0.5
+bot use 2451 100 2450
+wait 0.5
+expect Drive with W/S
+bot expect riding minecraft:item_display
+wait 0.25
+expect ^\[bot\] expect riding ok minecraft:item_display
+bot input forward
+wait 1
+bot input jump
+wait 5
+expect Train arrived at the station
+bot input none
+cmd station 2440 100 2450
+wait 0.5
+expect Track Station targets 2439 100 2449 Connected .* Docked Carriages=1 WheelPoints=2$
+cmd station 2451 100 2450
+wait 0.5
+expect Track Station targets 2449 100 2449 Connected at [0-9.]+/[0-9.]+$
+bot expect entity minecraft:block_display near 2440.5 101.5 2449.5 within 0.05 count 2
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:block_display near 2440.5 101.5 2449.5
+cmd execute if entity @a[name=tester,x=2440.5,y=102,z=2449.5,distance=..1.5]
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|could not save|\[bot\] error
+bot quit
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd station 2440 100 2450
+wait 0.5
+expect Track Station targets 2439 100 2449 Connected .* Docked Carriages=1 WheelPoints=2$
+bot expect riding none
+bot expect entity minecraft:block_display near 2440.5 101.5 2449.5 within 0.05 count 2
+bot expect entity minecraft:item_display near 2440.5 102.0625 2449.5 within 0.05 count 0
+wait 0.5
+expect ^\[bot\] expect riding ok none
+expect ^\[bot\] expect entity ok minecraft:block_display near 2440.5 101.5 2449.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2440.5 102.0625 2449.5
+cmd tp tester 2440.5 101 2451.5 180 35
+wait 0.75
+bot use 2440 100 2450
+wait 0.5
+bot expect riding minecraft:item_display
+wait 0.25
+expect ^\[bot\] expect riding ok minecraft:item_display
+bot input sneak
+wait 0.5
+bot expect riding none
+wait 0.25
+expect ^\[bot\] expect riding ok none
+cmd tp tester 2440.5 101 2451.5 180 35
+wait 0.75
+bot input sneak
+wait 0.5
+bot use 2440 100 2450
+wait 0.5
+cmd execute if block 2440 101 2449 create:small_bogey if block 2440 102 2449 create:controls[facing=east,open=false,waterlogged=false] if block 2450 101 2449 minecraft:air
+wait 0.5
+expect Test passed
+reject (?i)panicked|trapped|could not save|\[bot\] error
+bot quit
+stop

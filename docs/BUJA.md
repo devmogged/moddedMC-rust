@@ -96,7 +96,7 @@ port: 33, vanilla: 6, client: 8, library: 14, datapack: 4 (65 JARs).
 
 ## Port ownership and staging
 
-- Already owned elsewhere: Create core and contraptions by the integrator; Create fluids by WS-2; addons by WS-4; Cataclysm by WS-5; Legendary Monsters by WS-6; Steam Rails and trains by WS-3; vanilla parity and worldgen by engine workstreams; companion UI by WS-8.
+- Owned: Create, its add-ons and Steam 'n' Rails by Noel-Alex; Saints Dragons by sting-raider. Everything else is claimed through GitHub issues (`.agents/skills/work-loop`); the `Owner` column and the WS names below are historical. Cataclysm's work so far is in the private `devmogged/mods-private`.
 - WS-1 candidates for separate M-sized substreams: Corpse, Waystones, Simple Storage Network, Explorer's Compass, Nature's Compass, Lootr, Polymorph, Easy Villagers and Musket Mod. They need feature-by-feature source study and may require ABI requests.
 - Larger later WS-1 scopes: Farmer's Delight, Epic Knights, Small Ships, Sophisticated Backpacks and Storage, Recruits, Quark, Refined Storage, Alex's Caves and Alex's Mobs.
 - The recipe-heavy Create Recycle addon is S-sized but belongs to WS-4. No independently safe S-sized WS-1 port is confirmed yet. Do not create a fake small port or port a library wholesale solely to keep this workstream busy.
@@ -175,7 +175,7 @@ Each line names the original JAR used for the `Bundled` column. These are metada
 
 Priority is based on players' visible gameplay, the size of a correct port, and the generic host interfaces it depends on. A high priority does not authorize a fake substitute while an ABI dependency is missing.
 
-Before starting any substream, read docs/PARALLEL-PLAN.md sections 2-4, docs/PORTS.md, docs/MOD-ABI.md, the current main branch and the latest official source identified in the inventory. Each has its own branch/worktree and mod directory. The owner opens exactly one chat per substream; no substream should share WS-1's working directory or port 26010-26019. The integrator must allocate disjoint ports if multiple WS-1 substreams run simultaneously. First milestone for each is source and license verification, including the target release and its full Java call chain. Report generic host gaps to WS-0 using the request format in section 4.3.
+Before starting a port, read docs/PORTS.md, docs/MOD-ABI.md, the current main branch and the latest official source identified in the inventory, and claim it as described in AGENTS.md ("Working alongside other people"). First milestone for each is source and license verification, including the target release and its full Java call chain. Report generic host gaps as issues on `devmogged/moddedMC-rust`.
 
 | Priority | Brief | Why | Current dependency |
 | --- | --- | --- | --- |

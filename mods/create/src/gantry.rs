@@ -528,7 +528,7 @@ impl GantryContraption {
             FACES[usize::from(self.gantry_axis)].map(|axis| f64::from(axis) * f64::from(distance))
         };
         let anchor = self.anchor();
-        if self.blocks.tick_drills(
+        if self.blocks.tick_breakers(
             world,
             collider::Frame::translated(anchor, translation(before)),
             collider::Frame::translated(anchor, translation(next_offset)),

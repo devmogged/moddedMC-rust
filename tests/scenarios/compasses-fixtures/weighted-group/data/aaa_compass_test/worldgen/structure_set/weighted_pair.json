@@ -1,0 +1,25 @@
+{
+  "placement": {
+    "type": "minecraft:concentric_rings",
+    "count": 2,
+    "distance": 16,
+    "preferred_biomes": "#aaa_compass_test:no_preference",
+    "salt": 0,
+    "spread": 2,
+    "locate_offset": [
+      9,
+      7,
+      -5
+    ]
+  },
+  "structures": [
+    {
+      "structure": "aaa_compass_test:member_a",
+      "weight": 1
+    },
+    {
+      "structure": "aaa_compass_test:member_b",
+      "weight": 2
+    }
+  ]
+}

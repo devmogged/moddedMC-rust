@@ -18,6 +18,20 @@ What we never compromise on:
 5. **Port the latest release.** The server is Minecraft Java 26.3. Each port follows the mod's newest release on Modrinth or CurseForge, whatever loader or Minecraft version that release targets. Check it before you start, take behaviour, data and assets from that release only (never from an older jar, such as one in a local modpack), and record the version in the crate's `description`. Don't add engine support for an older version's quirks unless a planned port's latest release needs it.
 6. **PowerShell 5.1 gotchas:** a native command's stderr under `$ErrorActionPreference = 'Stop'` becomes a terminating error, so run long builds through `powershell -File` from bash or without stderr redirection; `$PSScriptRoot` is empty inside `param()` defaults.
 
+## Working alongside other people
+
+Several people work on this repo at once, each with their own agent. GitHub issues on `devmogged/moddedMC-rust` are the board; there is no lock or claim tool (the old `mmc-coord` board is retired). Create and its add-ons belong to Noel-Alex and Saints Dragons to sting-raider; everything else goes to whoever claims it. The skills below say how to pick, claim, hand off and finish work.
+
+- When two worktrees extend the same ABI table, use the field offsets already on `origin/main`. Append the incoming fields, rebuild their consumers, and build the integrated server before pushing.
+- If worktrees share a Cargo target, match the DLL inside the `.mmc` to the DLL Cargo just built before running scenarios. Use unique scenario directories, server ports and resource-pack ports per worktree.
+
+## Skills
+
+Read the matching skill in `.agents/skills/` before you start:
+
+- [work-loop](.agents/skills/work-loop/SKILL.md): at the start of every session, between jobs and before a session ends.
+- [port-mod](.agents/skills/port-mod/SKILL.md): porting a mod, or adding the host and engine support a port needs.
+
 ## Verifying
 
 - Root workspace (`api`, `mods/*`, `recompiler/fabric-host`, `host`): `cargo clippy --all-targets`, `cargo test`. Builds take seconds.

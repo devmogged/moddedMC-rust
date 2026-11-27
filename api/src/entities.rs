@@ -28,6 +28,8 @@ pub enum EntitiesExtension {
     Carriers,
     /// Convert a borrowed player entity to a player handle.
     Player,
+    /// Hurt entities with a registered damage type.
+    Damage,
     /// `Entity::has_scoreboard_tag`.
     ScoreboardTags,
     /// `Entities::players`.
@@ -104,6 +106,10 @@ impl Entities {
             EntitiesExtension::Player => (
                 std::mem::offset_of!(abi::EntitiesV1, with_player_context),
                 "moddedmc:entities.player",
+            ),
+            EntitiesExtension::Damage => (
+                std::mem::offset_of!(abi::EntitiesV1, hurt),
+                "moddedmc:entities.damage",
             ),
             EntitiesExtension::ScoreboardTags => (
                 std::mem::offset_of!(abi::EntitiesV1, has_scoreboard_tag),
@@ -480,6 +486,24 @@ impl crate::Player<'_> {
 }
 
 impl<'a> Entity<'a> {
+    /// Apply damage without an attacker. Requires [EntitiesExtension::Damage].
+    pub fn hurt(self, damage_type: &str, amount: f32) -> bool {
+        if Entities(self.api)
+            .require_extension(EntitiesExtension::Damage)
+            .is_err()
+        {
+            return false;
+        }
+        // SAFETY: the table contains the appended field and both inputs live for the call.
+        unsafe {
+            ((&raw const self.api.hurt).read())(
+                self.raw,
+                abi::Str::new(damage_type.as_bytes()),
+                amount,
+            )
+        }
+    }
+
     /// The player represented by this borrowed entity, if there is one.
     /// Requires `EntitiesExtension::Player`.
     pub fn as_player(self) -> Option<crate::Player<'a>> {

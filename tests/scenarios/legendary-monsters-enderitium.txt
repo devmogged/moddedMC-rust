@@ -1,0 +1,47 @@
+# Upgrade a diamond pickaxe, consume each input, preserve it across restart.
+mods target\mods\legendary-monsters.mmc
+start
+expect Loaded built-in datapack 'mod/legendary-monsters': 23 recipe\(s\)
+botstart smith
+wait 3
+expect \[bot\] joined as smith
+cmd tp smith 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:smithing_table
+cmd item replace entity smith hotbar.0 with legendary_monsters:enderitium_upgrade_smithing_template
+cmd item replace entity smith hotbar.1 with minecraft:diamond_pickaxe
+cmd item replace entity smith hotbar.2 with legendary_monsters:enderitium_ingot
+wait 1
+bot use 1025 100 1025
+wait 1
+bot inventory-click 31 shift-left
+bot inventory-click 32 shift-left
+bot inventory-click 33 shift-left
+wait 1
+bot inventory-click 3 shift-left
+wait 1
+bot inventory-close
+cmd clear smith legendary_monsters:enderitium_pickaxe 0
+wait 1
+expect Found 1 matching item
+cmd clear smith legendary_monsters:enderitium_upgrade_smithing_template 0
+wait 1
+expect No items were found on player smith
+cmd clear smith minecraft:diamond_pickaxe 0
+wait 1
+expect No items were found on player smith
+cmd clear smith legendary_monsters:enderitium_ingot 0
+wait 1
+expect No items were found on player smith
+bot quit
+stop
+start
+botstart smith
+wait 3
+cmd clear smith legendary_monsters:enderitium_pickaxe 0
+wait 1
+expect Found 1 matching item
+reject \[bot\] error:|panicked|Unknown item
+bot quit
+stop

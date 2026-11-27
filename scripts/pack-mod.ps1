@@ -24,11 +24,13 @@ try {
     cargo @buildArgs
     if ($LASTEXITCODE) { throw "cargo failed ($LASTEXITCODE)" }
     $version = ((cargo pkgid -p $Crate) -split '[@#]')[-1]
+    $targetDir = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).target_directory
+    if ($LASTEXITCODE -or !$targetDir) { throw "cargo metadata did not resolve the target directory" }
 } finally { Pop-Location }
 
 $abi = [regex]::Match((Get-Content (Join-Path $root 'api\src\abi.rs') -Raw), 'ABI_VERSION: u32 = (\d+)').Groups[1].Value
 $arch = @{ AMD64 = 'x86_64'; ARM64 = 'aarch64' }[$env:PROCESSOR_ARCHITECTURE]
-$library = Join-Path $root "target\release\$($Crate -replace '-', '_').dll"
+$library = Join-Path $targetDir "release\$($Crate -replace '-', '_').dll"
 
 $metadata = @{ id = $Crate; version = $version; abi = [int]$abi }
 $deps = [Collections.Generic.List[string]]::new()

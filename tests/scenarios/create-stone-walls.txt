@@ -1,0 +1,64 @@
+# Check palette wall placement, stock collision states, wall shapes, drops, and restart.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:cut_andesite_wall \(324 states\) && registered content block create:small_veridium_brick_wall \(324 states\)
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 1028.5 105 1024.5 0 0
+await 10 \[bot\] teleported to .*1028\.5.*1024\.5
+wait 2
+cmd fill 1024 105 1024 1034 108 1034 minecraft:air
+cmd fill 1024 104 1024 1034 104 1034 minecraft:stone
+cmd setblock 1027 105 1027 minecraft:cobblestone_wall
+cmd setblock 1029 105 1027 minecraft:stone
+cmd setblock 1028 106 1027 minecraft:stone_slab[type=bottom]
+cmd gamemode survival tester
+cmd recipe give tester create:cut_andesite_wall
+await 5 Unlocked 1 recipe
+cmd recipe give tester create:cut_andesite_wall_from_stone_types_andesite_stonecutting
+await 5 Unlocked 1 recipe
+cmd item replace entity tester hotbar.0 with create:cut_andesite_wall
+wait 0.5
+bot place 1028 104 1027 up
+wait 1
+cmd execute if block 1028 105 1027 create:cut_andesite_wall[east=tall,north=none,south=none,up=false,waterlogged=false,west=tall] if block 1027 105 1027 minecraft:cobblestone_wall[east=low] if block 1028 105 1027 #minecraft:walls
+await 5 Test passed
+bot expect block 1028 105 1027 minecraft:cobblestone_wall[east=tall,west=tall,up=false]
+await 5 \[bot\] expect block ok 1028 105 1027
+bot expect entity minecraft:item_display near 1028.5 105 1027.5 within 0.05 count 1
+await 5 \[bot\] expect entity ok minecraft:item_display
+cmd execute if entity @e[type=minecraft:item_display,x=1028.5,y=105,z=1027.5,distance=..0.05,nbt={item:{components:{"minecraft:item_model":"create:moddedmc/wall/cut_andesite_wall"}}}]
+await 5 Test passed
+
+cmd setblock 1028 106 1027 minecraft:stone_slab[type=top]
+cmd execute if block 1028 105 1027 create:cut_andesite_wall[east=low,west=low,up=false]
+await 5 Test passed
+cmd setblock 1028 105 1028 minecraft:glass_pane
+cmd execute if block 1028 105 1027 create:cut_andesite_wall[east=low,west=low,south=low,up=true]
+await 5 Test passed
+cmd item replace entity tester hotbar.0 with minecraft:water_bucket
+wait 0.5
+bot look 0 16
+wait 0.25
+bot use-item main
+wait 1
+cmd execute if block 1028 105 1027 create:cut_andesite_wall[waterlogged=true]
+await 5 Test passed
+cmd loot spawn 1028 106 1027 mine 1028 105 1027 minecraft:iron_pickaxe
+await 5 Dropped 1 .*Cut Andesite Wall
+cmd save-all flush
+await 10 Saved the game
+stop
+
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if block 1028 105 1027 create:cut_andesite_wall[east=low,west=low,south=low,up=true,waterlogged=true] if block 1027 105 1027 minecraft:cobblestone_wall[east=low]
+await 5 Test passed
+bot expect block 1028 105 1027 minecraft:cobblestone_wall[east=low,west=low,south=low,up=true,waterlogged=true]
+await 5 \[bot\] expect block ok 1028 105 1027
+bot expect entity minecraft:item_display near 1028.5 105 1027.5 within 0.05 count 1
+await 5 \[bot\] expect entity ok minecraft:item_display
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop

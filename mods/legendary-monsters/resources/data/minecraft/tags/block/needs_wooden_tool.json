@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "legendary_monsters:ancient_dripstone_block",
+    "legendary_monsters:ancient_dripstone_bricks",
+    "legendary_monsters:ancient_dripstone_tiles",
+    "legendary_monsters:chiseled_ancient_dripstone_bricks"
+  ]
+}

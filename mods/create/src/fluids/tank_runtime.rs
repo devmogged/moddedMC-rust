@@ -123,7 +123,7 @@ fn live_tag(world: World<'_>, pos: Pos) -> Option<TankTag> {
     read_tag(world, pos)
 }
 
-pub(super) fn controller(world: World<'_>, pos: Pos) -> Option<Pos> {
+pub(crate) fn controller(world: World<'_>, pos: Pos) -> Option<Pos> {
     controller_from_tag(&live_tag(world, pos)?, pos)
 }
 
@@ -136,7 +136,7 @@ pub fn load(world: World<'_>, pos: Pos) -> Option<TankInventory> {
 }
 
 fn member_tag(mut data: TankTag, owner: Pos) -> TankTag {
-    for key in ["TankContent", "Size", "Height", "Window"] {
+    for key in ["TankContent", "Size", "Height", "Window", "Boiler"] {
         data.remove(key);
     }
     data.insert(
@@ -331,6 +331,7 @@ fn multi_place(
 pub fn use_item_on(
     context: &mut UseBlock<'_>,
     connectivity: &super::tank_connectivity::Connectivity,
+    boilers: &mut super::boiler::Boilers,
 ) -> BlockUseResult {
     let Some(stack) = context
         .stack
@@ -353,6 +354,9 @@ pub fn use_item_on(
         return BlockUseResult::Fail;
     }
     if id == crate::WRENCH {
+        if boilers.active(pos) {
+            return BlockUseResult::Success;
+        }
         tank.set_window(!tank.window());
         return if parts(pos, tank.width(), tank.height())
             .all(|part| controller(world, part) == Some(pos))
@@ -372,6 +376,12 @@ pub fn use_item_on(
         "minecraft:bucket" => "",
         _ => return BlockUseResult::TryEmptyHand,
     };
+    if boilers.active(pos) {
+        if fluid == "minecraft:water" {
+            boilers.receive(pos, BUCKET);
+        }
+        return BlockUseResult::Success;
+    }
     let changed = if fluid.is_empty() {
         tank.amount() >= BUCKET && tank.drain_any(BUCKET, false).is_some()
     } else {

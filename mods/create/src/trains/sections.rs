@@ -7,66 +7,128 @@ pub(super) struct Cut<'a> {
     pub distance: f64,
 }
 
-/// The two section IDs adjacent to each cut, in that cut's edge direction.
-pub(super) fn sections(graph: &TrackGraph, cuts: &[Cut<'_>]) -> Vec<[usize; 2]> {
-    type Edge<'a> = (&'a TrackNodeLocation, &'a TrackNodeLocation);
-    let nodes: HashMap<_, _> = graph
-        .nodes
-        .keys()
-        .enumerate()
-        .map(|(id, node)| (node, id))
-        .collect();
-    let mut boundaries: HashMap<Edge<'_>, Vec<(f64, [usize; 2])>> = HashMap::new();
-    for (i, cut) in cuts.iter().enumerate() {
-        let edge = cut.edge;
-        let ids = [nodes.len() + i * 2, nodes.len() + i * 2 + 1];
-        let (ends, distance, sides) = if nodes[&edge.from] < nodes[&edge.to] {
-            ((&edge.from, &edge.to), cut.distance, ids)
-        } else {
-            (
-                (&edge.to, &edge.from),
-                edge.length() - cut.distance,
-                [ids[1], ids[0]],
-            )
+type DirectedEdge<'a> = (&'a TrackNodeLocation, &'a TrackNodeLocation);
+
+struct Boundary {
+    distance: f64,
+    sides: [usize; 2],
+}
+
+pub(super) struct Sections<'a> {
+    nodes: HashMap<&'a TrackNodeLocation, usize>,
+    boundaries: HashMap<DirectedEdge<'a>, Vec<Boundary>>,
+    pub adjacent: Vec<[usize; 2]>,
+}
+
+impl<'a> Sections<'a> {
+    pub(super) fn new(graph: &'a TrackGraph, cuts: &[Cut<'a>]) -> Self {
+        let nodes: HashMap<_, _> = graph
+            .nodes
+            .keys()
+            .enumerate()
+            .map(|(id, node)| (node, id))
+            .collect();
+        let mut boundaries: HashMap<DirectedEdge<'_>, Vec<Boundary>> = HashMap::new();
+        for (i, cut) in cuts.iter().enumerate() {
+            let edge = cut.edge;
+            let ids = [nodes.len() + i * 2, nodes.len() + i * 2 + 1];
+            let (ends, distance, sides) = if nodes[&edge.from] < nodes[&edge.to] {
+                ((&edge.from, &edge.to), cut.distance, ids)
+            } else {
+                (
+                    (&edge.to, &edge.from),
+                    edge.length() - cut.distance,
+                    [ids[1], ids[0]],
+                )
+            };
+            boundaries
+                .entry(ends)
+                .or_default()
+                .push(Boundary { distance, sides });
+        }
+
+        let mut group = Groups {
+            parents: (0..nodes.len() + cuts.len() * 2).collect(),
         };
-        boundaries.entry(ends).or_default().push((distance, sides));
+        for edge in graph.connections.values().flat_map(HashMap::values) {
+            let (from, to) = (nodes[&edge.from], nodes[&edge.to]);
+            if from > to {
+                continue;
+            }
+            let mut next = from;
+            if let Some(boundaries) = boundaries.get_mut(&(&edge.from, &edge.to)) {
+                boundaries.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+                let mut prior: Option<&Boundary> = None;
+                for boundary in boundaries {
+                    let [before, after] = boundary.sides;
+                    if let Some(prior) = prior
+                        && (prior.distance - boundary.distance).abs() < 1.0e-6
+                    {
+                        // Several signal boxes can share both sides of one boundary.
+                        group.join(before, prior.sides[0]);
+                        group.join(after, prior.sides[1]);
+                    } else {
+                        group.join(next, before);
+                        next = after;
+                    }
+                    prior = Some(boundary);
+                }
+            }
+            group.join(next, to);
+        }
+        let adjacent = (0..cuts.len())
+            .map(|i| {
+                let id = nodes.len() + i * 2;
+                [group.root(id), group.root(id + 1)]
+            })
+            .collect();
+        let nodes = nodes
+            .into_iter()
+            .map(|(node, id)| (node, group.root(id)))
+            .collect();
+        for cut in boundaries.values_mut().flatten() {
+            cut.sides = cut.sides.map(|id| group.root(id));
+        }
+        Self {
+            nodes,
+            boundaries,
+            adjacent,
+        }
     }
 
-    let mut group = Groups {
-        parents: (0..nodes.len() + cuts.len() * 2).collect(),
-    };
-    for edge in graph.connections.values().flat_map(HashMap::values) {
-        let (from, to) = (nodes[&edge.from], nodes[&edge.to]);
-        if from > to {
-            continue;
-        }
-        let mut next = from;
-        if let Some(boundaries) = boundaries.get_mut(&(&edge.from, &edge.to)) {
-            boundaries.sort_by(|a, b| a.0.total_cmp(&b.0));
-            let mut prior: Option<(f64, [usize; 2])> = None;
-            for &(distance, sides) in boundaries.iter() {
-                let [before, after] = sides;
-                if let Some((position, [previous_before, previous_after])) = prior
-                    && (position - distance).abs() < 1.0e-6
-                {
-                    // Several signal boxes can share both sides of one boundary.
-                    group.join(before, previous_before);
-                    group.join(after, previous_after);
-                } else {
-                    group.join(next, before);
-                    next = after;
-                }
-                prior = Some((distance, sides));
+    pub(super) fn occupy(&self, edge: &TrackEdge, from: f64, to: f64, groups: &mut HashSet<usize>) {
+        let (cuts, start, end) = if let Some(cuts) = self.boundaries.get(&(&edge.from, &edge.to)) {
+            (cuts, from.min(to), from.max(to))
+        } else if let Some(cuts) = self.boundaries.get(&(&edge.to, &edge.from)) {
+            (
+                cuts,
+                edge.length() - from.max(to),
+                edge.length() - from.min(to),
+            )
+        } else {
+            if let Some(group) = self.nodes.get(&edge.from) {
+                groups.insert(*group);
+            }
+            return;
+        };
+        for cut in cuts {
+            if cut.distance < start {
+                continue;
+            }
+            groups.insert(cut.sides[0]);
+            if end < cut.distance {
+                return;
             }
         }
-        group.join(next, to);
+        if let Some(last) = cuts.last() {
+            groups.insert(last.sides[1]);
+        }
     }
-    (0..cuts.len())
-        .map(|i| {
-            let id = nodes.len() + i * 2;
-            [group.root(id), group.root(id + 1)]
-        })
-        .collect()
+}
+
+#[cfg(test)]
+fn sections(graph: &TrackGraph, cuts: &[Cut<'_>]) -> Vec<[usize; 2]> {
+    Sections::new(graph, cuts).adjacent
 }
 
 /// Walk from the outgoing side until the first signal on each navigable route.
@@ -138,6 +200,43 @@ impl Groups {
 mod tests {
     use super::*;
     use crate::trains::math::Vec3;
+
+    #[test]
+    fn train_span_occupies_intermediate_sections_in_either_edge_direction() {
+        let node = |x| {
+            TrackNodeLocation::from_world("minecraft:overworld", Vec3 { x, y: 64.0, z: 0.5 }, 0)
+        };
+        let (a, b) = (node(0.0), node(16.0));
+        let mut graph = TrackGraph::default();
+        for node in [&a, &b] {
+            graph.create_node_if_absent(
+                node.clone(),
+                Vec3 {
+                    x: 0.0,
+                    y: 1.0,
+                    z: 0.0,
+                },
+            );
+        }
+        graph.connect_nodes(&a, &b, "create:standard");
+        let east = graph.edge(&a, &b).unwrap();
+        let west = graph.edge(&b, &a).unwrap();
+        let cuts = [4.0, 8.0, 12.0].map(|distance| Cut {
+            edge: east,
+            distance,
+        });
+        let sections = Sections::new(&graph, &cuts);
+        let mut groups = HashSet::new();
+        let expected = HashSet::from([sections.adjacent[0][1], sections.adjacent[1][1]]);
+        sections.occupy(east, 5.0, 11.0, &mut groups);
+        assert_eq!(groups, expected);
+        groups.clear();
+        sections.occupy(west, 5.0, 11.0, &mut groups);
+        assert_eq!(groups, expected);
+        groups.clear();
+        sections.occupy(west, 4.0, 4.0, &mut groups);
+        assert_eq!(groups, HashSet::from(sections.adjacent[2]));
+    }
 
     #[test]
     fn loop_needs_two_distinct_boundaries_and_reversed_boxes_share_one_cut() {

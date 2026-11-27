@@ -239,7 +239,12 @@ pub fn process_item(
         }
         return recipes
             .press(&item.item)
-            .map_or(ProcessingResult::Pass, ProcessingResult::Convert);
+            .map_or(ProcessingResult::Pass, |outputs| {
+                ProcessingResult::Convert {
+                    outputs,
+                    lock_belt_outputs: true,
+                }
+            });
     }
     if press.data.running {
         return ProcessingResult::Hold;

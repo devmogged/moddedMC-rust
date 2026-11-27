@@ -1,7 +1,10 @@
 //! Mob types for mods: register one carried by a vanilla mob, spawn it, and keep the mod's state
 //! on each mob across restarts.
 
-use std::sync::OnceLock;
+use std::{
+    collections::BTreeMap,
+    sync::{Mutex, OnceLock, PoisonError},
+};
 
 use crate::{
     InterfacePrefix, InterfaceUnavailable, RegistrationError, Registry, abi, content::World,
@@ -281,7 +284,17 @@ unsafe extern "C" fn spawn_rule(world: abi::WorldRef, check: *const abi::SpawnCh
 /// Hears a mod mob die, before its loot drops.
 pub type DeathHandler = fn(world: World<'_>, mob: Entity<'_>);
 
-static DEATH: OnceLock<DeathHandler> = OnceLock::new();
+// Death callbacks are per *mob kind*, not per dynamic library. A single mod
+// can register different death behaviors (e.g. Spiky Bug versus Ambusher).
+static DEATH: Mutex<Option<BTreeMap<String, DeathHandler>>> = Mutex::new(None);
+
+fn death_callbacks() -> std::sync::MutexGuard<'static, Option<BTreeMap<String, DeathHandler>>> {
+    DEATH.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn death_handler(kind: &str) -> Option<DeathHandler> {
+    death_callbacks().as_ref()?.get(kind).copied()
+}
 
 pub fn require() -> Result<Mobs, InterfaceUnavailable> {
     // SAFETY: this is the published table type for moddedmc:mobs v1; appended fields are read
@@ -291,9 +304,13 @@ pub fn require() -> Result<Mobs, InterfaceUnavailable> {
 
 unsafe extern "C" fn death(world: abi::WorldRef, mob: abi::EntityRef) {
     guard("mob death", (), || {
-        if let (Some(handler), Some(world), Some(mob)) =
-            (DEATH.get(), World::borrowed(world), Entity::borrowed(mob))
-        {
+        let (Some(world), Some(mob)) = (World::borrowed(world), Entity::borrowed(mob)) else {
+            return;
+        };
+        let Some(kind) = require().ok().and_then(|mobs| mobs.kind(mob)) else {
+            return;
+        };
+        if let Some(handler) = death_handler(kind) {
             handler(world, mob);
         }
     });
@@ -397,7 +414,8 @@ impl Mobs {
         }
     }
 
-    /// Hear mobs of `kind` die. A mod has one handler: the first one passed serves every kind.
+    /// Hear deaths for one registered mob kind. Different kinds can have
+    /// independent handlers, dispatched by the mob's persisted native identity.
     pub fn on_death(
         self,
         reg: &mut Registry<'_>,
@@ -407,11 +425,24 @@ impl Mobs {
         let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobsV1, on_death)) else {
             return Err(RegistrationError::InvalidDefinition);
         };
-        let _ = DEATH.set(handler);
+        {
+            let mut guard = death_callbacks();
+            let callbacks = guard.get_or_insert_with(BTreeMap::new);
+            if callbacks.contains_key(kind) {
+                return Err(RegistrationError::DuplicateId);
+            }
+            callbacks.insert(kind.to_owned(), handler);
+        }
         // SAFETY: registration is live for the call and the trampoline is static.
-        RegistrationError::from_code(unsafe {
+        let registered = RegistrationError::from_code(unsafe {
             ((&raw const (*api).on_death).read())(reg.reg, s(kind), death)
-        })
+        });
+        if registered.is_err()
+            && let Some(callbacks) = death_callbacks().as_mut()
+        {
+            callbacks.remove(kind);
+        }
+        registered
     }
 
     pub fn uuid(self, entity: Entity<'_>) -> Option<[u8; 16]> {

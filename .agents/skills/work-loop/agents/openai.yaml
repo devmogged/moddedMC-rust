@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work Loop"
+  short_description: "Pick, claim, work and hand off jobs"
+  default_prompt: "Use $work-loop to pick the next job and work it to the end."

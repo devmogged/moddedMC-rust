@@ -1,0 +1,41 @@
+# A vanilla barrel's OPEN blockstate must close synchronously with the viewer
+# count before stop, even when there is no extra block-entity tick afterward.
+# This is independent of Lootr's no-drop container replacement feature.
+start
+botstart alice
+wait 3
+cmd op alice
+cmd tp alice 1025.5 101 1023.5
+wait 2
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:barrel[facing=up,open=false]
+wait 1
+bot use 1025 100 1025
+wait 1
+cmd execute if block 1025 100 1025 minecraft:barrel[facing=up,open=true]
+wait 0.5
+expect Test passed
+bot inventory-close
+# No wait: both packets go on the same bot connection. A console command
+# would race reception of the close packet and test an unrelated ordering.
+bot cmd say BARREL_CLOSED_CLIENT_ACK
+# The bot's own "did: cmd say" line is not server acknowledgement. Match the
+# actual server-side command execution so the next console assertion cannot
+# overtake packet processing.
+await executed command /say BARREL_CLOSED_CLIENT_ACK
+cmd execute if block 1025 100 1025 minecraft:barrel[facing=up,open=false]
+expect Test passed
+bot quit
+stop
+start
+# The shutdown assertion is strict; on restart a fresh server has no chunk
+# ticket here until a player reconnects. Load the actual saved chunk before
+# examining it, rather than checking an unloaded chunk and reporting failure.
+botstart alice
+wait 3
+cmd tp alice 1025.5 101 1023.5
+wait 2
+cmd execute if block 1025 100 1025 minecraft:barrel[facing=up,open=false]
+expect Test passed
+bot quit
+stop

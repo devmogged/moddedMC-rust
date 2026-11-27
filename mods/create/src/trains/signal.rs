@@ -1,10 +1,14 @@
 //! Train Signal block state and its boundary on a directed railway edge.
 use super::{
+    carriage::Train,
+    graph::{TrackEdge, TrackGraph},
     math::Vec3,
     railway, runtime,
-    sections::{self, Cut},
+    save::RailwayData,
+    sections::{self, Cut, Sections},
     station,
     targeting::{self, Selection, TargetUse, coords, pos, state_at},
+    travelling_point::select_edge,
 };
 use moddedmc_api::{
     Pos, RegistrationError, Registry,
@@ -234,106 +238,269 @@ pub(crate) fn wrench(world: World<'_>, content: Content, position: Pos) -> bool 
     })
 }
 
-fn aspects(world: World<'_>, content: Content, data: &Signals) -> Option<Vec<Aspect>> {
-    let dimension = world.dimension_id()?;
-    let graphs = railway::read(&world).ok()?;
-    let mut result = vec![Aspect::Invalid; data.signals.len()];
-    let mut groups = HashMap::<_, Vec<_>>::new();
-    for (index, signal) in data
-        .signals
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| s.target.dimension == dimension)
-    {
-        let [x, y, z] = signal.axis.map(f64::from);
-        let located = if state_at(world, pos(signal.target.target)).is_some() {
-            targeting::directed_edge(&graphs, world, content, &signal.target)
-        } else {
-            targeting::locate(&graphs, &signal.target, Vec3 { x, y, z })
-        };
-        let Some((edge, distance)) = located else {
-            continue;
-        };
-        let Some(graph) = graphs
-            .graphs
+struct GraphSignals<'a> {
+    graph: &'a TrackGraph,
+    cuts: Vec<Cut<'a>>,
+    indices: Vec<usize>,
+    sections: Sections<'a>,
+    occupied: HashMap<usize, HashSet<i32>>,
+    powered: Vec<bool>,
+    chained: Vec<Option<Vec<usize>>>,
+}
+
+impl GraphSignals<'_> {
+    fn update_train(&mut self, train: &Train) -> bool {
+        let mut groups = HashSet::new();
+        let mut previous: Option<(&TrackEdge, f64)> = None;
+        for point in train.carriages.iter().rev().flat_map(|carriage| {
+            carriage
+                .wheels
+                .iter()
+                .rev()
+                .flat_map(|pair| pair.iter().rev())
+        }) {
+            let Some(edge) = point.edge(self.graph) else {
+                return false;
+            };
+            let offset = point.offset();
+            self.sections.occupy(edge, offset, offset, &mut groups);
+            if let Some((mut prior, mut start)) = previous {
+                let mut visited = HashSet::new();
+                while (!std::ptr::eq(prior, edge) || offset < start)
+                    && visited.insert((&prior.from, &prior.to))
+                {
+                    self.sections
+                        .occupy(prior, start, prior.length(), &mut groups);
+                    let Some(next) = select_edge(self.graph, prior, true, 0.0, Some(edge)) else {
+                        break;
+                    };
+                    prior = next;
+                    start = 0.0;
+                }
+                if std::ptr::eq(prior, edge) && offset >= start {
+                    self.sections.occupy(edge, start, offset, &mut groups);
+                }
+            }
+            previous = Some((edge, offset));
+        }
+        let previous: HashSet<_> = self
+            .occupied
             .iter()
-            .find(|saved| saved.graph.nodes.contains_key(&edge.from))
-        else {
-            continue;
-        };
-        groups
-            .entry(graph.uuid)
-            .or_default()
-            .push((index, Cut { edge, distance }));
+            .filter_map(|(&group, ids)| ids.contains(&train.id).then_some(group))
+            .collect();
+        if groups == previous {
+            return false;
+        }
+        for group in previous.difference(&groups) {
+            if let Some(ids) = self.occupied.get_mut(group) {
+                ids.remove(&train.id);
+            }
+        }
+        for &group in groups.difference(&previous) {
+            self.occupied.entry(group).or_default().insert(train.id);
+        }
+        true
     }
 
-    for graph in &graphs.graphs {
-        let Some(points) = groups.remove(&graph.uuid) else {
-            continue;
-        };
-        let (indices, cuts): (Vec<_>, Vec<_>) = points.into_iter().unzip();
-        let sections = sections::sections(&graph.graph, &cuts);
-        let forced: HashSet<_> = indices
+    fn aspects(&self, ignore: Option<i32>) -> Vec<Aspect> {
+        let initial: Vec<_> = self
+            .sections
+            .adjacent
             .iter()
-            .filter_map(|&index| {
-                let signal = &data.signals[index];
-                signal
-                    .powered
-                    .then_some((signal.target.target, signal.target.front))
-            })
-            .collect();
-        for (&index, &[before, after]) in indices.iter().zip(&sections) {
-            let signal = &data.signals[index];
-            result[index] = if before == after {
-                Aspect::Invalid
-            } else if forced.contains(&(signal.target.target, signal.target.front)) {
-                Aspect::Red
-            } else {
-                Aspect::Green
-            };
-        }
-        // Chain signals inherit downstream aspects. Invalid signals leave a path open.
-        let next: Vec<_> = indices
-            .iter()
-            .enumerate()
-            .map(|(i, &index)| {
-                if data.signals[index].cross {
-                    sections::chained(&graph.graph, &cuts, i)
+            .zip(&self.powered)
+            .map(|(&[before, after], &powered)| {
+                if before == after {
+                    Aspect::Invalid
+                } else if powered
+                    || self
+                        .occupied
+                        .get(&after)
+                        .is_some_and(|train_ids| train_ids.iter().any(|&id| Some(id) != ignore))
+                {
+                    Aspect::Red
                 } else {
-                    Vec::new()
+                    Aspect::Green
                 }
             })
             .collect();
-        for _ in 0..indices.len() {
-            let previous: Vec<_> = indices.iter().map(|&i| result[i]).collect();
-            let mut changed = false;
-            for (i, &index) in indices.iter().enumerate() {
-                let signal = &data.signals[index];
-                if !signal.cross
-                    || previous[i] == Aspect::Invalid
-                    || forced.contains(&(signal.target.target, signal.target.front))
-                {
+        let mut result = initial.clone();
+        // Chain signals follow downstream aspects while their own section is open.
+        for _ in 0..self.cuts.len() {
+            let previous = result.clone();
+            for (index, next) in self.chained.iter().enumerate() {
+                let Some(next) = next else { continue };
+                if initial[index] != Aspect::Green {
                     continue;
                 }
-                let mut red = false;
-                let mut open = false;
-                for &j in &next[i] {
-                    red |= matches!(previous[j], Aspect::Red | Aspect::Yellow);
-                    open |= previous[j] != Aspect::Red;
-                }
-                let aspect = if !red {
+                let red = next
+                    .iter()
+                    .any(|&i| matches!(previous[i], Aspect::Red | Aspect::Yellow));
+                let open = next.iter().any(|&i| previous[i] != Aspect::Red);
+                result[index] = if !red {
                     Aspect::Green
                 } else if open {
                     Aspect::Yellow
                 } else {
                     Aspect::Red
                 };
-                changed |= result[index] != aspect;
-                result[index] = aspect;
             }
-            if !changed {
+            if result == previous {
                 break;
             }
+        }
+        result
+    }
+}
+
+pub(super) struct SignalPlan<'a> {
+    graphs: Vec<GraphSignals<'a>>,
+}
+
+impl<'a> SignalPlan<'a> {
+    fn new(
+        world: World<'_>,
+        content: Content,
+        data: &Signals,
+        network: &'a RailwayData,
+        trains: &[Train],
+    ) -> Self {
+        let Some(dimension) = world.dimension_id() else {
+            return Self { graphs: Vec::new() };
+        };
+        let mut groups = HashMap::<_, Vec<_>>::new();
+        for (i, signal) in data
+            .signals
+            .iter()
+            .enumerate()
+            .filter(|(_, signal)| signal.target.dimension == dimension)
+        {
+            let [x, y, z] = signal.axis.map(f64::from);
+            let located = if state_at(world, pos(signal.target.target)).is_some() {
+                targeting::directed_edge(network, world, content, &signal.target)
+            } else {
+                targeting::locate(network, &signal.target, Vec3 { x, y, z })
+            };
+            let Some((edge, distance)) = located else {
+                continue;
+            };
+            if let Some(graph) = network
+                .graphs
+                .iter()
+                .find(|saved| saved.graph.nodes.contains_key(&edge.from))
+            {
+                groups
+                    .entry(graph.uuid)
+                    .or_default()
+                    .push((i, Cut { edge, distance }));
+            }
+        }
+
+        let mut graphs = Vec::new();
+        for graph in &network.graphs {
+            let Some(points) = groups.remove(&graph.uuid) else {
+                continue;
+            };
+            let (indices, cuts): (Vec<_>, Vec<_>) = points.into_iter().unzip();
+            let forced: HashSet<_> = indices
+                .iter()
+                .filter_map(|&index| {
+                    let signal = &data.signals[index];
+                    signal
+                        .powered
+                        .then_some((signal.target.target, signal.target.front))
+                })
+                .collect();
+            let mut signals = GraphSignals {
+                graph: &graph.graph,
+                sections: Sections::new(&graph.graph, &cuts),
+                occupied: HashMap::new(),
+                powered: indices
+                    .iter()
+                    .map(|&i| {
+                        let target = &data.signals[i].target;
+                        forced.contains(&(target.target, target.front))
+                    })
+                    .collect(),
+                chained: indices
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &i)| {
+                        data.signals[i]
+                            .cross
+                            .then(|| sections::chained(&graph.graph, &cuts, index))
+                    })
+                    .collect(),
+                indices,
+                cuts,
+            };
+            for train in trains {
+                signals.update_train(train);
+            }
+            graphs.push(signals);
+        }
+        Self { graphs }
+    }
+
+    pub(super) fn load(
+        world: World<'_>,
+        content: Content,
+        network: &'a RailwayData,
+        trains: &[Train],
+    ) -> Self {
+        let data = read(world).unwrap_or_default();
+        Self::new(world, content, &data, network, trains)
+    }
+
+    pub(super) fn update_train(&mut self, train: &Train) -> bool {
+        let mut changed = false;
+        for graph in &mut self.graphs {
+            changed |= graph.update_train(train);
+        }
+        changed
+    }
+
+    pub(super) fn blocking(
+        &self,
+        graph: &TrackGraph,
+        train: i32,
+        forward: bool,
+    ) -> Vec<(&'a TrackEdge, f64)> {
+        let Some(signals) = self
+            .graphs
+            .iter()
+            .find(|signals| std::ptr::eq(signals.graph, graph))
+        else {
+            return Vec::new();
+        };
+        signals
+            .cuts
+            .iter()
+            .zip(signals.aspects(Some(train)))
+            .filter_map(|(cut, aspect)| {
+                if aspect != Aspect::Red {
+                    return None;
+                }
+                if forward {
+                    Some((cut.edge, cut.distance))
+                } else {
+                    Some((
+                        signals.graph.edge(&cut.edge.to, &cut.edge.from)?,
+                        cut.edge.length() - cut.distance,
+                    ))
+                }
+            })
+            .collect()
+    }
+}
+
+fn aspects(world: World<'_>, content: Content, data: &Signals) -> Option<Vec<Aspect>> {
+    let network = railway::read(&world).ok()?;
+    let trains = station::read(world)?.trains;
+    let mut result = vec![Aspect::Invalid; data.signals.len()];
+    let plan = SignalPlan::new(world, content, data, &network, &trains);
+    for graph in &plan.graphs {
+        for (&index, aspect) in graph.indices.iter().zip(graph.aspects(None)) {
+            result[index] = aspect;
         }
     }
     Some(result)
@@ -348,6 +515,10 @@ pub(crate) struct SignalUpdates {
 }
 
 impl SignalUpdates {
+    pub(crate) fn trains_changed(&mut self) {
+        self.dirty |= !self.loaded.is_empty();
+    }
+
     pub(crate) fn tick(
         &mut self,
         world: World<'_>,

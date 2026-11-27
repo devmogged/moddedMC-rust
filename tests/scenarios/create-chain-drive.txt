@@ -1,0 +1,170 @@
+# Craft the encased chain drive and gearshift in Survival, then test analog control and restart.
+mods target\mods\create.mmc
+start
+expect registered content block create:adjustable_chain_gearshift \(48 states\)
+expect registered content block create:encased_chain_drive \(24 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 2507.5 106 2501.5 90 0
+wait 4
+cmd fill 2504 106 2489 2514 113 2506 minecraft:air
+cmd fill 2504 105 2489 2514 105 2506 minecraft:stone
+cmd tp tester 2507.5 106 2501.5 90 0
+cmd gamemode survival tester
+cmd setblock 2507 106 2500 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:andesite_casing
+cmd item replace entity tester hotbar.1 with minecraft:iron_nugget 3
+wait 0.5
+bot use 2507 106 2500 south
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 2 right
+wait 0.25
+bot inventory-click 3 right
+wait 0.25
+bot inventory-click 4 right
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:encased_chain_drive 0
+wait 0.5
+expect Found 1 matching item
+cmd item replace entity tester hotbar.1 with create:electron_tube
+wait 0.5
+bot use 2507 106 2500 south
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 2 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:adjustable_chain_gearshift 0
+wait 0.5
+expect Found 1 matching item
+
+cmd setblock 2510 106 2501 create:creative_motor[facing=west]
+wait 0.5
+bot place 2509 105 2501 up
+wait 0.5
+cmd clear tester create:adjustable_chain_gearshift 0
+wait 0.5
+expect No items were found
+cmd item replace entity tester hotbar.0 with create:encased_chain_drive 2
+wait 0.5
+bot place 2509 105 2502 up
+wait 0.5
+bot place 2509 105 2503 up
+wait 0.5
+cmd kinetics 2509 106 2501
+wait 0.5
+expect adjustable_chain_gearshift\[axis=x,axis_along_first=false,part=start,powered=false\].*Speed=-16
+cmd kinetics 2509 106 2502
+wait 0.5
+expect encased_chain_drive\[axis=x,axis_along_first=false,part=middle\].*Speed=-16
+cmd kinetics 2509 106 2503
+wait 0.5
+expect encased_chain_drive\[axis=x,axis_along_first=false,part=end\].*Speed=-16
+
+# Nine dust steps produce strength 7. The input stays at -16 and the chain runs at -24.
+cmd fill 2509 106 2492 2509 106 2500 minecraft:redstone_wire
+cmd setblock 2509 106 2491 minecraft:redstone_block
+wait 1
+cmd data get block 2509 106 2501 Signal
+wait 0.5
+expect block data: 7$
+cmd kinetics 2509 106 2501
+wait 0.5
+expect adjustable_chain_gearshift\[axis=x,axis_along_first=false,part=start,powered=true\].*Speed=-16
+cmd kinetics 2509 106 2503
+wait 0.5
+expect encased_chain_drive\[axis=x,axis_along_first=false,part=end\].*Speed=-24
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd data get block 2509 106 2501 Signal
+wait 0.5
+expect block data: 7$
+cmd kinetics 2509 106 2503
+wait 0.5
+expect encased_chain_drive\[axis=x,axis_along_first=false,part=end\].*Speed=-24
+
+# While still powered, strengthen the signal to 15 for double speed.
+cmd setblock 2509 106 2500 minecraft:redstone_block
+wait 0.5
+cmd data get block 2509 106 2501 Signal
+wait 0.5
+expect block data: 15$
+cmd kinetics 2509 106 2503
+wait 0.5
+expect encased_chain_drive\[axis=x,axis_along_first=false,part=end\].*Speed=-32
+cmd setblock 2509 106 2500 minecraft:air
+wait 0.5
+cmd kinetics 2509 106 2503
+wait 0.5
+expect encased_chain_drive\[axis=x,axis_along_first=false,part=end\].*Speed=-16
+
+# Sneak-click the middle drive with a Wrench. Its item returns and the chain disconnects.
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot input sneak
+wait 0.25
+bot use 2509 106 2502 west
+wait 0.5
+bot input none
+cmd execute if block 2509 106 2502 minecraft:air
+wait 0.5
+expect Test passed
+cmd clear tester create:encased_chain_drive 0
+wait 0.5
+expect Found 1 matching item
+cmd kinetics 2509 106 2501
+wait 0.5
+expect adjustable_chain_gearshift\[axis=x,axis_along_first=false,part=none,powered=false\].*Speed=-16
+cmd kinetics 2509 106 2503
+wait 0.5
+expect encased_chain_drive\[axis=x,axis_along_first=false,part=none\].*Speed=0
+# An ordinary Wrench click rotates the remaining standalone drive.
+bot use 2509 106 2503 up
+wait 0.5
+cmd kinetics 2509 106 2503
+wait 0.5
+expect encased_chain_drive\[axis=z,axis_along_first=false,part=none\].*Speed=0
+
+# A repeater pointed into a nearby drive cannot indirectly power the gearshift.
+cmd setblock 2509 106 2502 create:encased_chain_drive[axis=x]
+cmd setblock 2509 106 2504 minecraft:redstone_block
+cmd setblock 2509 106 2503 minecraft:repeater[facing=south,powered=true]
+wait 3
+cmd execute if block 2509 106 2503 minecraft:repeater[facing=south,powered=true]
+wait 0.5
+expect Test passed
+cmd data get block 2509 106 2501 Signal
+wait 0.5
+expect block data: 0$
+reject (?i)panicked|trapped|failed to register|Failed to save player data|Error loading player data|\[bot\] error
+bot quit
+stop

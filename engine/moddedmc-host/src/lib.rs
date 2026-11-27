@@ -6,28 +6,39 @@
 //! custom data on a vanilla stand-in block entity (saved by Pumpkin with the
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
+mod actor_visual;
 mod block_displays;
 mod companion;
 mod console;
+mod container_loot;
 mod containers;
 mod content;
 mod content_pack;
+mod content_slab;
+mod content_stairs;
+mod content_walls;
+mod crafting;
 mod effects;
 mod entities;
 mod fluid_world;
 mod interaction;
 mod interfaces;
+mod inventory_menu;
 mod live_stats;
 mod load_order;
 mod mob_ai;
 mod mobs;
 mod native;
+mod native_entity;
+mod player_death;
 mod resources;
 mod saved_data;
 mod services;
 mod stacks;
 mod stats;
 mod tags;
+mod worldgen_groups;
+mod worldgen_lookup;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -132,6 +143,9 @@ pub struct Staging<'a> {
     mobs: Vec<mobs::Registration>,
     mob_ai: std::collections::BTreeMap<String, mob_ai::TypeAi>,
     saved_keys: Vec<(u64, String)>,
+    player_death: Option<abi::PlayerDeathCallback>,
+    inventory_menu: inventory_menu::Registration,
+    native_actor: Option<(u64, abi::NativeEntityCallback)>,
     services: Vec<services::Registration>,
 }
 
@@ -163,7 +177,7 @@ struct Host {
 static HOST: LazyLock<Host> = LazyLock::new(Host::default);
 
 // A panic elsewhere must not take the content host down with it.
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 fn read<T>(m: &RwLock<T>) -> RwLockReadGuard<'_, T> {
@@ -211,6 +225,11 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
     pm.register::<EntityDamageEvent, _>(Arc::new(mob_ai::HurtHandler), EventPriority::Normal, true);
     pm.register::<EntityDeathEvent, _>(Arc::new(mob_ai::DeathHandler), EventPriority::Normal, true);
+    pm.register::<PlayerInteractEntityEvent, _>(
+        Arc::new(actor_visual::UseVisual),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<PlayerInteractEntityEvent, _>(
         Arc::new(mob_ai::UseMobHandler),
         EventPriority::Normal,
@@ -426,6 +445,9 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         mobs,
         ai,
         saved_keys,
+        player_death_callback,
+        inventory_menu_kind,
+        native_actor_kind,
         services,
     ) = {
         let registry = read(&HOST.registry);
@@ -443,6 +465,9 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             mobs: Vec::new(),
             mob_ai: std::collections::BTreeMap::new(),
             saved_keys: Vec::new(),
+            player_death: None,
+            inventory_menu: inventory_menu::Registration::default(),
+            native_actor: None,
             services: Vec::new(),
         };
         let result = module.register(&mut staging);
@@ -459,13 +484,15 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.mobs,
             staging.mob_ai,
             staging.saved_keys,
+            staging.player_death,
+            staging.inventory_menu,
+            staging.native_actor,
             staging.services,
         )
     };
-    let result = if result == code::OK && !services::available(&services) {
-        code::DUPLICATE_ID
-    } else {
-        result
+    let result = match result {
+        code::OK if !services::available(&services) => code::DUPLICATE_ID,
+        result => result,
     };
     if result != code::OK {
         tracing::error!(
@@ -495,6 +522,9 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     mobs::register(mobs);
     mob_ai::register(ai);
     saved_data::register(module.id, saved_keys);
+    player_death::register(module.id, player_death_callback);
+    inventory_menu::register(module.id, inventory_menu_kind);
+    native_entity::register(module.id, native_actor_kind);
     services::commit(services);
     lock(&HOST.commands).push(PendingCommands {
         module,

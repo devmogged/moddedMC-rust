@@ -1,0 +1,117 @@
+# A Steam Whistle attaches to a tank, grows its pitch pipe and sounds on redstone with heat.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:steam_whistle \(48 states\) && registered content block create:steam_whistle_extension \(9 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 1029.5 105 1028.5
+wait 4
+cmd fill 1024 103 1023 1032 113 1030 minecraft:air
+cmd fill 1024 104 1023 1032 104 1030 minecraft:stone
+cmd setblock 1027 104 1026 create:fluid_tank
+cmd recipe give tester create:crafting/kinetics/steam_whistle
+wait 0.5
+expect Unlocked 1 recipe
+cmd item replace entity tester weapon.mainhand with create:steam_whistle 2
+cmd gamemode survival tester
+bot look 0 0
+wait 0.6
+bot place 1027 104 1026 up
+wait 0.65
+cmd execute if block 1027 105 1026 create:steam_whistle[facing=south,powered=false,size=medium,wall=false]
+wait 0.4
+expect Test passed
+cmd data get block 1027 104 1026 Boiler.Whistles
+wait 0.4
+expect block data: 1$
+bot use 1027 105 1026
+wait 0.25
+bot use 1027 106 1026
+wait 0.25
+bot use 1027 106 1026
+wait 0.25
+bot use 1027 107 1026
+wait 0.65
+cmd data get block 1027 105 1026 Pitch
+wait 0.4
+expect block data: 4$
+cmd clear tester create:steam_whistle 0
+wait 0.4
+expect Found 1 matching item
+cmd execute if block 1027 106 1026 create:steam_whistle_extension[shape=double_connected,size=medium] if block 1027 107 1026 create:steam_whistle_extension[shape=double,size=medium]
+wait 0.4
+expect Test passed
+
+cmd item replace entity tester weapon.mainhand with create:wrench
+wait 0.45
+bot use 1027 106 1026
+wait 0.65
+cmd execute if block 1027 105 1026 create:steam_whistle[size=large] if block 1027 107 1026 create:steam_whistle_extension[size=large]
+wait 0.4
+expect Test passed
+cmd setblock 1028 105 1026 minecraft:redstone_block
+wait 0.65
+cmd execute if block 1027 105 1026 create:steam_whistle[powered=true]
+wait 0.4
+expect Test passed
+reject \[bot\] (entity )?sound: create:whistle
+cmd setblock 1027 103 1026 minecraft:magma_block
+wait 1.25
+expect \[bot\] entity sound: create:whistle_low \(entity [0-9]+\)
+bot expect entity minecraft:item_display near 1027.5 105.75 1026.5 within 0.1 count 1
+wait 0.4
+expect ^\[bot\] expect entity ok minecraft:item_display
+
+# Wall placement must attach opposite the clicked face. A second whistle keeps running
+# when the first one's emitter is removed.
+cmd setblock 1030 104 1024 minecraft:magma_block
+cmd setblock 1030 105 1024 create:fluid_tank
+cmd item replace entity tester weapon.mainhand with create:steam_whistle
+wait 0.35
+bot place 1030 105 1024 west
+wait 0.65
+cmd execute if block 1029 105 1024 create:steam_whistle[facing=east,powered=false,size=medium,wall=true]
+wait 0.4
+expect Test passed
+cmd setblock 1028 105 1024 minecraft:redstone_block
+wait 0.8
+expect \[bot\] entity sound: create:whistle \(entity [0-9]+\)
+cmd setblock 1028 105 1026 minecraft:air
+wait 0.75
+bot expect entity minecraft:item_display near 1027.5 105.75 1026.5 within 0.1 count 0
+bot expect entity minecraft:item_display near 1029.5 105.75 1024.5 within 0.1 count 1
+wait 0.4
+expect-all ^\[bot\] expect entity ok minecraft:item_display near 1027.*0 visible && ^\[bot\] expect entity ok minecraft:item_display near 1029.*1 visible
+cmd setblock 1028 105 1026 minecraft:redstone_block
+wait 0.8
+expect \[bot\] entity sound: create:whistle_low \(entity [0-9]+\)
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd data get block 1027 105 1026 Pitch
+cmd data get block 1027 104 1026 Boiler.Whistles
+wait 0.4
+expect-all 1027, 105, 1026 .*block data: 4$ && 1027, 104, 1026 .*block data: 1$
+cmd setblock 1028 105 1026 minecraft:air
+wait 0.7
+cmd execute if block 1027 105 1026 create:steam_whistle[powered=false]
+wait 0.4
+expect Test passed
+cmd setblock 1028 105 1026 minecraft:redstone_block
+wait 0.8
+expect \[bot\] entity sound: create:whistle_low \(entity [0-9]+\)
+cmd setblock 1027 104 1026 minecraft:air
+wait 0.9
+cmd execute if block 1027 105 1026 minecraft:air if block 1027 106 1026 minecraft:air if block 1027 107 1026 minecraft:air
+wait 0.4
+expect Test passed
+reject (?i)panicked|trapped|\[bot\] error
+stop

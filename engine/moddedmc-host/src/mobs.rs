@@ -813,7 +813,11 @@ unsafe extern "C" fn open_trades(mob: EntityRef, player: EntityRef, offers: Str)
     true
 }
 
-unsafe extern "C" fn award_advancement(player: EntityRef, advancement: Str, criterion: Str) -> bool {
+unsafe extern "C" fn award_advancement(
+    player: EntityRef,
+    advancement: Str,
+    criterion: Str,
+) -> bool {
     use pumpkin_core::entity::player::advancement::PlayerAdvancement;
     // SAFETY: the player is live and the strings borrowed for the call.
     let (Some(player), id, criterion) = (

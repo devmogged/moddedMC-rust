@@ -1,0 +1,7 @@
+{
+  "parent": "create:block/belt_casing/diagonal_start",
+  "textures": {
+    "7": "create:block/belt/andesite_belt_casing",
+    "particle": "create:block/andesite_casing"
+  }
+}

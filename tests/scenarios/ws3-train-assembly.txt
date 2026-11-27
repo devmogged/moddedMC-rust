@@ -39,6 +39,8 @@ bot use 2450 100 2449
 wait 0.5
 bot use 2453 100 2449
 wait 0.5
+bot use 2453 100 2449
+wait 0.5
 cmd setblock 2451 101 2449 minecraft:stone
 cmd setblock 2452 101 2449 minecraft:stone
 cmd tp tester 2451.5 102 2447.5 0 35
@@ -72,7 +74,7 @@ wait 0.5
 bot use 2451 100 2450
 wait 0.5
 expect Face Train Controls along the track
-cmd execute if block 2450 101 2449 create:small_bogey if block 2453 101 2449 create:small_bogey if block 2451 102 2449 create:controls
+cmd execute if block 2450 101 2449 create:small_bogey if block 2453 101 2449 create:large_bogey if block 2451 102 2449 create:controls
 wait 0.5
 expect Test passed
 cmd station 2451 100 2450
@@ -95,6 +97,12 @@ expect Test passed
 bot expect entity minecraft:block_display near 2450.5 101.5 2449.5 within 0.05 count 5
 wait 0.5
 expect ^\[bot\] expect entity ok minecraft:block_display near 2450.5 101.5 2449.5
+bot expect entity minecraft:item_display near 2450.5 101.5 2449.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2450.5 101.5 2449.5
+bot expect entity minecraft:item_display near 2453.5 101.5 2449.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2453.5 101.5 2449.5
 reject (?i)panicked|trapped|failed to register|\[bot\] error
 bot quit
 stop
@@ -109,6 +117,12 @@ expect Track Station targets 2449 100 2449 Connected at 6.50/8.00 Docked Carriag
 bot expect entity minecraft:block_display near 2450.5 101.5 2449.5 within 0.05 count 5
 wait 0.5
 expect ^\[bot\] expect entity ok minecraft:block_display near 2450.5 101.5 2449.5
+bot expect entity minecraft:item_display near 2450.5 101.5 2449.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2450.5 101.5 2449.5
+bot expect entity minecraft:item_display near 2453.5 101.5 2449.5 within 0.05 count 1
+wait 0.5
+expect ^\[bot\] expect entity ok minecraft:item_display near 2453.5 101.5 2449.5
 cmd setblock 2453 101 2449 minecraft:cobblestone
 bot input sneak
 wait 0.5
@@ -127,7 +141,7 @@ wait 0.5
 cmd station 2451 100 2450
 wait 0.5
 expect Track Station targets 2449 100 2449 Connected at 6.50/8.00$
-cmd execute if block 2450 101 2449 create:small_bogey if block 2453 101 2449 create:small_bogey if block 2451 102 2449 create:controls[facing=east,open=false,waterlogged=false]
+cmd execute if block 2450 101 2449 create:small_bogey if block 2453 101 2449 create:large_bogey if block 2451 102 2449 create:controls[facing=east,open=false,waterlogged=false]
 wait 0.5
 expect Test passed
 cmd execute if entity @e[type=minecraft:marker,x=2451,y=101,z=2449.5,distance=..0.25]
@@ -153,7 +167,7 @@ expect \[bot\] joined as tester
 cmd station 2451 100 2450
 wait 0.5
 expect Track Station targets 2449 100 2449 Connected at 6.50/8.00$
-cmd execute if block 2450 101 2449 create:small_bogey if block 2453 101 2449 create:small_bogey if block 2451 102 2449 create:controls
+cmd execute if block 2450 101 2449 create:small_bogey if block 2453 101 2449 create:large_bogey if block 2451 102 2449 create:controls
 wait 0.5
 expect Test passed
 reject (?i)panicked|trapped|failed to register|\[bot\] error

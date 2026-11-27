@@ -12,7 +12,9 @@ use std::{
 use axum::{Router, extract::Path, http::StatusCode, routing::get};
 use bytes::Bytes;
 use pumpkin_config::resource_pack::JavaResourcePackConfig;
-use pumpkin_data::{Block, item::Item, item_stack::ItemStack, packet::CURRENT_MC_VERSION};
+use pumpkin_data::{
+    Block, BlockStateId, item::Item, item_stack::ItemStack, packet::CURRENT_MC_VERSION,
+};
 use pumpkin_protocol::{
     VarInt, codec::item_stack_seralizer::ItemStackSerializer, ser::NetworkWriteExt,
 };
@@ -20,6 +22,8 @@ use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
+
+use crate::content_walls::{self, WallSelector};
 
 const EMPTY_MODEL: &str = "moddedmc:block/empty";
 const PLACEHOLDER: &str = "moddedmc:block/placeholder";
@@ -65,11 +69,18 @@ pub struct StateAssets {
     pub x: i16,
     pub y: i16,
     pub orientation: [f32; 4],
+    pub bounded: bool,
+    pub uvlock: bool,
+    pub straight_stair_display: bool,
+    pub block_display_carrier: Option<BlockStateId>,
+    pub wall: Option<WallSelector>,
 }
 
 pub struct OverlayModel {
     pub id: String,
     pub orientation: [f32; 4],
+    pub bounded: bool,
+    pub wall: Option<WallSelector>,
 }
 
 pub fn valid_model(name: &str) -> bool {
@@ -183,24 +194,9 @@ fn build_pack(
             "max_format": [97, 1],
         }}),
     )?;
-    pack.json(
-        "assets/moddedmc/models/block/empty.json",
-        &json!({"elements": []}),
-    )?;
-    pack.json(
-        "assets/moddedmc/models/block/placeholder.json",
-        &json!({
-            "parent": "minecraft:block/cube_all",
-            "textures": {"all": "moddedmc:block/placeholder"}
-        }),
-    )?;
-    pack.files.insert(
-        "assets/moddedmc/textures/block/placeholder.png".to_owned(),
-        PLACEHOLDER_PNG.to_vec(),
-    );
+    pack.fallback_models()?;
 
-    let mut note_variants =
-        BTreeMap::from([(String::new(), json!({"model":"minecraft:block/note_block"}))]);
+    let mut carrier_variants = CarrierVariants::new();
     let mut display_models = HashMap::new();
     pack.namespace_assets(blocks, items)?;
     pack.standalone_items(items)?;
@@ -215,12 +211,18 @@ fn build_pack(
             &format!("assets/{namespace}/items/{path}.json"),
             &block.item_model,
         )?;
+        if let Some(first) = block.states.first().filter(|assets| assets.wall.is_some()) {
+            let id = pack.wall_item(namespace, path, &first.model)?;
+            extend_wall_overlays(&mut display_models, registered, &block.states, &id);
+            continue;
+        }
         for (index, (state, assets)) in registered.states.iter().zip(&block.states).enumerate() {
             if assets.model.is_empty() && assets.rotating_model.is_empty() {
                 continue;
             }
             let carrier = state.id.vanilla_view();
-            let Some(key) = note_variant(carrier) else {
+            let block = carrier.to_block();
+            let Some(key) = block_variant(block, carrier) else {
                 continue;
             };
             let model = if assets.model.is_empty() {
@@ -228,49 +230,71 @@ fn build_pack(
             } else {
                 pack.model(&assets.model)
             };
-            note_variants.insert(
-                key,
-                json!({
-                    "model": model,
-                    "x": assets.x.rem_euclid(360),
-                    "y": assets.y.rem_euclid(360),
-                }),
-            );
+            record_carrier_model(&mut carrier_variants, block, key, model, assets);
             if !assets.rotating_model.is_empty() {
+                if let Some(carrier) = assets.block_display_carrier
+                    && let Some(key) = block_variant(carrier.to_block(), carrier)
+                {
+                    let model = pack.model(&assets.rotating_model);
+                    record_carrier_model(
+                        &mut carrier_variants,
+                        carrier.to_block(),
+                        key,
+                        model,
+                        assets,
+                    );
+                }
                 let model_id = format!("{namespace}:moddedmc/display/{path}/{index}");
-                pack.item(
-                    &format!("assets/{namespace}/items/moddedmc/display/{path}/{index}.json"),
-                    &assets.rotating_model,
-                )?;
+                let item_path =
+                    format!("assets/{namespace}/items/moddedmc/display/{path}/{index}.json");
+                let orientation = if assets.straight_stair_display
+                    && pack.oriented_stair_item(&item_path, &model_id, assets)?
+                {
+                    [0.0, 0.0, 0.0, 1.0]
+                } else {
+                    pack.item(&item_path, &assets.rotating_model)?;
+                    assets.orientation
+                };
                 display_models.insert(
                     state.id.as_u16(),
                     OverlayModel {
                         id: model_id,
-                        orientation: assets.orientation,
+                        orientation,
+                        bounded: assets.bounded,
+                        wall: None,
                     },
                 );
             }
         }
     }
-    if note_variants.len() > 1 {
-        // The stock model is identical for every note variant. Individual carriers override it.
-        let default = note_variants
-            .remove("")
-            .unwrap_or_else(|| json!({"model":"minecraft:block/note_block"}));
-        for state in Block::NOTE_BLOCK.states {
-            if let Some(key) = note_variant(state.id) {
-                note_variants.entry(key).or_insert_with(|| default.clone());
-            }
+    for (name, variants) in carrier_variants {
+        if let Some(block) = Block::from_name(name) {
+            pack.carrier_variants(block, variants)?;
         }
-        pack.json(
-            "assets/minecraft/blockstates/note_block.json",
-            &json!({"variants": note_variants}),
-        )?;
     }
     if pack.missing {
         tracing::warn!("moddedmc: some content pack assets are missing; using a placeholder");
     }
     Ok((pack, display_models))
+}
+
+fn extend_wall_overlays(
+    models: &mut HashMap<u16, OverlayModel>,
+    block: &Block,
+    assets: &[StateAssets],
+    id: &str,
+) {
+    models.extend(block.states.iter().zip(assets).map(|(state, assets)| {
+        (
+            state.id.as_u16(),
+            OverlayModel {
+                id: id.to_owned(),
+                orientation: [0.0, 0.0, 0.0, 1.0],
+                bounded: true,
+                wall: assets.wall,
+            },
+        )
+    }));
 }
 
 fn encode_creative_catalog(items: &[&'static Item]) -> io::Result<Option<Vec<u8>>> {
@@ -308,8 +332,8 @@ fn encode_creative_catalog(items: &[&'static Item]) -> io::Result<Option<Vec<u8>
     Ok(Some(bytes))
 }
 
-fn note_variant(state: pumpkin_data::BlockStateId) -> Option<String> {
-    let properties = Block::NOTE_BLOCK.properties(state)?;
+fn block_variant(block: &Block, state: pumpkin_data::BlockStateId) -> Option<String> {
+    let properties = block.properties(state)?;
     Some(
         properties
             .to_props()
@@ -320,6 +344,33 @@ fn note_variant(state: pumpkin_data::BlockStateId) -> Option<String> {
     )
 }
 
+fn stock_carrier_model(block: &Block, state: pumpkin_data::BlockStateId, variant: &str) -> Value {
+    if let Some(model) = crate::content_slab::carrier_model(block, variant) {
+        return json!({"model": model});
+    }
+    if let Some((model, x, y)) = crate::content_stairs::carrier_model(block, state) {
+        return json!({"model": model, "x": x, "y": y, "uvlock": x != 0 || y != 0});
+    }
+    if block == &Block::BEEHIVE || block == &Block::BEE_NEST {
+        let mut honey = false;
+        let mut rotation = 0;
+        for prop in variant.split(',') {
+            match prop {
+                "honey_level=5" => honey = true,
+                "facing=east" => rotation = 90,
+                "facing=south" => rotation = 180,
+                "facing=west" => rotation = 270,
+                _ => {}
+            }
+        }
+        let fill = if honey { "honey" } else { "empty" };
+        json!({"model": format!("minecraft:block/{}_{fill}", block.name), "y": rotation})
+    } else {
+        // Note blocks and targets each draw the same model at every power value.
+        json!({"model": format!("minecraft:block/{}", block.name)})
+    }
+}
+
 #[derive(Default)]
 struct Pack {
     files: BTreeMap<String, Vec<u8>>,
@@ -328,7 +379,82 @@ struct Pack {
     visited: HashSet<String>,
 }
 
+type CarrierVariants = BTreeMap<&'static str, BTreeMap<String, Value>>;
+
+fn record_carrier_model(
+    variants: &mut CarrierVariants,
+    block: &Block,
+    key: String,
+    model: &str,
+    assets: &StateAssets,
+) {
+    variants.entry(block.name).or_default().insert(
+        key,
+        json!({
+            "model": model,
+            "x": assets.x.rem_euclid(360),
+            "y": assets.y.rem_euclid(360),
+            "uvlock": assets.uvlock,
+        }),
+    );
+}
+
 impl Pack {
+    fn fallback_models(&mut self) -> io::Result<()> {
+        self.json(
+            "assets/moddedmc/models/block/empty.json",
+            &json!({"elements": []}),
+        )?;
+        self.json(
+            "assets/moddedmc/models/block/placeholder.json",
+            &json!({
+                "parent": "minecraft:block/cube_all",
+                "textures": {"all": "moddedmc:block/placeholder"}
+            }),
+        )?;
+        self.files.insert(
+            "assets/moddedmc/textures/block/placeholder.png".to_owned(),
+            PLACEHOLDER_PNG.to_vec(),
+        );
+        Ok(())
+    }
+
+    fn wall_item(&mut self, namespace: &str, path: &str, post: &str) -> io::Result<String> {
+        let post = self.model(post);
+        let arm_prefix = format!("{namespace}:moddedmc/wall/{path}");
+        for (index, side) in content_walls::SIDES.into_iter().enumerate() {
+            for (shape, top) in [("low", 14), ("tall", 16)] {
+                self.json(
+                    &format!("assets/{namespace}/models/moddedmc/wall/{path}_{side}_{shape}.json"),
+                    &content_walls::arm_model(post, index, top),
+                )?;
+            }
+        }
+        self.json(
+            &format!("assets/{namespace}/items/moddedmc/wall/{path}.json"),
+            &content_walls::item_model(post, &arm_prefix),
+        )?;
+        Ok(arm_prefix)
+    }
+
+    fn carrier_variants(
+        &mut self,
+        block: &Block,
+        mut variants: BTreeMap<String, Value>,
+    ) -> io::Result<()> {
+        for state in block.states {
+            if let Some(key) = block_variant(block, state.id) {
+                variants
+                    .entry(key)
+                    .or_insert_with_key(|key| stock_carrier_model(block, state.id, key));
+            }
+        }
+        self.json(
+            &format!("assets/minecraft/blockstates/{}.json", block.name),
+            &json!({"variants": variants}),
+        )
+    }
+
     fn json(&mut self, path: &str, value: &Value) -> io::Result<()> {
         self.files
             .insert(path.to_owned(), serde_json::to_vec(value)?);
@@ -349,6 +475,7 @@ impl Pack {
         let mut seen = HashSet::new();
         for namespace in namespaces {
             self.sounds(namespace);
+            self.display_parts(namespace)?;
             let path = format!("assets/{namespace}/moddedmc/creative.json");
             let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file))
             else {
@@ -411,6 +538,27 @@ impl Pack {
         self.files.insert(path, bytes);
     }
 
+    fn display_parts(&mut self, namespace: &str) -> io::Result<()> {
+        let path = format!("assets/{namespace}/moddedmc/display_parts.json");
+        let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file)) else {
+            return Ok(());
+        };
+        let Ok(parts) = serde_json::from_slice::<BTreeMap<String, String>>(&bytes) else {
+            tracing::warn!("moddedmc: invalid display parts in {path}");
+            return Ok(());
+        };
+        for (name, model) in parts {
+            let id = format!("{namespace}:moddedmc/parts/{name}");
+            if valid_model(&id) && !model.is_empty() && valid_model(&model) {
+                self.item(
+                    &format!("assets/{namespace}/items/moddedmc/parts/{name}.json"),
+                    &model,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     fn standalone_items(&mut self, items: &[ItemAssets]) -> io::Result<()> {
         for item in items {
             if let Some((namespace, path)) = item.id.split_once(':') {
@@ -425,11 +573,57 @@ impl Pack {
     }
 
     fn item(&mut self, path: &str, id: &str) -> io::Result<()> {
+        if id == "minecraft:item/compass" {
+            return self.json(path, &compass_item_definition());
+        }
         let model = self.model(id);
         self.json(
             path,
             &json!({"model": {"type": "minecraft:model", "model": model}}),
         )
+    }
+
+    fn oriented_stair_item(
+        &mut self,
+        item_path: &str,
+        model_id: &str,
+        assets: &StateAssets,
+    ) -> io::Result<bool> {
+        let source = self.model(&assets.rotating_model);
+        let Some((namespace, path)) = source.split_once(':') else {
+            return Ok(false);
+        };
+        let model_path = format!("assets/{namespace}/models/{path}.json");
+        let Some(model) = self
+            .files
+            .get(&model_path)
+            .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        else {
+            return Ok(false);
+        };
+        if model.get("elements").is_some()
+            || !matches!(
+                model.get("parent").and_then(Value::as_str),
+                Some("minecraft:block/stairs" | "block/stairs")
+            )
+        {
+            return Ok(false);
+        }
+        let Some((namespace, path)) = model_id.split_once(':') else {
+            return Ok(false);
+        };
+        self.json(
+            &format!("assets/{namespace}/models/{path}.json"),
+            &json!({
+                "parent": source,
+                "elements": crate::content_stairs::straight_display_elements(assets.x, assets.y),
+            }),
+        )?;
+        self.json(
+            item_path,
+            &json!({"model": {"type": "minecraft:model", "model": model_id}}),
+        )?;
+        Ok(true)
     }
 
     fn rig(&mut self, namespace: &str, item: &str) {
@@ -621,6 +815,18 @@ impl Pack {
         }
         Ok(Some((manifest, blobs)))
     }
+}
+
+/// Reference the stock client's compass frames; no vanilla textures are redistributed.
+fn compass_item_definition() -> Value {
+    let entries: Vec<_> = (0..=32).map(|step| {
+        let frame = (step + 16) % 32;
+        json!({
+            "threshold": if step == 0 {0.0} else {f64::from(step)-0.5},
+            "model": {"type":"minecraft:model","model":format!("minecraft:item/compass_{frame:02}")}
+        })
+    }).collect();
+    json!({"model":{"type":"minecraft:range_dispatch","property":"minecraft:compass","target":"lodestone","scale":32.0,"entries":entries}})
 }
 
 fn shipped_asset(path: &str) -> Option<PathBuf> {

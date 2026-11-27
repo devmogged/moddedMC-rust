@@ -61,15 +61,25 @@ pub fn load(world: World<'_>, pos: Pos) -> Option<TankInventory> {
     smart_tank::load(&smart_tank::read(world, pos)?, CAPACITY)
 }
 
-pub(super) fn emptying(item: &Value) -> Option<(FluidStack, Value)> {
-    let (fluid, amount, container) = match item_id(item)? {
-        "minecraft:water_bucket" => ("minecraft:water", 1_000, "minecraft:bucket"),
-        "minecraft:lava_bucket" => ("minecraft:lava", 1_000, "minecraft:bucket"),
-        "minecraft:milk_bucket" => ("minecraft:milk", 1_000, "minecraft:bucket"),
-        "minecraft:potion" if is_plain_water(item) => {
+pub(crate) fn bucket_fluid(item: &str) -> Option<&'static str> {
+    match item {
+        "minecraft:bucket" => Some("minecraft:empty"),
+        "minecraft:water_bucket" => Some("minecraft:water"),
+        "minecraft:lava_bucket" => Some("minecraft:lava"),
+        "minecraft:milk_bucket" => Some("minecraft:milk"),
+        _ => None,
+    }
+}
+
+pub(crate) fn emptying(item: &Value) -> Option<(FluidStack, Value)> {
+    let id = item_id(item)?;
+    let (fluid, amount, container) = match bucket_fluid(id) {
+        Some("minecraft:empty") => return None,
+        Some(fluid) => (fluid, 1_000, "minecraft:bucket"),
+        None if id == "minecraft:potion" && is_plain_water(item) => {
             ("minecraft:water", 250, "minecraft:glass_bottle")
         }
-        _ => return None,
+        None => return None,
     };
     Some((
         FluidStack {
@@ -131,6 +141,10 @@ impl ItemDrain {
     }
 
     pub fn insert(&mut self, item: &TransportedItemStack, side: u8) -> i32 {
+        self.offer(item, side, false)
+    }
+
+    pub(crate) fn offer(&mut self, item: &TransportedItemStack, side: u8, simulate: bool) -> i32 {
         if self.held.is_some() {
             return 0;
         }
@@ -140,8 +154,8 @@ impl ItemDrain {
             item.max_count()
         };
         let accepted = count(&item.item).min(limit);
-        if accepted <= 0 {
-            return 0;
+        if accepted <= 0 || simulate {
+            return accepted.max(0);
         }
         let mut held = item.copy_with_item(with_count(&item.item, accepted));
         held.in_direction = i32::from(side);
@@ -292,7 +306,7 @@ fn export(
     }
     if matches!(kinetics.kind(next), Some(Kind::Belt(_))) {
         return if belt_inventory::try_inserting_from_side(
-            kinetics, None, next, &forwarded, side, false,
+            world, kinetics, None, next, &forwarded, side, false,
         ) {
             count(&item.item)
         } else {

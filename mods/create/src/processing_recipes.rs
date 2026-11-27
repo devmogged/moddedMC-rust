@@ -19,8 +19,12 @@ use crate::{
     press,
 };
 
+#[path = "crafter_recipes.rs"]
+mod crafter_recipes;
 #[path = "sequenced_assembly.rs"]
 mod sequenced_assembly;
+pub(crate) use crafter_recipes::MAX_GRID_SIDE as MAX_CRAFTER_SIDE;
+use crafter_recipes::MechanicalRecipe;
 use sequenced_assembly::{Advance, Assembly, Step};
 
 pub enum FillingResult<'a> {
@@ -40,7 +44,10 @@ impl FillingResult<'_> {
 pub enum ProcessingResult {
     Pass,
     Hold,
-    Convert(Vec<Value>),
+    Convert {
+        outputs: Vec<Value>,
+        lock_belt_outputs: bool,
+    },
 }
 
 pub fn has_processor(kinetics: &Kinetics, pos: Pos) -> bool {
@@ -78,6 +85,8 @@ pub enum Process {
     Blasting,
     Milling,
     Crushing,
+    Cutting,
+    Stonecutting,
 }
 
 impl Process {
@@ -92,6 +101,8 @@ impl Process {
             b"minecraft:blasting" => Some(Self::Blasting),
             b"create:milling" => Some(Self::Milling),
             b"create:crushing" => Some(Self::Crushing),
+            b"create:cutting" => Some(Self::Cutting),
+            b"minecraft:stonecutting" => Some(Self::Stonecutting),
             _ => None,
         }
     }
@@ -105,6 +116,7 @@ pub struct RecipeBook {
     assemblies: Vec<Assembly>,
     applications: HashMap<String, Vec<ItemApplication>>,
     deploying: Vec<DeployingRecipe>,
+    mechanical: Vec<MechanicalRecipe>,
 }
 
 #[derive(Deserialize)]
@@ -291,6 +303,10 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
             "create:filling" => book.add_filling(raw, &mut values, tag_api),
             "create:item_application" => book.add_application(raw, &mut values),
             "create:deploying" => book.add_deploying(raw, &mut values),
+            "create:mechanical_crafting" => {
+                book.mechanical
+                    .extend(MechanicalRecipe::parse(&bytes, &mut values));
+            }
             "create:sequenced_assembly" => {
                 book.assemblies
                     .extend(Assembly::parse(&path, &bytes, &mut values, tag_api));
@@ -304,6 +320,12 @@ fn load(resources: moddedmc_api::resources::Resources) -> Option<RecipeBook> {
 }
 
 impl RecipeBook {
+    pub(crate) fn mechanical_craft(&self, grid: &[Vec<Option<&str>>]) -> Option<&Value> {
+        self.mechanical
+            .iter()
+            .find_map(|recipe| recipe.matching_result(grid))
+    }
+
     fn add(&mut self, raw: RawRecipe, mut tag_values: impl FnMut(&str) -> Vec<String>) {
         let Some(kind) = Process::from_type(&raw.recipe_type) else {
             return;
@@ -328,10 +350,16 @@ impl RecipeBook {
         let Some(outputs) = outputs else {
             return;
         };
+        // SawBlockEntity.start uses 50 ticks for stonecutting.
+        let duration = if kind == Process::Stonecutting {
+            50
+        } else {
+            raw.duration
+        };
         let recipe = Recipe {
             outputs,
             chances,
-            duration: raw.duration,
+            duration,
         };
         for item in items {
             self.by_item
@@ -642,6 +670,28 @@ impl RecipeBook {
             return Some(vec![step.finish()]);
         }
         self.find(Process::Pressing, item).map(Recipe::outputs)
+    }
+
+    pub(crate) fn saw_recipes(
+        &self,
+        item: &Value,
+        filter: &crate::filtering::Filter,
+    ) -> Vec<&Recipe> {
+        let Some(item) = item_id(item) else {
+            return Vec::new();
+        };
+        [Process::Cutting, Process::Stonecutting]
+            .into_iter()
+            .filter_map(|kind| self.by_item.get(&(kind, item.to_owned())))
+            .flatten()
+            .filter(|recipe| {
+                recipe
+                    .outputs
+                    .first()
+                    .is_some_and(|output| filter.matches(output))
+                    && recipe.outputs.iter().all(is_registered_output)
+            })
+            .collect()
     }
 
     pub fn find(&self, process: Process, item: &Value) -> Option<&Recipe> {

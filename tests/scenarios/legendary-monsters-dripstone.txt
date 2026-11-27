@@ -1,0 +1,94 @@
+# Original Ancient Dripstone material progression: actual 2x2 crafting, placement, harvest and restart.
+mods target\mods\legendary-monsters.mmc
+start
+expect Loaded built-in datapack 'mod/legendary-monsters': 23 recipe\(s\)
+botstart mason
+wait 3
+expect \[bot\] joined as mason
+cmd tp mason 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1022 104 1022 1030 104 1030 minecraft:stone
+cmd fill 1022 105 1022 1030 110 1030 minecraft:air
+cmd gamemode survival mason
+cmd item replace entity mason hotbar.0 with minecraft:dripstone_block 4
+wait 1
+bot inventory-click 36 left
+bot inventory-click 1 right
+bot inventory-click 2 right
+bot inventory-click 3 right
+bot inventory-click 4 right
+wait 0.5
+bot inventory-click 0 left
+bot inventory-click 36 left
+wait 0.5
+cmd clear mason minecraft:dripstone_block 0
+wait 0.5
+expect No items were found on player mason
+cmd clear mason legendary_monsters:ancient_dripstone_block 0
+wait 0.5
+expect Found 4 matching item
+bot inventory-click 36 left
+bot inventory-click 1 right
+bot inventory-click 2 right
+bot inventory-click 3 right
+bot inventory-click 4 right
+wait 0.5
+bot inventory-click 0 left
+bot inventory-click 36 left
+wait 0.5
+cmd clear mason legendary_monsters:ancient_dripstone_block 0
+wait 0.5
+expect No items were found on player mason
+cmd clear mason legendary_monsters:ancient_dripstone_bricks 0
+wait 0.5
+expect Found 4 matching item
+bot inventory-click 36 left
+bot inventory-click 1 right
+bot inventory-click 2 right
+bot inventory-click 3 right
+bot inventory-click 4 right
+wait 0.5
+bot inventory-click 0 left
+bot inventory-click 36 left
+wait 0.5
+cmd clear mason legendary_monsters:ancient_dripstone_bricks 0
+wait 0.5
+expect No items were found on player mason
+cmd clear mason legendary_monsters:ancient_dripstone_tiles 0
+wait 0.5
+expect Found 4 matching item
+bot hotbar 0
+bot use 1026 104 1025 up
+wait 1
+cmd execute if block 1026 105 1025 legendary_monsters:ancient_dripstone_tiles
+wait 0.5
+expect Test passed
+cmd clear mason legendary_monsters:ancient_dripstone_tiles 0
+wait 0.5
+expect Found 3 matching item
+cmd item replace entity mason hotbar.1 with minecraft:wooden_pickaxe
+bot hotbar 1
+bot look -90 0
+bot dig start 1026 105 1025 west
+wait 10
+bot dig finish
+wait 0.5
+cmd execute if block 1026 105 1025 minecraft:air
+wait 0.5
+expect Test passed
+cmd tp mason 1026.5 105 1025.5
+wait 2
+cmd clear mason legendary_monsters:ancient_dripstone_tiles 0
+wait 0.5
+expect Found 4 matching item
+bot quit
+stop
+start
+botstart mason
+wait 3
+cmd clear mason legendary_monsters:ancient_dripstone_tiles 0
+wait 0.5
+expect Found 4 matching item
+bot quit
+stop

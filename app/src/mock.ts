@@ -1,3 +1,5 @@
+import type { ServerConfig, ServerInfo } from "./api";
+
 // Browser preview backend: lets `npm run dev` render the app outside Tauri with sample
 // devices, servers and a console. Only loaded in dev builds when Tauri is absent.
 
@@ -7,7 +9,11 @@ const started = Date.now();
 const scenario = new URLSearchParams(location.search).get("mock");
 const listeners = new Set<Handler>();
 let consoles = 0;
-const state: Record<string, string> = { survival: "running", create: "stopped", "boss-rush": "crashed" };
+const state: Partial<Record<string, ServerInfo["state"]>> = {
+  survival: "running",
+  create: "stopped",
+  "boss-rush": "crashed",
+};
 
 if (scenario === "starting") state.survival = "starting";
 const log = [
@@ -32,13 +38,13 @@ function health(base: number) {
   };
 }
 
-function servers(device: string) {
+function sampleServers(device: string): ServerInfo[] {
   if (device === "pi") {
     if (scenario === "empty") return [];
     return [
       {
         name: "survival",
-        state: state.survival,
+        state: state.survival ?? "stopped",
         pack: "buja",
         port: 25565,
         pid: 812,
@@ -51,7 +57,7 @@ function servers(device: string) {
       },
       {
         name: "boss-rush",
-        state: state["boss-rush"],
+        state: state["boss-rush"] ?? "stopped",
         pack: "bosses",
         port: 25566,
         pid: null,
@@ -67,7 +73,7 @@ function servers(device: string) {
   return [
     {
       name: "create",
-      state: state.create,
+      state: state.create ?? "stopped",
       pack: "create-test",
       port: 25570,
       pid: null,
@@ -107,6 +113,35 @@ function servers(device: string) {
   ];
 }
 
+const serverLists = new Map<string, ServerInfo[]>();
+const config = new Map<string, ServerConfig>();
+function servers(device: string) {
+  let list = serverLists.get(device);
+  if (!list) {
+    list = sampleServers(device);
+    serverLists.set(device, list);
+  }
+  return list;
+}
+
+const DEFAULT_CONFIG: ServerConfig = {
+  java: true,
+  bedrock: false,
+  online_mode: false,
+  max_players: 1000,
+  motd: "A blazingly fast Pumpkin server!",
+  view_distance: 16,
+  simulation_distance: 10,
+  difficulty: "Normal",
+  gamemode: "Survival",
+  hardcore: false,
+  white_list: false,
+  allow_nether: true,
+  allow_end: true,
+  spawn_protection: 16,
+  icon: null,
+};
+
 let pregenState = scenario === "pregen-idle" || scenario === "pregen-fast" ? "idle" : "running";
 let pregenStarted = started;
 let pregenPercent = 42;
@@ -126,6 +161,8 @@ const serverMods: Record<string, { file: string; id: string; version: string; by
 export async function mockInvoke(command: string, args: Record<string, any> = {}): Promise<unknown> {
   await new Promise((r) => setTimeout(r, scenario === "loading" && command === "devices_list" ? 5000 : 60));
   switch (command) {
+    case "runtime_server_exe":
+      return "pack-dev.exe";
     case "devices_list":
       return [
         { id: "local", name: "This PC", route: "local", host: "", port: 25599 },
@@ -154,7 +191,50 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
           agent_version: "0.1.0",
           tailscale_name: device === "pi" ? "pi.tail1234.ts.net" : null,
         };
-      if (path === "/v1/servers") return servers(device);
+      if (path === "/v1/servers") {
+        if (method === "GET") return servers(device).map((server) => ({ ...server }));
+        const { name, port } = body as { name: string; port: number };
+        if (servers(device).some((server) => server.name === name))
+          throw "A server with this name already exists.";
+        servers(device).push({
+          name,
+          port,
+          state: "stopped",
+          pack: null,
+          pid: null,
+          uptime_secs: null,
+          exit_code: null,
+          health: null,
+          external: false,
+          program: null,
+          folder: null,
+        });
+        return null;
+      }
+      const settings = path.match(/^\/v1\/servers\/([^/]+)(?:\/(port|config))?$/);
+      if (settings) {
+        const name = decodeURIComponent(settings[1]);
+        const key = device + "/" + name;
+        const server = servers(device).find((server) => server.name === name && !server.external);
+        if (!server) throw "Server not found.";
+        if (settings[2] === "config") {
+          if (method === "GET") return config.get(key) ?? DEFAULT_CONFIG;
+          config.set(key, body as ServerConfig);
+        } else {
+          if (server.state !== "stopped" && server.state !== "crashed") throw "Stop the server first.";
+          if (method === "DELETE") {
+            config.delete(key);
+            serverLists.set(
+              device,
+              servers(device).filter((item) => item !== server),
+            );
+          } else {
+            server.port = (body as { port: number }).port;
+            server.start_error = null;
+          }
+        }
+        return null;
+      }
       if (path === "/v1/builds")
         return device === "pi" ? [{ id: "example-3f9a1c2b7d4e", pack: "example", version: "1" }] : [];
       const mods = path.match(/^\/v1\/servers\/([^/]+)\/mods(?:\/(.+))?$/);
@@ -242,10 +322,36 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
       }
       const match = path.match(/^\/v1\/servers\/([^/]+)\/(\w+)$/);
       if (match && method === "POST") {
-        const [, name, action] = match;
+        const name = decodeURIComponent(match[1]);
+        const action = match[2];
+        const list = servers(device);
+        const server = list.find((server) => server.name === name);
+        if (!server) throw "Server not found.";
+        if (action === "start" || action === "restart") {
+          const owner = list.find(
+            (other) =>
+              other !== server &&
+              other.port === server.port &&
+              (other.state === "running" || other.state === "starting"),
+          );
+          if (owner) {
+            server.start_error =
+              "Server cannot start. Java port " +
+              server.port +
+              " is in use by " +
+              owner.name +
+              ". Choose another port in Settings or free this port.";
+            server.state = "stopped";
+            throw server.start_error;
+          }
+        }
         if (scenario === "action-error") throw "Could not start " + name + ".";
-        state[name] = action === "stop" ? "stopping" : "starting";
-        setTimeout(() => (state[name] = action === "stop" ? "stopped" : "running"), 2500);
+        server.start_error = null;
+        server.state = action === "stop" ? "stopping" : "starting";
+        setTimeout(() => {
+          server.state = action === "stop" ? "stopped" : "running";
+          state[name] = server.state;
+        }, 2500);
         return null;
       }
       if (match?.[2] === "stats")
@@ -279,38 +385,6 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
     }
     case "console_close":
       return null;
-    case "friends_list":
-      return [
-        { id: "sting", name: "sting's world", address: "sting.example.net" },
-        { id: "old", name: "Old SMP", address: "smp.example.org:25570" },
-      ];
-    case "friend_join":
-      await new Promise((resolve) => setTimeout(resolve, 450));
-      if (args.id === "old") throw "Can't reach smp.example.org:25570.";
-      return scenario === "join-zip"
-        ? "Import moddedMC-sting.zip from Downloads in Prism or MultiMC, then press Play."
-        : "Select the moddedMC installation in Minecraft Launcher and press Play.";
-    case "ping": {
-      const address = String(args.address);
-      if (address.startsWith("smp.")) throw `${address} is offline.`;
-      if (address.startsWith("127.") || address === "pi")
-        return {
-          latency_ms: 4,
-          motd: "",
-          version: "26.3",
-          players_online: 3,
-          players_max: 20,
-          favicon: scenario === "icon" && address === "pi" ? sampleIcon() : null,
-        };
-      return {
-        latency_ms: 87,
-        motd: "Create, dragons and too many bosses",
-        version: "26.3",
-        players_online: 2,
-        players_max: 10,
-        favicon: null,
-      };
-    }
     case "packs_list":
     case "pack_add":
     case "pack_add_mod":
@@ -383,18 +457,4 @@ export async function mockInvoke(command: string, args: Record<string, any> = {}
 export function mockListen(handler: Handler): () => void {
   listeners.add(handler);
   return () => listeners.delete(handler);
-}
-
-function sampleIcon() {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 8;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.fillStyle = "oklch(0.48 0.14 220)";
-  ctx.fillRect(0, 0, 8, 8);
-  ctx.fillStyle = "oklch(0.72 0.12 209)";
-  ctx.fillRect(1, 2, 5, 2);
-  ctx.fillStyle = "oklch(0.84 0.10 192)";
-  ctx.fillRect(4, 4, 3, 2);
-  return canvas.toDataURL();
 }

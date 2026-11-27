@@ -178,7 +178,7 @@ impl StateIndex {
 pub fn use_item_on(context: &mut UseBlock<'_>) -> Option<BlockUseResult> {
     Some(match index()?.endpoints.get(&context.state)? {
         EndpointKind::Tank => crate::with_world(context.world, |kinetics| {
-            tank_runtime::use_item_on(context, &kinetics.fluid_tanks)
+            tank_runtime::use_item_on(context, &kinetics.fluid_tanks, &mut kinetics.boilers)
         }),
         EndpointKind::ItemDrain => crate::with_world(context.world, |kinetics| {
             item_drain::use_item_on(&mut kinetics.item_drains, context)
@@ -191,7 +191,7 @@ pub fn is_item_drain(state: u32) -> bool {
     index().is_some_and(|ids| ids.endpoints.get(&state) == Some(&EndpointKind::ItemDrain))
 }
 
-pub(super) fn is_tank(state: u32) -> bool {
+pub(crate) fn is_tank(state: u32) -> bool {
     index().is_some_and(|ids| ids.endpoints.get(&state) == Some(&EndpointKind::Tank))
 }
 
@@ -449,6 +449,22 @@ struct WorldPressure {
 
 static PRESSURES: Mutex<Option<HashMap<usize, WorldPressure>>> = Mutex::new(None);
 
+pub(crate) fn has_transport(state: u32) -> bool {
+    index().is_some_and(|ids| ids.kinds.contains_key(&state))
+}
+
+pub(crate) fn completed_inbound(
+    world: World<'_>,
+    pos: Pos,
+    matches: impl Fn(&super::pipe_connection::FluidStack) -> bool,
+) -> bool {
+    let cache = PRESSURES.lock().unwrap_or_else(PoisonError::into_inner);
+    cache
+        .as_ref()
+        .and_then(|worlds| worlds.get(&world.id()))
+        .is_some_and(|pressure| pressure.flow.completed_inbound(pos, matches))
+}
+
 /// Read-only block topology from the currently loaded server world.
 struct LoadedTopology<'a> {
     world: World<'a>,
@@ -625,6 +641,7 @@ pub fn pressure_tick(
         &states.endpoints,
         &kinetics.fluid_tanks,
         &mut kinetics.hose_pulleys,
+        &mut kinetics.boilers,
         |state| states.kinds.contains_key(&state),
     );
 }

@@ -1,0 +1,106 @@
+# Actual survival mining, melee, material repair, and durable stack components.
+mods target\mods\legendary-monsters.mmc
+start
+expect registered content item legendary_monsters:enderitium_sword
+botstart smith
+wait 3
+expect \[bot\] joined as smith
+cmd tp smith 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1022 104 1022 1030 104 1030 minecraft:stone
+cmd fill 1022 105 1022 1030 110 1030 minecraft:air
+cmd gamemode survival smith
+cmd item replace entity smith hotbar.0 with legendary_monsters:enderitium_pickaxe
+cmd setblock 1025 105 1027 minecraft:diamond_ore
+wait 1
+bot hotbar 0
+bot look 0 0
+bot dig start 1025 105 1027 north
+wait 2
+bot dig finish
+wait 0.5
+cmd execute if block 1025 105 1027 minecraft:air
+wait 0.5
+expect Test passed
+cmd data get entity smith Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 1$
+cmd tp smith 1025.5 105 1027.5
+wait 2.5
+cmd clear smith minecraft:diamond 0
+wait 0.5
+expect Found 1 matching item
+cmd tp smith 1025.5 105 1025.5
+cmd summon minecraft:ravager 1025.5 105 1027.5 {NoAI:1b,Health:100.0f}
+cmd execute positioned 1025.5 105 1025.5 run attribute @e[type=minecraft:ravager,distance=..4,limit=1] minecraft:armor base set 0
+cmd item replace entity smith hotbar.0 with legendary_monsters:enderitium_sword
+wait 1
+bot look 0 0
+bot attack ravager 1025.5 105 1027.5
+wait 0.5
+cmd data get entity smith Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 1$
+# A normal charged attack deals 7.5, a critical attack 11.25.
+cmd execute positioned 1025.5 105 1025.5 run data get entity @e[type=minecraft:ravager,distance=..4,limit=1] Health
+wait 0.5
+expect has the following entity data: (92\.5|88\.75)f
+# Wrong repair material must not produce a result. Correct material repairs
+# 612 points (floor(2450/4)) from an initially damaged custom item.
+cmd item replace entity smith hotbar.0 with legendary_monsters:enderitium_pickaxe[minecraft:damage=1000]
+cmd item replace entity smith hotbar.1 with minecraft:diamond
+cmd item replace entity smith hotbar.2 with legendary_monsters:enderitium_ingot 2
+cmd experience add smith 10 levels
+cmd setblock 1026 105 1025 minecraft:anvil
+wait 1
+bot use 1026 105 1025 up
+wait 1
+# Anvil player hotbar begins at slot 30. Input positions are 0 and 1.
+bot inventory-click 30 left
+bot inventory-click 0 left
+bot inventory-click 31 left
+bot inventory-click 1 left
+wait 0.5
+bot expect slot 2 minecraft:air 0
+wait 0.5
+expect \[bot\] expect inventory ok slot 2 air 0
+bot inventory-click 1 left
+bot inventory-click 31 left
+bot inventory-click 32 left
+bot inventory-click 1 right
+bot inventory-click 32 left
+wait 0.5
+bot expect slot 2 minecraft:diamond_pickaxe 1
+wait 0.5
+expect \[bot\] expect inventory ok slot 2 diamond_pickaxe 1
+bot inventory-click 2 left
+bot inventory-click 30 left
+bot inventory-close
+wait 0.5
+cmd data get entity smith Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 388$
+cmd clear smith legendary_monsters:enderitium_ingot 0
+wait 0.5
+expect Found 1 matching item
+cmd clear smith legendary_monsters:enderitium_pickaxe 0
+wait 0.5
+expect Found 1 matching item
+bot quit
+stop
+start
+botstart smith
+wait 3
+cmd data get entity smith Inventory[{Slot:0b}].components."minecraft:damage"
+wait 0.5
+expect has the following entity data: 388$
+cmd clear smith legendary_monsters:enderitium_pickaxe 0
+wait 0.5
+expect Found 1 matching item
+cmd clear smith legendary_monsters:enderitium_ingot 0
+wait 0.5
+expect Found 1 matching item
+reject \[bot\] error:|panicked|Unknown item
+bot quit
+stop

@@ -13,7 +13,10 @@ use pumpkin_core::{
     plugin::api::events::entity::item_spawn::ItemSpawnEvent,
 };
 use pumpkin_data::{
-    Block, data_component::DataComponent, data_component_impl::CookingFuelImpl, entity::EntityType,
+    Block,
+    data_component::DataComponent,
+    data_component_impl::{CookingFuelImpl, EnchantmentsImpl},
+    entity::EntityType,
     item_stack::ItemStack,
 };
 use pumpkin_nbt::{Nbt, compound::NbtCompound, deserializer::NbtReadHelperJava, tag::NbtTag};
@@ -175,16 +178,31 @@ unsafe extern "C" fn fuel(stack: Str, remainder: Sink) -> u32 {
     u32::from(fuel.get_burn_ticks(false))
 }
 
-pub static ITEM_STACKS: abi::ItemStacksV1Fuel = abi::ItemStacksV1Fuel {
-    base: abi::ItemStacksV1 {
-        size: size_of::<abi::ItemStacksV1Fuel>(),
-        entity_stack,
-        set_entity_stack,
-        spawn,
-        info,
-        component,
+unsafe extern "C" fn has_maxed_enchantment(stack: Str) -> bool {
+    read_stack(stack).is_some_and(|stack| {
+        stack
+            .get_data_component::<EnchantmentsImpl>()
+            .is_some_and(|data| {
+                data.enchantment
+                    .iter()
+                    .any(|(enchantment, level)| *level >= enchantment.max_level)
+            })
+    })
+}
+
+pub static ITEM_STACKS: abi::ItemStacksV1MaxEnchantment = abi::ItemStacksV1MaxEnchantment {
+    base: abi::ItemStacksV1Fuel {
+        base: abi::ItemStacksV1 {
+            size: size_of::<abi::ItemStacksV1MaxEnchantment>(),
+            entity_stack,
+            set_entity_stack,
+            spawn,
+            info,
+            component,
+        },
+        fuel,
     },
-    fuel,
+    has_maxed_enchantment,
 };
 
 /// Validated display fields, or `None` when any is out of range.
