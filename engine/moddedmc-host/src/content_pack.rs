@@ -23,6 +23,8 @@ use sha1::{Digest, Sha1};
 use sha2::Sha256;
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+use crate::content_walls::{self, WallSelector};
+
 const EMPTY_MODEL: &str = "moddedmc:block/empty";
 const PLACEHOLDER: &str = "moddedmc:block/placeholder";
 const CREATIVE_CATALOG: &str = "assets/moddedmc/moddedmc/creative-v1.bin";
@@ -71,12 +73,14 @@ pub struct StateAssets {
     pub uvlock: bool,
     pub straight_stair_display: bool,
     pub block_display_carrier: Option<BlockStateId>,
+    pub wall: Option<WallSelector>,
 }
 
 pub struct OverlayModel {
     pub id: String,
     pub orientation: [f32; 4],
     pub bounded: bool,
+    pub wall: Option<WallSelector>,
 }
 
 pub fn valid_model(name: &str) -> bool {
@@ -190,21 +194,7 @@ fn build_pack(
             "max_format": [97, 1],
         }}),
     )?;
-    pack.json(
-        "assets/moddedmc/models/block/empty.json",
-        &json!({"elements": []}),
-    )?;
-    pack.json(
-        "assets/moddedmc/models/block/placeholder.json",
-        &json!({
-            "parent": "minecraft:block/cube_all",
-            "textures": {"all": "moddedmc:block/placeholder"}
-        }),
-    )?;
-    pack.files.insert(
-        "assets/moddedmc/textures/block/placeholder.png".to_owned(),
-        PLACEHOLDER_PNG.to_vec(),
-    );
+    pack.fallback_models()?;
 
     let mut carrier_variants = CarrierVariants::new();
     let mut display_models = HashMap::new();
@@ -221,6 +211,11 @@ fn build_pack(
             &format!("assets/{namespace}/items/{path}.json"),
             &block.item_model,
         )?;
+        if let Some(first) = block.states.first().filter(|assets| assets.wall.is_some()) {
+            let id = pack.wall_item(namespace, path, &first.model)?;
+            extend_wall_overlays(&mut display_models, registered, &block.states, &id);
+            continue;
+        }
         for (index, (state, assets)) in registered.states.iter().zip(&block.states).enumerate() {
             if assets.model.is_empty() && assets.rotating_model.is_empty() {
                 continue;
@@ -266,6 +261,7 @@ fn build_pack(
                         id: model_id,
                         orientation,
                         bounded: assets.bounded,
+                        wall: None,
                     },
                 );
             }
@@ -280,6 +276,25 @@ fn build_pack(
         tracing::warn!("moddedmc: some content pack assets are missing; using a placeholder");
     }
     Ok((pack, display_models))
+}
+
+fn extend_wall_overlays(
+    models: &mut HashMap<u16, OverlayModel>,
+    block: &Block,
+    assets: &[StateAssets],
+    id: &str,
+) {
+    models.extend(block.states.iter().zip(assets).map(|(state, assets)| {
+        (
+            state.id.as_u16(),
+            OverlayModel {
+                id: id.to_owned(),
+                orientation: [0.0, 0.0, 0.0, 1.0],
+                bounded: true,
+                wall: assets.wall,
+            },
+        )
+    }));
 }
 
 fn encode_creative_catalog(items: &[&'static Item]) -> io::Result<Option<Vec<u8>>> {
@@ -385,6 +400,43 @@ fn record_carrier_model(
 }
 
 impl Pack {
+    fn fallback_models(&mut self) -> io::Result<()> {
+        self.json(
+            "assets/moddedmc/models/block/empty.json",
+            &json!({"elements": []}),
+        )?;
+        self.json(
+            "assets/moddedmc/models/block/placeholder.json",
+            &json!({
+                "parent": "minecraft:block/cube_all",
+                "textures": {"all": "moddedmc:block/placeholder"}
+            }),
+        )?;
+        self.files.insert(
+            "assets/moddedmc/textures/block/placeholder.png".to_owned(),
+            PLACEHOLDER_PNG.to_vec(),
+        );
+        Ok(())
+    }
+
+    fn wall_item(&mut self, namespace: &str, path: &str, post: &str) -> io::Result<String> {
+        let post = self.model(post);
+        let arm_prefix = format!("{namespace}:moddedmc/wall/{path}");
+        for (index, side) in content_walls::SIDES.into_iter().enumerate() {
+            for (shape, top) in [("low", 14), ("tall", 16)] {
+                self.json(
+                    &format!("assets/{namespace}/models/moddedmc/wall/{path}_{side}_{shape}.json"),
+                    &content_walls::arm_model(post, index, top),
+                )?;
+            }
+        }
+        self.json(
+            &format!("assets/{namespace}/items/moddedmc/wall/{path}.json"),
+            &content_walls::item_model(post, &arm_prefix),
+        )?;
+        Ok(arm_prefix)
+    }
+
     fn carrier_variants(
         &mut self,
         block: &Block,

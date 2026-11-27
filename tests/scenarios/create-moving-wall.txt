@@ -1,0 +1,51 @@
+# A wall keeps its selected parts on a bearing and connects to the landing blocks.
+mods target/mods/create.mmc
+start
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 2300.5 101 2303.5
+await 10 \[bot\] teleported to .*2300\.5.*2303\.5
+wait 2
+cmd fill 2296 100 2296 2305 105 2305 minecraft:air
+cmd fill 2296 99 2296 2305 99 2305 minecraft:stone
+cmd setblock 2300 99 2300 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2300 99 2300 0
+await 5 create:creative_motor.*Speed=0
+cmd setblock 2300 100 2300 create:mechanical_bearing[facing=up]
+cmd setblock 2300 101 2300 create:cut_calcite_brick_wall
+cmd setblock 2300 101 2299 minecraft:cobblestone_wall
+cmd execute if block 2300 101 2300 create:cut_calcite_brick_wall[north=low,up=true]
+await 5 Test passed
+cmd kinetics 2300 99 2300 1
+await 5 create:creative_motor.*Speed=1
+wait 1
+cmd execute if block 2300 101 2300 minecraft:air if block 2300 101 2299 minecraft:cobblestone_wall
+await 5 Test passed
+bot expect entity minecraft:item_display near 2300.5 101.5 2300.5 within 0.05 count 1
+await 5 \[bot\] expect entity ok minecraft:item_display
+cmd execute if entity @e[type=minecraft:item_display,x=2300.5,y=101.5,z=2300.5,distance=..0.05,nbt={item:{components:{"minecraft:item_model":"create:moddedmc/wall/cut_calcite_brick_wall"}}}]
+await 5 Test passed
+cmd save-all flush
+await 10 Saved the game
+stop
+
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 1
+bot expect entity minecraft:item_display near 2300.5 101.5 2300.5 within 0.05 count 1
+await 5 \[bot\] expect entity ok minecraft:item_display
+cmd setblock 2300 101 2299 minecraft:air
+cmd setblock 2301 101 2300 minecraft:oak_fence_gate[facing=north]
+cmd kinetics 2300 99 2300 0
+await 5 create:creative_motor.*Speed=0
+wait 1
+cmd execute if block 2300 101 2300 create:cut_calcite_brick_wall[east=low,north=none,south=none,up=true,west=none] if block 2301 101 2300 minecraft:oak_fence_gate[in_wall=true]
+await 5 Test passed
+bot expect entity minecraft:item_display near 2300.5 101.5 2300.5 within 0.05 count 0
+await 5 \[bot\] expect entity ok minecraft:item_display
+bot expect entity minecraft:item_display near 2300.5 101 2300.5 within 0.05 count 1
+await 5 \[bot\] expect entity ok minecraft:item_display
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop

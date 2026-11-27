@@ -16,6 +16,7 @@ mod content;
 mod content_pack;
 mod content_slab;
 mod content_stairs;
+mod content_walls;
 mod crafting;
 mod effects;
 mod entities;

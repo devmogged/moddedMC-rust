@@ -152,6 +152,8 @@ A `.mmc` is a zip with
 
 Built-in mod datapacks can also add world generation features through `data/<namespace>/neoforge/biome_modifier/*.json`. The `neoforge:add_features` modifier takes biome IDs or a biome tag, placed feature IDs, and a generation step. It appends features to the selected biomes at world startup. Create uses this to generate its registered zinc ores in new Overworld chunks.
 
+To use the vanilla wall placement and neighbor rules, register the complete wall state set with matching vanilla wall physics templates. An opaque wall can use one `*_wall_post` model in every state and leave the rotating model empty. The host generates a multipart item model at `<namespace>:moddedmc/wall/<block_path>` and keeps the matching stock wall state for collision and water. The item model reads the post from custom model data flag 0 and the north, east, south and west arms from strings 0 through 3. The arm values are `none`, `low` and `tall`. A moving contraption can display that same item model with its captured selectors.
+
 ### Real content tables
 
 | Interface | Function | Contract |

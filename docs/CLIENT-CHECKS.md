@@ -69,3 +69,10 @@ Run these checks with the official client and the server resource pack.
 
 - Place a Cobblestone Wall between two Stone blocks and add a bottom slab above the wall. Expect both arms to rise and the center post to stay down. Swap the bottom slab for a top slab and expect both arms to lower.
 - Add a Glass Pane to a third side. Expect a new arm and a raised post. Remove the pane, then stack another wall with its post raised. Expect the lower post to rise with the upper one.
+
+## Create stone palette walls (Pumpkin `101e2f325`)
+
+- Craft Cut Andesite Walls and stonecut Small Veridium Brick Walls. Place them alongside Cobblestone Walls, Glass Panes and properly aligned fence gates. Expect each wall to keep its own material, connect across block types and block jumping like a vanilla wall.
+- Cover a straight section with a bottom slab, then swap in a top slab. Expect tall arms with the bottom slab and low arms with the top slab. Use a water bucket on a wall and restart. Expect the same post and arms, water inside the wall, and matching geometry from either side.
+- Assemble a Cut Calcite Brick Wall on a Mechanical Bearing and restart while it runs. Expect the wall to keep its material and arms through motion and reload. Change a neighbor at the landing point and stop the bearing. Expect the arms to update against the new neighbor.
+- Build equal large arrays of Cobblestone Walls and Cut Calcite Walls. Pan across them and cross the chunk boundaries in both directions. Record frame timing, overlay pop-in, texture seams, and any exposed Cobblestone Wall surface, especially looking along a row from below or through water.

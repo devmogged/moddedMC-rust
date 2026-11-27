@@ -25,7 +25,7 @@ const AXIS_PROPERTIES: [&str; 3] = ["axis=x", "axis=y", "axis=z"];
 const VERTICAL: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 pub(crate) fn is_stone_partial(id: &str) -> bool {
-    let Some((base, "slab" | "stairs")) = id
+    let Some((base, "slab" | "stairs" | "wall")) = id
         .strip_prefix("create:")
         .and_then(|id| id.rsplit_once('_'))
     else {
@@ -153,6 +153,7 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
             .strip_suffix(" Slab")
             .ok_or(RegistrationError::InvalidDefinition)?;
         register_stairs(content, registry, stairs, stairs_name, &material)?;
+        register_wall(content, registry, stairs, stairs_name, &material)?;
     }
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for &(path, display_name, carrier) in data::ITEMS {
@@ -214,6 +215,58 @@ fn register_stairs(
         &Block {
             id: &id,
             display_name: &format!("{name} Stairs"),
+            entity: "",
+            item_model: &format!("create:item/{path}"),
+            states: &states,
+        },
+        None,
+    )?;
+    content.set_block_material(registry, &id, material)
+}
+
+fn register_wall(
+    content: Content,
+    registry: &mut Registry<'_>,
+    base: &str,
+    name: &str,
+    material: &BlockMaterial<'_>,
+) -> Result<(), RegistrationError> {
+    const SIDES: [&str; 3] = ["none", "low", "tall"];
+    let path = format!("{base}_wall");
+    let id = format!("create:{path}");
+    // The registry singularizes brick names, while models use the full palette pattern.
+    let model = if base.ends_with("_brick") {
+        format!("create:block/{base}s_wall_post")
+    } else {
+        format!("create:block/{path}_post")
+    };
+    let mut variants = Vec::with_capacity(324);
+    for up in [true, false] {
+        for wet in [false, true] {
+            for north in SIDES {
+                for east in SIDES {
+                    for south in SIDES {
+                        for west in SIDES {
+                            let props = format!(
+                                "east={east},north={north},south={south},up={up},waterlogged={wet},west={west}"
+                            );
+                            let physical = format!("minecraft:cobblestone_wall[{props}]");
+                            variants.push((props, physical));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let states: Vec<_> = variants
+        .iter()
+        .map(|(props, physical)| state(props, physical, &model, 0, 0))
+        .collect();
+    content.add_block(
+        registry,
+        &Block {
+            id: &id,
+            display_name: &format!("{name} Wall"),
             entity: "",
             item_model: &format!("create:item/{path}"),
             states: &states,

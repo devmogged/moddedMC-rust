@@ -21,6 +21,7 @@ use pumpkin_core::{
             redstone::{block_receives_redstone_power, get_redstone_power},
             slabs::SlabBlock,
             stairs::StairBlock,
+            walls::WallBlock,
         },
         entities::{
             BlockEntity,
@@ -65,7 +66,7 @@ use pumpkin_util::{
 use pumpkin_world::world::BlockFlags;
 use uuid::Uuid;
 
-use crate::{MAX_STATE_BYTES, content_pack, interaction, load_mods, lock, native};
+use crate::{MAX_STATE_BYTES, content_pack, content_walls, interaction, load_mods, lock, native};
 
 const MAX_STATES_PER_BLOCK: usize = 1_024;
 
@@ -202,6 +203,7 @@ struct RuntimeBlock {
     owner: usize,
     slab: Option<&'static Block>,
     stairs: bool,
+    wall: bool,
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
     item_input: Option<abi::ItemInputFn>,
@@ -455,6 +457,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
                 uvlock: false,
                 straight_stair_display: false,
                 block_display_carrier: None,
+                wall: None,
             },
         });
     }
@@ -1099,6 +1102,7 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
     for (_, block) in blocks {
         let slab = crate::content_slab::template(&block.states);
         let slab_carrier = slab.and_then(|_| slab_carriers.next());
+        let wall_overlay = content_walls::has_wall_overlay(&block.states);
         let stairs = crate::content_stairs::has_stair_shape(&block.states)
             && block
                 .states
@@ -1118,7 +1122,11 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
                 visual.x.rem_euclid(360),
                 visual.y.rem_euclid(360),
             );
-            let (carrier, replacement) = if stairs {
+            let (carrier, replacement) = if wall_overlay {
+                // The stock wall keeps the client's collision and fluid state.
+                visual.wall = Some(content_walls::WallSelector::from_state(state.physical.id));
+                (state.physical.id, state.physical.id)
+            } else if stairs {
                 crate::content_stairs::allocate(state, corners, straights)
             } else if slab.is_some() {
                 let props = SlabProperties::from_state_id(state.physical.id);
@@ -1161,7 +1169,7 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
                 physical: state.physical,
                 random_ticks: block.random_tick.is_some(),
                 carrier,
-                carrier_replacement: Some(replacement),
+                carrier_replacement: (carrier != replacement).then_some(replacement),
                 shape: state.shape.clone(),
             });
         }
@@ -1324,6 +1332,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
                 owner,
                 slab: crate::content_slab::template(&block.states),
                 stairs: crate::content_stairs::has_stair_shape(&block.states),
+                wall: content_walls::has_wall_shape(&block.states),
                 placement: block.placement,
                 random_tick: block.random_tick,
                 item_input: block.item_input,
@@ -1392,6 +1401,7 @@ impl BlockBehaviour for Behaviour {
     fn is_pathfindable(&self, state: &BlockState, computation: PathComputationType) -> bool {
         match runtime_block(state.id.to_block().id) {
             Some(block) if block.stairs => StairBlock.is_pathfindable(state, computation),
+            Some(block) if block.wall => WallBlock.is_pathfindable(state, computation),
             Some(block) if block.slab.is_some() => SlabBlock.is_pathfindable(state, computation),
             _ => DefaultBlockBehaviour.is_pathfindable(state, computation),
         }
@@ -1484,6 +1494,9 @@ impl BlockBehaviour for Behaviour {
         if block.stairs {
             return StairBlock.get_state_for_neighbor_update(args);
         }
+        if block.wall {
+            return WallBlock.get_state_for_neighbor_update(args);
+        }
         block.slab.map_or(args.state_id, |slab| {
             crate::content_slab::neighbor_update(&args, slab)
         })
@@ -1500,6 +1513,9 @@ impl BlockBehaviour for Behaviour {
         let Some(callback) = block.placement else {
             if block.stairs {
                 return StairBlock.on_place(args);
+            }
+            if block.wall {
+                return WallBlock.on_place(args);
             }
             return block
                 .slab
@@ -1811,6 +1827,15 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
             stack.set_data_component(ItemModelImpl {
                 id: Cow::Owned(model.id.clone()),
             });
+            if let Some(wall) = model.wall {
+                stack.set_data_component(wall.component());
+                // Keep the wall render just outside the matching stock carrier.
+                display.display.set_scale(Vector3::new(
+                    content_walls::WALL_OVERLAY_SCALE,
+                    content_walls::WALL_OVERLAY_SCALE,
+                    content_walls::WALL_OVERLAY_SCALE,
+                ));
+            }
             display.set_item(stack);
             display.display.set_right_rotation(model.orientation);
             if model.bounded {
