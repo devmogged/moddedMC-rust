@@ -1,0 +1,32 @@
+# Varasuchus retaliates against a stationary target, then shifts phase below half health.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 120 1033.5
+cmd forceload add 1007 1007 1043 1043
+wait 12
+cmd fill 1007 119 1007 1043 119 1043 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1007 120 1007 1043 129 1043 minecraft:air
+await 30 Successfully filled|No blocks were filled
+cmd saintsdragons spawn varasuchus 1025 120 1025
+cmd summon minecraft:iron_golem 1025.5 120 1028.25 {NoAI:1b}
+wait 2
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1025.5 120 1025.5 0 0
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1 minecraft:mob_attack by @e[type=minecraft:iron_golem,limit=1]
+wait 1.5
+cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] {Health:90.0f}
+wait 3
+cmd data get entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] data."saintsdragons:varasuchus_combat".PhaseTwo
+wait 0.5
+expect has the following entity data: 1b
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

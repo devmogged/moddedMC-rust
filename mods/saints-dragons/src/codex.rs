@@ -30,12 +30,18 @@ struct Record {
     name: String,
     species: String,
     health: [f32; 2],
+    #[serde(default = "full_hunger")]
+    hunger: i32,
     happiness: u8,
     coating: String,
     young: bool,
     dimension: String,
     position: [i32; 3],
     bound: bool,
+}
+
+fn full_hunger() -> i32 {
+    crate::hunger::MAX
 }
 
 pub fn require() -> Result<(), InterfaceUnavailable> {
@@ -106,6 +112,7 @@ fn snapshot(world: World<'_>, dragon: Entity<'_>, bound_name: Option<&str>) -> O
         name,
         species: species.to_owned(),
         health: [current, max],
+        hunger: crate::hunger::level(dragon),
         happiness,
         coating: Appearance::load(dragon)
             .texture(kind)
@@ -206,12 +213,13 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
             "Adult"
         };
         lines.push(format!(
-            "{} ({}) ? {}\nHealth {:.0}/{:.0}, happiness {}%, {}\n{} ({x}, {y}, {z})",
+            "{} ({}) ? {}\nHealth {:.0}/{:.0}, hunger {}%, happiness {}%, {}\n{} ({x}, {y}, {z})",
             record.name,
             record.species,
             status,
             current,
             max,
+            record.hunger,
             record.happiness,
             record.coating.replace('_', " "),
             record.dimension
@@ -283,4 +291,32 @@ pub fn use_on_mob(click: &UseMob<'_>) -> UseResult {
         click.cooldown(ID, 2);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_codex_records_default_to_full_hunger_and_new_records_keep_hunger() {
+        let legacy = serde_json::json!({
+            "owner": ([0; 16]),
+            "dragon": ([1; 16]),
+            "name": "Nulljaw",
+            "species": "Nulljaw",
+            "health": [70.0, 70.0],
+            "happiness": 80,
+            "coating": "default",
+            "young": true,
+            "dimension": "minecraft:the_end",
+            "position": [0, 64, 0],
+            "bound": true
+        });
+        let mut record: Record = serde_json::from_value(legacy).unwrap();
+        assert_eq!(record.hunger, crate::hunger::MAX);
+        record.hunger = 37;
+        let bytes = serde_json::to_vec(&record).unwrap();
+        let restored: Record = serde_json::from_slice(&bytes).unwrap();
+        assert!(record == restored);
+    }
 }

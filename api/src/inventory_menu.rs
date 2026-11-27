@@ -140,6 +140,8 @@ pub type OnManagedChange = fn(ManagedChange<'_>);
 pub type OnAccept = fn(&[u8], u8, &[u8]) -> bool;
 pub type OnRoute = fn(&[u8], &[u8]) -> u64;
 static ON_MANAGED_CHANGE: OnceLock<OnManagedChange> = OnceLock::new();
+static ON_MANAGED_ACTION: OnceLock<OnAction> = OnceLock::new();
+static ON_MANAGED_VALIDITY: OnceLock<OnValidity> = OnceLock::new();
 static ON_ACCEPT: OnceLock<OnAccept> = OnceLock::new();
 static ON_ROUTE: OnceLock<OnRoute> = OnceLock::new();
 
@@ -187,8 +189,11 @@ impl Managed {
         ON_MANAGED_CHANGE
             .set(on_change)
             .map_err(|_| RegistrationError::DuplicateId)?;
-        ON_VALIDITY
+        ON_MANAGED_VALIDITY
             .set(on_validity)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        ON_MANAGED_ACTION
+            .set(on_action)
             .map_err(|_| RegistrationError::DuplicateId)?;
         ON_ACCEPT
             .set(on_accept)
@@ -209,7 +214,9 @@ impl Managed {
             ((*api).register_managed)(registry.reg, dispatch_managed, &raw mut kind)
         })?;
         // SAFETY: register_managed lies after the complete actions prefix.
-        Actions(unsafe { &(*api).base.base }).on_action(registry, on_action)?;
+        RegistrationError::from_code(unsafe {
+            ((*api).base.base.on_action)(registry.reg, dispatch_managed_action)
+        })?;
         Ok(MenuKind(kind))
     }
 
@@ -250,7 +257,7 @@ impl Managed {
                         controls: slots.controls.as_ptr(),
                         control_count: slots.controls.len(),
                         context: abi::Str::new(slots.context),
-                        validity: dispatch_validity,
+                        validity: dispatch_managed_validity,
                         accepts: dispatch_accept,
                         quick_move: dispatch_route,
                     })
@@ -551,9 +558,17 @@ unsafe extern "C" fn dispatch(raw: *const abi::InventoryMenuChange) {
 }
 
 unsafe extern "C" fn dispatch_action(raw: *const abi::InventoryMenuAction) {
+    dispatch_action_with(raw, ON_ACTION.get());
+}
+
+unsafe extern "C" fn dispatch_managed_action(raw: *const abi::InventoryMenuAction) {
+    dispatch_action_with(raw, ON_MANAGED_ACTION.get());
+}
+
+fn dispatch_action_with(raw: *const abi::InventoryMenuAction, callback: Option<&OnAction>) {
     guard("inventory menu action", (), || {
         // SAFETY: the host borrows the context for the duration of this callback.
-        let (Some(raw), Some(callback)) = (unsafe { raw.as_ref() }, ON_ACTION.get()) else {
+        let (Some(raw), Some(callback)) = (unsafe { raw.as_ref() }, callback) else {
             return;
         };
         let (Some(player), Some(world)) = (Player::new(raw.player), World::borrowed(raw.world))
@@ -570,9 +585,20 @@ unsafe extern "C" fn dispatch_action(raw: *const abi::InventoryMenuAction) {
 }
 
 unsafe extern "C" fn dispatch_validity(raw: *const abi::InventoryMenuValidity) -> bool {
+    dispatch_validity_with(raw, ON_VALIDITY.get())
+}
+
+unsafe extern "C" fn dispatch_managed_validity(raw: *const abi::InventoryMenuValidity) -> bool {
+    dispatch_validity_with(raw, ON_MANAGED_VALIDITY.get())
+}
+
+fn dispatch_validity_with(
+    raw: *const abi::InventoryMenuValidity,
+    callback: Option<&OnValidity>,
+) -> bool {
     guard("inventory menu validity", false, || {
         // SAFETY: all fields, including the copied context, are borrowed for this call.
-        let (Some(raw), Some(callback)) = (unsafe { raw.as_ref() }, ON_VALIDITY.get()) else {
+        let (Some(raw), Some(callback)) = (unsafe { raw.as_ref() }, callback) else {
             return false;
         };
         let (Some(player), Some(world)) = (Player::new(raw.player), World::borrowed(raw.world))

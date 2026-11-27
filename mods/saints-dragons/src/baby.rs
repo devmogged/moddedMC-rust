@@ -17,6 +17,9 @@ const STUNTING_FOOD: &str = "saintsdragons:raw_moop";
 /// `applyBabyGrowth(…, 2400, 4800)`, the same for every species.
 const GROWTH: (i32, i32) = (2400, 4800);
 const TAMED_COOLDOWN: u64 = 22;
+const NULLJAW: &str = "saintsdragons:nulljaw";
+const NULLJAW_COOLDOWN: u64 = 24;
+const NULLJAW_TAME_DENOMINATOR: u64 = 5;
 
 // `setFeedingCooldown` per juvenile and Varasuchus, kept off disk like the adult cooldowns.
 static FED: Mutex<Option<HashMap<i32, (u64, u64)>>> = Mutex::new(None);
@@ -79,6 +82,12 @@ pub fn eating_clip(id: i32) -> Option<&'static str> {
     (tick_count().saturating_sub(*started) < 40).then_some("eat")
 }
 
+/// Nulljaw.mobInteract: chorus fruit is ordinary food, and wild feeding rolls
+/// one in five without starting a cooldown or applying feeding hunger.
+fn nulljaw_wild_tame(roll: u64) -> bool {
+    roll == 0
+}
+
 pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     let (player, mob, mobs) = (click.player?, click.mob?, MOBS.get()?);
     if !eggs::is_juvenile(mob) {
@@ -86,14 +95,24 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     }
     let kind = mobs.kind(mob)?;
     let species = kind.strip_prefix("saintsdragons:")?;
-    let name = display(species);
-    let tamed_cooldown = if kind == crate::wild::VARASUCHUS {
+    let nulljaw = kind == NULLJAW;
+    let name = if nulljaw {
+        crate::binders::saved_name(mob).unwrap_or_else(|| display(species))
+    } else {
+        display(species)
+    };
+    let tamed = taming::is_tamed(mob);
+    let uuid = mobs.uuid(player)?;
+    let tamed_cooldown = if nulljaw {
+        NULLJAW_COOLDOWN
+    } else if kind == crate::wild::VARASUCHUS {
         crate::wild::VARASUCHUS_FEED_COOLDOWN
     } else {
         TAMED_COOLDOWN
     };
-    let tamed = taming::is_tamed(mob);
-    let uuid = mobs.uuid(player)?;
+    if nulljaw && player.vehicle() == Some(mob.id()) {
+        return Some(UseResult::Pass);
+    }
     if item == STUNTING_FOOD {
         // `tryStuntGrowth`: only the owner of a tamed juvenile.
         if !tamed || taming::owner(mob) != Some(uuid) {
@@ -117,7 +136,7 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         mobs.message(player, &format!("{name} will stay small forever"), true);
         return Some(UseResult::Success);
     }
-    let food = item == taming::HEARTY_MEAL
+    let food = (!nulljaw && item == taming::HEARTY_MEAL)
         || TAGS
             .get()?
             .contains("item", &format!("saintsdragons:foods/{species}"), item);
@@ -128,7 +147,30 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     {
         return None;
     }
-    let hearty = item == taming::HEARTY_MEAL;
+    if nulljaw {
+        if !tamed {
+            if !click.creative {
+                click.stack.shrink(1);
+            }
+            crate::audio::eat(click.world, mob);
+            let success = nulljaw_wild_tame(random(NULLJAW_TAME_DENOMINATOR))
+                && taming::tame(click.world, mob, uuid);
+            taming::feed_particles(click.world, mob, success);
+            return Some(UseResult::Success);
+        }
+        if mobs.game_mode(player) == Some(3) {
+            return Some(UseResult::Pass);
+        }
+        if click.sneaking {
+            if !start_eating(mob.id(), 0) {
+                mobs.message(player, &format!("{name} is still eating..."), true);
+                return Some(UseResult::Consume);
+            }
+            mobs.message(player, &format!("{name} is too young to breed"), true);
+            return Some(UseResult::Success);
+        }
+    }
+    let hearty = !nulljaw && item == taming::HEARTY_MEAL;
     let wild = if tamed {
         None
     } else {
@@ -158,7 +200,8 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         return Some(UseResult::Success);
     }
     // `applyBabyGrowth`.
-    let message = match eggs::feed_growth(mob, if hearty { GROWTH.1 } else { GROWTH.0 }) {
+    let growth = eggs::feed_growth(mob, if hearty { GROWTH.1 } else { GROWTH.0 });
+    let message = match growth {
         None => format!("{name} is not growing anymore"),
         Some(true) if species == "nulljaw" => format!("{name} has grown into an adult!"),
         Some(true) => format!("{name} has fully grown!"),
@@ -167,7 +210,9 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         }
         Some(false) => format!("{name} grows a bit stronger!"),
     };
-    taming::feed_particles(click.world, mob, true);
+    if !nulljaw || growth.is_some() {
+        taming::feed_particles(click.world, mob, true);
+    }
     mobs.message(player, &message, true);
     Some(UseResult::Success)
 }
@@ -210,5 +255,16 @@ mod tests {
             Some((100.0, 0))
         );
         assert_eq!(wild_chance("saintsdragons:nulljaw", "minecraft:beef"), None);
+    }
+
+    #[test]
+    fn nulljaw_wild_feeding_has_one_success_in_five() {
+        assert_eq!(
+            (0..NULLJAW_TAME_DENOMINATOR)
+                .filter(|&roll| nulljaw_wild_tame(roll))
+                .count(),
+            1
+        );
+        assert!(nulljaw_wild_tame(0));
     }
 }

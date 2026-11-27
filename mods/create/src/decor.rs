@@ -8,23 +8,55 @@ mod data;
 #[path = "decor_slab_data.rs"]
 mod slab_data;
 
+#[rustfmt::skip]
+#[path = "copper_roof_data.rs"]
+mod copper_roof_data;
+
+use std::{
+    hash::{BuildHasher, RandomState},
+    sync::OnceLock,
+};
+
 use moddedmc_api::{
-    RegistrationError, Registry,
+    InterfaceUnavailable, RegistrationError, Registry,
     content::{Block, BlockMaterial, Content, Placement, State},
+    effects::SOUND_BLOCKS,
+    interaction::{UseOnBlock, UseResult},
     items::Item,
+    weathering_copper::{self, WeatheringCopper},
 };
 
 use crate::{
-    ITEMS,
+    CONTENT, EFFECTS, ITEMS, TAGS,
     belt_tunnel::{read, shift},
     kinetics::face_axis,
 };
+
+static WEATHERING: OnceLock<WeatheringCopper> = OnceLock::new();
+
+pub fn require() -> Result<(), InterfaceUnavailable> {
+    let _ = WEATHERING.set(weathering_copper::require()?);
+    Ok(())
+}
 
 const AXES: [&str; 3] = ["x", "y", "z"];
 const AXIS_PROPERTIES: [&str; 3] = ["axis=x", "axis=y", "axis=z"];
 const VERTICAL: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
-pub(crate) fn is_stone_partial(id: &str) -> bool {
+pub(crate) fn is_copper_roof(id: &str) -> bool {
+    id.strip_prefix("create:").is_some_and(|path| {
+        path.contains("copper_")
+            && copper_roof_data::FAMILIES
+                .iter()
+                .flatten()
+                .any(|(block, _)| *block == path)
+    })
+}
+
+pub(crate) fn is_palette_partial(id: &str) -> bool {
+    if (id.ends_with("_slab") || id.ends_with("_stairs")) && is_copper_roof(id) {
+        return true;
+    }
     let Some((base, "slab" | "stairs" | "wall")) = id
         .strip_prefix("create:")
         .and_then(|id| id.rsplit_once('_'))
@@ -117,35 +149,8 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         )?;
     }
     for &(path, name, physical, double) in slab_data::SLABS {
-        let id = format!("create:{path}");
         let material = stone_material(path).ok_or(RegistrationError::InvalidDefinition)?;
-        let bottom = format!("create:block/{path}");
-        let top = format!("create:block/{path}_top");
-        let variants = [
-            ("type=bottom,waterlogged=false", bottom.as_str()),
-            ("type=bottom,waterlogged=true", bottom.as_str()),
-            ("type=top,waterlogged=false", top.as_str()),
-            ("type=top,waterlogged=true", top.as_str()),
-            ("type=double,waterlogged=false", double),
-            ("type=double,waterlogged=true", double),
-        ];
-        let templates = variants.map(|(properties, _)| format!("{physical}[{properties}]"));
-        let states = std::array::from_fn::<_, 6, _>(|i| {
-            let (properties, model) = variants[i];
-            state(properties, &templates[i], model, 0, 0)
-        });
-        content.add_block(
-            registry,
-            &Block {
-                id: &id,
-                display_name: name,
-                entity: "",
-                item_model: &format!("create:item/{path}"),
-                states: &states,
-            },
-            None,
-        )?;
-        content.set_block_material(registry, &id, &material)?;
+        register_slab(content, registry, path, name, physical, double, &material)?;
         let stairs = path
             .strip_suffix("_slab")
             .ok_or(RegistrationError::InvalidDefinition)?;
@@ -155,8 +160,29 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         register_stairs(content, registry, stairs, stairs_name, &material)?;
         register_wall(content, registry, stairs, stairs_name, &material)?;
     }
+    let weathering = WEATHERING
+        .get()
+        .ok_or(RegistrationError::InvalidDefinition)?;
+    register_copper_roofs(content, *weathering, registry)?;
     for &(path, name, map_color) in data::PANES {
-        register_pane(content, registry, path, name, map_color)?;
+        register_connected_block(
+            content,
+            registry,
+            path,
+            name,
+            "minecraft:glass_pane",
+            map_color,
+        )?;
+    }
+    for &(path, name, map_color) in data::BARS {
+        register_connected_block(
+            content,
+            registry,
+            path,
+            name,
+            "minecraft:copper_bars",
+            Some(map_color),
+        )?;
     }
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for &(path, display_name, carrier) in data::ITEMS {
@@ -185,15 +211,68 @@ pub fn is_display_pane(path: &str) -> bool {
         )
 }
 
-fn register_pane(
+pub(crate) fn uses_bar_display(path: &str) -> bool {
+    path.ends_with("_bars") && data::BARS.iter().any(|(id, ..)| *id == path)
+}
+
+pub(crate) fn wrench_pickup(context: &UseOnBlock<'_>) -> Option<UseResult> {
+    if !context.sneaking || !context.player.is_some_and(|player| player.may_build()) {
+        return None;
+    }
+    let world = context.world;
+    let pos = context.position;
+    let mut state = [0];
+    if !world.read(&[pos], &mut state) {
+        return None;
+    }
+    let description = CONTENT.get()?.describe_state(state[0])?;
+    let block = description.split('[').next()?;
+    if !TAGS.get()?.contains("block", "create:wrench_pickup", block) {
+        return None;
+    }
+    let drops = if context.creative {
+        Vec::new()
+    } else {
+        world.block_drops(pos, None)?
+    };
+    if !world.destroy(pos, false) {
+        return Some(UseResult::Fail);
+    }
+    for stack in drops {
+        context.give(&stack);
+    }
+    if let Some(effects) = EFFECTS.get() {
+        let coords = [pos.x, pos.y, pos.z];
+        let sample = (RandomState::new().hash_one(coords) >> 48) as u16;
+        let pitch = 0.75 * (0.5 + 0.5 * f32::from(sample) / 65_536.0);
+        for sound in [
+            "minecraft:entity.item.pickup",
+            "minecraft:block.netherite_block.hit",
+        ] {
+            effects.play_sound(
+                world,
+                coords.map(|n| f64::from(n) + 0.5),
+                sound,
+                SOUND_BLOCKS,
+                0.25,
+                pitch,
+            );
+        }
+    }
+    Some(UseResult::Success)
+}
+
+fn register_connected_block(
     content: Content,
     registry: &mut Registry<'_>,
     path: &str,
     name: &str,
+    template: &str,
     map_color: Option<&str>,
 ) -> Result<(), RegistrationError> {
     let id = format!("create:{path}");
-    let post = format!("create:block/{path}_post");
+    let model = path.strip_suffix("_bars").unwrap_or(path);
+    let post = format!("create:block/{model}_post");
     let variants: [(String, String); 32] = std::array::from_fn(|index| {
         let flag = |bit: usize| index & (1usize << bit) != 0;
         let properties = format!(
@@ -204,13 +283,13 @@ fn register_pane(
             flag(4),
             flag(3)
         );
-        let physical = format!("minecraft:glass_pane[{properties}]");
+        let physical = format!("{template}[{properties}]");
         (properties, physical)
     });
     let states = variants.each_ref().map(|(properties, physical)| {
         let mut variant = state(properties, physical, &post, 0, 0);
         // Use three spare cutout carriers for the framed and tiled families.
-        if is_display_pane(path) {
+        if is_display_pane(path) || uses_bar_display(path) {
             variant.model = "";
             variant.rotating_model = &post;
         }
@@ -232,13 +311,116 @@ fn register_pane(
             registry,
             &id,
             &BlockMaterial {
-                template: "minecraft:glass_pane",
+                template,
                 hardness: None,
                 map_color,
             },
         )?;
     }
     Ok(())
+}
+
+fn register_copper_roofs(
+    content: Content,
+    weathering: WeatheringCopper,
+    registry: &mut Registry<'_>,
+) -> Result<(), RegistrationError> {
+    const COPPER: [&str; 4] = [
+        "minecraft:copper_block",
+        "minecraft:exposed_copper",
+        "minecraft:weathered_copper",
+        "minecraft:oxidized_copper",
+    ];
+    for family in copper_roof_data::FAMILIES {
+        let ids = family.map(|(path, _)| format!("create:{path}"));
+        for (index, (path, name)) in family.into_iter().enumerate() {
+            let template = COPPER[index % COPPER.len()];
+            let material = BlockMaterial {
+                template,
+                hardness: None,
+                map_color: None,
+            };
+            if let (Some(base), Some(name)) =
+                (path.strip_suffix("_stairs"), name.strip_suffix(" Stairs"))
+            {
+                register_stairs(content, registry, base, name, &material)?;
+            } else if let Some(base) = path.strip_suffix("_slab") {
+                let double = base.strip_prefix("waxed_").unwrap_or(base);
+                register_slab(
+                    content,
+                    registry,
+                    path,
+                    name,
+                    "minecraft:cut_copper_slab",
+                    &format!("create:block/{double}s"),
+                    &material,
+                )?;
+            } else {
+                content.add_block(
+                    registry,
+                    &Block {
+                        id: &ids[index],
+                        display_name: name,
+                        entity: "",
+                        item_model: &format!("create:item/{path}"),
+                        states: &[state(
+                            "",
+                            template,
+                            &format!(
+                                "create:block/{}",
+                                path.strip_prefix("waxed_").unwrap_or(path)
+                            ),
+                            0,
+                            0,
+                        )],
+                    },
+                    None,
+                )?;
+            }
+        }
+        weathering.register(registry, ids.each_ref().map(String::as_str))?;
+    }
+    Ok(())
+}
+
+fn register_slab(
+    content: Content,
+    registry: &mut Registry<'_>,
+    path: &str,
+    name: &str,
+    physical: &str,
+    double: &str,
+    material: &BlockMaterial<'_>,
+) -> Result<(), RegistrationError> {
+    let id = format!("create:{path}");
+    let model = path.strip_prefix("waxed_").unwrap_or(path);
+    let bottom = format!("create:block/{model}");
+    let top = format!("create:block/{model}_top");
+    let variants = [
+        ("type=bottom,waterlogged=false", bottom.as_str()),
+        ("type=bottom,waterlogged=true", bottom.as_str()),
+        ("type=top,waterlogged=false", top.as_str()),
+        ("type=top,waterlogged=true", top.as_str()),
+        ("type=double,waterlogged=false", double),
+        ("type=double,waterlogged=true", double),
+    ];
+    let templates = variants.map(|(properties, _)| format!("{physical}[{properties}]"));
+    let states = std::array::from_fn::<_, 6, _>(|i| {
+        let (properties, model) = variants[i];
+        state(properties, &templates[i], model, 0, 0)
+    });
+    content.add_block(
+        registry,
+        &Block {
+            id: &id,
+            display_name: name,
+            entity: "",
+            item_model: &format!("create:item/{path}"),
+            states: &states,
+        },
+        None,
+    )?;
+    content.set_block_material(registry, &id, material)
 }
 
 fn register_stairs(
@@ -250,6 +432,7 @@ fn register_stairs(
 ) -> Result<(), RegistrationError> {
     let path = format!("{base}_stairs");
     let id = format!("create:{path}");
+    let model_path = path.strip_prefix("waxed_").unwrap_or(&path);
     let mut variants = Vec::with_capacity(80);
     for (facing, y) in [("north", 270i16), ("east", 0), ("south", 90), ("west", 180)] {
         for (half, x) in [("bottom", 0), ("top", 180)] {
@@ -271,7 +454,7 @@ fn register_stairs(
                     let properties =
                         format!("facing={facing},half={half},shape={shape},waterlogged={wet}");
                     let physical = format!("minecraft:stone_stairs[{properties}]");
-                    let model = format!("create:block/{path}{suffix}");
+                    let model = format!("create:block/{model_path}{suffix}");
                     variants.push((properties, physical, model, x, y));
                 }
             }

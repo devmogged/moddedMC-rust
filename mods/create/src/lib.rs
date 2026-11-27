@@ -186,6 +186,7 @@ impl Mod for Create {
         let content = content::require()?;
         content.require_replaced()?;
         content.require_block_material()?;
+        decor::require()?;
         fluids::tank_connectivity::require()?;
         fluids::open_end_runtime::require()?;
         water_wheel::require()?;
@@ -2270,6 +2271,11 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == WRENCH
         && let Some(states) = states()
         && let Some(result) = chain_drive::wrench(context, states)
+    {
+        return result;
+    }
+    if context.item == WRENCH
+        && let Some(result) = decor::wrench_pickup(context)
     {
         return result;
     }

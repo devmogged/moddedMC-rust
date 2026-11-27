@@ -1,0 +1,312 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+wait 1
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1026.5 224 1027.5 0 0
+cmd forceload add 1025 1025
+wait 4
+cmd fill 1024 223 1024 1038 223 1038 minecraft:stone
+cmd fill 1024 224 1024 1038 232 1038 minecraft:air
+cmd time set midnight
+cmd cindervane spawn 1025 224 1025
+wait 2
+expect cindervane: spawned
+cmd item replace entity tester hotbar.0 with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 224 1025.5 main
+wait 0.5
+expect Dragon tamed
+cmd item replace entity tester hotbar.0 with saintsdragons:ivy_the_merchant_spawn_egg
+wait 0.5
+bot use 1027 223 1026 up
+wait 0.5
+cmd data merge entity @e[type=minecraft:villager,limit=1] {NoAI:1b,Tags:["ivy_probe"]}
+cmd data get entity @e[tag=ivy_probe,limit=1] data.moddedmc.mob
+wait 0.5
+expect following entity data: "saintsdragons:ivy_oleander"
+cmd item replace entity tester hotbar.0 with minecraft:air
+wait 0.5
+bot use-entity villager 1027.5 224 1026.5 main
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# first_meeting/intro -> first_meeting/a_confidence
+bot click saintsdragons:ivy/1/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# first_meeting/a_confidence -> first_meeting/a_friendly
+bot click saintsdragons:ivy/2/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# first_meeting/a_friendly -> first_meeting/anchor_intro
+bot click saintsdragons:ivy/3/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# first_meeting/anchor_intro -> first_meeting/anchor_name_select
+bot click saintsdragons:ivy/4/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# first_meeting/anchor_name_select -> first_meeting/anchor_name_use_username
+bot click saintsdragons:ivy/5/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# first_meeting/anchor_name_use_username -> known_greeting/return_greeting
+bot use-entity villager 1027.5 224 1026.5 main
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_greeting/return_greeting -> known_greeting/return_prompt
+bot click saintsdragons:ivy/7/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_greeting/return_prompt -> known_meeting_about_work/what_do_you_do
+bot click saintsdragons:ivy/8/1
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_work/what_do_you_do -> known_meeting_about_work/work_done
+bot click saintsdragons:ivy/9/3
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_work/work_done -> known_greeting/return_prompt
+bot click saintsdragons:ivy/10/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_greeting/return_prompt -> known_meeting_about_dragon/dragon_knowledge
+bot click saintsdragons:ivy/11/1
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_knowledge -> known_meeting_about_dragon/dragon_knowledge_opener_2
+bot click saintsdragons:ivy/12/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_knowledge_opener_2 -> known_meeting_about_dragon/dragon_knowledge_opener_3
+bot click saintsdragons:ivy/13/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_knowledge_opener_3 -> known_meeting_about_dragon/dragon_wrong_1
+bot click saintsdragons:ivy/14/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_wrong_1 -> known_meeting_about_dragon/dragon_wrong_2
+bot click saintsdragons:ivy/15/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_wrong_2 -> known_meeting_about_dragon/dragon_wrong_3
+bot click saintsdragons:ivy/16/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_wrong_3 -> known_meeting_about_dragon/dragon_variety_1
+bot click saintsdragons:ivy/17/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_variety_1 -> known_meeting_about_dragon/dragon_variety_2
+bot click saintsdragons:ivy/18/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_variety_2 -> known_meeting_about_dragon/dragon_monsters_1
+bot click saintsdragons:ivy/19/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_monsters_1 -> known_meeting_about_dragon/dragon_monsters_2
+bot click saintsdragons:ivy/20/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_monsters_2 -> known_meeting_about_dragon/dragon_monsters_3
+bot click saintsdragons:ivy/21/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_monsters_3 -> known_meeting_about_dragon/dragon_monsters_4
+bot click saintsdragons:ivy/22/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_monsters_4 -> known_meeting_about_dragon/dragon_monsters_5
+bot click saintsdragons:ivy/23/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_monsters_5 -> known_meeting_about_dragon/dragon_monsters_6
+bot click saintsdragons:ivy/24/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_monsters_6 -> known_meeting_about_dragon/dragon_wrap_1
+bot click saintsdragons:ivy/25/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_wrap_1 -> known_meeting_about_dragon/dragon_wrap_2
+bot click saintsdragons:ivy/26/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_meeting_about_dragon/dragon_wrap_2 -> known_greeting/return_prompt
+bot click saintsdragons:ivy/27/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_greeting/return_prompt -> known_greeting/needs_help
+bot click saintsdragons:ivy/28/1
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# known_greeting/needs_help -> quest_cindervane/cindervane_migration_1
+bot click saintsdragons:ivy/29/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_migration_1 -> quest_cindervane/cindervane_migration_2
+bot click saintsdragons:ivy/30/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_migration_2 -> quest_cindervane/cindervane_taming_1
+bot click saintsdragons:ivy/31/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_taming_1 -> quest_cindervane/cindervane_taming_2
+bot click saintsdragons:ivy/32/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_taming_2 -> quest_cindervane/cindervane_taming_3
+bot click saintsdragons:ivy/33/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_taming_3 -> quest_cindervane/cindervane_taming_4
+bot click saintsdragons:ivy/34/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_taming_4 -> quest_cindervane/cindervane_taming_5
+bot click saintsdragons:ivy/35/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_taming_5 -> quest_cindervane/cindervane_taming_6
+bot click saintsdragons:ivy/36/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_taming_6 -> quest_cindervane/cindervane_taming_7
+bot click saintsdragons:ivy/37/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_taming_7 -> quest_cindervane/cindervane_taming_confirm
+bot click saintsdragons:ivy/38/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_taming_confirm -> quest_cindervane/cindervane_already_tamed_1
+bot click saintsdragons:ivy/39/1
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_already_tamed_1 -> quest_cindervane/cindervane_already_tamed_2
+bot click saintsdragons:ivy/40/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane/cindervane_already_tamed_2 -> quest_cindervane_complete/success_converge
+bot click saintsdragons:ivy/41/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/success_converge -> quest_cindervane_complete/what_now_router
+bot click saintsdragons:ivy/42/1
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/what_now_router -> quest_cindervane_complete/what_now_basic
+bot click saintsdragons:ivy/43/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/what_now_basic -> quest_cindervane_complete/recruit_offer_1
+bot click saintsdragons:ivy/44/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/recruit_offer_1 -> quest_cindervane_complete/recruit_offer_2
+bot click saintsdragons:ivy/45/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/recruit_offer_2 -> quest_cindervane_complete/recruit_offer_3
+bot click saintsdragons:ivy/46/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/recruit_offer_3 -> quest_cindervane_complete/recruit_offer_4
+bot click saintsdragons:ivy/47/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/recruit_offer_4 -> quest_cindervane_complete/come_with_me_1
+bot click saintsdragons:ivy/48/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/come_with_me_1 -> quest_cindervane_complete/join_confirm
+bot click saintsdragons:ivy/49/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/join_confirm -> quest_cindervane_complete/promise_1
+bot click saintsdragons:ivy/50/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/promise_1 -> quest_cindervane_complete/recruit_ivy
+bot click saintsdragons:ivy/51/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# quest_cindervane_complete/recruit_ivy -> recruited_greeting/recruited_greeting
+bot use-entity villager 1027.5 224 1026.5 main
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+# Open the owner's companion inventory and equip a weapon and store food.
+bot click saintsdragons:ivy/53/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+bot click saintsdragons:ivy/54/1
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+cmd gamemode survival tester
+cmd item replace entity tester hotbar.0 with minecraft:diamond_sword
+cmd item replace entity tester hotbar.1 with minecraft:bread 3
+wait 0.5
+bot click saintsdragons:ivy/55/0
+wait 0.5
+bot expect slot 4 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 4 air 0
+bot inventory-click 63 left
+bot inventory-click 4 left
+wait 0.5
+bot inventory-click 64 left
+bot inventory-click 9 left
+wait 0.5
+bot expect slot 4 minecraft:diamond_sword 1
+wait 0.5
+expect expect inventory ok slot 4 diamond_sword 1
+bot expect slot 9 minecraft:bread 3
+wait 0.5
+expect expect inventory ok slot 9 bread 3
+bot inventory-close
+bot quit
+stop
+start
+wait 1
+botstart tester
+wait 4
+cmd tp tester 1026.5 224 1027.5 0 0
+cmd forceload add 1025 1025
+wait 2
+bot use-entity villager 1027.5 224 1026.5 main
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+bot click saintsdragons:ivy/1/0
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+bot click saintsdragons:ivy/2/1
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+bot click saintsdragons:ivy/3/0
+wait 0.5
+bot expect slot 4 minecraft:diamond_sword 1
+wait 0.5
+expect expect inventory ok slot 4 diamond_sword 1
+bot expect slot 9 minecraft:bread 3
+wait 0.5
+expect expect inventory ok slot 9 bread 3
+bot inventory-close
+# A fresh hostile attacker triggers recruited Ivy's melee response.
+cmd data merge entity @e[tag=ivy_probe,limit=1] {NoAI:0b}
+cmd summon minecraft:zombie 1029.5 224 1026.5 {NoAI:1b,Tags:["ivy_target"]}
+cmd attribute @e[tag=ivy_target,limit=1] minecraft:max_health base set 40
+cmd data merge entity @e[tag=ivy_target,limit=1] {Health:40f}
+wait 0.5
+cmd damage @e[tag=ivy_probe,limit=1] 1 minecraft:mob_attack by @e[tag=ivy_target,limit=1]
+wait 1.8
+cmd data get entity @e[tag=ivy_target,limit=1] Health
+wait 0.5
+expect Zombie has the following entity data: (?:[0-3]?[0-9])(?:\.[0-9]+)?f
+reject (?i)panic|panicked
+bot quit
+stop
