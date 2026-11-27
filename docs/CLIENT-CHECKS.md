@@ -59,8 +59,13 @@ Run these checks with the official client and the server resource pack.
 - Place one of each material in water and mine another with a pickaxe. Expect a water source inside the placed stair and one matching stair from the mined block. Restart and expect the water, facing, and neighboring corners to remain.
 - Build equal large stair arrays from Cut Andesite and Cut Calcite. Pan across them and leave and re-enter their chunks. Expect all models to stay aligned, with the same result after reload. Capture frame timing and any display pop-in or carrier-dependent sounds.
 
-## Moving stone slabs and stairs (Pumpkin `41305fa8a`)
+## Moving stone slabs and stairs (`b46d430` and `5916765`)
 
 - Glue a Cut Calcite Slab and an upside-down Cut Calcite Stair to a Mechanical Bearing assembly. Power it and expect both blocks to keep their textures and face orientation as they rotate, with no stationary copies left at the source. Restart while the bearing is moving, then stop it. Expect the blocks to remain visible and come to rest as ordinary slabs and stairs.
 - Move a waterlogged stair away from its source. Expect water where the stair started and a dry stair when you disassemble onto dry ground. Repeat over a water source and expect the placed stair to waterlog again.
 - Assemble a stair that forms an outer corner with a fixed vanilla stair. Remove the fixed stair while the bearing runs, then stop the bearing. Expect the moved stair to straighten. Repeat with a fixed stair that makes an inner corner at the landing position. Expect the corner to form on disassembly and persist after restart.
+
+## Vanilla wall shapes (Pumpkin `101e2f325`)
+
+- Place a Cobblestone Wall between two Stone blocks and add a bottom slab above the wall. Expect both arms to rise and the center post to stay down. Swap the bottom slab for a top slab and expect both arms to lower.
+- Add a Glass Pane to a third side. Expect a new arm and a raised post. Remove the pane, then stack another wall with its post raised. Expect the lower post to rise with the upper one.
