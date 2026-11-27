@@ -104,7 +104,7 @@ Checked the source directly at tag `mc1.21.1-6.0.10` / commit `ac0c444`. This is
 
 - Entry and Cross signals use the sections under each train's wheels, including the span between them. The first wheel entering a section claims it and the last wheel leaving releases it. A red signal stops a following train one eighth of a block short of the boundary. Releasing the section clears the signal and lets the next train enter. Powered signals still stop traffic.
 - Occupancy rebuilds from saved train positions after restart. Run `scripts/scenario.ps1 -Scenario tests/scenarios/ws3-train-occupancy.txt -RunDir run/ws3-train-occupancy` with the Create package. The first train makes the entrance red, the second stops there and survives restart, then the first moves out and the waiting train can be boarded and driven into the cleared section.
-- In a stock client, put two trains on the same line with two Entry signals between stops. Confirm that the second train brakes short of the red lamp, that the lamp changes after the first train's last wheel clears, and that the second train can then advance.
+- With the companion installed, put two trains on the same line with two Entry signals between stops. Confirm that the second train brakes short of the red lamp, that the lamp changes after the first train's last wheel clears, and that the second train can then advance.
 
 ### Train schedules
 
@@ -115,4 +115,4 @@ Checked the source directly at tag `mc1.21.1-6.0.10` / commit `ac0c444`. This is
 ### Bogey frames
 
 - Assembled carriages show Create's small bogey frame and large bogey drive in stock clients. The models come from the local Create jar through the server pack. Each frame follows its carriage pose and is removed when the carriage is disassembled or unloaded.
-- The assembly scenario checks that both frame displays exist before and after restart. The generated resource pack contains the corresponding model IDs and source models. In a stock 26.3 client, assemble a carriage with both bogey sizes, check that the frames stay beneath the carriage through a turn, then disassemble and check that each bogey has just one frame.
+- The assembly scenario checks that both frame displays exist before and after restart. The generated resource pack contains the corresponding model IDs and source models. With the companion installed, assemble a carriage with both bogey sizes, check that the frames stay beneath the carriage through a turn, then disassemble and check that each bogey has just one frame.
