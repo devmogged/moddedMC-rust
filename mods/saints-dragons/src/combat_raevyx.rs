@@ -15,7 +15,6 @@ const DATA: &str = "saintsdragons:raevyx_combat";
 const RANGE: f64 = 64.0;
 const STORM_DURATION: i32 = 1200;
 const STORM_COOLDOWN: i32 = 4800;
-pub const STORM_COMMAND: u64 = 130;
 
 pub fn require(
     content: moddedmc_api::content::Content,
@@ -95,6 +94,20 @@ struct State {
     storm_cooldown: i32,
     supercharge: i32,
     precharge_max: f32,
+    rider: Option<i32>,
+    secondary_since: Option<u64>,
+    secondary_triggered: bool,
+    beam_seen: u64,
+    rider_cooldowns: [i32; 6],
+    secondary_seen: u64,
+    movement_seen: [u64; 3],
+    depleted: bool,
+    melee_mode: bool,
+    flex_ticks: i32,
+    flex_cooldown: i32,
+    ascend: bool,
+    descend: bool,
+    accelerate: bool,
 }
 
 impl Default for State {
@@ -127,6 +140,20 @@ impl Default for State {
             storm_cooldown: 0,
             supercharge: 0,
             precharge_max: 0.0,
+            rider: None,
+            secondary_since: None,
+            secondary_triggered: false,
+            beam_seen: 0,
+            rider_cooldowns: [0; 6],
+            secondary_seen: 0,
+            movement_seen: [0; 3],
+            depleted: false,
+            melee_mode: false,
+            flex_ticks: 0,
+            flex_cooldown: 0,
+            ascend: false,
+            descend: false,
+            accelerate: false,
         }
     }
 }
@@ -594,8 +621,10 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         goal_phase::CAN_START | goal_phase::CONTINUE => can_fight(mob) && target.is_some(),
         goal_phase::STOP => {
             let mut state = State::load(mob);
-            state.finish(!view.on_ground);
-            state.save(mob);
+            if state.rider.is_none() {
+                state.finish(!view.on_ground);
+                state.save(mob);
+            }
             ai.stop(mob);
             false
         }
@@ -741,23 +770,35 @@ fn tick_attack(
                 ],
             );
         }
+        Attack::Rend if state.rider.is_some() && age < 20 => {
+            turn(mob, dir, Some([0.0, view.motion[1], 0.0]));
+        }
         Attack::Rend if (20..55).contains(&age) => {
-            if !view.on_ground {
+            if !view.on_ground
+                || matches!(
+                    world.fluid_id(flight::cell(view.position)).as_deref(),
+                    Some("minecraft:water" | "minecraft:flowing_water")
+                )
+            {
+                if state.rider.is_some() {
+                    state.rider_cooldowns[Attack::Rend.index()] = 32;
+                }
                 state.finish(true);
                 return;
             }
-            if gap > 6.0 && age < 50 {
+            if state.rider.is_none() && gap > 6.0 && age < 50 {
                 let d = flight::offset(target.position, view.position);
                 state.direction = unit([d[0], 0.0, d[2]]);
             }
             let dir = state.direction;
-            let speed = 0.9 + (0.1125 - 0.9) * ((age - 25) as f64 / 30.0).clamp(0.0, 1.0);
+            let base = if state.rider.is_some() { 2.0 } else { 0.9 };
+            let speed = base * (1.0 - 0.875 * ((age - 25) as f64 / 30.0).clamp(0.0, 1.0));
             turn(
                 mob,
                 dir,
                 Some([dir[0] * speed, view.motion[1], dir[2] * speed]),
             );
-            if age < 50 {
+            if age < 50 || state.rider.is_some() {
                 let at = flight::add(view.position, [dir[0] * 2.0, 1.0, dir[2] * 2.0]);
                 for (hit, _, _) in nearby(world, mob, at, 3.0) {
                     if let Some(index) = state.hit_ids.iter().position(|&old| old == hit) {
@@ -782,6 +823,23 @@ fn tick_attack(
                 if age <= 40 {
                     spark(world, at, 5);
                 }
+            }
+        }
+        Attack::Rend if state.rider.is_some() && age >= 55 => {
+            turn(mob, dir, Some([0.0, view.motion[1], 0.0]));
+        }
+        Attack::Beam if state.rider.is_some() => {
+            if age >= 20 {
+                state.energy = (state.energy - 0.014).max(0.0);
+                if state.energy <= 0.0 {
+                    state.depleted = true;
+                    stop_rider_beam(world, mob, state);
+                    return;
+                }
+                if age == 20 {
+                    sound(world, mob, "lightning_beaming", 1.3);
+                }
+                rider_beam(world, mob, view, state);
             }
         }
         Attack::Beam => {
@@ -872,7 +930,18 @@ fn tick_attack(
         if attack == Attack::Beam {
             sound(world, mob, "lightning_beam_stop", 1.0);
         }
-        state.finish(!view.on_ground);
+        if state.rider.is_some() {
+            state.rider_cooldowns[attack.index()] = match attack {
+                Attack::Rend => 32,
+                Attack::Roar => 30,
+                _ => 0,
+            };
+            state.active = None;
+            state.hit_ids.clear();
+            state.hit_ticks.clear();
+        } else {
+            state.finish(!view.on_ground);
+        }
     }
 }
 
@@ -921,45 +990,324 @@ fn impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], speed: f64) {
     sound(world, mob, "dive_impact", 2.0);
 }
 
-/// Operator command bridge for the custom rider key, which the stock client cannot send.
-pub fn storm_nodes(nodes: &mut Vec<moddedmc_api::commands::Node<'static>>) {
-    let base = nodes.len() as u32;
-    nodes.extend([
-        crate::literal("storm"),
-        crate::number(Some(base), "x", None),
-        crate::number(Some(base + 1), "y", None),
-        crate::number(Some(base + 2), "z", Some(STORM_COMMAND)),
-    ]);
+/// The release uses an inflated target box clipped against the rider's beam segment.
+fn segment_hits(from: [f64; 3], to: [f64; 3], min: [f64; 3], max: [f64; 3]) -> bool {
+    let mut lo: f64 = 0.0;
+    let mut hi: f64 = 1.0;
+    for i in 0..3 {
+        let d = to[i] - from[i];
+        if d.abs() < 1e-9 {
+            if from[i] < min[i] || from[i] > max[i] {
+                return false;
+            }
+        } else {
+            let a = (min[i] - from[i]) / d;
+            let b = (max[i] - from[i]) / d;
+            lo = lo.max(a.min(b));
+            hi = hi.min(a.max(b));
+            if lo > hi {
+                return false;
+            }
+        }
+    }
+    true
 }
 
-pub fn command_storm(world: World<'_>, at: [f64; 3], command: &moddedmc_api::Command<'_>) -> i32 {
-    let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
-        return 0;
+fn aim(view: EntityView) -> [f64; 3] {
+    let yaw = f64::from(view.yaw).to_radians();
+    let pitch = f64::from(view.pitch).to_radians();
+    [
+        -yaw.sin() * pitch.cos(),
+        -pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    ]
+}
+
+fn rider_beam(world: World<'_>, mob: Entity<'_>, view: EntityView, state: &State) {
+    let Some(entities) = ENTITIES.get() else {
+        return;
     };
-    let nearest = entities
-        .entities_in(world, at.map(|v| v - 4.0), at.map(|v| v + 4.0), -1)
-        .into_iter()
-        .filter_map(|id| {
-            entities
-                .with_entity(world, id, |mob| {
-                    (mobs.kind(mob) == Some("saintsdragons:raevyx"))
-                        .then(|| mob.view().map(|v| (id, distance(v.position, at))))
-                        .flatten()
-                })
-                .flatten()
-        })
-        .min_by(|a, b| a.1.total_cmp(&b.1));
-    let started = nearest.is_some_and(|(id, _)| {
-        entities
-            .with_entity(world, id, |mob| start_storm(world, mob))
-            .unwrap_or(false)
-    });
-    command.reply(if started {
-        "Raevyx storm casting"
+    // Released computeBeamStartFallback, using rider aim because animated bone locators
+    // and the dragon's interpolated pitch are not exposed by the host.
+    let dir = state.direction;
+    let yaw = (-dir[0]).atan2(dir[2]);
+    let pitch = (-dir[1]).asin();
+    let (sin, cos) = pitch.sin_cos();
+    let (u, f, r) = (47.26875 / 16.0, 98.75 / 16.0, -0.5 / 16.0);
+    let up = u * cos - f * sin;
+    let forward = u * sin + f * cos;
+    let from = flight::add(
+        view.position,
+        [
+            r * yaw.cos() - forward * yaw.sin(),
+            up,
+            r * yaw.sin() + forward * yaw.cos(),
+        ],
+    );
+    let endpoint = |len: f64| std::array::from_fn(|i| from[i] + dir[i] * len);
+    let mut lo = 0.0;
+    let mut hi = RANGE;
+    if clear_line(world, mob, from, endpoint(hi)) {
+        lo = hi;
     } else {
-        "Raevyx storm unavailable"
-    });
-    i32::from(started)
+        for _ in 0..12 {
+            let mid = (lo + hi) * 0.5;
+            if clear_line(world, mob, from, endpoint(mid)) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+    }
+    let to = endpoint(lo);
+    let radius = 1.2;
+    let min = std::array::from_fn(|i| from[i].min(to[i]) - radius);
+    let max = std::array::from_fn(|i| from[i].max(to[i]) + radius);
+    for id in entities.entities_in(world, min, max, mob.id()) {
+        entities.with_entity(world, id, |target| {
+            if !enemy(mob, target)
+                || MOBS.get().and_then(|m| m.kind(target)) == Some("saintsdragons:raevyx")
+            {
+                return;
+            }
+            let Some(body) = target.body() else {
+                return;
+            };
+            if segment_hits(
+                from,
+                to,
+                body.min.map(|x| x - radius),
+                body.max.map(|x| x + radius),
+            ) {
+                let damage_type = if MOBS
+                    .get()
+                    .and_then(|m| m.kind(target))
+                    .is_some_and(|kind| kind.starts_with("saintsdragons:"))
+                {
+                    "minecraft:mob_attack"
+                } else {
+                    "saintsdragons:raevyx_lightning"
+                };
+                target.hurt_by(mob.id(), damage_type, 35.0 * state.damage_multiplier());
+            }
+        });
+    }
+    if state.age % 3 == 0 {
+        arc(world, from, to);
+    }
+}
+
+fn stop_rider_beam(world: World<'_>, mob: Entity<'_>, state: &mut State) {
+    if state.active == Some(Attack::Beam) {
+        state.active = None;
+        sound(world, mob, "lightning_beam_stop", 1.0);
+    }
+}
+
+fn rider_ready(state: &State) -> bool {
+    state.active.is_none() && state.storm_age.is_none() && state.flex_ticks == 0
+}
+
+fn rider_start(
+    world: World<'_>,
+    mob: Entity<'_>,
+    view: EntityView,
+    state: &mut State,
+    attack: Attack,
+) {
+    if !rider_ready(state)
+        || state.rider_cooldowns[attack.index()] > 0
+        || (attack == Attack::Rend
+            && (!view.on_ground
+                || matches!(
+                    world.fluid_id(flight::cell(view.position)).as_deref(),
+                    Some("minecraft:water" | "minecraft:flowing_water")
+                )))
+    {
+        return;
+    }
+    if attack == Attack::Beam && (state.depleted || state.energy <= 0.0) {
+        return;
+    }
+    let yaw = f64::from(view.yaw).to_radians();
+    state.start(attack, 0, [-yaw.sin(), 0.0, yaw.cos()]);
+    if attack == Attack::Beam {
+        state.burst = 400;
+    }
+    if attack == Attack::Roar {
+        let recent_attacker = MOB_AI
+            .get()
+            .and_then(|ai| ai.last_hurt_by(mob))
+            .map(|(id, _)| id);
+        let rider_attacker = state
+            .rider
+            .and_then(|id| {
+                ENTITIES
+                    .get()?
+                    .with_entity(world, id, |r| MOB_AI.get()?.last_hurt_by(r))
+                    .flatten()
+            })
+            .map(|(id, _)| id);
+        let current_target = MOB_AI.get().and_then(|ai| ai.target(mob));
+        state.roar_targets = nearby(world, mob, view.position, 24.0)
+            .into_iter()
+            .filter(|(id, _, _)| {
+                if [recent_attacker, rider_attacker, current_target].contains(&Some(*id)) {
+                    return true;
+                }
+                ENTITIES.get().is_some_and(|e| {
+                    e.with_entity(world, *id, |target| {
+                        MOB_AI
+                            .get()
+                            .and_then(|ai| ai.target(target))
+                            .is_some_and(|id| id == mob.id() || Some(id) == state.rider)
+                    })
+                    .unwrap_or(false)
+                })
+            })
+            .map(|(id, _, _)| id)
+            .take(6)
+            .collect();
+        state.roar_next = 6;
+        state.roar_cursor = 0;
+    }
+    sound(
+        world,
+        mob,
+        match attack {
+            Attack::Beam => "lightning_beam_start",
+            Attack::Roar => "roar",
+            Attack::Rend => "ground_rend",
+            _ => return,
+        },
+        1.3,
+    );
+}
+
+/// Raevyx.getSecondaryRiderDualAbility: six ticks selects rend, a shorter press selects storm.
+fn secondary_is_hold(start: u64, now: u64) -> bool {
+    now.saturating_sub(start) >= 6
+}
+
+pub fn rider_action(
+    world: World<'_>,
+    mob: Entity<'_>,
+    player: Entity<'_>,
+    action: &str,
+    phase: u8,
+) {
+    use moddedmc_api::player_actions::{ACTION_HELD, ACTION_PRESSED, ACTION_RELEASED};
+    if !taming::is_owner(mob, player)
+        || crate::eggs::is_juvenile(mob)
+        || !MOBS
+            .get()
+            .is_some_and(|m| m.passengers(mob).first() == Some(&player.id()))
+    {
+        return;
+    }
+    let Some(view) = mob.view() else {
+        return;
+    };
+    let Some(look) = player.view() else {
+        return;
+    };
+    let mut state = State::load(mob);
+    let now = moddedmc_api::tick_count();
+    if state.rider != Some(player.id()) {
+        stop_rider_beam(world, mob, &mut state);
+        state.active = None;
+        state.rider = Some(player.id());
+        state.secondary_since = None;
+        state.secondary_triggered = false;
+        state.ascend = false;
+        state.descend = false;
+        state.accelerate = false;
+    }
+    match action {
+        "saintsdragons:ability_tertiary" => match phase {
+            ACTION_PRESSED => {
+                rider_start(world, mob, view, &mut state, Attack::Beam);
+                if state.active == Some(Attack::Beam) {
+                    state.beam_seen = now;
+                    state.direction = aim(look);
+                }
+            }
+            ACTION_HELD => state.beam_seen = now,
+            ACTION_RELEASED => stop_rider_beam(world, mob, &mut state),
+            _ => {}
+        },
+        "saintsdragons:ability_primary" if phase == ACTION_PRESSED => {
+            rider_start(world, mob, view, &mut state, Attack::Roar)
+        }
+        "saintsdragons:ability_secondary" => match phase {
+            ACTION_PRESSED => {
+                state.secondary_since = rider_ready(&state).then_some(now);
+                state.secondary_triggered = false;
+                state.secondary_seen = now;
+            }
+            ACTION_HELD => state.secondary_seen = now,
+            ACTION_RELEASED => {
+                if let Some(start) = state.secondary_since.take()
+                    && !state.secondary_triggered
+                {
+                    if secondary_is_hold(start, now) {
+                        rider_start(world, mob, view, &mut state, Attack::Rend);
+                    } else if rider_ready(&state) {
+                        state.save(mob);
+                        start_storm(world, mob);
+                        return;
+                    }
+                }
+                state.secondary_triggered = false;
+            }
+            _ => {}
+        },
+        "saintsdragons:toggle_melee" if phase == ACTION_PRESSED && rider_ready(&state) => {
+            state.melee_mode = !state.melee_mode
+        }
+        "saintsdragons:flex"
+            if phase == ACTION_PRESSED
+                && rider_ready(&state)
+                && view.on_ground
+                && !matches!(
+                    world.fluid_id(flight::cell(view.position)).as_deref(),
+                    Some("minecraft:water" | "minecraft:flowing_water")
+                )
+                && state.flex_cooldown == 0 =>
+        {
+            state.flex_ticks = 65;
+            state.flex_cooldown = 120;
+            sound(world, mob, "flex", 1.4);
+        }
+        "saintsdragons:ascend" => {
+            state.ascend = phase != ACTION_RELEASED;
+            state.movement_seen[0] = now;
+        }
+        "saintsdragons:descend" => {
+            state.descend = phase != ACTION_RELEASED;
+            state.movement_seen[1] = now;
+        }
+        "saintsdragons:accelerate" => {
+            state.accelerate = phase != ACTION_RELEASED;
+            state.movement_seen[2] = now;
+        }
+        _ => {}
+    }
+    state.save(mob);
+}
+
+pub fn rider_movement(mob: Entity<'_>) -> (bool, bool, bool, bool) {
+    let state = State::load(mob);
+    (
+        state.ascend,
+        state.descend,
+        state.accelerate,
+        state.active == Some(Attack::Rend)
+            || state.flex_ticks > 0
+            || state
+                .storm_age
+                .is_some_and(|age| age < storm_timing(state.storm_air).1),
+    )
 }
 
 fn start_storm(world: World<'_>, mob: Entity<'_>) -> bool {
@@ -1052,6 +1400,11 @@ fn tick_storm(world: World<'_>, mob: Entity<'_>, state: &mut State) -> Option<&'
 pub fn ambient(world: World<'_>, mob: Entity<'_>, view: EntityView) -> Option<&'static str> {
     let mut state = State::load(mob);
     let storm_clip = tick_storm(world, mob, &mut state);
+    state.flex_ticks = (state.flex_ticks - 1).max(0);
+    state.flex_cooldown = (state.flex_cooldown - 1).max(0);
+    for cooldown in &mut state.rider_cooldowns {
+        *cooldown = (*cooldown - 1).max(0);
+    }
     for cooldown in &mut state.cooldowns {
         *cooldown = (*cooldown - 1).max(0);
     }
@@ -1061,6 +1414,9 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>, view: EntityView) -> Option<&'
     state.mobility = (state.mobility + 0.025).min(1.0);
     if state.active != Some(Attack::Beam) {
         state.energy = (state.energy + 0.0025).min(1.0);
+        if state.energy >= 0.999 {
+            state.depleted = false;
+        }
     }
     let rider = MOBS
         .get()
@@ -1071,6 +1427,68 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>, view: EntityView) -> Option<&'
                     .unwrap_or(false)
             })
         });
+    if state.rider != rider {
+        if state.rider.is_some() {
+            stop_rider_beam(world, mob, &mut state);
+            state.active = None;
+        }
+        state.active = None;
+        state.rider = rider;
+        state.secondary_since = None;
+        state.secondary_triggered = false;
+        state.ascend = false;
+        state.descend = false;
+        state.accelerate = false;
+    }
+    if let Some(id) = rider {
+        let now = moddedmc_api::tick_count();
+        if now.saturating_sub(state.movement_seen[0]) > 12 {
+            state.ascend = false;
+        }
+        if now.saturating_sub(state.movement_seen[1]) > 12 {
+            state.descend = false;
+        }
+        if now.saturating_sub(state.movement_seen[2]) > 12 {
+            state.accelerate = false;
+        }
+        if now.saturating_sub(state.secondary_seen) > 12 {
+            state.secondary_since = None;
+        }
+        if state
+            .secondary_since
+            .is_some_and(|start| secondary_is_hold(start, now))
+            && !state.secondary_triggered
+        {
+            state.secondary_triggered = true;
+            rider_start(world, mob, view, &mut state, Attack::Rend);
+        }
+        if let Some(attack) = state.active {
+            if attack == Attack::Beam {
+                if moddedmc_api::tick_count().saturating_sub(state.beam_seen) > 12 {
+                    stop_rider_beam(world, mob, &mut state);
+                } else if let Some(look) = ENTITIES
+                    .get()
+                    .and_then(|e| e.with_entity(world, id, |p| p.view()).flatten())
+                {
+                    state.direction = aim(look);
+                }
+            }
+            if state.active.is_some() {
+                tick_attack(world, mob, &mut state, attack, view, view, 0.0);
+            }
+        }
+        if state.flex_ticks > 0
+            || state
+                .storm_age
+                .is_some_and(|age| age < storm_timing(state.storm_air).1)
+        {
+            mob.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: [0.0; 3],
+                ..Default::default()
+            });
+        }
+    }
     if rider.is_some() && state.dive_rider == rider && view.on_ground {
         if state.dive_ticks >= 8 && state.dive_drop >= 12.0 && state.dive_peak >= 1.45 {
             impact(world, mob, view.position, state.dive_peak);
@@ -1098,7 +1516,9 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>, view: EntityView) -> Option<&'
         state.dive_peak = 0.0;
     }
     state.dive_rider = rider;
-    let clip = storm_clip.or_else(|| state.active.map(|attack| attack.clip(state.age)));
+    let clip = storm_clip
+        .or_else(|| state.active.map(|attack| attack.clip(state.age)))
+        .or_else(|| (state.flex_ticks > 0).then_some("flex"));
     state.save(mob);
     clip
 }
@@ -1117,6 +1537,24 @@ pub fn immune(mob: Entity<'_>, damage_type: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rider_hold_threshold_and_beam_geometry() {
+        assert!(!secondary_is_hold(100, 105));
+        assert!(secondary_is_hold(100, 106));
+        assert!(segment_hits(
+            [0.0; 3],
+            [0.0, 0.0, 10.0],
+            [-1.0, -1.0, 4.0],
+            [1.0, 1.0, 5.0]
+        ));
+        assert!(!segment_hits(
+            [0.0; 3],
+            [0.0, 0.0, 10.0],
+            [2.0, -1.0, 4.0],
+            [3.0, 1.0, 5.0]
+        ));
+    }
 
     #[test]
     fn combat_state_roundtrips() {

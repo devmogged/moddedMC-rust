@@ -1034,8 +1034,16 @@ fn ride(mob: Entity<'_>, rider: Entity<'_>) {
         return;
     };
     let keys = mobs.player_input(rider).unwrap_or(0);
-    let sprint = keys & PLAYER_INPUT_SPRINT != 0;
-    let jump = keys & PLAYER_INPUT_JUMP != 0;
+    let (ascend, descend, accelerate, locked) = if mobs.kind(mob) == Some("saintsdragons:raevyx") {
+        crate::combat_raevyx::rider_movement(mob)
+    } else {
+        (false, false, false, false)
+    };
+    if locked {
+        return;
+    }
+    let sprint = accelerate || keys & PLAYER_INPUT_SPRINT != 0;
+    let jump = ascend || keys & PLAYER_INPUT_JUMP != 0;
     let yaw = f64::from(look.yaw).to_radians();
     let strafe = body.input[0] * 0.4;
     let forward = body.input[2];
@@ -1054,7 +1062,9 @@ fn ride(mob: Entity<'_>, rider: Entity<'_>) {
     };
     let desired_x = (strafe * yaw.cos() - forward * yaw.sin()) * speed;
     let desired_z = (strafe * yaw.sin() + forward * yaw.cos()) * speed;
-    let vertical = if flying && jump {
+    let vertical = if descend && air {
+        -0.85
+    } else if flying && jump {
         0.45
     } else if air {
         let pitch = f64::from(look.pitch).to_radians();
