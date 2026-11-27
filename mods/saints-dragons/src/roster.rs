@@ -180,6 +180,42 @@ const SPECIES: [Species; 13] = [
 pub const SWARM_EGG: &str = "draconian_swarm";
 
 impl Species {
+    /// Release createAttributes and dragon_attribute config defaults. A carrier can have
+    /// attributes the Java creature lacks; explicitly neutralize those instead of inheriting
+    /// the ravager/spider's combat statistics.
+    fn attributes(&self) -> Vec<(&'static str, f64)> {
+        let (armor, range, knockback, attack, flying) = match self.name {
+            "raevyx" => (8.0, 64.0, 1.0, 0.0, Some(0.5)),
+            "stegonaut" => (15.0, 32.0, 1.0, 2.0, None),
+            "varasuchus" => (8.0, 32.0, 1.0, 10.0, None),
+            "ignivorus" => (4.0, 128.0, 2.0, 50.0, Some(0.35)),
+            "volitans" => (6.0, 64.0, 0.0, 0.0, Some(0.38)),
+            "nulljaw" => (4.0, 48.0, 0.0, 0.0, Some(0.42)),
+            "atroxiia" => (10.0, 32.0, 1.0, 10.0, None),
+            "latcher" | "winged" | "whettled" => (
+                0.0,
+                64.0,
+                0.0,
+                swarm::damage(self.name).unwrap_or(0.0),
+                None,
+            ),
+            crate::ivy::SPECIES => (0.0, 32.0, 0.0, 4.0, None),
+            _ => (0.0, 16.0, 0.0, 0.0, None),
+        };
+        let mut attributes = vec![
+            ("minecraft:max_health", self.health),
+            ("minecraft:movement_speed", self.speed),
+            ("minecraft:armor", armor),
+            ("minecraft:follow_range", range),
+            ("minecraft:knockback_resistance", knockback),
+            ("minecraft:attack_damage", attack),
+        ];
+        if let Some(speed) = flying {
+            attributes.push(("minecraft:flying_speed", speed));
+        }
+        attributes
+    }
+
     fn clip(&self, view: EntityView, wet: bool) -> &'static str {
         match self.name {
             "latcher" | "winged" => {
@@ -229,23 +265,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
     for species in &SPECIES {
         let kind = format!("saintsdragons:{}", species.name);
         let swarm_damage = swarm::damage(species.name);
-        let mut attributes = vec![
-            ("minecraft:max_health", species.health),
-            ("minecraft:movement_speed", species.speed),
-        ];
-        if species.name == crate::ivy::SPECIES {
-            attributes.extend([
-                ("minecraft:attack_damage", 4.0),
-                ("minecraft:follow_range", 32.0),
-            ]);
-        }
-        if let Some(damage) = swarm_damage {
-            attributes.extend([
-                ("minecraft:attack_damage", damage),
-                ("minecraft:follow_range", 64.0),
-                ("minecraft:armor", 0.0),
-            ]);
-        }
+        let attributes = species.attributes();
         mobs.add_mob(
             registry,
             &Mob {
@@ -665,6 +685,39 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn released_adult_attributes_replace_carrier_defaults() {
+        for (name, armor, range, knockback, attack) in [
+            ("raevyx", 8.0, 64.0, 1.0, 0.0),
+            ("ignivorus", 4.0, 128.0, 2.0, 50.0),
+            ("stegonaut", 15.0, 32.0, 1.0, 2.0),
+            ("varasuchus", 8.0, 32.0, 1.0, 10.0),
+            ("volitans", 6.0, 64.0, 0.0, 0.0),
+            ("atroxiia", 10.0, 32.0, 1.0, 10.0),
+            ("nulljaw", 4.0, 48.0, 0.0, 0.0),
+            ("moop", 0.0, 16.0, 0.0, 0.0),
+            ("mossback", 0.0, 16.0, 0.0, 0.0),
+            ("latcher", 0.0, 64.0, 0.0, 4.0),
+            ("winged", 0.0, 64.0, 0.0, 1.5),
+            ("whettled", 0.0, 64.0, 0.0, 4.0),
+            (crate::ivy::SPECIES, 0.0, 32.0, 0.0, 4.0),
+        ] {
+            let attributes = SPECIES
+                .iter()
+                .find(|s| s.name == name)
+                .unwrap()
+                .attributes();
+            for (key, value) in [
+                ("minecraft:armor", armor),
+                ("minecraft:follow_range", range),
+                ("minecraft:knockback_resistance", knockback),
+                ("minecraft:attack_damage", attack),
+            ] {
+                assert!(attributes.contains(&(key, value)), "{name}: {key}");
+            }
+        }
+    }
 
     #[test]
     fn moop_uses_the_released_swim_speeds_and_land_clip() {

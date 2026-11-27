@@ -8,7 +8,7 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
-| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table | Ivy's companion inventory and combat, resuming her dialogue after the trade screen closes, swarm armor pacification, exact flight navigation and collision, and exact spawn restrictions and attributes |
+| Adult creature roster | Fourteen creature types with carriers, saved identity, spawn eggs and released adult base attribute values. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table | Ivy's companion inventory and combat, resuming her dialogue after the trade screen closes, swarm armor pacification, exact flight navigation and collision, carrier-independent spawn predicates and attribute presence |
 | Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback, and the custom Raevyx storm, Stegonaut lush cave and Volitans underwater spawners | Per-species brains, navigation, growth and breeding |
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, juvenile food taming, growth feeding and raw-moop stunting including Nulljaw; Codex hunger display; grooming hurt clips and roost damage wake-up reactions | breeding experience orb and stat (host support), owner-bed sleep and sensory disturbances, the hunger hunting behaviour and roster melee scaling; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
@@ -23,8 +23,11 @@ The Crucible implements the released fuel tiers, nine-slot recipe matching, proc
 The Ignivorus Egg advances through three crack stages while on the Ignivorus
 Incubator. Progress persists across restarts. The hatchling starts with 90 health,
 uses the original juvenile rig in the companion, and grows over 24,000 loaded
-mob ticks. The test seeds progress near stage boundaries. Hatch advancement and
-natural acquisition in the Ignivorus roost remain pending.
+mob ticks. The test seeds progress near stage boundaries. Hatching awards the
+released `hatch_ignivorus` advancement. All four Ignivorus roost templates in the
+0.9.88 JAR contain no Ignivorus egg or chest; the top-left template contains the
+incubator and an adult dragon. The released egg sources are breeding and Ivy's
+trade table, not a generated roost egg.
 
 Stegonaut, Varasuchus, and Atroxiia eggs use the same saved progression with
 their released 30,000, 24,000, and 24,000 tick timers and respective starting
@@ -142,7 +145,8 @@ their released biome tags with the 0.9.88 config weights and group sizes. The
 natural spawner and chunk generation pick from vanilla and dragon entries by
 weight. Each species keeps its `canSpawnHere` rule: dry, open ground, a
 competing vanilla creature weight of at least five and no snowy slopes for
-Cindervane, End Barrens for Nulljaw, and the `DragonSpawnRules` density limits
+Cindervane, End Barrens for Nulljaw, the animal-spawnable block tag and raw
+brightness above eight for Mossback, and the `DragonSpawnRules` density limits
 outside chunk generation. A wild adult rolls the released gender and skin
 weights. The rule runs on its first AI tick, not at spawn. The scenario found
 a generated Cindervane in the jagged peaks and checked its appearance.
@@ -160,6 +164,20 @@ four. Wild dragons don't despawn far from players, as with Java's tamable
 animals, and Volitans breathes underwater. The scenario builds each habitat and
 checks the rolled appearance of each spawn.
 [Custom spawner scenario](../tests/scenarios/p2ak-saints-dragons-custom-spawners.txt)
+
+All fourteen adult registrations specify the released health, movement speed,
+armor, follow range, knockback resistance and declared attack values, including
+flying speed where declared. Carrier attack values absent in the Java attribute
+supplier are neutralized to zero. Density checks use uncapped box queries; the
+custom spawners use dimension build bounds and test individual block collision
+boxes. Exact parity still requires host registration of species dimensions and
+attribute presence, carrier-independent vanilla spawn-rule predicates (monster
+light and difficulty, surface water animal), and a generic world
+`no_collision(aabb, excluded_entity)` query for entity and border collisions.
+Raevyx's natural-thunder provenance must also be tracked when its summoned
+storm ability is implemented. The following scenario covers representative
+adult attributes and the hatch advancement.
+[Spawn and attribute scenario](../tests/scenarios/p2c-spawns.txt)
 
 A player who moves on a Cindervane or Raevyx egg without sneaking breaks it one
 time in ten with the turtle egg break sound, as `stepOn` does in 0.9.88. A
