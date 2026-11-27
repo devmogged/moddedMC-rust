@@ -19,6 +19,21 @@ const KEYS: &[(&str, &str, u8)] = &[
     ("ability_secondary", "key.keyboard.h", ALL),
     ("toggle_melee", "key.keyboard.x", ACTION_PRESSED),
     ("flex", "ctrl+key.keyboard.4", ACTION_PRESSED),
+    // Vanilla movement input already follows the player's Space/WASD bindings.
+    // Optional alternate bindings must not shadow those vanilla mappings.
+    ("dragonlord_jump", "key.keyboard.unknown", ACTION_PRESSED),
+    (
+        "blood_tempest_forward",
+        "key.keyboard.unknown",
+        ACTION_PRESSED,
+    ),
+    ("blood_tempest_back", "key.keyboard.unknown", ACTION_PRESSED),
+    ("blood_tempest_left", "key.keyboard.unknown", ACTION_PRESSED),
+    (
+        "blood_tempest_right",
+        "key.keyboard.unknown",
+        ACTION_PRESSED,
+    ),
 ];
 
 pub fn start() -> Result<(), InterfaceUnavailable> {
@@ -56,6 +71,9 @@ pub fn register(reg: &mut Registry<'_>) -> Result<(), RegistrationError> {
 
 fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
     let Some(vehicle) = player.vehicle() else {
+        if phase == ACTION_PRESSED {
+            crate::player_moves::action(world, player, action);
+        }
         return;
     };
     let Some(entities) = crate::ENTITIES.get() else {
