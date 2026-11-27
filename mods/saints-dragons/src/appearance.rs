@@ -132,6 +132,11 @@ impl Appearance {
     }
 
     pub fn texture(self, species: &str) -> Option<String> {
+        // DragonGeoModel selects juvenile textures by gender alone.
+        if let Some(adult) = species.strip_prefix("baby_") {
+            variants(adult)?;
+            return self.female.then(|| "default_female".to_owned());
+        }
         let variant = variants(species)?.get(usize::from(self.variant)).copied()?;
         match (variant, self.female) {
             ("default", false) => None,
@@ -187,7 +192,25 @@ pub fn use_tool(click: &UseMob<'_>, item: &str) -> UseResult {
 
 #[cfg(test)]
 mod tests {
-    use super::spawn_variant;
+    use super::{Appearance, spawn_variant};
+
+    #[test]
+    fn juveniles_keep_their_gender_texture_regardless_of_adult_variant() {
+        let female = Appearance {
+            female: true,
+            variant: 2,
+        };
+        assert_eq!(
+            female.texture("baby_cindervane").as_deref(),
+            Some("default_female")
+        );
+        assert_eq!(
+            female.texture("cindervane").as_deref(),
+            Some("piebald_female")
+        );
+        assert_eq!(Appearance::default().texture("baby_cindervane"), None);
+        assert_eq!(female.texture("baby_mossback"), None);
+    }
 
     #[test]
     fn spawn_egg_variants_follow_the_released_weights() {

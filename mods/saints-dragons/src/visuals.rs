@@ -205,7 +205,7 @@ fn body_stack(species: &str, clip: &str, appearance: Appearance) -> Vec<u8> {
         format!("animation.{name}.{clip}")
     };
     let mut custom = HashMap::from([("moddedmc:rig_clip".to_owned(), Value::String(clip))]);
-    if let Some(texture) = appearance.texture(species.strip_prefix("baby_").unwrap_or(species)) {
+    if let Some(texture) = appearance.texture(species) {
         custom.insert("moddedmc:rig_texture".to_owned(), Value::String(texture));
     }
     fastnbt::to_bytes(&HashMap::from([
@@ -403,22 +403,38 @@ fn draw(
                 .any(|&id| id != 0 && entities.with_entity(world, id, |_| ()).is_some())
         }) {
             rig.seen = now;
+            let species_changed = species != rig.species;
+            if species_changed {
+                rig.pose = Pose::new(view);
+            }
             let clip = select(&mut rig.pose);
             crate::audio::tick_clip(world, mob, species, view, clip, now);
             let appearance = rig.appearance.unwrap_or_else(|| Appearance::load(mob));
-            if (clip != rig.clip || species != rig.species || rig.appearance.is_none())
+            if (clip != rig.clip || species_changed || rig.appearance.is_none())
                 && displays.set_item(world, rig.ids[0], &body_stack(species, clip, appearance))
             {
                 rig.clip = clip;
                 species.clone_into(&mut rig.species);
                 rig.appearance = Some(appearance);
             }
-            if (now + mob.id() as u64).is_multiple_of(2) {
+            if species_changed {
+                // A juvenile Cindervane has one display; its adult has five.
+                for id in &mut rig.ids[descriptions.len()..] {
+                    if *id != 0 {
+                        displays.remove(world, *id);
+                        *id = 0;
+                    }
+                }
+            }
+            if species_changed || (now + mob.id() as u64).is_multiple_of(2) {
                 for (i, &description) in descriptions.iter().enumerate() {
-                    if rig.frames[i].position != description.position
+                    if rig.ids[i] == 0
+                        || species_changed
+                        || rig.frames[i].position != description.position
                         || rig.frames[i].rotation != description.rotation
+                        || rig.frames[i].scale != description.scale
                     {
-                        if !displays.update(world, rig.ids[i], &description) {
+                        if rig.ids[i] == 0 || !displays.update(world, rig.ids[i], &description) {
                             let body;
                             let stack = if i == 0 {
                                 body = body_stack(species, clip, appearance);
@@ -432,6 +448,7 @@ fn draw(
                             rig.ids[i] = id;
                             if i == 0 {
                                 rig.clip = clip;
+                                species.clone_into(&mut rig.species);
                                 rig.appearance = Some(appearance);
                             }
                         }
