@@ -597,6 +597,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             crate::number(Some(base + 2), "z", Some(SPAWN_TAG + index as u64)),
         ]);
     }
+    crate::combat_raevyx::storm_nodes(&mut nodes);
     commands.add(
         registry,
         "saintsdragons",

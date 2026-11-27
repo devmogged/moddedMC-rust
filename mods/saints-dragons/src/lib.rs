@@ -114,6 +114,7 @@ impl Mod for SaintsDragons {
         let _ = EFFECTS.set(effects::require()?);
         let _ = COMMANDS.set(commands::require()?);
         let entities = entities::require()?;
+        combat_raevyx::require(content, entities)?;
         entities.require_extension(EntitiesExtension::Carriers)?;
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
@@ -326,6 +327,7 @@ impl Mod for SaintsDragons {
             return 1;
         }
         match tag {
+            combat_raevyx::STORM_COMMAND => combat_raevyx::command_storm(world, at, &command),
             SPAWN => {
                 let Some(id) = mobs.spawn(world, CINDERVANE, at) else {
                     command.reply("cindervane: could not spawn");
