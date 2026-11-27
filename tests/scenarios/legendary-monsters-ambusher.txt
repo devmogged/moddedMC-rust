@@ -1,0 +1,62 @@
+# Actual loaded stock-protocol Ambusher encounter and persistence.
+# A live golem exercises native targeting/attack; death must materialize
+# three separate persistent Spiky Bugs and the real loot item.
+mods target\mods\legendary-monsters.mmc
+start
+expect moddedmc: loaded legendary-monsters
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd tp tester 1025.5 101 1023.5
+wait 3
+cmd fill 1020 100 1020 1035 105 1035 minecraft:air
+cmd fill 1020 99 1020 1035 99 1035 minecraft:stone
+cmd legendary ambusher spawn 1025 100 1025
+wait 0.5
+expect Ambusher spawned: id=[0-9]+, kind=legendary_monsters:ambusher
+cmd legendary ambusher find 1025 100 1025
+await Ambusher found 1: id=[0-9]+ health=50.0/50.0
+cmd damage @e[type=minecraft:spider,limit=1] 10 minecraft:fall
+cmd legendary ambusher find 1025 100 1025
+await Ambusher found 1: id=[0-9]+ health=50.0/50.0
+cmd summon minecraft:iron_golem 1027.5 100 1025.5 {NoAI:1b}
+wait 6
+cmd legendary ambusher find 1025 100 1025
+await Ambusher found 1: id=[0-9]+ health=50.0/50.0 target=Some\([0-9]+\)
+cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+await Iron Golem has the following entity data:
+cmd kill @e[type=minecraft:iron_golem,limit=1]
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd legendary ambusher find 1025 100 1025
+await Ambusher found 1: id=[0-9]+ health=50.0/50.0
+cmd kill @e[type=minecraft:item]
+# This test must not accidentally kill another naturally spawned spider.
+# Select the nearest spider to the known spawn point.
+cmd damage @e[type=minecraft:spider,limit=1] 100 minecraft:generic
+wait 2
+cmd legendary ambusher find 1025 100 1025
+await Ambusher found 0:
+cmd legendary spiky find 1025 100 1025
+await Spiky Bug found 3:
+cmd data get entity @e[type=minecraft:item,limit=1] Item
+await legendary_monsters:chiseled_ancient_dripstone_shard
+reject (?i)panic|panicked|\[bot\] error:
+bot quit
+stop
+start
+botstart tester
+wait 3
+cmd tp tester 1025.5 101 1023.5
+wait 2
+cmd legendary spiky find 1025 100 1025
+await Spiky Bug found 3:
+cmd legendary ambusher find 1025 100 1025
+await Ambusher found 0:
+bot quit
+stop

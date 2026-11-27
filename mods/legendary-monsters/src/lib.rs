@@ -5,6 +5,7 @@
 use std::sync::OnceLock;
 mod blocks;
 mod equipment;
+mod encounters;
 
 use moddedmc_api::{
     InterfaceUnavailable, Mod, RegistrationError, Registry,
@@ -15,6 +16,10 @@ static ITEMS: OnceLock<Items> = OnceLock::new();
 static DEFAULTS: OnceLock<ItemDefaults> = OnceLock::new();
 static CONTENT: OnceLock<moddedmc_api::content::Content> = OnceLock::new();
 static PHYSICS: OnceLock<moddedmc_api::block_physics::BlockPhysics> = OnceLock::new();
+static MOBS: OnceLock<moddedmc_api::mobs::Mobs> = OnceLock::new();
+static MOB_AI: OnceLock<moddedmc_api::mob_ai::MobAi> = OnceLock::new();
+static ENTITIES: OnceLock<moddedmc_api::entities::Entities> = OnceLock::new();
+static COMMANDS: OnceLock<moddedmc_api::commands::Commands> = OnceLock::new();
 
 struct LegendaryMonsters;
 
@@ -130,6 +135,16 @@ impl Mod for LegendaryMonsters {
         let _ = DEFAULTS.set(items::require_defaults()?);
         let _ = CONTENT.set(moddedmc_api::content::require()?);
         let _ = PHYSICS.set(moddedmc_api::block_physics::require()?);
+        let mobs = moddedmc_api::mobs::require()?;
+        mobs.require_extension(moddedmc_api::mobs::MobsExtension::Taming)?;
+        let _ = MOBS.set(mobs);
+        let ai = moddedmc_api::mob_ai::require()?;
+        ai.require_extension(moddedmc_api::mob_ai::MobAiExtension::Combat)?;
+        let _ = MOB_AI.set(ai);
+        let entities = moddedmc_api::entities::require()?;
+        entities.require_extension(moddedmc_api::entities::EntitiesExtension::Carriers)?;
+        let _ = ENTITIES.set(entities);
+        let _ = COMMANDS.set(moddedmc_api::commands::require()?);
         Ok(())
     }
 
@@ -165,7 +180,12 @@ impl Mod for LegendaryMonsters {
             *PHYSICS.get().ok_or(RegistrationError::InvalidDefinition)?,
             registry,
         )?;
+        encounters::register(registry)?;
         Ok(())
+    }
+
+    fn command(&self, tag: u64, command: moddedmc_api::Command<'_>) -> i32 {
+        encounters::command(tag, command)
     }
 }
 
