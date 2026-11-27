@@ -1,0 +1,105 @@
+# Stock menu: route fuel, consume input on start, lock grid, take output, no duplication.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+expect registered content block saintsdragons:draconic_crucible
+botstart tester
+wait 2
+cmd tp tester 1025.5 105 1025.5
+wait 3
+cmd fill 1024 104 1024 1028 104 1028 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1028 minecraft:air
+cmd gamemode survival tester
+cmd item replace entity tester hotbar.0 with saintsdragons:draconic_crucible
+wait 0.5
+bot place 1025 104 1027 up
+wait 0.5
+cmd item replace entity tester hotbar.0 with minecraft:raw_iron 2
+cmd item replace entity tester hotbar.1 with minecraft:blaze_powder
+wait 0.5
+bot use 1025 105 1027 north
+wait 1
+bot expect slot 15 minecraft:lever 1
+wait 0.5
+expect expect inventory ok slot 15 lever 1
+bot inventory-click 54 shift-left
+wait 0.5
+bot expect slot 0 minecraft:raw_iron 2
+wait 0.5
+expect expect inventory ok slot 0 raw_iron 2
+bot inventory-click 55 shift-left
+wait 0.5
+cmd data get block 1025 105 1027 charge
+wait 0.5
+expect 11$
+botstart witness
+wait 3
+cmd tp witness 1025.5 105 1025.5
+wait 1
+cmd gamemode survival witness
+bot use 1025 105 1027 north
+wait 0.5
+bot expect slot 0 minecraft:raw_iron 2
+wait 0.5
+expect expect inventory ok slot 0 raw_iron 2
+botselect tester
+bot inventory-click 15 left
+wait 0.5
+bot expect slot 0 minecraft:raw_iron 1
+wait 0.5
+expect expect inventory ok slot 0 raw_iron 1
+bot expect slot 15 minecraft:clock 1
+wait 0.5
+expect expect inventory ok slot 15 clock 1
+botselect witness
+bot expect slot 0 minecraft:raw_iron 1
+wait 0.5
+expect expect inventory ok slot 0 raw_iron 1
+bot inventory-click 0 shift-left
+wait 0.5
+bot expect slot 0 minecraft:raw_iron 1
+wait 0.5
+expect expect inventory ok slot 0 raw_iron 1
+botselect tester
+wait 10
+bot expect slot 6 minecraft:iron_ingot 1
+wait 0.5
+expect expect inventory ok slot 6 iron_ingot 1
+bot inventory-click 6 shift-left
+wait 0.5
+bot expect slot 6 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 6 air 0
+botselect witness
+bot expect slot 6 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 6 air 0
+bot inventory-click 6 shift-left
+wait 0.5
+cmd clear witness minecraft:iron_ingot 0
+wait 0.5
+expect No items were found on player witness
+bot quit
+botselect tester
+wait 12
+bot expect slot 6 minecraft:iron_ingot 1
+wait 0.5
+expect expect inventory ok slot 6 iron_ingot 1
+bot inventory-click 6 shift-left
+wait 0.5
+bot expect slot 6 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 6 air 0
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:iron_ingot 0
+wait 0.5
+expect Found 2 matching item
+cmd clear tester minecraft:raw_iron 0
+wait 0.5
+expect No items were found on player tester
+reject (?i)panic|panicked
+bot quit
+stop

@@ -2,12 +2,12 @@
 use std::sync::OnceLock;
 
 use crate::{
-    InterfaceUnavailable, RegistrationError, Registry, abi, content::World, entities::Entity,
-    guard, require_interface, s,
+    InterfacePrefix, InterfaceUnavailable, RegistrationError, Registry, abi, content::World,
+    entities::Entity, guard, s,
 };
 
 #[derive(Clone, Copy)]
-pub struct Equipment(&'static abi::EquipmentV1);
+pub struct Equipment(InterfacePrefix<abi::EquipmentV1>);
 
 /// The damage a player wearing `item` takes. `armor` is the head, chest, legs and feet item ids.
 /// Return a negative value to cancel the hit.
@@ -35,8 +35,15 @@ static WORN: OnceLock<WornHurt> = OnceLock::new();
 static WEAPON: OnceLock<WeaponHit> = OnceLock::new();
 
 pub fn require() -> Result<Equipment, InterfaceUnavailable> {
-    // SAFETY: EquipmentV1 is the published table type for moddedmc:equipment v1.
-    unsafe { require_interface(abi::EQUIPMENT, 1) }.map(Equipment)
+    // SAFETY: EquipmentV1 is the published table type; only the original prefix is required.
+    unsafe {
+        InterfacePrefix::require(
+            abi::EQUIPMENT,
+            1,
+            std::mem::offset_of!(abi::EquipmentV1, worn_armor),
+        )
+    }
+    .map(Equipment)
 }
 
 /// One handler per mod for each hook; it receives the item id.
@@ -54,8 +61,16 @@ impl Equipment {
         if !same(&WORN, handler, std::ptr::fn_addr_eq) {
             return Err(RegistrationError::InvalidDefinition);
         }
-        // SAFETY: the registration and item id are borrowed and the trampoline is static.
-        RegistrationError::from_code(unsafe { (self.0.on_worn_hurt)(reg.reg, s(item), worn) })
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::EquipmentV1, on_worn_hurt))
+        else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        // SAFETY: the field is present, registration and item id are borrowed, trampoline is static.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_worn_hurt).read())(reg.reg, s(item), worn)
+        })
     }
 
     pub fn on_weapon_hit(
@@ -67,9 +82,44 @@ impl Equipment {
         if !same(&WEAPON, handler, std::ptr::fn_addr_eq) {
             return Err(RegistrationError::InvalidDefinition);
         }
-        // SAFETY: the registration and item id are borrowed and the trampoline is static.
-        RegistrationError::from_code(unsafe { (self.0.on_weapon_hit)(reg.reg, s(item), weapon) })
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::EquipmentV1, on_weapon_hit))
+        else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        // SAFETY: the field is present, registration and item id are borrowed, trampoline is static.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_weapon_hit).read())(reg.reg, s(item), weapon)
+        })
     }
+
+    /// Read the head, chest, legs and feet item IDs (minecraft:air for empty slots).
+    /// None for non-players or hosts without the appended call.
+    pub fn worn_armor(self, player: Entity<'_>) -> Option<[String; 4]> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::EquipmentV1, worn_armor))?;
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: the field is present, the entity is live and the sink collects synchronously.
+        if !unsafe { ((&raw const (*api).worn_armor).read())(player.raw(), sink) } {
+            return None;
+        }
+        decode_armor(&data)
+    }
+}
+
+fn decode_armor(data: &[u8]) -> Option<[String; 4]> {
+    let mut ids = std::str::from_utf8(data).ok()?.split('\n');
+    let armor = [ids.next()?, ids.next()?, ids.next()?, ids.next()?];
+    if ids.next().is_some() || armor.contains(&"") {
+        return None;
+    }
+    Some(armor.map(str::to_owned))
 }
 
 unsafe extern "C" fn worn(
@@ -137,4 +187,52 @@ unsafe extern "C" fn weapon(
         let (item, damage_type) = unsafe { (item.str(), damage_type.str()) };
         handler(world, item, attacker, target, damage_type, amount)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn armor_order_and_invalid_payloads() {
+        assert_eq!(
+            decode_armor(b"minecraft:air\nmod:chest\nminecraft:iron_leggings\nmod:boots"),
+            Some(
+                [
+                    "minecraft:air",
+                    "mod:chest",
+                    "minecraft:iron_leggings",
+                    "mod:boots"
+                ]
+                .map(str::to_owned)
+            )
+        );
+        assert_eq!(decode_armor(b"a\nb\nc"), None);
+        assert_eq!(decode_armor(b"a\nb\nc\nd\ne"), None);
+        assert_eq!(decode_armor(b"a\n\nc\nd"), None);
+        assert_eq!(decode_armor(&[255]), None);
+    }
+
+    #[test]
+    fn original_prefix_has_hooks_but_no_armor_read() {
+        let prefix = InterfacePrefix::<abi::EquipmentV1> {
+            ptr: std::ptr::null(),
+            size: std::mem::offset_of!(abi::EquipmentV1, worn_armor),
+        };
+        assert!(
+            prefix
+                .upto(std::mem::offset_of!(abi::EquipmentV1, on_worn_hurt))
+                .is_some()
+        );
+        assert!(
+            prefix
+                .upto(std::mem::offset_of!(abi::EquipmentV1, on_weapon_hit))
+                .is_some()
+        );
+        assert!(
+            prefix
+                .upto(std::mem::offset_of!(abi::EquipmentV1, worn_armor))
+                .is_none()
+        );
+    }
 }

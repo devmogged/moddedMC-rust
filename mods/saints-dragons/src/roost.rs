@@ -15,6 +15,110 @@ const CHECK_INTERVAL: u64 = 19;
 const SETTLE_TICKS: u64 = 60;
 
 static ACTIVE: Mutex<Option<HashMap<i32, Return>>> = Mutex::new(None);
+static SUPPRESSED: Mutex<Option<HashMap<i32, u64>>> = Mutex::new(None);
+static OWNER_SLEEP: Mutex<Option<HashMap<i32, OwnerSleep>>> = Mutex::new(None);
+
+struct OwnerSleep {
+    since: u64,
+    fall: u64,
+    wake: u64,
+    waking: Option<u64>,
+    seen: u64,
+}
+
+fn owner_durations(name: &str) -> Option<(u64, u64)> {
+    Some(match name {
+        "cindervane" => (33, 33),
+        "raevyx" => (50, 53),
+        "ignivorus" => (38, 38),
+        "varasuchus" => (42, 129),
+        "volitans" => (51, 43),
+        "stegonaut" => (38, 38),
+        "atroxiia" => (38, 42),
+        _ => return None,
+    })
+}
+
+fn owner_clip(id: i32) -> Option<&'static str> {
+    let lock = OWNER_SLEEP.lock().unwrap_or_else(PoisonError::into_inner);
+    let state = lock.as_ref()?.get(&id)?;
+    Some(if state.waking.is_some() {
+        "wake_up"
+    } else if tick_count().saturating_sub(state.since) < state.fall {
+        "fall_asleep"
+    } else {
+        "sleep"
+    })
+}
+
+/// Tamed dragons follow their owner's actual bed sleep, not a time-only heuristic.
+pub fn owner_tick(world: World<'_>, mob: Entity<'_>, name: &str) {
+    let Some((fall, wake)) = owner_durations(name) else {
+        return;
+    };
+    let (Some(mobs), Some(ai), Some(entities), Some(view)) =
+        (MOBS.get(), MOB_AI.get(), ENTITIES.get(), mob.view())
+    else {
+        return;
+    };
+    let now = tick_count();
+    let owner_asleep = taming::owner(mob)
+        .and_then(|uuid| mobs.by_uuid(world, &uuid))
+        .and_then(|id| {
+            entities.with_entity(world, id, |owner| {
+                owner.flags() & moddedmc_api::entities::ENTITY_ALIVE != 0
+                    && mobs.player_sleeping(owner) == Some(true)
+            })
+        })
+        == Some(true);
+    let fluid = world.fluid_id(flight::cell(view.position));
+    let wet = matches!(
+        fluid.as_deref(),
+        Some("minecraft:water" | "minecraft:flowing_water")
+    );
+    let can_sleep = night(world)
+        && owner_asleep
+        && ai.target(mob).is_none()
+        && !crate::hunt::active(mob.id())
+        && !suppressed(mob.id(), now)
+        && mobs.passengers(mob).is_empty()
+        && mob.vehicle().is_none()
+        && !flight::active(mob.id())
+        && (!wet || name == "volitans")
+        && !matches!(
+            fluid.as_deref(),
+            Some("minecraft:lava" | "minecraft:flowing_lava")
+        )
+        && (view.on_ground || (name == "volitans" && wet) || taming::order_name(mob) == "stay");
+    let mut lock = OWNER_SLEEP.lock().unwrap_or_else(PoisonError::into_inner);
+    let all = lock.get_or_insert_default();
+    if can_sleep && !all.contains_key(&mob.id()) {
+        all.insert(
+            mob.id(),
+            OwnerSleep {
+                since: now,
+                fall,
+                wake,
+                waking: None,
+                seen: now,
+            },
+        );
+    }
+    if let Some(state) = all.get_mut(&mob.id()) {
+        state.seen = now;
+        if !can_sleep {
+            state.waking.get_or_insert(now);
+        }
+        if state
+            .waking
+            .is_some_and(|since| now.saturating_sub(since) >= state.wake)
+        {
+            all.remove(&mob.id());
+        } else {
+            ai.stop(mob);
+        }
+    }
+}
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 struct Roost {
@@ -103,6 +207,17 @@ struct Return {
 }
 
 impl Return {
+    fn wake(&mut self, now: u64, immediate: bool) {
+        if immediate {
+            self.settled_since = None;
+            self.waking_since = None;
+        } else if self.clip(now).is_some() {
+            self.waking_since.get_or_insert(now);
+        } else {
+            self.settled_since = None;
+        }
+    }
+
     fn clip(&self, now: u64) -> Option<&'static str> {
         if self.waking_since.is_some() {
             return Some("wake_up");
@@ -140,12 +255,90 @@ pub fn set_home(mob: Entity<'_>, position: [f64; 3]) {
 }
 
 pub fn sleep_clip(id: i32) -> Option<&'static str> {
+    if let Some(clip) = owner_clip(id) {
+        return Some(clip);
+    }
     let active = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
     active.as_ref()?.get(&id)?.clip(tick_count())
 }
 
+/// DragonSleepComponent.startSleepExit / wakeUpImmediately and suppressSleep.
+pub fn wake(mob: Entity<'_>, immediate: bool, suppression: u64) {
+    if MOBS
+        .get()
+        .and_then(|m| m.kind(mob))
+        .and_then(|kind| kind.strip_prefix("saintsdragons:"))
+        .and_then(owner_durations)
+        .is_none()
+    {
+        return;
+    }
+    let now = tick_count();
+    {
+        let mut lock = OWNER_SLEEP.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(all) = lock.as_mut() {
+            if immediate {
+                all.remove(&mob.id());
+            } else if let Some(state) = all.get_mut(&mob.id()) {
+                state.waking.get_or_insert(now);
+            }
+        }
+    }
+    let mut active = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(state) = active.as_mut().and_then(|all| all.get_mut(&mob.id())) {
+        state.wake(now, immediate);
+    }
+    let mut suppressed = SUPPRESSED.lock().unwrap_or_else(PoisonError::into_inner);
+    let until = suppressed
+        .get_or_insert_default()
+        .entry(mob.id())
+        .or_default();
+    *until = (*until).max(now + suppression);
+}
+
+fn suppressed(id: i32, now: u64) -> bool {
+    SUPPRESSED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .and_then(|all| all.get(&id))
+        .is_some_and(|until| now < *until)
+}
+
+pub fn forget(id: i32) {
+    if let Some(all) = OWNER_SLEEP
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        all.remove(&id);
+    }
+    if let Some(active) = ACTIVE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        active.remove(&id);
+    }
+    if let Some(suppressed) = SUPPRESSED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        suppressed.remove(&id);
+    }
+}
+
 pub fn sweep() {
     let now = tick_count();
+    if now.is_multiple_of(200)
+        && let Some(all) = OWNER_SLEEP
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+    {
+        all.retain(|_, state| now.saturating_sub(state.seen) < 400);
+    }
     if now.is_multiple_of(200)
         && let Some(active) = ACTIVE
             .lock()
@@ -153,6 +346,14 @@ pub fn sweep() {
             .as_mut()
     {
         active.retain(|_, state| now.saturating_sub(state.seen) < 400);
+    }
+    if now.is_multiple_of(200)
+        && let Some(all) = SUPPRESSED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+    {
+        all.retain(|_, until| *until > now);
     }
 }
 
@@ -174,15 +375,16 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 
     let Some(view) = mob.view() else { return false };
     if matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE)
-        && (ai.target(mob).is_some()
-            || world.dimension_id() != Some("minecraft:overworld")
-            || taming::is_tamed(mob))
+        && (world.dimension_id() != Some("minecraft:overworld") || taming::is_tamed(mob))
     {
         return false;
     }
 
     let is_night = night(world);
     if phase == goal_phase::CAN_START {
+        if ai.target(mob).is_some() || suppressed(id, now) {
+            return false;
+        }
         let Some((mut roost, profile)) = mob
             .data(DATA)
             .and_then(|nbt| fastnbt::from_bytes::<Roost>(&nbt).ok())
@@ -215,13 +417,28 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     };
     match phase {
         goal_phase::CONTINUE => {
-            if !is_night && state.clip(now).is_some() {
-                let wake = *state.waking_since.get_or_insert(now);
+            let target = ai.target(mob).is_some();
+            let wet = matches!(
+                world.fluid_id(flight::cell(view.position)).as_deref(),
+                Some("minecraft:water" | "minecraft:flowing_water")
+            );
+            if state.clip(now).is_some() && (target || wet || !is_night) {
+                state.wake(now, wet && !target);
+                if target || wet {
+                    let mut all = SUPPRESSED.lock().unwrap_or_else(PoisonError::into_inner);
+                    let until = all.get_or_insert_default().entry(id).or_default();
+                    *until = (*until).max(now + if target { 600 } else { 200 });
+                }
+            }
+            if let Some(wake) = state.waking_since {
                 if now.saturating_sub(wake) < state.profile.wake_up {
                     return true;
                 }
                 state.waking_since = None;
                 state.settled_since = None;
+            }
+            if target || suppressed(id, now) {
+                return false;
             }
             is_night
                 || horizontal_distance(view.position, state.roost.home)
@@ -234,6 +451,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         goal_phase::TICK => {
             state.seen = now;
             if state.waking_since.is_some() {
+                ai.stop(mob);
                 return false;
             }
             let sleep_site = state.roost.anchor.unwrap_or(state.roost.home);
@@ -303,11 +521,12 @@ mod tests {
         assert_eq!(state.clip(160), Some("fall_asleep"));
         assert_eq!(state.clip(201), Some("fall_asleep"));
         assert_eq!(state.clip(202), Some("sleep"));
-        state.waking_since = Some(300);
+        state.wake(300, false);
         assert_eq!(state.clip(300), Some("wake_up"));
+        state.wake(350, false);
+        assert_eq!(state.waking_since, Some(300));
         assert_eq!(state.clip(428), Some("wake_up"));
-        state.waking_since = None;
-        state.settled_since = None;
+        state.wake(429, true);
         assert_eq!(state.clip(429), None);
     }
 }

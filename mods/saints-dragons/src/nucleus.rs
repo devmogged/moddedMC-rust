@@ -383,6 +383,11 @@ fn spawn(world: World<'_>, origin: Pos, number: u8, controller_summoned: bool) -
     None
 }
 
+pub fn combat_center(mob: Entity<'_>) -> Option<[f64; 3]> {
+    let link: Link = fastnbt::from_bytes(&mob.data(ENCOUNTER)?).ok()?;
+    Some(link.position.map(|v| f64::from(v) + 0.5))
+}
+
 pub fn clean_up(world: World<'_>, mob: Entity<'_>) -> bool {
     if !(tick_count() + mob.id() as u64).is_multiple_of(20) {
         return false;

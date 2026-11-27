@@ -79,6 +79,20 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
     if phase == goal_phase::START && matches!(key, AMBIENT | crate::roster::AMBIENT) {
         crate::roster::finalize_spawn(world, mob);
     }
+    if matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE)
+        && !matches!(
+            key,
+            AMBIENT
+                | crate::roster::AMBIENT
+                | crate::combat::TARGETING
+                | crate::roost::GOAL
+                | crate::taming::RIDE_OR_SIT
+                | crate::stun::GOAL
+        )
+        && crate::roost::sleep_clip(mob.id()).is_some()
+    {
+        return false;
+    }
     match key {
         IDLE_LOOK => idle_look(phase, world, mob),
         GROUND_WANDER => ground_wander(phase, mob),
@@ -92,14 +106,18 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::flight::GOAL => crate::flight::goal(phase, world, mob),
         crate::roost::GOAL => crate::roost::goal(phase, world, mob),
         crate::swarm::WANDER => crate::swarm::wander(phase, world, mob),
+        crate::swarm::TARGETING => crate::swarm::targeting(phase, world, mob),
+        crate::swarm::COMBAT => crate::swarm::combat(phase, world, mob),
         crate::roster::AMBIENT => crate::roster::ambient(phase, world, mob),
         crate::stun::GOAL => crate::stun::goal(phase, world, mob),
         crate::breed::GOAL => crate::breed::goal(phase, world, mob),
         crate::wild::GOAL => crate::wild::goal(phase, world, mob),
+        crate::hunt::GOAL => crate::hunt::goal(phase, world, mob),
         AMBIENT => match phase {
             goal_phase::CAN_START | goal_phase::CONTINUE => true,
             goal_phase::TICK => {
-                crate::hunger::tick(world, mob, 0.30, Some(0.60));
+                crate::hunger::tick(world, mob, 0.30, Some(0.60), "cindervane");
+                crate::taming::regrow(mob);
                 if crate::eggs::grow(mob, "cindervane") {
                     if let Some(view) = mob.view() {
                         let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
@@ -113,7 +131,8 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
                     }
                     return false;
                 }
-                crate::taming::regrow(mob);
+                crate::hunt::tick(world, mob, "cindervane");
+                crate::roost::owner_tick(world, mob, "cindervane");
                 crate::combat::ambient(world, mob);
                 crate::visuals::tick(world, mob);
                 false
