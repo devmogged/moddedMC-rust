@@ -812,7 +812,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         None
     };
     let clip = clip.or_else(|| {
-        if name == "nulljaw" { return crate::combat_nulljaw::clip(mob); }
+        if name == "nulljaw" {
+            return crate::combat_nulljaw::clip(mob);
+        }
         if name == "stegonaut" {
             return crate::combat_stegonaut::clip(mob);
         }
@@ -840,8 +842,16 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     } else {
         clip
     };
-    let clip = clip.or_else(|| if name == "volitans" { crate::combat_volitans::ambient(world, mob) } else { None });
-    let clip = clip.or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count())).unwrap_or_else(|| species.clip(view, wet));
+    let clip = clip.or_else(|| {
+        if name == "volitans" {
+            crate::combat_volitans::ambient(world, mob)
+        } else {
+            None
+        }
+    });
+    let clip = clip
+        .or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count()))
+        .unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
     false
 }
