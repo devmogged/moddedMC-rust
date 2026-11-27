@@ -9,7 +9,7 @@ use moddedmc_api::{
     mobs::{Mobs, Spawn, SpawnCategory, SpawnCheck, SpawnLocation},
 };
 
-use crate::{ENTITIES, MOBS, taming};
+use crate::{CONTENT, ENTITIES, MOBS, TAGS, taming};
 
 const SPAWNS: &[Spawn<'static>] = &[
     Spawn {
@@ -44,8 +44,7 @@ const SPAWNS: &[Spawn<'static>] = &[
         location: SpawnLocation::Unrestricted,
         carrier_rules: true,
     },
-    // `Moop.canSpawnHere` and `Mossback.canSpawnHere` are vanilla's water animal and animal
-    // rules, the cod and wolf carriers' own.
+    // Moop uses vanilla's surface water animal rule, shared with cod.
     Spawn {
         kind: "saintsdragons:moop",
         biomes: "#saintsdragons:has_moop",
@@ -64,7 +63,7 @@ const SPAWNS: &[Spawn<'static>] = &[
         min_count: 1,
         max_count: 2,
         location: SpawnLocation::OnGround,
-        carrier_rules: true,
+        carrier_rules: false,
     },
 ];
 
@@ -118,6 +117,7 @@ fn check(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
                 && open(world, spawn.position)
                 && open(world, above)
         }
+        "saintsdragons:mossback" => mossback_ground(world, spawn.position),
         _ => true,
     }
 }
@@ -134,6 +134,20 @@ fn down(pos: Pos) -> Pos {
         y: pos.y - 1,
         ..pos
     }
+}
+
+/// `Animal.checkAnimalSpawnRules`, rather than the wolf's species-specific substrate.
+fn mossback_ground(world: World<'_>, pos: Pos) -> bool {
+    let (Some(content), Some(tags)) = (CONTENT.get(), TAGS.get()) else {
+        return false;
+    };
+    let mut state = [0];
+    world.read(&[down(pos)], &mut state)
+        && content.describe_state(state[0]).is_some_and(|state| {
+            let id = state.split('[').next().unwrap_or(&state);
+            tags.contains("block", "minecraft:animals_spawnable_on", id)
+        })
+        && world.raw_brightness(pos, 0).is_some_and(|light| light > 8)
 }
 
 fn dry(world: World<'_>, pos: Pos) -> bool {
@@ -181,41 +195,35 @@ pub fn density(world: World<'_>, kind: &str, pos: Pos) -> bool {
             TOTAL_DRAGON_LIMIT,
         )
     };
-    let center = [pos.x, pos.y, pos.z].map(|c| f64::from(c) + 0.5);
-    let all = dragons_near(world, pos, same_radius.max(any_radius));
-    let within = |p: [f64; 3], radius: f64| (0..3).all(|i| (p[i] - center[i]).abs() <= radius);
     // Java counts tamed ones of the same species too, except for Cindervane.
-    let same = all
+    let same = dragons_near(world, pos, same_radius)
         .iter()
-        .filter(|(k, tamed, p)| *k == kind && within(*p, same_radius) && !(cindervane && *tamed))
+        .filter(|(k, tamed)| *k == kind && !(cindervane && *tamed))
         .count();
     if same >= same_limit {
         return false;
     }
-    let wild = all
+    let wild = dragons_near(world, pos, any_radius)
         .iter()
-        .filter(|(_, tamed, p)| !tamed && within(*p, any_radius))
+        .filter(|(_, tamed)| !tamed)
         .count();
     wild < total_limit
 }
 
-/// (kind, tamed, position) of every live dragon in the cube of `radius` around the block's
-/// center.
-pub fn dragons_near(
-    world: World<'_>,
-    pos: Pos,
-    radius: f64,
-) -> Vec<(&'static str, bool, [f64; 3])> {
+/// (kind, tamed) of every live dragon intersecting the cube around the block's center.
+// shortcut: the host queries carrier boxes; use registered species dimensions once available.
+pub fn dragons_near(world: World<'_>, pos: Pos, radius: f64) -> Vec<(&'static str, bool)> {
     let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
         return Vec::new();
     };
     let center = [pos.x, pos.y, pos.z].map(|c| f64::from(c) + 0.5);
     entities
-        .entities_in(
+        .entities_matching(
             world,
             center.map(|c| c - radius),
             center.map(|c| c + radius),
             -1,
+            0,
         )
         .into_iter()
         .filter_map(|id| {
@@ -224,7 +232,7 @@ pub fn dragons_near(
                 if e.flags() & ENTITY_ALIVE == 0 {
                     return None;
                 }
-                Some((kind, taming::is_tamed(e), e.view()?.position))
+                Some((kind, taming::is_tamed(e)))
             })?
         })
         .collect()

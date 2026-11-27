@@ -25,9 +25,7 @@ testing in a real client.
 
 ## Pick and claim
 
-1. Start from fresh `origin/main` and run `scripts\clean.ps1`. Build caches otherwise grow by
-   tens of GB a day. Read your own open issues first: if you hold one, resume it
-   from its last comment.
+1. Read [docs/ENGINEERING-EXECUTION.md](../../../docs/ENGINEERING-EXECUTION.md) first. Inspect the exact worktree, branch, dirty/untracked paths, active workers and build processes. Start new work from fresh `origin/main` in an isolated worktree when the assigned checkout is dirty or shared. **Never run `scripts\clean.ps1`, reset, stash, checkout over, or remove files from a shared/dirty worktree** until every owner confirms it is disposable. Build-cache cleanup is a separate, scoped operation. Read your own open issues first: if you hold one, resume it from its last comment.
 2. Otherwise take the most useful unclaimed job. Bugs that players hit in mods nobody owns come
    first, then the next `port` row in docs/BUJA.md that most players will see, as long as the
    ports it depends on exist. If a port is blocked on host or engine support nobody is building,
@@ -41,9 +39,7 @@ testing in a real client.
 
 ## While working
 
-- Push small working commits to `main` often. Fetch and rebase first. Never force push `main`
-  or the engine's `moddedmc`. Commit as the person you work for, with conventional commits that
-  have a scope and no agent or tool attribution.
+- Make small, coherent commits on an owned feature branch. Fetch and rebase onto the current target before opening/updating a PR; never force-push `main` or the engine's `moddedmc`. Merge through an approved PR after review/CI, unless the maintainer explicitly directs a direct push. Commit as the person you work for, with conventional commits that have a scope and no agent or tool attribution. Follow the repository's three-open-PR limit.
 - Changes to shared code (`host/`, `api/`, `engine/pumpkin`, workspace `Cargo.toml`) stay
   generic, small and additive, and go in early so others build on them. The ABI is append-only.
   An engine pointer conflict means rebasing your engine commits onto the latest `moddedmc` and
@@ -51,13 +47,14 @@ testing in a real client.
 - Post a short comment on your issue at each milestone: what works, how you checked it, and what's
   next. That comment is the handoff. Another session, yours or anyone else's, has to be able to
   continue from it with nothing else.
+- Before repeating a failed scenario or build, record its run ID, exact source commit/tree, artifact path/hash, server PID, scenario and log path, failure signature, hypothesis and what changed since the previous attempt. Do not rerun an unchanged experiment; choose a discriminating test or implement the identified root-cause fix.
+- Treat the build/package/runtime gate as exclusive. One coordinator owns Cargo, packaging and server scenarios at a time; other workers continue only in disjoint owned source paths and do not launch competing builds. Every runtime result must identify the exact artifact it exercised.
 - When you find a separate bug, open an issue for it rather than widening your job.
 
 ## Finishing
 
 A job is done when it works in game and its scenarios pass. Write a real-client checklist for
 anything a bot can't see, like rendering, GUIs or sounds, and post it on the issue for your person.
-Then close the issue and pick the next job straight away.
+Then close the issue and pick the next job straight away. A source implementation, unit test, compile, bot scenario, forced-crash scenario and real stock-client check are separate evidence levels; never report one as another. Update the acceptance ledger when evidence changes.
 
-Before a session ends for any reason (context, usage or time), push what works and leave the
-handoff comment, so nothing lives only on your machine.
+Before a session ends for any reason (context, usage or time), commit and push only the owned, reviewed working slice and leave the handoff comment, so nothing lives only on your machine. Never stage the entire shared worktree or include another owner's dirty/untracked files.

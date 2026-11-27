@@ -24,6 +24,8 @@ pub type HurtHandler =
 pub enum MobAiExtension {
     /// `on_hurt`, `last_hurt_by` and `attack`.
     Combat,
+    /// `damage_source`.
+    DamageSource,
 }
 
 #[derive(Clone, Copy)]
@@ -83,6 +85,10 @@ impl MobAi {
                 std::mem::offset_of!(abi::MobAiV1, attack),
                 "moddedmc:mob_ai.combat",
             ),
+            MobAiExtension::DamageSource => (
+                std::mem::offset_of!(abi::MobAiV1, damage_source),
+                "moddedmc:mob_ai.damage_source",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -130,6 +136,18 @@ impl MobAi {
         };
         // SAFETY: the world and mob are live for this callback.
         unsafe { ((&raw const (*api).attack).read())(world.raw(), mob.raw(), target, amount) }
+    }
+
+    /// The causing and direct entity ids for the current mob hurt or worn hurt callback.
+    /// Either id may be -1. None outside those callbacks or on an older host.
+    pub fn damage_source(self) -> Option<(i32, i32)> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobAiV1, damage_source))?;
+        let (mut causing, mut direct) = (-1, -1);
+        // SAFETY: both output slots are writable for the duration of the call.
+        unsafe { ((&raw const (*api).damage_source).read())(&raw mut causing, &raw mut direct) }
+            .then_some((causing, direct))
     }
 
     /// Set the mod's goal handler, once, before adding goals. Needs `moddedmc:entities`.

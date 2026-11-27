@@ -6,16 +6,21 @@ wait 3
 cmd op tester
 cmd gamemode creative tester
 cmd gamerule minecraft:spawn_mobs false
+cmd gamerule minecraft:mob_drops false
 cmd tp tester 1025.5 100 1029.5
 cmd forceload add 1025 1025
 wait 3
 cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
 cmd fill 1013 100 1013 1037 110 1037 minecraft:air
 cmd saintsdragons spawn volitans 1023 100 1025
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},x=1023.5,y=100,z=1025.5,sort=nearest,limit=1] {NoAI:1b,Tags:["volitans_female"]}
 cmd saintsdragons spawn volitans 1027 100 1025
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},tag=!volitans_female,x=1027.5,y=100,z=1025.5,sort=nearest,limit=1] {NoAI:1b,Tags:["volitans_male"]}
 wait 2.5
-cmd data merge entity @e[type=minecraft:ravager,x=1023.5,y=100,z=1025.5,distance=..2,limit=1] {data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
-cmd data merge entity @e[type=minecraft:ravager,x=1027.5,y=100,z=1025.5,distance=..2,limit=1] {data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
+cmd tp @e[tag=volitans_female,limit=1] 1023.5 100 1025.5
+cmd tp @e[tag=volitans_male,limit=1] 1027.5 100 1025.5
+cmd data merge entity @e[tag=volitans_female,limit=1] {data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+cmd data merge entity @e[tag=volitans_male,limit=1] {data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1023.5 100 1025.5 off
@@ -43,6 +48,8 @@ wait 0.5
 expect Volitans is already ready to breed
 bot input none
 cmd fill 1017 100 1017 1033 103 1033 minecraft:water
+cmd data merge entity @e[tag=volitans_female,limit=1] {NoAI:0b}
+cmd data merge entity @e[tag=volitans_male,limit=1] {NoAI:0b}
 wait 8
 cmd fill 1017 100 1017 1033 103 1033 saintsdragons:volitans_egg[hatch=1,waterlogged=true] replace saintsdragons:volitans_egg[hatch=0,waterlogged=true]
 wait 0.5
@@ -75,12 +82,15 @@ wait 0.5
 expect Nulljaw is ready to breed!
 bot input none
 wait 7
-cmd data get entity @e[type=minecraft:spider,tag=!nulljaw_parent,limit=1] data."saintsdragons:growth".remaining
+cmd data get entity @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},tag=!nulljaw_parent,limit=1] data."saintsdragons:growth".remaining
 wait 0.5
 expect has the following entity data: 23[0-9]{3}
-cmd data get entity @e[type=minecraft:spider,tag=!nulljaw_parent,limit=1] Health
+cmd data get entity @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},tag=!nulljaw_parent,limit=1] Health
 wait 0.5
 expect has the following entity data: 70f
+cmd execute unless entity @e[type=minecraft:experience_orb,x=1025,y=110,z=1025,distance=..24]
+wait 0.5
+expect Test passed
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop

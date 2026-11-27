@@ -190,6 +190,32 @@ pub enum MobsExtension {
     Trading,
     /// `Mobs::award_advancement`.
     Advancements,
+    /// Game-time combat history in both directions.
+    CombatHistory,
+}
+
+#[cfg(test)]
+mod combat_history_tests {
+    use super::*;
+
+    #[test]
+    fn combat_history_requires_both_appended_fields() {
+        for size in [224, 232] {
+            let mobs = Mobs(InterfacePrefix {
+                ptr: std::ptr::null(),
+                size,
+            });
+            assert!(
+                mobs.require_extension(MobsExtension::CombatHistory)
+                    .is_err()
+            );
+        }
+        let mobs = Mobs(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: size_of::<abi::MobsV1>(),
+        });
+        assert!(mobs.require_extension(MobsExtension::CombatHistory).is_ok());
+    }
 }
 
 /// Where a spawn entry's mob can appear (vanilla `SpawnPlacementTypes`).
@@ -335,6 +361,10 @@ impl Mobs {
                 std::mem::offset_of!(abi::MobsV1, award_advancement),
                 "moddedmc:mobs.advancements",
             ),
+            MobsExtension::CombatHistory => (
+                std::mem::offset_of!(abi::MobsV1, last_hurt_by_mob),
+                "moddedmc:mobs.combat_history",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -411,6 +441,107 @@ impl Mobs {
                 abi::Str::new(advancement.as_bytes()),
                 abi::Str::new(criterion.as_bytes()),
             )
+        }
+    }
+
+    /// Last living target damaged by this entity, as (entity id, game time).
+    pub fn last_hurt_mob(self, mob: Entity<'_>) -> Option<(i32, i64)> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, last_hurt_mob))?;
+        let mut timestamp = 0;
+        // SAFETY: the field is present, the entity is borrowed and the output is writable.
+        let id =
+            unsafe { ((&raw const (*api).last_hurt_mob).read())(mob.raw(), &raw mut timestamp) };
+        (id >= 0).then_some((id, timestamp))
+    }
+
+    /// Remembered living attacker, as (entity id, game time).
+    pub fn last_hurt_by_mob(self, mob: Entity<'_>) -> Option<(i32, i64)> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, last_hurt_by_mob))?;
+        let mut timestamp = 0;
+        // SAFETY: the field is present, the entity is borrowed and the output is writable.
+        let id =
+            unsafe { ((&raw const (*api).last_hurt_by_mob).read())(mob.raw(), &raw mut timestamp) };
+        (id >= 0).then_some((id, timestamp))
+    }
+
+    /// Vanilla kill credit, including the remembered attacker during its timeout.
+    pub fn kill_credit(self, mob: Entity<'_>) -> Option<i32> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, kill_credit))?;
+        // SAFETY: the field is present and the entity is borrowed.
+        let id = unsafe { ((&raw const (*api).kill_credit).read())(mob.raw()) };
+        (id >= 0).then_some(id)
+    }
+
+    /// Whether a player is sleeping.
+    pub fn player_sleeping(self, player: Entity<'_>) -> Option<bool> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, player_sleeping))?;
+        // SAFETY: the field is present and the entity is borrowed.
+        match unsafe { ((&raw const (*api).player_sleeping).read())(player.raw()) } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+
+    /// Award experience at a world position.
+    pub fn award_experience(
+        self,
+        world: World<'_>,
+        position: [f64; 3],
+        amount: u32,
+    ) -> Option<bool> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, award_experience))?;
+        // SAFETY: the field is present and the world is borrowed.
+        Some(unsafe {
+            ((&raw const (*api).award_experience).read())(world.raw(), abi::Vec3(position), amount)
+        })
+    }
+
+    /// Increment a vanilla statistic identified by its category and registry key.
+    pub fn award_stat(
+        self,
+        player: Entity<'_>,
+        category: &str,
+        stat: &str,
+        amount: i32,
+    ) -> Option<bool> {
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, award_stat))?;
+        // SAFETY: the field is present and all inputs live through the call.
+        Some(unsafe {
+            ((&raw const (*api).award_stat).read())(
+                player.raw(),
+                abi::Str::new(category.as_bytes()),
+                abi::Str::new(stat.as_bytes()),
+                amount,
+            )
+        })
+    }
+
+    /// Read a boolean gamerule by its vanilla registry key.
+    pub fn boolean_gamerule(self, world: World<'_>, rule: &str) -> Option<bool> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, boolean_gamerule))?;
+        // SAFETY: the field is present and both inputs live through the call.
+        match unsafe {
+            ((&raw const (*api).boolean_gamerule).read())(
+                world.raw(),
+                abi::Str::new(rule.as_bytes()),
+            )
+        } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
         }
     }
 

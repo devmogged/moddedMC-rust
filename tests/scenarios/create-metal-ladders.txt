@@ -1,0 +1,78 @@
+# Metal ladders hang from matching ladders and extend from the clicked run.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:andesite_ladder \(8 states\) && registered content block create:brass_ladder \(8 states\) && registered content block create:copper_ladder \(8 states\)
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 1026.5 105 1024.5 0 12
+await 10 \[bot\] teleported to .*1026\.5.*1024\.5
+wait 2
+cmd fill 1024 105 1024 1032 110 1032 minecraft:air
+cmd fill 1024 104 1024 1032 104 1032 minecraft:stone
+await 5 Successfully filled
+cmd gamemode survival tester
+cmd recipe give tester create:brass_ladder_from_ingots_brass_stonecutting
+await 5 Unlocked 1 recipe
+cmd setblock 1026 107 1028 minecraft:stone
+cmd setblock 1026 108 1028 minecraft:stone
+cmd item replace entity tester hotbar.0 with create:brass_ladder 3
+wait 0.4
+bot place 1026 107 1028 north
+await 5 \[bot\] sound: block.copper.place
+cmd execute if block 1026 107 1027 create:brass_ladder[facing=north,waterlogged=false] if block 1026 107 1027 #minecraft:climbable
+await 5 Test passed
+
+cmd setblock 1026 106 1027 minecraft:water[level=0]
+bot look 0 15
+wait 0.4
+bot use 1026 107 1027 north
+await 5 \[bot\] sound: block.copper.place
+cmd execute if block 1026 106 1027 create:brass_ladder[facing=north,waterlogged=true]
+await 5 Test passed
+bot expect block 1026 106 1027 minecraft:waxed_exposed_copper_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=true]
+await 5 \[bot\] expect block ok 1026 106 1027
+
+bot look 0 -25
+wait 0.4
+bot use 1026 107 1027 north
+await 5 \[bot\] sound: block.copper.place
+cmd execute if block 1026 108 1027 create:brass_ladder[facing=north,waterlogged=false]
+await 5 Test passed
+cmd clear tester create:brass_ladder 0
+await 5 No items were found on player tester
+cmd setblock 1028 105 1026 minecraft:waxed_exposed_copper_trapdoor[facing=east,half=top,open=false,powered=true,waterlogged=false] strict
+wait 0.25
+bot expect block 1028 105 1026 minecraft:exposed_copper_trapdoor[facing=east,half=top,open=false,powered=true,waterlogged=false]
+await 5 \[bot\] expect block ok 1028 105 1026
+
+cmd save-all flush
+await 10 Saved the game
+stop
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if block 1026 106 1027 create:brass_ladder[facing=north,waterlogged=true] if block 1026 107 1027 create:brass_ladder if block 1026 108 1027 create:brass_ladder
+await 5 Test passed
+cmd setblock 1025 108 1027 minecraft:stone
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.4
+bot use 1026 108 1027 up
+await 5 \[bot\] sound: block.wooden_trapdoor.close
+cmd execute if block 1026 108 1027 create:brass_ladder[facing=east]
+await 5 Test passed
+bot input sneak
+wait 0.4
+bot use 1026 108 1027 north
+wait 0.4
+cmd execute if block 1026 108 1027 minecraft:air
+await 5 Test passed
+cmd clear tester create:brass_ladder 0
+await 5 Found 1 matching item
+bot input none
+cmd setblock 1026 107 1028 minecraft:air
+wait 0.5
+cmd execute if block 1026 107 1027 minecraft:air if block 1026 106 1027 minecraft:water[level=0]
+await 5 Test passed
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop

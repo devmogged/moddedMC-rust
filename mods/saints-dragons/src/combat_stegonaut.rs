@@ -7,6 +7,10 @@ use moddedmc_api::{
     mob_ai::{Goal, goal_control, goal_phase},
 };
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Mutex, PoisonError},
+};
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, abilities, eggs, flight, hunger, taming};
 
@@ -373,7 +377,18 @@ fn hit(world: World<'_>, mob: Entity<'_>, id: i32, attack: i32) {
             return;
         }
         let (_, damage, push, lift, _) = attack_spec(attack);
-        ai.attack(world, mob, id, damage * hunger::melee_multiplier(mob));
+        let damage = damage * hunger::melee_multiplier(mob);
+        if attack == 2 {
+            // Java adds four points to the configured eight, then uses mobAttack.
+            if target
+                .hurt_by(mob.id(), "minecraft:mob_attack", damage)
+                .is_none()
+            {
+                ai.attack(world, mob, id, damage);
+            }
+        } else {
+            ai.attack(world, mob, id, damage);
+        }
         if let Some(target_view) = target.view() {
             let yaw = f64::from(view.yaw).to_radians();
             let pitch = f64::from(view.pitch).to_radians();
@@ -491,7 +506,69 @@ pub fn fight(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     false
 }
 
+type Uuid = [u8; 16];
+type AuraKey = (&'static str, Uuid);
+type AuraTargets = HashMap<AuraKey, HashSet<Uuid>>;
+static AURA_TARGETS: std::sync::LazyLock<Mutex<AuraTargets>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn replace_targets(key: AuraKey, current: HashSet<Uuid>) -> Vec<Uuid> {
+    let mut tracked = AURA_TARGETS.lock().unwrap_or_else(PoisonError::into_inner);
+    let previous = tracked.remove(&key).unwrap_or_default();
+    let missing = previous.difference(&current).copied().collect();
+    if !current.is_empty() {
+        tracked.insert(key, current);
+    }
+    missing
+}
+
+fn clear_missing(world: World<'_>, key: AuraKey, current: HashSet<Uuid>) {
+    let missing = replace_targets(key, current);
+    if let (Some(mobs), Some(entities)) = (MOBS.get(), ENTITIES.get()) {
+        for uuid in missing {
+            if let Some(id) = mobs.by_uuid(world, &uuid) {
+                entities.with_entity(world, id, |target| {
+                    target.remove_effect("minecraft:resistance");
+                    target.remove_effect("minecraft:absorption");
+                });
+            }
+        }
+    }
+}
+
+/// StegonautBuffAbility.clearAuraTargets on removal, including capture by a binder.
+/// shortcut: without a removal callback, detect a missing source on the next world tick.
+pub fn sweep_aura(world: World<'_>) {
+    let (Some(dimension), Some(mobs), Some(entities)) =
+        (world.dimension_id(), MOBS.get(), ENTITIES.get())
+    else {
+        return;
+    };
+    let keys: Vec<_> = AURA_TARGETS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .keys()
+        .filter(|(dim, _)| *dim == dimension)
+        .copied()
+        .collect();
+    for key in keys {
+        let active = mobs.by_uuid(world, &key.1).is_some_and(|id| {
+            entities
+                .with_entity(world, id, |mob| {
+                    stegonaut(mob)
+                        && taming::is_tamed(mob)
+                        && mob.flags() & moddedmc_api::entities::ENTITY_ALIVE != 0
+                })
+                .unwrap_or(false)
+        });
+        if !active {
+            clear_missing(world, key, HashSet::new());
+        }
+    }
+}
+
 /// StegonautBuffAbility: every 20 ticks, renew resistance I and absorption I for 40 ticks.
+/// Remove both effects from targets which leave this dragon's aura, as in Java.
 pub fn aura(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     if phase != goal_phase::TICK {
         return matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE);
@@ -499,25 +576,48 @@ pub fn aura(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     if !moddedmc_api::tick_count().is_multiple_of(20) {
         return false;
     }
-    let (Some(owner), Some(mobs), Some(entities)) =
-        (taming::owner(mob), MOBS.get(), ENTITIES.get())
-    else {
+    let (Some(owner), Some(mobs), Some(entities), Some(dimension)) = (
+        taming::owner(mob),
+        MOBS.get(),
+        ENTITIES.get(),
+        world.dimension_id(),
+    ) else {
         return false;
     };
+    let Some(uuid) = mobs.uuid(mob) else {
+        return false;
+    };
+    let mut current = HashSet::new();
     for id in nearby(world, mob, 8.0) {
         entities.with_entity(world, id, |target| {
-            if mobs.uuid(target) == Some(owner) || taming::owner(target) == Some(owner) {
+            if target.flags() & moddedmc_api::entities::ENTITY_ALIVE != 0
+                && let Some(target_uuid) = mobs.uuid(target)
+                && (target_uuid == owner || taming::owner(target) == Some(owner))
+            {
                 target.add_effect("minecraft:resistance", 40, 0, false, false);
                 target.add_effect("minecraft:absorption", 40, 0, false, false);
+                current.insert(target_uuid);
             }
         });
     }
+    clear_missing(world, (dimension, uuid), current);
     false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn aura_removes_only_targets_missing_from_this_source() {
+        let a = [1; 16];
+        let b = [2; 16];
+        let key = ("test:stegonaut_aura", [3; 16]);
+        assert!(replace_targets(key, HashSet::from([a, b])).is_empty());
+        assert_eq!(replace_targets(key, HashSet::from([b])), vec![a]);
+        assert_eq!(replace_targets(key, HashSet::new()), vec![b]);
+        assert!(replace_targets(key, HashSet::new()).is_empty());
+    }
 
     #[test]
     fn combat_nbt_preserves_cooldowns_and_parent() {

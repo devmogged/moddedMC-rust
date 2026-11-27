@@ -75,6 +75,8 @@ impl Hunger {
 
 // The happiness each dragon's speed was last set for; keeps attribute writes to changes.
 static APPLIED: Mutex<Option<HashMap<i32, u8>>> = Mutex::new(None);
+// Cache the effective attack damage, including age changes, for roster dragons.
+static APPLIED_MELEE: Mutex<Option<HashMap<i32, f64>>> = Mutex::new(None);
 
 pub fn level(mob: Entity<'_>) -> i32 {
     Hunger::load(mob).hunger
@@ -124,7 +126,7 @@ fn ridden_by_player(world: World<'_>, mob: Entity<'_>) -> bool {
 
 /// Hunger decay and starvation for every dragon, and happiness decay and its slowdown for a
 /// tamed one. `speed` is the species' base ground speed and `flying` its base flying speed.
-pub fn tick(world: World<'_>, mob: Entity<'_>, speed: f64, flying: Option<f64>) {
+pub fn tick(world: World<'_>, mob: Entity<'_>, speed: f64, flying: Option<f64>, species: &str) {
     if !(tick_count().wrapping_add(mob.id() as u64)).is_multiple_of(STEP as u64) {
         return;
     }
@@ -164,6 +166,32 @@ pub fn tick(world: World<'_>, mob: Entity<'_>, speed: f64, flying: Option<f64>) 
     state.save(mob);
     // An untamed dragon runs at full speed (`clearSpeedModifiers`).
     apply_speed(mob, happiness.unwrap_or(100), speed, flying);
+    // Varasuchus's abilities apply hunger directly to the live attack attribute.
+    // Rewriting that attribute here would apply hunger twice and erase modifiers.
+    if species != "varasuchus"
+        && let Some(base) = crate::roster::melee_base(
+            species,
+            species == "ignivorus" && crate::eggs::is_juvenile(mob),
+        )
+    {
+        apply_melee(mob, base * f64::from(multiplier(state.hunger)));
+    }
+}
+
+/// Apply `getMeleeDamageMultiplier` to the carrier's attack attribute. Cindervane
+/// already scales its own abilities and is deliberately excluded.
+fn apply_melee(mob: Entity<'_>, damage: f64) {
+    let Some(health) = crate::MOB_HEALTH.get() else {
+        return;
+    };
+    let mut applied = APPLIED_MELEE.lock().unwrap_or_else(PoisonError::into_inner);
+    let applied = applied.get_or_insert_default();
+    // Always write on first observation, including full hunger after a reload.
+    if applied.get(&mob.id()) != Some(&damage)
+        && health.set_attribute(mob, "minecraft:attack_damage", damage)
+    {
+        applied.insert(mob.id(), damage);
+    }
 }
 
 fn apply_speed(mob: Entity<'_>, happiness: u8, speed: f64, flying: Option<f64>) {
@@ -209,6 +237,13 @@ pub fn hit(world: World<'_>, mob: Entity<'_>) {
 }
 
 pub fn forget(id: i32) {
+    if let Some(applied) = APPLIED_MELEE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        applied.remove(&id);
+    }
     if let Some(applied) = APPLIED
         .lock()
         .unwrap_or_else(PoisonError::into_inner)

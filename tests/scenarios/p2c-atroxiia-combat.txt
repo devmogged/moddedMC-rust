@@ -16,17 +16,41 @@ await 30 Successfully filled|No blocks were filled
 cmd time set midnight
 wait 3
 cmd saintsdragons spawn atroxiia 1025 120 1025
+cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},x=1025.5,y=120,z=1025.5,distance=..2,sort=nearest,limit=1] add atroxiia_probe_1
 cmd summon minecraft:warden 1025.5 120 1028.25 {NoAI:1b,Silent:1b,Tags:["atroxiia_target"]}
 wait 2
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] 1025.5 120 1025.5 0 0
+cmd tp @e[tag=atroxiia_probe_1,limit=1] 1025.5 120 1025.5 0 0
 wait 0.25
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] 1 minecraft:mob_attack by @e[tag=atroxiia_target,limit=1]
+cmd damage @e[tag=atroxiia_probe_1,limit=1] 1 minecraft:mob_attack by @e[tag=atroxiia_target,limit=1]
 wait 1.25
-cmd data get entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] data."saintsdragons:atroxiia_combat".last
+cmd data get entity @e[tag=atroxiia_probe_1,limit=1] data."saintsdragons:atroxiia_combat".last
 cmd data get entity @e[tag=atroxiia_target,limit=1] Health
 wait 0.5
 expect has the following entity data: "?Sweep"?
 expect Warden has the following entity data: 4[0-9]{2}(?:\.[0-9]+)?f
+# A wall blocks new attack selection; opening the lane permits Precise Strike
+# and its native freeze counter. The 140-tick host cap prevents a live
+# Quake-to-Gungnir follow-up on ordinary ground; unit tests cover the reservation.
+cmd kill @e[tag=atroxiia_probe_1,limit=1]
+cmd kill @e[tag=atroxiia_target]
+wait 2
+cmd fill 1007 120 1028 1051 129 1028 minecraft:stone
+cmd saintsdragons spawn atroxiia 1025 120 1025
+cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},x=1025.5,y=120,z=1025.5,distance=..2,sort=nearest,limit=1] add atroxiia_probe_2
+cmd summon minecraft:warden 1025.5 120 1031.0 {NoAI:1b,Silent:1b,Tags:["atroxiia_frost_target"]}
+wait 1
+cmd tp @e[tag=atroxiia_probe_2,limit=1] 1025.5 120 1025.5 0 0
+cmd damage @e[tag=atroxiia_probe_2,limit=1] 1 minecraft:mob_attack by @e[tag=atroxiia_frost_target,limit=1]
+wait 1
+cmd data get entity @e[tag=atroxiia_frost_target,limit=1] Health
+expect Warden has the following entity data: 500(?:\.0+)?f
+cmd tp @e[tag=atroxiia_probe_2,limit=1] 1025.5 120 1025.5 0 0
+cmd fill 1007 120 1028 1051 129 1028 minecraft:air
+wait 1.25
+cmd data get entity @e[tag=atroxiia_probe_2,limit=1] data."saintsdragons:atroxiia_combat".last
+cmd data get entity @e[tag=atroxiia_frost_target,limit=1] TicksFrozen
+expect has the following entity data: "?Precise"?
+expect Warden has the following entity data: [1-9][0-9]{0,2}$
 reject (?i)panic|panicked
 bot quit
 stop

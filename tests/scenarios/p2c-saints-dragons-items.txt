@@ -24,8 +24,8 @@ cmd time set midnight
 cmd saintsdragons spawn cindervane 24 105 26
 wait 0.5
 expect saintsdragons:cindervane: spawned
-cmd damage @e[type=minecraft:ravager,limit=1] 2 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 2 minecraft:generic
 wait 0.5
-expect \[bot\] sound: entity.ender_dragon.hurt
+expect \[bot\] (entity )?sound: saintsdragons:cindervane_hurt
 bot quit
 stop

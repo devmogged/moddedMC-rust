@@ -19,43 +19,50 @@
     "craft_cindervane_binder": {
       "trigger": "minecraft:recipe_crafted",
       "conditions": {
-        "recipe_id": "saintsdragons:cindervane_binder"
+        "recipe_id": "saintsdragons:cindervane_binder",
+        "recipe": "saintsdragons:cindervane_binder"
       }
     },
     "craft_ignivorus_binder": {
       "trigger": "minecraft:recipe_crafted",
       "conditions": {
-        "recipe_id": "saintsdragons:ignivorus_binder"
+        "recipe_id": "saintsdragons:ignivorus_binder",
+        "recipe": "saintsdragons:ignivorus_binder"
       }
     },
     "craft_nulljaw_binder": {
       "trigger": "minecraft:recipe_crafted",
       "conditions": {
-        "recipe_id": "saintsdragons:nulljaw_binder"
+        "recipe_id": "saintsdragons:nulljaw_binder",
+        "recipe": "saintsdragons:nulljaw_binder"
       }
     },
     "craft_raevyx_binder": {
       "trigger": "minecraft:recipe_crafted",
       "conditions": {
-        "recipe_id": "saintsdragons:raevyx_binder"
+        "recipe_id": "saintsdragons:raevyx_binder",
+        "recipe": "saintsdragons:raevyx_binder"
       }
     },
     "craft_stegonaut_binder": {
       "trigger": "minecraft:recipe_crafted",
       "conditions": {
-        "recipe_id": "saintsdragons:stegonaut_binder"
+        "recipe_id": "saintsdragons:stegonaut_binder",
+        "recipe": "saintsdragons:stegonaut_binder"
       }
     },
     "craft_varasuchus_binder": {
       "trigger": "minecraft:recipe_crafted",
       "conditions": {
-        "recipe_id": "saintsdragons:varasuchus_binder"
+        "recipe_id": "saintsdragons:varasuchus_binder",
+        "recipe": "saintsdragons:varasuchus_binder"
       }
     },
     "craft_volitans_binder": {
       "trigger": "minecraft:recipe_crafted",
       "conditions": {
-        "recipe_id": "saintsdragons:volitans_binder"
+        "recipe_id": "saintsdragons:volitans_binder",
+        "recipe": "saintsdragons:volitans_binder"
       }
     }
   },

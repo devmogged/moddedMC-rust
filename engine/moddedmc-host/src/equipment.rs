@@ -13,7 +13,7 @@ use pumpkin_core::{
     },
     server::Server,
 };
-use pumpkin_data::data_component_impl::{EquipmentSlot, IDSetContent};
+use pumpkin_data::data_component_impl::EquipmentSlot;
 
 use crate::{lock, native};
 
@@ -191,13 +191,13 @@ impl EventHandler<EntityDamageEvent> for WornHurtHandler {
             }
             let ids = [0, 1, 2, 3].map(|slot| Str::new(armor[slot].as_bytes()));
             // `registry_key` is the death message id (`inFire`); this is `minecraft:in_fire`.
-            let name = IDSetContent::to_string(&event.damage_type);
+            let name = crate::mob_ai::damage_type_name(server, &event.damage_type);
             let world = player.living_entity.entity.world.load_full();
             let fall = player.living_entity.fall_distance.load();
             let base: &dyn EntityBase = player.as_ref();
             for (item, callback) in worn {
                 // SAFETY: the world, player and ids outlive this synchronous callback.
-                let amount = unsafe {
+                let amount = crate::mob_ai::with_damage_source(event, || unsafe {
                     callback(
                         ptr::from_ref(world.as_ref()).cast(),
                         Str::new(item.as_bytes()),
@@ -207,7 +207,7 @@ impl EventHandler<EntityDamageEvent> for WornHurtHandler {
                         event.damage,
                         fall,
                     )
-                };
+                });
                 if amount < 0.0 {
                     event.set_cancelled(true);
                     return;

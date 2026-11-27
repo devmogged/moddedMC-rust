@@ -13,6 +13,19 @@ pub const TARGETING: u64 = 120;
 pub const COMBAT: u64 = 121;
 const DATA: &str = "saintsdragons:raevyx_combat";
 const RANGE: f64 = 64.0;
+const STORM_DURATION: i32 = 1200;
+const STORM_COOLDOWN: i32 = 4800;
+pub const STORM_COMMAND: u64 = 130;
+
+pub fn require(
+    content: moddedmc_api::content::Content,
+    entities: moddedmc_api::entities::Entities,
+) -> Result<(), moddedmc_api::InterfaceUnavailable> {
+    use moddedmc_api::{content::WorldExtension, entities::EntitiesExtension};
+    content.require_extension(WorldExtension::WeatherControl)?;
+    content.require_extension(WorldExtension::Raycast)?;
+    entities.require_extension(EntitiesExtension::CombatEffects)
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 enum Attack {
@@ -77,6 +90,11 @@ struct State {
     dive_drop: f64,
     dive_peak: f64,
     dive_rider: Option<i32>,
+    storm_age: Option<i32>,
+    storm_air: bool,
+    storm_cooldown: i32,
+    supercharge: i32,
+    precharge_max: f32,
 }
 
 impl Default for State {
@@ -104,11 +122,20 @@ impl Default for State {
             dive_drop: 0.0,
             dive_peak: 0.0,
             dive_rider: None,
+            storm_age: None,
+            storm_air: false,
+            storm_cooldown: 0,
+            supercharge: 0,
+            precharge_max: 0.0,
         }
     }
 }
 
 impl State {
+    fn damage_multiplier(&self) -> f32 {
+        if self.supercharge > 0 { 2.0 } else { 1.0 }
+    }
+
     fn load(mob: Entity<'_>) -> Self {
         mob.data(DATA)
             .and_then(|nbt| fastnbt::from_bytes(&nbt).ok())
@@ -269,22 +296,24 @@ fn sound(world: World<'_>, mob: Entity<'_>, name: &str, volume: f32) {
     }
 }
 
-/// The released lightning source is attributed to the dragon. The host only supports
-/// unattributed typed damage, so use mobAttack for dragons and vanilla lightning otherwise.
-fn lightning(world: World<'_>, mob: Entity<'_>, id: i32, amount: f32) {
-    if let (Some(entities), Some(ai), Some(mobs)) = (ENTITIES.get(), MOB_AI.get(), MOBS.get()) {
+/// Chain and beam use mobAttack against dragons, custom lightning against other targets.
+/// Roar always uses the custom source.
+fn lightning(world: World<'_>, mob: Entity<'_>, id: i32, amount: f32, dragon_melee: bool) {
+    if let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) {
         entities.with_entity(world, id, |target| {
             if !enemy(mob, target) || mobs.kind(target) == Some("saintsdragons:raevyx") {
                 return;
             }
-            if mobs
-                .kind(target)
-                .is_some_and(|kind| kind.starts_with("saintsdragons:"))
+            let damage_type = if dragon_melee
+                && mobs
+                    .kind(target)
+                    .is_some_and(|kind| kind.starts_with("saintsdragons:"))
             {
-                ai.attack(world, mob, id, amount);
+                "minecraft:mob_attack"
             } else {
-                target.hurt("minecraft:lightning_bolt", amount);
-            }
+                "saintsdragons:raevyx_lightning"
+            };
+            target.hurt_by(mob.id(), damage_type, amount);
         });
     }
 }
@@ -321,12 +350,12 @@ fn chain(
             });
         let Some((id, next_at, _)) = next else {
             if index == 0 {
-                lightning(world, mob, start, amount);
+                lightning(world, mob, start, amount, true);
                 spark(world, at, 10);
             }
             break;
         };
-        lightning(world, mob, id, amount);
+        lightning(world, mob, id, amount, true);
         arc(world, at, next_at);
         hit.push(id);
         at = next_at;
@@ -356,19 +385,98 @@ fn melee(world: World<'_>, mob: Entity<'_>, id: i32, amount: f32, push: [f64; 3]
     }
 }
 
-fn clear_line(world: World<'_>, from: [f64; 3], to: [f64; 3]) -> bool {
-    let steps = (distance(from, to) * 4.0).ceil().max(1.0) as i32;
-    (1..steps).all(|i| {
-        let p =
-            std::array::from_fn(|j| from[j] + (to[j] - from[j]) * f64::from(i) / f64::from(steps));
-        world
-            .collision_shape(flight::cell(p))
-            .is_some_and(|shape| shape.is_empty())
-    })
+/// Collider ray, ignoring fluids and other entities for line of sight.
+fn clear_line(world: World<'_>, mob: Entity<'_>, from: [f64; 3], to: [f64; 3]) -> bool {
+    world
+        .raycast(from, to, Some(mob.id()))
+        .is_some_and(|(block, _)| block.is_none())
+}
+
+fn damage_after_armor(damage: f32, armor: f32, toughness: f32) -> f32 {
+    let reduction = (armor - damage / (2.0 + toughness / 4.0))
+        .max(armor * 0.2)
+        .min(20.0);
+    damage * (1.0 - reduction / 25.0)
+}
+
+/// RaevyxHornGoreAbility.solveRawDamageForPostArmor.
+fn gore_raw(damage: f32, armor: f32, toughness: f32, penetration: f32) -> f32 {
+    let desired = damage_after_armor(damage, (armor - penetration).max(0.0), toughness);
+    let mut lo = 0.0;
+    let mut hi = (desired + 16.0).max(16.0);
+    for _ in 0..8 {
+        if damage_after_armor(hi, armor, toughness) >= desired {
+            break;
+        }
+        hi *= 2.0;
+    }
+    for _ in 0..20 {
+        let mid = (lo + hi) * 0.5;
+        if damage_after_armor(mid, armor, toughness) < desired {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) * 0.5
+}
+
+/// RaevyxGroundRendAbility.rawDamageForDesiredPostArmor.
+fn rend_raw(desired: f32, armor: f32, toughness: f32) -> f32 {
+    let mut lo = desired;
+    let mut hi = desired.max(1.0);
+    for _ in 0..8 {
+        if damage_after_armor(hi, armor, toughness) >= desired {
+            break;
+        }
+        hi *= 2.0;
+    }
+    for _ in 0..14 {
+        let mid = (lo + hi) * 0.5;
+        if damage_after_armor(mid, armor, toughness) < desired {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    hi
+}
+
+fn armor_hit(
+    world: World<'_>,
+    mob: Entity<'_>,
+    id: i32,
+    raw: impl FnOnce(f32, f32) -> f32,
+    push: [f64; 3],
+) {
+    if let Some(entities) = ENTITIES.get() {
+        entities.with_entity(world, id, |target| {
+            if !enemy(mob, target) {
+                return;
+            }
+            let armor = target.attribute_value("minecraft:armor").unwrap_or(0.0) as f32;
+            let toughness = target
+                .attribute_value("minecraft:armor_toughness")
+                .unwrap_or(0.0) as f32;
+            target.hurt_by(
+                mob.id(),
+                "minecraft:mob_attack",
+                raw(armor.max(0.0), toughness),
+            );
+            if let Some(view) = target.view() {
+                target.change(&EntityChange {
+                    mask: SET_MOTION,
+                    motion: flight::add(view.motion, push),
+                    ..Default::default()
+                });
+            }
+        });
+    }
 }
 
 fn can_fight(mob: Entity<'_>) -> bool {
     !crate::eggs::is_juvenile(mob)
+        && State::load(mob).storm_age.is_none()
         && taming::order_name(mob) != "stay"
         && MOBS
             .get()
@@ -511,7 +619,7 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 .get()
                 .and_then(|e| e.with_entity(world, id, center).flatten())
                 .unwrap_or(target.position);
-            let visible = clear_line(world, from, to);
+            let visible = clear_line(world, mob, from, to);
             let beam_ok = visible
                 && MOBS
                     .get()
@@ -603,13 +711,32 @@ fn tick_attack(
     match attack {
         Attack::Bite if age == 3 => {
             if target_view(world, mob, id).is_some() {
-                melee(world, mob, id, 15.0, [0.0; 3]);
-                chain(world, mob, id, 10.0, 8.0, 5, 0.75);
+                melee(world, mob, id, 15.0 * state.damage_multiplier(), [0.0; 3]);
+                chain(
+                    world,
+                    mob,
+                    id,
+                    10.0 * state.damage_multiplier(),
+                    8.0,
+                    5,
+                    0.75,
+                );
             }
         }
         Attack::Gore if age == 3 => {
-            // shortcut: raw damage until target armor and toughness can be read.
-            melee(world, mob, id, 15.0, [dir[0] * 1.4, 0.35, dir[2] * 1.4]);
+            let mult = state.damage_multiplier();
+            let damage = 15.0 * mult * crate::hunger::melee_multiplier(mob);
+            armor_hit(
+                world,
+                mob,
+                id,
+                |armor, toughness| gore_raw(damage, armor, toughness, 2.0 * mult),
+                [
+                    dir[0] * 1.4 * f64::from(mult),
+                    0.35 * f64::from(mult),
+                    dir[2] * 1.4 * f64::from(mult),
+                ],
+            );
         }
         Attack::Rend if (20..55).contains(&age) => {
             if !view.on_ground {
@@ -639,7 +766,15 @@ fn tick_attack(
                         state.hit_ids.push(hit);
                         state.hit_ticks.push(age);
                     }
-                    melee(world, mob, hit, 5.0, [dir[0] * 0.55, 0.0, dir[2] * 0.55]);
+                    armor_hit(
+                        world,
+                        mob,
+                        hit,
+                        |armor, toughness| {
+                            rend_raw(5.0 * state.damage_multiplier(), armor, toughness)
+                        },
+                        [dir[0] * 0.55, 0.0, dir[2] * 0.55],
+                    );
                 }
                 if age <= 40 {
                     spark(world, at, 5);
@@ -664,7 +799,7 @@ fn tick_attack(
             if hp <= max * 0.25
                 || gap <= 4.5
                 || distance(from, to) > 64.0
-                || !clear_line(world, from, to)
+                || !clear_line(world, mob, from, to)
             {
                 state.finish(!view.on_ground);
                 sound(world, mob, "lightning_beam_stop", 1.0);
@@ -679,7 +814,13 @@ fn tick_attack(
                 if age == 20 {
                     sound(world, mob, "lightning_beaming", 1.3);
                 }
-                lightning(world, mob, id, 35.0_f32.min((hp - max * 0.25).max(0.0)));
+                lightning(
+                    world,
+                    mob,
+                    id,
+                    (35.0 * state.damage_multiplier()).min((hp - max * 0.25).max(0.0)),
+                    true,
+                );
                 if age % 3 == 0 {
                     arc(world, from, to);
                 }
@@ -694,7 +835,7 @@ fn tick_attack(
                     if target_view(world, mob, id).is_none() {
                         continue;
                     }
-                    lightning(world, mob, id, 5.0);
+                    lightning(world, mob, id, 5.0, false);
                     entities.with_entity(world, id, |t| {
                         t.add_effect("minecraft:slowness", 30, 5, false, true);
                         t.add_effect("minecraft:weakness", 30, 0, false, true);
@@ -762,16 +903,151 @@ fn impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], speed: f64) {
         );
     }
     if let Some(&(id, _, _)) = targets.first() {
-        chain(world, mob, id, (7.0 + 8.0 * power) as f32, 12.0, 4, 0.8);
+        chain(
+            world,
+            mob,
+            id,
+            (7.0 + 8.0 * power) as f32 * State::load(mob).damage_multiplier(),
+            12.0,
+            4,
+            0.8,
+        );
     }
     spark(world, at, 35);
     sound(world, mob, "dive_impact", 2.0);
+}
+
+/// Operator command bridge for the custom rider key, which the stock client cannot send.
+pub fn storm_nodes(nodes: &mut Vec<moddedmc_api::commands::Node<'static>>) {
+    let base = nodes.len() as u32;
+    nodes.extend([
+        crate::literal("storm"),
+        crate::number(Some(base), "x", None),
+        crate::number(Some(base + 1), "y", None),
+        crate::number(Some(base + 2), "z", Some(STORM_COMMAND)),
+    ]);
+}
+
+pub fn command_storm(world: World<'_>, at: [f64; 3], command: &moddedmc_api::Command<'_>) -> i32 {
+    let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
+        return 0;
+    };
+    let nearest = entities
+        .entities_in(world, at.map(|v| v - 4.0), at.map(|v| v + 4.0), -1)
+        .into_iter()
+        .filter_map(|id| {
+            entities
+                .with_entity(world, id, |mob| {
+                    (mobs.kind(mob) == Some("saintsdragons:raevyx"))
+                        .then(|| mob.view().map(|v| (id, distance(v.position, at))))
+                        .flatten()
+                })
+                .flatten()
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1));
+    let started = nearest.is_some_and(|(id, _)| {
+        entities
+            .with_entity(world, id, |mob| start_storm(world, mob))
+            .unwrap_or(false)
+    });
+    command.reply(if started {
+        "Raevyx storm casting"
+    } else {
+        "Raevyx storm unavailable"
+    });
+    i32::from(started)
+}
+
+fn start_storm(world: World<'_>, mob: Entity<'_>) -> bool {
+    let Some(view) = mob.view() else {
+        return false;
+    };
+    let mut state = State::load(mob);
+    if state.storm_cooldown > 0
+        || state.storm_age.is_some()
+        || state.active.is_some()
+        || crate::eggs::is_juvenile(mob)
+    {
+        return false;
+    }
+    state.storm_age = Some(0);
+    state.storm_air = !view.on_ground;
+    state.save(mob);
+    sound(
+        world,
+        mob,
+        if state.storm_air {
+            "summon_storm_air"
+        } else {
+            "summon_storm"
+        },
+        1.6,
+    );
+    true
+}
+
+/// RaevyxSummonStormAbility commits the buff mid-cast and weather at the end of startup.
+fn storm_timing(air: bool) -> (i32, i32) {
+    if air { (47, 110) } else { (60, 125) }
+}
+
+fn tick_storm(world: World<'_>, mob: Entity<'_>, state: &mut State) -> Option<&'static str> {
+    state.storm_cooldown = (state.storm_cooldown - 1).max(0);
+    if state.supercharge > 0 {
+        state.supercharge -= 1;
+        if state.supercharge == 0
+            && let (Some(health), Some(mobs)) = (crate::MOB_HEALTH.get(), MOBS.get())
+        {
+            health.set_attribute(mob, "minecraft:max_health", f64::from(state.precharge_max));
+            if let Some((hp, _)) = mobs.health(mob) {
+                health.set(mob, hp.min(state.precharge_max));
+            }
+        }
+    }
+    let age = state.storm_age? + 1;
+    let (charge, cast) = storm_timing(state.storm_air);
+    state.storm_age = Some(age);
+    if age == charge {
+        if state.supercharge == 0
+            && let (Some(health), Some(mobs)) = (crate::MOB_HEALTH.get(), MOBS.get())
+            && let Some((_, max)) = mobs.health(mob)
+        {
+            state.precharge_max = max;
+            health.set_attribute(mob, "minecraft:max_health", f64::from(max) * 2.0);
+            health.set(mob, max * 2.0);
+        }
+        state.supercharge = state.supercharge.max(STORM_DURATION);
+    }
+    if age == cast {
+        // shortcut: the host cannot read remaining weather durations or restore previous weather.
+        world.set_weather(2, STORM_DURATION);
+        if let Some(effects) = EFFECTS.get() {
+            effects.play_entity_sound(
+                world,
+                mob.id(),
+                "minecraft:entity.lightning_bolt.thunder",
+                SOUND_NEUTRAL,
+                6.0,
+                0.9,
+            );
+        }
+    }
+    if age >= cast + 20 {
+        state.storm_age = None;
+        state.storm_cooldown = STORM_COOLDOWN;
+    }
+    (age < cast).then_some(if state.storm_air {
+        "summon_storm_air"
+    } else {
+        "summon_storm"
+    })
 }
 
 /// Tick energy and cooldowns even outside the combat goal. Rider diving is inferred from
 /// the stock client's downward movement; custom dive input is not exposed by the host.
 pub fn ambient(world: World<'_>, mob: Entity<'_>, view: EntityView) -> Option<&'static str> {
     let mut state = State::load(mob);
+    let storm_clip = tick_storm(world, mob, &mut state);
     for cooldown in &mut state.cooldowns {
         *cooldown = (*cooldown - 1).max(0);
     }
@@ -818,16 +1094,20 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>, view: EntityView) -> Option<&'
         state.dive_peak = 0.0;
     }
     state.dive_rider = rider;
-    let clip = state.active.map(|attack| attack.clip(state.age));
+    let clip = storm_clip.or_else(|| state.active.map(|attack| attack.clip(state.age)));
     state.save(mob);
     clip
 }
 
 pub fn immune(mob: Entity<'_>, damage_type: &str) -> bool {
+    let state = State::load(mob);
     matches!(
         damage_type,
         "minecraft:fall" | "minecraft:lightning_bolt" | "saintsdragons:raevyx_lightning"
-    ) || State::load(mob).active == Some(Attack::Rend)
+    ) || state.active == Some(Attack::Rend)
+        || state
+            .storm_age
+            .is_some_and(|age| age < storm_timing(state.storm_air).1)
 }
 
 #[cfg(test)]
@@ -867,5 +1147,26 @@ mod tests {
     fn dive_stats_match_released_minimum_and_cap() {
         assert_eq!(impact_stats(1.45), (0.0, 8.0, 7.0, 0.8));
         assert_eq!(impact_stats(3.25), (1.0, 40.0, 12.0, 2.0));
+    }
+
+    #[test]
+    fn armor_compensation_matches_release_damage() {
+        let raw = gore_raw(15.0, 20.0, 8.0, 2.0);
+        assert!(
+            (damage_after_armor(raw, 20.0, 8.0) - damage_after_armor(15.0, 18.0, 8.0)).abs()
+                < 0.001
+        );
+        let raw = rend_raw(5.0, 20.0, 8.0);
+        assert!((damage_after_armor(raw, 20.0, 8.0) - 5.0).abs() < 0.005);
+    }
+
+    #[test]
+    fn storm_release_timings() {
+        assert_eq!(storm_timing(false), (60, 125));
+        assert_eq!(storm_timing(true), (47, 110));
+        let mut state = State::default();
+        assert_eq!(state.damage_multiplier(), 1.0);
+        state.supercharge = STORM_DURATION;
+        assert_eq!(state.damage_multiplier(), 2.0);
     }
 }

@@ -1,6 +1,6 @@
 use moddedmc_api::{
     RegistrationError, Registry,
-    content::{Block, Content, State},
+    content::{Block, BlockMaterial, Content, State},
 };
 
 const BLOCKS: &[(&str, &str, &str)] = &[
@@ -66,6 +66,19 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
             },
             None,
         )?;
+        if name == "draconian_pellucida" {
+            // ModBlocks.DRACONIAN_PELLUCIDA: instant mining and slime sounds.
+            // Keep the glass physical shape; the release exempts only swarm entities.
+            content.set_block_material(
+                registry,
+                "saintsdragons:draconian_pellucida",
+                &BlockMaterial {
+                    template: "minecraft:slime_block",
+                    hardness: Some(0.0),
+                    map_color: Some("color_purple"),
+                },
+            )?;
+        }
     }
     Ok(())
 }

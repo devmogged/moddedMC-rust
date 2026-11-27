@@ -1,0 +1,74 @@
+# History survives a restart and can show the original gear without granting it in survival.
+mods target\mods\corpse.mmc
+start
+expect moddedmc: loaded corpse
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+cmd gamemode spectator tester
+cmd tp tester 1025.5 300 1025.5
+wait 3
+cmd gamerule minecraft:keep_inventory false
+cmd fill 1024 299 1024 1030 299 1030 minecraft:quartz_block
+wait 0.5
+expect Successfully filled 49 block
+cmd gamemode survival tester
+cmd tp tester 1025.5 300 1025.5
+wait 1
+cmd item replace entity tester armor.head with minecraft:diamond_helmet
+cmd kill tester
+wait 1
+bot respawn
+wait 1
+cmd tp tester 1025.5 300 1027.5 180 25
+wait 3
+bot cmd corpse_recover
+wait 0.5
+bot expect slot 0 minecraft:diamond_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 diamond_helmet 1
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:diamond_helmet
+wait 0.5
+expect Removed 1 item
+bot quit
+stop
+start
+expect moddedmc: loaded corpse
+botstart tester
+wait 4
+bot cmd deathhistory
+wait 0.5
+expect \[bot\] dialog: .*Death History
+bot click-label Show items
+wait 0.5
+bot expect slot 0 minecraft:diamond_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 diamond_helmet 1
+bot inventory-click 0 shift-left
+wait 0.5
+bot expect slot 0 minecraft:diamond_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 diamond_helmet 1
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:diamond_helmet 0
+wait 0.5
+expect No items were found on player tester
+botstart witness
+wait 3
+bot cmd deathhistory
+wait 0.5
+expect You have no recorded deaths
+bot click corpse:history/items/1
+wait 0.5
+bot expect slot 0 minecraft:air 0
+wait 0.5
+expect expect inventory ok slot 0 air 0
+bot quit
+botselect tester
+bot quit
+stop
