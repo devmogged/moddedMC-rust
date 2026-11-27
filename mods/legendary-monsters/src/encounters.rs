@@ -35,6 +35,8 @@ const AMBUSHER_REACH_SQUARED: f64 = 16.0;
 const AMBUSHER_HEIGHT: f64 = 3.0;
 const AMBUSHER_ARC: f64 = 150.0;
 const AMBUSHER_COOLDOWN: u8 = 48;
+const AMBUSHER_ATTACK_WINDOW: u8 = 15;
+const AMBUSHER_IMPACT_TICK: u8 = 8;
 const SPAWN_COMMAND: u64 = 101;
 const FIND_COMMAND: u64 = 102;
 const AMBUSHER_SPAWN_COMMAND: u64 = 103;
@@ -48,6 +50,8 @@ struct Chase {
     target: Option<i32>,
     retaliation_tick: Option<i32>,
     countdown: u8,
+    ambusher_attack_frame: u8,
+    ambusher_recovery: u8,
     repath: u8,
     wander: Option<[f64; 3]>,
 }
@@ -75,6 +79,31 @@ fn ambusher_can_hit(from: [f64; 3], to: [f64; 3], facing: f32) -> bool {
     let target_yaw = dz.atan2(dx).to_degrees() - 90.0;
     let angle = (target_yaw - f64::from(facing) + 180.0).rem_euclid(360.0) - 180.0;
     angle.abs() <= AMBUSHER_ARC / 2.0
+}
+
+/// Original IAttackGoal starts a 15-tick attack animation with the hit on
+/// animation tick eight. Its see/recovery window is 48 ticks. Keep the attack
+/// phase independent of target tracking and never generate a second hit in
+/// the same animation, even when the target leaves/re-enters the frontal arc.
+fn advance_ambusher_attack(state: &mut Chase, in_range: bool) -> bool {
+    if state.ambusher_attack_frame != 0 {
+        let frame = state.ambusher_attack_frame;
+        state.ambusher_attack_frame += 1;
+        if frame >= AMBUSHER_ATTACK_WINDOW {
+            state.ambusher_attack_frame = 0;
+        }
+        return frame == AMBUSHER_IMPACT_TICK;
+    }
+    if state.ambusher_recovery > 0 {
+        state.ambusher_recovery -= 1;
+        return false;
+    }
+    if !in_range {
+        return false;
+    }
+    state.ambusher_attack_frame = 1;
+    state.ambusher_recovery = AMBUSHER_COOLDOWN;
+    false
 }
 
 fn valid_target(target: Entity<'_>) -> bool {
@@ -161,6 +190,7 @@ fn attack(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         goal_phase::START => {
             with_chase(mob.id(), |state| {
                 state.countdown = ATTACK_DELAY;
+                state.ambusher_attack_frame = 0;
                 state.repath = 0;
                 state.target = candidate.map(|(id, _)| id);
             });
@@ -168,7 +198,10 @@ fn attack(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         }
         goal_phase::STOP => {
             ai.stop(mob);
-            with_chase(mob.id(), |state| state.target = None);
+            with_chase(mob.id(), |state| {
+                state.target = None;
+                state.ambusher_attack_frame = 0;
+            });
             false
         }
         goal_phase::TICK => {
@@ -177,6 +210,30 @@ fn attack(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             };
             ai.look_at(mob, at);
             let gap = distance_squared(from, at);
+            if ambusher {
+                let within_reach = gap <= AMBUSHER_REACH_SQUARED;
+                let strike = with_chase(mob.id(), |state| {
+                    if state.target != Some(id) {
+                        state.ambusher_attack_frame = 0;
+                        state.target = Some(id);
+                    }
+                    advance_ambusher_attack(state, within_reach)
+                });
+                if strike
+                    && target_position(world, id).is_some()
+                    && mob.view().is_some_and(|view| ambusher_can_hit(from, at, view.head_yaw))
+                {
+                    ai.attack(world, mob, id, AMBUSHER_DAMAGE);
+                }
+                if !within_reach {
+                    if !ai.navigating(mob) {
+                        ai.walk_to(mob, at, 3.0);
+                    }
+                } else {
+                    ai.stop(mob);
+                }
+                return false;
+            }
             if gap
                 > if ambusher {
                     AMBUSHER_REACH_SQUARED
@@ -654,5 +711,33 @@ mod tests {
         assert!(!ambusher_can_hit([0.0; 3], [0.0, 0.0, -3.0], 0.0));
         assert!(!ambusher_can_hit([0.0; 3], [0.0, 4.0, 3.0], 0.0));
         assert!(!ambusher_can_hit([0.0; 3], [0.0, 0.0, 5.0], 0.0));
+    }
+
+    #[test]
+    fn ambusher_animation_strikes_exactly_once_at_frame_eight() {
+        let mut state = Chase::default();
+        let mut strikes = Vec::new();
+        for tick in 1..=90 {
+            if advance_ambusher_attack(&mut state, true) {
+                strikes.push(tick);
+            }
+        }
+        assert_eq!(strikes, vec![9, 73]);
+    }
+
+    #[test]
+    fn ambusher_cannot_restart_attack_during_recovery_or_without_target_in_reach() {
+        let mut state = Chase::default();
+        for _ in 0..16 {
+            advance_ambusher_attack(&mut state, true);
+        }
+        for _ in 0..48 {
+            assert!(!advance_ambusher_attack(&mut state, false));
+        }
+        assert_eq!(state.ambusher_attack_frame, 0);
+        assert_eq!(state.ambusher_recovery, 0);
+        assert!(!advance_ambusher_attack(&mut state, false));
+        assert!(!advance_ambusher_attack(&mut state, true));
+        assert_eq!(state.ambusher_attack_frame, 1);
     }
 }
