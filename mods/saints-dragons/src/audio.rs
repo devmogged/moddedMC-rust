@@ -1,6 +1,6 @@
 use moddedmc_api::{
     content::World,
-    effects::SOUND_NEUTRAL,
+    effects::{ParticleOption, SOUND_NEUTRAL},
     entities::{Entity, EntityView},
 };
 
@@ -105,7 +105,26 @@ pub fn hurt(world: World<'_>, dragon: Entity<'_>, kind: &str) {
     }
 }
 
-pub fn eat(world: World<'_>, dragon: Entity<'_>) {
+pub fn eat(world: World<'_>, dragon: Entity<'_>, food: &str) {
+    // DragonHuntAndEatBehaviour.spawnEatingParticles: use the actual food's texture.
+    if let (Some(effects), Some(view), Some(body)) = (EFFECTS.get(), dragon.view(), dragon.body()) {
+        let [x, _, z] = view.position;
+        let [min_x, min_y, min_z] = body.min;
+        let [max_x, max_y, max_z] = body.max;
+        let height = max_y - min_y;
+        let horizontal = ((max_x - min_x).min(max_z - min_z) * 0.35).max(0.15);
+        let vertical = (height * 0.25).max(0.15);
+        effects.particles_with_options(
+            world,
+            "minecraft:item",
+            [x, min_y + height * 0.65, z],
+            [horizontal, vertical, horizontal],
+            0.08,
+            12,
+            ParticleOption::Item(food),
+            None,
+        );
+    }
     if MOBS.get().and_then(|mobs| mobs.kind(dragon)) == Some(crate::wild::VARASUCHUS) {
         // `VarasuchusInteractionHandler.playEatSound`.
         play(

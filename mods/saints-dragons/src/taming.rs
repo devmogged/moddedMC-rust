@@ -613,7 +613,7 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
         if !click.creative {
             click.stack.shrink(1);
         }
-        crate::audio::eat(click.world, mob);
+        crate::audio::eat(click.world, mob, item);
         let hearty = item == HEARTY_MEAL;
         if hearty {
             mob.add_effect("minecraft:regeneration", 200, 1, false, true);

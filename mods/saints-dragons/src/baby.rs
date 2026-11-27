@@ -129,7 +129,7 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         if !click.creative {
             click.stack.shrink(1);
         }
-        crate::audio::eat(click.world, mob);
+        crate::audio::eat(click.world, mob, item);
         eggs::stunt(mob);
         crate::hunger::feed(mob, false);
         taming::feed_particles(click.world, mob, true);
@@ -152,7 +152,7 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
             if !click.creative {
                 click.stack.shrink(1);
             }
-            crate::audio::eat(click.world, mob);
+            crate::audio::eat(click.world, mob, item);
             let success = nulljaw_wild_tame(random(NULLJAW_TAME_DENOMINATOR))
                 && taming::tame(click.world, mob, uuid);
             taming::feed_particles(click.world, mob, success);
@@ -184,7 +184,7 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if !click.creative {
         click.stack.shrink(1);
     }
-    crate::audio::eat(click.world, mob);
+    crate::audio::eat(click.world, mob, item);
     if hearty {
         mob.add_effect("minecraft:regeneration", 200, 1, false, true);
     }

@@ -2,12 +2,19 @@
 
 use moddedmc_api::abi::{self, Str, WorldRef};
 use pumpkin_data::{
+    BlockStateId,
     data_component_impl::{IdOr, SoundEvent},
+    item::Item,
+    item_stack::ItemStack,
     particle::Particle,
     sound::{Sound, SoundCategory},
 };
 use pumpkin_protocol::{
-    VarInt, codec::data_component::data_to_proto_sound, java::client::play::CEntitySoundEffect,
+    VarInt,
+    codec::{
+        data_component::data_to_proto_sound, item_stack_seralizer::ItemStackTemplateSerializer,
+    },
+    java::client::play::{CEntitySoundEffect, CParticle},
 };
 use pumpkin_util::{math::vector3::Vector3, random::get_seed};
 
@@ -140,9 +147,181 @@ unsafe extern "C" fn particles(
     true
 }
 
+fn particle_payload(particle: Particle, options: abi::ParticleOptions) -> Option<Vec<u8>> {
+    let mut data = Vec::new();
+    match (particle, options.kind) {
+        (Particle::Item, abi::PARTICLE_ITEM) => {
+            // SAFETY: the caller keeps the item id borrowed for this call.
+            let item = Item::from_registry_key(unsafe { options.item.str() })?;
+            if item.id == Item::AIR.id {
+                return None;
+            }
+            // 26.3 ItemParticleOption uses ItemStackTemplate.STREAM_CODEC.
+            ItemStackTemplateSerializer::from(ItemStack::new(1, item))
+                .write(&mut data)
+                .ok()?;
+        }
+        (Particle::Block | Particle::FallingDust, abi::PARTICLE_BLOCK) => {
+            let state = BlockStateId::from_runtime_id(u16::try_from(options.block_state).ok()?)?;
+            VarInt(i32::from(state.vanilla_view().as_u16()))
+                .encode(&mut data)
+                .ok()?;
+        }
+        (Particle::Dust, abi::PARTICLE_DUST) => {
+            if options.rgb > 0x00ff_ffff || !options.scale.is_finite() {
+                return None;
+            }
+            data.extend_from_slice(&options.rgb.to_be_bytes());
+            data.extend_from_slice(&options.scale.clamp(0.01, 4.0).to_be_bytes());
+        }
+        // 26.3 ParticleTypes registers these as option-bearing particle types.
+        // Never send an empty payload for them.
+        (_, abi::PARTICLE_SIMPLE)
+            if !matches!(
+                particle,
+                Particle::Block
+                    | Particle::BlockMarker
+                    | Particle::Geyser
+                    | Particle::GeyserBase
+                    | Particle::GeyserPoof
+                    | Particle::GeyserPlume
+                    | Particle::DragonBreath
+                    | Particle::Dust
+                    | Particle::DustColorTransition
+                    | Particle::Effect
+                    | Particle::EntityEffect
+                    | Particle::FallingDust
+                    | Particle::TintedLeaves
+                    | Particle::SculkCharge
+                    | Particle::Flash
+                    | Particle::InstantEffect
+                    | Particle::Item
+                    | Particle::Vibration
+                    | Particle::Trail
+                    | Particle::Shriek
+                    | Particle::DustPillar
+                    | Particle::BlockCrumble
+            ) => {}
+        _ => return None,
+    }
+    Some(data)
+}
+
+unsafe extern "C" fn particles_with_options(
+    raw: WorldRef,
+    particle: Str,
+    position: abi::Vec3,
+    spread: abi::Vec3,
+    speed: f32,
+    count: u32,
+    options: abi::ParticleOptions,
+    viewer: i32,
+) -> bool {
+    // SAFETY: the world and particle id are borrowed for this call.
+    let (Some(world), name) = (unsafe { world(raw) }, unsafe { particle.str() }) else {
+        return false;
+    };
+    let (Some(particle), Some(position), Some(spread), true) = (
+        Particle::from_name(name.strip_prefix("minecraft:").unwrap_or(name)),
+        finite(position),
+        finite(spread),
+        speed.is_finite(),
+    ) else {
+        return false;
+    };
+    let spread = Vector3::new(spread.x as f32, spread.y as f32, spread.z as f32);
+    if !spread.x.is_finite() || !spread.y.is_finite() || !spread.z.is_finite() {
+        return false;
+    }
+    let Some(data) = particle_payload(particle, options) else {
+        return false;
+    };
+    let packet = CParticle::new(
+        false,
+        false,
+        position,
+        spread,
+        speed,
+        i32::try_from(count).unwrap_or(i32::MAX),
+        VarInt(i32::from(particle.to_id())),
+        &data,
+    );
+    if viewer == -1 {
+        world.broadcast_packet_all(&packet);
+    } else {
+        let Some(entity) = world.get_entity_by_id(viewer) else {
+            return false;
+        };
+        let Some(player) = entity.get_player() else {
+            return false;
+        };
+        if !std::ptr::eq(world, player.world().as_ref()) {
+            return false;
+        }
+        player.try_send_client_packet(&packet);
+    }
+    true
+}
+
 pub static EFFECTS: abi::EffectsV1 = abi::EffectsV1 {
     size: size_of::<abi::EffectsV1>(),
     play_sound,
     particles,
     play_entity_sound,
+    particles_with_options,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(kind: u32) -> abi::ParticleOptions {
+        abi::ParticleOptions {
+            item: Str::new(b"minecraft:salmon"),
+            kind,
+            block_state: 1,
+            rgb: 0x0012_3456,
+            scale: 0.5,
+        }
+    }
+
+    #[test]
+    fn dust_payload_is_packed_rgb_then_scale() {
+        assert_eq!(
+            particle_payload(Particle::Dust, options(abi::PARTICLE_DUST)),
+            Some(vec![0, 0x12, 0x34, 0x56, 0x3f, 0, 0, 0])
+        );
+        let mut invalid = options(abi::PARTICLE_DUST);
+        invalid.scale = f32::NAN;
+        assert!(particle_payload(Particle::Dust, invalid).is_none());
+    }
+
+    #[test]
+    fn particle_options_must_match_the_particle_type() {
+        assert!(particle_payload(Particle::Dust, options(abi::PARTICLE_ITEM)).is_none());
+        assert!(particle_payload(Particle::Item, options(abi::PARTICLE_SIMPLE)).is_none());
+        assert_eq!(
+            particle_payload(Particle::Heart, options(abi::PARTICLE_SIMPLE)),
+            Some(vec![])
+        );
+        assert_eq!(
+            particle_payload(Particle::FallingDust, options(abi::PARTICLE_BLOCK)),
+            Some(vec![1])
+        );
+    }
+
+    #[test]
+    fn item_payload_is_a_26_3_stack_template() {
+        let mut expected = Vec::new();
+        assert!(
+            VarInt(i32::from(Item::SALMON.id))
+                .encode(&mut expected)
+                .is_ok()
+        );
+        expected.extend_from_slice(&[1, 0, 0]);
+        assert_eq!(
+            particle_payload(Particle::Item, options(abi::PARTICLE_ITEM)),
+            Some(expected)
+        );
+    }
+}

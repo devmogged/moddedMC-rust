@@ -112,7 +112,7 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if !click.creative {
         click.stack.shrink(1);
     }
-    crate::audio::eat(click.world, mob);
+    crate::audio::eat(click.world, mob, item);
     let hearty = item == taming::HEARTY_MEAL;
     let hungry = crate::hunger::feed(mob, hearty);
     let (heal, message) = feeding(hearty, health, max, hungry);
@@ -141,7 +141,7 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         if !click.creative {
             click.stack.shrink(1);
         }
-        crate::audio::eat(click.world, mob);
+        crate::audio::eat(click.world, mob, item);
         let tamed = roll(100.0) && taming::tame(click.world, mob, mobs.uuid(player)?);
         taming::feed_particles(click.world, mob, tamed);
         if tamed {

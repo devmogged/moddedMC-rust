@@ -199,7 +199,7 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if !click.creative {
         click.stack.shrink(1);
     }
-    crate::audio::eat(click.world, mob);
+    crate::audio::eat(click.world, mob, item);
     with(|state| {
         state.fed.insert(id, now + breeder.feed_ticks());
         state.love.insert(id, now + LOVE_TICKS);
