@@ -2,7 +2,7 @@
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, abilities, taming};
 use moddedmc_api::{
-    abi::{CollisionBox, SOUND_NEUTRAL, heightmap},
+    abi::{CollisionBox, SOUND_NEUTRAL},
     content::World,
     entities::{Entity, EntityChange, SET_BODY_YAW, SET_MOTION, SET_YAW},
     mob_ai::goal_phase,
@@ -669,43 +669,8 @@ fn tick_attack(
                 }
             }
         }
-        Attack::Roar if matches!(age, 15 | 21 | 27) && !(s.rider.is_some() && s.skyfall_air) => {
-            let wave = (age - 15) / 6;
-            for lane in -1..=1 {
-                let p = add(
-                    add(at, scale(f, 20.0 + 6.0 * f64::from(wave))),
-                    scale([-f[2], 0.0, f[0]], 5.0 * f64::from(lane)),
-                );
-                let p = [
-                    p[0],
-                    f64::from(
-                        world
-                            .surface_height(
-                                p[0].floor() as i32,
-                                p[2].floor() as i32,
-                                heightmap::MOTION_BLOCKING_NO_LEAVES,
-                            )
-                            .unwrap_or(p[1] as i32),
-                    ),
-                    p[2],
-                ];
-                area(
-                    world,
-                    mob,
-                    p,
-                    2.25,
-                    5.5,
-                    ranged(
-                        18.0 + 4.0 * wave as f32,
-                        80,
-                        0.9 + 0.2 * f64::from(wave),
-                        0.5,
-                    ),
-                    &mut seen,
-                );
-                particles(world, p, 2.0, "minecraft:lava");
-                sound(world, p, "magma_pillar");
-            }
+        Attack::Roar if matches!(age, 10 | 16 | 22) && !(s.rider.is_some() && s.skyfall_air) => {
+            crate::pillars::magma_wave(world, mob, at, f, ((age - 10) / 6) as u32);
         }
         Attack::Fireball if age == s.charge + 15 => {
             let origin = add(add(at, [0.0, 3.0, 0.0]), scale(f, 4.0));

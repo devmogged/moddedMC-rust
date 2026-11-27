@@ -38,6 +38,7 @@ mod mossback;
 mod nucleus;
 mod pack_flight;
 mod particles;
+mod pillars;
 mod player_moves;
 mod roost;
 mod roster;
@@ -442,6 +443,7 @@ fn can_be_affected(
 }
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
+    pillars::tick(world, moddedmc_api::tick_count());
     ivy::trade_resume_tick(world);
     player_moves::tick(world, moddedmc_api::tick_count());
     crucible::tick(world, events);
