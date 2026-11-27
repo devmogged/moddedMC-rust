@@ -67,6 +67,11 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
     {
         crate::roost::wake(mob, true, 600);
     }
+    if MOBS.get().and_then(|mobs| mobs.kind(mob)) == Some("saintsdragons:raevyx")
+        && crate::combat_raevyx::immune(mob, damage_type)
+    {
+        return false;
+    }
     if !crate::stun::hurt(world, mob, damage_type, amount) {
         return false;
     }
