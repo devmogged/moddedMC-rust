@@ -51,6 +51,8 @@ pub struct Search {
     cursor: usize,
     samples: u32,
     radius: i32,
+    max_radius: i32,
+    max_samples: u32,
 }
 
 pub trait Resolver {
@@ -61,6 +63,16 @@ pub trait Resolver {
 
 impl Search {
     pub fn new(origin: Pos, previous: Vec<Pos>, placements: Vec<(u32, i32)>) -> Self {
+        Self::with_limits(origin, previous, placements, MAX_RADIUS, MAX_SAMPLES)
+    }
+
+    pub fn with_limits(
+        origin: Pos,
+        previous: Vec<Pos>,
+        placements: Vec<(u32, i32)>,
+        max_radius: i32,
+        max_samples: u32,
+    ) -> Self {
         Self {
             origin,
             previous,
@@ -71,6 +83,8 @@ impl Search {
             cursor: 0,
             samples: 0,
             radius: 0,
+            max_radius,
+            max_samples,
         }
     }
 
@@ -83,11 +97,25 @@ impl Search {
         self.radius = 0;
     }
 
+    /// Per-worker progress, as reported by the original Explorer workers.
+    /// Concentric ring positions are not ordered by radius in the source,
+    /// so the ring worker does not advertise a meaningful search radius.
+    pub fn progress(&self) -> (u32, Option<i32>) {
+        let radius = self
+            .placements
+            .get(self.index)
+            .and_then(|&(_, spacing)| (spacing != 0).then_some(self.radius));
+        (self.samples, radius)
+    }
+
     pub fn advance(&mut self, resolver: &mut impl Resolver) -> Lookup<Pos> {
         let Some(&(placement, spacing)) = self.placements.get(self.index) else {
             return Lookup::Absent;
         };
-        if self.samples >= MAX_SAMPLES || (spacing != 0 && self.radius >= MAX_RADIUS) {
+        if self.max_radius == 0
+            || self.samples >= self.max_samples
+            || (spacing != 0 && self.radius >= self.max_radius)
+        {
             self.next_placement();
             return Lookup::Pending;
         }
@@ -96,6 +124,9 @@ impl Search {
                 match resolver.rings(placement) {
                     Lookup::Found(mut chunks) => {
                         // Java chooses nearest chunk center; stable sort preserves ties.
+                        // The original worker considers only the first max_samples
+                        // ring entries, even if a later entry is closer.
+                        chunks.truncate(self.max_samples as usize);
                         chunks.sort_by_key(|p| distance_sq(self.origin, *p));
                         self.concentric = Some(chunks);
                     }
@@ -237,6 +268,66 @@ mod tests {
             Lookup::Found(Pos { x: 48, y: 0, z: 0 })
         );
         assert_eq!(fake.calls, [(1, 0), (1, 0), (3, 0)]);
+    }
+
+    #[test]
+    fn ring_sample_limit_applies_before_distance_order() {
+        let mut search = Search::with_limits(Pos::default(), vec![], vec![(0, 0)], 10_000, 1);
+        let mut fake = Fake {
+            calls: vec![],
+            pending: false,
+        };
+        // Original ring order is 5, 1, 3; a one-sample limit cannot see 1.
+        assert_eq!(
+            search.advance(&mut fake),
+            Lookup::Found(Pos { x: 80, y: 0, z: 0 })
+        );
+        assert_eq!(fake.calls, [(5, 0)]);
+    }
+
+    #[test]
+    fn ring_ignores_positive_radius_but_zero_radius_or_samples_disable_worker() {
+        let mut fake = Fake {
+            calls: vec![],
+            pending: false,
+        };
+        let mut search = Search::with_limits(Pos::default(), vec![], vec![(0, 0)], 1, 3);
+        assert_eq!(
+            search.advance(&mut fake),
+            Lookup::Found(Pos { x: 16, y: 0, z: 0 })
+        );
+        assert_eq!(fake.calls, [(1, 0)]);
+        for (radius, samples) in [(0, 3), (10_000, 0)] {
+            fake.calls.clear();
+            let mut search =
+                Search::with_limits(Pos::default(), vec![], vec![(0, 0)], radius, samples);
+            assert_eq!(search.advance(&mut fake), Lookup::Pending);
+            assert_eq!(search.advance(&mut fake), Lookup::Absent);
+            assert!(fake.calls.is_empty());
+        }
+    }
+
+    #[test]
+    fn progress_distinguishes_ring_and_spread_workers() {
+        let mut search = Search::with_limits(
+            Pos::default(),
+            vec![Pos { x: 80, y: 0, z: 0 }],
+            vec![(0, 0), (1, 32)],
+            10000,
+            1,
+        );
+        let mut fake = Fake {
+            calls: vec![],
+            pending: true,
+        };
+        assert_eq!(search.progress(), (0, None));
+        assert_eq!(search.advance(&mut fake), Lookup::Pending);
+        assert_eq!(search.progress(), (0, None));
+        assert_eq!(search.advance(&mut fake), Lookup::Pending);
+        assert_eq!(search.progress(), (1, None));
+        assert_eq!(search.advance(&mut fake), Lookup::Pending);
+        assert_eq!(search.progress(), (0, Some(0)));
+        assert_eq!(search.advance(&mut fake), Lookup::Found(Pos::default()));
     }
 
     #[test]

@@ -1,0 +1,114 @@
+# Save an in-progress deterministic absent search, restart, and verify recovery.
+# The only visible target has zero frequency and spacing one. It cannot finish
+# within the short test window; no probabilistic distant-biome assumption.
+# Also start two same-ID jobs for one player, then cancel only the offhand.
+mods target\mods\compasses.mmc
+start
+cmd datapack enable "file/zero-frequency" last
+wait 2
+expect Loaded datapack 'zero-frequency'
+stop
+start
+botstart tester
+wait 3
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+bot click-label aaa_compass_test:desert_pyramid
+wait 1
+expect Compass search started
+bot use-item main
+wait 1
+reject Found aaa_compass_test:|No aaa_compass_test:|Search for aaa_compass_test:.*unavailable
+expect Compass search in progress\. aaa_compass_test:desert_pyramid
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+cmd item replace entity tester weapon.offhand with explorerscompass:explorerscompass
+wait 1
+bot use-item off
+wait 1
+expect \[bot\] dialog: .*Select a target in this dimension
+bot click-label aaa_compass_test:desert_pyramid
+wait 1
+expect Compass search started
+bot use-item off
+wait 1
+expect Compass search in progress\. aaa_compass_test:desert_pyramid
+bot input sneak
+wait 0.5
+bot use-item off
+bot input none
+wait 1
+bot expect tracker 36 absent
+bot expect tracker 45 absent
+wait 1
+expect-all \[bot\] expect inventory ok tracker 36 absent && \[bot\] expect inventory ok tracker 45 absent
+bot use-item off
+wait 1
+reject Compass search in progress|Found aaa_compass_test:|No aaa_compass_test:|Search for aaa_compass_test:.*unavailable
+expect \[bot\] dialog: .*Select a target in this dimension
+bot use-item main
+wait 1
+expect Compass search in progress\. aaa_compass_test:desert_pyramid
+bot quit
+wait 1
+stop
+start
+botstart tester
+wait 3
+bot hotbar 0
+bot expect tracker 36 absent
+bot expect tracker 45 absent
+wait 1
+expect-all \[bot\] expect inventory ok tracker 36 absent && \[bot\] expect inventory ok tracker 45 absent
+bot use-item off
+wait 1
+reject Compass search in progress|Previous search for aaa_compass_test:
+expect \[bot\] dialog: .*Select a target in this dimension
+bot use-item main
+wait 1
+reject Compass search in progress|\[bot\] dialog button: Find next / retry ->
+expect \[bot\] dialog: .*Previous search for aaa_compass_test:desert_pyramid failed or was interrupted
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot click-label aaa_compass_test:desert_pyramid
+wait 1
+expect Compass search started
+cmd execute in minecraft:the_nether run tp tester 0 80 0
+# The bot does not acknowledge PlayerLoaded after dimension changes. The
+# host gates item use until its 60-tick client-loaded timeout expires.
+wait 6
+bot use-item main
+wait 1
+reject Compass search in progress
+expect No searchable targets in this dimension
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+cmd execute in minecraft:overworld run tp tester 0 100 0
+wait 6
+bot use-item main
+wait 1
+reject Compass search in progress|\[bot\] dialog button: Find next / retry ->
+expect \[bot\] dialog: .*Previous search for aaa_compass_test:desert_pyramid failed or was interrupted
+bot click-label aaa_compass_test:desert_pyramid
+wait 1
+expect Compass search started
+bot input sneak
+wait 0.5
+bot use-item main
+bot input none
+wait 1
+reject Found aaa_compass_test:|No aaa_compass_test:|Search for aaa_compass_test:.*unavailable
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Select a target in this dimension
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+reject \[bot\] error:|panicked
+stop

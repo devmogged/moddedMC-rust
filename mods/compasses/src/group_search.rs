@@ -114,16 +114,32 @@ struct Probe {
 
 impl Search {
     pub fn new(origin: Pos, previous: Vec<Pos>, plan: Vec<Placement>) -> Self {
-        let inner = structure_search::Search::new(
+        Self::with_limits(origin, previous, plan, 10_000, 100_000)
+    }
+
+    pub fn with_limits(
+        origin: Pos,
+        previous: Vec<Pos>,
+        plan: Vec<Placement>,
+        max_radius: i32,
+        max_samples: u32,
+    ) -> Self {
+        let inner = structure_search::Search::with_limits(
             origin,
             previous,
             plan.iter().map(|p| (p.index, p.spacing)).collect(),
+            max_radius,
+            max_samples,
         );
         Self {
             inner,
             plan,
             probe: None,
         }
+    }
+
+    pub fn progress(&self) -> (u32, Option<i32>) {
+        self.inner.progress()
     }
 
     pub fn advance(&mut self, resolver: &mut impl Resolver) -> Lookup<Match> {

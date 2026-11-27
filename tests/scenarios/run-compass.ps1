@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group')]
+    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group','reset','visibility','visibility-reload','multiplayer','interrupted','same-item')]
     [string]$Case,
     [ValidateRange(1024,65534)]
     [int]$Port = 26180,
@@ -23,6 +23,12 @@ $fixture = switch ($Case) {
     'custom-rings' { 'custom-rings' }
     'offset' { 'weighted-group' }
     'weighted-group' { 'weighted-group' }
+    'reset' { 'weighted-group' }
+    'visibility' { 'weighted-group' }
+    'visibility-reload' { 'visibility-reload' }
+    'multiplayer' { 'weighted-group' }
+    'interrupted' { 'zero-frequency' }
+    'same-item' { 'weighted-group' }
     default { $null }
 }
 foreach ($path in @('engine/target/pack/pack-dev.exe','engine/target/pack/moddedmc-bot.exe','target/mods/compasses.mmc')) {
@@ -35,6 +41,21 @@ if ($fixture) {
     $dest = Join-Path $absolute 'world/datapacks'
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "compasses-fixtures/$fixture") -Destination $dest -Recurse
+}
+if ($Case -eq 'visibility') {
+    $source = Join-Path $PSScriptRoot 'compasses-fixtures/visibility'
+    Copy-Item -LiteralPath (Join-Path $source 'data/c') -Destination (Join-Path $dest 'weighted-group/data') -Recurse
+    $config = Join-Path $absolute 'config/compasses'
+    New-Item -ItemType Directory -Force -Path $config | Out-Null
+    Copy-Item -Path (Join-Path $source 'config/*.json') -Destination $config
+}
+if ($Case -eq 'interrupted') {
+    $source = Join-Path $PSScriptRoot 'compasses-fixtures/interrupted'
+    $set = Join-Path $dest 'zero-frequency/data/aaa_compass_test/worldgen/structure_set/dense_pyramids.json'
+    Copy-Item -LiteralPath (Join-Path $source 'dense_pyramids.json') -Destination $set -Force
+    $config = Join-Path $absolute 'config/compasses'
+    New-Item -ItemType Directory -Force -Path $config | Out-Null
+    Copy-Item -LiteralPath (Join-Path $source 'explorerscompass.json') -Destination $config
 }
 # The underlying runner retains failing worlds and logs; successful worlds
 # are discarded unless Keep is requested to avoid accumulating large data.

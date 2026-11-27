@@ -1,0 +1,58 @@
+# Verify stale menu navigation and selections after an actual tag reload.
+# Only tags are changed: no dynamic worldgen registry hot-reload assumption.
+mods target\mods\compasses.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd item replace entity tester hotbar.0 with naturescompass:naturescompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog button: minecraft:birch_forest ->
+expect \[bot\] dialog: .*Nature's Compass
+cmd datapack enable "file/visibility-reload" last
+wait 2
+expect Loaded datapack 'visibility-reload'
+bot click-label Next page
+wait 1
+reject Compass search started|\[bot\] dialog:
+expect Compass catalog changed. Open the compass again.
+bot use-item main
+wait 1
+reject \[bot\] dialog button: minecraft:(badlands|birch_forest) ->
+expect \[bot\] dialog button: minecraft:beach ->
+expect \[bot\] dialog: .*Nature's Compass
+cmd datapack disable "file/visibility-reload"
+wait 2
+bot use-item main
+wait 1
+expect \[bot\] dialog button: minecraft:birch_forest ->
+expect \[bot\] dialog: .*Nature's Compass
+cmd datapack enable "file/visibility-reload" last
+wait 2
+expect Loaded datapack 'visibility-reload'
+bot click-label minecraft:birch_forest
+wait 1
+reject Compass search started|Found minecraft:birch_forest
+expect Target is not available in this dimension.
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+cmd datapack disable "file/visibility-reload"
+wait 2
+bot use-item main
+wait 1
+expect \[bot\] dialog button: minecraft:birch_forest ->
+expect \[bot\] dialog: .*Nature's Compass
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+wait 15
+expect Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld -287 6
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -287 6
+reject \[bot\] error:|panicked
+stop

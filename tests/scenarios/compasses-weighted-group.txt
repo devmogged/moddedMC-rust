@@ -1,4 +1,4 @@
-# Pending group SDK/UI integration. Seed 42, stage weighted-group fixture.
+# Seed 42, stage weighted-group fixture. Requires the group SDK/UI integration.
 # At the two ring chunks, the weighted winner is B then A from the default spawn.
 # Offset [9,7,-5] is added to the chunk minimum, never its center.
 mods target\mods\compasses.mmc
@@ -55,9 +55,23 @@ bot click-label Find next / retry
 wait 2
 expect Compass search started
 wait 10
-expect No aaa_compass_test:weighted_pair found within the search limits
+expect No aaa_compass_test:member_a found within the search limits
 bot expect tracker 36 none
 wait 1
 expect \[bot\] expect inventory ok tracker 36 none
+bot use-item main
+wait 1
+reject \[bot\] dialog button: Find next / retry ->
+expect \[bot\] dialog: .*Previous search for aaa_compass_test:member_a failed
+bot click-label Search groups
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+wait 10
+expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
 reject \[bot\] error:|panicked
 stop

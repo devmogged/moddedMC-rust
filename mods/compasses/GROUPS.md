@@ -23,14 +23,19 @@ Explorer's Compass 3.3.2:
 - `ExplorersCompassItem.succeed`: stores actual found structure ID, group
   flag, position and previous positions. `searchForNextStructure` resolves
   the first group of that actual ID again. A new explicit group/individual
-  selection starts fresh history. Failure clears previous history.
+  selection starts fresh history. Terminal failure clears previous history
+  and the group flag. On find-next, the worker's failure ID is the previous
+  actual member, even though the active stack identifies its group. The
+  original GUI only enables find-next in the found state when the actual
+  found structure is selectable. A group can discover a hidden member,
+  but its next action cannot be exposed through a hidden individual entry.
 
 The mod implementation preserves this separation: group IDs and actual
 structure IDs are separate UI actions, and the group worker returns the
 actual found member. The stock-client menu exposes a separate group page so
 individual IDs and existing pagination remain unchanged.
 
-## Minimal SDK/host surface (pending host implementation)
+## Minimal SDK/host surface
 
 Separate optional interface `WorldgenStructureGroupsV1` (do not extend an
 existing table without size/version handling):
@@ -97,21 +102,24 @@ The weighted-group fixture tests two nonvanilla ring positions and
 weighted actual members, nonzero offsets and persisted find-next.
 The bot's wire tracker assertion now accepts an optional Y argument.
 The weighted-group and individual-offset scenarios assert Y=7 as well
-as X/Z and dimension, including after restart.
+as X/Z and dimension, including after restart. The group scenario also
+checks the previous actual member on exhaustion, no find-next action after
+failure, and a fresh explicit group search with cleared history.
 
 ## Outstanding parity outside this change
 
-- Upstream's visibility/blacklist configuration and
-  `c:hidden_from_locator_selection` tag should filter direct choices;
-  full group membership stays registry-defined. Current menu restricts
+- Visibility/blacklist configuration and
+  `c:hidden_from_locator_selection` now filter direct choices;
+  full group membership stays registry-defined. See CONFIG.md. Current menu restricts
   direct entries to the active dimension, whereas Java lists other
   dimensions and presents generating-dimension metadata.
 - The Java worker first checks saved structure presence, then generates
   starts if unknown. Pure generation in the host agrees with fresh seed
   tests but does not yet account for existing imported/modified chunk
   starts.
-- Optional server configuration (XP costs, durability, teleport and
-  search limits) needs a separate design. Current default XP/durability
-  values are zero, and default search limits match upstream.
-- Runtime verification has not yet occurred; no separate builds or
-  scenarios may start while the prime build gate is held.
+- Configurable search limits and coordinate visibility now work in source.
+  XP costs, durability and teleport still need host capabilities.
+- Focused reset, visibility and multiplayer protocol cases passed on
+  2026-11-27; see the fixture document for exact logs, remaining cases
+  and the interrupted-search fixture correction. No separate build or
+  scenario may start while the prime build gate is held.

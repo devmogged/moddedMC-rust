@@ -1,0 +1,82 @@
+# Clear a found target and cancel an active search by sneaking.
+# Verify stale actions cannot revive the reset stack, and restart persists it.
+mods target\mods\compasses.mmc
+start
+cmd datapack enable "file/weighted-group" last
+wait 2
+expect Loaded datapack 'weighted-group'
+stop
+start
+botstart tester
+wait 3
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+bot click-label aaa_compass_test:member_b
+wait 2
+expect Compass search started
+wait 30
+expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+bot use-item main
+wait 1
+expect \[bot\] dialog button: Find next / retry ->
+bot input sneak
+wait 0.5
+bot use-item main
+wait 1
+bot input none
+bot click-label Find next / retry
+wait 1
+reject Compass search started|Found aaa_compass_test:
+expect \[bot\] did: click-label
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot quit
+stop
+start
+botstart tester
+wait 3
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot hotbar 0
+bot use-item main
+wait 1
+reject \[bot\] dialog button: Find next / retry ->
+expect \[bot\] dialog: .*Select a target in this dimension
+bot click-label aaa_compass_test:member_b
+wait 2
+expect Compass search started
+wait 30
+expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+cmd item replace entity tester hotbar.1 with naturescompass:naturescompass
+bot hotbar 1
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Nature's Compass
+bot input sneak
+wait 0.5
+bot click-label minecraft:badlands
+bot use-item main
+bot input none
+wait 1
+expect Compass search started
+reject Found minecraft:badlands|No minecraft:badlands found|Search for minecraft:badlands unavailable
+bot expect tracker 37 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 37 absent
+wait 5
+reject Found minecraft:badlands|No minecraft:badlands found|Search for minecraft:badlands unavailable
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+reject \[bot\] error:|panicked
+bot quit
+stop

@@ -1,0 +1,59 @@
+# One player's reset must not cancel another player's simultaneous search.
+mods target\mods\compasses.mmc
+start
+cmd datapack enable "file/weighted-group" last
+wait 2
+expect Loaded datapack 'weighted-group'
+stop
+start
+botstart alice
+wait 3
+botstart bob
+wait 3
+cmd item replace entity alice hotbar.0 with naturescompass:naturescompass
+cmd item replace entity bob hotbar.0 with explorerscompass:explorerscompass
+botselect bob
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog button: aaa_compass_test:member_b ->
+botselect alice
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog button: minecraft:badlands ->
+bot input sneak
+wait 0.5
+bot click-label minecraft:badlands
+wait 0.2
+expect Compass search started
+botselect bob
+bot click-label aaa_compass_test:member_b
+botselect alice
+bot use-item main
+bot input none
+wait 2
+reject Found minecraft:badlands|No minecraft:badlands found|Search for minecraft:badlands unavailable
+expect Compass search started
+wait 30
+reject Found minecraft:badlands|No minecraft:badlands found|Search for minecraft:badlands unavailable
+expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+bot expect tracker 36 none
+wait 1
+expect \[bot\] expect inventory ok tracker 36 none
+botselect bob
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+bot use-item main
+wait 1
+expect \[bot\] dialog button: Find next / retry ->
+botselect alice
+bot use-item main
+wait 1
+reject \[bot\] dialog button: Find next / retry ->
+expect \[bot\] dialog: .*Select a target in this dimension
+reject \[bot\] error:|panicked
+stop

@@ -56,8 +56,80 @@ impl State {
             MAX_NEXT_STRUCTURE
         }
     }
+
+    /// A searching stack is durable, but its worker is tied to a live
+    /// player and world. Recover a lost worker as a failed search. Rotate
+    /// the nonce so any delayed result or dialog cannot revive it.
+    pub fn interrupt(&mut self) {
+        self.fail();
+        self.nonce = nonce();
+    }
+
+    pub fn fail(&mut self) {
+        self.status = Status::Failed;
+        self.is_group = false;
+        self.previous.clear();
+    }
+
+    /// The sole source of truth for the vanilla client's needle.
+    /// A saved result remains tied to the dimension where it was located;
+    /// the current player's dimension must never retarget the component.
+    pub fn tracker(&self) -> Option<(&str, Pos)> {
+        if self.status != Status::Found {
+            return None;
+        }
+        self.previous
+            .last()
+            .copied()
+            .map(|p| (self.dimension.as_str(), p))
+    }
+
+    fn valid(&self, item: &str) -> bool {
+        fn resource_id(id: &str) -> bool {
+            let Some((namespace, path)) = id.split_once(':') else {
+                return false;
+            };
+            let common = |c: u8| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'_' | b'-' | b'.')
+            };
+            !namespace.is_empty()
+                && !path.is_empty()
+                && namespace.bytes().all(common)
+                && path.bytes().all(|c| common(c) || c == b'/')
+        }
+        if !matches!(item, NATURE | EXPLORER)
+            || self.previous.len() > Self::limit(item) + 1
+            || (item == NATURE && self.is_group)
+        {
+            return false;
+        }
+        match self.status {
+            Status::Idle => {
+                self.target.is_empty()
+                    && self.dimension.is_empty()
+                    && !self.is_group
+                    && self.previous.is_empty()
+            }
+            Status::Failed | Status::Found | Status::Searching => {
+                resource_id(&self.target)
+                    && resource_id(&self.dimension)
+                    && self.dimension.len() <= 256
+                    && match self.status {
+                        Status::Failed => !self.is_group && self.previous.is_empty(),
+                        Status::Found => !self.previous.is_empty(),
+                        _ => true,
+                    }
+                    && self.previous.iter().all(|p| {
+                        p.x.unsigned_abs() <= 30_000_000
+                            && p.z.unsigned_abs() <= 30_000_000
+                            && (-2048..=2047).contains(&p.y)
+                    })
+            }
+        }
+    }
+
     pub fn encode(&self, item: &str) -> Option<Vec<u8>> {
-        if self.previous.len() > Self::limit(item) + 1 || (item == NATURE && self.is_group) {
+        if !self.valid(item) {
             return None;
         }
         // Retain the old encoding for ordinary stacks. The extended encoding
@@ -151,20 +223,18 @@ impl State {
             let z = i32_field(&mut data)?;
             previous.push(Pos { x, y, z });
         }
-        if !data.is_empty()
-            || (status == Status::Found && previous.is_empty())
-            || (status != Status::Idle && (target.is_empty() || dimension.is_empty()))
-        {
+        if !data.is_empty() {
             return None;
         }
-        Some(Self {
+        let state = Self {
             nonce,
             target,
             is_group,
             dimension,
             status,
             previous,
-        })
+        };
+        state.valid(item).then_some(state)
     }
 }
 
@@ -216,5 +286,92 @@ mod tests {
         assert!(state.encode(NATURE).is_none());
         state.previous[0].y = 17;
         assert!(state.encode(EXPLORER).is_none());
+    }
+
+    #[test]
+    fn interrupted_group_search_invalidates_old_worker_and_history() {
+        let mut state = State::blank();
+        state.status = Status::Searching;
+        state.target = "minecraft:villages".into();
+        state.dimension = "minecraft:overworld".into();
+        state.is_group = true;
+        state.previous.push(Pos { x: 16, y: 7, z: 32 });
+        let saved = state.encode(EXPLORER).unwrap();
+        let mut recovered = State::decode(EXPLORER, &saved).unwrap();
+        recovered.interrupt();
+        assert_ne!(recovered.nonce, state.nonce);
+        assert_eq!(recovered.status, Status::Failed);
+        assert_eq!(recovered.target, state.target);
+        assert_eq!(recovered.dimension, state.dimension);
+        assert!(!recovered.is_group);
+        assert!(recovered.previous.is_empty());
+        assert_eq!(
+            State::decode(EXPLORER, &recovered.encode(EXPLORER).unwrap()),
+            Some(recovered)
+        );
+    }
+
+    #[test]
+    fn tracker_projection_uses_saved_dimension_and_only_found_state() {
+        let mut state = State::blank();
+        assert_eq!(state.tracker(), None);
+        state.target = "test:member_a".into();
+        state.dimension = "test:other_world".into();
+        state.previous.push(Pos {
+            x: 16,
+            y: 7,
+            z: -32,
+        });
+        state.status = Status::Searching;
+        assert_eq!(state.tracker(), None);
+        state.status = Status::Found;
+        let bytes = state.encode(EXPLORER).unwrap();
+        let restored = State::decode(EXPLORER, &bytes).unwrap();
+        assert_eq!(
+            restored.tracker(),
+            Some((
+                "test:other_world",
+                Pos {
+                    x: 16,
+                    y: 7,
+                    z: -32
+                }
+            ))
+        );
+        state.fail();
+        assert_eq!(state.tracker(), None);
+    }
+
+    #[test]
+    fn malformed_metadata_cannot_supply_a_tracker_or_stale_history() {
+        let mut state = State::blank();
+        state.status = Status::Found;
+        state.target = "test:target".into();
+        state.dimension = "test:world".into();
+        state.previous.push(Pos { x: 16, y: 0, z: 32 });
+        let bytes = state.encode(EXPLORER).unwrap();
+        // Replace the first namespace colon with an invalid character.
+        let mut bad_id = bytes.clone();
+        bad_id[27] = b'!';
+        assert!(State::decode(EXPLORER, &bad_id).is_none());
+        // The state byte must be consistent with the stored history.
+        let mut bad_status = bytes.clone();
+        bad_status[20] = 3;
+        assert!(State::decode(EXPLORER, &bad_status).is_none());
+        let mut bad_pos = bytes.clone();
+        let x_offset = bad_pos.len() - 8;
+        bad_pos[x_offset..x_offset + 4].copy_from_slice(&30_000_001_i32.to_le_bytes());
+        assert!(State::decode(EXPLORER, &bad_pos).is_none());
+        state.previous[0].x = 30_000_001;
+        assert!(state.encode(EXPLORER).is_none());
+        state.fail();
+        assert!(state.encode(EXPLORER).is_some());
+        state.status = Status::Found;
+        state.previous.push(Pos {
+            x: 0,
+            y: 2048,
+            z: 0,
+        });
+        assert!(state.encode(NATURE).is_none());
     }
 }
