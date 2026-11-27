@@ -6,14 +6,18 @@ use std::sync::Arc;
 use moddedmc_api::abi::{self, NO_FACE, Pos, Sink, Str, WorldRef};
 use pumpkin_core::block::entities::{
     blasting_furnace::BlastingFurnaceBlockEntity, brewing_stand::BrewingStandBlockEntity,
-    furnace::FurnaceBlockEntity, hopper::HopperBlockEntity, smoker::SmokerBlockEntity,
+    furnace::FurnaceBlockEntity, furnace_like_block_entity::CookingBlockEntityBase,
+    hopper::HopperBlockEntity, smoker::SmokerBlockEntity,
 };
-use pumpkin_data::{BlockDirection, item::Item, item_stack::ItemStack};
+use pumpkin_data::{
+    Block, BlockDirection, block_properties::FurnaceLikeProperties, item::Item,
+    item_stack::ItemStack,
+};
 use pumpkin_inventory::inventory::Inventory;
 use pumpkin_nbt::Nbt;
 
 use crate::{
-    content::{block_pos, shared, world},
+    content::{block_pos, in_world_tick, shared, world},
     stacks::read_stack,
 };
 
@@ -295,6 +299,107 @@ unsafe extern "C" fn extract(
     true
 }
 
+fn heat_counters(furnace: &dyn CookingBlockEntityBase, boost: u16, min_lit: u16) -> (bool, bool) {
+    let total = furnace.get_cooking_total_time();
+    if total == 0 {
+        return (false, false);
+    }
+    let previous = furnace.get_cooking_time_spent();
+    let progress = previous.saturating_add(boost).min(total - 1);
+    let advanced = progress > previous;
+    if advanced {
+        furnace.set_cooking_time_spent(progress);
+    }
+    let heated = furnace.get_lit_time_remaining() < min_lit;
+    if heated {
+        furnace.set_lit_time_remaining(min_lit);
+        furnace.set_lit_total_time(min_lit);
+    }
+    (advanced || heated, advanced && progress == total - 1)
+}
+
+unsafe extern "C" fn furnace_heat(
+    raw: WorldRef,
+    position: Pos,
+    boost: u16,
+    min_lit: u16,
+    out: *mut abi::FurnaceHeat,
+) -> bool {
+    if out.is_null() || ((boost > 0 || min_lit > 0) && !in_world_tick(raw)) {
+        return false;
+    }
+    // SAFETY: the borrowed world is live during the synchronous world callback.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    let pos = block_pos(position);
+    let Some(state) = world.get_block_state_id_if_loaded(&pos) else {
+        return false;
+    };
+    let block = Block::from_state_id(state);
+    let kind = if block == &Block::FURNACE {
+        1
+    } else if block == &Block::SMOKER {
+        2
+    } else if block == &Block::BLAST_FURNACE {
+        3
+    } else {
+        return false;
+    };
+    let Some(world) = shared(world) else {
+        return false;
+    };
+    let Some(entity) = world.get_block_entity(&pos) else {
+        return false;
+    };
+    let any = entity.as_any();
+    let furnace: &dyn CookingBlockEntityBase = match kind {
+        1 => match any.downcast_ref::<FurnaceBlockEntity>() {
+            Some(f) => f,
+            None => return false,
+        },
+        2 => match any.downcast_ref::<SmokerBlockEntity>() {
+            Some(f) => f,
+            None => return false,
+        },
+        _ => match any.downcast_ref::<BlastingFurnaceBlockEntity>() {
+            Some(f) => f,
+            None => return false,
+        },
+    };
+    let total = furnace.get_cooking_total_time();
+    let mut reached_end = false;
+    if total > 0 && (boost > 0 || min_lit > 0) {
+        let (mut changed, ended) = heat_counters(furnace, boost, min_lit);
+        reached_end = ended;
+        let mut properties = FurnaceLikeProperties::from_state_id(state);
+        if min_lit > 0 && !properties.lit {
+            properties.lit = true;
+            world.set_block_state(
+                &pos,
+                properties.to_state_id(block),
+                pumpkin_core::world::BlockFlags::NOTIFY_ALL,
+            );
+            changed = true;
+        }
+        if changed {
+            furnace.mark_dirty();
+        }
+    }
+    // SAFETY: the caller provides a writable result for this call.
+    unsafe {
+        out.write(abi::FurnaceHeat {
+            kind,
+            reached_end,
+            progress: furnace.get_cooking_time_spent(),
+            total,
+            lit: furnace.get_lit_time_remaining(),
+            lit_duration: furnace.get_lit_total_time(),
+        })
+    };
+    true
+}
+
 pub static CONTAINERS: abi::ContainersV1 = abi::ContainersV1 {
     size: size_of::<abi::ContainersV1>(),
     slots,
@@ -303,6 +408,7 @@ pub static CONTAINERS: abi::ContainersV1 = abi::ContainersV1 {
     insert,
     insert_stacked,
     extract,
+    furnace_heat,
 };
 
 #[cfg(test)]
@@ -329,6 +435,26 @@ mod tests {
         assert!(rest.is_empty());
         assert_eq!(handler.container.get_stack(3).item_count, 64);
         assert_eq!(handler.container.get_stack(0).item_count, 6);
+    }
+
+    #[test]
+    fn furnace_heat_clamps_progress_and_preserves_existing_fuel() {
+        let furnace = FurnaceBlockEntity::new(BlockPos::new(0, 64, 0));
+        furnace.set_cooking_total_time(0);
+        assert_eq!(heat_counters(&furnace, 4, 20), (false, false));
+        furnace.set_cooking_total_time(200);
+        furnace.set_cooking_time_spent(196);
+        furnace.set_lit_time_remaining(80);
+        furnace.set_lit_total_time(100);
+        assert_eq!(heat_counters(&furnace, 4, 20), (true, true));
+        assert_eq!(furnace.get_cooking_time_spent(), 199);
+        assert_eq!(furnace.get_lit_time_remaining(), 80);
+        assert_eq!(furnace.get_lit_total_time(), 100);
+        assert_eq!(heat_counters(&furnace, 4, 20), (false, false));
+        furnace.set_lit_time_remaining(1);
+        assert_eq!(heat_counters(&furnace, 4, 20), (true, false));
+        assert_eq!(furnace.get_lit_time_remaining(), 20);
+        assert_eq!(furnace.get_lit_total_time(), 20);
     }
 
     #[test]

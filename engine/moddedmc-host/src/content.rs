@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    cell::Cell,
     collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
     ffi::c_void,
     io,
@@ -2127,6 +2128,15 @@ fn queue(world: &World, pos: BlockPos, old: BlockStateId, state: BlockStateId, r
     }
 }
 
+thread_local! {
+    static TICK_WORLD: Cell<WorldRef> = const { Cell::new(ptr::null()) };
+}
+
+/// Whether this thread is dispatching the serial content tick for this world.
+pub(crate) fn in_world_tick(world: WorldRef) -> bool {
+    TICK_WORLD.with(|current| current.get() == world && !world.is_null())
+}
+
 pub fn tick(server: &Arc<Server>, time: u64) {
     let Some(runtime) = RUNTIME.get() else { return };
     // A mod may only subscribe to world ticks (e.g. save-global data) without
@@ -2143,15 +2153,18 @@ pub fn tick(server: &Arc<Server>, time: u64) {
         }
         for (owner, callback) in &runtime.ticks {
             let events = events.get(owner).map_or(&[][..], Vec::as_slice);
+            let raw = ptr::from_ref(world.as_ref()).cast();
+            TICK_WORLD.with(|current| current.set(raw));
             // SAFETY: the world and event array are live for this synchronous callback.
             unsafe {
                 callback(
-                    ptr::from_ref(world.as_ref()).cast(),
+                    raw,
                     time,
                     events.as_ptr(),
                     events.len(),
                 );
             };
+            TICK_WORLD.with(|current| current.set(ptr::null()));
         }
         render(world, runtime, time);
     }

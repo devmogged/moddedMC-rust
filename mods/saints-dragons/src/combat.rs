@@ -346,6 +346,27 @@ fn controlling_rider(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
         .flatten()
 }
 
+/// Run furnace mutations at the serial content tick boundary, never on an AI island.
+pub fn heat_tick(world: World<'_>) {
+    let Some(entities) = ENTITIES.get() else {
+        return;
+    };
+    let active: Vec<_> = COMBAT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .flat_map(|all| all.iter())
+        .filter_map(|(&id, combat)| combat.abilities.fire_rider().map(|rider| (id, rider)))
+        .collect();
+    for (id, rider) in active {
+        entities.with_entity(world, id, |mob| {
+            if mob.flags() & ENTITY_ALIVE != 0 && controlling_rider(world, mob) == Some(rider) {
+                abilities::cook(world, mob, rider);
+            }
+        });
+    }
+}
+
 pub fn rider_action(
     world: World<'_>,
     mob: Entity<'_>,

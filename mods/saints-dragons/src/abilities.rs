@@ -1,5 +1,7 @@
 //! Cindervane's double bite, slash grab, Magma Volley and Fire Body.
 
+mod terrain;
+
 use moddedmc_api::{
     content::World,
     entities::{
@@ -108,6 +110,10 @@ impl Abilities {
 
     pub fn fire_active(&self) -> bool {
         tick_count() < self.fire_until
+    }
+
+    pub fn fire_rider(&self) -> Option<i32> {
+        self.rider_fire.filter(|_| self.fire_active())
     }
 
     pub fn suppress_fire(&mut self) {
@@ -390,6 +396,28 @@ impl Abilities {
     }
 }
 
+/// Fire Body cooking runs in the serial content tick, outside parallel mob AI islands.
+pub fn cook(world: World<'_>, mob: Entity<'_>, rider: i32) {
+    let Some(view) = mob.view() else { return };
+    // shortcut: match the port's ridden ground mode (on ground and not ascending),
+    // until the controller tracks all of Java's flight transitions and support probe.
+    if !view.on_ground
+        || view.motion[1] > 0.0
+        || world
+            .fluid_id(crate::flight::cell(view.position))
+            .is_some_and(|fluid| fluid.ends_with("water") || fluid.ends_with("lava"))
+    {
+        return;
+    }
+    if terrain::cook(world, view.position)
+        && let Some(entities) = ENTITIES.get()
+    {
+        entities.with_entity(world, rider, |player| {
+            crate::advancements::award(player, "cook_with_fire_dragon", "cook_with_fire_dragon");
+        });
+    }
+}
+
 fn rider_timers(kind: Attack) -> (u64, u64) {
     match kind {
         Attack::Bite => (12, 15),
@@ -562,6 +590,7 @@ fn rider_fire_aura(world: World<'_>, mob: Entity<'_>) {
     let (Some(entities), Some(mobs), Some(view)) = (ENTITIES.get(), MOBS.get(), mob.view()) else {
         return;
     };
+    terrain::aura(world, view.position);
     for id in entities.entities_in(
         world,
         add(view.position, [-6.5, -3.25, -6.5]),
@@ -635,7 +664,7 @@ fn fire_immune(entity: Entity<'_>) -> bool {
 }
 
 fn fire_crash(world: World<'_>, mob: Entity<'_>, pos: [f64; 3]) {
-    // shortcut: entity blast only; the release's terrain imprint and griefing-dependent explosion are pending.
+    // shortcut: the custom explosion resistance calculator is unavailable; use the explicit imprint.
     if let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) {
         for id in entities.entities_in(world, add(pos, [-17.5; 3]), add(pos, [17.5; 3]), mob.id()) {
             entities.with_entity(world, id, |target| {
@@ -651,6 +680,10 @@ fn fire_crash(world: World<'_>, mob: Entity<'_>, pos: [f64; 3]) {
         }
     }
     mob.hurt_by(mob.id(), "minecraft:player_explosion", 40.0);
+    terrain::crash(world, pos);
+    if let Some(owner) = taming::owner(mob) {
+        crate::advancements::award_uuid(world, owner, "tactical_nuke", "tactical_nuke");
+    }
     if let Some(effects) = EFFECTS.get() {
         effects.particles(world, "minecraft:explosion", pos, [2.0; 3], 0.0, 30);
     }
@@ -892,21 +925,23 @@ fn area(
 pub fn effects(world: World<'_>, mob: Entity<'_>, shots: &mut Vec<Shot>, fire: bool) {
     let Some(visuals) = EFFECTS.get() else { return };
     if fire
-        && tick_count().is_multiple_of(5)
         && let Some(view) = mob.view()
         && !world
             .fluid_id(crate::flight::cell(view.position))
             .is_some_and(|fluid| fluid.ends_with("water"))
     {
-        visuals.particles(
-            world,
-            "minecraft:flame",
-            add(view.position, [0.0, 1.0, 0.0]),
-            [1.3, 0.8, 1.3],
-            0.06,
-            12,
-        );
-        area(world, mob, view.position, 3.5, 2.5, 3.0, 80);
+        terrain::aura(world, view.position);
+        if tick_count().is_multiple_of(5) {
+            visuals.particles(
+                world,
+                "minecraft:flame",
+                add(view.position, [0.0, 1.0, 0.0]),
+                [1.3, 0.8, 1.3],
+                0.06,
+                12,
+            );
+            area(world, mob, view.position, 3.5, 2.5, 3.0, 80);
+        }
     }
     shots.retain_mut(|shot| {
         shot.age += 1;
@@ -968,6 +1003,7 @@ pub fn effects(world: World<'_>, mob: Entity<'_>, shots: &mut Vec<Shot>, fire: b
                 } else {
                     area(world, mob, point, 7.0, 3.5, 20.0, 0);
                 }
+                terrain::volley(world, point);
                 return false;
             }
         }
