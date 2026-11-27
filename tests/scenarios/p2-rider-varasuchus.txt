@@ -19,8 +19,9 @@ cmd fill 1007 100 1007 1043 110 1043 minecraft:air
 await 30 Successfully filled|No blocks were filled
 cmd time set day
 cmd saintsdragons spawn varasuchus 1025 100 1025
-wait 0.5
-cmd tp @e[type=minecraft:ravager,limit=1] 1025.5 100 1025.5 180 0
+await 30 saintsdragons:varasuchus: spawned
+cmd kill @e[type=minecraft:ravager,nbt=!{data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},x=1025.5,y=100,z=1025.5,distance=..40]
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1025.5 100 1025.5 180 0
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
