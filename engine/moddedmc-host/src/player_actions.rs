@@ -21,6 +21,22 @@ const CHANNEL: &str = "moddedmc:player_actions";
 const VERSION: u8 = 1;
 const MAX_ACTIONS: usize = 128;
 const PHASES: u8 = abi::ACTION_PRESSED | abi::ACTION_HELD | abi::ACTION_RELEASED;
+const BUILTIN_KEY: &str = "moddedmc:mounted";
+const QUERY_RATE_KEY: &str = "\0mount";
+
+fn builtin_phases(id: &str) -> Option<u8> {
+    use moddedmc_api::player_actions::{
+        DOUBLE_TAP_BACK, DOUBLE_TAP_FORWARD, DOUBLE_TAP_LEFT, DOUBLE_TAP_RIGHT, MOUNTED_ATTACK,
+        MOUNTED_USE,
+    };
+    match id {
+        MOUNTED_ATTACK | MOUNTED_USE => Some(PHASES),
+        DOUBLE_TAP_FORWARD | DOUBLE_TAP_BACK | DOUBLE_TAP_LEFT | DOUBLE_TAP_RIGHT => {
+            Some(abi::ACTION_PRESSED)
+        }
+        _ => None,
+    }
+}
 
 pub struct Registration {
     id: String,
@@ -30,7 +46,7 @@ pub struct Registration {
     callback: abi::PlayerActionCallback,
 }
 
-static ACTIONS: LazyLock<Mutex<BTreeMap<String, Registration>>> =
+static ACTIONS: LazyLock<Mutex<BTreeMap<String, Vec<Registration>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 static CLIENTS: LazyLock<Mutex<HashMap<i32, Client>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -78,6 +94,7 @@ impl Client {
 pub static PLAYER_ACTIONS: abi::PlayerActionsV1 = abi::PlayerActionsV1 {
     size: size_of::<abi::PlayerActionsV1>(),
     add,
+    subscribe,
 };
 
 unsafe extern "C" fn add(
@@ -92,6 +109,8 @@ unsafe extern "C" fn add(
     let (staging, id, translation, key) =
         unsafe { (native::staging(reg), id.str(), translation.str(), key.str()) };
     if !crate::valid_id(id)
+        || builtin_phases(id).is_some()
+        || key == BUILTIN_KEY
         || id.len() > 128
         || translation.is_empty()
         || translation.len() > 128
@@ -106,7 +125,12 @@ unsafe extern "C" fn add(
     if actions.contains_key(id) || staging.player_actions.iter().any(|a| a.id == id) {
         return code::DUPLICATE_ID;
     }
-    if actions.len() + staging.player_actions.len() >= MAX_ACTIONS {
+    let new_ids = staging
+        .player_actions
+        .iter()
+        .filter(|a| !actions.contains_key(&a.id))
+        .count();
+    if actions.len() + new_ids >= MAX_ACTIONS {
         return code::INVALID_DEFINITION;
     }
     staging.player_actions.push(Registration {
@@ -119,11 +143,44 @@ unsafe extern "C" fn add(
     code::OK
 }
 
+unsafe extern "C" fn subscribe(
+    reg: Reg,
+    id: Str,
+    phases: u8,
+    callback: abi::PlayerActionCallback,
+) -> i32 {
+    // SAFETY: registration and id are borrowed for this call.
+    let (staging, id) = unsafe { (native::staging(reg), id.str()) };
+    if !builtin_phases(id).is_some_and(|allowed| phases != 0 && phases & !allowed == 0) {
+        return code::INVALID_DEFINITION;
+    }
+    if staging.player_actions.iter().any(|a| a.id == id) {
+        return code::DUPLICATE_ID;
+    }
+    let actions = lock(&ACTIONS);
+    let new_ids = staging
+        .player_actions
+        .iter()
+        .filter(|a| !actions.contains_key(&a.id))
+        .count();
+    if !actions.contains_key(id) && actions.len() + new_ids >= MAX_ACTIONS {
+        return code::INVALID_DEFINITION;
+    }
+    staging.player_actions.push(Registration {
+        id: id.to_owned(),
+        translation: id.to_owned(),
+        key: BUILTIN_KEY.to_owned(),
+        phases,
+        callback,
+    });
+    code::OK
+}
+
 pub fn commit(staged: Vec<Registration>) {
     let mut actions = lock(&ACTIONS);
     for action in staged {
         tracing::info!("moddedmc: registered player action {}", action.id);
-        actions.insert(action.id.clone(), action);
+        actions.entry(action.id.clone()).or_default().push(action);
     }
 }
 
@@ -139,14 +196,19 @@ pub fn namespaces() -> std::collections::BTreeSet<String> {
 
 fn list() -> Vec<u8> {
     let actions = lock(&ACTIONS);
+    encode_catalog(&actions)
+}
+
+fn encode_catalog(actions: &BTreeMap<String, Vec<Registration>>) -> Vec<u8> {
     let mut data = vec![VERSION, 1];
     data.extend_from_slice(&(actions.len() as u16).to_be_bytes());
-    for action in actions.values() {
+    for entries in actions.values() {
+        let action = &entries[0];
         for field in [&action.id, &action.translation, &action.key] {
             data.push(field.len() as u8);
             data.extend_from_slice(field.as_bytes());
         }
-        data.push(action.phases);
+        data.push(entries.iter().fold(0, |mask, entry| mask | entry.phases));
     }
     data
 }
@@ -159,6 +221,19 @@ fn parse(data: &[u8]) -> Option<(&str, u8)> {
         return None;
     }
     Some((std::str::from_utf8(id).ok()?, *phase))
+}
+
+fn mounted_mod_id(player: &dyn EntityBase) -> Option<i32> {
+    let vehicle = player.get_entity().get_vehicle()?;
+    crate::mobs::registered_kind(vehicle.as_ref())?;
+    Some(vehicle.get_entity().entity_id)
+}
+
+fn mount_query(data: &[u8]) -> Option<i32> {
+    let [VERSION, 3, a, b, c, d] = data else {
+        return None;
+    };
+    Some(i32::from_be_bytes([*a, *b, *c, *d]))
 }
 
 pub fn attach(server: &Server) {
@@ -204,17 +279,44 @@ impl EventHandler<PlayerCustomPayloadEvent> for Payload {
                 }
                 return;
             }
-            let Some((id, phase)) = parse(&event.data) else {
-                return;
-            };
             if !player.living_entity.is_alive() {
                 return;
             }
-            let Some((phases, callback)) = lock(&ACTIONS).get(id).map(|a| (a.phases, a.callback))
-            else {
+            let entity: &dyn EntityBase = player.as_ref();
+            if let Some(requested) = mount_query(&event.data) {
+                if !lock(&CLIENTS)
+                    .get_mut(&player_id)
+                    .is_some_and(|c| c.permit(QUERY_RATE_KEY, abi::ACTION_PRESSED, Instant::now()))
+                {
+                    return;
+                }
+                let mut reply = vec![VERSION, 4];
+                reply.extend_from_slice(&requested.to_be_bytes());
+                reply.push(u8::from(mounted_mod_id(entity) == Some(requested)));
+                JavaPlayer(player)
+                    .send_custom_payload(CHANNEL, &reply)
+                    .await;
+                return;
+            }
+            let Some((id, phase)) = parse(&event.data) else {
                 return;
             };
-            if phases & phase == 0 {
+            if builtin_phases(id).is_some() && mounted_mod_id(entity).is_none() {
+                return;
+            }
+            // Copy callbacks and drop the registry lock before invoking mod code.
+            let callbacks: Vec<_> = {
+                let actions = lock(&ACTIONS);
+                let Some(entries) = actions.get(id) else {
+                    return;
+                };
+                entries
+                    .iter()
+                    .filter(|a| a.phases & phase != 0)
+                    .map(|a| a.callback)
+                    .collect()
+            };
+            if callbacks.is_empty() {
                 return;
             }
             if !lock(&CLIENTS)
@@ -224,15 +326,16 @@ impl EventHandler<PlayerCustomPayloadEvent> for Payload {
                 return;
             }
             let world = player.world();
-            let entity: &dyn EntityBase = player.as_ref();
-            // SAFETY: world, entity and action id are borrowed for this synchronous callback.
-            unsafe {
-                callback(
-                    Arc::as_ptr(&world).cast(),
-                    (&raw const entity).cast(),
-                    Str::from(id),
-                    phase,
-                );
+            for callback in callbacks {
+                // SAFETY: world, entity and action id are borrowed for this synchronous callback.
+                unsafe {
+                    callback(
+                        Arc::as_ptr(&world).cast(),
+                        (&raw const entity).cast(),
+                        Str::from(id),
+                        phase,
+                    );
+                }
             }
         })
     }
@@ -254,11 +357,45 @@ impl EventHandler<PlayerLeaveEvent> for Leave {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_combines_multiple_subscribers_without_duplicate_bindings() {
+        unsafe extern "C" fn callback(_: abi::WorldRef, _: abi::EntityRef, _: Str, _: u8) {}
+        let id = "moddedmc:mounted_attack";
+        let entry = |phases| Registration {
+            id: id.to_owned(),
+            translation: id.to_owned(),
+            key: BUILTIN_KEY.to_owned(),
+            phases,
+            callback,
+        };
+        let actions = BTreeMap::from([(
+            id.to_owned(),
+            vec![entry(abi::ACTION_PRESSED), entry(abi::ACTION_RELEASED)],
+        )]);
+        let data = encode_catalog(&actions);
+        let mut expected = vec![VERSION, 1, 0, 1];
+        for field in [id, id, BUILTIN_KEY] {
+            expected.push(field.len() as u8);
+            expected.extend_from_slice(field.as_bytes());
+        }
+        expected.push(abi::ACTION_PRESSED | abi::ACTION_RELEASED);
+        assert_eq!(data, expected);
+    }
+
     #[test]
     fn rejects_malformed_input_and_limits_repeats() {
         assert_eq!(parse(&[1, 2, 1, 3, b'a', b':', b'b']), Some(("a:b", 1)));
         assert!(parse(&[1, 2, 3, 1, b'a']).is_none());
         assert!(parse(&[1, 2, 1, 2, b'a']).is_none());
+        assert_eq!(mount_query(&[1, 3, 0, 0, 0, 42]), Some(42));
+        assert!(mount_query(&[1, 3, 0, 0, 0]).is_none());
+        assert_eq!(
+            builtin_phases("moddedmc:double_tap/left"),
+            Some(abi::ACTION_PRESSED)
+        );
+        assert_eq!(builtin_phases("moddedmc:mounted_attack"), Some(PHASES));
+        assert_eq!(builtin_phases("moddedmc:double_tap/up"), None);
         let mut client = Client::new();
         let now = Instant::now();
         assert!(client.permit("a:b", 2, now));

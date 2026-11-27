@@ -10,8 +10,12 @@ The companion now exposes the eight released rider keybinds through a generic
 versioned player-action interface, including held and released phases. The
 [stock-client smoke scenario](../tests/scenarios/p2-rider-actions.txt) checks
 registration and absence of rider callbacks for a stock client. The dragon
-callbacks currently log mounted input; ability execution, vanilla key fallbacks
-and live companion rebinding verification remain separate work.
+callbacks currently log mounted input. Mounted vanilla attack/use and the four
+movement double taps (300 ms) now reach those callbacks without extra keybinds;
+the server confirms mod-mob mounts and the companion suppresses vanilla attack/use.
+Ability execution and live companion rebinding verification remain separate work.
+[Built-in registration scenario](../tests/scenarios/p2-rider-mouse.txt) checks the
+six subscriptions.
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |

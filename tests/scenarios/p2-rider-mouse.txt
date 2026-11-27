@@ -1,0 +1,7 @@
+# Built-in rider actions register without adding client key mappings.
+# Actual mounted mouse suppression and double taps require a Fabric companion.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+expect-all registered player action moddedmc:mounted_attack && registered player action moddedmc:mounted_use && registered player action moddedmc:double_tap/forward && registered player action moddedmc:double_tap/back && registered player action moddedmc:double_tap/left && registered player action moddedmc:double_tap/right
+reject (?i)panic|panicked|\[bot\] error
+stop
