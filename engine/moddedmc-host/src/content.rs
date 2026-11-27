@@ -23,6 +23,7 @@ use pumpkin_core::{
             slabs::SlabBlock,
             stairs::StairBlock,
             walls::WallBlock,
+            weathering_copper::change_over_time,
         },
         entities::{
             BlockEntity,
@@ -73,6 +74,11 @@ use crate::{
 };
 
 const MAX_STATES_PER_BLOCK: usize = 1_024;
+
+pub static WEATHERING_COPPER: abi::WeatheringCopperV1 = abi::WeatheringCopperV1 {
+    size: size_of::<abi::WeatheringCopperV1>(),
+    register: register_copper_family,
+};
 
 pub static CONTENT: abi::ContentV1 = abi::ContentV1 {
     size: size_of::<abi::ContentV1>(),
@@ -294,6 +300,8 @@ pub struct Registration {
     item_input: Option<abi::ItemInputFn>,
     random_tick: Option<abi::ContentRandomTick>,
     physics: Option<content::BlockPhysics>,
+    copper_stage: Option<usize>,
+    copper_ids: Option<[String; 8]>,
 }
 
 pub struct ItemRegistration {
@@ -328,6 +336,7 @@ struct RuntimeBlock {
     stairs: bool,
     wall: bool,
     pane: bool,
+    weathering: bool,
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
     item_input: Option<abi::ItemInputFn>,
@@ -606,6 +615,8 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         random_tick: None,
         item_input: None,
         physics: None,
+        copper_stage: None,
+        copper_ids: None,
     });
     code::OK
 }
@@ -631,6 +642,51 @@ pub static ITEM_INPUT: abi::ItemInputV1 = abi::ItemInputV1 {
     add: add_item_input,
 };
 
+unsafe extern "C" fn register_copper_family(reg: Reg, ids: *const [Str; 8]) -> i32 {
+    if reg.is_null() || ids.is_null() || RUNTIME.get().is_some() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the caller lends all eight initialized IDs and a registration handle.
+    let (ids, staged) = unsafe { (&*ids, &mut native::staging(reg).content) };
+    let mut names = [""; 8];
+    let mut indices = [0; 8];
+    for (index, id) in ids.iter().enumerate() {
+        if id.len == 0 || id.len > 256 || id.ptr.is_null() {
+            return code::INVALID_DEFINITION;
+        }
+        // SAFETY: the caller loans the name bytes for this call.
+        let name = unsafe { id.str() };
+        let Some(found) = staged.iter().position(|block| block.id == name) else {
+            return code::INVALID_DEFINITION;
+        };
+        if indices[..index].contains(&found) || staged[found].copper_stage.is_some() {
+            return code::DUPLICATE_ID;
+        }
+        names[index] = name;
+        indices[index] = found;
+    }
+    let first = &staged[indices[0]];
+    if indices.iter().any(|&i| {
+        let block = &staged[i];
+        !block.default_entity
+            || block.random_tick.is_some()
+            || block.states.len() != first.states.len()
+            || !block.states.iter().all(|state| {
+                first
+                    .states
+                    .iter()
+                    .any(|other| state.properties == other.properties)
+            })
+    }) {
+        return code::INVALID_DEFINITION;
+    }
+    for (stage, staged_index) in indices.into_iter().enumerate() {
+        staged[staged_index].copper_stage = Some(stage);
+    }
+    staged[indices[0]].copper_ids = Some(names.map(str::to_owned));
+    code::OK
+}
+
 unsafe extern "C" fn on_random_tick(reg: Reg, block: Str, callback: abi::ContentRandomTick) -> i32 {
     if RUNTIME.get().is_some() {
         return code::INVALID_DEFINITION;
@@ -640,7 +696,7 @@ unsafe extern "C" fn on_random_tick(reg: Reg, block: Str, callback: abi::Content
     let Some(block) = staging.content.iter_mut().find(|block| block.id == name) else {
         return code::INVALID_DEFINITION;
     };
-    if block.random_tick.is_some() {
+    if block.random_tick.is_some() || block.copper_stage.is_some() {
         return code::DUPLICATE_ID;
     }
     block.random_tick = Some(callback);
@@ -1236,7 +1292,18 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
     let mut corner_carriers = crate::content_stairs::corner_carriers();
     let mut assigned = HashMap::new();
     let mut definitions = Vec::with_capacity(blocks.len());
-    for (_, block) in blocks {
+    let mut order: Vec<_> = (0..blocks.len()).collect();
+    // Keep the assigned carriers for existing content. The roof cubes can supply
+    // their carrier to a double slab with the same model.
+    order.sort_by_key(|&index| {
+        let block = &blocks[index].1;
+        (
+            block.copper_stage.is_some(),
+            block.copper_stage.is_some() && block.states.len() > 1,
+        )
+    });
+    for index in order {
+        let block = &mut blocks[index].1;
         let slab = crate::content_slab::template(&block.states);
         let slab_carrier = slab.and_then(|_| slab_carriers.next());
         let pane = content_panes::has_pane_shape(&block.states);
@@ -1311,7 +1378,8 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
             states.push(StateDefinition {
                 properties: state.properties.clone(),
                 physical: state.physical,
-                random_ticks: block.random_tick.is_some(),
+                random_ticks: block.random_tick.is_some()
+                    || matches!(block.copper_stage, Some(0..=2)),
                 carrier,
                 carrier_replacement: (carrier != replacement).then_some(replacement),
                 shape: state.shape.clone(),
@@ -1352,6 +1420,11 @@ fn open_registry(
             blocks[index].1.physics
         },
     )?;
+    for (_, block) in blocks.iter() {
+        if let Some(ids) = &block.copper_ids {
+            registry.add_copper_family(ids.each_ref().map(String::as_str))?;
+        }
+    }
     assign_block_display_carriers(blocks, &definitions, &mut registry)?;
     Ok(registry)
 }
@@ -1478,6 +1551,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
                 owner,
                 slab: crate::content_slab::template(&block.states),
                 stairs: crate::content_stairs::has_stair_shape(&block.states),
+                weathering: matches!(block.copper_stage, Some(0..=2)),
                 wall: content_walls::has_wall_shape(&block.states),
                 pane: content_panes::has_pane_shape(&block.states),
                 placement: block.placement,
@@ -1662,11 +1736,14 @@ impl BlockBehaviour for Behaviour {
     }
 
     fn random_tick_sampled(&self, args: RandomTickArgs<'_>, state: BlockStateId) {
-        let Some(callback) = RUNTIME
-            .get()
-            .and_then(|runtime| runtime.blocks.get(&args.block.id.as_u16()))
-            .and_then(|block| block.random_tick)
-        else {
+        let Some(block) = runtime_block(args.block.id) else {
+            return;
+        };
+        if block.weathering {
+            change_over_time(args.world, args.position, args.block);
+            return;
+        }
+        let Some(callback) = block.random_tick else {
             return;
         };
         // SAFETY: the world is borrowed and the library stays loaded during ordered dispatch.

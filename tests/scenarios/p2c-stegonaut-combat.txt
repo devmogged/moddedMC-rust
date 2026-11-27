@@ -7,23 +7,25 @@ cmd op tester
 cmd gamemode creative tester
 cmd gamerule minecraft:spawn_mobs false
 cmd tp tester 1025.5 100 1029.5
-cmd forceload add 1025 1025
-wait 3
+cmd forceload add 1013 1013 1037 1037
+wait 12
 cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+await 30 Successfully filled|No blocks were filled
 cmd saintsdragons spawn stegonaut 1025 100 1025
 cmd summon minecraft:iron_golem 1025.5 100 1028.25 {NoAI:1b,Tags:["stego_target"]}
 wait 2
-cmd tp @e[type=minecraft:ravager,limit=1] 1025.5 100 1025.5 0 0
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] 1025.5 100 1025.5 0 0
 cmd data merge entity @e[type=minecraft:ravager,limit=1] {data:{"saintsdragons:stegonaut_combat":{bite_cooldown:200}}}
 wait 0.25
-cmd damage @e[type=minecraft:ravager,limit=1] 1 minecraft:mob_attack by @e[tag=stego_target,limit=1]
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] 1 minecraft:mob_attack by @e[tag=stego_target,limit=1]
 wait 2
 cmd data get entity @e[tag=stego_target,limit=1] Health
 wait 0.5
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
 cmd kill @e[tag=stego_target]
-cmd tp @e[type=minecraft:ravager,limit=1] 1025.5 100 1025.5
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with minecraft:salmon 8
 wait 0.25
 bot use-entity ravager 1025.5 100 1025.5 off

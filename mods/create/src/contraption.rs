@@ -169,7 +169,8 @@ impl BlockMovementChecks {
             || seat::is_seat(&entry.name)
             || bogey::is_bogey(&entry.name)
             || crate::sail::is_sail(&entry.name)
-            || decor::is_stone_partial(&entry.name)
+            || decor::is_copper_roof(&entry.name)
+            || decor::is_palette_partial(&entry.name)
             || entry.is_vanilla_wall()
             || entry.is_pane_or_bars()
             || matches!(
@@ -911,14 +912,19 @@ struct ShapedBlockDisplay {
 impl ShapedBlockDisplay {
     fn new(entry: &PaletteEntry) -> Option<Self> {
         let path = entry.name.strip_prefix("create:")?;
-        if decor::is_display_pane(path) {
+        if decor::is_display_pane(path) || decor::uses_bar_display(path) {
+            let kind = if path.ends_with("_bars") {
+                "bars"
+            } else {
+                "pane"
+            };
             let mut mask = 0;
             for (bit, side) in ["north", "east", "south", "west"].into_iter().enumerate() {
                 if entry.properties.get(side)? == "true" {
                     mask |= 1 << bit;
                 }
             }
-            let model = format!("create:moddedmc/pane/{path}/{mask}");
+            let model = format!("create:moddedmc/{kind}/{path}/{mask}");
             let stack = fastnbt::nbt!({
                 "id": "minecraft:paper",
                 "count": 1i32,
@@ -930,7 +936,7 @@ impl ShapedBlockDisplay {
                 display: ModelDisplay::default(),
             });
         }
-        if !path.ends_with("_wall") || !decor::is_stone_partial(&entry.name) {
+        if !path.ends_with("_wall") || !decor::is_palette_partial(&entry.name) {
             return None;
         }
         let model = format!("create:moddedmc/wall/{path}");
@@ -1159,7 +1165,7 @@ impl PaletteEntry {
             BELT | drill::ID | harvester::ID | plough::ID | controls::ID
         ) || seat::is_seat(&self.name)
             || bogey::is_bogey(&self.name)
-            || decor::is_stone_partial(&self.name)
+            || decor::is_palette_partial(&self.name)
             || self.is_vanilla_wall()
             || self.is_pane_or_bars()
     }

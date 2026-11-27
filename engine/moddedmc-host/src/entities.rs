@@ -129,6 +129,11 @@ pub unsafe extern "C" fn hurt(raw: abi::EntityRef, damage_type: Str, amount: f32
     server
         .datapack_manager
         .get_damage_type(key)
+        .or_else(|| {
+            // Like the damage command, fall back to the generated vanilla registry.
+            let name = key.strip_prefix("minecraft:").unwrap_or(key);
+            pumpkin_data::damage::DamageType::from_name(name)
+        })
         .is_some_and(|damage| entity.damage_with_context(entity, amount, damage, None, None, None))
 }
 

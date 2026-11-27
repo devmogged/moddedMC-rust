@@ -1,0 +1,29 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Nulljaw retaliates against a stationary target, flies an attack run and bites.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1029.5 121 1033.5
+cmd forceload add 1007 1007 1051 1057
+wait 12
+cmd fill 1007 119 1007 1051 119 1057 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1007 120 1007 1051 127 1057 minecraft:air
+await 30 Successfully filled|No blocks were filled
+cmd fill 1007 128 1007 1051 135 1057 minecraft:air
+await 30 Successfully filled|No blocks were filled
+cmd time set midnight
+cmd saintsdragons spawn nulljaw 1025 120 1025
+cmd summon minecraft:iron_golem 1025.5 120 1028.5 {NoAI:1b,Tags:["nulljaw_target"]}
+wait 1
+cmd damage @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] 1 minecraft:mob_attack by @e[tag=nulljaw_target,limit=1]
+wait 8
+cmd data get entity @e[tag=nulljaw_target,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

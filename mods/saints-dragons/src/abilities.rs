@@ -103,6 +103,11 @@ impl Abilities {
         tick_count() < self.fire_until
     }
 
+    pub fn suppress_fire(&mut self) {
+        self.fire_until = 0;
+        self.fire_cooldown = self.fire_cooldown.max(tick_count() + 100);
+    }
+
     pub fn choose(&mut self, now: u64, target: i32, gap: f64, facing: bool) -> bool {
         if gap <= 3.25 && now >= self.fire_cooldown {
             self.fire_until = now + 100;
