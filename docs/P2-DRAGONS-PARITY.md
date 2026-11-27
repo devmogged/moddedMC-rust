@@ -84,8 +84,8 @@ armor or offhand refresh portable Resistance I and Absorption I on the holder,
 nearby players and owned mod dragons every 20 ticks, with dimension-wide target
 cleanup when the source is removed. [Portable aura scenario](../tests/scenarios/p2-stegonaut-portable-aura.txt)
 checks empty binders, main inventory, offhand and explicit cleanup (pending coordinator
-run). Remaining: semantic rider ability press/release and melee-mode inputs
-for the ground-eating projectile and chained ground slam/pillars; Ivy's own binder
+run). Mounted Stegonaut supports X melee selection, rider-directed melee, G charge/release, H tap/hold/repress, Ctrl+4 flex, ground jumping and acceleration. Ground eating cancels before 29 ticks, fires 18 ticks after a full-charge release and cools down for 30 ticks. Ground slam hits at tick 18, chains at tick 23 and hits again after 25 ticks, spawning sixteen independent pillars with a four-tick warmup and 26-tick active lifetime. The [combat scenario](../tests/scenarios/p2c-stegonaut-combat.txt) also checks mounting and documents manual companion input tests. The release uses the vanilla attack key; R temporarily triggers the selected melee until that input is forwarded. Remaining: original chunk and pillar renderers, exact collision and screen shake,
+Ivy's own binder
 inventory aura; separate particle/icon visibility;
 native pet ownership, ally lists, raid membership, exact visibility, last attack and
 projectile damager history. The hurt callback exposes source entities, but the mod does not yet use them for this behavior
@@ -699,3 +699,5 @@ Volitans rider input and medium-specific movement are ported.
 Varasuchus rider combat and movement are ported.
 
 Nulljaw rider combat, cloak and teleport controls are ported.
+
+Stegonaut rider movement, melee and ground abilities are ported.

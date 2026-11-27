@@ -107,7 +107,7 @@ fn multiplier(hunger: i32) -> f32 {
 }
 
 /// `DragonHappinessComponent.getSpeedMultiplier`.
-fn speed_multiplier(happiness: u8) -> f64 {
+pub(crate) fn speed_multiplier(happiness: u8) -> f64 {
     match happiness {
         61.. => 1.0,
         ..=30 => 0.5,

@@ -656,21 +656,6 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if let Some(result) = crate::stun::feed(click, item) {
         return result;
     }
-    // Nulljaw.mobInteract: the adult owner mounts without a saddle.
-    if mobs.kind(mob) == Some("saintsdragons:nulljaw")
-        && is_owner(mob, player)
-        && click.main_hand
-        && !click.sneaking
-        && player.vehicle() != Some(mob.id())
-    {
-        if !crate::eggs::is_juvenile(mob)
-            && happiness(mob).is_some_and(|h| h > 30)
-            && mobs.passengers(mob).is_empty()
-        {
-            player.start_riding(mob.id(), false);
-        }
-        return UseResult::Success;
-    }
     if mobs.kind(mob) != Some(crate::CINDERVANE) {
         return mount_interact(click, item);
     }
@@ -755,7 +740,7 @@ fn mount_interact(click: &mut UseMob<'_>, item: &str) -> UseResult {
         return UseResult::Pass;
     }
     if click.sneaking {
-        if !owner || !matches!(kind, crate::CINDERVANE | crate::wild::VARASUCHUS) {
+        if !owner || !matches!(kind, crate::CINDERVANE | crate::wild::VARASUCHUS | "saintsdragons:stegonaut") {
             return UseResult::Pass;
         }
         let (order, label) = match state.order {
@@ -1033,6 +1018,8 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                     if mobs.uuid(rider) == Some(state.owner) {
                         if mobs.kind(mob) == Some(crate::wild::VARASUCHUS) {
                             crate::combat_varasuchus::ride(world, mob, rider);
+                         } else if mobs.kind(mob) == Some("saintsdragons:stegonaut") {
+                            crate::combat_stegonaut::ride(mob, rider);
                         } else {
                             ride(world, mob, rider);
                         }
