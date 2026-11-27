@@ -13,8 +13,8 @@ cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
 await 30 Successfully filled|No blocks were filled
 cmd fill 1013 100 1013 1037 110 1037 minecraft:air
 await 30 Successfully filled|No blocks were filled
-cmd summon minecraft:wolf 1025.5 100 1030.5 {NoAI:1b,Tags:["pet_probe"]}
-cmd data modify entity @e[tag=pet_probe,limit=1] Owner set from entity tester UUID
+# Offline UUID for tester; Pumpkin does not implement data modify set from.
+cmd summon minecraft:wolf 1025.5 100 1030.5 {NoAI:1b,Tags:["pet_probe"],Owner:[I;-1682285485,-1605083636,-2145891436,1632881141]}
 cmd item replace entity tester inventory.17 with saintsdragons:stegonaut_binder[minecraft:custom_data={IsBound:1b,BoundDragonUUID:[I;1,2,3,4]}]
 wait 2
 cmd data get entity @e[tag=pet_probe,limit=1] active_effects

@@ -25,6 +25,8 @@ bot input jump
 wait 0.1
 bot input none
 await 5 \[bot\] (entity )?sound: saintsdragons:dragonlord_armor_double_jump
+# Let the server sample the released jump key before pressing it again.
+wait 0.15
 bot input jump
 wait 0.1
 bot input none
