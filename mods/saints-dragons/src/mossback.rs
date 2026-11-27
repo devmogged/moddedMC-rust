@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOB_HEALTH, MOBS, ai, eggs, flight};
 
 pub const KIND: &str = "saintsdragons:mossback";
-pub const FLOAT: u64 = 180;
-pub const PANIC: u64 = 181;
-pub const BREED: u64 = 182;
-pub const WANDER: u64 = 183;
+pub const FLOAT: u64 = 190;
+pub const PANIC: u64 = 191;
+pub const BREED: u64 = 192;
+pub const WANDER: u64 = 193;
 const KEY: &str = "saintsdragons:mossback";
 const GROW_TICKS: i32 = 24_000;
 const COOLDOWN: i32 = 6_000;
