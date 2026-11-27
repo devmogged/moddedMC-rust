@@ -20,6 +20,7 @@ use pumpkin_core::{
         blocks::{
             redstone::{block_receives_redstone_power, get_redstone_power},
             slabs::SlabBlock,
+            stairs::StairBlock,
         },
         entities::{
             BlockEntity,
@@ -39,7 +40,7 @@ use pumpkin_core::{
     world::{World, install_entity_added_hook, loot::LootContextParameters},
 };
 use pumpkin_data::{
-    Block, BlockDirection, BlockId, BlockState, BlockStateId, Property,
+    Block, BlockDirection, BlockId, BlockState, BlockStateId, Mirror, Property, Rotation,
     block_properties::SlabProperties,
     content::{self, BlockDefinition, BlockMaterial, ItemDefinition, StateDefinition},
     data_component::DataComponent,
@@ -186,13 +187,14 @@ pub struct RegisteredState {
     pub properties: BTreeMap<String, String>,
     comparator_output: Option<u8>,
     pub physical: &'static BlockState,
-    shape: Vec<pumpkin_util::math::boundingbox::BoundingBox>,
-    visual: content_pack::StateAssets,
+    pub(crate) shape: Vec<pumpkin_util::math::boundingbox::BoundingBox>,
+    pub(crate) visual: content_pack::StateAssets,
 }
 
 struct RuntimeBlock {
     owner: usize,
     slab: Option<&'static Block>,
+    stairs: bool,
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
     item_input: Option<abi::ItemInputFn>,
@@ -443,6 +445,8 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
                 y: state.y,
                 orientation: state.orientation,
                 bounded: false,
+                uvlock: false,
+                straight_stair_display: false,
             },
         });
     }
@@ -1004,6 +1008,24 @@ fn reserve_variants(
     })
 }
 
+fn reserve_dry_leaves() -> impl Iterator<Item = (BlockStateId, BlockStateId)> {
+    tag::Block::MINECRAFT_LEAVES
+        .0
+        .iter()
+        .filter_map(|name| Block::from_name(name))
+        .flat_map(|block| {
+            reserve_variants(block, "distance", &["1", "2", "3", "4", "5", "6"], "7").filter(
+                move |(state, _)| {
+                    block.properties(*state).is_some_and(|properties| {
+                        properties.to_props().iter().any(|property| {
+                            property.key_str() == "waterlogged" && property.value_str() == "false"
+                        })
+                    })
+                },
+            )
+        })
+}
+
 /// Engine definitions for the staged blocks. States with the same model and rotation share a
 /// carrier, since the carrier only decides what a stock client draws.
 fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<BlockDefinition>> {
@@ -1018,27 +1040,24 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
         .into_iter()
         .flat_map(|block| reserve_variants(block, "honey_level", &["1", "2", "3", "4"], "0"));
     let mut carriers = notes.chain(targets).chain(hives);
-    let mut dry_leaves = tag::Block::MINECRAFT_LEAVES
-        .0
-        .iter()
-        .filter_map(|name| Block::from_name(name))
-        .flat_map(|block| {
-            reserve_variants(block, "distance", &["1", "2", "3", "4", "5", "6"], "7").filter(
-                move |(state, _)| {
-                    block.properties(*state).is_some_and(|properties| {
-                        properties.to_props().iter().any(|property| {
-                            property.key_str() == "waterlogged" && property.value_str() == "false"
-                        })
-                    })
-                },
-            )
-        });
+    let mut dry_leaves = reserve_dry_leaves();
     let mut slab_carriers = crate::content_slab::CARRIERS.into_iter();
+    let mut straight_carriers = crate::content_stairs::STRAIGHT_CARRIERS.into_iter();
+    let mut corner_carriers = crate::content_stairs::corner_carriers();
     let mut assigned = HashMap::new();
     let mut definitions = Vec::with_capacity(blocks.len());
     for (_, block) in blocks {
         let slab = crate::content_slab::template(&block.states);
         let slab_carrier = slab.and_then(|_| slab_carriers.next());
+        let stairs = crate::content_stairs::has_stair_shape(&block.states)
+            && block
+                .states
+                .iter()
+                .all(|state| state.visual.rotating_model.is_empty());
+        let straights = stairs.then(|| straight_carriers.next()).flatten();
+        let corners = (stairs && crate::content_stairs::corners_share_models(&block.states))
+            .then(|| corner_carriers.next())
+            .flatten();
         let mut states = Vec::with_capacity(block.states.len());
         for state in &mut block.states {
             let visual = &mut state.visual;
@@ -1049,7 +1068,9 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
                 visual.x.rem_euclid(360),
                 visual.y.rem_euclid(360),
             );
-            let (carrier, replacement) = if slab.is_some() {
+            let (carrier, replacement) = if stairs {
+                crate::content_stairs::allocate(state, corners, straights)
+            } else if slab.is_some() {
                 let props = SlabProperties::from_state_id(state.physical.id);
                 let shared_cube = (props.r#type
                     == pumpkin_data::block_properties::SlabType::Double
@@ -1203,6 +1224,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
             RuntimeBlock {
                 owner,
                 slab: crate::content_slab::template(&block.states),
+                stairs: crate::content_stairs::has_stair_shape(&block.states),
                 placement: block.placement,
                 random_tick: block.random_tick,
                 item_input: block.item_input,
@@ -1259,8 +1281,8 @@ fn item_input(block: &Block) -> Option<abi::ItemInputFn> {
     RUNTIME.get()?.blocks.get(&block.id.as_u16())?.item_input
 }
 
-fn slab_template(id: BlockId) -> Option<&'static Block> {
-    RUNTIME.get()?.blocks.get(&id.as_u16())?.slab
+fn runtime_block(id: BlockId) -> Option<&'static RuntimeBlock> {
+    RUNTIME.get()?.blocks.get(&id.as_u16())
 }
 
 struct DefaultBlockBehaviour;
@@ -1269,10 +1291,31 @@ impl BlockBehaviour for DefaultBlockBehaviour {}
 
 impl BlockBehaviour for Behaviour {
     fn is_pathfindable(&self, state: &BlockState, computation: PathComputationType) -> bool {
-        if slab_template(state.id.to_block().id).is_some() {
-            SlabBlock.is_pathfindable(state, computation)
+        match runtime_block(state.id.to_block().id) {
+            Some(block) if block.stairs => StairBlock.is_pathfindable(state, computation),
+            Some(block) if block.slab.is_some() => SlabBlock.is_pathfindable(state, computation),
+            _ => DefaultBlockBehaviour.is_pathfindable(state, computation),
+        }
+    }
+
+    fn rotate(
+        &self,
+        block: &Block,
+        state: BlockStateId,
+        rotation: Rotation,
+    ) -> &'static BlockState {
+        if runtime_block(block.id).is_some_and(|block| block.stairs) {
+            StairBlock.rotate(block, state, rotation)
         } else {
-            DefaultBlockBehaviour.is_pathfindable(state, computation)
+            block.rotate(state, rotation)
+        }
+    }
+
+    fn mirror(&self, block: &Block, state: BlockStateId, mirror: Mirror) -> &'static BlockState {
+        if runtime_block(block.id).is_some_and(|block| block.stairs) {
+            StairBlock.mirror(block, state, mirror)
+        } else {
+            block.mirror(state, mirror)
         }
     }
 
@@ -1327,7 +1370,8 @@ impl BlockBehaviour for Behaviour {
     }
 
     fn can_update_at(&self, args: CanUpdateAtArgs<'_>) -> bool {
-        slab_template(args.block.id)
+        runtime_block(args.block.id)
+            .and_then(|block| block.slab)
             .is_some_and(|slab| crate::content_slab::can_update_at(&args, slab))
     }
 
@@ -1335,10 +1379,15 @@ impl BlockBehaviour for Behaviour {
         &self,
         args: GetStateForNeighborUpdateArgs<'_>,
     ) -> BlockStateId {
-        let Some(slab) = slab_template(args.block.id) else {
+        let Some(block) = runtime_block(args.block.id) else {
             return args.state_id;
         };
-        crate::content_slab::neighbor_update(&args, slab)
+        if block.stairs {
+            return StairBlock.get_state_for_neighbor_update(args);
+        }
+        block.slab.map_or(args.state_id, |slab| {
+            crate::content_slab::neighbor_update(&args, slab)
+        })
     }
 
     fn on_place(&self, args: OnPlaceArgs<'_>) -> BlockStateId {
@@ -1350,6 +1399,9 @@ impl BlockBehaviour for Behaviour {
             return default;
         };
         let Some(callback) = block.placement else {
+            if block.stairs {
+                return StairBlock.on_place(args);
+            }
             return block
                 .slab
                 .map_or(default, |slab| crate::content_slab::on_place(args, slab));

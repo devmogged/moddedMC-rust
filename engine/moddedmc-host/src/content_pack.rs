@@ -66,6 +66,8 @@ pub struct StateAssets {
     pub y: i16,
     pub orientation: [f32; 4],
     pub bounded: bool,
+    pub uvlock: bool,
+    pub straight_stair_display: bool,
 }
 
 pub struct OverlayModel {
@@ -236,19 +238,26 @@ fn build_pack(
                     "model": model,
                     "x": assets.x.rem_euclid(360),
                     "y": assets.y.rem_euclid(360),
+                    "uvlock": assets.uvlock,
                 }),
             );
             if !assets.rotating_model.is_empty() {
                 let model_id = format!("{namespace}:moddedmc/display/{path}/{index}");
-                pack.item(
-                    &format!("assets/{namespace}/items/moddedmc/display/{path}/{index}.json"),
-                    &assets.rotating_model,
-                )?;
+                let item_path =
+                    format!("assets/{namespace}/items/moddedmc/display/{path}/{index}.json");
+                let orientation = if assets.straight_stair_display
+                    && pack.oriented_stair_item(&item_path, &model_id, assets)?
+                {
+                    [0.0, 0.0, 0.0, 1.0]
+                } else {
+                    pack.item(&item_path, &assets.rotating_model)?;
+                    assets.orientation
+                };
                 display_models.insert(
                     state.id.as_u16(),
                     OverlayModel {
                         id: model_id,
-                        orientation: assets.orientation,
+                        orientation,
                         bounded: assets.bounded,
                     },
                 );
@@ -313,9 +322,12 @@ fn block_variant(block: &Block, state: pumpkin_data::BlockStateId) -> Option<Str
     )
 }
 
-fn stock_carrier_model(block: &Block, variant: &str) -> Value {
+fn stock_carrier_model(block: &Block, state: pumpkin_data::BlockStateId, variant: &str) -> Value {
     if let Some(model) = crate::content_slab::carrier_model(block, variant) {
         return json!({"model": model});
+    }
+    if let Some((model, x, y)) = crate::content_stairs::carrier_model(block, state) {
+        return json!({"model": model, "x": x, "y": y, "uvlock": x != 0 || y != 0});
     }
     if block == &Block::BEEHIVE || block == &Block::BEE_NEST {
         let mut honey = false;
@@ -355,7 +367,7 @@ impl Pack {
             if let Some(key) = block_variant(block, state.id) {
                 variants
                     .entry(key)
-                    .or_insert_with_key(|key| stock_carrier_model(block, key));
+                    .or_insert_with_key(|key| stock_carrier_model(block, state.id, key));
             }
         }
         self.json(
@@ -487,6 +499,49 @@ impl Pack {
             path,
             &json!({"model": {"type": "minecraft:model", "model": model}}),
         )
+    }
+
+    fn oriented_stair_item(
+        &mut self,
+        item_path: &str,
+        model_id: &str,
+        assets: &StateAssets,
+    ) -> io::Result<bool> {
+        let source = self.model(&assets.rotating_model);
+        let Some((namespace, path)) = source.split_once(':') else {
+            return Ok(false);
+        };
+        let model_path = format!("assets/{namespace}/models/{path}.json");
+        let Some(model) = self
+            .files
+            .get(&model_path)
+            .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        else {
+            return Ok(false);
+        };
+        if model.get("elements").is_some()
+            || !matches!(
+                model.get("parent").and_then(Value::as_str),
+                Some("minecraft:block/stairs" | "block/stairs")
+            )
+        {
+            return Ok(false);
+        }
+        let Some((namespace, path)) = model_id.split_once(':') else {
+            return Ok(false);
+        };
+        self.json(
+            &format!("assets/{namespace}/models/{path}.json"),
+            &json!({
+                "parent": source,
+                "elements": crate::content_stairs::straight_display_elements(assets.x, assets.y),
+            }),
+        )?;
+        self.json(
+            item_path,
+            &json!({"model": {"type": "minecraft:model", "model": model_id}}),
+        )?;
+        Ok(true)
     }
 
     fn rig(&mut self, namespace: &str, item: &str) {

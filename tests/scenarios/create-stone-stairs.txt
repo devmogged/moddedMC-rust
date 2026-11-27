@@ -1,0 +1,92 @@
+# Released recipes, mixed vanilla corners, stock carriers, waterlogging, and restart.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:cut_andesite_stairs \(80 states\) && registered content block create:small_veridium_brick_stairs \(80 states\)
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd tp tester 1028.5 105 1028.5 180 0
+wait 3
+cmd fill 1024 105 1024 1034 108 1032 minecraft:air
+cmd fill 1024 104 1024 1034 104 1032 minecraft:stone
+cmd setblock 1031 106 1026 minecraft:stone
+cmd gamemode survival tester
+cmd recipe give tester create:cut_andesite_stairs
+wait 0.5
+expect Unlocked 1 recipe
+cmd recipe give tester create:cut_andesite_stairs_from_stone_types_andesite_stonecutting
+wait 0.5
+expect Unlocked 1 recipe
+
+cmd item replace entity tester weapon.mainhand with create:cut_andesite_stairs
+wait 0.5
+bot place 1027 104 1026 up
+wait 0.7
+cmd execute if block 1027 105 1026 create:cut_andesite_stairs[facing=north,half=bottom,shape=straight,waterlogged=false] if block 1027 105 1026 #minecraft:stairs
+wait 0.5
+expect Test passed
+bot expect block 1027 105 1026 minecraft:waxed_exposed_cut_copper_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]
+wait 0.5
+expect \[bot\] expect block ok 1027 105 1026
+
+# A neighboring vanilla stair turns the Create stair into a baked outer corner.
+cmd tp tester 1028.5 105 1028.5 -90 0
+cmd item replace entity tester weapon.mainhand with minecraft:stone_stairs
+wait 0.5
+bot place 1027 104 1025 up
+wait 0.7
+cmd execute if block 1027 105 1026 create:cut_andesite_stairs[facing=north,half=bottom,shape=outer_right]
+wait 0.5
+expect Test passed
+bot expect block 1027 105 1026 minecraft:spruce_stairs[facing=east,half=bottom,shape=outer_left,waterlogged=false]
+bot expect entity minecraft:item_display near 1027.5 105 1026.5 within 0.05 count 0
+wait 0.5
+expect-all \[bot\] expect block ok 1027 105 1026 && \[bot\] expect entity ok minecraft:item_display
+cmd setblock 1027 105 1025 minecraft:air
+wait 0.5
+cmd execute if block 1027 105 1026 create:cut_andesite_stairs[shape=straight]
+wait 0.5
+expect Test passed
+
+# A Create stair can also make a vanilla stair take an inner corner.
+cmd setblock 1029 105 1026 minecraft:stone_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]
+cmd item replace entity tester weapon.mainhand with create:cut_andesite_stairs
+wait 0.5
+bot place 1029 104 1027 up
+wait 0.7
+cmd execute if block 1029 105 1026 minecraft:stone_stairs[facing=north,half=bottom,shape=inner_right] if block 1029 105 1027 create:cut_andesite_stairs[facing=east,half=bottom,shape=straight]
+wait 0.5
+expect Test passed
+cmd loot spawn 1029 107 1027 mine 1029 105 1027 minecraft:iron_pickaxe
+wait 0.5
+expect Dropped 1 .*Cut Andesite Stairs
+
+# Upside-down placement and water hold their geometry through restart.
+cmd setblock 1030 106 1026 minecraft:water[level=0]
+cmd item replace entity tester weapon.mainhand with create:cut_calcite_stairs
+wait 0.5
+bot place 1031 106 1026 west main 0.0 0.75 0.5
+wait 0.7
+cmd execute if block 1030 106 1026 create:cut_calcite_stairs[facing=east,half=top,shape=straight,waterlogged=true]
+wait 0.5
+expect Test passed
+bot expect block 1030 106 1026 minecraft:waxed_oxidized_cut_copper_stairs[facing=east,half=top,shape=straight,waterlogged=true]
+bot expect entity minecraft:item_display near 1030.5 106 1026.5 within 0.05 count 1
+wait 0.5
+expect-all \[bot\] expect block ok 1030 106 1026 && \[bot\] expect entity ok minecraft:item_display
+cmd save-all flush
+wait 0.5
+expect Saved the game
+stop
+start
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd execute if block 1029 105 1026 minecraft:stone_stairs[shape=inner_right] if block 1029 105 1027 create:cut_andesite_stairs[facing=east,half=bottom,shape=straight] if block 1030 106 1026 create:cut_calcite_stairs[facing=east,half=top,shape=straight,waterlogged=true]
+wait 0.5
+expect Test passed
+bot expect entity minecraft:item_display near 1030.5 106 1026.5 within 0.05 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:item_display
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop

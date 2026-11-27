@@ -5,21 +5,23 @@ Compared with Create 6.0.10 (`mc1.21.1-6.0.10`). The inventory uses `AllBlocks`,
 The port side uses the host's registered block and item IDs, the Create behavior modules and
 the data files bundled in `create.mmc`.
 
-Create registers 284 blocks and 56 standalone items. Of 643 released blockstate IDs,
-363 remain outside the port. The package includes 1,148 recipe files and 279 block loot tables.
+Create registers 340 blocks and 56 standalone items. Of 643 released blockstate IDs,
+307 remain outside the port. The package includes 1,260 recipe files and 335 block loot tables.
 The release generates 1,884 recipe files and 640 block loot tables. A bundled file may still need
 its runtime mechanic or an optional mod to run.
 
 | Order | What a survival player hits |
 | --- | --- |
 | 1 | **Steam power.** Steam Engines form boilers, consume pumped water, and share capacity across shafts. The tested boilers restore their output and retain engine attachments across chunk loads and restart. Boiler gauges show the water and heat limits on exposed sides. Steam Whistles attach to the top or side of tanks, grow and retune, and sound on redstone with heat. Goggles pitch information, Create's steam jet, advancements and continuous client audio still need work ([issue #30](https://github.com/devmogged/moddedMC-rust/issues/30)). |
-| 2 | **Building and materials.** Full stone palettes, pillars, framed glass, solid window variants and 56 stone slabs craft or stonecut and drop. Stone slabs merge, waterlog, and use their release material settings on the server. Stock-client sounds and frame timing in large builds remain under [issue #32](https://github.com/devmogged/moddedMC-rust/issues/32). Stairs, walls, panes and bars need placement, neighbor shapes and multipart models. Copper slabs wait on oxidation and waxing. Metal Ladders and Scaffolds need climbable stock carriers and support rules. Copper shingles and tiles need oxidation and waxing. Sliding Doors and Trapdoors need their ordinary hand and redstone behavior. Metal Girders, encased cogs, colored sails, Table Covers, Cardboard Blocks and Copycat Step, Panel and Bars remain. |
+| 2 | **Building and materials.** Full stone palettes, pillars, framed glass, solid windows, 56 stone slabs and 56 stone stairs craft or stonecut and drop. Slabs merge and stairs form corners with vanilla stairs. Both waterlog and use their release material settings on the server. Stock-client sounds and frame timing remain under [issue #32](https://github.com/devmogged/moddedMC-rust/issues/32) and [issue #37](https://github.com/devmogged/moddedMC-rust/issues/37). Walls, panes and bars need placement, neighbor shapes and multipart models. Copper slabs wait on oxidation and waxing. Metal Ladders and Scaffolds need climbable stock carriers and support rules. Copper shingles and tiles need oxidation and waxing. Sliding Doors and Trapdoors need their ordinary hand and redstone behavior. Metal Girders, encased cogs, colored sails, Table Covers, Cardboard Blocks and Copycat Step, Panel and Bars remain. |
 | 3 | **Item storage and control.** Funnels, Chutes, Tunnels, the Mechanical Arm, Threshold Switch and Smart Observer cover basic routing and sensing. Item Vaults, Redstone Links and the Linked Controller, Item Hatches, Factory Gauges, Redstone Requesters, Creative Crates, Toolboxes, analog levers and brass diodes remain. Attribute Filter creative-tab matching and special Arm targets sit behind these paths. |
 | 4 | **Farm, belts and processing.** Stationary Drills, stationary and mounted Saws, moving Harvesters, and piston-mounted Ploughs cover tested jobs. Ploughs still need falling-block handling, the flying-anvil advancement and train-mounted actors ([issue #29](https://github.com/devmogged/moddedMC-rust/issues/29)). Mounted Deployers, Portable Storage and Fluid Interfaces, Smart Fluid Pipes, and more custom filling and sequenced recipes remain. Belt slicing, dyes, stock-client slope transport, and full bulk blasting and smoking coverage remain. |
 | 5 | **Packages, displays and notes.** Packagers and Repackagers, Frogports and Postboxes, Chain Conveyors, Stock Links and Stock Tickers, address filters and Shopping Lists remain. Display Links and Boards, Nixie Tubes, Clipboards, Placards, bells, and lectern controls remain. |
 | 6 | **Equipment and tools.** Engineer's Goggles and Ponder, Extendo Grip, Potato Cannon, Diving Gear and Backtanks, Cardboard armor and sword, Symmetry Wand, Tree Fertilizer, Nugget and Block of Experience, Builder's Tea and the other food items remain. |
 | 7 | **Schematics.** Schematic and Quill, Schematic editing and placement, Schematic Table and Schematicannon remain. Empty Schematics are available as an item. |
 | 8 | **Contraptions and rail upgrades.** Pistons, bearings, pulleys, elevators, seats, assembled train driving, occupied signals and two-stop schedules work in the checked cases. Cart Assemblers and minecart contraptions, train Observers and station editing, schedule conditions, Sequenced Gearshifts, contraption controls, standing-player carrying and double-chest capture remain. |
+
+Display-backed slabs and stairs still need visible stock models on moving contraptions.
 
 ## Recipe gaps by serializer
 

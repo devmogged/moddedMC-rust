@@ -6,6 +6,10 @@
     "create:small_andesite_bricks",
     "create:layered_andesite",
     "create:andesite_pillar",
-    "minecraft:andesite"
+    "minecraft:andesite",
+    "create:cut_andesite_stairs",
+    "create:polished_cut_andesite_stairs",
+    "create:cut_andesite_brick_stairs",
+    "create:small_andesite_brick_stairs"
   ]
 }

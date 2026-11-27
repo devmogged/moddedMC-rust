@@ -6,6 +6,10 @@
     "create:small_crimsite_bricks",
     "create:layered_crimsite",
     "create:crimsite_pillar",
-    "create:crimsite"
+    "create:crimsite",
+    "create:cut_crimsite_stairs",
+    "create:polished_cut_crimsite_stairs",
+    "create:cut_crimsite_brick_stairs",
+    "create:small_crimsite_brick_stairs"
   ]
 }

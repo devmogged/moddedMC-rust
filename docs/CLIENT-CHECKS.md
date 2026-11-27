@@ -51,3 +51,10 @@ Run these checks with the official client and the server resource pack.
 - Pour water into a single slab, and place another slab into a water source. Expect both to hold water through restart. Merge a waterlogged single slab and expect the double slab to lose the water. Use a bucket on a dry double slab and expect water to pour beside it.
 - Build a large mixed floor of Cut Andesite and Cut Calcite slabs. Look from both above and below, pan past the floor, then leave and re-enter its chunks. Expect the correct half-block models to stay aligned with collision. Capture frame timing and any pop-in from the display-backed Calcite slabs.
 - Place Cut Calcite and Cut Dripstone slabs, walk over them, and mine them with the same pickaxe. Expect each to sound like its source stone and to drop one slab. Compare placement, footsteps, and breaking with the corresponding vanilla source blocks. Record any sound that follows the carrier block.
+
+## Stone palette stairs (Pumpkin `f040199c4`)
+
+- Craft Cut Andesite Stairs at a crafting table and stonecut Cut Calcite Stairs. Expect four Cut Andesite Stairs per crafting recipe and one Cut Calcite Stair per stonecutting input. Place both upright and upside down in each horizontal direction. Expect the treads to align with collision and the texture to stay upright on the exposed faces.
+- Join each stair with vanilla Stone Stairs in both directions. Expect inner and outer corners to appear on either material. Remove the neighboring stair and expect the remaining one to straighten. Repeat upside down. Check the corner seams and walk over each joint.
+- Place one of each material in water and mine another with a pickaxe. Expect a water source inside the placed stair and one matching stair from the mined block. Restart and expect the water, facing, and neighboring corners to remain.
+- Build equal large stair arrays from Cut Andesite and Cut Calcite. Pan across them and leave and re-enter their chunks. Expect all models to stay aligned, with the same result after reload. Capture frame timing and any display pop-in or carrier-dependent sounds.

@@ -6,6 +6,10 @@
     "create:small_calcite_bricks",
     "create:layered_calcite",
     "create:calcite_pillar",
-    "minecraft:calcite"
+    "minecraft:calcite",
+    "create:cut_calcite_stairs",
+    "create:polished_cut_calcite_stairs",
+    "create:cut_calcite_brick_stairs",
+    "create:small_calcite_brick_stairs"
   ]
 }
