@@ -2234,6 +2234,92 @@ pub struct InventoryMenuV1Validity {
     ) -> bool,
 }
 
+/// A synchronous backing-record write. Return true only after the record was committed.
+pub type InventoryMenuPersist = unsafe extern "C" fn(*mut c_void) -> bool;
+pub type InventoryMenuAccept = unsafe extern "C" fn(Str, u8, Str) -> bool;
+pub type InventoryMenuRoute = unsafe extern "C" fn(Str, Str) -> u64;
+/// Allow a player-to-menu quick move to fall back to the opposite player inventory section.
+pub const MENU_ROUTE_PLAYER_FALLBACK: u64 = 1 << 63;
+
+#[repr(C)]
+pub struct InventoryMenuManagedChange {
+    pub base: InventoryMenuChange,
+    pub context: Str,
+    pub commit_external:
+        unsafe extern "C" fn(*mut c_void, *mut c_void, InventoryMenuPersist) -> bool,
+}
+
+pub type InventoryMenuManagedCallback = unsafe extern "C" fn(*const InventoryMenuManagedChange);
+
+#[repr(C)]
+pub struct InventoryMenuManagedOpen {
+    pub base: InventoryMenuOpen,
+    pub world: WorldRef,
+    pub controls: *const InventoryMenuControl,
+    pub control_count: usize,
+    pub context: Str,
+    pub validity: InventoryMenuValidityCallback,
+    pub accepts: InventoryMenuAccept,
+    pub quick_move: InventoryMenuRoute,
+}
+
+#[repr(C)]
+pub struct InventoryMenuMutation {
+    pub world: WorldRef,
+    pub kind: u64,
+    pub inventory: u64,
+    pub stacks: *const Str,
+    pub access: *const u8,
+    pub count: usize,
+    pub persist_context: *mut c_void,
+    pub persist: InventoryMenuPersist,
+}
+
+#[repr(C)]
+pub struct InventoryMenuV1Managed {
+    pub base: InventoryMenuV1Validity,
+    pub register_managed: unsafe extern "C" fn(Reg, InventoryMenuManagedCallback, *mut u64) -> i32,
+    pub open_managed: unsafe extern "C" fn(*const InventoryMenuManagedOpen) -> bool,
+    pub mutate: unsafe extern "C" fn(*const InventoryMenuMutation) -> bool,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+#[test]
+fn inventory_menu_v1_managed_layout() {
+    use std::mem::offset_of;
+    assert_eq!(size_of::<InventoryMenuV1>(), 32);
+    assert_eq!(size_of::<InventoryMenuV1Actions>(), 48);
+    assert_eq!(size_of::<InventoryMenuV1Validity>(), 56);
+    assert_eq!(offset_of!(InventoryMenuV1Managed, register_managed), 56);
+    assert_eq!(offset_of!(InventoryMenuV1Managed, open_managed), 64);
+    assert_eq!(offset_of!(InventoryMenuV1Managed, mutate), 72);
+    assert_eq!(size_of::<InventoryMenuV1Managed>(), 80);
+    assert_eq!(
+        offset_of!(InventoryMenuManagedChange, context),
+        size_of::<InventoryMenuChange>()
+    );
+    assert_eq!(offset_of!(InventoryMenuManagedChange, context), 80);
+    assert_eq!(offset_of!(InventoryMenuManagedChange, commit_external), 96);
+    assert_eq!(size_of::<InventoryMenuManagedChange>(), 104);
+    assert_eq!(offset_of!(InventoryMenuManagedOpen, world), 72);
+    assert_eq!(offset_of!(InventoryMenuManagedOpen, controls), 80);
+    assert_eq!(offset_of!(InventoryMenuManagedOpen, control_count), 88);
+    assert_eq!(offset_of!(InventoryMenuManagedOpen, context), 96);
+    assert_eq!(offset_of!(InventoryMenuManagedOpen, validity), 112);
+    assert_eq!(offset_of!(InventoryMenuManagedOpen, accepts), 120);
+    assert_eq!(offset_of!(InventoryMenuManagedOpen, quick_move), 128);
+    assert_eq!(size_of::<InventoryMenuManagedOpen>(), 136);
+    assert_eq!(offset_of!(InventoryMenuMutation, world), 0);
+    assert_eq!(offset_of!(InventoryMenuMutation, kind), 8);
+    assert_eq!(offset_of!(InventoryMenuMutation, inventory), 16);
+    assert_eq!(offset_of!(InventoryMenuMutation, stacks), 24);
+    assert_eq!(offset_of!(InventoryMenuMutation, access), 32);
+    assert_eq!(offset_of!(InventoryMenuMutation, count), 40);
+    assert_eq!(offset_of!(InventoryMenuMutation, persist_context), 48);
+    assert_eq!(offset_of!(InventoryMenuMutation, persist), 56);
+    assert_eq!(size_of::<InventoryMenuMutation>(), 64);
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct InventoryMenuTarget {
