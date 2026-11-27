@@ -106,6 +106,21 @@ pub fn hurt(world: World<'_>, dragon: Entity<'_>, kind: &str) {
 }
 
 pub fn eat(world: World<'_>, dragon: Entity<'_>) {
+    if MOBS.get().and_then(|mobs| mobs.kind(dragon)) == Some(crate::wild::VARASUCHUS) {
+        // `VarasuchusInteractionHandler.playEatSound`.
+        play(
+            world,
+            dragon,
+            event("entity.generic.eat", "saintsdragons:varasuchus_eat"),
+            1.0,
+            if crate::eggs::is_juvenile(dragon) {
+                1.6
+            } else {
+                1.0
+            },
+        );
+        return;
+    }
     play(
         world,
         dragon,

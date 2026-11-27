@@ -539,10 +539,16 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if matches!(item, BRUSH | GOLDEN_BRUSH) {
         return brush(click, item == GOLDEN_BRUSH);
     }
+    if let Some(result) = crate::wild::sleep_refusal(click) {
+        return result;
+    }
     if let Some(result) = crate::baby::interact(click, item) {
         return result;
     }
     if let Some(result) = crate::breed::feed(click, item) {
+        return result;
+    }
+    if let Some(result) = crate::wild::feed(click, item) {
         return result;
     }
     if let Some(result) = crate::wild::interact(click, item) {
@@ -859,6 +865,13 @@ pub fn follow(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         return false;
     }
     if released_in_flight(mob) {
+        return false;
+    }
+    // `DragonFollowOwnerBehaviour` excludes sleep-locked dragons.
+    // shortcut: owner bed state is unavailable in the ABI; only roost sleep exists today.
+    if mobs.kind(mob) == Some(crate::wild::VARASUCHUS)
+        && crate::roost::sleep_clip(mob.id()).is_some()
+    {
         return false;
     }
     let Some(at) = mob.view().map(|view| view.position) else {

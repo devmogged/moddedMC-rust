@@ -141,6 +141,9 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if !click.sneaking || !taming::is_tamed(mob) || !TAGS.get()?.contains("item", &foods, item) {
         return None;
     }
+    if breeder.name == "varasuchus" && crate::MOBS.get()?.game_mode(player) == Some(3) {
+        return None;
+    }
     let name = crate::roster::display(breeder.name);
     let now = tick_count();
     let id = mob.id();
@@ -148,7 +151,7 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         state.fed.retain(|_, until| *until > now);
         state.fed.contains_key(&id)
     });
-    if busy {
+    if busy || (breeder.name == "varasuchus" && !crate::baby::start_eating(id, 0)) {
         message(player, "%s is still eating...", name);
         return Some(UseResult::Consume);
     }
@@ -163,6 +166,10 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if with(|state| in_love(state, id, now)) {
         message(player, "%s is already ready to breed", name);
         return Some(UseResult::Success);
+    }
+    if breeder.name == "varasuchus" && !crate::baby::start_eating(id, FEED_COOLDOWN) {
+        message(player, "%s is still eating...", name);
+        return Some(UseResult::Consume);
     }
     if !click.creative {
         click.stack.shrink(1);

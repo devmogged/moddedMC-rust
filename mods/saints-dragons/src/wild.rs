@@ -20,6 +20,8 @@ use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, TAGS, ai::random, taming};
 pub const GOAL: u64 = 14;
 const STEGONAUT: &str = "saintsdragons:stegonaut";
 pub const VARASUCHUS: &str = "saintsdragons:varasuchus";
+const VARASUCHUS_FOODS: &str = "saintsdragons:foods/varasuchus";
+pub(crate) const VARASUCHUS_FEED_COOLDOWN: u64 = 50;
 /// `WILD_RIDE_BUCK_DURATION_TICKS` and `WILD_RIDE_BUCK_COOLDOWN_TICKS`.
 const RIDE_TICKS: u64 = 90;
 const BUCK_COOLDOWN: u64 = 100;
@@ -56,6 +58,66 @@ fn roll(percent: f64) -> bool {
 
 fn wild_adult(mob: Entity<'_>) -> bool {
     !taming::is_tamed(mob) && !crate::eggs::is_juvenile(mob)
+}
+
+/// `VarasuchusInteractionHandler.handleUntamedInteraction`: all ordinary clicks
+/// are refused during the existing roost's sleep and both transitions.
+pub fn sleep_refusal(click: &UseMob<'_>) -> Option<UseResult> {
+    let (player, mob, mobs) = (click.player?, click.mob?, MOBS.get()?);
+    if mobs.kind(mob)? != VARASUCHUS
+        || taming::is_tamed(mob)
+        || crate::roost::sleep_clip(mob.id()).is_none()
+    {
+        return None;
+    }
+    mobs.message(player, "Varasuchus is sleeping, wake it up to tame.", true);
+    Some(UseResult::Success)
+}
+
+fn feeding(hearty: bool, health: f32, max: f32, hungry: bool) -> (f32, &'static str) {
+    let heal = if hearty { 35.0 } else { 10.0 };
+    let message = if health + heal < max {
+        "Varasuchus is being healed..."
+    } else if hungry {
+        "Feeding Varasuchus..."
+    } else {
+        "Varasuchus is fully healed!"
+    };
+    (heal, message)
+}
+
+/// `VarasuchusInteractionHandler.handleFeeding` for a tamed adult.
+/// Crouching with food belongs to breeding, and any non-spectator may feed.
+pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
+    let (player, mob, mobs) = (click.player?, click.mob?, MOBS.get()?);
+    if mobs.kind(mob)? != VARASUCHUS
+        || !taming::is_tamed(mob)
+        || crate::eggs::is_juvenile(mob)
+        || click.sneaking
+        || mobs.game_mode(player) == Some(3)
+        || !TAGS.get()?.contains("item", VARASUCHUS_FOODS, item)
+    {
+        return None;
+    }
+    let (health, max) = mobs.health(mob)?;
+    if !crate::baby::start_eating(mob.id(), VARASUCHUS_FEED_COOLDOWN) {
+        mobs.message(player, "Varasuchus is still eating...", true);
+        return Some(UseResult::Consume);
+    }
+    if !click.creative {
+        click.stack.shrink(1);
+    }
+    crate::audio::eat(click.world, mob);
+    let hearty = item == taming::HEARTY_MEAL;
+    let hungry = crate::hunger::feed(mob, hearty);
+    let (heal, message) = feeding(hearty, health, max, hungry);
+    mobs.heal(mob, heal);
+    if hearty {
+        mob.add_effect("minecraft:regeneration", 200, 1, false, true);
+    }
+    taming::feed_particles(click.world, mob, true);
+    mobs.message(player, message, true);
+    Some(UseResult::Success)
 }
 
 /// Stegonaut and Varasuchus clicks on a wild adult. None leaves the click to the other handlers.
@@ -199,6 +261,26 @@ fn finish(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn varasuchus_food_amounts_and_messages() {
+        assert_eq!(
+            feeding(false, 180.0, 200.0, false),
+            (10.0, "Varasuchus is being healed...")
+        );
+        assert_eq!(
+            feeding(true, 165.0, 200.0, true),
+            (35.0, "Feeding Varasuchus...")
+        );
+        assert_eq!(
+            feeding(false, 195.0, 200.0, false),
+            (10.0, "Varasuchus is fully healed!")
+        );
+        assert_eq!(
+            feeding(true, 100.0, 200.0, true),
+            (35.0, "Varasuchus is being healed...")
+        );
+    }
 
     #[test]
     fn rolls_are_percentages() {
