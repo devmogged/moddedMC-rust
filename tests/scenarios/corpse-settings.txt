@@ -1,0 +1,39 @@
+# In the scenario run directory, write config/corpse-synced.toml before starting.
+# Set death_storage_duration = 0 and [corpse] skeleton_time = 0.
+# Omit -Fresh so the scenario runner keeps the prewritten configuration.
+mods target\mods\corpse.mmc
+start
+expect moddedmc: loaded corpse
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+cmd gamemode spectator tester
+cmd tp tester 1025.5 300 1025.5
+wait 3
+cmd gamerule minecraft:keep_inventory false
+cmd fill 1024 299 1024 1030 299 1030 minecraft:quartz_block
+wait 0.5
+expect Successfully filled 49 block
+cmd gamemode survival tester
+cmd tp tester 1025.5 300 1025.5
+wait 1
+cmd item replace entity tester hotbar.0 with minecraft:diamond 3
+cmd kill tester
+wait 1
+bot respawn
+wait 1
+cmd tp tester 1025.5 300 1027.5 180 27
+wait 3
+bot expect entity minecraft:skeleton near 1025.5 300 1025.5 within 2 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:skeleton
+bot cmd deathhistory
+wait 0.5
+expect You have no recorded deaths
+bot use-entity interaction 1025.5 300 1025.5 main
+wait 0.5
+bot expect slot 36 minecraft:diamond 3
+wait 0.5
+expect expect inventory ok slot 36 diamond 3
+bot quit
+stop

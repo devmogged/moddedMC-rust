@@ -1,0 +1,67 @@
+# Creative history can restore a fresh copy. Failed or unauthorized changes preserve the items.
+mods target\mods\corpse.mmc
+start
+expect moddedmc: loaded corpse
+botstart tester
+wait 4
+cmd gamerule minecraft:keep_inventory false
+cmd gamemode survival tester
+cmd item replace entity tester armor.head with minecraft:diamond_helmet
+cmd kill tester
+wait 1
+bot respawn
+wait 1
+cmd gamemode creative tester
+bot cmd deathhistory
+wait 0.5
+expect \[bot\] dialog: .*Death History
+bot click-label Show items
+wait 0.5
+bot expect slot 8 minecraft:hopper 1
+wait 0.5
+expect expect inventory ok slot 8 hopper 1
+bot inventory-click 8 left
+wait 0.5
+cmd data get entity tester equipment.head.id
+wait 0.5
+expect minecraft:diamond_helmet
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:diamond_helmet
+wait 0.5
+expect Removed 1 item
+bot cmd deathhistory
+wait 0.5
+bot click-label Show items
+wait 0.5
+bot expect slot 0 minecraft:diamond_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 diamond_helmet 1
+cmd item replace entity tester armor.head with minecraft:iron_helmet
+cmd give tester minecraft:cobblestone 2304
+wait 0.5
+bot inventory-click 8 left
+wait 0.5
+expect No saved items could be transferred
+cmd data get entity tester equipment.head.id
+wait 0.5
+expect minecraft:iron_helmet
+bot expect slot 0 minecraft:diamond_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 diamond_helmet 1
+cmd gamemode survival tester
+wait 0.5
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-click 8 left
+wait 0.5
+bot expect slot 0 minecraft:diamond_helmet 1
+wait 0.5
+expect expect inventory ok slot 0 diamond_helmet 1
+bot inventory-close
+wait 0.5
+cmd clear tester minecraft:diamond_helmet 0
+wait 0.5
+expect No items were found on player tester
+bot quit
+stop

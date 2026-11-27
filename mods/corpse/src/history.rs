@@ -1,12 +1,24 @@
 use moddedmc_api::{
     Menu, MenuButton, Player,
     content::World,
-    inventory_menu::{Access, ActionSlots},
+    entities::Entity,
+    inventory_menu::{Action, ActionSlots, Change, Control},
 };
 
-use crate::{RUNTIME, Runtime, archive, menus::inventory_slots, profile_uuid, records::Grave};
+use crate::settings::now_millis;
+use crate::{
+    RUNTIME, Runtime, archive,
+    menus::{
+        RESTORE, RESTORE_SLOT, inventory_slots, main_access, matching_targets, restore_button_stack,
+    },
+    profile_uuid,
+    records::Grave,
+};
 
 const ACTION_PREFIX: &str = "corpse:history/";
+const CREATIVE_MODE: i32 = 1;
+const CREATIVE_PREVIEW: u32 = 1 << 31;
+const READ_ONLY_PREVIEW: u32 = u32::MAX;
 
 #[derive(Clone, Copy)]
 pub struct DeathLink {
@@ -27,12 +39,13 @@ pub fn show(
     uuid: &[u8; 16],
     requested: Option<DeathLink>,
 ) -> bool {
+    let now = now_millis();
     let menu = archive(runtime, world, |current| {
         let deaths: Vec<_> = current
             .deaths
             .iter()
             .rev()
-            .filter(|death| death.owns(uuid))
+            .filter(|death| death.is_recorded(now) && death.owns(uuid))
             .collect();
         let index = requested.map_or(Some(0), |link| {
             deaths.iter().position(|death| link.matches(death))
@@ -104,9 +117,9 @@ pub fn click(player: Player<'_>, action: &str) {
     else {
         return;
     };
-    player.with_entity_context(|world, _| match verb {
+    player.with_entity_context(|world, entity| match verb {
         "show" => show(runtime, world, &player, &uuid, Some(link)),
-        "items" => show_items(runtime, world, &player, &uuid, link),
+        "items" => show_items(runtime, world, &player, entity, &uuid, link),
         _ => false,
     });
 }
@@ -115,27 +128,38 @@ fn show_items(
     runtime: Runtime,
     world: World<'_>,
     player: &Player<'_>,
+    entity: Entity<'_>,
     uuid: &[u8; 16],
     link: DeathLink,
 ) -> bool {
     let Ok(number) = u32::try_from(link.id) else {
         return false;
     };
-    let Some((owner, items)) = archive(runtime, world, |current| {
-        let death = current
-            .get(link.id)
-            .filter(|death| death.owns(uuid) && link.matches(death))?;
+    let Some((owner, mut items)) = archive(runtime, world, |current| {
+        let death = current.get(link.id).filter(|death| {
+            death.is_recorded(now_millis()) && death.owns(uuid) && link.matches(death)
+        })?;
         Some((death.owner.clone(), inventory_slots(&death.original)))
     })
     .flatten() else {
         return false;
     };
-    let access = [Access {
-        take: false,
-        insert: false,
-    }; 45];
-    // All live corpse views use page IDs no larger than i32::MAX.
-    let inventory = (u64::from(number) << 32) | u64::from(u32::MAX);
+    let mut preview = READ_ONLY_PREVIEW;
+    if runtime.interfaces.mobs.game_mode(entity) == Some(CREATIVE_MODE)
+        && let Ok(id) = u32::try_from(entity.id())
+        && id < READ_ONLY_PREVIEW - CREATIVE_PREVIEW
+    {
+        preview = CREATIVE_PREVIEW | id;
+        items[usize::from(RESTORE_SLOT)] = restore_button_stack();
+    }
+    let controls = [Control {
+        slot: RESTORE_SLOT,
+        tag: RESTORE,
+    }];
+    let creative = preview != READ_ONLY_PREVIEW;
+    let access = main_access(creative);
+    // Live body pages use the lower half. Creative viewers each get their own copy.
+    let inventory = (u64::from(number) << 32) | u64::from(preview);
     runtime.interfaces.menus.open(
         player,
         runtime.menu,
@@ -144,10 +168,71 @@ fn show_items(
         ActionSlots {
             world,
             access: &access,
-            controls: &[],
+            controls: if creative { &controls } else { &[] },
         },
         || Some(items),
     )
+}
+
+pub fn creative_player(inventory: u64) -> Option<i32> {
+    let preview = u32::try_from(inventory & u64::from(u32::MAX)).ok()?;
+    if preview == READ_ONLY_PREVIEW || preview & CREATIVE_PREVIEW == 0 {
+        return None;
+    }
+    i32::try_from(preview & !CREATIVE_PREVIEW).ok()
+}
+
+pub fn transfer(action: Action<'_>, player_id: i32) {
+    let Some(&runtime) = RUNTIME.get() else {
+        return;
+    };
+    if action.tag != RESTORE
+        || action.player.with_entity_context(|_, entity| {
+            entity.id() == player_id
+                && runtime.interfaces.mobs.game_mode(entity) == Some(CREATIVE_MODE)
+        }) != Some(true)
+    {
+        return;
+    }
+    if !runtime.interfaces.menus.menus().restore_matching(
+        &action.player,
+        runtime.menu,
+        action.inventory,
+        &matching_targets(),
+    ) {
+        action
+            .player
+            .send_message("No saved items could be transferred.");
+    }
+}
+
+pub fn change(mut change: Change<'_>, player_id: i32) {
+    let Some(&runtime) = RUNTIME.get() else {
+        return;
+    };
+    if change.overflow().len() != 0 {
+        return;
+    }
+    let permitted = runtime
+        .interfaces
+        .entities
+        .with_entity(change.world, player_id, |entity| {
+            runtime.interfaces.mobs.uuid(entity) == Some(change.player_uuid)
+                && runtime.interfaces.mobs.game_mode(entity) == Some(CREATIVE_MODE)
+        })
+        == Some(true);
+    let Some(id) = u32::try_from(change.inventory >> 32).ok().map(i64::from) else {
+        return;
+    };
+    let recorded = permitted
+        && archive(runtime, change.world, |current| {
+            current.get(id).is_some_and(|death| {
+                death.owns(&change.player_uuid) && death.is_recorded(now_millis())
+            })
+        }) == Some(true);
+    if recorded {
+        change.commit(runtime.preview_key, &[]);
+    }
 }
 
 fn timestamp(milliseconds: i64) -> String {
