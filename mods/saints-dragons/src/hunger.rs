@@ -166,10 +166,14 @@ pub fn tick(world: World<'_>, mob: Entity<'_>, speed: f64, flying: Option<f64>, 
     state.save(mob);
     // An untamed dragon runs at full speed (`clearSpeedModifiers`).
     apply_speed(mob, happiness.unwrap_or(100), speed, flying);
-    if let Some(base) = crate::roster::melee_base(
-        species,
-        species == "ignivorus" && crate::eggs::is_juvenile(mob),
-    ) {
+    // Varasuchus's abilities apply hunger directly to the live attack attribute.
+    // Rewriting that attribute here would apply hunger twice and erase modifiers.
+    if species != "varasuchus"
+        && let Some(base) = crate::roster::melee_base(
+            species,
+            species == "ignivorus" && crate::eggs::is_juvenile(mob),
+        )
+    {
         apply_melee(mob, base * f64::from(multiplier(state.hunger)));
     }
 }

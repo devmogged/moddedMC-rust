@@ -102,6 +102,18 @@ impl Attack {
             Self::Shift => 0.0,
         }
     }
+    /// Bite, horn and claw abilities scale from the live attack attribute.
+    fn scaled_damage(self, phase_two: bool, hunger: f32, attribute: Option<f64>) -> f32 {
+        let mut damage = self.damage(phase_two);
+        if let Some(value) = attribute.filter(|v| *v > 0.0) {
+            match self {
+                Self::Bite | Self::Bite2 | Self::Horn => damage *= (value / 10.0) as f32,
+                Self::Claw => damage = (value * 1.2) as f32,
+                _ => {}
+            }
+        }
+        damage * hunger
+    }
     fn clip(self, phase_two: bool, wet: bool, left: bool) -> &'static str {
         match self {
             Self::Bite => "bite",
@@ -727,14 +739,11 @@ fn hit(
             {
                 return;
             }
-            let mut damage = attack.damage(phase_two) * hunger::melee_multiplier(mob);
-            if attack == Attack::Horn
-                && let Some(value) = mob
-                    .attribute_value("minecraft:attack_damage")
-                    .filter(|v| *v > 0.0)
-            {
-                damage *= value as f32 / 10.0;
-            }
+            let mut damage = attack.scaled_damage(
+                phase_two,
+                hunger::melee_multiplier(mob),
+                mob.attribute_value("minecraft:attack_damage"),
+            );
             if matches!(attack, Attack::Horn | Attack::Tail)
                 && let (Some(armor), Some(toughness)) = (
                     e.attribute_value("minecraft:armor"),
@@ -788,6 +797,15 @@ fn hit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_attack_attribute_and_hunger_scale_released_abilities() {
+        assert_eq!(Attack::Horn.scaled_damage(false, 0.25, Some(10.0)), 2.0);
+        assert_eq!(Attack::Bite.scaled_damage(false, 0.5, Some(20.0)), 15.0);
+        assert_eq!(Attack::Bite2.scaled_damage(true, 0.5, Some(20.0)), 25.0);
+        assert_eq!(Attack::Claw.scaled_damage(true, 0.5, Some(20.0)), 12.0);
+        assert_eq!(Attack::Tail.scaled_damage(false, 0.5, Some(20.0)), 3.5);
+        assert_eq!(Attack::Horn.scaled_damage(false, 0.5, Some(0.0)), 4.0);
+    }
     #[test]
     fn horn_pierces_armor_and_tail_deals_flat_damage() {
         for (armor, toughness) in [(0.0, 0.0), (20.0, 8.0), (30.0, 12.0)] {

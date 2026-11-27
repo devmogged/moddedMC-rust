@@ -26,6 +26,8 @@ phase persists in NBT and AI melee scales with hunger. Owner retaliation,
 nearby wild baby defense and prey targeting are implemented in part.
 Horn gore compensates for three or five armor points according to phase and
 uses the live attack, armor, toughness and knockback resistance attributes.
+Varasuchus has a base attack attribute of 10; bite, gore and claw scale from
+the live attribute, and hunger scales ability damage without rewriting it.
 Tail sweep compensates for all armor reduction. On land, attack startup
 requires an unobstructed collider ray; the eye positions approximate the
 release's pose-specific eye heights using collision bounds. Rider attack inputs,
