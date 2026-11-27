@@ -126,7 +126,9 @@ impl Mod for SaintsDragons {
         let effects = effects::require()?;
         effects.require_effect_veto()?;
         let _ = EFFECTS.set(effects);
-        let _ = COMMANDS.set(commands::require()?);
+        let commands = commands::require()?;
+        commands.require_selectors()?;
+        let _ = COMMANDS.set(commands);
         let entities = entities::require()?;
         combat_raevyx::require(content, entities)?;
         entities.require_extension(EntitiesExtension::Carriers)?;
@@ -339,6 +341,9 @@ impl Mod for SaintsDragons {
     }
 
     fn command(&self, tag: u64, command: Command<'_>) -> i32 {
+        if let Some(result) = allies::command(tag, &command) {
+            return result;
+        }
         if tag == catalog::OPEN {
             return catalog::open(command);
         }

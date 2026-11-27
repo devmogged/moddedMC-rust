@@ -247,6 +247,13 @@ pub struct ChunksV1 {
 pub const COMMAND_ROOT: u32 = u32::MAX;
 pub const COMMAND_LITERAL: u32 = 0;
 pub const COMMAND_INTEGER: u32 = 1;
+pub const COMMAND_STRING: u32 = 2;
+pub const COMMAND_ENTITY: u32 = 3;
+pub const COMMAND_ENTITIES: u32 = 4;
+pub const COMMAND_PLAYER: u32 = 5;
+pub const COMMAND_PLAYERS: u32 = 6;
+
+pub type CommandEntityVisit = unsafe extern "C" fn(*mut c_void, WorldRef, EntityRef, Str);
 
 /// A child in a command tree. Parents come before children.
 #[repr(C)]
@@ -279,6 +286,24 @@ pub struct CommandsV1 {
     pub integer: unsafe extern "C" fn(source: *const c_void, name: Str, out: *mut i32) -> bool,
     /// Send feedback, respecting the command source's feedback settings.
     pub feedback: unsafe extern "C" fn(source: *const c_void, message: Str),
+    /// Copy a parsed quotable string through the sink.
+    pub string: unsafe extern "C" fn(source: *const c_void, name: Str, out: Sink) -> bool,
+    /// Resolve a selector using its declared kind and visit borrowed entities and names.
+    pub select: unsafe extern "C" fn(
+        source: *const c_void,
+        name: Str,
+        kind: u32,
+        ctx: *mut c_void,
+        visit: CommandEntityVisit,
+    ) -> bool,
+    /// Find an online player by name or UUID across dimensions.
+    pub online_player: unsafe extern "C" fn(
+        source: *const c_void,
+        name: Str,
+        ctx: *mut c_void,
+        visit: CommandEntityVisit,
+    ) -> bool,
+    pub failure: unsafe extern "C" fn(source: *const c_void, message: Str),
 }
 
 pub type StopCallback = unsafe extern "C" fn();
@@ -405,7 +430,11 @@ mod layout {
         assert_eq!(offset_of!(CommandsV1, add), 8);
         assert_eq!(offset_of!(CommandsV1, integer), 16);
         assert_eq!(offset_of!(CommandsV1, feedback), 24);
-        assert!(size_of::<CommandsV1>() >= 32);
+        assert_eq!(offset_of!(CommandsV1, string), 32);
+        assert_eq!(offset_of!(CommandsV1, select), 40);
+        assert_eq!(offset_of!(CommandsV1, online_player), 48);
+        assert_eq!(offset_of!(CommandsV1, failure), 56);
+        assert!(size_of::<CommandsV1>() >= 64);
 
         assert_eq!(offset_of!(LifecycleV1, size), 0);
         assert_eq!(offset_of!(LifecycleV1, on_stopping), 8);

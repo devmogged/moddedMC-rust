@@ -9,6 +9,7 @@ use moddedmc_api::{
 use crate::{
     EFFECTS, ENTITIES, MOB_AI, MOBS,
     flight::{add, length_squared, offset},
+    taming,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

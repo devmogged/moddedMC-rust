@@ -112,7 +112,7 @@ separate Cindervane owner/guest and slash-grab offsets. Dismounts search the
 species-specific candidate offsets using native floor and clearance validation.
 Ground dismounts approximate passenger width and hand preference; the engine
 falls back to its normal safe dismount search, and animated client seats and
-custom dragon global ally lists remain pending. [Pet and seat scenario](../tests/scenarios/p2-pets-seats.txt)
+custom dragon global ally lists also apply. [Pet and seat scenario](../tests/scenarios/p2-pets-seats.txt)
 covers portable pet buffs and mount/dismount lifecycle (pending coordinator run).
 
 Varasuchus AI uses the released half-health phase threshold, 21/33-tick
@@ -536,10 +536,11 @@ across all their dragons and dimensions and persisted through world saves.
 All eight dragon combat filters and recruited Ivy honor the owner's list and
 the ownership of mod companions; Cindervane's fire aura and Stegonaut's live
 and portable buffs also use the released owner/ally rules. The existing dialog
-uses a paged online-player selector and supports offline removal. The host
-still needs server-wide online player lookup, native pet owner UUID and
-scoreboard team/alliance queries, typed string/entity-selector command
-arguments for /dragonally, and a text-input screen for the released Codex UI.
+uses a paged online-player selector and supports offline removal. Operator
+level two /dragonally add, remove, list and clear use typed entity and string
+arguments and server-wide player lookup. A text-input screen for the released
+Codex UI remains pending.
+[Dragon ally command scenario](../tests/scenarios/p2-dragonally-command.txt).
 [Global ally scenario](../tests/scenarios/p2-ally-list.txt) (pending coordinator run).
 
 Ivy's spawn egg creates the saved `saintsdragons:ivy_oleander` entity. The

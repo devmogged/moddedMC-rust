@@ -10,10 +10,14 @@ use moddedmc_api::abi::{self, ChunkCompletion, Reg, StopCallback, Str, code};
 use pumpkin_core::{
     command::{
         argument_builder::{ArgumentBuilder, argument, command, literal},
-        argument_types::core::integer::IntegerArgumentType,
+        argument_types::{
+            core::{integer::IntegerArgumentType, string::StringArgumentType},
+            entity::EntityArgumentType,
+        },
         context::CommandContext,
         node::detached::DetachedNode,
     },
+    entity::EntityBase,
     server::Server,
 };
 use pumpkin_util::{
@@ -43,6 +47,10 @@ static COMMANDS: abi::CommandsV1 = abi::CommandsV1 {
     add: add_command,
     integer,
     feedback,
+    string,
+    select,
+    online_player,
+    failure,
 };
 static LIFECYCLE: abi::LifecycleV1 = abi::LifecycleV1 {
     size: size_of::<abi::LifecycleV1>(),
@@ -278,7 +286,8 @@ pub struct CommandTree {
 struct TreeNode {
     name: String,
     parent: Option<usize>,
-    bounds: Option<(i32, i32)>,
+    kind: u32,
+    bounds: (i32, i32),
     tag: Option<u64>,
 }
 
@@ -326,11 +335,16 @@ unsafe extern "C" fn add_command(
         } else {
             return code::INVALID_DEFINITION;
         };
-        let bounds = match node.kind {
-            abi::COMMAND_LITERAL => None,
-            abi::COMMAND_INTEGER if node.min <= node.max => Some((node.min, node.max)),
+        match node.kind {
+            abi::COMMAND_LITERAL
+            | abi::COMMAND_STRING
+            | abi::COMMAND_ENTITY
+            | abi::COMMAND_ENTITIES
+            | abi::COMMAND_PLAYER
+            | abi::COMMAND_PLAYERS => (),
+            abi::COMMAND_INTEGER if node.min <= node.max => (),
             _ => return code::INVALID_DEFINITION,
-        };
+        }
         // SAFETY: node names are borrowed for the call.
         let name = unsafe { text(node.name) };
         if !valid_word(&name) {
@@ -345,7 +359,8 @@ unsafe extern "C" fn add_command(
         tree.push(TreeNode {
             name,
             parent,
-            bounds,
+            kind: node.kind,
+            bounds: (node.min, node.max),
             tag: node.executable.then_some(node.tag),
         });
     }
@@ -381,24 +396,29 @@ pub fn register_tree(server: &Server, module: Native, tree: CommandTree) {
     for (index, node) in tree.nodes.into_iter().enumerate().rev() {
         let descendants = std::mem::take(&mut children[index]);
         let exec = node.tag.map(|tag| Forward { module, tag });
-        let built: DetachedNode = if let Some((min, max)) = node.bounds {
-            let mut arg = argument(node.name, IntegerArgumentType::new(min, max));
-            if let Some(exec) = exec {
-                arg = arg.executes(exec);
-            }
-            descendants
-                .into_iter()
-                .fold(arg, ArgumentBuilder::then)
-                .into()
-        } else {
-            let mut arg = literal(node.name);
-            if let Some(exec) = exec {
-                arg = arg.executes(exec);
-            }
-            descendants
-                .into_iter()
-                .fold(arg, ArgumentBuilder::then)
-                .into()
+        macro_rules! build {
+            ($builder:expr) => {{
+                let mut arg = $builder;
+                if let Some(exec) = exec {
+                    arg = arg.executes(exec);
+                }
+                descendants
+                    .into_iter()
+                    .fold(arg, ArgumentBuilder::then)
+                    .into()
+            }};
+        }
+        let built: DetachedNode = match node.kind {
+            abi::COMMAND_INTEGER => build!(argument(
+                node.name,
+                IntegerArgumentType::new(node.bounds.0, node.bounds.1)
+            )),
+            abi::COMMAND_STRING => build!(argument(node.name, StringArgumentType::QuotablePhrase)),
+            abi::COMMAND_ENTITY => build!(argument(node.name, EntityArgumentType::Entity)),
+            abi::COMMAND_ENTITIES => build!(argument(node.name, EntityArgumentType::Entities)),
+            abi::COMMAND_PLAYER => build!(argument(node.name, EntityArgumentType::Player)),
+            abi::COMMAND_PLAYERS => build!(argument(node.name, EntityArgumentType::Players)),
+            _ => build!(literal(node.name)),
         };
         if let Some(parent) = node.parent {
             children[parent].push(built);
@@ -435,6 +455,113 @@ unsafe extern "C" fn feedback(source: *const c_void, message: Str) {
             context
                 .source
                 .send_feedback(TextComponent::text(text(message)), false);
+        }
+    }
+}
+
+unsafe extern "C" fn string(source: *const c_void, name: Str, out: abi::Sink) -> bool {
+    // SAFETY: context, name and sink are borrowed throughout the call.
+    unsafe {
+        if let Some(context) = source.cast::<CommandContext<'_>>().as_ref()
+            && let Ok(value) = StringArgumentType::get(context, name.str())
+        {
+            (out.put)(out.ctx, 0, Str::from(value));
+            return true;
+        }
+    }
+    false
+}
+
+fn visit_entity(base: &dyn EntityBase, ctx: *mut c_void, visit: abi::CommandEntityVisit) {
+    let world = base.get_entity().world.load_full();
+    let name = base.get_name().get_text();
+    // SAFETY: the world, entity reference and name outlive the synchronous callback.
+    unsafe {
+        visit(
+            ctx,
+            Arc::as_ptr(&world).cast(),
+            (&raw const base).cast(),
+            Str::from(name.as_str()),
+        )
+    };
+}
+
+unsafe extern "C" fn select(
+    source: *const c_void,
+    name: Str,
+    kind: u32,
+    ctx: *mut c_void,
+    visit: abi::CommandEntityVisit,
+) -> bool {
+    // SAFETY: live command context and borrowed argument name.
+    let (Some(context), name) = (
+        unsafe { source.cast::<CommandContext<'_>>().as_ref() },
+        unsafe { name.str() },
+    ) else {
+        return false;
+    };
+    let selected = match kind {
+        abi::COMMAND_ENTITY => EntityArgumentType::get_entity(context, name).map(|e| vec![e]),
+        abi::COMMAND_ENTITIES => EntityArgumentType::get_entities(context, name),
+        abi::COMMAND_PLAYER => {
+            EntityArgumentType::get_player(context, name).map(|p| vec![p as Arc<dyn EntityBase>])
+        }
+        abi::COMMAND_PLAYERS => EntityArgumentType::get_players(context, name).map(|players| {
+            players
+                .into_iter()
+                .map(|p| p as Arc<dyn EntityBase>)
+                .collect()
+        }),
+        _ => return false,
+    };
+    match selected {
+        Ok(entities) => {
+            for entity in entities {
+                visit_entity(entity.as_ref(), ctx, visit);
+            }
+            true
+        }
+        Err(err) => {
+            context.source.send_error(err.message);
+            false
+        }
+    }
+}
+
+unsafe extern "C" fn online_player(
+    source: *const c_void,
+    name: Str,
+    ctx: *mut c_void,
+    visit: abi::CommandEntityVisit,
+) -> bool {
+    // SAFETY: live command context and borrowed name.
+    let (Some(context), name) = (
+        unsafe { source.cast::<CommandContext<'_>>().as_ref() },
+        unsafe { name.str() },
+    ) else {
+        return false;
+    };
+    let server = context.source.server();
+    let player = if let Ok(uuid) = uuid::Uuid::parse_str(name) {
+        server.get_player_by_uuid(uuid)
+    } else {
+        server.get_player_by_name(name)
+    };
+    if let Some(player) = player {
+        visit_entity(player.as_ref(), ctx, visit);
+        true
+    } else {
+        false
+    }
+}
+
+unsafe extern "C" fn failure(source: *const c_void, message: Str) {
+    // SAFETY: the command context and message are borrowed for the call.
+    unsafe {
+        if let Some(context) = source.cast::<CommandContext<'_>>().as_ref() {
+            context
+                .source
+                .send_error(TextComponent::text(text(message)));
         }
     }
 }
