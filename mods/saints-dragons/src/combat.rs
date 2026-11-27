@@ -60,6 +60,14 @@ fn with_combat<T>(mob: Entity<'_>, f: impl FnOnce(&mut Combat) -> T) -> T {
 }
 
 pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -> bool {
+    if MOBS.get().and_then(|m| m.kind(mob)) == Some("saintsdragons:ignivorus")
+        && crate::combat_ignivorus::immune(mob, damage_type)
+    {
+        if let Some(mobs) = MOBS.get() {
+            mobs.set_on_fire(mob, 0);
+        }
+        return false;
+    }
     if !crate::stun::hurt(world, mob, damage_type, amount) {
         return false;
     }
