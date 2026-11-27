@@ -13,7 +13,7 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, juvenile food taming, growth feeding and raw-moop stunting | Nulljaw wild juvenile feeding, breeding experience orb and stat (host support), grooming animations, owner-bed sleep and sleep reactions, codex hunger display, the hunger hunting behaviour and roster melee scaling; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
 | Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips. The full Dragonlord set's fire, blast and short-fall immunity and the Dragonlord sword's fire on hit | Draconian set swarm pacifying, Dragonlord double jump, flight and landing shockwave, the Blood Tempest dodge, Blood Tempest and Dragonlord sword active abilities and the katana's chain lightning, worn armor models, and remaining equipment components |
-| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock-client interaction and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts with their sleep anchors, Cindervane and Raevyx egg trampling, and Ivy?s house | The advancements awarded by abilities that are not ported yet (Fire Hydrant, Tactical Nuke, cooking with a fire dragon, the Raevyx dive exit and hitting a baby) and recipe unlocks from advancement rewards, original Crucible GUI and animations, some legacy decorations, remaining custom crafting and advancement predicates, and Pellucida hardness, sound and swarm-specific collision |
+| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock-client interaction and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts with their sleep anchors, Cindervane and Raevyx egg trampling, Ivy?s house with renamed grass and chain decorations, all 84 advancement definitions including recipe rewards, Folded Horizon recipe predicates, and Pellucida hardness and slime sounds | The advancements awarded by abilities that are not ported yet (Fire Hydrant, Tactical Nuke, cooking with a fire dragon, the Raevyx dive exit and hitting a baby), actual recipe unlocks from advancement rewards, original Crucible GUI and animations, legacy decoration NBT parity, potion-specific brewing predicates, and Pellucida swarm-specific collision |
 | Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, and hurt and death cues for the roster except Moop. A connected bot verified Cindervane, Raevyx and Mossback. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Remaining per-species playback, animation keyframe cues, footsteps, takeoff and landing, and moving or looping sources |
 | Presentation | Adult rig path with Creative gender and skin changes in the Fabric companion, and stock display fallbacks | Juvenile rigs, overlays, particles, special renderers, equipment visuals, screens and translations |
 | Integration | Stock 26.3 client fallback and versioned mod interfaces | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
@@ -123,7 +123,8 @@ and checked the template dragons' health, skin and gender. Varasuchus retained
 its persistence flag after a server restart. A template dragon keeps its spawn
 block as home and finds the template's sleep anchor marker. At night it returns to
 the anchor, settles and plays its fall asleep and sleep clips, and at day it wakes
-and keeps to its territory. Some legacy decorations still need parity.
+and keeps to its territory. The Ivy house template's legacy grass and chain
+palette entries are renamed to short grass and iron chain at pack time.
 [Roost and house scenario](../tests/scenarios/p2ai-saints-dragons-roosts.txt)
 
 Cindervane, Atroxiia, Nulljaw, Moop and Mossback join the biome spawn pools of
@@ -210,6 +211,24 @@ egg hatched by lightning, binding a dragon, and summoning, meeting and
 defeating the Draconian Swarm. `/advancement` and `advancements={...}`
 selectors accept their ids.
 [Advancements scenario](../tests/scenarios/p2aq-saints-dragons-advancements.txt)
+
+All 84 released advancement files are now included, including the 32 previously
+missing recipe-reward definitions. Folded Horizon retains the release's seven
+binder recipe IDs and supplies the current Pumpkin predicate parser's `recipe`
+alias, since it does not read `recipe_id`. The 13 custom Crucible recipes
+already use the mod's own shaped and smelting implementation.
+Pellucida uses the release's zero hardness, purple map color and slime sounds,
+while its glass collision shape remains solid. Recipe unlocks are blocked:
+the engine's datapack advancement builder discards `rewards.recipes` and
+`PlayerAdvancement::grant_reward` grants experience only; it needs dynamic
+recipe IDs resolved into the player's saved recipe book and unlock packets.
+The brewed-potion event carries no potion ID and its predicate matches any
+potion; it needs the brewed potion identity and an exact match. Pellucida
+needs a generic entity-aware block collision filter in the engine that also
+applies to swarm movement/path clearance. These engine changes are not part
+of the drop-in mod. The progression scenario checks a newly included inventory
+criterion and an immediate survival break and drop of Pellucida.
+[Progression scenario](../tests/scenarios/p2bb-saints-dragons-progression.txt)
 
 Every dragon has 100 hunger saved with it. Hunger drops by one for each 4800
 ticks, twice as fast while a player rides. At zero the dragon takes 2 starvation
