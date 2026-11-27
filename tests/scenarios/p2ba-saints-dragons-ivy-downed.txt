@@ -24,7 +24,9 @@ wait 0.5
 cmd data get entity @e[tag=ivy_downed_probe,limit=1] data."saintsdragons:ivy_downed".DownedFinishHits
 wait 0.5
 expect following entity data: 1
-cmd effect give @e[tag=ivy_downed_probe,limit=1] minecraft:instant_health 1 0
+# Pumpkin's effect command is player-only. Seed a healed health value, then
+# assert that the actual downed tick performs the released 35% revival.
+cmd data merge entity @e[tag=ivy_downed_probe,limit=1] {Health:5f}
 wait 2
 cmd data get entity @e[tag=ivy_downed_probe,limit=1] data."saintsdragons:ivy_downed".Downed
 wait 0.5

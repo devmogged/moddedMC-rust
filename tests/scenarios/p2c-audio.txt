@@ -18,8 +18,8 @@ cmd item replace entity tester weapon.offhand with minecraft:salmon 8
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
 wait 0.5
-expect Stegonaut has been tamed!
 expect \[bot\] entity sound: saintsdragons:stegonaut_eat
+expect Stegonaut has been tamed!
 # Taming orders the first adult to sit, which mutes its grumbles in Java.
 # A second wild adult's initial ambient timer is at most 600 loaded ticks.
 cmd saintsdragons spawn stegonaut 1021 100 1025

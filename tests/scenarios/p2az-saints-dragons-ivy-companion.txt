@@ -23,7 +23,7 @@ cmd item replace entity tester hotbar.0 with saintsdragons:ivy_the_merchant_spaw
 wait 0.5
 bot use 1027 223 1026 up
 wait 0.5
-cmd data merge entity @e[type=minecraft:villager,limit=1] {NoAI:1b,Tags:["ivy_probe"]}
+cmd data merge entity @e[type=minecraft:villager,nbt={data:{moddedmc:{mob:"saintsdragons:ivy_oleander"}}},limit=1] {NoAI:1b,Tags:["ivy_probe"]}
 cmd data get entity @e[tag=ivy_probe,limit=1] data.moddedmc.mob
 wait 0.5
 expect following entity data: "saintsdragons:ivy_oleander"

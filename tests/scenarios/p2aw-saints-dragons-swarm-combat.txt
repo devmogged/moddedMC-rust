@@ -33,30 +33,30 @@ cmd kill @e[type=minecraft:ravager]
 cmd kill @e[type=minecraft:enderman]
 wait 2
 
-cmd summon minecraft:iron_golem 1025.5 120 1028.5 {NoAI:1b}
+cmd summon minecraft:iron_golem 1025.5 120 1028.5 {NoAI:1b,Tags:["p2aw_latcher_target"]}
 cmd saintsdragons spawn latcher 1025 120 1025
 wait 2
-cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+cmd data get entity @e[type=minecraft:iron_golem,tag=p2aw_latcher_target,limit=1] Health
 wait 0.5
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
 cmd kill @e[type=minecraft:spider]
 cmd kill @e[type=minecraft:iron_golem]
 wait 2
 
-cmd summon minecraft:iron_golem 1025.5 120 1028.5 {NoAI:1b}
+cmd summon minecraft:iron_golem 1025.5 120 1028.5 {NoAI:1b,Tags:["p2aw_winged_target"]}
 cmd saintsdragons spawn winged 1025 120 1025
 wait 7
-cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+cmd data get entity @e[type=minecraft:iron_golem,tag=p2aw_winged_target,limit=1] Health
 wait 0.5
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
 cmd kill @e[type=minecraft:ravager]
 cmd kill @e[type=minecraft:iron_golem]
 wait 2
 
-cmd summon minecraft:iron_golem 1025.5 120 1031.5 {NoAI:1b}
+cmd summon minecraft:iron_golem 1025.5 120 1031.5 {NoAI:1b,Tags:["p2aw_whettled_target"]}
 cmd saintsdragons spawn whettled 1025 120 1025
 wait 4
-cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+cmd data get entity @e[type=minecraft:iron_golem,tag=p2aw_whettled_target,limit=1] Health
 wait 0.5
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
 cmd kill @e[type=minecraft:ravager]

@@ -13,25 +13,26 @@ cmd fill 1007 119 1007 1043 119 1043 minecraft:stone
 await 30 Successfully filled|No blocks were filled
 cmd fill 1007 120 1007 1043 129 1043 minecraft:air
 await 30 Successfully filled|No blocks were filled
+cmd fill 1007 120 1027 1043 125 1027 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd saintsdragons spawn varasuchus 1025 120 1025
-cmd summon minecraft:iron_golem 1025.5 120 1028.25 {NoAI:1b}
+cmd summon minecraft:iron_golem 1025.5 120 1029.5 {NoAI:1b,Tags:["vara_target"]}
 wait 2
 cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1025.5 120 1025.5 0 0
 cmd attribute @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] minecraft:attack_damage base get
 wait 0.5
 expect is 10(?:\.0)?\b
-cmd attribute @e[type=minecraft:iron_golem,limit=1] minecraft:armor base set 20
-cmd attribute @e[type=minecraft:iron_golem,limit=1] minecraft:armor_toughness base set 0
-cmd attribute @e[type=minecraft:iron_golem,limit=1] minecraft:knockback_resistance base set 1
-cmd fill 1007 120 1027 1043 125 1027 minecraft:stone
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1 minecraft:mob_attack by @e[type=minecraft:iron_golem,limit=1]
+cmd attribute @e[tag=vara_target,limit=1] minecraft:armor base set 20
+cmd attribute @e[tag=vara_target,limit=1] minecraft:armor_toughness base set 0
+cmd attribute @e[tag=vara_target,limit=1] minecraft:knockback_resistance base set 1
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1 minecraft:mob_attack by @e[tag=vara_target,limit=1]
 wait 1.5
-cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+cmd data get entity @e[tag=vara_target,limit=1] Health
 wait 0.5
 expect Iron Golem has the following entity data: 100(?:\.0)?f
 cmd fill 1007 120 1027 1043 125 1027 minecraft:air
-wait 1
-cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+wait 0.5
+cmd data get entity @e[tag=vara_target,limit=1] Health
 wait 0.5
 # 8 raw horn damage against 17 effective armor gives 3.84 damage.
 expect Iron Golem has the following entity data: 96\.1[56][0-9]*f
