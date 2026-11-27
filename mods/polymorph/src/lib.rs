@@ -120,7 +120,10 @@ impl Mod for Polymorph {
         };
         match tag {
             LIST => {
-                let Some(choices) = crafting.current_choices(player, MAX_CRAFTING_CHOICES) else {
+                let Some(choices) = crafting
+                    .current_choices(player, MAX_CRAFTING_CHOICES)
+                    .or_else(|| crafting.current_machine_choices(player, MAX_CRAFTING_CHOICES))
+                else {
                     command.reply("No supported crafting menu is open.");
                     return 0;
                 };
@@ -139,7 +142,9 @@ impl Mod for Polymorph {
                 let Some(index) = u16::try_from(number - 1).ok() else {
                     return 0;
                 };
-                if crafting.select_recipe(player, index) {
+                if crafting.select_recipe(player, index)
+                    || crafting.select_machine_recipe(player, index)
+                {
                     command.reply(&format!("Selected crafting recipe {}.", number));
                     1
                 } else {
@@ -159,7 +164,10 @@ mod tests {
     use super::*;
     #[test]
     fn source_result_is_reported_without_fabricating_recipe_ids() {
-        let stack = fastnbt::to_bytes(&SavedItemIdForTest { id: "minecraft:stick" }).unwrap();
+        let stack = fastnbt::to_bytes(&SavedItemIdForTest {
+            id: "minecraft:stick",
+        })
+        .unwrap();
         let choice = RecipeMatch {
             result: stack,
             id: None,
@@ -172,5 +180,7 @@ mod tests {
     }
 
     #[derive(serde::Serialize)]
-    struct SavedItemIdForTest<'a> { id: &'a str }
+    struct SavedItemIdForTest<'a> {
+        id: &'a str,
+    }
 }

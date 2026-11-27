@@ -7,10 +7,13 @@ use pumpkin_data::{
     item_stack::ItemStack,
     recipes::{CraftingRecipeTypes, SpecialCraftingRecipe},
 };
+use pumpkin_inventory::crafter_screen_handler::CrafterScreenHandler;
 use pumpkin_inventory::crafting::crafting_screen_handler::CraftingTableScreenHandler;
 use pumpkin_inventory::crafting::{
     crafting_inventory::CraftingInventory,
-    crafting_screen_handler::{crafting_recipe_identity, for_each_matching_crafting_recipe, match_crafting_recipe_with},
+    crafting_screen_handler::{
+        crafting_recipe_identity, for_each_matching_crafting_recipe, match_crafting_recipe_with,
+    },
     recipe_provider::GenericRecipe,
 };
 use pumpkin_inventory::{
@@ -20,6 +23,8 @@ use pumpkin_nbt::Nbt;
 use pumpkin_protocol::codec::recipe::OwnedCraftingRecipe;
 
 use crate::{content::world, stacks::read_stack};
+use pumpkin_core::block::entities::{BlockEntity, crafter::CrafterBlockEntity};
+use pumpkin_inventory::Inventory;
 
 fn recipe_definition(recipe: GenericRecipe<'_>) -> (Option<String>, &'static str) {
     use CraftingRecipeTypes as Recipe;
@@ -253,6 +258,129 @@ unsafe extern "C" fn select_recipe(player: PlayerRef, index: u16) -> bool {
     changed
 }
 
+fn opened_machine(
+    player: &pumpkin_core::entity::player::Player,
+) -> Option<std::sync::Arc<dyn pumpkin_inventory::crafting::recipes::RecipeInputInventory>> {
+    let screen = crate::lock(&player.current_screen_handler).clone();
+    let screen = crate::lock(&screen);
+    let crafter = screen.as_any().downcast_ref::<CrafterScreenHandler>()?;
+    (!crafter.is_spectator).then(|| crafter.container.clone())
+}
+
+unsafe extern "C" fn current_machine_choices(player: PlayerRef, limit: u16, out: Sink) -> u16 {
+    if !(1..=abi::MAX_CRAFTING_CHOICES).contains(&limit) {
+        return 0;
+    }
+    let Some(player) = (unsafe { crate::native::player(player) }) else {
+        return 0;
+    };
+    let Some(container) = opened_machine(player) else {
+        return 0;
+    };
+    let Some(crafter) = container.as_any().downcast_ref::<CrafterBlockEntity>() else {
+        return 0;
+    };
+    let world = player.world();
+    let Some(server) = world.server.upgrade() else {
+        return 0;
+    };
+    let inventory = CraftingInventory::new(3, 3);
+    for (slot, ingredient) in crafter.ingredient_snapshot().iter().enumerate() {
+        inventory.set_stack(slot, ingredient.clone());
+    }
+    emit_choices(&inventory, server.recipe_manager.as_ref(), limit, out) | 0x4000
+}
+
+unsafe extern "C" fn select_machine_recipe(player: PlayerRef, index: u16) -> bool {
+    if index >= abi::MAX_CRAFTING_CHOICES {
+        return false;
+    }
+    let Some(player) = (unsafe { crate::native::player(player) }) else {
+        return false;
+    };
+    let Some(container) = opened_machine(player) else {
+        return false;
+    };
+    let Some(crafter) = container.as_any().downcast_ref::<CrafterBlockEntity>() else {
+        return false;
+    };
+    let world = player.world();
+    let Some(server) = world.server.upgrade() else {
+        return false;
+    };
+    let machine_position = crafter.get_position();
+    if world.get_block(&machine_position) != &pumpkin_data::Block::CRAFTER {
+        return false;
+    }
+    let Some(live_machine) = world.get_block_entity(&machine_position) else {
+        return false;
+    };
+    if !std::ptr::eq(live_machine.as_any(), crafter) {
+        return false;
+    }
+    // Keep the current menu fixed throughout validation and application.
+    // A disconnect, switch to another Crafter, or menu replacement must not
+    // make an old viewer's command mutate an unrelated machine.
+    let screen = crate::lock(&player.current_screen_handler).clone();
+    let mut screen = crate::lock(&screen);
+    let Some(menu) = screen.as_any_mut().downcast_mut::<CrafterScreenHandler>() else {
+        return false;
+    };
+    if menu.is_spectator || !std::ptr::eq(menu.container.as_any(), container.as_any()) {
+        return false;
+    }
+    let _craft_guard = crafter
+        .craft_transaction
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Do not update a detached incarnation after removal/conversion while a
+    // stale menu stays open. The position alone is not the machine identity.
+    let Some(still_live) = world.get_block_entity(&machine_position) else {
+        return false;
+    };
+    if !std::ptr::eq(still_live.as_any(), crafter) {
+        return false;
+    }
+    let frozen = crafter.ingredient_snapshot();
+    let inventory = CraftingInventory::new(3, 3);
+    for (slot, ingredient) in frozen.iter().enumerate() {
+        inventory.set_stack(slot, ingredient.clone());
+    }
+    let revision_before = server.recipe_manager.recipe_revision();
+    let mut chosen = None;
+    let mut ordinal = 0;
+    for_each_matching_crafting_recipe(
+        &inventory,
+        Some(server.recipe_manager.as_ref()),
+        |definition, _| {
+            if ordinal == usize::from(index) {
+                chosen = crafting_recipe_identity(definition);
+                return false;
+            }
+            ordinal += 1;
+            ordinal < usize::from(abi::MAX_CRAFTING_CHOICES)
+        },
+    );
+    if chosen.is_none()
+        || revision_before != server.recipe_manager.recipe_revision()
+        || crafter
+            .ingredient_snapshot()
+            .iter()
+            .zip(frozen.iter())
+            .any(|(a, b)| a.item_count != b.item_count || !a.are_items_and_components_equal(b))
+    {
+        return false;
+    }
+    let Some(selected) = chosen else {
+        return false;
+    };
+    crafter.set_selected_recipe(Some(selected.clone()));
+    // The same menu is still locked; expose the chosen genuine recipe through
+    // its non-interactive preview without dispensing or removing any items.
+    menu.refresh_selected_preview(Some(&selected));
+    true
+}
+
 unsafe extern "C" fn remainder(stack: Str, out: Sink) -> bool {
     let Some(saved) = read_stack(stack)
         .and_then(|stack| stack.crafting_remainder())
@@ -274,6 +402,8 @@ pub static CRAFTING: abi::CraftingV1 = abi::CraftingV1 {
     current_choices,
     select_recipe,
     enable_result_cycle,
+    current_machine_choices,
+    select_machine_recipe,
 };
 
 unsafe extern "C" fn enable_result_cycle() -> bool {

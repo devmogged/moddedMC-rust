@@ -1409,6 +1409,17 @@ pub struct CraftingV1 {
     /// Append-only capability; without the Polymorph mod, normal vanilla
     /// result-click semantics remain active. Returns false if unavailable.
     pub enable_result_cycle: unsafe extern "C" fn() -> bool,
+    /// Enumerate recipes for the genuine placed Crafter whose stock 3x3 menu
+    /// the player currently has open. Shares current_choices' bit flags.
+    /// Append-only: older hosts intentionally do not expose machine selection.
+    pub current_machine_choices: unsafe extern "C" fn(
+        player: PlayerRef,
+        limit: u16,
+        out: Sink,
+    ) -> u16,
+    /// Set this machine's durable recipe identity without consuming inputs.
+    /// Invalid/stale grids and spectator menus fail closed.
+    pub select_machine_recipe: unsafe extern "C" fn(player: PlayerRef, index: u16) -> bool,
 }
 
 pub const RESOURCES: &str = "moddedmc:resources";

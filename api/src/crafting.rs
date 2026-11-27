@@ -119,8 +119,8 @@ impl Crafting {
     /// should fail closed at startup when this appended table tail is absent.
     #[must_use]
     pub fn supports_player_selection(self) -> bool {
-        self.0.size >= std::mem::offset_of!(abi::CraftingV1, select_recipe)
-            + std::mem::size_of::<usize>()
+        self.0.size
+            >= std::mem::offset_of!(abi::CraftingV1, select_recipe) + std::mem::size_of::<usize>()
     }
 
     /// Match a rectangular grid in row order. Empty byte slices represent empty slots.
@@ -173,8 +173,8 @@ impl Crafting {
         {
             return None;
         }
-        let required_size = std::mem::offset_of!(abi::CraftingV1, enumerate_recipes)
-            + std::mem::size_of::<usize>();
+        let required_size =
+            std::mem::offset_of!(abi::CraftingV1, enumerate_recipes) + std::mem::size_of::<usize>();
         if self.0.size < required_size {
             return None;
         }
@@ -193,8 +193,9 @@ impl Crafting {
     /// Returns `None` for an older host or a different active menu.
     pub fn current_choices(self, player: Player<'_>, limit: u16) -> Option<RecipeChoices> {
         if !(1..=MAX_CRAFTING_CHOICES).contains(&limit)
-            || self.0.size < std::mem::offset_of!(abi::CraftingV1, current_choices)
-                + std::mem::size_of::<usize>()
+            || self.0.size
+                < std::mem::offset_of!(abi::CraftingV1, current_choices)
+                    + std::mem::size_of::<usize>()
         {
             return None;
         }
@@ -210,14 +211,44 @@ impl Crafting {
     /// matching ingredients and remainders.
     pub fn select_recipe(self, player: Player<'_>, index: u16) -> bool {
         if index >= MAX_CRAFTING_CHOICES
-            || self.0.size < std::mem::offset_of!(abi::CraftingV1, select_recipe)
-                + std::mem::size_of::<usize>()
+            || self.0.size
+                < std::mem::offset_of!(abi::CraftingV1, select_recipe)
+                    + std::mem::size_of::<usize>()
         {
             return false;
         }
         // SAFETY: player is borrowed for the current callback, and the
         // implementation owns the current crafting-screen lock.
         unsafe { (self.0.select_recipe)(player.raw, index) }
+    }
+
+    /// The actual placed Crafter opened in the stock-client Crafter menu.
+    /// Does not treat an ordinary player crafting grid as an automated machine.
+    pub fn current_machine_choices(self, player: Player<'_>, limit: u16) -> Option<RecipeChoices> {
+        if !(1..=MAX_CRAFTING_CHOICES).contains(&limit)
+            || self.0.size
+                < std::mem::offset_of!(abi::CraftingV1, current_machine_choices)
+                    + std::mem::size_of::<usize>()
+        {
+            return None;
+        }
+        collect_choices(limit, true, |sink| {
+            // SAFETY: player and sink are live during the synchronous command callback.
+            unsafe { (self.0.current_machine_choices)(player.raw, limit, sink) }
+        })
+    }
+
+    /// Pin a matching recipe to the machine itself, not the viewer's menu.
+    pub fn select_machine_recipe(self, player: Player<'_>, index: u16) -> bool {
+        if index >= MAX_CRAFTING_CHOICES
+            || self.0.size
+                < std::mem::offset_of!(abi::CraftingV1, select_machine_recipe)
+                    + std::mem::size_of::<usize>()
+        {
+            return false;
+        }
+        // SAFETY: host must validate the player's live menu and machine identity.
+        unsafe { (self.0.select_machine_recipe)(player.raw, index) }
     }
 
     /// The stack returned to the grid when this ingredient is consumed, as saved NBT.
