@@ -164,6 +164,7 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         );
         return Some(UseResult::Fail);
     }
+    taming::configure_seats(mob, kind, false);
     if !mobs.passengers(mob).is_empty() || !player.start_riding(mob.id(), false) {
         return Some(UseResult::Fail);
     }

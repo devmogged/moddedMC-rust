@@ -85,22 +85,34 @@ Volitans has hunger-scaled melee, medium-specific AI selection, persisted cooldo
 Stegonaut AI combat selects bite or chin slam with the released 26-tick cadence,
 individual cooldowns, tick-13 impact, hunger scaling and knockback. Chin slam
 uses the new attributed mob-attack call for (8 + 4) times hunger scaling.
-Its tame aura refreshes Resistance I and Absorption I on its owner and same-owner
-dragons and explicitly removes both when a target leaves or the source dies,
+Its tame aura refreshes Resistance I and Absorption I on its owner, same-owner
+dragons and native pets, and native allied players. It explicitly removes both when a target leaves or the source dies,
 unloads or is captured. [Combat scenario](../tests/scenarios/p2c-stegonaut-combat.txt)
 checks chin-slam retaliation and aura removal with long-duration effects (pending
 coordinator run). Bound Stegonaut binders anywhere in the player's main inventory,
 armor or offhand refresh portable Resistance I and Absorption I on the holder,
-nearby players and owned mod dragons every 20 ticks, with dimension-wide target
+nearby players and owned mod dragons/native pets every 20 ticks, with dimension-wide target
 cleanup when the source is removed. [Portable aura scenario](../tests/scenarios/p2-stegonaut-portable-aura.txt)
 checks empty binders, main inventory, offhand and explicit cleanup (pending coordinator
 run). Mounted Stegonaut supports X melee selection, rider-directed melee, G charge/release, H tap/hold/repress, Ctrl+4 flex, ground jumping and acceleration. Ground eating cancels before 29 ticks, fires 18 ticks after a full-charge release and cools down for 30 ticks. Ground slam hits at tick 18, chains at tick 23 and hits again after 25 ticks, spawning sixteen independent pillars with a four-tick warmup and 26-tick active lifetime. The [combat scenario](../tests/scenarios/p2c-stegonaut-combat.txt) also checks mounting and documents manual companion input tests. The selected melee uses the vanilla attack key through the mounted input callback. Remaining: original chunk and pillar renderers, exact collision and screen shake,
 Ivy's own binder
 inventory aura; separate particle/icon visibility;
-native pet ownership, ally lists, raid membership, exact visibility, last attack and
+custom dragon ally lists, raid membership, exact visibility, last attack and
 projectile damager history. The hurt callback exposes source entities, but the mod does not yet use them for this behavior
 or transform incoming damage for 30% fall damage and wild Stegonaut immunity; a player
 attack callback is needed for the pre-damage baby-hit advancement.
+
+The appended pet/seat ABI exposes native ownership and scoreboard alliances.
+Dragonlord landing shockwave and sword abilities share the same living-target
+filter, protecting owned native pets, tame dragons and native allies; Cindervane
+combat and fire-body aura also recognize native allies and same-owner pets.
+All eight dragon mounts now supply their released neutral rider anchors, with
+separate Cindervane owner/guest and slash-grab offsets. Dismounts search the
+species-specific candidate offsets using native floor and clearance validation.
+Ground dismounts approximate passenger width and hand preference; the engine
+falls back to its normal safe dismount search, and animated client seats and
+custom dragon global ally lists remain pending. [Pet and seat scenario](../tests/scenarios/p2-pets-seats.txt)
+covers portable pet buffs and mount/dismount lifecycle (pending coordinator run).
 
 Varasuchus AI uses the released half-health phase threshold, 21/33-tick
 phase transition, 30-tick attack cadence and 14-hit slash barrage. Its

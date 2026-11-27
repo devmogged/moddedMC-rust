@@ -69,7 +69,86 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     last_hurt_mob,
     last_hurt_by_mob,
     on_merchant_close: crate::mob_ai::on_merchant_close,
+    pet_owner,
+    team,
+    allied,
+    set_seat_offset,
+    set_dismount_offsets,
 };
+
+unsafe extern "C" fn pet_owner(raw: EntityRef, out: *mut [u8; 16]) -> bool {
+    // SAFETY: entity and output are borrowed for the call.
+    let (Some(base), Some(out)) = (unsafe { entity(raw) }, unsafe { out.as_mut() }) else {
+        return false;
+    };
+    let Some(owner) = base.get_mob().and_then(|mob| mob.get_owner_uuid()) else {
+        return false;
+    };
+    *out = *owner.as_bytes();
+    true
+}
+
+unsafe extern "C" fn team(raw: EntityRef, out: Sink) -> bool {
+    // SAFETY: the entity and sink are borrowed for this call.
+    let Some(name) = (unsafe { entity(raw) }).and_then(EntityBase::get_team_name) else {
+        return false;
+    };
+    // SAFETY: the sink copies the borrowed name synchronously.
+    unsafe { (out.put)(out.ctx, 0, Str::new(name.as_bytes())) };
+    true
+}
+
+unsafe extern "C" fn allied(raw: EntityRef, other: EntityRef) -> bool {
+    // SAFETY: both entities are borrowed for the call.
+    let (Some(base), Some(other)) = (unsafe { entity(raw) }, unsafe { entity(other) }) else {
+        return false;
+    };
+    base.is_allied_to(other)
+}
+
+unsafe extern "C" fn set_seat_offset(raw: EntityRef, index: usize, offset: Vec3) -> bool {
+    // SAFETY: the entity is borrowed for the call.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    if registered_kind(base).is_none()
+        || index >= 16
+        || !offset.0.iter().all(|v| v.is_finite() && v.abs() <= 64.0)
+    {
+        return false;
+    }
+    base.get_entity().set_custom_seat(index, offset.0);
+    true
+}
+
+unsafe extern "C" fn set_dismount_offsets(
+    raw: EntityRef,
+    offsets: *const Vec3,
+    count: usize,
+) -> bool {
+    // SAFETY: the entity is borrowed for the call.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    if registered_kind(base).is_none() || count > 512 || (count != 0 && offsets.is_null()) {
+        return false;
+    }
+    // SAFETY: a nonempty input is borrowed from the mod for the call.
+    let offsets = if count == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(offsets, count) }
+    };
+    if !offsets
+        .iter()
+        .all(|v| v.0.iter().all(|n| n.is_finite() && n.abs() <= 64.0))
+    {
+        return false;
+    }
+    base.get_entity()
+        .set_custom_dismount(offsets.iter().map(|v| v.0).collect());
+    true
+}
 
 unsafe extern "C" fn last_hurt_mob(raw: EntityRef, timestamp: *mut i64) -> i32 {
     // SAFETY: the entity is borrowed for this call.

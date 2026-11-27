@@ -12,8 +12,7 @@ use moddedmc_api::{
     content::World,
     effects::SOUND_PLAYERS,
     entities::{
-        ENTITY_ALIVE, ENTITY_FLYING, ENTITY_LIVING, ENTITY_PLAYER, Entity, EntityChange,
-        EntityView, SET_MOTION,
+        ENTITY_ALIVE, ENTITY_FLYING, ENTITY_LIVING, Entity, EntityChange, EntityView, SET_MOTION,
     },
     tick_count,
 };
@@ -338,8 +337,9 @@ fn scale(a: [f64; 3], n: f64) -> [f64; 3] {
 }
 
 fn sword_target(player: Entity<'_>, target: Entity<'_>) -> bool {
-    // shortcut: the pets-seats host extension will distinguish owned vanilla
-    // animals and scoreboard allies; until then protect all pet species.
+    let Some(mobs) = crate::MOBS.get() else {
+        return false;
+    };
     target.id() != player.id()
         && target.flags() & ENTITY_ALIVE != 0
         && !matches!(
@@ -348,19 +348,8 @@ fn sword_target(player: Entity<'_>, target: Entity<'_>) -> bool {
         )
         && !crate::taming::is_tamed(target)
         && target.view().is_some_and(|v| v.kind & ENTITY_LIVING != 0)
-        && !matches!(
-            target.type_id().trim_start_matches("minecraft:"),
-            "wolf"
-                | "cat"
-                | "parrot"
-                | "horse"
-                | "donkey"
-                | "mule"
-                | "llama"
-                | "trader_llama"
-                | "skeleton_horse"
-                | "zombie_horse"
-        )
+        && mobs.pet_owner(target).is_none()
+        && !mobs.allied(player, target)
 }
 
 fn center(target: Entity<'_>) -> Option<[f64; 3]> {
@@ -700,30 +689,7 @@ fn shockwave(world: World<'_>, player: Entity<'_>, at: [f64; 3]) {
     ) {
         entities.with_entity(world, id, |target| {
             let Some(view) = target.view() else { return };
-            // shortcut: cannot query vanilla ownership or team alliances. Restrict damage to
-            // untamed mod dragons and non-player vanilla monsters until that query exists.
-            let mod_dragon = crate::MOBS
-                .get()
-                .and_then(|m| m.kind(target))
-                .is_some_and(|kind| kind.starts_with("saintsdragons:") && !kind.contains("ivy"));
-            let kind = target.type_id();
-            let kind = if kind.contains(':') {
-                kind.to_owned()
-            } else {
-                format!("minecraft:{kind}")
-            };
-            let monster = crate::TAGS
-                .get()
-                .is_some_and(|t| t.contains("entity_type", "minecraft:undead", &kind))
-                && !matches!(
-                    kind.as_str(),
-                    "minecraft:skeleton_horse" | "minecraft:zombie_horse"
-                );
-            if view.kind & ENTITY_LIVING == 0
-                || view.kind & ENTITY_PLAYER != 0
-                || target.flags() & ENTITY_ALIVE == 0
-                || crate::taming::is_tamed(target)
-                || !(mod_dragon || monster)
+            if !sword_target(player, target)
                 || (view.position[0] - at[0]).powi(2) + (view.position[2] - at[2]).powi(2)
                     > 7.5_f64.powi(2)
             {

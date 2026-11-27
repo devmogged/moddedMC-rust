@@ -1899,6 +1899,17 @@ pub struct MobsV1 {
     /// Register a callback for closing a trade screen opened for this mob kind.
     pub on_merchant_close:
         unsafe extern "C" fn(reg: Reg, kind: Str, callback: MerchantCloseFn) -> i32,
+    /// Vanilla tameable/ownable mob owner UUID, if any.
+    pub pet_owner: unsafe extern "C" fn(entity: EntityRef, out: *mut [u8; 16]) -> bool,
+    /// Scoreboard team name, copied into the sink.
+    pub team: unsafe extern "C" fn(entity: EntityRef, out: Sink) -> bool,
+    /// Vanilla alliance, including tameable relationships and scoreboard teams.
+    pub allied: unsafe extern "C" fn(entity: EntityRef, other: EntityRef) -> bool,
+    /// Set a mod mob's entity-local passenger seat by passenger index.
+    pub set_seat_offset: unsafe extern "C" fn(mob: EntityRef, index: usize, offset: Vec3) -> bool,
+    /// Ordered local dismount candidates, checked for safety at dismount time.
+    pub set_dismount_offsets:
+        unsafe extern "C" fn(mob: EntityRef, offsets: *const Vec3, count: usize) -> bool,
 }
 
 pub type MerchantCloseFn =
@@ -2058,7 +2069,12 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, last_hurt_mob), 224);
         assert_eq!(offset_of!(MobsV1, last_hurt_by_mob), 232);
         assert_eq!(offset_of!(MobsV1, on_merchant_close), 240);
-        assert_eq!(size_of::<MobsV1>(), 248);
+        assert_eq!(offset_of!(MobsV1, pet_owner), 248);
+        assert_eq!(offset_of!(MobsV1, team), 256);
+        assert_eq!(offset_of!(MobsV1, allied), 264);
+        assert_eq!(offset_of!(MobsV1, set_seat_offset), 272);
+        assert_eq!(offset_of!(MobsV1, set_dismount_offsets), 280);
+        assert_eq!(size_of::<MobsV1>(), 288);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

@@ -152,6 +152,7 @@ impl Mod for SaintsDragons {
         mobs.require_extension(MobsExtension::NaturalSpawns)?;
         mobs.require_extension(MobsExtension::Trading)?;
         mobs.require_extension(MobsExtension::MerchantClose)?;
+        mobs.require_extension(MobsExtension::PetsSeats)?;
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;
