@@ -17,6 +17,7 @@ The Java configuration custom payload channel is `moddedmc:negotiate`. Integers 
 | Protocol 1 flag | Meaning and extra bytes in the server answer |
 | --- | --- |
 | `0x00000001` | Hashed assets. Follow the six-byte header with 32 raw SHA-256 bytes for the manifest and 20 raw SHA-1 bytes tying the manifest to the vanilla ZIP offer. |
+| `0x00000002` | Player actions. No extra configuration bytes; the companion requests the versioned key catalog in play. See [the ABI and wire format](MOD-ABI.md#player-actions-moddedmcplayer_actions-v1). |
 
 The ping orders the exchange before the pack offer or known packs. Stock clients ignore the challenge and answer the ping. On servers without a challenge the companion sends nothing. Every connection currently uses the stock block, item and display representation.
 
@@ -31,7 +32,7 @@ The companion caches `<gameDir>/moddedmc/manifest-<sha256>.json` and `<gameDir>/
 ## Owner play test
 
 1. Start a scratch pack server with `create.mmc` and your local Create JAR. Install the companion JAR into a Fabric 26.3 instance named **moddedMC** in your launcher.
-2. Open that launcher. Select **moddedMC** and press **Play**. Open **Multiplayer** and add the server. Join it and accept the required pack if asked. Expect Create items and placed gears to appear. Check `logs/latest.log` in the instance for `active capabilities 1` and `Loaded verified moddedMC asset pack`.
+2. Open that launcher. Select **moddedMC** and press **Play**. Open **Multiplayer** and add the server. Join it and accept the required pack if asked. Expect Create items and placed gears to appear. Check `logs/latest.log` in the instance for `active capabilities 3` and `Loaded verified moddedMC asset pack`.
 3. Disconnect. Keep the game port reachable and block only the pack HTTP port from the test client. Rejoin from the prepared instance. Expect the same models and verified asset log using only the existing cache. Restore the pack HTTP route afterward.
 4. Join the same server from a stock 26.3 installation with the HTTP route available. Accept its pack and expect the same stock models. Then join an ordinary 26.3 server from **moddedMC** and expect a normal join with no companion negotiation log for that connection.
 

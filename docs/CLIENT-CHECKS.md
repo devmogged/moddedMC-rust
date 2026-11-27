@@ -90,3 +90,16 @@ Run these checks with the official client and the server resource pack.
 - Place a pane into a water source and another next to Waxed Oxidized Copper Bars. Expect the pane to hold water and the stock bars to keep their copper appearance. Restart and expect the same geometry and water.
 - Rotate an Oak Window Pane on a Mechanical Bearing. Restart while it runs, remove one neighbor at the landing position, and stop the bearing. Expect the moving pane to keep its material and update its arms on landing.
 - Pan across large arrays of Framed Glass and Oak Window Panes, including across chunk boundaries. Record frame timing, overlay pop-in, edge seams, and any differences between the two rendering paths.
+
+## Create metal bars ([issue #40](https://github.com/devmogged/moddedMC-rust/issues/40), engine `bb5eeda87`)
+
+- Stonecut Andesite Alloy, a Brass Ingot and a Copper Ingot. Expect four of the corresponding bar per input. Place each alongside stock Iron Bars, Glass Panes and a wall. Expect copper placement sounds, a cap on the loose end of a single connection, and the correct shape at corners and junctions.
+- Place Brass Bars in source water. Restart, then sneak-use a wrench in Survival. Expect one Brass Bars item in your inventory, water in the old position, and the neighboring arms to retract. Repeat in Creative and expect no recovered item.
+- Rotate waterlogged Brass Bars on a Mechanical Bearing. Expect water to remain at the source during motion. Restart and stop the bearing beside a different neighbor. Expect the rendered bars to keep their material through motion and reconnect and waterlog at the landing site.
+
+## Create copper shingles and tiles ([issue #41](https://github.com/devmogged/moddedMC-rust/issues/41), engine `fbf208e11`)
+
+- Stonecut copper ingots into shingles or tiles. Expect two full blocks per ingot. Stonecut each block into stairs or slabs. Place two matching slabs together and mine the double slab with a stone pickaxe. Expect two slabs back.
+- Place copper roofing near vanilla copper and wax one side. Expect the unwaxed roofing to age and the waxed roofing to keep its color. Use an axe twice on a waxed, waterlogged stair. Expect wax removal first, then one stage of scraping with the water and shape intact. Strike an exposed roof block with lightning and expect it to return to fresh copper.
+- Mount a waxed, waterlogged tile stair on a Mechanical Bearing. Run the bearing, restart the server, then stop the bearing. Expect the stair to show its roof material in motion and reassemble with the waxed finish, shape and water intact.
+- Build a roof with shingle blocks, slabs and corner stairs. Expect the released textures to load. Check and record seams on the upper faces. The stock-client pack currently uses fixed models for these faces.

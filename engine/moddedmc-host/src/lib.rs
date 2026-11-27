@@ -32,6 +32,7 @@ mod mob_ai;
 mod mobs;
 mod native;
 mod native_entity;
+mod player_actions;
 mod player_death;
 mod resources;
 mod saved_data;
@@ -152,6 +153,7 @@ pub struct Staging<'a> {
     inventory_menu: inventory_menu::Registration,
     native_actor: Option<(u64, abi::NativeEntityCallback)>,
     services: Vec<services::Registration>,
+    player_actions: Vec<player_actions::Registration>,
     equipment: Vec<(String, equipment::Hook)>,
 }
 
@@ -222,6 +224,7 @@ pub fn load_mods() {
 pub fn attach(server: &Arc<Server>) {
     let _ = native::SERVER.set(server.clone());
     companion::attach(server);
+    player_actions::attach(server);
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
     pm.register::<WorldSaveEvent, _>(Arc::new(SavedDataSaveHandler), EventPriority::Normal, true);
@@ -466,6 +469,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         inventory_menu_kind,
         native_actor_kind,
         services,
+        player_actions,
         equipment_hooks,
     ) = {
         let registry = read(&HOST.registry);
@@ -487,6 +491,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             inventory_menu: inventory_menu::Registration::default(),
             native_actor: None,
             services: Vec::new(),
+            player_actions: Vec::new(),
             equipment: Vec::new(),
         };
         let result = module.register(&mut staging);
@@ -507,6 +512,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.inventory_menu,
             staging.native_actor,
             staging.services,
+            staging.player_actions,
             staging.equipment,
         )
     };
@@ -546,6 +552,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     inventory_menu::register(module.id, inventory_menu_kind);
     native_entity::register(module.id, native_actor_kind);
     services::commit(services);
+    player_actions::commit(player_actions);
     equipment::register(equipment_hooks);
     lock(&HOST.commands).push(PendingCommands {
         module,

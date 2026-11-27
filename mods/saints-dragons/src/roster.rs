@@ -248,6 +248,14 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         if let Some(damage) = melee_base(species.name, false) {
             attributes.push(("minecraft:attack_damage", damage));
         }
+        if species.name == "raevyx" {
+            attributes.extend([
+                ("minecraft:armor", 8.0),
+                ("minecraft:follow_range", 64.0),
+                ("minecraft:flying_speed", 0.5),
+                ("minecraft:knockback_resistance", 1.0),
+            ]);
+        }
         if species.name == crate::ivy::SPECIES {
             attributes.extend([
                 ("minecraft:attack_damage", 4.0),
@@ -263,12 +271,34 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:knockback_resistance", 1.0),
             ]);
         }
+        if species.name == "stegonaut" {
+            attributes.extend([
+                ("minecraft:armor", 15.0),
+                ("minecraft:attack_damage", 2.0),
+                ("minecraft:follow_range", 32.0),
+                ("minecraft:knockback_resistance", 1.0),
+            ]);
+        }
+        if species.name == "nulljaw" {
+            attributes.extend([("minecraft:armor", 4.0), ("minecraft:follow_range", 48.0)]);
+        }
         if let Some(damage) = swarm_damage {
             attributes.extend([
                 ("minecraft:attack_damage", damage),
                 ("minecraft:follow_range", 64.0),
                 ("minecraft:armor", 0.0),
             ]);
+        }
+        if species.name == "atroxiia" {
+            attributes.extend([
+                ("minecraft:attack_damage", 10.0),
+                ("minecraft:follow_range", 32.0),
+                ("minecraft:armor", 10.0),
+                ("minecraft:knockback_resistance", 1.0),
+            ]);
+        }
+        if species.name == "volitans" {
+            attributes.extend([("minecraft:armor", 6.0), ("minecraft:follow_range", 64.0)]);
         }
         mobs.add_mob(
             registry,
@@ -283,6 +313,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         if swarm_damage.is_some()
             || stun
             || species.name == crate::ivy::SPECIES
+            || species.name == "stegonaut"
             || species.name == "varasuchus"
             || (species.name != "moop" && cfg!(feature = "original-assets"))
         {
@@ -301,6 +332,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK | goal_control::JUMP,
                 },
             )?;
+        }
+        if species.name == "atroxiia" {
+            crate::combat_atroxiia::register(registry)?;
         }
         if swarm_damage.is_none() && !matches!(species.name, "moop" | "mossback") {
             INTERACTION
@@ -409,6 +443,29 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 },
             )?;
         }
+        if species.name == "ignivorus" {
+            for (key, priority, controls) in [
+                (crate::combat_ignivorus::TARGETING, 0, goal_control::TARGET),
+                (
+                    crate::combat_ignivorus::COMBAT,
+                    1,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
+                        controls,
+                    },
+                )?;
+            }
+        }
+        if species.name == "stegonaut" {
+            crate::combat_stegonaut::register(registry)?;
+        }
         if species.flight.is_some() {
             ai.add_goal(
                 registry,
@@ -420,16 +477,43 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 },
             )?;
         }
-        if species.name == crate::ivy::SPECIES {
-            ai.add_goal(
-                registry,
-                &Goal {
-                    kind: &kind,
-                    key: crate::ivy::COMBAT,
-                    priority: 1,
-                    controls: goal_control::MOVE | goal_control::LOOK,
-                },
-            )?;
+        if species.name == "volitans" {
+            for (key, controls) in [
+                (crate::combat_volitans::TARGET, goal_control::TARGET),
+                (
+                    crate::combat_volitans::COMBAT,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority: 1,
+                        controls,
+                    },
+                )?;
+            }
+        }
+        if species.name == "nulljaw" {
+            for (key, controls) in [
+                (crate::combat_nulljaw::TARGETING, 0),
+                (
+                    crate::combat_nulljaw::COMBAT,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority: 1,
+                        controls,
+                    },
+                )?;
+            }
         }
         if species.name == "varasuchus" {
             for (key, priority, controls) in [
@@ -450,6 +534,37 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     },
                 )?;
             }
+        }
+        if species.name == "raevyx" {
+            for (key, priority, controls) in [
+                (crate::combat_raevyx::TARGETING, 0, 0),
+                (
+                    crate::combat_raevyx::COMBAT,
+                    1,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
+                        controls,
+                    },
+                )?;
+            }
+        }
+        if species.name == crate::ivy::SPECIES {
+            ai.add_goal(
+                registry,
+                &Goal {
+                    kind: &kind,
+                    key: crate::ivy::COMBAT,
+                    priority: 1,
+                    controls: goal_control::MOVE | goal_control::LOOK,
+                },
+            )?;
         }
         ai.add_goal(
             registry,
@@ -647,7 +762,10 @@ pub fn finalize_spawn(world: World<'_>, mob: Entity<'_>) {
         mobs.make_persistent(mob);
     }
     // `Volitans.canBreatheUnderwater`: its ravager carrier would drown.
-    if kind == Some("saintsdragons:volitans") {
+    if matches!(
+        kind,
+        Some("saintsdragons:volitans" | "saintsdragons:atroxiia")
+    ) {
         mob.add_effect("minecraft:water_breathing", -1, 0, true, false);
     }
     if let Some(name) = kind.and_then(|kind| kind.strip_prefix("saintsdragons:"))
@@ -720,12 +838,41 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         None
     };
     let clip = clip.or_else(|| {
+        if name == "nulljaw" {
+            return crate::combat_nulljaw::clip(mob);
+        }
+        if name == "stegonaut" {
+            return crate::combat_stegonaut::clip(mob);
+        }
         if name == "varasuchus" {
             crate::combat_varasuchus::clip(mob).or_else(|| crate::baby::eating_clip(mob.id()))
         } else if name == crate::ivy::SPECIES {
             crate::ivy::downed_clip(mob).or_else(|| {
                 crate::ivy::combat_clip(mob.id(), view.motion[0].hypot(view.motion[2]) > 0.035)
             })
+        } else {
+            None
+        }
+    });
+    let clip = if name == "raevyx" {
+        crate::combat_raevyx::ambient(world, mob, view).or(clip)
+    } else {
+        clip
+    };
+    let clip = clip.or_else(|| {
+        (name == "atroxiia")
+            .then(|| crate::combat_atroxiia::clip(mob))
+            .flatten()
+    });
+    let clip = if name == "ignivorus" {
+        crate::combat_ignivorus::ambient(world, mob);
+        crate::combat_ignivorus::clip(mob).or(clip)
+    } else {
+        clip
+    };
+    let clip = clip.or_else(|| {
+        if name == "volitans" {
+            crate::combat_volitans::ambient(world, mob)
         } else {
             None
         }

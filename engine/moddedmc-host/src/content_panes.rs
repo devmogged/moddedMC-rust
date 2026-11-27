@@ -1,4 +1,4 @@
-//! Stock carrier states for pane-shaped content.
+//! Stock carrier states for panes and bars.
 use serde_json::{Map, Value, json};
 
 use pumpkin_data::{
@@ -28,7 +28,8 @@ pub const SIDES: [&str; 4] = ["north", "east", "south", "west"];
 pub fn has_pane_shape(states: &[RegisteredState]) -> bool {
     states.len() == Block::GLASS_PANE.states.len()
         && states.iter().all(|state| {
-            state.physical.id.to_block() == &Block::GLASS_PANE
+            let template = state.physical.id.to_block();
+            (template == &Block::GLASS_PANE || template == &Block::COPPER_BARS)
                 && state.shape.is_empty()
                 && state.properties.len() == 5
                 && OakFenceLikeProperties::from_state_id(state.physical.id)
@@ -61,25 +62,21 @@ pub fn side_mask(state: BlockStateId) -> u8 {
 }
 
 pub struct PanePart {
-    pub when: Option<(usize, bool)>,
+    pub when: Vec<(usize, bool)>,
     pub model: String,
     pub y: i32,
 }
 
 impl PanePart {
     pub fn read(part: &Value) -> Option<Self> {
-        let when = if let Some(condition) = part.get("when") {
-            let condition = condition.as_object()?;
-            let (side, flag) = condition.iter().next()?;
-            if condition.len() != 1 {
-                return None;
+        let mut when = Vec::new();
+        if let Some(condition) = part.get("when") {
+            for (side, flag) in condition.as_object()? {
+                let side = SIDES.iter().position(|name| name == side)?;
+                let connected = flag.as_str()?.parse::<bool>().ok()?;
+                when.push((side, connected));
             }
-            let side = SIDES.iter().position(|name| name == side)?;
-            let connected = flag.as_str()?.parse::<bool>().ok()?;
-            Some((side, connected))
-        } else {
-            None
-        };
+        }
         let apply = part.get("apply")?;
         let model = apply.get("model")?.as_str()?.to_owned();
         let y = match apply.get("y") {
@@ -91,7 +88,8 @@ impl PanePart {
 
     pub fn visible(&self, mask: usize) -> bool {
         self.when
-            .is_none_or(|(index, connected)| (mask & (1 << index) != 0) == connected)
+            .iter()
+            .all(|&(index, connected)| (mask & (1 << index) != 0) == connected)
     }
 }
 
@@ -147,8 +145,19 @@ pub fn orient_elements(elements: &[Value], y: i32) -> Option<Vec<Value>> {
 
 #[cfg(test)]
 mod tests {
-    use super::orient_elements;
+    use super::{PanePart, orient_elements};
     use serde_json::json;
+
+    #[test]
+    fn end_cap_only_uses_the_one_connected_side() {
+        let part = PanePart::read(&json!({
+            "when": {"north": "true", "east": "false", "south": "false", "west": "false"},
+            "apply": {"model": "create:block/andesite_cap"}
+        }));
+        assert!(part.as_ref().is_some_and(|cap| cap.visible(1)));
+        assert!(part.as_ref().is_some_and(|cap| !cap.visible(3)));
+        assert!(part.as_ref().is_some_and(|cap| !cap.visible(0)));
+    }
 
     #[test]
     fn north_pane_arm_rotates_east_for_item_display() {

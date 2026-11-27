@@ -15,7 +15,13 @@ mod breed;
 mod catalog;
 mod codex;
 mod combat;
+mod combat_atroxiia;
+mod combat_ignivorus;
+mod combat_nulljaw;
+mod combat_raevyx;
+mod combat_stegonaut;
 mod combat_varasuchus;
+mod combat_volitans;
 mod consumables;
 mod crucible;
 mod discs;
@@ -91,6 +97,7 @@ static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static TAGS: OnceLock<Tags> = OnceLock::new();
 
 struct SaintsDragons;
+mod rider_actions;
 
 impl Mod for SaintsDragons {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
@@ -156,11 +163,13 @@ impl Mod for SaintsDragons {
         visuals::start()?;
         venom_arrow::start()?;
         binders::start()?;
+        rider_actions::start()?;
         Ok(())
     }
 
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let missing = RegistrationError::InvalidDefinition;
+        rider_actions::register(registry)?;
         CONTENT.get().ok_or(missing)?.on_tick(registry, tick)?;
         let interaction = INTERACTION.get().ok_or(missing)?;
         interaction.on_use_block(registry, |click| {

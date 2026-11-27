@@ -28,9 +28,9 @@ bot expect block 2261 101 2260 minecraft:air
 await 5 \[bot\] expect block ok 2261 101 2260
 bot expect block 2259 101 2260 minecraft:air
 await 5 \[bot\] expect block ok 2259 101 2260
-bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:resin_brick_stairs[facing=west,half=top,shape=outer_left,waterlogged=false] count 1
+bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:purple_wool_stairs[facing=east,half=bottom,shape=outer_left,waterlogged=false] count 1
 await 5 \[bot\] expect entity ok
-bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:resin_brick_stairs[facing=north,half=bottom,shape=outer_left,waterlogged=false] count 1
+bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:purple_wool_stairs[facing=west,half=top,shape=outer_left,waterlogged=false] count 1
 await 5 \[bot\] expect entity ok
 cmd save-all flush
 await 10 Saved the game
@@ -40,9 +40,9 @@ start
 botstart tester
 await 10 \[bot\] joined as tester
 wait 2
-bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:resin_brick_stairs[facing=west,half=top,shape=outer_left,waterlogged=false] count 1
+bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:purple_wool_stairs[facing=east,half=bottom,shape=outer_left,waterlogged=false] count 1
 await 5 \[bot\] expect entity ok
-bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:resin_brick_stairs[facing=north,half=bottom,shape=outer_left,waterlogged=false] count 1
+bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:purple_wool_stairs[facing=west,half=top,shape=outer_left,waterlogged=false] count 1
 await 5 \[bot\] expect entity ok
 cmd kinetics 2260 99 2260 0
 await 5 create:creative_motor.*Speed=0
@@ -54,12 +54,12 @@ await 5 Successfully filled 1 block
 bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 count 0
 await 5 \[bot\] expect entity ok
 
-# Real resin stairs keep their matching stock appearance when their raw selector is reused.
-cmd setblock 2264 101 2260 minecraft:resin_brick_stairs[facing=west,half=top,shape=outer_left,waterlogged=false] strict
-cmd execute if block 2264 101 2260 minecraft:resin_brick_stairs[facing=west,half=top,shape=outer_left]
+# Real purple wool stairs keep their matching stock appearance when their raw selector is reused.
+cmd setblock 2264 101 2260 minecraft:purple_wool_stairs[facing=east,half=bottom,shape=outer_left,waterlogged=false] strict
+cmd execute if block 2264 101 2260 minecraft:purple_wool_stairs[facing=east,half=bottom,shape=outer_left]
 await 5 Test passed
 wait 0.3
-bot expect block 2264 101 2260 minecraft:resin_brick_stairs[facing=south,half=top,shape=outer_right,waterlogged=false]
+bot expect block 2264 101 2260 minecraft:purple_wool_stairs[facing=north,half=bottom,shape=outer_right,waterlogged=false]
 await 5 \[bot\] expect block ok 2264 101 2260
 
 # The moving stair leaves source water behind and waterlogs again on disassembly.
@@ -73,7 +73,7 @@ await 5 create:creative_motor.*Speed=1
 wait 0.5
 cmd execute if block 2260 101 2260 minecraft:water[level=0]
 await 5 Test passed
-bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:resin_brick_stairs[facing=west,half=top,shape=outer_left,waterlogged=false] count 1
+bot expect entity minecraft:block_display near 2260.5 101.5 2260.5 within 0.05 state minecraft:purple_wool_stairs[facing=east,half=bottom,shape=outer_left,waterlogged=false] count 1
 await 5 \[bot\] expect entity ok
 cmd kinetics 2260 99 2260 0
 await 5 create:creative_motor.*Speed=0

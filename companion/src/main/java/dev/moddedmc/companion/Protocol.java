@@ -6,7 +6,8 @@ import java.util.HexFormat;
 final class Protocol {
     static final short VERSION = 1;
     static final int HASHED_ASSETS = 1;
-    static final int FLAGS = HASHED_ASSETS;
+    static final int PLAYER_ACTIONS = 2;
+    static final int FLAGS = HASHED_ASSETS | PLAYER_ACTIONS;
     static final int HEADER_SIZE = Short.BYTES + Integer.BYTES;
 
     static byte[] hello() {

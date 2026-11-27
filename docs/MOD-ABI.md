@@ -302,6 +302,16 @@ Require the tables from `Mod::start` and register definitions in `Mod::register`
 
 The Rust SDK exposes them through `moddedmc_api::content`, `moddedmc_api::items`, `moddedmc_api::stacks`, `moddedmc_api::interaction`, `moddedmc_api::effects`, `moddedmc_api::mobs` and `moddedmc_api::mob_ai`. See `mods/create` for registration, placement, loading saved NBT and processing batches, and `mods/saints-dragons` for mob types.
 
+## Copper weathering (`moddedmc:weathering_copper` v1)
+
+`register(reg, ids)` accepts eight distinct IDs of blocks already staged by the same mod:
+unaffected, exposed, weathered and oxidized, followed by their waxed equivalents. All
+eight must have the same state selectors, use the default content entity, and have no
+mod-defined random tick. Unwaxed blocks participate in vanilla oxidation and
+lightning cleaning with vanilla copper. Honeycomb and axes use the vanilla waxing,
+scraping and unwaxing paths, preserving matching state properties. The family is
+rebuilt from the registration before each world opens.
+
 ## Item defaults (`moddedmc:item_defaults` v1)
 
 This pre-world interface starts with its byte size and exposes
@@ -555,6 +565,10 @@ the 56-byte validity prefix with `register_managed` (56),
 `open_managed` (64), and `mutate` (72), for a total of 80 bytes.
 Older hosts return interface unavailable.
 
+A mod may register one legacy menu kind and one managed menu kind together.
+Their callbacks are independent. The v1 action registration attaches to the
+most recently registered kind; register each action immediately after its kind.
+
 `Managed::register` registers the change, deferred action, validity,
 insertion predicate and quick-move routing callbacks. `Managed::open`
 combines controls and validity; it copies the immutable context. Unlike
@@ -626,6 +640,38 @@ saved item stacks for both hands and the four armor slots.
 
 `tests/scenarios/abi-native-entity.txt` covers use, chunk unload and load,
 clean restart, the two stock models, and permanent removal.
+
+## Player actions (`moddedmc:player_actions` v1)
+
+The optional Fabric companion advertises semantic key actions. Require this named
+table in `Mod::start` to stage actions before worlds load. Its C layout is two
+pointer-sized fields: `size: usize` (offset 0) and
+`add(Reg, Str id, Str translation, Str default_key, u8 phases, PlayerActionCallback) -> i32`
+(offset 8, size 16 on 64-bit). Registration copies the strings; duplicate ids are
+rejected and definitions become visible only after successful mod registration.
+The callback is `unsafe extern "C" fn(WorldRef, EntityRef, Str id, u8 phase)`.
+All handles and the id are borrowed for the call. The phase mask selects
+pressed (1), held (2), and released (4); the callback receives one phase at a time.
+The Rust SDK exposes `player_actions::require` and `PlayerActions::add`.
+Use a single Rust callback per mod and dispatch by action id.
+
+Use namespaced action ids, translation keys and Minecraft key names such as
+`key.keyboard.r`, `key.keyboard.unknown` (unbound), or `ctrl+key.keyboard.4`.
+The companion creates rebindable controls grouped by action namespace and stores
+the chosen keys locally. Stock clients do not receive or send action packets.
+An action namespace can ship `assets/<namespace>/lang/en_us.json` with its
+translation keys and category label `key.category.moddedmc.actions.<namespace>`.
+Mods must still validate gameplay conditions such as ownership, cooldown and riding.
+
+Configuration capability bit 2 on `moddedmc:negotiate` enables the play channel
+`moddedmc:player_actions`. Its protocol is version 1: client requests the
+catalog with bytes [1,0] on join; server replies [1,1], a big-endian u16 count,
+then each entry's id, translation and key as u8 byte lengths followed by UTF-8,
+then its u8 phase mask. Client input is [1,2,phase,id-byte-length,id bytes].
+The host caps the catalog at 128 actions, ids and translations at 128 bytes,
+keys at 64 bytes, checks the action and phase, rejects dead players and
+rate-limits input to 128 packets per second and repeats of the same phase
+of an action to 40 ms (held: 150 ms). Held input is sent every four client ticks.
 
 ## Inter-mod services (`moddedmc:services` v1)
 
