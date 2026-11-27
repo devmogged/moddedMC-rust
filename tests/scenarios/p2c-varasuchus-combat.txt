@@ -1,0 +1,43 @@
+# Varasuchus respects a wall on land, pierces armor with horn gore, then shifts phase below half health.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 120 1033.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1007 119 1007 1043 119 1043 minecraft:stone
+cmd fill 1007 120 1007 1043 129 1043 minecraft:air
+cmd saintsdragons spawn varasuchus 1025 120 1025
+cmd summon minecraft:iron_golem 1025.5 120 1028.25 {NoAI:1b}
+wait 2
+cmd tp @e[type=minecraft:ravager,limit=1] 1025.5 120 1025.5 0 0
+cmd attribute @e[type=minecraft:ravager,limit=1] minecraft:attack_damage base get
+wait 0.5
+expect is 10(?:\.0)?\b
+cmd attribute @e[type=minecraft:iron_golem,limit=1] minecraft:armor base set 20
+cmd attribute @e[type=minecraft:iron_golem,limit=1] minecraft:armor_toughness base set 0
+cmd attribute @e[type=minecraft:iron_golem,limit=1] minecraft:knockback_resistance base set 1
+cmd fill 1007 120 1027 1043 125 1027 minecraft:stone
+cmd damage @e[type=minecraft:ravager,limit=1] 1 minecraft:mob_attack by @e[type=minecraft:iron_golem,limit=1]
+wait 1.5
+cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: 100(?:\.0)?f
+cmd fill 1007 120 1027 1043 125 1027 minecraft:air
+wait 1
+cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+wait 0.5
+# 8 raw horn damage against 17 effective armor gives 3.84 damage.
+expect Iron Golem has the following entity data: 96\.1[56][0-9]*f
+cmd data merge entity @e[type=minecraft:ravager,limit=1] {Health:90.0f}
+wait 3
+cmd data get entity @e[type=minecraft:ravager,limit=1] data."saintsdragons:varasuchus_combat".PhaseTwo
+wait 0.5
+expect has the following entity data: 1b
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

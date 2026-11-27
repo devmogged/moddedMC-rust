@@ -179,12 +179,13 @@ const SPECIES: [Species; 13] = [
 
 pub const SWARM_EGG: &str = "draconian_swarm";
 
-/// The current carrier melee bases (ravager 12, spider 2), except Ignivorus,
-/// whose release growth profile already sets 50 for adults and 0 for babies.
+/// The current carrier melee bases (ravager 12, spider 2), with released
+/// attributes for Varasuchus and Ignivorus's age-dependent growth profile.
 pub fn melee_base(name: &str, juvenile: bool) -> Option<f64> {
     match name {
         "ignivorus" => Some(if juvenile { 0.0 } else { 50.0 }),
-        "raevyx" | "stegonaut" | "varasuchus" | "volitans" | "atroxiia" => Some(12.0),
+        "varasuchus" => Some(10.0),
+        "raevyx" | "stegonaut" | "volitans" | "atroxiia" => Some(12.0),
         "nulljaw" => Some(2.0),
         _ => None,
     }
@@ -255,6 +256,13 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:armor_toughness", 0.0),
             ]);
         }
+        if species.name == "varasuchus" {
+            attributes.extend([
+                ("minecraft:armor", 8.0),
+                ("minecraft:follow_range", 32.0),
+                ("minecraft:knockback_resistance", 1.0),
+            ]);
+        }
         if let Some(damage) = swarm_damage {
             attributes.extend([
                 ("minecraft:attack_damage", damage),
@@ -275,6 +283,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         if swarm_damage.is_some()
             || stun
             || species.name == crate::ivy::SPECIES
+            || species.name == "varasuchus"
             || (species.name != "moop" && cfg!(feature = "original-assets"))
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
@@ -418,6 +427,26 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK,
                 },
             )?;
+        }
+        if species.name == "varasuchus" {
+            for (key, priority, controls) in [
+                (crate::combat_varasuchus::TARGET, 0, 0),
+                (
+                    crate::combat_varasuchus::COMBAT,
+                    1,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
+                        controls,
+                    },
+                )?;
+            }
         }
         ai.add_goal(
             registry,
@@ -689,7 +718,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     };
     let clip = clip.or_else(|| {
         if name == "varasuchus" {
-            crate::baby::eating_clip(mob.id())
+            crate::combat_varasuchus::clip(mob).or_else(|| crate::baby::eating_clip(mob.id()))
         } else if name == crate::ivy::SPECIES {
             crate::ivy::downed_clip(mob).or_else(|| {
                 crate::ivy::combat_clip(mob.id(), view.motion[0].hypot(view.motion[2]) > 0.035)
@@ -712,6 +741,8 @@ mod tests {
     #[test]
     fn melee_bases_preserve_carriers_and_ignivorus_growth() {
         assert_eq!(melee_base("raevyx", false), Some(12.0));
+        assert_eq!(melee_base("varasuchus", false), Some(10.0));
+        assert_eq!(melee_base("varasuchus", true), Some(10.0));
         assert_eq!(melee_base("nulljaw", false), Some(2.0));
         assert_eq!(melee_base("ignivorus", false), Some(50.0));
         assert_eq!(melee_base("ignivorus", true), Some(0.0));
