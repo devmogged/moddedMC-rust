@@ -17,13 +17,13 @@ cmd setblock 1028 100 1025 create:mechanical_pump
 wait 1
 # Avoid asserting client chunk loaded before asynchronous propagation.
 cmd data get block 1025 100 1025
-expect 1025, 100, 1025 has the following block data: .*create:fluid_pipe
+await 5 1025, 100, 1025 has the following block data: .*create:fluid_pipe
 cmd data get block 1026 100 1025
-expect 1026, 100, 1025 has the following block data: .*create:glass_fluid_pipe
+await 5 1026, 100, 1025 has the following block data: .*create:glass_fluid_pipe
 cmd data get block 1027 100 1025
-expect 1027, 100, 1025 has the following block data: .*create:encased_fluid_pipe
+await 5 1027, 100, 1025 has the following block data: .*create:encased_fluid_pipe
 cmd data get block 1028 100 1025
-expect 1028, 100, 1025 has the following block data: .*create:mechanical_pump
+await 5 1028, 100, 1025 has the following block data: .*create:mechanical_pump
 bot quit
 cmd save-all flush
 stop
@@ -33,13 +33,13 @@ wait 3
 cmd tp tester 1025.5 101 1023.5 0 90
 wait 5
 cmd data get block 1025 100 1025
-expect 1025, 100, 1025 has the following block data: .*create:fluid_pipe
+await 5 1025, 100, 1025 has the following block data: .*create:fluid_pipe
 cmd data get block 1026 100 1025
-expect 1026, 100, 1025 has the following block data: .*create:glass_fluid_pipe
+await 5 1026, 100, 1025 has the following block data: .*create:glass_fluid_pipe
 cmd data get block 1027 100 1025
-expect 1027, 100, 1025 has the following block data: .*create:encased_fluid_pipe
+await 5 1027, 100, 1025 has the following block data: .*create:encased_fluid_pipe
 cmd data get block 1028 100 1025
-expect 1028, 100, 1025 has the following block data: .*create:mechanical_pump
+await 5 1028, 100, 1025 has the following block data: .*create:mechanical_pump
 reject (?i)panicked|trapped|failed to register
 bot quit
 stop
