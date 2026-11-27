@@ -4,6 +4,16 @@ use moddedmc_api::{content::World, entities::Entity};
 
 use crate::{ENTITIES, MOBS};
 
+/// The released brewed_potion criteria use the corresponding custom potion holder.
+/// Our recipes represent those two holders as standalone content items.
+pub fn brewed_potion(_world: World<'_>, player: Entity<'_>, item: &str, _stack: &[u8]) {
+    match item {
+        "saintsdragons:potion_of_tideguard" => award(player, "brew_tideguard", "brew_tideguard"),
+        "saintsdragons:potion_of_searing" => award(player, "brew_searing", "brew_searing"),
+        _ => {}
+    }
+}
+
 /// Grant `criterion` of `saintsdragons:<advancement>` to `player`.
 pub fn award(player: Entity<'_>, advancement: &str, criterion: &str) {
     if let Some(mobs) = MOBS.get() {

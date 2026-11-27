@@ -458,6 +458,7 @@ mod layout {
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
         assert_eq!(offset_of!(InteractionV1, on_use_mob), 144);
+        assert_eq!(offset_of!(InteractionV1, on_brewed_potion), 200);
         assert_eq!(size_of::<ShapeBox>(), 12);
 
         assert_eq!(offset_of!(CommandNode, name), 0);
@@ -1243,7 +1244,12 @@ pub struct InteractionV1 {
     /// An empty dimension clears the target. Does not acquire player inventory locks.
     pub stack_set_lodestone:
         unsafe extern "C" fn(stack: StackRef, data: Str, dimension: Str, pos: Pos) -> bool,
+    /// Observe the stack a player takes from a brewing stand bottle slot.
+    pub on_brewed_potion: unsafe extern "C" fn(reg: Reg, callback: BrewedPotionFn) -> i32,
 }
+
+/// The item identifier and saved stack NBT are borrowed for the callback.
+pub type BrewedPotionFn = unsafe extern "C" fn(WorldRef, EntityRef, Str, Str);
 
 /// A content item used in the air, with the rotation sent for that action.
 #[repr(C)]

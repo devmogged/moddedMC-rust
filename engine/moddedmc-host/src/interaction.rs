@@ -1,11 +1,18 @@
 //! `moddedmc:interaction`: item uses on blocks.
 
-use std::{cell::Cell, ptr, sync::Arc};
+use std::{
+    cell::Cell,
+    ptr,
+    sync::{Arc, Mutex},
+};
 
 use moddedmc_api::abi::{self, Str};
 use pumpkin_core::{
     block::registry::BlockActionResult,
-    entity::{EntityBase, player::Player},
+    entity::{
+        EntityBase,
+        player::{Player, install_brewed_potion_hook},
+    },
     item::{ContentItemUse, ItemBehaviour, registry::install_content_behaviour},
     server::Server,
     world::World,
@@ -53,7 +60,54 @@ pub static INTERACTION: abi::InteractionV1 = abi::InteractionV1 {
     add_exhaustion,
     player_sneaking,
     stack_set_lodestone,
+    on_brewed_potion,
 };
+
+static BREWED_POTION_CALLBACKS: Mutex<Vec<abi::BrewedPotionFn>> = Mutex::new(Vec::new());
+
+unsafe extern "C" fn on_brewed_potion(reg: abi::Reg, callback: abi::BrewedPotionFn) -> i32 {
+    // SAFETY: reg is the active mod registration.
+    let slot = &mut unsafe { crate::native::staging(reg) }.brewed_potion;
+    if slot.is_some() {
+        return abi::code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    abi::code::OK
+}
+
+pub fn register_brewed_potion(callback: Option<abi::BrewedPotionFn>) {
+    let Some(callback) = callback else { return };
+    let mut callbacks = crate::lock(&BREWED_POTION_CALLBACKS);
+    if callbacks.is_empty() && !install_brewed_potion_hook(dispatch_brewed_potion) {
+        tracing::error!("moddedmc: brewed potion hook is already installed");
+        return;
+    }
+    callbacks.push(callback);
+}
+
+fn dispatch_brewed_potion(player: &Player, stack: &ItemStack) {
+    let callbacks = crate::lock(&BREWED_POTION_CALLBACKS).clone();
+    let Some(saved) = stack
+        .to_nbt()
+        .map(|nbt| pumpkin_nbt::Nbt::from(nbt).write())
+    else {
+        return;
+    };
+    let item = stack.item.identifier();
+    let world = player.world();
+    let player: &dyn EntityBase = player;
+    for callback in callbacks {
+        // SAFETY: the world, player and slices are borrowed for the synchronous callback.
+        unsafe {
+            callback(
+                Arc::as_ptr(&world).cast(),
+                (&raw const player).cast(),
+                Str::new(item.as_bytes()),
+                Str::new(&saved),
+            );
+        }
+    }
+}
 
 pub static PLAYER_STACK_DATA: abi::PlayerStackDataV1 = abi::PlayerStackDataV1 {
     size: size_of::<abi::PlayerStackDataV1>(),

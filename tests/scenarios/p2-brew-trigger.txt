@@ -1,5 +1,5 @@
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
-# Pending host support: brewed_potion must match the taken potion identity.
+# The brewing take hook must match the taken potion identity.
 # A vanilla potion must grant neither mod advancement; brewing itself grants
 # neither; taking each custom bottle grants only its corresponding criterion.
 start
@@ -62,7 +62,7 @@ wait 0.5
 expect Test passed
 bot use 1024 105 1027 up
 wait 1
-bot inventory-click 0 left
+bot inventory-click 0 shift-left
 wait 0.5
 bot inventory-close
 wait 0.5
