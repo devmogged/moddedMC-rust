@@ -70,7 +70,12 @@ pub fn sleep_refusal(click: &UseMob<'_>) -> Option<UseResult> {
     {
         return None;
     }
-    mobs.message(player, "Varasuchus is sleeping, wake it up to tame.", true);
+    let name = crate::binders::saved_name(mob).unwrap_or_else(|| "Varasuchus".to_owned());
+    mobs.message(
+        player,
+        &format!("{name} is sleeping, wake it up to tame."),
+        true,
+    );
     Some(UseResult::Success)
 }
 

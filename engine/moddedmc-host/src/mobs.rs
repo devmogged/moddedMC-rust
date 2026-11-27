@@ -61,7 +61,99 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     add_spawn,
     open_trades,
     award_advancement,
+    kill_credit,
+    player_sleeping,
+    award_experience,
+    award_stat,
+    boolean_gamerule,
 };
+
+unsafe extern "C" fn kill_credit(raw: EntityRef) -> i32 {
+    // SAFETY: the entity is borrowed for this call.
+    unsafe { entity(raw) }
+        .and_then(EntityBase::get_living_entity)
+        .and_then(pumpkin_core::entity::living::LivingEntity::get_kill_credit)
+        .map_or(-1, |credit| credit.get_entity().entity_id)
+}
+
+unsafe extern "C" fn player_sleeping(raw: EntityRef) -> i32 {
+    // SAFETY: the entity is borrowed for this call.
+    unsafe { entity(raw) }
+        .and_then(EntityBase::get_player)
+        .map_or(-1, |player| i32::from(player.is_sleeping()))
+}
+
+unsafe extern "C" fn award_experience(raw: WorldRef, position: Vec3, amount: u32) -> bool {
+    if amount == 0 || !position.0.iter().all(|v| v.is_finite()) {
+        return false;
+    }
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
+        return false;
+    };
+    let [x, y, z] = position.0;
+    pumpkin_core::entity::experience_orb::ExperienceOrbEntity::spawn(
+        &world,
+        Vector3::new(x, y, z),
+        amount,
+    );
+    true
+}
+
+unsafe extern "C" fn award_stat(raw: EntityRef, category: Str, stat: Str, amount: i32) -> bool {
+    use pumpkin_data::statistic::StatisticCategory;
+    // SAFETY: all inputs are borrowed for this call.
+    let (Some(player), Some(category), stat) = (
+        unsafe { entity(raw) }.and_then(EntityBase::get_player),
+        StatisticCategory::from_registry_key(unsafe { category.str() }),
+        unsafe { stat.str() },
+    ) else {
+        return false;
+    };
+    if amount <= 0 {
+        return false;
+    }
+    let id = match category {
+        StatisticCategory::Custom => {
+            static STATS: std::sync::OnceLock<Option<serde_json::Value>> = std::sync::OnceLock::new();
+            let stats = STATS.get_or_init(|| {
+                serde_json::from_str(include_str!("../../pumpkin/assets/stats.json"))
+                    .ok()
+            });
+            stats.as_ref().and_then(|stats| stats["minecraft:custom"]["entries"][stat]["id"].as_i64())
+                .and_then(|id| i32::try_from(id).ok())
+        }
+        StatisticCategory::Killed | StatisticCategory::KilledBy => {
+            EntityType::from_name(stat.strip_prefix("minecraft:").unwrap_or(stat))
+                .map(|kind| i32::from(kind.id))
+        }
+        StatisticCategory::Mined => {
+            pumpkin_data::Block::from_registry_key(stat).map(|block| i32::from(block.id.as_u16()))
+        }
+        _ => pumpkin_data::item::Item::from_registry_key(stat).map(|item| i32::from(item.id)),
+    };
+    let Some(id) = id else { return false };
+    player.increment_stat(category, id, amount);
+    true
+}
+
+unsafe extern "C" fn boolean_gamerule(raw: WorldRef, rule: Str) -> i32 {
+    use pumpkin_data::game_rules::{GameRule, GameRuleValue};
+    // SAFETY: both inputs are borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    // SAFETY: the string is borrowed for this call.
+    let name = unsafe { rule.str() };
+    let name = name.strip_prefix("minecraft:").unwrap_or(name);
+    let Some(rule) = GameRule::all().iter().find(|rule| rule.to_string() == name) else {
+        return -1;
+    };
+    match world.get_game_rule(rule) {
+        GameRuleValue::Bool(value) => i32::from(value),
+        GameRuleValue::Int(_) => -1,
+    }
+}
 
 pub static MOB_LOOT: abi::MobLootV1 = abi::MobLootV1 {
     size: size_of::<abi::MobLootV1>(),
