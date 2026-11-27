@@ -1,0 +1,14 @@
+# Saint's Dragons 0.9.88 terrain effects. Companion action payloads require a live client.
+# Manual companion checks on a stone platform over at least six layers of stone:
+# Tame/saddle/mount a Cindervane. Hold G on the ground with mob griefing enabled;
+# exposed eligible blocks ignite. Release G, then aim H at the ground; check the 3x3 impact layer.
+# Set minecraft:mob_griefing false and repeat; no new fire should appear.
+# Re-enable griefing; place bedrock and obsidian within the landing area.
+# Hold G through a drop of at least seven blocks: check the nine-block-radius crater,
+# center depth five below the impact block, protected blocks remain, and Tactical Nuke.
+# Repeat on untouched terrain with mob griefing disabled; blocks remain intact.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+expect-all registered mob saintsdragons:cindervane && registered player action saintsdragons:ability_secondary && registered player action saintsdragons:ability_tertiary
+reject (?i)panic|panicked
+stop
