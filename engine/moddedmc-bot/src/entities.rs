@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 
 use pumpkin_data::{
+    BlockStateId,
     attributes::Attributes,
     entity::{EntityPose, EntityType},
     meta_data_type::MetaDataType as Meta,
     packet::{CURRENT_MC_VERSION, PacketId, clientbound::play as p},
-    tracked_data::{entity, living_entity, shulker},
+    tracked_data::{block_display, entity, living_entity, shulker},
 };
 use pumpkin_protocol::{
     ServerPacket as _, VarInt,
@@ -18,7 +19,7 @@ use pumpkin_util::math::{
     vector3::Vector3,
 };
 
-use crate::{attributes::Values, controls::yaw_sin_cos};
+use crate::{attributes::Values, controls::yaw_sin_cos, terrain::WireState};
 
 #[derive(Default)]
 pub struct Entities {
@@ -40,6 +41,7 @@ pub struct Tracked {
     attach_face: i32,
     peek_target: f32,
     peek: f32,
+    block_display_state: Option<BlockStateId>,
 }
 
 impl Tracked {
@@ -132,6 +134,20 @@ impl Tracked {
                         self.health = value;
                     }
                 }
+                Meta::BLOCK_STATE if self.kind.id == EntityType::BLOCK_DISPLAY.id => {
+                    let raw = bytes.get_var_int()?.0;
+                    if field == block_display::BLOCK_STATE.id.get(&version) {
+                        self.block_display_state =
+                            u16::try_from(raw).ok().and_then(BlockStateId::new);
+                    }
+                }
+                Meta::VECTOR3 | Meta::QUATERNION
+                    if self.kind.id == EntityType::BLOCK_DISPLAY.id =>
+                {
+                    for _ in 0..if kind == Meta::VECTOR3 { 3 } else { 4 } {
+                        bytes.get_f32_be()?;
+                    }
+                }
                 Meta::BOOLEAN => {
                     bytes.get_bool()?;
                 }
@@ -187,6 +203,8 @@ impl Entities {
                             attach_face: 0,
                             peek_target: 0.0,
                             peek: 0.0,
+                            block_display_state: (kind.id == EntityType::BLOCK_DISPLAY.id)
+                                .then_some(BlockStateId::AIR),
                         },
                     );
                 }
@@ -239,12 +257,17 @@ impl Entities {
 
     pub fn check(&self, args: &str) -> Result<usize, String> {
         let args = args.split_whitespace().collect::<Vec<_>>();
-        let usage = "expect entity requires type near x y z within distance [count n]";
+        let usage =
+            "expect entity requires type near x y z within distance [state block] [count n]";
         let (prefix, count) = match args.as_slice() {
             [prefix @ .., "count", count] => {
                 (prefix, Some(count.parse::<usize>().map_err(|_| usage)?))
             }
             prefix => (prefix, None),
+        };
+        let (prefix, state) = match prefix {
+            [prefix @ .., "state", state] => (prefix, Some(WireState::parse(state)?)),
+            _ => (prefix, None),
         };
         let [name, "near", x, y, z, "within", radius] = prefix else {
             return Err(usage.into());
@@ -260,11 +283,14 @@ impl Entities {
         let position = Vector3::new(x, y, z);
         let mut nearest: Option<(f64, Vector3<f64>)> = None;
         let mut found = 0;
-        for entity in self
-            .tracked
-            .values()
-            .filter(|entity| entity.kind.id == kind.id)
-        {
+        for entity in self.tracked.values().filter(|entity| {
+            entity.kind.id == kind.id
+                && state.as_ref().is_none_or(|state| {
+                    entity
+                        .block_display_state
+                        .is_some_and(|actual| state.matches(actual))
+                })
+        }) {
             let distance = (entity.position - position).length_squared();
             if distance <= radius * radius {
                 found += 1;
@@ -456,6 +482,7 @@ fn update_entity(
         p::SET_ENTITY_DATA
             if entity.kind.boat.is_some()
                 || entity.kind.mob
+                || entity.kind.id == EntityType::BLOCK_DISPLAY.id
                 || entity.kind.id == EntityType::PLAYER.id =>
         {
             entity.update_metadata(bytes)?;

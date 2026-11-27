@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap, hash_map::Entry},
+    collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
     ffi::c_void,
     io,
     path::Path,
@@ -447,6 +447,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
                 bounded: false,
                 uvlock: false,
                 straight_stair_display: false,
+                block_display_carrier: None,
             },
         });
     }
@@ -1133,7 +1134,7 @@ fn open_registry(
     items: &[ItemDefinition],
 ) -> io::Result<content::Registry> {
     let definitions = block_definitions(blocks)?;
-    content::Registry::open_with_comparator_outputs(
+    let mut registry = content::Registry::open_with_comparator_outputs(
         &path.join("moddedmc/registry.dat"),
         &definitions,
         items,
@@ -1143,7 +1144,50 @@ fn open_registry(
                 .ok()?;
             blocks[index].1.states[state_index].comparator_output
         },
-    )
+    )?;
+    assign_block_display_carriers(blocks, &definitions, &mut registry)?;
+    Ok(registry)
+}
+
+fn assign_block_display_carriers(
+    blocks: &mut [(usize, Registration)],
+    definitions: &[BlockDefinition],
+    registry: &mut content::Registry,
+) -> io::Result<()> {
+    let placed: HashSet<_> = definitions
+        .iter()
+        .flat_map(|block| block.states.iter().map(|state| state.carrier))
+        .collect();
+    let mut spare =
+        crate::content_stairs::corner_aliases().filter(|(carrier, _)| !placed.contains(carrier));
+    let mut by_model = HashMap::new();
+    for (_, block) in blocks {
+        let registered = registry
+            .block(&block.id)
+            .ok_or_else(|| io::Error::other("custom block missing after registration"))?;
+        for (state, definition) in registered.states.iter().zip(&mut block.states) {
+            let visual = &mut definition.visual;
+            if !visual.bounded {
+                continue;
+            }
+            let look = (
+                visual.rotating_model.clone(),
+                visual.x,
+                visual.y,
+                visual.uvlock,
+            );
+            if let Some((carrier, replacement)) =
+                *by_model.entry(look).or_insert_with(|| spare.next())
+            {
+                registry.set_block_display_carrier(state.id, carrier, replacement)?;
+                visual.block_display_carrier = Some(carrier);
+            }
+        }
+    }
+    if by_model.values().any(Option::is_none) {
+        tracing::warn!("moddedmc: stock block display carriers exhausted");
+    }
+    Ok(())
 }
 
 #[expect(

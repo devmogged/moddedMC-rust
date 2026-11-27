@@ -24,6 +24,18 @@ const AXES: [&str; 3] = ["x", "y", "z"];
 const AXIS_PROPERTIES: [&str; 3] = ["axis=x", "axis=y", "axis=z"];
 const VERTICAL: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
+pub(crate) fn is_stone_partial(id: &str) -> bool {
+    let Some((base, "slab" | "stairs")) = id
+        .strip_prefix("create:")
+        .and_then(|id| id.rsplit_once('_'))
+    else {
+        return false;
+    };
+    slab_data::SLABS
+        .iter()
+        .any(|(path, _, _, _)| path.strip_suffix("_slab") == Some(base))
+}
+
 fn state<'a>(properties: &'a str, physical: &'a str, model: &'a str, x: i16, y: i16) -> State<'a> {
     State {
         properties,

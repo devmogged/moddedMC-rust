@@ -36,6 +36,21 @@ pub fn corner_carriers() -> impl Iterator<Item = &'static Block> {
         .filter(|block| block.id != DISPLAY.0.id && StairsProperties::handles_block_id(block.id))
 }
 
+pub fn corner_aliases() -> impl Iterator<Item = (BlockStateId, BlockStateId)> {
+    [false, true].into_iter().flat_map(|waterlogged| {
+        corner_carriers().flat_map(move |block| {
+            block.states.iter().filter_map(move |state| {
+                let props = StairsProperties::from_state_id(state.id);
+                if props.waterlogged != waterlogged {
+                    return None;
+                }
+                let (left, right) = corner_pair(props)?;
+                (left.to_state_id(block) == state.id).then(|| (state.id, right.to_state_id(block)))
+            })
+        })
+    })
+}
+
 /// A complete stair state set with the stock shape for every selector.
 pub fn has_stair_shape(states: &[RegisteredState]) -> bool {
     states.len() == Block::STONE_STAIRS.states.len()

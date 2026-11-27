@@ -18,6 +18,7 @@ use crate::{
     belt_movement::can_transport_objects,
     chassis,
     collider::{Collider, Frame},
+    decor,
     display_model::ModelDisplay,
     drill::{self, BlockBreakingMovementBehaviour},
     glue::{self, GlueBox, GlueScan},
@@ -168,6 +169,7 @@ impl BlockMovementChecks {
             || seat::is_seat(&entry.name)
             || bogey::is_bogey(&entry.name)
             || crate::sail::is_sail(&entry.name)
+            || decor::is_stone_partial(&entry.name)
             || matches!(
                 entry.name.as_str(),
                 BELT | sticker::ID
@@ -1046,6 +1048,7 @@ impl PaletteEntry {
             BELT | drill::ID | harvester::ID | plough::ID | controls::ID
         ) || seat::is_seat(&self.name)
             || bogey::is_bogey(&self.name)
+            || decor::is_stone_partial(&self.name)
     }
 
     fn bogey_axis(&self) -> Option<u8> {
@@ -1290,6 +1293,17 @@ impl StructureTransform {
                 *axis = AXES[index].to_owned();
             }
         }
+        if self.axis != 1
+            && turns == 2
+            && entry.name.ends_with("_slab")
+            && let Some(slab_type) = rotated.properties.get_mut("type")
+        {
+            match slab_type.as_str() {
+                "bottom" => *slab_type = "top".into(),
+                "top" => *slab_type = "bottom".into(),
+                _ => {}
+            }
+        }
         let Some(mut face) = rotated
             .properties
             .get("facing")
@@ -1442,5 +1456,26 @@ mod tests {
                 "minecraft:oak_stairs[facing=north,half=top,shape=straight,waterlogged=false]"
             )
         );
+    }
+
+    #[test]
+    fn horizontal_half_turn_flips_single_slabs() {
+        let transform = StructureTransform {
+            anchor: p(0, 0, 0),
+            axis: 0,
+            angle: 180.0,
+        };
+        for (ty, expected) in [("bottom", "top"), ("top", "bottom"), ("double", "double")] {
+            let slab = PaletteEntry::parse(&format!(
+                "create:cut_calcite_slab[type={ty},waterlogged=false]"
+            ));
+            let rotated = transform.block_state(&slab);
+            assert_eq!(
+                rotated,
+                PaletteEntry::parse(&format!(
+                    "create:cut_calcite_slab[type={expected},waterlogged=false]"
+                ))
+            );
+        }
     }
 }

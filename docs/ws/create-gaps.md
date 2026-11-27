@@ -21,7 +21,7 @@ its runtime mechanic or an optional mod to run.
 | 7 | **Schematics.** Schematic and Quill, Schematic editing and placement, Schematic Table and Schematicannon remain. Empty Schematics are available as an item. |
 | 8 | **Contraptions and rail upgrades.** Pistons, bearings, pulleys, elevators, seats, assembled train driving, occupied signals and two-stop schedules work in the checked cases. Cart Assemblers and minecart contraptions, train Observers and station editing, schedule conditions, Sequenced Gearshifts, contraption controls, standing-player carrying and double-chest capture remain. |
 
-Display-backed slabs and stairs still need visible stock models on moving contraptions.
+Stone slabs and stairs move on contraptions and retain their stock-client models. Stair corners still need to update against their new neighbors on disassembly.
 
 ## Recipe gaps by serializer
 

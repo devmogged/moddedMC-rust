@@ -12,7 +12,9 @@ use std::{
 use axum::{Router, extract::Path, http::StatusCode, routing::get};
 use bytes::Bytes;
 use pumpkin_config::resource_pack::JavaResourcePackConfig;
-use pumpkin_data::{Block, item::Item, item_stack::ItemStack, packet::CURRENT_MC_VERSION};
+use pumpkin_data::{
+    Block, BlockStateId, item::Item, item_stack::ItemStack, packet::CURRENT_MC_VERSION,
+};
 use pumpkin_protocol::{
     VarInt, codec::item_stack_seralizer::ItemStackSerializer, ser::NetworkWriteExt,
 };
@@ -68,6 +70,7 @@ pub struct StateAssets {
     pub bounded: bool,
     pub uvlock: bool,
     pub straight_stair_display: bool,
+    pub block_display_carrier: Option<BlockStateId>,
 }
 
 pub struct OverlayModel {
@@ -203,7 +206,7 @@ fn build_pack(
         PLACEHOLDER_PNG.to_vec(),
     );
 
-    let mut carrier_variants = BTreeMap::<_, BTreeMap<_, _>>::new();
+    let mut carrier_variants = CarrierVariants::new();
     let mut display_models = HashMap::new();
     pack.namespace_assets(blocks, items)?;
     pack.standalone_items(items)?;
@@ -232,16 +235,20 @@ fn build_pack(
             } else {
                 pack.model(&assets.model)
             };
-            carrier_variants.entry(block.name).or_default().insert(
-                key,
-                json!({
-                    "model": model,
-                    "x": assets.x.rem_euclid(360),
-                    "y": assets.y.rem_euclid(360),
-                    "uvlock": assets.uvlock,
-                }),
-            );
+            record_carrier_model(&mut carrier_variants, block, key, model, assets);
             if !assets.rotating_model.is_empty() {
+                if let Some(carrier) = assets.block_display_carrier
+                    && let Some(key) = block_variant(carrier.to_block(), carrier)
+                {
+                    let model = pack.model(&assets.rotating_model);
+                    record_carrier_model(
+                        &mut carrier_variants,
+                        carrier.to_block(),
+                        key,
+                        model,
+                        assets,
+                    );
+                }
                 let model_id = format!("{namespace}:moddedmc/display/{path}/{index}");
                 let item_path =
                     format!("assets/{namespace}/items/moddedmc/display/{path}/{index}.json");
@@ -355,6 +362,26 @@ struct Pack {
     jars: HashMap<String, Option<ZipArchive<File>>>,
     missing: bool,
     visited: HashSet<String>,
+}
+
+type CarrierVariants = BTreeMap<&'static str, BTreeMap<String, Value>>;
+
+fn record_carrier_model(
+    variants: &mut CarrierVariants,
+    block: &Block,
+    key: String,
+    model: &str,
+    assets: &StateAssets,
+) {
+    variants.entry(block.name).or_default().insert(
+        key,
+        json!({
+            "model": model,
+            "x": assets.x.rem_euclid(360),
+            "y": assets.y.rem_euclid(360),
+            "uvlock": assets.uvlock,
+        }),
+    );
 }
 
 impl Pack {
