@@ -2042,7 +2042,20 @@ pub struct MobAiV1 {
     /// During a mob hurt or worn hurt callback: write the causing and direct entity ids
     /// (-1 for either absent id). False outside these callbacks.
     pub damage_source: unsafe extern "C" fn(causing: *mut i32, direct: *mut i32) -> bool,
+    /// Hear damage after armor and magic mitigation, before absorption and health loss.
+    pub on_hurt_final:
+        unsafe extern "C" fn(reg: Reg, kind: Str, callback: HurtFinalCallback) -> i32,
 }
+
+/// Returns the adjusted damage. Lethal accounts for current health and absorption.
+pub type HurtFinalCallback = unsafe extern "C" fn(
+    world: WorldRef,
+    mob: EntityRef,
+    damage_type: Str,
+    amount: f32,
+    lethal: bool,
+    absorption: f32,
+) -> f32;
 
 /// A hit a mod mob is about to take: the vanilla damage type id (`minecraft:fall`) and the
 /// amount before armour. False cancels it, like vanilla `hurt` returning false.
@@ -2071,7 +2084,8 @@ mod mob_ai_layout {
         assert_eq!(offset_of!(MobAiV1, last_hurt_by), 80);
         assert_eq!(offset_of!(MobAiV1, attack), 88);
         assert_eq!(offset_of!(MobAiV1, damage_source), 96);
-        assert_eq!(size_of::<MobAiV1>(), 104);
+        assert_eq!(offset_of!(MobAiV1, on_hurt_final), 104);
+        assert_eq!(size_of::<MobAiV1>(), 112);
         assert_eq!(offset_of!(GoalDefinition, key), 16);
         assert_eq!(offset_of!(GoalDefinition, controls), 28);
         assert_eq!(offset_of!(GoalDefinition, callback), 32);

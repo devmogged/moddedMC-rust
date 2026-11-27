@@ -302,6 +302,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
         }
+        if matches!(species.name, crate::ivy::SPECIES | "varasuchus") {
+            ai.on_hurt_final(registry, &kind, crate::combat::hurt_final)?;
+        }
         if stun {
             ai.add_goal(
                 registry,

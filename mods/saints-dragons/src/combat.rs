@@ -95,7 +95,7 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
     let Some(kind) = MOBS.get().and_then(|mobs| mobs.kind(mob)) else {
         return true;
     };
-    if kind == crate::ivy::KIND && !crate::ivy::hurt(mob, damage_type, amount) {
+    if kind == crate::ivy::KIND && !crate::ivy::hurt(world, mob, damage_type, amount) {
         return false;
     }
     let immune = (kind == crate::CINDERVANE && IMMUNE.contains(&damage_type))
@@ -112,7 +112,7 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
     }
     if !immune && amount > 0.0 {
         if kind == crate::wild::VARASUCHUS {
-            crate::roost::wake(mob, false, 600);
+            crate::roost::wake(mob, false, 200);
         }
         crate::audio::hurt(world, mob, kind);
     }
@@ -120,6 +120,23 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
         crate::hunger::hit(world, mob);
     }
     !immune
+}
+
+pub fn hurt_final(
+    world: World<'_>,
+    mob: Entity<'_>,
+    damage_type: &str,
+    amount: f32,
+    lethal: bool,
+    absorption: f32,
+) -> f32 {
+    match MOBS.get().and_then(|mobs| mobs.kind(mob)) {
+        Some(crate::ivy::KIND) => {
+            crate::ivy::hurt_final(world, mob, damage_type, amount, lethal, absorption)
+        }
+        Some(crate::wild::VARASUCHUS) if damage_type == "minecraft:drown" => amount * 0.5,
+        _ => amount,
+    }
 }
 
 /// Where a live, loaded entity is, and its box width.

@@ -298,6 +298,7 @@ To use the vanilla wall placement and neighbor rules, register the complete wall
 | | `last_hurt_by(mob, timestamp)` | Appended. Vanilla `getLastHurtByMob` as an entity id (-1 when none), and `getLastHurtByMobTimestamp`. |
 | | `attack(world, mob, target, amount)` | Appended. The mob hits a loaded entity with vanilla's mob attack damage source. True when it took the hit. |
 | | `damage_source(causing, direct)` | Appended; require `MobAiExtension::DamageSource`. In a mob hurt or worn hurt callback, write the causing entity (e.g. shooter) and direct entity (e.g. arrow) ids to the output slots, -1 for either absent. Returns false outside these callbacks. |
+| | `on_hurt_final(reg, kind, callback)` | Appended; require `MobAiExtension::HurtFinal`. Receives the post-armor and magic amount, whether it would exhaust absorption and health, and the current absorption. Returns an adjusted nonnegative amount before absorption and health loss. Non-finite results leave damage unchanged. The damage source is available for this callback too. One callback per type. |
 
 Require the tables from `Mod::start` and register definitions in `Mod::register`. Requesting `moddedmc:content` or `moddedmc:items` during startup moves that mod's registration before world load. Legacy mods continue to register on the first tick. State numbers are runtime handles. Store names and properties in mod-owned data. Mods with a placement hook can choose one of the placing block's states from the clicked face, look direction, sneak state and loaded neighbors.
 

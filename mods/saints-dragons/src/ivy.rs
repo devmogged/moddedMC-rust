@@ -794,7 +794,7 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
 
 const TRADES_ROLLED: &str = "saintsdragons:ivy_trades_rolled";
 
-pub const COMBAT: u64 = 18;
+pub const COMBAT: u64 = 170;
 
 const DOWNED: &str = "saintsdragons:ivy_downed";
 
@@ -868,8 +868,8 @@ fn revive(ivy: Entity<'_>, state: &mut DownedState) {
     }
 }
 
-/// IvyTheDragonMerchant.hurtDowned. The existing callback has only the type, not the attacker.
-pub fn hurt(ivy: Entity<'_>, damage_type: &str, amount: f32) -> bool {
+/// IvyTheDragonMerchant.hurtDowned.
+pub fn hurt(world: World<'_>, ivy: Entity<'_>, damage_type: &str, amount: f32) -> bool {
     let mut state = downed_state(ivy);
     if !state.downed
         || matches!(
@@ -877,26 +877,78 @@ pub fn hurt(ivy: Entity<'_>, damage_type: &str, amount: f32) -> bool {
             "minecraft:out_of_world" | "minecraft:generic_kill"
         )
     {
-        // shortcut: actuallyHurt needs a post-mitigation, pre-death callback to
-        // start Downed at exactly 1 HP (and allow inventory totems first).
         return true;
     }
-    if amount > 0.0
-        && !matches!(
-            damage_type,
-            "minecraft:mob_attack"
-                | "minecraft:mob_attack_no_aggro"
-                | "minecraft:arrow"
-                | "minecraft:trident"
-                | "minecraft:mob_projectile"
-        )
-    {
-        // shortcut: projectile owner/direct attacker is unavailable; don't count
-        // ambiguous projectiles as finishing hits until the host exposes the source.
+    let mob_attacker =
+        MOB_AI
+            .get()
+            .and_then(|ai| ai.damage_source())
+            .is_some_and(|(causing, direct)| {
+                [causing, direct]
+                    .into_iter()
+                    .filter(|id| *id >= 0)
+                    .any(|id| {
+                        ENTITIES
+                            .get()
+                            .and_then(|entities| {
+                                entities.with_entity(world, id, |entity| {
+                                    entity.view().is_some_and(|view| {
+                                        view.kind & moddedmc_api::entities::ENTITY_LIVING != 0
+                                            && view.kind & moddedmc_api::entities::ENTITY_PLAYER
+                                                == 0
+                                    })
+                                })
+                            })
+                            .unwrap_or(false)
+                    })
+            });
+    if amount > 0.0 && !mob_attacker {
         state.finish_hit();
         save_downed(ivy, &state);
     }
     false
+}
+
+/// IvyTheDragonMerchant.actuallyHurt: enter the downed state on lethal damage.
+pub fn hurt_final(
+    world: World<'_>,
+    ivy: Entity<'_>,
+    damage_type: &str,
+    amount: f32,
+    lethal: bool,
+    absorption: f32,
+) -> f32 {
+    if !lethal
+        || !taming::is_tamed(ivy)
+        || matches!(
+            damage_type,
+            "minecraft:out_of_world" | "minecraft:generic_kill"
+        )
+    {
+        return amount;
+    }
+    let Some((health, _)) = MOBS.get().and_then(|mobs| mobs.health(ivy)) else {
+        return amount;
+    };
+    // shortcut: inventory totem rescue requires consuming a saved stack and applying all effects.
+    save_downed(
+        ivy,
+        &DownedState {
+            downed: true,
+            downed_bleed_ticks: 1800,
+            ..DownedState::default()
+        },
+    );
+    if let Some(ai) = MOB_AI.get() {
+        ai.stop(ivy);
+        ai.set_target(world, ivy, None);
+    }
+    if health < 1.0
+        && let Some(vitals) = crate::MOB_HEALTH.get()
+    {
+        vitals.set(ivy, 1.0);
+    }
+    (health - 1.0).max(0.0) + absorption
 }
 
 /// IvyTheDragonMerchant.tickDownedState, including the stock-client animation and revive timer.
