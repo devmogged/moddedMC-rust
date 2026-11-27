@@ -453,7 +453,15 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, shulker_bullet_target), 320);
         assert_eq!(offset_of!(EntitiesV1, player_inventory_item), 328);
         assert_eq!(offset_of!(EntitiesV1, player_inventory_stack), 336);
-        assert_eq!(size_of::<EntitiesV1>(), 344);
+        assert_eq!(offset_of!(EntitiesV1, player_fall_flying), 344);
+        assert_eq!(offset_of!(EntitiesV1, set_player_fall_flying), 352);
+        assert_eq!(offset_of!(EntitiesV1, player_flight_boost), 360);
+        assert_eq!(offset_of!(EntitiesV1, player_selected_slot), 368);
+        assert_eq!(offset_of!(EntitiesV1, can_move_by), 376);
+        assert_eq!(offset_of!(EntitiesV1, player_item_cooldown), 384);
+        assert_eq!(offset_of!(EntitiesV1, player_damage_held_item), 392);
+        assert_eq!(offset_of!(EntitiesV1, player_reset_attack), 400);
+        assert_eq!(size_of::<EntitiesV1>(), 408);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -1095,6 +1103,21 @@ pub struct EntitiesV1 {
     /// Read the same slot as Java named-root stack NBT. False for empty/invalid slots.
     pub player_inventory_stack:
         unsafe extern "C" fn(entity: EntityRef, slot: u32, out: Sink) -> bool,
+    /// Whether this player is fall-flying.
+    pub player_fall_flying: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// Start or stop mod-controlled fall-flying, independent of elytra equipment.
+    pub set_player_fall_flying: unsafe extern "C" fn(entity: EntityRef, flying: bool) -> bool,
+    /// Ask the companion to apply vanilla firework-style acceleration for a number of ticks.
+    pub player_flight_boost: unsafe extern "C" fn(entity: EntityRef, ticks: u32) -> bool,
+    /// Authoritative selected hotbar slot (0..=8), or -1 for nonplayers.
+    pub player_selected_slot: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    /// Check native collision (including world border) at the translated bounding box.
+    pub can_move_by: unsafe extern "C" fn(entity: EntityRef, delta: Vec3) -> bool,
+    /// Test item cooldown; if ready, optionally start it for ticks > 0.
+    pub player_item_cooldown:
+        unsafe extern "C" fn(entity: EntityRef, item: Str, ticks: u32) -> bool,
+    pub player_damage_held_item: unsafe extern "C" fn(entity: EntityRef, amount: u32) -> bool,
+    pub player_reset_attack: unsafe extern "C" fn(entity: EntityRef) -> bool,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.
@@ -1125,6 +1148,10 @@ pub const ENTITY_PUSH_IGNORED: u32 = 16;
 pub const ENTITY_NO_PHYSICS: u32 = 32;
 /// The entity rides another one. Hosts set it only with `EntitiesExtension::Carriers`.
 pub const ENTITY_PASSENGER: u32 = 64;
+/// Native water contact. Hosts set it with `EntitiesExtension::PlayerFlight`.
+pub const ENTITY_IN_WATER: u32 = 128;
+/// Native climbable contact. Hosts set it with `EntitiesExtension::PlayerFlight`.
+pub const ENTITY_ON_CLIMBABLE: u32 = 256;
 
 pub const INTERACTION: &str = "moddedmc:interaction";
 
@@ -1872,6 +1899,17 @@ pub struct MobsV1 {
     /// Register a callback for closing a trade screen opened for this mob kind.
     pub on_merchant_close:
         unsafe extern "C" fn(reg: Reg, kind: Str, callback: MerchantCloseFn) -> i32,
+    /// Vanilla tameable/ownable mob owner UUID, if any.
+    pub pet_owner: unsafe extern "C" fn(entity: EntityRef, out: *mut [u8; 16]) -> bool,
+    /// Scoreboard team name, copied into the sink.
+    pub team: unsafe extern "C" fn(entity: EntityRef, out: Sink) -> bool,
+    /// Vanilla alliance, including tameable relationships and scoreboard teams.
+    pub allied: unsafe extern "C" fn(entity: EntityRef, other: EntityRef) -> bool,
+    /// Set a mod mob's entity-local passenger seat by passenger index.
+    pub set_seat_offset: unsafe extern "C" fn(mob: EntityRef, index: usize, offset: Vec3) -> bool,
+    /// Ordered local dismount candidates, checked for safety at dismount time.
+    pub set_dismount_offsets:
+        unsafe extern "C" fn(mob: EntityRef, offsets: *const Vec3, count: usize) -> bool,
 }
 
 pub type MerchantCloseFn =
@@ -2031,7 +2069,12 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, last_hurt_mob), 224);
         assert_eq!(offset_of!(MobsV1, last_hurt_by_mob), 232);
         assert_eq!(offset_of!(MobsV1, on_merchant_close), 240);
-        assert_eq!(size_of::<MobsV1>(), 248);
+        assert_eq!(offset_of!(MobsV1, pet_owner), 248);
+        assert_eq!(offset_of!(MobsV1, team), 256);
+        assert_eq!(offset_of!(MobsV1, allied), 264);
+        assert_eq!(offset_of!(MobsV1, set_seat_offset), 272);
+        assert_eq!(offset_of!(MobsV1, set_dismount_offsets), 280);
+        assert_eq!(size_of::<MobsV1>(), 288);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

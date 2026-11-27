@@ -89,6 +89,7 @@ pub fn enemy(mob: Entity<'_>, target: Entity<'_>) -> bool {
         && !matches!(mobs.game_mode(target), Some(1 | 3))
         && (view.kind & ENTITY_PLAYER == 0 || !taming::is_owner(mob, target))
         && !taming::is_kin(mob, target)
+        && !taming::companion_ally(mob, target)
         && !mob.has_indirect_passenger(target.id())
 }
 
@@ -570,6 +571,7 @@ fn rider_fire_aura(world: World<'_>, mob: Entity<'_>) {
         entities.with_entity(world, id, |target| {
             if taming::is_owner(mob, target)
                 || taming::is_kin(mob, target)
+                || taming::companion_ally(mob, target)
                 || mob.has_indirect_passenger(id)
             {
                 target.add_effect("minecraft:fire_resistance", 60, 0, true, false);
@@ -749,11 +751,17 @@ fn slash_primary(
                 id,
                 damage * crate::hunger::melee_multiplier(mob),
             );
-            grab && hit
+            if grab
+                && hit
                 && target.flags() & ENTITY_ALIVE != 0
                 && mobs.passengers(mob).is_empty()
                 && mobs.passengers(target).is_empty()
-                && target.start_riding(mob.id(), true)
+            {
+                taming::configure_seats(mob, crate::CINDERVANE, true);
+                target.start_riding(mob.id(), true)
+            } else {
+                false
+            }
         })
         .unwrap_or(false)
 }

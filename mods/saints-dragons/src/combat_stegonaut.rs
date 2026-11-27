@@ -1195,8 +1195,8 @@ pub fn portable_aura(world: World<'_>, time: u64) {
                 {
                     return;
                 }
-                // shortcut: native pet ownership and Stegonaut allies require additional host/mod support.
-                if (view.kind & ENTITY_PLAYER != 0 || taming::owner(target) == Some(owner))
+                if (view.kind & ENTITY_PLAYER != 0
+                    || taming::companion_owner(target) == Some(owner))
                     && let Some(uuid) = mobs.uuid(target)
                 {
                     target.add_effect("minecraft:resistance", 40, 0, false, false);
@@ -1282,7 +1282,12 @@ pub fn aura(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         entities.with_entity(world, id, |target| {
             if target.flags() & moddedmc_api::entities::ENTITY_ALIVE != 0
                 && let Some(target_uuid) = mobs.uuid(target)
-                && (target_uuid == owner || taming::owner(target) == Some(owner))
+                && (target_uuid == owner
+                    || taming::companion_owner(target) == Some(owner)
+                    || (target
+                        .view()
+                        .is_some_and(|v| v.kind & moddedmc_api::entities::ENTITY_PLAYER != 0)
+                        && mobs.allied(mob, target)))
             {
                 target.add_effect("minecraft:resistance", 40, 0, false, false);
                 target.add_effect("minecraft:absorption", 40, 0, false, false);

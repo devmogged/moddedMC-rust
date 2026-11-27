@@ -194,6 +194,8 @@ pub enum MobsExtension {
     CombatHistory,
     /// Merchant screen closure callbacks.
     MerchantClose,
+    /// Ownership, alliances and custom rider attachment/dismount positions.
+    PetsSeats,
 }
 
 #[cfg(test)]
@@ -232,6 +234,22 @@ mod combat_history_tests {
             size: 248,
         });
         assert!(new.require_extension(MobsExtension::MerchantClose).is_ok());
+    }
+
+    #[test]
+    fn pets_seats_requires_complete_prefix() {
+        for size in [248, 256, 264, 272, 280] {
+            let mobs = Mobs(InterfacePrefix {
+                ptr: std::ptr::null(),
+                size,
+            });
+            assert!(mobs.require_extension(MobsExtension::PetsSeats).is_err());
+        }
+        let mobs = Mobs(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: 288,
+        });
+        assert!(mobs.require_extension(MobsExtension::PetsSeats).is_ok());
     }
 }
 
@@ -415,6 +433,10 @@ impl Mobs {
             MobsExtension::MerchantClose => (
                 std::mem::offset_of!(abi::MobsV1, on_merchant_close),
                 "moddedmc:mobs.merchant_close",
+            ),
+            MobsExtension::PetsSeats => (
+                std::mem::offset_of!(abi::MobsV1, set_dismount_offsets),
+                "moddedmc:mobs.pets_seats",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -660,6 +682,63 @@ impl Mobs {
                 .remove(kind);
         }
         result
+    }
+
+    pub fn pet_owner(self, entity: Entity<'_>) -> Option<[u8; 16]> {
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, pet_owner))?;
+        let mut out = [0; 16];
+        // SAFETY: entity and output are borrowed for the call.
+        unsafe { ((&raw const (*api).pet_owner).read())(entity.raw(), &raw mut out) }.then_some(out)
+    }
+
+    pub fn team(self, entity: Entity<'_>) -> Option<String> {
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, team))?;
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: entity and sink are borrowed for the call.
+        unsafe { ((&raw const (*api).team).read())(entity.raw(), sink) }
+            .then(|| String::from_utf8(data).ok())
+            .flatten()
+    }
+
+    pub fn allied(self, entity: Entity<'_>, other: Entity<'_>) -> bool {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobsV1, allied)) else {
+            return false;
+        };
+        // SAFETY: both entities are borrowed for the call.
+        unsafe { ((&raw const (*api).allied).read())(entity.raw(), other.raw()) }
+    }
+
+    pub fn set_seat_offset(self, mob: Entity<'_>, index: usize, offset: [f64; 3]) -> bool {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, set_seat_offset))
+        else {
+            return false;
+        };
+        // SAFETY: the mob is borrowed for the call.
+        unsafe { ((&raw const (*api).set_seat_offset).read())(mob.raw(), index, abi::Vec3(offset)) }
+    }
+
+    pub fn set_dismount_offsets(self, mob: Entity<'_>, offsets: &[[f64; 3]]) -> bool {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, set_dismount_offsets))
+        else {
+            return false;
+        };
+        let offsets: Vec<_> = offsets.iter().copied().map(abi::Vec3).collect();
+        // SAFETY: the mob and offsets are borrowed for the call.
+        unsafe {
+            ((&raw const (*api).set_dismount_offsets).read())(
+                mob.raw(),
+                offsets.as_ptr(),
+                offsets.len(),
+            )
+        }
     }
 
     pub fn uuid(self, entity: Entity<'_>) -> Option<[u8; 16]> {

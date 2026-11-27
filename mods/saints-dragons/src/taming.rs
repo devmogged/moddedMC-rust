@@ -250,6 +250,80 @@ pub fn owner(mob: Entity<'_>) -> Option<[u8; 16]> {
     tamed(mob).map(|state| state.owner)
 }
 
+/// Owner of a mod companion or a native tameable.
+pub fn companion_owner(entity: Entity<'_>) -> Option<[u8; 16]> {
+    owner(entity).or_else(|| MOBS.get()?.pet_owner(entity))
+}
+
+/// Shared owner and native alliance checks for dragon combat.
+pub fn companion_ally(mob: Entity<'_>, other: Entity<'_>) -> bool {
+    let Some(mobs) = MOBS.get() else { return false };
+    mobs.allied(mob, other)
+        || owner(mob)
+            .is_some_and(|id| mobs.uuid(other) == Some(id) || companion_owner(other) == Some(id))
+}
+
+/// Neutral server anchors from DragonRiderSeatOffsets and Nulljaw.positionRider.
+pub fn configure_seats(mob: Entity<'_>, kind: &str, grabbed: bool) {
+    let Some(mobs) = MOBS.get() else { return };
+    let seat = match kind {
+        "saintsdragons:cindervane" if grabbed => [
+            0.95,
+            mob.body().map_or(0.0, |b| (b.max[1] - b.min[1]) * 0.05),
+            -0.15,
+        ],
+        "saintsdragons:cindervane" => [0.0, 2.0, 1.0],
+        "saintsdragons:raevyx" => [0.0, 3.53, 2.5],
+        "saintsdragons:ignivorus" => [0.0, 5.20, 12.5],
+        "saintsdragons:stegonaut" => [0.0, 1.55, 1.75],
+        "saintsdragons:volitans" => [0.0, 2.40, 2.15],
+        "saintsdragons:varasuchus" => [0.0, 2.78, 3.25],
+        "saintsdragons:atroxiia" => [0.0, 3.80, 0.55],
+        "saintsdragons:nulljaw" => [0.0, -1.65, 0.0],
+        _ => return,
+    };
+    mobs.set_seat_offset(mob, 0, seat);
+    if kind == "saintsdragons:cindervane" {
+        mobs.set_seat_offset(mob, 1, [0.0, 2.0, -0.25]);
+    }
+    let mut candidates = Vec::new();
+    if grabbed {
+        candidates.push([1.8, seat[1] + 0.2, 0.1]);
+    } else if kind == "saintsdragons:ignivorus" {
+        candidates.push([0.0, 0.0, 2.0]);
+    } else if matches!(
+        kind,
+        "saintsdragons:stegonaut" | "saintsdragons:atroxiia" | "saintsdragons:varasuchus"
+    ) {
+        // shortcut: standing passenger width and right-hand priority; engine validates the landing.
+        let radius = mob
+            .body()
+            .map_or(2.0, |b| (b.max[0] - b.min[0] + 0.6) / 2.0);
+        for x in [-radius, radius] {
+            for y in 0..=5 {
+                candidates.push([x, f64::from(y), 0.0]);
+            }
+        }
+    } else {
+        let nulljaw = kind == "saintsdragons:nulljaw";
+        let angles: &[i32] = if nulljaw {
+            &[0, 30, -30, 60, -60, 90, -90, 180]
+        } else {
+            &[0, 30, -30, 60, -60, 90, -90, 150, -150, 180]
+        };
+        for radius in [2.5, 3.5, if nulljaw { 1.75 } else { 1.8 }] {
+            for &angle in angles {
+                let (sin, cos) = f64::from(angle).to_radians().sin_cos();
+                for y in (-5..=1).rev() {
+                    candidates.push([radius * cos, f64::from(y), radius * sin]);
+                }
+            }
+        }
+        candidates.push([0.0, 0.0, 2.0]);
+    }
+    mobs.set_dismount_offsets(mob, &candidates);
+}
+
 pub fn is_tamed(mob: Entity<'_>) -> bool {
     tamed(mob).is_some()
 }
@@ -831,8 +905,7 @@ fn mount_interact(click: &mut UseMob<'_>, item: &str) -> UseResult {
             return UseResult::Fail;
         }
     }
-    // shortcut: the ABI has no per-passenger seat transform or safe dismount hook;
-    // the host's carrier attachment and normal dismount handle positioning.
+    configure_seats(mob, kind, false);
     if !player.start_riding(mob.id(), !owner) {
         return UseResult::Fail;
     }
@@ -1023,6 +1096,13 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     match phase {
         goal_phase::CAN_START | goal_phase::CONTINUE => active,
         goal_phase::START => {
+            if passengers
+                .first()
+                .is_some_and(|&id| !crate::combat::holding(mob, id))
+                && let Some(kind) = mobs.kind(mob)
+            {
+                configure_seats(mob, kind, false);
+            }
             ai.stop(mob);
             ai.set_target(world, mob, None);
             false

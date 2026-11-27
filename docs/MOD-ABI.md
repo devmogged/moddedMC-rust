@@ -291,6 +291,11 @@ To use the vanilla wall placement and neighbor rules, register the complete wall
 | | `last_hurt_mob(EntityRef, *mut i64) -> i32` | Appended at byte 224. Last living target damaged by the entity (cleared when the target dies or leaves the world); writes the overworld game time of the hit, or returns -1 without writing if absent or not living. |
 | | `last_hurt_by_mob(EntityRef, *mut i64) -> i32` | Appended at byte 232. Remembered living attacker (subject to the vanilla attacker timeout); writes the overworld game time of the hit, or returns -1 without writing if absent or not living. Require `MobsExtension::CombatHistory` for both calls; SDK returns `Option<(i32, i64)>`. |
 | | `on_merchant_close(reg, kind, callback)` | Appended at byte 240. Require `MobsExtension::MerchantClose`. Stage one callback per registered mob kind: `fn(world, player, merchant)` when the player's screen opened by `open_trades` closes and the merchant is still loaded. All handles are borrowed for the call. |
+| | `pet_owner(entity, out_uuid)` | Byte 248. Native mob owner UUID (16 bytes), if present. |
+| | `team(entity, sink)` | Byte 256. Native scoreboard team name, copied to the sink if present. |
+| | `allied(entity, other)` | Byte 264. Native entity alliance query. |
+| | `set_seat_offset(entity, index, offset)` | Byte 272. Override a registered mod mob's passenger attachment, relative to its yaw. Indices 0–15; finite offsets within 64 blocks per axis. |
+| | `set_dismount_offsets(entity, offsets, count)` | Byte 280. Copy up to 512 ordered local candidate offsets. At dismount, rotate by current yaw and test native safe floor/clearance; fall back to native dismount search if none qualify. An empty slice clears the candidates. Require `MobsExtension::PetsSeats` for all five hooks. |
 | | `open_trades(mob, player, offers)` | Appended. Require `MobsExtension::Trading`. Open a villager carrier's vanilla trading screen for a player. Non-empty `offers`, vanilla's saved `Offers` compound as NBT, first replace the carrier's offers; the carrier then counts uses and saves them. False when the mob isn't a villager. |
 | `moddedmc:mob_ai` v1 | `add_goal(reg, definition)` | Stage a goal for a registered mod mob type: a key, a vanilla priority, `goal_control` bits (`MOVE`, `LOOK`, `JUMP`, `TARGET`) and a callback. Every mob of the type gets it as it joins a world, spawned or loaded. The callback is asked each tick with a `goal_phase` (`CAN_START`, `CONTINUE`, `START`, `STOP`, `TICK`), the world and the mob; only the answer to `CAN_START` and `CONTINUE` counts. Goals with `TARGET` run in the target selector. |
 | | `replace_goals(reg, kind)` | Mobs of the type drop their carrier's own goals and targets before getting the mod's. |
@@ -695,7 +700,10 @@ queries a newly observed vehicle with [1,3,vehicle-id:i32 BE]. The host replies
 current registered mod mob). The companion requires a matching local vehicle
 and confirmation before intercepting inputs; the host independently checks
 current mounted status on every built-in action. The query shares the input
-rate limit. Original v1 action packets and catalog layout are unchanged.
+rate limit. The host can also send [1,5,duration:u32 BE] to request a bounded
+fall-flying boost (0 cancels). The companion applies it only during eligible
+flight; this packet is server-to-client only. Original v1 action packets and
+catalog layout are unchanged.
 The host caps the catalog at 128 actions, ids and translations at 128 bytes,
 keys at 64 bytes, checks the action and phase, rejects dead players and
 rate-limits input to 128 packets per second and repeats of the same phase
@@ -786,6 +794,18 @@ at startup when the corresponding group is mandatory.
   36–39 are armor (feet to head), and 40 is offhand. Both return None for
   empty or invalid slots, nonplayers and older hosts. Require
   `EntitiesExtension::PlayerInventory`. Each read is a snapshot of one slot.
+
+- Require `EntitiesExtension::PlayerFlight` for fall-flying state and
+  mod-controlled glide start/stop, a companion acceleration request (0 cancels,
+  1–1200 ticks), and the server's selected hotbar slot (0–8), usable with the
+  inventory ID and NBT queries above. A mod starting glide must renew it each
+  tick and stop it when eligibility ends. This extension sets the
+  `ENTITY_IN_WATER` and `ENTITY_ON_CLIMBABLE` flags from native movement contact.
+  The companion applies the requested acceleration
+  only while airborne and gliding. This extension also provides native
+  translated-box collision testing, item cooldown readiness/start,
+  held-item durability damage and attack-strength reset. Older hosts
+  safely reject these calls.
 
 `moddedmc:block_world` v1 appends `World::set_weather(mode, ticks)` and
 `World::raycast(from, to, except)` after `can_see_sky`. Weather modes are

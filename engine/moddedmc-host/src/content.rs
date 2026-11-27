@@ -2988,6 +2988,14 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     shulker_bullet_target: crate::entities::shulker_bullet_target,
     player_inventory_item: crate::entities::player_inventory_item,
     player_inventory_stack: crate::entities::player_inventory_stack,
+    player_fall_flying: crate::entities::player_fall_flying,
+    set_player_fall_flying: crate::entities::set_player_fall_flying,
+    player_flight_boost: crate::entities::player_flight_boost,
+    player_selected_slot: crate::entities::player_selected_slot,
+    can_move_by: crate::entities::can_move_by,
+    player_item_cooldown: crate::entities::player_item_cooldown,
+    player_damage_held_item: crate::entities::player_damage_held_item,
+    player_reset_attack: crate::entities::player_reset_attack,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {

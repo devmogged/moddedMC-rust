@@ -46,6 +46,8 @@ pub enum EntitiesExtension {
     ShulkerBulletTarget,
     /// Read player inventory item IDs and stack NBT.
     PlayerInventory,
+    /// Mod-controlled fall-flying, client boost and selected hotbar slot.
+    PlayerFlight,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -158,6 +160,10 @@ impl Entities {
             EntitiesExtension::PlayerInventory => (
                 std::mem::offset_of!(abi::EntitiesV1, player_inventory_stack),
                 "moddedmc:entities.player_inventory",
+            ),
+            EntitiesExtension::PlayerFlight => (
+                std::mem::offset_of!(abi::EntitiesV1, player_reset_attack),
+                "moddedmc:entities.player_flight",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -672,6 +678,94 @@ impl<'a> Entity<'a> {
             .then_some(data)
     }
 
+    pub fn player_fall_flying(self) -> Option<bool> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, player_fall_flying))?;
+        // SAFETY: size checked; entity is borrowed.
+        Some(unsafe { ((&raw const (*api).player_fall_flying).read())(self.raw) })
+    }
+
+    pub fn set_player_fall_flying(self, flying: bool) -> bool {
+        let Some(api) = self.api.upto(std::mem::offset_of!(
+            abi::EntitiesV1,
+            set_player_fall_flying
+        )) else {
+            return false;
+        };
+        // SAFETY: size checked; entity is borrowed.
+        unsafe { ((&raw const (*api).set_player_fall_flying).read())(self.raw, flying) }
+    }
+
+    pub fn player_flight_boost(self, ticks: u32) -> bool {
+        let Some(api) = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, player_flight_boost))
+        else {
+            return false;
+        };
+        // SAFETY: size checked; entity is borrowed.
+        unsafe { ((&raw const (*api).player_flight_boost).read())(self.raw, ticks) }
+    }
+
+    pub fn player_selected_slot(self) -> Option<u32> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, player_selected_slot))?;
+        // SAFETY: size checked; entity is borrowed.
+        u32::try_from(unsafe { ((&raw const (*api).player_selected_slot).read())(self.raw) }).ok()
+    }
+
+    pub fn can_move_by(self, delta: [f64; 3]) -> bool {
+        let Some(api) = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, can_move_by))
+        else {
+            return false;
+        };
+        // SAFETY: size checked; entity is borrowed.
+        unsafe { ((&raw const (*api).can_move_by).read())(self.raw, abi::Vec3(delta)) }
+    }
+
+    pub fn player_item_ready(self, item: &str, ticks: u32) -> bool {
+        let Some(api) = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, player_item_cooldown))
+        else {
+            return false;
+        };
+        // SAFETY: size checked; entity and item are borrowed.
+        unsafe {
+            ((&raw const (*api).player_item_cooldown).read())(
+                self.raw,
+                abi::Str::new(item.as_bytes()),
+                ticks,
+            )
+        }
+    }
+
+    pub fn player_damage_held_item(self, amount: u32) -> bool {
+        let Some(api) = self.api.upto(std::mem::offset_of!(
+            abi::EntitiesV1,
+            player_damage_held_item
+        )) else {
+            return false;
+        };
+        // SAFETY: size checked; entity is borrowed.
+        unsafe { ((&raw const (*api).player_damage_held_item).read())(self.raw, amount) }
+    }
+
+    pub fn player_reset_attack(self) -> bool {
+        let Some(api) = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, player_reset_attack))
+        else {
+            return false;
+        };
+        // SAFETY: size checked; entity is borrowed.
+        unsafe { ((&raw const (*api).player_reset_attack).read())(self.raw) }
+    }
+
     /// Apply damage without an attacker. Requires [EntitiesExtension::Damage].
     pub fn hurt(self, damage_type: &str, amount: f32) -> bool {
         if Entities(self.api)
@@ -758,9 +852,39 @@ mod tests {
         };
         assert_eq!(entity.player_inventory_item(0), None);
         assert_eq!(entity.player_inventory_stack(40), None);
+        assert_eq!(entity.player_fall_flying(), None);
+        assert!(!entity.set_player_fall_flying(true));
+        assert!(!entity.player_flight_boost(40));
+        assert_eq!(entity.player_selected_slot(), None);
         assert!(
             Entities(api)
                 .require_extension(EntitiesExtension::PlayerInventory)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn flight_and_sword_calls_are_unavailable_on_inventory_only_hosts() {
+        let api = InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: std::mem::offset_of!(abi::EntitiesV1, player_fall_flying),
+        };
+        let entity = Entity {
+            raw: std::ptr::null(),
+            api,
+            scope: PhantomData,
+        };
+        assert_eq!(entity.player_fall_flying(), None);
+        assert!(!entity.set_player_fall_flying(true));
+        assert!(!entity.player_flight_boost(40));
+        assert_eq!(entity.player_selected_slot(), None);
+        assert!(!entity.can_move_by([1.0, 0.0, 0.0]));
+        assert!(!entity.player_item_ready("minecraft:iron_sword", 50));
+        assert!(!entity.player_damage_held_item(1));
+        assert!(!entity.player_reset_attack());
+        assert!(
+            Entities(api)
+                .require_extension(EntitiesExtension::PlayerFlight)
                 .is_err()
         );
     }
