@@ -192,6 +192,8 @@ pub enum MobsExtension {
     Advancements,
     /// Game-time combat history in both directions.
     CombatHistory,
+    /// Merchant screen closure callbacks.
+    MerchantClose,
 }
 
 #[cfg(test)]
@@ -215,6 +217,21 @@ mod combat_history_tests {
             size: size_of::<abi::MobsV1>(),
         });
         assert!(mobs.require_extension(MobsExtension::CombatHistory).is_ok());
+    }
+
+    #[test]
+    fn merchant_close_requires_appended_field() {
+        let old = Mobs(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: 240,
+        });
+        assert!(old.require_extension(MobsExtension::CombatHistory).is_ok());
+        assert!(old.require_extension(MobsExtension::MerchantClose).is_err());
+        let new = Mobs(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: 248,
+        });
+        assert!(new.require_extension(MobsExtension::MerchantClose).is_ok());
     }
 }
 
@@ -310,6 +327,36 @@ unsafe extern "C" fn spawn_rule(world: abi::WorldRef, check: *const abi::SpawnCh
 /// Hears a mod mob die, before its loot drops.
 pub type DeathHandler = fn(world: World<'_>, mob: Entity<'_>);
 
+pub type MerchantCloseHandler = fn(World<'_>, Entity<'_>, Entity<'_>);
+static MERCHANT_CLOSE: Mutex<BTreeMap<String, MerchantCloseHandler>> = Mutex::new(BTreeMap::new());
+
+unsafe extern "C" fn merchant_close(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    merchant: abi::EntityRef,
+) {
+    guard("merchant close", (), || {
+        let (Some(world), Some(player), Some(merchant)) = (
+            World::borrowed(world),
+            Entity::borrowed(player),
+            Entity::borrowed(merchant),
+        ) else {
+            return;
+        };
+        let Some(kind) = require().ok().and_then(|mobs| mobs.kind(merchant)) else {
+            return;
+        };
+        let handler = MERCHANT_CLOSE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(kind)
+            .copied();
+        if let Some(handler) = handler {
+            handler(world, player, merchant);
+        }
+    });
+}
+
 // Death callbacks are per *mob kind*, not per dynamic library. A single mod
 // can register different death behaviors (e.g. Spiky Bug versus Ambusher).
 static DEATH: Mutex<Option<BTreeMap<String, DeathHandler>>> = Mutex::new(None);
@@ -364,6 +411,10 @@ impl Mobs {
             MobsExtension::CombatHistory => (
                 std::mem::offset_of!(abi::MobsV1, last_hurt_by_mob),
                 "moddedmc:mobs.combat_history",
+            ),
+            MobsExtension::MerchantClose => (
+                std::mem::offset_of!(abi::MobsV1, on_merchant_close),
+                "moddedmc:mobs.merchant_close",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -574,6 +625,41 @@ impl Mobs {
             callbacks.remove(kind);
         }
         registered
+    }
+
+    /// Hear the closing of a trade screen opened by this mob kind.
+    pub fn on_merchant_close(
+        self,
+        reg: &mut Registry<'_>,
+        kind: &str,
+        handler: MerchantCloseHandler,
+    ) -> Result<(), RegistrationError> {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, on_merchant_close))
+        else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        {
+            let mut handlers = MERCHANT_CLOSE
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if handlers.contains_key(kind) {
+                return Err(RegistrationError::DuplicateId);
+            }
+            handlers.insert(kind.to_owned(), handler);
+        }
+        // SAFETY: registration is live and the trampoline is static.
+        let result = RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_merchant_close).read())(reg.reg, s(kind), merchant_close)
+        });
+        if result.is_err() {
+            MERCHANT_CLOSE
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(kind);
+        }
+        result
     }
 
     pub fn uuid(self, entity: Entity<'_>) -> Option<[u8; 16]> {

@@ -1,0 +1,40 @@
+# Closing the merchant screen resumes the selected dialogue node.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+wait 1
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1026.5 224 1027.5 0 0
+cmd forceload add 1025 1025
+wait 4
+cmd fill 1024 223 1024 1038 223 1038 minecraft:stone
+cmd fill 1024 224 1024 1038 232 1038 minecraft:air
+wait 3
+cmd item replace entity tester hotbar.0 with saintsdragons:ivy_the_merchant_spawn_egg
+wait 0.5
+bot use 1027 223 1026 up
+wait 0.5
+cmd execute at tester run data merge entity @e[type=minecraft:villager,limit=1,sort=nearest] {NoAI:1b}
+cmd item replace entity tester hotbar.0 with minecraft:air
+wait 0.5
+bot use-entity villager 1027.5 224 1026.5 main
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+bot click saintsdragons:ivy/1/2
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+bot click saintsdragons:ivy/2/1
+wait 0.5
+expect \[bot\] dialog: .*Ivy the Merchant
+bot click saintsdragons:ivy/3/0
+wait 0.5
+bot inventory-close
+wait 0.5
+expect \[bot\] dialog: .*Tell her your name
+bot click saintsdragons:ivy/4/0
+wait 0.5
+expect \[bot\] dialog: .*Use your Minecraft username
+bot quit
+stop

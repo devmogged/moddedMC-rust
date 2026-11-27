@@ -110,6 +110,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
         entities.require_extension(EntitiesExtension::Players)?;
+        entities.require_extension(EntitiesExtension::Damage)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -126,6 +127,7 @@ impl Mod for SaintsDragons {
         mobs.require_extension(MobsExtension::Taming)?;
         mobs.require_extension(MobsExtension::NaturalSpawns)?;
         mobs.require_extension(MobsExtension::Trading)?;
+        mobs.require_extension(MobsExtension::MerchantClose)?;
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;
@@ -145,7 +147,9 @@ impl Mod for SaintsDragons {
         let _ = ITEMS.set(items::require()?);
         let _ = ITEM_DEFAULTS.set(items::require_defaults()?);
         let _ = RESOURCES.set(resources::require()?);
-        let _ = STACKS.set(stacks::require()?);
+        let stacks = stacks::require()?;
+        stacks.require_extension(stacks::StacksExtension::Component)?;
+        let _ = STACKS.set(stacks);
         let _ = TAGS.set(tags::require()?);
         visuals::start()?;
         venom_arrow::start()?;
@@ -376,6 +380,7 @@ impl Mod for SaintsDragons {
 }
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
+    ivy::trade_resume_tick(world);
     crucible::tick(world, events);
     nucleus::tick(world, time, events);
     eggs::tick(world, events);

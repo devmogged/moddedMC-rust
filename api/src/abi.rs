@@ -1788,7 +1788,13 @@ pub struct MobsV1 {
     pub last_hurt_mob: unsafe extern "C" fn(entity: EntityRef, timestamp: *mut i64) -> i32,
     /// Remembered living attacker, or -1. Writes the game time of the hit if found.
     pub last_hurt_by_mob: unsafe extern "C" fn(entity: EntityRef, timestamp: *mut i64) -> i32,
+    /// Register a callback for closing a trade screen opened for this mob kind.
+    pub on_merchant_close:
+        unsafe extern "C" fn(reg: Reg, kind: Str, callback: MerchantCloseFn) -> i32,
 }
+
+pub type MerchantCloseFn =
+    unsafe extern "C" fn(world: WorldRef, player: EntityRef, merchant: EntityRef);
 
 /// A mod mob dying; the entity is still in the world.
 pub type MobDeathFn = unsafe extern "C" fn(world: WorldRef, mob: EntityRef);
@@ -1943,7 +1949,8 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, boolean_gamerule), 216);
         assert_eq!(offset_of!(MobsV1, last_hurt_mob), 224);
         assert_eq!(offset_of!(MobsV1, last_hurt_by_mob), 232);
-        assert_eq!(size_of::<MobsV1>(), 240);
+        assert_eq!(offset_of!(MobsV1, on_merchant_close), 240);
+        assert_eq!(size_of::<MobsV1>(), 248);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

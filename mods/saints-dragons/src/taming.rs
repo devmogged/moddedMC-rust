@@ -771,6 +771,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::hunger::forget(mob.id());
     crate::hunt::forget(mob.id());
     crate::baby::forget(mob.id());
+    crate::ivy::forget(mob.id());
     crate::visuals::death(world, mob);
     {
         let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);

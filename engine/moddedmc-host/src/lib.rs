@@ -228,6 +228,9 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
     pm.register::<EntityDamageEvent, _>(Arc::new(mob_ai::HurtHandler), EventPriority::Normal, true);
     pm.register::<EntityDeathEvent, _>(Arc::new(mob_ai::DeathHandler), EventPriority::Normal, true);
+    pm.register::<pumpkin_core::plugin::api::events::player::inventory_close::InventoryCloseEvent, _>(
+        Arc::new(mobs::MerchantCloseHandler), EventPriority::Normal, true,
+    );
     pm.register::<EntityDamageEvent, _>(
         Arc::new(equipment::WornHurtHandler),
         EventPriority::Normal,
