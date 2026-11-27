@@ -370,7 +370,7 @@ rules with the chunk.
 
 ## Worn and held equipment (`moddedmc:equipment` v1)
 
-Both calls stage a hook for an item this mod registered. Each item takes at
+Both hook calls stage a hook for an item this mod registered. Each item takes at
 most one hook of each kind. The SDK passes one handler per mod for each kind,
 and the handler receives the item id. Require the table with
 `equipment::require()` in `Mod::start`.
@@ -387,6 +387,11 @@ and the handler receives the item id. Require the table with
   modifier and before the target's defenses. The callback borrows the world,
   attacker and target, the damage type id and the amount, and returns the
   damage to deal. A negative or non-finite result keeps the original amount.
+- `worn_armor(player, out)`: read the player's four namespaced armor item IDs
+  in head, chest, legs, feet order, with `minecraft:air` for empty slots. The
+  sink receives one newline-separated UTF-8 value at key 0; false for a
+  non-player or invalid handle. This is an appended optional field; the SDK
+  returns `None` on older hosts that do not provide it.
 
 ## Fish buckets (`moddedmc:fish_buckets` v1)
 
