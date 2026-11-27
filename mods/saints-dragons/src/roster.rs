@@ -246,6 +246,14 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:armor", 0.0),
             ]);
         }
+        if species.name == "atroxiia" {
+            attributes.extend([
+                ("minecraft:attack_damage", 10.0),
+                ("minecraft:follow_range", 32.0),
+                ("minecraft:armor", 10.0),
+                ("minecraft:knockback_resistance", 1.0),
+            ]);
+        }
         mobs.add_mob(
             registry,
             &Mob {
@@ -272,6 +280,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK | goal_control::JUMP,
                 },
             )?;
+        }
+        if species.name == "atroxiia" {
+            crate::combat_atroxiia::register(registry)?;
         }
         if swarm_damage.is_none() && !matches!(species.name, "moop" | "mossback") {
             INTERACTION
@@ -566,7 +577,10 @@ pub fn finalize_spawn(world: World<'_>, mob: Entity<'_>) {
         mobs.make_persistent(mob);
     }
     // `Volitans.canBreatheUnderwater`: its ravager carrier would drown.
-    if kind == Some("saintsdragons:volitans") {
+    if matches!(
+        kind,
+        Some("saintsdragons:volitans" | "saintsdragons:atroxiia")
+    ) {
         mob.add_effect("minecraft:water_breathing", -1, 0, true, false);
     }
     if let Some(name) = kind.and_then(|kind| kind.strip_prefix("saintsdragons:"))
@@ -636,6 +650,11 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         } else {
             None
         }
+    });
+    let clip = clip.or_else(|| {
+        (name == "atroxiia")
+            .then(|| crate::combat_atroxiia::clip(mob))
+            .flatten()
     });
     let clip = clip.unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);

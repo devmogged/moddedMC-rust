@@ -244,6 +244,10 @@ pub fn fire_active(mob: Entity<'_>) -> bool {
     with_combat(mob, |c| c.abilities.fire_active())
 }
 
+pub fn suppress_fire(mob: Entity<'_>) {
+    with_combat(mob, |c| c.abilities.suppress_fire());
+}
+
 pub fn active_attack(mob: Entity<'_>) -> Option<Attack> {
     with_combat(mob, |c| c.abilities.active())
 }

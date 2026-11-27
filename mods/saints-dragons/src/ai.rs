@@ -84,6 +84,8 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         GROUND_WANDER => ground_wander(phase, mob),
         crate::combat::TARGETING => crate::combat::targeting(phase, world, mob),
         crate::combat::GROUND_COMBAT => crate::combat::ground_combat(phase, world, mob),
+        crate::combat_atroxiia::TARGETING => crate::combat_atroxiia::targeting(phase, world, mob),
+        crate::combat_atroxiia::COMBAT => crate::combat_atroxiia::goal(phase, world, mob),
         crate::taming::RIDE_OR_SIT => crate::taming::ride_or_sit(phase, world, mob),
         crate::taming::FOLLOW => crate::taming::follow(phase, world, mob),
         crate::flight::GOAL => crate::flight::goal(phase, world, mob),
