@@ -647,6 +647,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
         return false;
     };
+    let volitans_clip = (name == "volitans")
+        .then(|| crate::combat_volitans::ambient(world, mob))
+        .flatten();
     if crate::hunger::DRAGONS.contains(&name) {
         crate::hunger::tick(world, mob, species.speed, None, name);
     }
@@ -699,13 +702,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         }
     });
     let clip = clip
-        .or_else(|| {
-            if name == "volitans" {
-                crate::combat_volitans::ambient(world, mob)
-            } else {
-                None
-            }
-        })
+        .or(volitans_clip)
         .or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count()))
         .unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
