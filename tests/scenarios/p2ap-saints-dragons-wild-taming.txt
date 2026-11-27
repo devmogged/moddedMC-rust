@@ -1,0 +1,48 @@
+# Stegonaut and Varasuchus taming from 0.9.88. A wild Stegonaut is tamed by its food. Clicking a
+# wild Varasuchus with an empty hand mounts it: it bucks for 90 ticks and rolls once, then either
+# accepts the rider or throws them off and refuses a new ride for five seconds.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1029.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn stegonaut 1022 100 1025
+cmd saintsdragons spawn varasuchus 1028 100 1025
+wait 2.5
+cmd item replace entity tester weapon.offhand with minecraft:salmon
+wait 0.5
+bot use-entity ravager 1022.5 100 1025.5 off
+wait 0.5
+expect Stegonaut has been tamed!
+cmd data get entity @e[type=minecraft:ravager,x=1022.5,y=100,z=1025.5,distance=..4,limit=1] data.moddedmc.state
+wait 0.5
+expect has the following entity data: \[B; 1b, 1b
+cmd item replace entity tester weapon.offhand with minecraft:air
+wait 0.5
+bot use-entity ravager 1028.5 100 1025.5 main
+wait 1
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+# Still held: the rider stays on until the roll.
+wait 2
+bot expect riding ravager
+wait 0.5
+expect \[bot\] expect riding ok ravager
+wait 3
+# Bucked: the next click is refused. Tamed: it is owned and follows.
+bot use-entity ravager 1028.5 100 1025.5 main
+wait 0.5
+cmd data get entity @e[type=minecraft:ravager,x=1028.5,y=100,z=1025.5,distance=..4,limit=1,sort=nearest] data.moddedmc.state
+wait 0.5
+expect Nuh-uh\. Varasuchus said no\. Try again in [1-5] seconds|has the following entity data: \[B; 1b, 0b
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

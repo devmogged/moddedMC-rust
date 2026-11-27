@@ -30,6 +30,7 @@ mod swarm;
 mod taming;
 mod venom_arrow;
 mod visuals;
+mod wild;
 mod worldroot;
 
 use std::sync::OnceLock;

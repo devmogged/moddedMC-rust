@@ -162,6 +162,13 @@ pub fn inherit_owner(mob: Entity<'_>, owner: [u8; 16]) {
     }
 }
 
+pub fn set_follow(mob: Entity<'_>) {
+    if let (Some(mobs), Some(mut state)) = (MOBS.get(), tamed(mob)) {
+        state.order = Order::Follow;
+        mobs.set_state(mob, &state.encode());
+    }
+}
+
 pub fn owner(mob: Entity<'_>) -> Option<[u8; 16]> {
     tamed(mob).map(|state| state.owner)
 }
@@ -518,6 +525,9 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if let Some(result) = crate::breed::feed(click, item) {
         return result;
     }
+    if let Some(result) = crate::wild::interact(click, item) {
+        return result;
+    }
     if let Some(result) = crate::stun::feed(click, item) {
         return result;
     }
@@ -674,6 +684,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::swarm::forget(mob.id());
     crate::stun::forget(mob.id());
     crate::breed::forget(mob.id());
+    crate::wild::forget(mob.id());
     crate::visuals::death(world, mob);
     {
         let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);

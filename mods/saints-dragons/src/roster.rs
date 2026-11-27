@@ -291,6 +291,11 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 crate::breed::GOAL,
                 1,
                 goal_control::MOVE | goal_control::LOOK,
+            )))
+            .chain((species.name == "varasuchus").then_some((
+                crate::wild::GOAL,
+                0,
+                goal_control::MOVE | goal_control::LOOK | goal_control::JUMP,
             ))) {
                 ai.add_goal(
                     registry,
