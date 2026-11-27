@@ -14,6 +14,7 @@ use moddedmc_api::{
     mob_ai::goal_phase,
     tick_count,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, abilities, flight, hunger, taming};
 
@@ -75,8 +76,7 @@ struct State {
     groups: HashMap<GroupKey, Group>,
 }
 
-// Transient brain/ability state, as in the Java coordinator and Cindervane combat.
-// shortcut: discarded on restart; persistent cloak requires the rider/effect host hooks.
+// Transient combat state, as in the Java coordinator and Cindervane combat.
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
 fn state<T>(f: impl FnOnce(&mut State) -> T) -> T {
@@ -98,6 +98,94 @@ fn distance2(a: Point, b: Point) -> f64 {
 }
 fn radial(angle: f64) -> Point {
     [angle.cos(), 0.0, angle.sin()]
+}
+
+const CLOAK_DATA: &str = "saintsdragons:nulljaw_cloak";
+const INVISIBILITY: &str = "minecraft:invisibility";
+
+#[derive(Deserialize, Serialize)]
+struct Cloak {
+    remaining: i32,
+    rider: fastnbt::IntArray,
+}
+
+impl Cloak {
+    fn load(mob: Entity<'_>) -> Option<Self> {
+        let cloak: Self = fastnbt::from_bytes(&mob.data(CLOAK_DATA)?).ok()?;
+        (cloak.remaining > 0 && cloak.rider.len() == 4).then_some(cloak)
+    }
+
+    fn uuid(&self) -> [u8; 16] {
+        let mut uuid = [0; 16];
+        for (bytes, value) in uuid
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(self.rider.iter())
+        {
+            bytes.copy_from_slice(&value.to_be_bytes());
+        }
+        uuid
+    }
+}
+
+/// Nulljaw.deactivateCloak: remove the effect from both participants, even
+/// when the recorded rider has already dismounted.
+fn deactivate_cloak(world: World<'_>, mob: Entity<'_>, cloak: &Cloak) {
+    mob.remove_effect(INVISIBILITY);
+    if let (Some(mobs), Some(entities)) = (MOBS.get(), ENTITIES.get())
+        && let Some(id) = mobs.by_uuid(world, &cloak.uuid())
+    {
+        entities.with_entity(world, id, |rider| {
+            if rider.type_id() == "minecraft:player" {
+                rider.remove_effect(INVISIBILITY);
+            }
+        });
+    }
+    mob.set_data(CLOAK_DATA, &[]);
+}
+
+/// Nulljaw.tickCloak: validate the recorded controlling owner and count loaded ticks.
+/// shortcut: the custom secondary ability key is not exposed by the rider input ABI.
+pub fn cloak_tick(world: World<'_>, mob: Entity<'_>) {
+    let (Some(mut cloak), Some(mobs), Some(entities)) =
+        (Cloak::load(mob), MOBS.get(), ENTITIES.get())
+    else {
+        return;
+    };
+    let uuid = cloak.uuid();
+    let rider = mobs.passengers(mob).first().copied().filter(|&id| {
+        entities.with_entity(world, id, |e| {
+            e.type_id() == "minecraft:player" && mobs.uuid(e) == Some(uuid)
+        }) == Some(true)
+    });
+    cloak.remaining -= 1;
+    if let Some(rider) = rider
+        && cloak.remaining > 0
+        && taming::owner(mob) == Some(uuid)
+    {
+        // shortcut: no has-effect query or independent icon flag. Refresh the
+        // remaining duration periodically instead of reapplying every tick.
+        if cloak.remaining % 20 == 0 {
+            mob.add_effect(INVISIBILITY, cloak.remaining, 0, false, false);
+            entities.with_entity(world, rider, |e| {
+                e.add_effect(INVISIBILITY, cloak.remaining, 0, false, false)
+            });
+        }
+        if let Ok(nbt) = fastnbt::to_bytes(&cloak) {
+            mob.set_data(CLOAK_DATA, &nbt);
+        }
+    } else {
+        deactivate_cloak(world, mob, &cloak);
+    }
+}
+
+pub fn death(world: World<'_>, mob: Entity<'_>) {
+    if MOBS.get().and_then(|m| m.kind(mob)) == Some(KIND)
+        && let Some(cloak) = Cloak::load(mob)
+    {
+        deactivate_cloak(world, mob, &cloak);
+    }
 }
 
 fn eligible(mob: Entity<'_>) -> bool {
@@ -400,7 +488,9 @@ fn intercept_time(relative: Point, velocity: Point, speed: f64) -> f64 {
 fn projectile(world: World<'_>, mob: Entity<'_>, at: Point, now: u64) -> Option<i32> {
     let (entities, mobs) = (ENTITIES.get()?, MOBS.get()?);
     let owner = mobs.by_uuid(world, &taming::owner(mob)?)?;
-    let owner_at = entities.with_entity(world, owner, |e| e.view().map(|v| v.position))??;
+    let (owner_at, owner_body) = entities.with_entity(world, owner, |e| {
+        (e.flags() & ENTITY_ALIVE != 0).then_some((e.view()?.position, e.body()?))
+    })??;
     if distance2(at, owner_at) > 48.0 * 48.0 {
         return None;
     }
@@ -410,6 +500,11 @@ fn projectile(world: World<'_>, mob: Entity<'_>, at: Point, now: u64) -> Option<
             .with_entity(world, id, |e| {
                 e.type_id().trim_start_matches("minecraft:") == "shulker_bullet"
                     && e.flags() & ENTITY_ALIVE != 0
+                    && e.projectile_owner().is_some_and(|shooter| {
+                        entities.with_entity(world, shooter, |s| {
+                            s.type_id().trim_start_matches("minecraft:") == "shulker"
+                        }) == Some(true)
+                    })
                     && e.view()
                         .is_some_and(|v| distance2(v.position, owner_at) <= 1600.0)
             })
@@ -428,9 +523,15 @@ fn projectile(world: World<'_>, mob: Entity<'_>, at: Point, now: u64) -> Option<
     }) {
         return None;
     }
-    // shortcut: no projectile owner/target ABI. Only intercept bullets already within the
-    // original last-chance radius and moving toward the owner, not every nearby bullet.
-    let selected = near(world, owner_at, 8.0, mob.id())
+    let owner_center = scale(flight::add(owner_body.min, owner_body.max), 0.5);
+    let selected = entities
+        .entities_matching(
+            world,
+            owner_body.min.map(|v| v - 32.0),
+            owner_body.max.map(|v| v + 32.0),
+            mob.id(),
+            0,
+        )
         .into_iter()
         .filter_map(|id| {
             if !valid(id) {
@@ -439,10 +540,14 @@ fn projectile(world: World<'_>, mob: Entity<'_>, at: Point, now: u64) -> Option<
             entities
                 .with_entity(world, id, |e| {
                     let v = e.view()?;
-                    let delta = flight::offset(owner_at, v.position);
-                    let d = flight::length_squared(delta);
-                    (d <= 64.0 && delta.iter().zip(v.motion).map(|(x, y)| x * y).sum::<f64>() > 0.0)
-                        .then_some((id, d))
+                    let targeted = e.projectile_owner().is_some_and(|shooter| {
+                        entities.with_entity(world, shooter, |s| {
+                            MOB_AI.get().and_then(|ai| ai.target(s)) == Some(owner)
+                        }) == Some(true)
+                    });
+                    let delta = flight::offset(owner_center, v.position);
+                    (targeted || approaching_owner(delta, v.motion))
+                        .then_some((id, distance2(owner_at, v.position)))
                 })
                 .flatten()
         })
@@ -450,6 +555,11 @@ fn projectile(world: World<'_>, mob: Entity<'_>, at: Point, now: u64) -> Option<
         .map(|(id, _)| id);
     brain(mob.id(), |b| b.projectile = selected);
     selected
+}
+
+fn approaching_owner(delta: Point, motion: Point) -> bool {
+    flight::length_squared(delta) <= 64.0
+        && delta.iter().zip(motion).map(|(x, y)| x * y).sum::<f64>() > 0.0
 }
 
 fn sound(world: World<'_>, mob: Entity<'_>, original: &str, fallback: &str) {
@@ -724,6 +834,26 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn last_chance_requires_close_approaching_bullet() {
+        assert!(approaching_owner([8.0, 0.0, 0.0], [1.0, 0.0, 0.0]));
+        assert!(!approaching_owner([8.1, 0.0, 0.0], [1.0, 0.0, 0.0]));
+        assert!(!approaching_owner([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn cloak_uuid_matches_vanilla_int_array() {
+        let cloak = Cloak {
+            remaining: 6000,
+            rider: fastnbt::IntArray::new(vec![0x01020304, 0x05060708, -1, 0]),
+        };
+        let loaded: Cloak = fastnbt::from_bytes(&fastnbt::to_bytes(&cloak).unwrap()).unwrap();
+        assert_eq!(loaded.remaining, 6000);
+        assert_eq!(
+            loaded.uuid(),
+            [1, 2, 3, 4, 5, 6, 7, 8, 255, 255, 255, 255, 0, 0, 0, 0]
+        );
+    }
     #[test]
     fn bite_and_intercept_geometry() {
         assert_eq!(reach(2.75, 1.2), 3.95);

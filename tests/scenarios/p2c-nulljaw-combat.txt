@@ -24,6 +24,40 @@ wait 8
 cmd data get entity @e[tag=nulljaw_target,limit=1] Health
 wait 0.5
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
+# Seed the saved cloak after its rider has dismounted: the secondary ability
+# key is not exposed yet. The rider's long invisibility must disappear early.
+cmd kill @e[tag=nulljaw_target]
+cmd tag @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] add cloak_probe
+cmd effect give tester minecraft:invisibility 300 0 true
+cmd data merge entity @e[tag=cloak_probe,limit=1] {data:{"saintsdragons:nulljaw_cloak":{rider:[I;0,0,0,0]}}}
+cmd data modify entity @e[tag=cloak_probe,limit=1] data."saintsdragons:nulljaw_cloak".rider set from entity tester UUID
+cmd data get entity tester active_effects
+wait 0.5
+expect tester has the following entity data: .*minecraft:invisibility
+cmd data modify entity @e[tag=cloak_probe,limit=1] data."saintsdragons:nulljaw_cloak".remaining set value 6000
+wait 1
+cmd data get entity @e[tag=cloak_probe,limit=1] data."saintsdragons:nulljaw_cloak"
+wait 0.5
+expect Found no elements matching
+cmd data get entity tester active_effects
+wait 0.5
+expect (?:Found no elements matching active_effects|tester has the following entity data: \[\])
+# A command-spawned orphan bullet is not a Shulker-owned threat.
+# Let it fall toward the owner for several sensor ticks, before it hits anything.
+cmd kill @e[tag=cloak_probe]
+cmd difficulty normal
+cmd tp tester 1025.5 120 1028.5
+cmd saintsdragons spawn nulljaw 1025 120 1025
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity spider 1025.5 120 1025.5 off
+wait 0.5
+expect Dragon tamed
+cmd summon minecraft:shulker_bullet 1025.5 126 1028.5 {Tags:["orphan_bullet"]}
+wait 0.4
+cmd execute if entity @e[type=minecraft:shulker_bullet,tag=orphan_bullet]
+wait 0.5
+expect Test passed
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop
