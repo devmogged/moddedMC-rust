@@ -229,7 +229,7 @@ fn mounted_mod_id(player: &dyn EntityBase) -> Option<i32> {
     Some(vehicle.get_entity().entity_id)
 }
 
-fn mount_query(data: &[u8]) -> Option<i32> {
+const fn mount_query(data: &[u8]) -> Option<i32> {
     let [VERSION, 3, a, b, c, d] = data else {
         return None;
     };
