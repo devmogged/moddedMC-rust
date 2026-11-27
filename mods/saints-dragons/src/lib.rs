@@ -318,7 +318,7 @@ impl Mod for SaintsDragons {
             return 1;
         }
         match tag {
-            combat_raevyx::STORM_COMMAND => combat_raevyx::command_storm(world, at, command),
+            combat_raevyx::STORM_COMMAND => combat_raevyx::command_storm(world, at, &command),
             SPAWN => {
                 let Some(id) = mobs.spawn(world, CINDERVANE, at) else {
                     command.reply("cindervane: could not spawn");

@@ -928,7 +928,7 @@ pub fn storm_nodes(nodes: &mut Vec<moddedmc_api::commands::Node<'static>>) {
     ]);
 }
 
-pub fn command_storm(world: World<'_>, at: [f64; 3], command: moddedmc_api::Command<'_>) -> i32 {
+pub fn command_storm(world: World<'_>, at: [f64; 3], command: &moddedmc_api::Command<'_>) -> i32 {
     let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
         return 0;
     };
