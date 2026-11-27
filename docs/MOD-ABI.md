@@ -541,6 +541,42 @@ and reach directly, without loading chunks, reading whole archives, opening
 menus, mutating inventory or acquiring locks held by menu callbacks.
 Change callbacks must still validate backing state at commit time.
 
+For externally mutable inventories, require the appended v1 managed extension
+with `inventory_menu::require_managed()`. On 64-bit hosts the table extends
+the 56-byte validity prefix with `register_managed` (56),
+`open_managed` (64), and `mutate` (72), for a total of 80 bytes.
+Older hosts return interface unavailable.
+
+`Managed::register` registers the change, deferred action, validity,
+insertion predicate and quick-move routing callbacks. `Managed::open`
+combines controls and validity; it copies the immutable context. Unlike
+legacy views, all managed viewers share the same access permissions.
+The initializer reads the backing record only when creating the first view.
+Return false if the access permissions supplied at open no longer match
+that record. Control positions must be identical in all live views.
+
+The insertion predicate receives context, slot index and candidate stack NBT.
+The routing callback receives context and stack NBT and returns a bit mask
+of eligible destination menu slots (bits 0–53), with bit 63 allowing
+fallback to the other player inventory section. Taking, insertion and
+quick moves still obey shared permissions. These callbacks are read-only.
+
+`ManagedChange::commit_external` invokes a synchronous backing-record
+write under the inventory transaction lock. Return true only if the write
+committed, and false only if the backing record remains unchanged.
+Use an identity-bound compare-and-write for block entities. The saved-data
+commit remains available through `ManagedChange::change`.
+`Managed::mutate` accepts a world, kind, inventory ID, complete replacement
+slot NBT and access arrays, and a synchronous persistence closure. It
+serializes with clicks and updates shared state only after successful
+persistence, including when there are no viewers. Controls must remain
+nontransferable. Viewers receive the replacement in their normal screen
+updates; a click against stale projected slots/access is rejected and
+resynchronized. Call mutate from deferred actions or world hooks, never
+from a change, predicate, initializer, or validity callback. Release mod
+record locks before calling menu operations; acquire them inside the
+persistence closure. Managed views do not support legacy restore_matching.
+
 These transactions cover live interactions and clean restarts. Cross-file
 crash recovery between the player save and mod data requires a joint journal.
 
