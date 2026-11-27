@@ -1390,8 +1390,8 @@ fn combat_allowed(world: World<'_>, ivy: Entity<'_>) -> bool {
         })
 }
 
-fn enemy(ivy: Entity<'_>, target: Entity<'_>) -> bool {
-    crate::abilities::enemy(ivy, target)
+fn enemy(world: World<'_>, ivy: Entity<'_>, target: Entity<'_>) -> bool {
+    crate::abilities::enemy(world, ivy, target)
         && !matches!(
             target.type_id().trim_start_matches("minecraft:"),
             "iron_golem" | "snow_golem" | "villager"
@@ -1403,7 +1403,8 @@ fn target_position(world: World<'_>, ivy: Entity<'_>, id: i32) -> Option<[f64; 3
     let from = ivy.view()?.position;
     ENTITIES.get()?.with_entity(world, id, |target| {
         let at = target.view()?.position;
-        (enemy(ivy, target) && flight::length_squared(flight::offset(at, from)) <= 32.0 * 32.0)
+        (enemy(world, ivy, target)
+            && flight::length_squared(flight::offset(at, from)) <= 32.0 * 32.0)
             .then_some(at)
     })?
 }
@@ -1563,7 +1564,7 @@ fn impact(
             return;
         };
         let range = [hit.range, 1.15, hit.range];
-        if !enemy(ivy, target)
+        if !enemy(world, ivy, target)
             || !(0..3).all(|i| {
                 body.min[i] - range[i] <= other.max[i] && body.max[i] + range[i] >= other.min[i]
             })

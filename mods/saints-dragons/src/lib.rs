@@ -5,6 +5,7 @@
 mod abilities;
 mod advancements;
 mod ai;
+mod allies;
 mod appearance;
 mod armor;
 mod audio;
@@ -166,6 +167,7 @@ impl Mod for SaintsDragons {
         interaction.require_extension(InteractionExtension::ImmediateItemUse)?;
         interaction.require_extension(InteractionExtension::PlayerPlaced)?;
         codex::require()?;
+        allies::require()?;
         crucible::require()?;
         ivy::require()?;
         nucleus::require()?;
@@ -212,6 +214,7 @@ impl Mod for SaintsDragons {
             _ => binders::use_in_air(click),
         })?;
         codex::register(defaults, registry)?;
+        allies::register(registry)?;
         ivy::register(defaults, registry)?;
         interaction.on_player_placed(registry, nucleus::placed)?;
         worldroot::register(defaults, registry)?;

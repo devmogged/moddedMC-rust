@@ -465,7 +465,7 @@ fn dash_hit(world: World<'_>, mob: Entity<'_>, phase_two: bool) {
         mob.id(),
     ) {
         entities.with_entity(world, id, |e| {
-            if !enemy(mob, e) {
+            if !enemy(world, mob, e) {
                 return;
             }
             ai.attack(world, mob, id, if phase_two { 15.0 } else { 10.0 });
@@ -503,7 +503,7 @@ pub fn parry(world: World<'_>, mob: Entity<'_>) -> bool {
     };
     if !entities
         .with_entity(world, attacker, |e| {
-            enemy(mob, e)
+            enemy(world, mob, e)
                 && e.view()
                     .is_some_and(|v| dist(v.position, view.position) <= 8.0)
         })
@@ -525,7 +525,7 @@ pub fn parry(world: World<'_>, mob: Entity<'_>) -> bool {
     };
     for id in ids {
         entities.with_entity(world, id, |e| {
-            if !enemy(mob, e) {
+            if !enemy(world, mob, e) {
                 return;
             }
             let Some(other) = e.view() else {
@@ -808,8 +808,8 @@ fn horn_motion(
     motion[1] = motion[1].max(lift);
     motion
 }
-fn enemy(mob: Entity<'_>, other: Entity<'_>) -> bool {
-    abilities::enemy(mob, other)
+fn enemy(world: World<'_>, mob: Entity<'_>, other: Entity<'_>) -> bool {
+    abilities::enemy(world, mob, other)
         && !MOBS.get().is_some_and(|m| m.kind(other) == Some(KIND))
         && !taming::owner(mob).is_some_and(|owner| taming::owner(other) == Some(owner))
 }
@@ -821,7 +821,7 @@ fn eligible(mob: Entity<'_>) -> bool {
 }
 fn target_at(world: World<'_>, mob: Entity<'_>, id: i32) -> Option<([f64; 3], f64, bool)> {
     ENTITIES.get()?.with_entity(world, id, |other| {
-        if !enemy(mob, other) {
+        if !enemy(world, mob, other) {
             return None;
         }
         let body = other.body()?;
@@ -869,7 +869,7 @@ fn nearest(
         .into_iter()
         .filter_map(|id| {
             entities.with_entity(world, id, |e| {
-                if !enemy(mob, e) || !predicate(e) {
+                if !enemy(world, mob, e) || !predicate(e) {
                     return None;
                 }
                 let d = dist(at, e.view()?.position);
@@ -1264,7 +1264,7 @@ fn hit(
     };
     for id in targets {
         entities.with_entity(world, id, |e| {
-            if !enemy(mob, e) {
+            if !enemy(world, mob, e) {
                 return;
             }
             let Some(other) = e.view() else { return };
@@ -1439,7 +1439,7 @@ fn ridden_targets(
         .filter_map(|id| {
             entities
                 .with_entity(world, id, |e| {
-                    if !enemy(mob, e) {
+                    if !enemy(world, mob, e) {
                         return None;
                     }
                     let b = e.body()?;
