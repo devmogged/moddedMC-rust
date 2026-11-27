@@ -30,6 +30,7 @@ const REGROWTH_TICKS: u16 = 6000;
 const BRUSH_WEAR: i32 = 256;
 const BRUSH_COOLDOWN: u64 = 10;
 const SADDLE: &str = "minecraft:saddle";
+const CHEST: &str = "minecraft:chest";
 const FEED_COOLDOWN: u64 = 44;
 
 #[derive(Default)]
@@ -53,6 +54,7 @@ struct Tamed {
     owner: [u8; 16],
     order: Order,
     saddle: bool,
+    chest: bool,
     regrowth: u16,
     happiness: u8,
     plucked: bool,
@@ -60,6 +62,10 @@ struct Tamed {
 
 impl Tamed {
     fn decode(bytes: &[u8]) -> Option<Self> {
+        let (bytes, chest) = match bytes {
+            [base @ .., chest @ (0 | 1)] if base.len() == 23 => (base, *chest == 1),
+            _ => (bytes, false),
+        };
         let [1, order, saddle @ (0 | 1), owner @ ..] = bytes else {
             return None;
         };
@@ -88,11 +94,12 @@ impl Tamed {
             plucked,
             order,
             saddle: *saddle == 1,
+            chest: chest && *saddle == 1,
         })
     }
 
-    fn encode(self) -> [u8; 23] {
-        let mut data = [0; 23];
+    fn encode(self) -> [u8; 24] {
+        let mut data = [0; 24];
         data[0] = 1;
         data[1] = match self.order {
             Order::Follow => 0,
@@ -104,6 +111,7 @@ impl Tamed {
         data[19..21].copy_from_slice(&self.regrowth.to_le_bytes());
         data[21] = self.happiness;
         data[22] = u8::from(self.plucked);
+        data[23] = u8::from(self.chest);
         data
     }
 }
@@ -121,6 +129,16 @@ pub fn codex_stats(mob: Entity<'_>) -> Option<([u8; 16], u8)> {
 
 pub fn happiness(mob: Entity<'_>) -> Option<u8> {
     tamed(mob).map(|state| state.happiness)
+}
+
+/// DragonGroomingComponent.getBrushingProgressPercent.
+pub fn brushing_progress(mob: Entity<'_>) -> Option<u16> {
+    if MOBS.get()?.kind(mob) == Some("saintsdragons:nulljaw") {
+        return None;
+    }
+    let remaining = u32::from(tamed(mob)?.regrowth);
+    let total = u32::from(REGROWTH_TICKS);
+    Some((total.saturating_sub(remaining) * 100 / total) as u16)
 }
 
 /// Change a tamed dragon's happiness within 0..=100 and return the new value.
@@ -168,6 +186,7 @@ pub fn inherit_owner(mob: Entity<'_>, owner: [u8; 16]) {
                 owner,
                 order: Order::Follow,
                 saddle: false,
+                chest: false,
                 regrowth: 0,
                 happiness: 100,
                 plucked: false,
@@ -261,6 +280,7 @@ fn apply_creative_meal(click: &UseMob<'_>) -> UseResult {
         owner,
         order: Order::Follow,
         saddle: false,
+        chest: false,
         regrowth: 0,
         happiness: 100,
         plucked: false,
@@ -581,6 +601,9 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if let Some(result) = crate::baby::interact(click, item) {
         return result;
     }
+    if let Some(result) = attach_equipment(click, item) {
+        return result;
+    }
     if let Some(result) = crate::breed::feed(click, item) {
         return result;
     }
@@ -648,26 +671,6 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
         return UseResult::Pass;
     };
     let owner = uuid == state.owner;
-    if owner && item == SADDLE && !state.saddle {
-        state.saddle = true;
-        if !mobs.set_state(mob, &state.encode()) {
-            return UseResult::Fail;
-        }
-        if !click.creative {
-            click.stack.shrink(1);
-        }
-        if let (Some(effects), Some(view)) = (EFFECTS.get(), mob.view()) {
-            effects.play_sound(
-                click.world,
-                view.position,
-                "minecraft:entity.horse.saddle",
-                SOUND_NEUTRAL,
-                1.0,
-                1.0,
-            );
-        }
-        return UseResult::Success;
-    }
     if click.sneaking {
         if !owner {
             return UseResult::Pass;
@@ -714,6 +717,66 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     UseResult::Success
 }
 
+/// DragonSaddleInteractionHelper.handle: attach equipment on an owned adult.
+/// Cargo and slot removal require the rider inventory action and entity-backed menu.
+fn attach_equipment(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
+    if !click.main_hand || !matches!(item, SADDLE | CHEST) {
+        return None;
+    }
+    let (mob, player, mobs) = (click.mob?, click.player?, MOBS.get()?);
+    if !matches!(
+        mobs.kind(mob)?,
+        crate::CINDERVANE | "saintsdragons:atroxiia" | "saintsdragons:stegonaut"
+    ) || crate::eggs::is_juvenile(mob)
+    {
+        return None;
+    }
+    let _guard = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut state = tamed(mob)?;
+    if state.owner != mobs.uuid(player)? {
+        return None;
+    }
+    let sound = match item {
+        SADDLE if !state.saddle => {
+            state.saddle = true;
+            "minecraft:entity.horse.saddle"
+        }
+        CHEST if !state.chest => {
+            if !state.saddle {
+                let name = crate::binders::saved_name(mob).unwrap_or_else(|| {
+                    crate::roster::names()
+                        .find(|(id, _)| {
+                            mobs.kind(mob)
+                                .and_then(|kind| kind.strip_prefix("saintsdragons:"))
+                                == Some(*id)
+                        })
+                        .map_or("Dragon", |(_, name)| name)
+                        .to_owned()
+                });
+                mobs.message(
+                    player,
+                    &format!("{name} needs a saddle before you can attach a chest."),
+                    true,
+                );
+                return Some(UseResult::Success);
+            }
+            state.chest = true;
+            "minecraft:entity.donkey.chest"
+        }
+        _ => return None,
+    };
+    if !mobs.set_state(mob, &state.encode()) {
+        return Some(UseResult::Fail);
+    }
+    if !click.creative {
+        click.stack.shrink(1);
+    }
+    if let (Some(effects), Some(view)) = (EFFECTS.get(), mob.view()) {
+        effects.play_sound(click.world, view.position, sound, SOUND_NEUTRAL, 1.0, 1.0);
+    }
+    Some(UseResult::Success)
+}
+
 /// A successful taming feed: owned, sitting, persistent and calm.
 pub fn tame(world: World<'_>, mob: Entity<'_>, owner: [u8; 16]) -> bool {
     let (Some(mobs), Some(ai)) = (MOBS.get(), MOB_AI.get()) else {
@@ -723,6 +786,7 @@ pub fn tame(world: World<'_>, mob: Entity<'_>, owner: [u8; 16]) -> bool {
         owner,
         order: Order::Sit,
         saddle: false,
+        chest: false,
         regrowth: 0,
         happiness: 100,
         plucked: false,
@@ -771,7 +835,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::hunger::forget(mob.id());
     crate::baby::forget(mob.id());
     crate::visuals::death(world, mob);
-    {
+    let chest = {
         let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(timers) = lock.as_mut() {
             timers.feed.remove(&mob.id());
@@ -781,19 +845,24 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
         else {
             return;
         };
+        let chest = state.chest;
         state.saddle = false;
+        state.chest = false;
         if !mobs.set_state(mob, &state.encode()) {
             return;
         }
-    }
+        chest
+    };
     let (Some(stacks), Some(view)) = (STACKS.get(), mob.view()) else {
         return;
     };
-    if let Ok(stack) = fastnbt::to_bytes(&HashMap::from([
-        ("id", Value::String(SADDLE.to_owned())),
-        ("count", Value::Int(1)),
-    ])) {
-        stacks.spawn(world, view.position, [0.0; 3], &stack);
+    for item in [Some(SADDLE), chest.then_some(CHEST)].into_iter().flatten() {
+        if let Ok(stack) = fastnbt::to_bytes(&HashMap::from([
+            ("id", Value::String(item.to_owned())),
+            ("count", Value::Int(1)),
+        ])) {
+            stacks.spawn(world, view.position, [0.0; 3], &stack);
+        }
     }
 }
 
@@ -962,12 +1031,20 @@ mod tests {
                 owner: [0x5a; 16],
                 order,
                 saddle: true,
+                chest: true,
                 regrowth: REGROWTH_TICKS,
                 happiness: 60,
                 plucked: true,
             };
             let data = state.encode();
             assert_eq!(Tamed::decode(&data), Some(state));
+            assert_eq!(
+                Tamed::decode(&data[..23]),
+                Some(Tamed {
+                    chest: false,
+                    ..state
+                })
+            );
             assert_eq!(Tamed::decode(&data[..18]), None);
         }
     }

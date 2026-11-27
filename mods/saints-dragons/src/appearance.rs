@@ -94,6 +94,11 @@ pub fn spawned_from_template(mob: Entity<'_>, nbt: &[u8]) {
 }
 
 impl Appearance {
+    pub fn gender(mob: Entity<'_>) -> Option<bool> {
+        let appearance: Self = fastnbt::from_bytes(&mob.data(DATA)?).ok()?;
+        Some(appearance.female)
+    }
+
     pub fn load(mob: Entity<'_>) -> Self {
         mob.data(DATA)
             .and_then(|nbt| fastnbt::from_bytes(&nbt).ok())

@@ -280,6 +280,8 @@ fn capture_stack(
         Value::Byte(1),
     );
     components.insert("minecraft:lore".into(), binder.lore(Some(&name)));
+    // Snapshot while the entity is still live; commit the record only after discard succeeds.
+    let record = crate::codex::snapshot(world, mob, Some(&name));
     if !stack.write(&fastnbt::to_bytes(&item).ok()?) {
         return None;
     }
@@ -287,7 +289,9 @@ fn capture_stack(
         stack.write(&original);
         return None;
     }
-    crate::codex::remember(world, mob, Some(&name));
+    if let Some(record) = record {
+        crate::codex::remember_record(world, record);
+    }
     flight::forget(mob.id());
     say(player, &format!("Bound {name} in the binder!"));
     crate::advancements::award(player, "pocket_dragon", "bind_dragon");
