@@ -109,6 +109,7 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::Surface)?;
         content.require_extension(WorldExtension::ContentEntityTransaction)?;
         content.require_comparator_output()?;
+        content.require_block_material()?;
         let _ = CONTENT.set(content);
         let _ = EFFECTS.set(effects::require()?);
         let _ = COMMANDS.set(commands::require()?);

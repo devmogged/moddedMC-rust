@@ -307,7 +307,26 @@ try {
                 try {
                     $writer = $pack.CreateEntry($copies[$path]).Open()
                     try {
-                        if ($entry.Length -gt 8MB -and $path.EndsWith('.animation.json')) {
+                        if ($path -eq 'data/saintsdragons/structures/ivy_house.nbt') {
+                            # The 1.20.1 template has two palette names renamed in 26.3.
+                            # Rewrite only complete NBT Name string tags, preserving other bytes.
+                            $memory = [IO.MemoryStream]::new()
+                            $gzip = [IO.Compression.GZipStream]::new($reader, [IO.Compression.CompressionMode]::Decompress, $true)
+                            try { $gzip.CopyTo($memory) } finally { $gzip.Dispose() }
+                            $encoding = [Text.Encoding]::GetEncoding(28591)
+                            $nbt = $encoding.GetString($memory.ToArray())
+                            $memory.Dispose()
+                            $prefix = [string][char]8 + [char]0 + [char]4 + 'Name' + [char]0
+                            foreach ($pair in @(@('minecraft:grass', 'minecraft:short_grass'), @('minecraft:chain', 'minecraft:iron_chain'))) {
+                                $old = $prefix + [char]$pair[0].Length + $pair[0]
+                                $new = $prefix + [char]$pair[1].Length + $pair[1]
+                                if (!$nbt.Contains($old)) { throw "Missing legacy Ivy house palette name $($pair[0])" }
+                                $nbt = $nbt.Replace($old, $new)
+                            }
+                            $bytes = $encoding.GetBytes($nbt)
+                            $gzip = [IO.Compression.GZipStream]::new($writer, [IO.Compression.CompressionMode]::Compress, $true)
+                            try { $gzip.Write($bytes, 0, $bytes.Length) } finally { $gzip.Dispose() }
+                        } elseif ($entry.Length -gt 8MB -and $path.EndsWith('.animation.json')) {
                             # Remove JSON whitespace outside strings while preserving every token.
                             $text = [IO.StreamReader]::new($reader)
                             try { $json = $text.ReadToEnd() } finally { $text.Dispose() }
