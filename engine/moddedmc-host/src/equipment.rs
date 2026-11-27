@@ -21,6 +21,7 @@ pub static EQUIPMENT: abi::EquipmentV1 = abi::EquipmentV1 {
     size: size_of::<abi::EquipmentV1>(),
     on_worn_hurt,
     on_weapon_hit,
+    worn_armor,
 };
 
 #[derive(Clone, Copy)]
@@ -119,6 +120,35 @@ const ARMOR: [EquipmentSlot; 4] = [
     EquipmentSlot::FEET,
 ];
 
+fn armor_ids(player: &Player) -> [String; 4] {
+    let equipment = lock(&player.inventory().entity_equipment);
+    ARMOR.map(|slot| {
+        let stack = equipment.get(&slot);
+        let key = if stack.is_empty() {
+            "air"
+        } else {
+            stack.item.registry_key
+        };
+        if key.contains(':') {
+            key.to_owned()
+        } else {
+            format!("minecraft:{key}")
+        }
+    })
+}
+
+unsafe extern "C" fn worn_armor(raw: abi::EntityRef, out: abi::Sink) -> bool {
+    // SAFETY: the entity is borrowed for the active callback.
+    let Some(player) = (unsafe { crate::content::entity(raw) }).and_then(EntityBase::get_player)
+    else {
+        return false;
+    };
+    let ids = armor_ids(player).join("\n");
+    // SAFETY: the IDs live until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(ids.as_bytes())) };
+    true
+}
+
 /// Lets each distinct worn content item with a hurt hook change or cancel a player's damage.
 pub struct WornHurtHandler;
 
@@ -145,16 +175,7 @@ impl EventHandler<EntityDamageEvent> for WornHurtHandler {
                 else {
                     return;
                 };
-                let equipment = lock(&player.inventory().entity_equipment);
-                let armor = ARMOR.map(|slot| {
-                    let key = equipment.get(&slot).item.registry_key;
-                    if key.contains(':') {
-                        key.to_owned()
-                    } else {
-                        format!("minecraft:{key}")
-                    }
-                });
-                drop(equipment);
+                let armor = armor_ids(&player);
                 let mut worn: Vec<(String, abi::WornHurtFn)> = Vec::new();
                 for key in &armor {
                     if let Some(&callback) = hooks.worn.get(key)

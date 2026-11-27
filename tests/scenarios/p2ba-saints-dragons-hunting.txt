@@ -1,0 +1,47 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Saint's Dragons 0.9.88: roster melee attributes follow the hunger multiplier.
+# A hungry Raevyx kills its tagged prey and eats fresh drops, not old food.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1029.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn raevyx 1025 100 1025
+wait 2
+cmd tag @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..16,limit=1] add hunger_test
+cmd data merge entity @e[tag=hunger_test,limit=1] {data:{"saintsdragons:hunger":{Hunger:45}}}
+wait 2
+cmd attribute @e[tag=hunger_test,limit=1] minecraft:attack_damage base get
+wait 0.5
+expect is 7\.5\b
+cmd data merge entity @e[tag=hunger_test,limit=1] {data:{"saintsdragons:hunger":{Hunger:30}}}
+wait 2
+cmd attribute @e[tag=hunger_test,limit=1] minecraft:attack_damage base get
+wait 0.5
+expect is 3(?:\.0)?\b
+cmd data merge entity @e[tag=hunger_test,limit=1] {data:{"saintsdragons:hunger":{Hunger:100}}}
+wait 2
+cmd attribute @e[tag=hunger_test,limit=1] minecraft:attack_damage base get
+wait 0.5
+expect is 12(?:\.0)?\b
+cmd tp @e[tag=hunger_test,limit=1] 1025.5 100 1025.5
+cmd summon minecraft:item 1025.5 100 1025.5 {Tags:["old_food"],PickupDelay:32767s,Item:{id:"minecraft:porkchop",count:64}}
+wait 6
+cmd data merge entity @e[tag=hunger_test,limit=1] {data:{"saintsdragons:hunger":{Hunger:60}}}
+cmd execute at @e[tag=hunger_test,limit=1] run summon minecraft:pig ~1 ~ ~ {Health:1f,NoAI:1b}
+wait 8
+cmd data get entity @e[tag=hunger_test,limit=1] data."saintsdragons:hunger".Hunger
+wait 0.5
+expect has the following entity data: (70|80|90|100)\b
+cmd data get entity @e[tag=old_food,limit=1] Item.count
+wait 0.5
+expect has the following entity data: 64\b
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
