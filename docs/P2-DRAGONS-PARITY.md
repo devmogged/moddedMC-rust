@@ -394,8 +394,19 @@ while its glass collision shape remains solid. Recipe unlocks are blocked:
 the engine's datapack advancement builder discards `rewards.recipes` and
 `PlayerAdvancement::grant_reward` grants experience only; it needs dynamic
 recipe IDs resolved into the player's saved recipe book and unlock packets.
-The brewed-potion event carries no potion ID and its predicate matches any
-potion; it needs the brewed potion identity and an exact match. Pellucida
+The released `brew_tideguard` and `brew_searing` criteria already use
+`minecraft:brewed_potion` with their respective potion IDs. Java's
+`BrewingStandBlockEntityMixin.doBrew` puts the fixed potion in the bottle slot;
+the vanilla criterion runs for the player taking that bottle, not on brew
+completion. The host must pass the taken stack from
+`BrewingPotionSlot.on_take_item` through `InventoryPlayer.on_brewed_potion`,
+recognize the custom potion output item IDs as well as vanilla potion contents,
+and match the datapack's `conditions.potion` exactly. The current callback
+recognizes only vanilla potion items, carries no identity and matches every
+brewed-potion predicate. The mod's `award_advancement` call cannot replace
+this without a player-attributed vanilla brewing-slot take event. The
+[brewing regression scenario](../tests/scenarios/p2-brew-trigger.txt)
+is blocked on this host change and must not be counted as passing yet. Pellucida
 needs a generic entity-aware block collision filter in the engine that also
 applies to swarm movement/path clearance. These engine changes are not part
 of the drop-in mod. The progression scenario checks a newly included inventory
