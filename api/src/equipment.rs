@@ -33,6 +33,8 @@ pub type WeaponHit = fn(
 
 static WORN: OnceLock<WornHurt> = OnceLock::new();
 static WEAPON: OnceLock<WeaponHit> = OnceLock::new();
+pub type SuccessfulWeaponHit = fn(World<'_>, &str, Entity<'_>, Entity<'_>, f32);
+static SUCCESSFUL_WEAPON: OnceLock<SuccessfulWeaponHit> = OnceLock::new();
 
 pub fn require() -> Result<Equipment, InterfaceUnavailable> {
     // SAFETY: EquipmentV1 is the published table type; only the original prefix is required.
@@ -52,6 +54,44 @@ fn same<F: Copy>(slot: &OnceLock<F>, handler: F, eq: fn(F, F) -> bool) -> bool {
 }
 
 impl Equipment {
+    pub fn require_successful_weapon_hit(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(std::mem::offset_of!(
+                abi::EquipmentV1,
+                on_successful_weapon_hit
+            ))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:equipment.on_successful_weapon_hit",
+                version: 1,
+            })
+    }
+
+    pub fn on_successful_weapon_hit(
+        self,
+        reg: &mut Registry<'_>,
+        item: &str,
+        handler: SuccessfulWeaponHit,
+    ) -> Result<(), RegistrationError> {
+        if !same(&SUCCESSFUL_WEAPON, handler, std::ptr::fn_addr_eq) {
+            return Err(RegistrationError::InvalidDefinition);
+        }
+        let Some(api) = self.0.upto(std::mem::offset_of!(
+            abi::EquipmentV1,
+            on_successful_weapon_hit
+        )) else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        // SAFETY: registration and item are borrowed; the trampoline is static.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_successful_weapon_hit).read())(
+                reg.reg,
+                s(item),
+                successful_weapon,
+            )
+        })
+    }
+
     pub fn on_worn_hurt(
         self,
         reg: &mut Registry<'_>,
@@ -187,6 +227,27 @@ unsafe extern "C" fn weapon(
         let (item, damage_type) = unsafe { (item.str(), damage_type.str()) };
         handler(world, item, attacker, target, damage_type, amount)
     })
+}
+
+unsafe extern "C" fn successful_weapon(
+    world: abi::WorldRef,
+    item: abi::Str,
+    attacker: abi::EntityRef,
+    target: abi::EntityRef,
+    amount: f32,
+) {
+    guard("successful weapon hit", (), || {
+        let (Some(handler), Some(world), Some(attacker), Some(target)) = (
+            SUCCESSFUL_WEAPON.get(),
+            World::borrowed(world),
+            Entity::borrowed(attacker),
+            Entity::borrowed(target),
+        ) else {
+            return;
+        };
+        // SAFETY: the host borrows the item id for the call.
+        handler(world, unsafe { item.str() }, attacker, target, amount);
+    });
 }
 
 #[cfg(test)]

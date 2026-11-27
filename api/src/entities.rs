@@ -48,6 +48,7 @@ pub enum EntitiesExtension {
     PlayerInventory,
     /// Mod-controlled fall-flying, client boost and selected hotbar slot.
     PlayerFlight,
+    Attackable,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -164,6 +165,10 @@ impl Entities {
             EntitiesExtension::PlayerFlight => (
                 std::mem::offset_of!(abi::EntitiesV1, player_reset_attack),
                 "moddedmc:entities.player_flight",
+            ),
+            EntitiesExtension::Attackable => (
+                std::mem::offset_of!(abi::EntitiesV1, is_attackable),
+                "moddedmc:entities.is_attackable",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -623,6 +628,15 @@ impl<'a> Entity<'a> {
         // SAFETY: the field is size checked and the handle is borrowed.
         let id = unsafe { ((&raw const (*api).projectile_owner).read())(self.raw) };
         (id >= 0).then_some(id)
+    }
+
+    /// Whether the entity is an attackable living target, or None on an older host.
+    pub fn is_attackable(self) -> Option<bool> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, is_attackable))?;
+        // SAFETY: the appended field is present and the entity is borrowed.
+        Some(unsafe { ((&raw const (*api).is_attackable).read())(self.raw) })
     }
 
     /// Whether the entity can freeze, or None if the host lacks the extension.

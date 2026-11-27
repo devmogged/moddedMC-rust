@@ -22,18 +22,21 @@ pub static EQUIPMENT: abi::EquipmentV1 = abi::EquipmentV1 {
     on_worn_hurt,
     on_weapon_hit,
     worn_armor,
+    on_successful_weapon_hit,
 };
 
 #[derive(Clone, Copy)]
 pub enum Hook {
     Worn(abi::WornHurtFn),
     Weapon(abi::WeaponHitFn),
+    SuccessfulWeapon(abi::SuccessfulWeaponHitFn),
 }
 
 #[derive(Default)]
 struct Hooks {
     worn: HashMap<String, abi::WornHurtFn>,
     weapon: HashMap<String, abi::WeaponHitFn>,
+    successful_weapon: HashMap<String, abi::SuccessfulWeaponHitFn>,
 }
 
 static HOOKS: Mutex<Option<Hooks>> = Mutex::new(None);
@@ -49,7 +52,9 @@ unsafe fn stage(reg: Reg, item: Str, hook: Hook) -> i32 {
         id == item
             && matches!(
                 (staged, hook),
-                (Hook::Worn(_), Hook::Worn(_)) | (Hook::Weapon(_), Hook::Weapon(_))
+                (Hook::Worn(_), Hook::Worn(_))
+                    | (Hook::Weapon(_), Hook::Weapon(_))
+                    | (Hook::SuccessfulWeapon(_), Hook::SuccessfulWeapon(_))
             )
     });
     if duplicate {
@@ -69,6 +74,15 @@ unsafe extern "C" fn on_weapon_hit(reg: Reg, item: Str, callback: abi::WeaponHit
     unsafe { stage(reg, item, Hook::Weapon(callback)) }
 }
 
+unsafe extern "C" fn on_successful_weapon_hit(
+    reg: Reg,
+    item: Str,
+    callback: abi::SuccessfulWeaponHitFn,
+) -> i32 {
+    // SAFETY: forwarded from the caller.
+    unsafe { stage(reg, item, Hook::SuccessfulWeapon(callback)) }
+}
+
 /// Commit a mod's staged hooks after its registration succeeded.
 pub fn register(staged: Vec<(String, Hook)>) {
     if staged.is_empty() {
@@ -80,6 +94,9 @@ pub fn register(staged: Vec<(String, Hook)>) {
         match hook {
             Hook::Worn(callback) => hooks.worn.insert(item, callback).is_some(),
             Hook::Weapon(callback) => hooks.weapon.insert(item, callback).is_some(),
+            Hook::SuccessfulWeapon(callback) => {
+                hooks.successful_weapon.insert(item, callback).is_some()
+            }
         };
     }
 }
@@ -110,6 +127,27 @@ pub fn weapon_hit(item: &str, attacker: &Player, target: &dyn EntityBase, damage
         adjusted
     } else {
         damage
+    }
+}
+
+pub fn successful_weapon_hit(item: &str, attacker: &Player, target: &dyn EntityBase, damage: f32) {
+    let Some(callback) = lock(&HOOKS)
+        .as_ref()
+        .and_then(|hooks| hooks.successful_weapon.get(item).copied())
+    else {
+        return;
+    };
+    let world = attacker.living_entity.entity.world.load_full();
+    let attacker: &dyn EntityBase = attacker;
+    // SAFETY: world, entities and item live through this synchronous callback.
+    unsafe {
+        callback(
+            ptr::from_ref(world.as_ref()).cast(),
+            Str::new(item.as_bytes()),
+            ptr::from_ref(&attacker).cast(),
+            ptr::from_ref(&target).cast(),
+            damage,
+        );
     }
 }
 

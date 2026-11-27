@@ -461,7 +461,8 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, player_item_cooldown), 384);
         assert_eq!(offset_of!(EntitiesV1, player_damage_held_item), 392);
         assert_eq!(offset_of!(EntitiesV1, player_reset_attack), 400);
-        assert_eq!(size_of::<EntitiesV1>(), 408);
+        assert_eq!(offset_of!(EntitiesV1, is_attackable), 408);
+        assert_eq!(size_of::<EntitiesV1>(), 416);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -1118,6 +1119,8 @@ pub struct EntitiesV1 {
         unsafe extern "C" fn(entity: EntityRef, item: Str, ticks: u32) -> bool,
     pub player_damage_held_item: unsafe extern "C" fn(entity: EntityRef, amount: u32) -> bool,
     pub player_reset_attack: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// Whether a living entity may be selected as an attack target.
+    pub is_attackable: unsafe extern "C" fn(entity: EntityRef) -> bool,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.
@@ -2713,6 +2716,15 @@ pub type WeaponHitFn = unsafe extern "C" fn(
     amount: f32,
 ) -> f32;
 
+/// A successful direct melee hit on a living target, including lethal hits.
+pub type SuccessfulWeaponHitFn = unsafe extern "C" fn(
+    world: WorldRef,
+    item: Str,
+    attacker: EntityRef,
+    target: EntityRef,
+    damage_dealt: f32,
+);
+
 #[repr(C)]
 pub struct EquipmentV1 {
     pub size: usize,
@@ -2723,6 +2735,9 @@ pub struct EquipmentV1 {
     /// Read a player's head, chest, legs and feet item IDs, newline-separated in sink key 0.
     /// Empty slots are minecraft:air; false for a non-player or invalid handle.
     pub worn_armor: unsafe extern "C" fn(player: EntityRef, out: Sink) -> bool,
+    /// Observe a successful direct melee hit with this mod's item.
+    pub on_successful_weapon_hit:
+        unsafe extern "C" fn(reg: Reg, item: Str, callback: SuccessfulWeaponHitFn) -> i32,
 }
 
 #[cfg(all(test, target_pointer_width = "64"))]
@@ -2735,6 +2750,7 @@ mod equipment_layout {
         assert_eq!(offset_of!(EquipmentV1, on_worn_hurt), 8);
         assert_eq!(offset_of!(EquipmentV1, on_weapon_hit), 16);
         assert_eq!(offset_of!(EquipmentV1, worn_armor), 24);
-        assert_eq!(size_of::<EquipmentV1>(), 32);
+        assert_eq!(offset_of!(EquipmentV1, on_successful_weapon_hit), 32);
+        assert_eq!(size_of::<EquipmentV1>(), 40);
     }
 }

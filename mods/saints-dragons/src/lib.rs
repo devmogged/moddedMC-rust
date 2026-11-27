@@ -135,11 +135,14 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Damage)?;
         entities.require_extension(EntitiesExtension::PlayerInventory)?;
         entities.require_extension(EntitiesExtension::PlayerFlight)?;
+        entities.require_extension(EntitiesExtension::Attackable)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
         let _ = ENTITIES.set(entities);
-        let _ = EQUIPMENT.set(equipment::require()?);
+        let equipment = equipment::require()?;
+        equipment.require_successful_weapon_hit()?;
+        let _ = EQUIPMENT.set(equipment);
         let _ = FISH_BUCKETS.set(mobs::require_fish_buckets()?);
         if cfg!(feature = "original-assets") {
             let _ = STRUCTURE_MOBS.set(mobs::require_structure_mobs()?);
@@ -222,6 +225,11 @@ impl Mod for SaintsDragons {
             equipment.on_worn_hurt(registry, piece, armor::worn_hurt)?;
         }
         equipment.on_weapon_hit(registry, worldroot::DRAGONLORD_SWORD, worldroot::weapon_hit)?;
+        equipment.on_successful_weapon_hit(
+            registry,
+            "saintsdragons:blood_tempest_katana",
+            player_moves::successful_katana_hit,
+        )?;
         consumables::register(defaults, registry)?;
         discs::register(defaults, registry)?;
         let content = *CONTENT.get().ok_or(missing)?;

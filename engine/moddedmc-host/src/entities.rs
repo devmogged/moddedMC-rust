@@ -311,6 +311,13 @@ pub unsafe extern "C" fn projectile_owner(raw: abi::EntityRef) -> i32 {
         .map_or(-1, |owner| owner.get_entity().entity_id)
 }
 
+pub unsafe extern "C" fn is_attackable(raw: abi::EntityRef) -> bool {
+    // SAFETY: the entity is borrowed for this call.
+    unsafe { entity(raw) }.is_some_and(|base| {
+        base.get_living_entity().is_some_and(LivingEntity::is_alive) && base.can_hit()
+    })
+}
+
 pub unsafe extern "C" fn can_freeze(raw: abi::EntityRef) -> bool {
     // SAFETY: the entity is borrowed for this call.
     unsafe { entity(raw) }.is_some_and(|base| base.get_entity().can_freeze(base))
