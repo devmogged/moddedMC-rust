@@ -237,6 +237,8 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             attributes.extend([
                 ("minecraft:attack_damage", 4.0),
                 ("minecraft:follow_range", 32.0),
+                ("minecraft:armor", 0.0),
+                ("minecraft:armor_toughness", 0.0),
             ]);
         }
         if let Some(damage) = swarm_damage {
@@ -366,6 +368,17 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     kind: &kind,
                     key: flight::GOAL,
                     priority: 2,
+                    controls: goal_control::MOVE | goal_control::LOOK,
+                },
+            )?;
+        }
+        if species.name == crate::ivy::SPECIES {
+            ai.add_goal(
+                registry,
+                &Goal {
+                    kind: &kind,
+                    key: crate::ivy::COMBAT,
+                    priority: 1,
                     controls: goal_control::MOVE | goal_control::LOOK,
                 },
             )?;
@@ -590,6 +603,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
         return false;
     };
+    if name == crate::ivy::SPECIES {
+        crate::ivy::target_tick(world, mob);
+    }
     if crate::hunger::DRAGONS.contains(&name) {
         crate::hunger::tick(world, mob, species.speed, None);
     }
@@ -633,6 +649,8 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let clip = clip.or_else(|| {
         if name == "varasuchus" {
             crate::baby::eating_clip(mob.id())
+        } else if name == crate::ivy::SPECIES {
+            crate::ivy::combat_clip(mob.id(), view.motion[0].hypot(view.motion[2]) > 0.035)
         } else {
             None
         }
