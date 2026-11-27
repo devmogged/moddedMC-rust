@@ -253,6 +253,14 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:follow_range", 32.0),
             ]);
         }
+        if species.name == "stegonaut" {
+            attributes.extend([
+                ("minecraft:armor", 15.0),
+                ("minecraft:attack_damage", 2.0),
+                ("minecraft:follow_range", 32.0),
+                ("minecraft:knockback_resistance", 1.0),
+            ]);
+        }
         if let Some(damage) = swarm_damage {
             attributes.extend([
                 ("minecraft:attack_damage", damage),
@@ -272,6 +280,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let stun = crate::stun::uses_stun(species.name);
         if swarm_damage.is_some()
             || stun
+            || species.name == "stegonaut"
             || (species.name != "moop" && cfg!(feature = "original-assets"))
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
@@ -393,6 +402,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK,
                 },
             )?;
+        }
+        if species.name == "stegonaut" {
+            crate::combat_stegonaut::register(registry)?;
         }
         if species.flight.is_some() {
             ai.add_goal(
@@ -670,6 +682,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         None
     };
     let clip = clip.or_else(|| {
+        if name == "stegonaut" {
+            return crate::combat_stegonaut::clip(mob);
+        }
         if name == "varasuchus" {
             crate::baby::eating_clip(mob.id())
         } else {
