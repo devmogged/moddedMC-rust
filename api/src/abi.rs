@@ -2606,6 +2606,27 @@ pub struct ServicesV1 {
         unsafe extern "C" fn(reg: Reg, name: Str, version: u32, table: *const c_void) -> i32,
 }
 
+/// Semantic client key actions, independent of any particular mod.
+pub const PLAYER_ACTIONS: &str = "moddedmc:player_actions";
+pub const ACTION_PRESSED: u8 = 1;
+pub const ACTION_HELD: u8 = 2;
+pub const ACTION_RELEASED: u8 = 4;
+pub type PlayerActionCallback = unsafe extern "C" fn(WorldRef, EntityRef, Str, u8);
+
+#[repr(C)]
+pub struct PlayerActionsV1 {
+    pub size: usize,
+    pub add: unsafe extern "C" fn(Reg, Str, Str, Str, u8, PlayerActionCallback) -> i32,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+#[test]
+fn player_actions_layout() {
+    assert_eq!(std::mem::offset_of!(PlayerActionsV1, size), 0);
+    assert_eq!(std::mem::offset_of!(PlayerActionsV1, add), 8);
+    assert_eq!(size_of::<PlayerActionsV1>(), 16);
+}
+
 #[cfg(all(test, target_pointer_width = "64"))]
 mod services_layout {
     use super::*;

@@ -6,6 +6,13 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 
 ## Gameplay
 
+The companion now exposes the eight released rider keybinds through a generic
+versioned player-action interface, including held and released phases. The
+[stock-client smoke scenario](../tests/scenarios/p2-rider-actions.txt) checks
+registration and absence of rider callbacks for a stock client. The dragon
+callbacks currently log mounted input; ability execution, vanilla key fallbacks
+and live companion rebinding verification remain separate work.
+
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
 | Adult creature roster | Fourteen creature types with carriers, saved identity, spawn eggs and released adult base attribute values. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table, has persistent companion inventory, recruited melee and dash attacks, lethal-hit downed entry, dialogue resumption after trading and saved downed/revival counters | Ivy's original inventory UI, recovery items and projectile combat, owner-initiated targeting, exact flight navigation and collision, and carrier-independent spawn predicates and attribute presence |
@@ -649,3 +656,5 @@ Bound Stegonaut binders refresh portable Resistance I and Absorption I every 20 
 Dragon taming, hurt and combat particles, near-ground flight dust, Raevyx rend/dive dust and Atroxiia quake bursts are ported. [Particle scenario](../tests/scenarios/p2-particles.txt). Custom particle textures remain pending.
 
 Moop swim and panic goals and water movement are ported. See the Moop scenario.
+
+The host and companion expose semantic rider actions.
