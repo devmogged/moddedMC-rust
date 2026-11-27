@@ -59,7 +59,7 @@ const fn crc_table() -> [u32; 256] {
 const CRC_TABLE: [u32; 256] = crc_table();
 
 /// CRC-32C detects accidental torn/corrupted journal bytes, not hostile edits.
-fn checksum(bytes: &[u8]) -> u32 {
+pub(crate) fn checksum(bytes: &[u8]) -> u32 {
     !bytes.iter().fold(!0u32, |crc, &byte| {
         (crc >> 8) ^ CRC_TABLE[((crc ^ u32::from(byte)) & 0xff) as usize]
     })
@@ -120,6 +120,26 @@ pub struct Transition {
     pub after: Snapshot,
 }
 
+/// The live menu's immutable claim identity. A future host adapter must also
+/// verify the loaded block incarnation and its current menu validity token
+/// under the transaction fence before calling the mod.
+pub struct Claim<'a> {
+    pub menu: u64,
+    pub container: &'a str,
+    pub site: &'a crate::state::Site,
+}
+
+fn owner_uuid(owner: &str) -> Option<[u8; 16]> {
+    if !crate::state::valid_id(owner) {
+        return None;
+    }
+    let mut uuid = [0; 16];
+    for (index, byte) in uuid.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&owner[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(uuid)
+}
+
 impl Transition {
     fn valid(&self) -> bool {
         self.before.valid()
@@ -157,6 +177,43 @@ impl Journal {
             shard,
         };
         journal.valid().then_some(journal)
+    }
+
+    /// Construct the actual Lootr participant transition from the durable
+    /// pre-click shard and proposed slots, rather than accepting an arbitrary
+    /// replacement archive. All other claims, bindings, timers and counters
+    /// are retained. The caller supplies the host-validated player/cursor
+    /// transition and a live claim identity; this does not replace the
+    /// host's player/effect conservation and incarnation checks.
+    pub fn prepare_transfer<'a>(
+        transaction: i64,
+        target: Target,
+        claim: Claim<'_>,
+        player: Transition,
+        before: Snapshot,
+        slots: impl ExactSizeIterator<Item = Option<&'a [u8]>>,
+    ) -> Option<Self> {
+        if !target.valid() || !player.valid() || !before.valid() {
+            return None;
+        }
+        let (index, id) = crate::shards::split_menu(claim.menu)?;
+        if i32::try_from(index).ok()? != target.shard
+            || crate::shards::shard_for(claim.container) != Some(index)
+        {
+            return None;
+        }
+        let owner = owner_uuid(&target.player)?;
+        let mut shard = crate::shards::Shard::decode(index, &before.bytes())?;
+        if !shard.archive.site_available(claim.container, claim.site) {
+            return None;
+        }
+        let record = shard.archive.get_mut(id, owner)?;
+        if record.container != claim.container || record.site.as_ref() != Some(claim.site) {
+            return None;
+        }
+        record.replace(slots)?;
+        let after = Snapshot::new(before.revision.checked_add(1)?, &shard.encode()?)?;
+        Self::prepare(transaction, target, player, Transition { before, after })
     }
 
     fn valid(&self) -> bool {
@@ -522,6 +579,228 @@ mod tests {
                     assert_eq!(settle(&mut restarted, &journal), Ok(expected_outcome));
                     assert_eq!(total(&restarted), 7);
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_preserves_real_shard_schema_owner_isolation_and_claim_identity() {
+        use crate::{
+            shards::Shard,
+            state::{Archive, Site},
+        };
+        const CHEST: &str = "00000000000000000000000000000001";
+        const ALICE: [u8; 16] = [1; 16];
+        const BOB: [u8; 16] = [2; 16];
+
+        // Use the actual private archive format and encoded stack NBT, not
+        // raw item-count bytes. Player escrow remains a synthetic fixture
+        // until a host adapter exists.
+        #[derive(Serialize)]
+        struct Stack<'a> {
+            id: &'a str,
+            count: i32,
+        }
+        #[derive(Serialize, Deserialize)]
+        struct PlayerEscrow {
+            inventory: Vec<ByteArray>,
+            cursor: Vec<ByteArray>,
+        }
+        fn stack(id: &str, count: i32) -> Vec<u8> {
+            fastnbt::to_bytes(&Stack { id, count }).unwrap()
+        }
+        fn escrow(cursor: Option<&[u8]>) -> Vec<u8> {
+            fastnbt::to_bytes(&PlayerEscrow {
+                inventory: Vec::new(),
+                cursor: cursor
+                    .into_iter()
+                    .map(|bytes| ByteArray::new(bytes.iter().map(|&b| b as i8).collect()))
+                    .collect(),
+            })
+            .unwrap()
+        }
+        let diamond = stack("minecraft:diamond", 7);
+        let emerald = stack("minecraft:emerald", 3);
+        let mut archive = Archive::default();
+        let site = Site {
+            dimension: "minecraft:overworld".into(),
+            position: [5, 60, 8],
+        };
+        assert!(archive.bind_site(CHEST, &site));
+        let alice = archive
+            .open(CHEST, ALICE, 27, || {
+                let mut slots = vec![None; 27];
+                slots[0] = Some(diamond.clone());
+                Some(slots)
+            })
+            .unwrap();
+        let bob = archive
+            .open(CHEST, BOB, 27, || {
+                let mut slots = vec![None; 27];
+                slots[1] = Some(emerald.clone());
+                Some(slots)
+            })
+            .unwrap();
+        archive.get_mut(alice, ALICE).unwrap().site = Some(site.clone());
+        archive.get_mut(bob, BOB).unwrap().site = Some(site.clone());
+        let before = Shard::new(0, archive.clone()).encode().unwrap();
+        archive
+            .get_mut(alice, ALICE)
+            .unwrap()
+            .replace(std::iter::repeat_n(None, 27))
+            .unwrap();
+        let after = Shard::new(0, archive).encode().unwrap();
+        let target = Target {
+            save: SAVE.into(),
+            player: "01010101010101010101010101010101".into(),
+            shard: 0,
+        };
+        let player = Transition {
+            before: Snapshot::new(11, &escrow(None)).unwrap(),
+            after: Snapshot::new(12, &escrow(Some(&diamond))).unwrap(),
+        };
+        let shard_before = Snapshot::new(21, &before).unwrap();
+        let menu = crate::shards::menu_id(0, alice).unwrap();
+        let claim = || Claim {
+            menu,
+            container: CHEST,
+            site: &site,
+        };
+        let journal = Journal::prepare_transfer(
+            43,
+            target.clone(),
+            claim(),
+            player.clone(),
+            shard_before.clone(),
+            std::iter::repeat_n(None, 27),
+        )
+        .unwrap();
+        assert_eq!(journal.shard.after.bytes(), after);
+        // A caller cannot submit a replacement archive that alters another
+        // owner's claim, or use stale menu IDs after refresh.
+        let prepare = |target, claim, snapshot, count| {
+            Journal::prepare_transfer(
+                44,
+                target,
+                claim,
+                player.clone(),
+                snapshot,
+                std::iter::repeat_n(None, count),
+            )
+        };
+        assert!(
+            prepare(
+                Target {
+                    player: "02020202020202020202020202020202".into(),
+                    ..target.clone()
+                },
+                claim(),
+                shard_before.clone(),
+                27
+            )
+            .is_none()
+        );
+        assert!(
+            prepare(
+                Target {
+                    shard: 1,
+                    ..target.clone()
+                },
+                claim(),
+                shard_before.clone(),
+                27
+            )
+            .is_none()
+        );
+        let moved = Site {
+            position: [5, 60, 9],
+            ..site.clone()
+        };
+        assert!(
+            prepare(
+                target.clone(),
+                Claim {
+                    site: &moved,
+                    ..claim()
+                },
+                shard_before.clone(),
+                27
+            )
+            .is_none()
+        );
+        assert!(
+            prepare(
+                target.clone(),
+                Claim {
+                    container: "00000000000000000000000000000002",
+                    ..claim()
+                },
+                shard_before.clone(),
+                27
+            )
+            .is_none()
+        );
+        assert!(prepare(target.clone(), claim(), shard_before.clone(), 26).is_none());
+        let mut refreshed = Shard::decode(0, &before).unwrap();
+        assert_eq!(refreshed.archive.refresh(CHEST), 2);
+        let fresh = refreshed
+            .archive
+            .open(CHEST, ALICE, 27, || Some(vec![None; 27]))
+            .unwrap();
+        assert!(fresh > alice);
+        assert!(
+            prepare(
+                target.clone(),
+                claim(),
+                Snapshot::new(22, &refreshed.encode().unwrap()).unwrap(),
+                27
+            )
+            .is_none()
+        );
+        assert!(
+            prepare(
+                target,
+                claim(),
+                Snapshot::new(i64::MAX, &before).unwrap(),
+                27
+            )
+            .is_none()
+        );
+        for fail_at in 1..=5 {
+            for fail_after in [false, true] {
+                let mut disk = Memory::new(&journal);
+                disk.fail_at = Some(fail_at);
+                disk.fail_after = fail_after;
+                assert_eq!(execute(&mut disk, journal.clone()), Err(Error::Storage));
+                disk.fail_at = None;
+                settle(&mut disk, &journal).unwrap();
+                let mut restored = Shard::decode(0, &disk.shard.bytes()).unwrap().archive;
+                let player: PlayerEscrow = fastnbt::from_bytes(&disk.player.bytes()).unwrap();
+                let alice_slots = restored.get(alice, ALICE).unwrap().slots();
+                let decision = fail_at > 2 || (fail_at == 2 && fail_after);
+                assert_eq!(alice_slots[0], (!decision).then(|| diamond.clone()));
+                assert_eq!(player.cursor.len(), if decision { 1 } else { 0 });
+                if let Some(cursor) = player.cursor.first() {
+                    assert_eq!(cursor.iter().map(|&b| b as u8).collect::<Vec<_>>(), diamond);
+                }
+                assert!(player.inventory.is_empty());
+                assert_eq!(
+                    restored.get(bob, BOB).unwrap().slots()[1],
+                    Some(emerald.clone())
+                );
+                assert!(restored.get(alice, BOB).is_none());
+                assert_eq!(
+                    restored.open(CHEST, ALICE, 27, || panic!("rerolled")),
+                    Some(alice)
+                );
+                assert!(!restored.bind_site(
+                    CHEST,
+                    &Site {
+                        position: [5, 60, 9],
+                        ..site.clone()
+                    }
+                ));
+                assert_eq!(recover(&mut disk), Ok(Outcome::Clean));
             }
         }
     }

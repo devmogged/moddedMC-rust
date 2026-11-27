@@ -9,6 +9,25 @@ const VERSION: i32 = 2;
 const MIGRATED: &[u8] = b"lootr:inventories/v2/migrated";
 const MANIFEST_PREFIX: &[u8] = b"lootr:inventories/v2/manifest\0";
 
+/// Detect accidental replacement or corruption of the immutable legacy
+/// source during partial migration. Older manifests lack this extension.
+/// A zero length denotes an absent legacy key, never a valid NBT archive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LegacyStamp {
+    len: u64,
+    crc: u32,
+}
+
+impl LegacyStamp {
+    fn of(bytes: Option<&[u8]>) -> Self {
+        let bytes = bytes.unwrap_or_default();
+        Self {
+            len: bytes.len() as u64,
+            crc: crate::journal::checksum(bytes),
+        }
+    }
+}
+
 /// A durable directory distinguishes untouched shards from lost initialized
 /// shards. Writes are ordered shard -> directory -> legacy marker.
 #[derive(Clone, Copy, Default)]
@@ -17,6 +36,7 @@ struct Manifest {
     initialized: u64,
     legacy_high_water: i64,
     compacted: bool,
+    stamp: Option<LegacyStamp>,
 }
 
 impl Manifest {
@@ -26,21 +46,36 @@ impl Manifest {
         let required = u64::from_be_bytes(required.try_into().ok()?);
         let (initialized, payload) = payload.split_at_checked(8)?;
         let initialized = u64::from_be_bytes(initialized.try_into().ok()?);
-        let (high_water, compacted) = payload.split_at_checked(8)?;
+        let (high_water, payload) = payload.split_at_checked(8)?;
         let legacy_high_water = i64::from_be_bytes(high_water.try_into().ok()?);
         if !(0..=MAX_ID).contains(&legacy_high_water) {
             return None;
         }
+        let (compacted, extension) = payload.split_at_checked(1)?;
         let compacted = match compacted {
             [0] => false,
             [1] if initialized & required == required => true,
             _ => return None,
+        };
+        let stamp = if extension.is_empty() {
+            None
+        } else {
+            let (len, crc) = extension.split_at_checked(8)?;
+            let len = u64::from_be_bytes(len.try_into().ok()?);
+            let crc = u32::from_be_bytes(crc.try_into().ok()?);
+            if len > moddedmc_api::abi::MAX_SAVED_DATA_BYTES as u64
+                || (len == 0 && (crc != 0 || required != 0 || legacy_high_water != 0))
+            {
+                return None;
+            }
+            Some(LegacyStamp { len, crc })
         };
         Some(Self {
             required,
             initialized,
             legacy_high_water,
             compacted,
+            stamp,
         })
     }
 
@@ -50,6 +85,10 @@ impl Manifest {
         bytes.extend(self.initialized.to_be_bytes());
         bytes.extend(self.legacy_high_water.to_be_bytes());
         bytes.push(u8::from(self.compacted));
+        if let Some(stamp) = self.stamp {
+            bytes.extend(stamp.len.to_be_bytes());
+            bytes.extend(stamp.crc.to_be_bytes());
+        }
         bytes
     }
 
@@ -75,6 +114,21 @@ impl Manifest {
             legacy_high_water: legacy.high_water(),
             ..Self::default()
         })
+    }
+
+    fn matches_legacy(self, bytes: Option<&[u8]>, legacy: &Archive) -> bool {
+        Self::from_legacy(legacy).is_some_and(|expected| {
+            expected.required == self.required
+                && expected.legacy_high_water == self.legacy_high_water
+                && self
+                    .stamp
+                    .is_none_or(|stamp| stamp == LegacyStamp::of(bytes))
+        })
+    }
+
+    fn read_shard(self, store: &dyn Store, index: usize) -> Option<Shard> {
+        let shard = Shard::decode(index, &store.read(index)?)?;
+        (shard.archive.high_water() >= self.legacy_high_water).then_some(shard)
     }
 }
 
@@ -108,7 +162,7 @@ pub struct Shard {
 }
 
 impl Shard {
-    fn new(index: usize, archive: Archive) -> Self {
+    pub(crate) fn new(index: usize, archive: Archive) -> Self {
         Self {
             version: VERSION,
             index: index as i32,
@@ -158,7 +212,7 @@ pub fn read_initialized(store: &impl Store, index: usize) -> Option<Shard> {
     if !manifest.contains(index) {
         return None;
     }
-    Shard::decode(index, &store.read(index)?)
+    manifest.read_shard(store, index)
 }
 
 /// Existing initialized shards are authoritative, even when empty. A missing
@@ -180,11 +234,13 @@ pub fn load_or_init(store: &mut impl Store, index: usize) -> Option<Shard> {
             if (0..COUNT).any(|i| store.read(i).is_some()) {
                 return None;
             }
-            let legacy = match store.legacy() {
-                Some(bytes) => decode_legacy(&bytes)?,
+            let bytes = store.legacy();
+            let legacy = match bytes.as_deref() {
+                Some(bytes) => decode_legacy(bytes)?,
                 None => Archive::default(),
             };
-            let manifest = Manifest::from_legacy(&legacy)?;
+            let mut manifest = Manifest::from_legacy(&legacy)?;
+            manifest.stamp = Some(LegacyStamp::of(bytes.as_deref()));
             if !store.write_manifest(&manifest.encode()) {
                 return None;
             }
@@ -192,19 +248,28 @@ pub fn load_or_init(store: &mut impl Store, index: usize) -> Option<Shard> {
             manifest
         }
     };
-    let expected_initial = |store: &mut dyn Store| -> Option<Shard> {
-        let legacy = if manifest.requires_legacy(index) {
-            let legacy = match initial_legacy.as_ref() {
-                Some(legacy) => legacy.clone(),
-                None => decode_legacy(&store.legacy()?)?,
-            };
-            let expected = Manifest::from_legacy(&legacy)?;
-            if expected.required != manifest.required
-                || expected.legacy_high_water != manifest.legacy_high_water
-            {
+    // Pin an older manifest's source only when it actually needs the
+    // legacy archive. It cannot retroactively authenticate historical bytes.
+    // Persist the pin before adopting or creating an unpublished shard.
+    if !manifest.contains(index) && manifest.requires_legacy(index) && initial_legacy.is_none() {
+        let bytes = store.legacy()?;
+        let legacy = decode_legacy(&bytes)?;
+        if !manifest.matches_legacy(Some(&bytes), &legacy) {
+            return None;
+        }
+        if manifest.stamp.is_none() {
+            manifest.stamp = Some(LegacyStamp::of(Some(&bytes)));
+            if !store.write_manifest(&manifest.encode()) {
                 return None;
             }
-            legacy.partition(|id| shard_for(id) == Some(index))
+        }
+        initial_legacy = Some(legacy);
+    }
+    let expected_initial = || -> Option<Shard> {
+        let legacy = if manifest.requires_legacy(index) {
+            initial_legacy
+                .as_ref()?
+                .partition(|id| shard_for(id) == Some(index))
         } else {
             Archive::empty_at(manifest.legacy_high_water)
         };
@@ -213,17 +278,20 @@ pub fn load_or_init(store: &mut impl Store, index: usize) -> Option<Shard> {
     let shard = match store.read(index) {
         Some(bytes) => {
             let shard = Shard::decode(index, &bytes)?;
+            if shard.archive.high_water() < manifest.legacy_high_water {
+                return None;
+            }
             // A shard written before a failed manifest update was never
             // exposed to a menu. Its normalized payload must match the
             // exact initial partition before adoption.
-            if !manifest.contains(index) && shard.encode()? != expected_initial(store)?.encode()? {
+            if !manifest.contains(index) && shard.encode()? != expected_initial()?.encode()? {
                 return None;
             }
             shard
         }
         None if manifest.contains(index) => return None,
         None => {
-            let shard = expected_initial(store)?;
+            let shard = expected_initial()?;
             if !store.write(index, &shard.encode()?) {
                 return None;
             }
@@ -242,13 +310,10 @@ pub fn load_or_init(store: &mut impl Store, index: usize) -> Option<Shard> {
     // shards can still initialize after the legacy payload has been retired.
     if manifest.ready_to_compact()
         && !manifest.compacted
-        && (0..COUNT).filter(|&i| manifest.contains(i)).all(|i| {
-            store
-                .read(i)
-                .and_then(|bytes| Shard::decode(i, &bytes))
-                .is_some()
-        })
-        && store.mark_migrated(MIGRATED)
+        && (0..COUNT)
+            .filter(|&i| manifest.contains(i))
+            .all(|i| manifest.read_shard(store, i).is_some())
+        && retire_legacy(store, manifest)
     {
         // A missing unrelated shard prevents retirement of the legacy backup,
         // not use of this healthy shard. Never regenerate an initialized shard.
@@ -256,6 +321,24 @@ pub fn load_or_init(store: &mut impl Store, index: usize) -> Option<Shard> {
         let _ = store.write_manifest(&manifest.encode());
     }
     Some(shard)
+}
+
+/// The marker may already be durable if the following manifest write failed.
+/// Otherwise verify the old source before discarding it. Corruption in an
+/// unrelated source does not prevent use of an already published shard.
+fn retire_legacy(store: &mut impl Store, manifest: Manifest) -> bool {
+    let bytes = store.legacy();
+    if bytes.as_deref() == Some(MIGRATED) {
+        return true;
+    }
+    let legacy = match bytes.as_deref() {
+        Some(bytes) => match decode_legacy(bytes) {
+            Some(legacy) => legacy,
+            None => return false,
+        },
+        None => Archive::default(),
+    };
+    manifest.matches_legacy(bytes.as_deref(), &legacy) && store.mark_migrated(MIGRATED)
 }
 
 fn decode_legacy(bytes: &[u8]) -> Option<Archive> {
@@ -508,6 +591,119 @@ mod tests {
         assert!(read_initialized(&store, 1).is_none());
         assert!(load_or_init(&mut store, 2).is_none());
         assert!(!store.shards.contains_key(&2));
+    }
+
+    #[test]
+    fn legacy_source_replacement_with_same_mask_and_counter_is_refused() {
+        let (mut store, a, _, c) = fixture();
+        let original = store.legacy.clone().unwrap();
+        assert!(load_or_init(&mut store, 0).is_some());
+        let original_manifest = Manifest::decode(&store.manifest().unwrap()).unwrap();
+        assert_eq!(
+            original_manifest.stamp,
+            Some(LegacyStamp::of(Some(&original)))
+        );
+
+        // A different but otherwise valid archive can keep both the required
+        // mask and the allocation counter unchanged. It must not silently
+        // replace the previously pinned migration source.
+        let mut altered = decode_legacy(&original).unwrap();
+        let mut slots: [Option<&[u8]>; 27] = [None; 27];
+        slots[0] = Some(&[1, 2, 3]);
+        altered
+            .get_mut(c, [1; 16])
+            .unwrap()
+            .replace(slots.into_iter())
+            .unwrap();
+        let modified = fastnbt::to_bytes(&altered).unwrap();
+        let structural = Manifest::from_legacy(&altered).unwrap();
+        assert_eq!(structural.required, original_manifest.required);
+        assert_eq!(
+            structural.legacy_high_water,
+            original_manifest.legacy_high_water
+        );
+        store.legacy = Some(modified);
+        assert!(load_or_init(&mut store, 63).is_none());
+        assert!(!store.shards.contains_key(&63));
+        assert!(
+            read_initialized(&store, 0)
+                .unwrap()
+                .archive
+                .get(a, [1; 16])
+                .is_some()
+        );
+        assert!(store.legacy.as_deref() != Some(MIGRATED));
+
+        store.legacy = Some(original);
+        assert!(load_or_init(&mut store, 63).is_some());
+        assert_eq!(store.legacy.as_deref(), Some(MIGRATED));
+    }
+
+    #[test]
+    fn old_manifest_is_readable_and_pin_write_failure_does_not_publish() {
+        let (mut store, _, _, c) = fixture();
+        let source = store.legacy.clone().unwrap();
+        let old = Manifest::from_legacy(&decode_legacy(&source).unwrap()).unwrap();
+        let old_bytes = old.encode();
+        assert!(Manifest::decode(&old_bytes).unwrap().stamp.is_none());
+        store.manifest = Some(old_bytes.clone());
+        store.reject_manifest = true;
+        assert!(load_or_init(&mut store, 63).is_none());
+        assert_eq!(store.manifest.as_deref(), Some(old_bytes.as_slice()));
+        assert!(store.shards.is_empty());
+        store.reject_manifest = false;
+        assert!(
+            load_or_init(&mut store, 63)
+                .unwrap()
+                .archive
+                .get(c, [1; 16])
+                .is_some()
+        );
+        let pinned = Manifest::decode(&store.manifest().unwrap()).unwrap();
+        assert_eq!(pinned.stamp, Some(LegacyStamp::of(Some(&source))));
+        assert!(pinned.contains(63));
+        // An older reader rejects the extension rather than falling back
+        // to the old claims. The upgrade is intentionally one-way.
+        assert_eq!(pinned.encode().len(), old_bytes.len() + 12);
+    }
+
+    #[test]
+    fn initialized_shard_cannot_regress_below_legacy_counter() {
+        let (mut store, _, _, c) = fixture();
+        assert!(load_or_init(&mut store, 0).is_some());
+        let original = store.shards.get(&0).unwrap().clone();
+        let regressed = Shard::new(0, Archive::empty_at(c - 1)).encode().unwrap();
+        assert!(Shard::decode(0, &regressed).is_some());
+        store.shards.insert(0, regressed);
+        assert!(read_initialized(&store, 0).is_none());
+        assert!(load_or_init(&mut store, 0).is_none());
+        assert!(load_or_init(&mut store, 63).is_some());
+        assert_ne!(store.legacy.as_deref(), Some(MIGRATED));
+        store.shards.insert(0, original);
+        assert!(load_or_init(&mut store, 0).is_some());
+        assert_eq!(store.legacy.as_deref(), Some(MIGRATED));
+    }
+
+    #[test]
+    fn partial_compaction_never_discards_changed_legacy_source() {
+        let (mut store, _, _, _) = fixture();
+        let source = store.legacy.clone().unwrap();
+        store.reject_marker = true;
+        assert!(load_or_init(&mut store, 0).is_some());
+        assert!(load_or_init(&mut store, 63).is_some());
+        let changed = vec![1, 2, 3];
+        store.legacy = Some(changed.clone());
+        store.reject_marker = false;
+        assert!(load_or_init(&mut store, 0).is_some());
+        assert_eq!(store.legacy, Some(changed));
+        assert!(
+            !Manifest::decode(&store.manifest().unwrap())
+                .unwrap()
+                .compacted
+        );
+        store.legacy = Some(source);
+        assert!(load_or_init(&mut store, 0).is_some());
+        assert_eq!(store.legacy.as_deref(), Some(MIGRATED));
     }
 
     /// The host flushes one atomic file containing all saved-data keys.
