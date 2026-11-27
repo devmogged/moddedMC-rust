@@ -233,25 +233,6 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             ("minecraft:max_health", species.health),
             ("minecraft:movement_speed", species.speed),
         ];
-        if species.name == "volitans" {
-            for (key, controls) in [
-                (crate::combat_volitans::TARGET, goal_control::TARGET),
-                (
-                    crate::combat_volitans::COMBAT,
-                    goal_control::MOVE | goal_control::LOOK,
-                ),
-            ] {
-                ai.add_goal(
-                    registry,
-                    &Goal {
-                        kind: &kind,
-                        key,
-                        priority: 1,
-                        controls,
-                    },
-                )?;
-            }
-        }
         if species.name == "raevyx" {
             attributes.extend([
                 ("minecraft:armor", 8.0),
@@ -264,6 +245,14 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             attributes.extend([
                 ("minecraft:attack_damage", 4.0),
                 ("minecraft:follow_range", 32.0),
+            ]);
+        }
+        if species.name == "varasuchus" {
+            attributes.extend([
+                ("minecraft:attack_damage", 10.0),
+                ("minecraft:armor", 8.0),
+                ("minecraft:follow_range", 32.0),
+                ("minecraft:knockback_resistance", 1.0),
             ]);
         }
         if species.name == "stegonaut" {
@@ -305,6 +294,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         if swarm_damage.is_some()
             || stun
             || species.name == "stegonaut"
+            || species.name == "varasuchus"
             || (species.name != "moop" && cfg!(feature = "original-assets"))
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
@@ -473,6 +463,26 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                         kind: &kind,
                         key,
                         priority: 1,
+                        controls,
+                    },
+                )?;
+            }
+        }
+        if species.name == "varasuchus" {
+            for (key, priority, controls) in [
+                (crate::combat_varasuchus::TARGET, 0, 0),
+                (
+                    crate::combat_varasuchus::COMBAT,
+                    1,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
                         controls,
                     },
                 )?;
@@ -768,7 +778,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             return crate::combat_stegonaut::clip(mob);
         }
         if name == "varasuchus" {
-            crate::baby::eating_clip(mob.id())
+            crate::combat_varasuchus::clip(mob).or_else(|| crate::baby::eating_clip(mob.id()))
         } else {
             None
         }
