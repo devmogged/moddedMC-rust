@@ -345,6 +345,27 @@ impl Ambient {
     }
 }
 
+/// DragonEntity.tickAmbientVocalSounds resets its timer even when the selector
+/// or DragonSoundHandler suppresses the vocal. The individual species decide
+/// whether to pause the timer before reaching that method.
+fn ambient_gate(name: &str, juvenile: bool, sitting: bool, targeting: bool) -> (bool, bool) {
+    let pause = match name {
+        "cindervane" | "atroxiia" => juvenile || targeting,
+        "ignivorus" | "volitans" => juvenile || targeting || sitting,
+        "varasuchus" => juvenile || sitting,
+        _ => false,
+    };
+    let mute = juvenile
+        || (sitting && name != "nulljaw")
+        || (targeting && matches!(name, "stegonaut" | "raevyx" | "varasuchus"));
+    (pause, mute)
+}
+
+fn ambient_pitch(name: &str, base: f32, variance: f32, roll: f32) -> f32 {
+    // NulljawSoundProfile alone centers its pitch variance around zero.
+    base + if name == "nulljaw" { roll - 0.5 } else { roll } * variance
+}
+
 #[derive(Default)]
 struct AudioState {
     remaining: u64,
@@ -435,20 +456,20 @@ pub fn tick_clip(
         matches!(name, "ignivorus" | "varasuchus") && crate::roost::sleep_clip(mob.id()).is_some();
     let riding = matches!(name, "cindervane" | "volitans" | "nulljaw")
         && MOBS.get().is_some_and(|m| !m.passengers(mob).is_empty());
-    let targeting = matches!(name, "cindervane" | "volitans" | "ignivorus")
-        && crate::MOB_AI.get().and_then(|ai| ai.target(mob)).is_some();
+    let targeting =
+        profile.is_some() && crate::MOB_AI.get().and_then(|ai| ai.target(mob)).is_some();
+    let sitting = profile.is_some() && crate::taming::order_name(mob) == "stay";
+    let (pause_vocal, mute_vocal) = ambient_gate(name, juvenile, sitting, targeting);
     let cindervane_attack = name == "cindervane"
         && (crate::combat::active_attack(mob).is_some() || crate::combat::fire_active(mob));
-    let can_vocal = !juvenile
+    let tick_vocal = !pause_vocal
         && !sleeping
         && !riding
-        && !targeting
         && !cindervane_attack
-        && !(matches!(
-            name,
-            "ignivorus" | "varasuchus" | "volitans" | "cindervane" | "raevyx"
-        ) && crate::taming::order_name(mob) == "stay")
-        && !matches!(clip, "hurt" | "die" | "takeoff" | "landing" | "landed");
+        && clip != "die"
+        && !(matches!(name, "cindervane" | "volitans")
+            && matches!(clip, "takeoff" | "landing" | "landed"))
+        && !(name == "ignivorus" && matches!(clip, "bulldozing" | "leap"));
     let (voice, cue, transition, swarm_voice) = {
         let mut all = AUDIO.lock().unwrap_or_else(PoisonError::into_inner);
         let state = all.get_or_insert_default().entry(mob.id()).or_default();
@@ -459,7 +480,7 @@ pub fn tick_clip(
             if state.remaining == 0 {
                 state.remaining = p.delay(true);
             }
-            if !can_vocal {
+            if !tick_vocal {
                 return None;
             }
             state.remaining -= 1;
@@ -467,6 +488,9 @@ pub fn tick_clip(
                 return None;
             }
             state.remaining = p.delay(false);
+            if mute_vocal || clip == "hurt" {
+                return None;
+            }
             let i = p.voice(random_float());
             Some((i, p.voices[i]))
         });
@@ -513,7 +537,7 @@ pub fn tick_clip(
             mob,
             &format!("saintsdragons:{name}_grumble{separator}{}", i + 1),
             volume,
-            pitch + random_float() * variance,
+            ambient_pitch(name, pitch, variance, random_float()),
         );
     }
     if cue {
@@ -579,6 +603,20 @@ mod tests {
         }
         assert_eq!([p.voice(0.0), p.voice(0.45), p.voice(0.8)], [0, 1, 2]);
         assert!(ambient_profile("moop").is_none());
+    }
+    #[test]
+    fn ambient_gates_distinguish_paused_timers_from_muted_vocals() {
+        assert_eq!(ambient_gate("stegonaut", false, true, false), (false, true));
+        assert_eq!(ambient_gate("stegonaut", false, false, true), (false, true));
+        assert_eq!(ambient_gate("atroxiia", false, false, true), (true, false));
+        assert_eq!(ambient_gate("nulljaw", false, true, false), (false, false));
+        assert_eq!(ambient_gate("nulljaw", true, false, false), (false, true));
+        assert_eq!(
+            ambient_gate("varasuchus", false, false, true),
+            (false, true)
+        );
+        assert!((ambient_pitch("nulljaw", 1.0, 0.08, 0.0) - 0.96).abs() < 0.0001);
+        assert!((ambient_pitch("raevyx", 1.0, 0.08, 0.0) - 1.0).abs() < 0.0001);
     }
     #[test]
     fn released_keyframes_use_clip_time() {
