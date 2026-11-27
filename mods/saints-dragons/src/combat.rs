@@ -60,6 +60,11 @@ fn with_combat<T>(mob: Entity<'_>, f: impl FnOnce(&mut Combat) -> T) -> T {
 }
 
 pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -> bool {
+    if MOBS.get().and_then(|mobs| mobs.kind(mob)) == Some("saintsdragons:raevyx")
+        && crate::combat_raevyx::immune(mob, damage_type)
+    {
+        return false;
+    }
     if MOBS.get().and_then(|m| m.kind(mob)) == Some("saintsdragons:ignivorus")
         && crate::combat_ignivorus::immune(mob, damage_type)
     {
@@ -74,6 +79,15 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
         && !IMMUNE.contains(&damage_type)
     {
         crate::roost::wake(mob, true, 600);
+    }
+    if MOBS.get().and_then(|m| m.kind(mob)) == Some("saintsdragons:volitans")
+        && !matches!(
+            damage_type,
+            "minecraft:out_of_world" | "minecraft:generic_kill"
+        )
+        && crate::combat_volitans::exit_invulnerable(mob)
+    {
+        return false;
     }
     if !crate::stun::hurt(world, mob, damage_type, amount) {
         return false;
@@ -260,6 +274,10 @@ pub fn last(mob: Entity<'_>) -> Option<&'static str> {
 
 pub fn fire_active(mob: Entity<'_>) -> bool {
     with_combat(mob, |c| c.abilities.fire_active())
+}
+
+pub fn suppress_fire(mob: Entity<'_>) {
+    with_combat(mob, |c| c.abilities.suppress_fire());
 }
 
 pub fn active_attack(mob: Entity<'_>) -> Option<Attack> {

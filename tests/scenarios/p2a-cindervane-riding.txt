@@ -7,10 +7,14 @@ wait 3
 expect \[bot\] joined as tester
 cmd op tester
 cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
 cmd tp tester 1025.5 101 1027.5
-wait 4
+cmd forceload add 1017 1017 1033 1033
+wait 12
 cmd fill 1017 99 1017 1033 99 1033 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd fill 1017 100 1017 1033 120 1033 minecraft:air
+await 30 Successfully filled|No blocks were filled
 cmd time set midnight
 wait 1
 cmd cindervane spawn 1025 100 1025
@@ -67,7 +71,7 @@ wait 1
 expect state=tamed\+saddled ai=on
 # Let the final meal's 200-tick regeneration expire before measuring damage.
 wait 11
-cmd damage @e[type=minecraft:ravager,limit=1] 10 minecraft:magic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 10 minecraft:magic
 wait 1
 cmd cindervane find 1025 100 1025
 wait 1
@@ -89,17 +93,17 @@ wait 0.75
 bot expect riding ravager
 wait 0.5
 expect \[bot\] expect riding ok ravager
-cmd execute if entity @e[type=minecraft:ravager,x=1020,y=104,z=1020,dx=11,dy=30,dz=11]
+cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},x=1020,y=104,z=1020,dx=11,dy=30,dz=11]
 wait 0.5
 expect Test failed
 bot input jump
 wait 1.25
-cmd execute if entity @e[type=minecraft:ravager,x=1020,y=104,z=1020,dx=11,dy=30,dz=11]
+cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},x=1020,y=104,z=1020,dx=11,dy=30,dz=11]
 bot input none
 wait 0.5
 expect Test passed
 wait 12
-cmd execute if entity @e[type=minecraft:ravager,x=1025.5,y=100,z=1025.5,distance=..3]
+cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},x=1025.5,y=100,z=1025.5,distance=..3]
 wait 0.5
 expect Test passed
 bot input sneak
@@ -109,7 +113,7 @@ wait 0.5
 expect \[bot\] expect riding ok none
 cmd tp tester 1033.5 101 1025.5
 wait 1
-cmd damage @e[type=minecraft:ravager,limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1000 minecraft:generic
 wait 3
 cmd cindervane find 1025 100 1025
 wait 1

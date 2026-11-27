@@ -1,0 +1,12 @@
+# Lightning strikes the block below its feet using floored coordinates.
+seed 12345
+area 0 149 0 8 154 8
+start
+cmd difficulty peaceful
+cmd fill 0 150 0 8 154 8 minecraft:air
+cmd setblock 3 151 5 minecraft:weathered_copper
+cmd summon minecraft:lightning_bolt 3.5 152 5.5
+tick 1
+probe execute if block 3 151 5 minecraft:copper_block
+expect Test passed
+stop

@@ -1,0 +1,23 @@
+# Breaking a waterlogged block leaves its source water behind.
+seed 12345
+area 0 149 0 8 154 8
+start
+cmd fill 0 150 0 8 150 8 minecraft:stone
+cmd fill 0 151 0 8 154 8 minecraft:air
+cmd setblock 3 151 3 minecraft:glass_pane[waterlogged=true]
+cmd setblock 4 151 3 minecraft:iron_bars[waterlogged=false]
+bot join alice
+cmd gamemode creative alice
+cmd tp alice 3.5 151 1.5 0 0
+bot alice await-teleport
+tick 2
+bot alice break 3 151 3
+probe execute if block 3 151 3 minecraft:water[level=0]
+expect Test passed
+bot alice break 4 151 3
+probe execute if block 4 151 3 minecraft:air
+expect Test passed
+tick 1
+bot alice expect block 3 151 3 minecraft:water[level=0]
+bot alice expect block 4 151 3 minecraft:air
+stop
