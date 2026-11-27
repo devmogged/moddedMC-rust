@@ -19,6 +19,8 @@ pub const COMBAT: u64 = 101;
 const DATA: &str = "saintsdragons:atroxiia_combat";
 const KIND: &str = "saintsdragons:atroxiia";
 const FOLLOW: f64 = 32.0;
+const FREEZE_THRESHOLD: i32 = 140;
+const COMBO_WINDOW: i64 = 100;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[repr(usize)]
@@ -85,6 +87,9 @@ struct State {
     yaw: f32,
     last_hurt: i32,
     owner_hurt: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    combo_target: Option<[i8; 16]>,
+    combo_until: i64,
 }
 
 fn now() -> i64 {
@@ -127,6 +132,59 @@ impl State {
         }
         self.right = !self.right;
         self.yaw = yaw;
+    }
+    fn clear_combo(&mut self) {
+        self.combo_target = None;
+        self.combo_until = 0;
+    }
+    fn reserve_combo(&mut self, target: Option<[i8; 16]>) {
+        self.combo_target = target;
+        self.combo_until = 0;
+    }
+    /// AtroxiiaGroundCombatBehaviour.armGungnirComboAfterQuake.
+    fn arm_combo(&mut self, target: Option<[i8; 16]>, frozen: bool, time: i64) {
+        if self.combo_target.is_some() && self.combo_until == 0 {
+            if self.combo_target == target && frozen {
+                self.combo_until = time + COMBO_WINDOW - 1;
+            } else {
+                self.clear_combo();
+            }
+        }
+    }
+    /// AtroxiiaGroundCombatBehaviour.handleGungnirCombo. A reserved follow-up
+    /// ignores the global major cooldown, but obeys cadence and its own cooldown.
+    fn combo_action(
+        &mut self,
+        target: Option<[i8; 16]>,
+        time: i64,
+        sight: bool,
+        can_start: bool,
+        snapshot: &Snapshot,
+    ) -> Option<Option<Attack>> {
+        self.combo_target?;
+        if self.combo_target != target || !snapshot.frozen || time >= self.combo_until {
+            self.clear_combo();
+            return None;
+        }
+        if !sight || !snapshot.grounded {
+            return Some(None);
+        }
+        if snapshot.gap <= 4.0 {
+            self.clear_combo();
+            return None;
+        }
+        if snapshot.gap > 8.0 || snapshot.facing < 0.82 {
+            return Some(None);
+        }
+        if !snapshot.clear_lane {
+            self.clear_combo();
+            return None;
+        }
+        if !can_start || time < self.cadence || time < self.cooldown[Attack::Gungnir as usize] {
+            return Some(None);
+        }
+        self.clear_combo();
+        Some(Some(Attack::Gungnir))
     }
 }
 
@@ -187,6 +245,26 @@ fn gap(a: EntityView, b: EntityView, aw: f64, bw: f64) -> f64 {
 }
 fn wet(world: World<'_>, position: [f64; 3]) -> bool {
     crate::eggs::water_at(world, crate::flight::cell(position))
+}
+fn sight(world: World<'_>, mob: Entity<'_>, a: EntityBody, b: EntityBody) -> bool {
+    // shortcut: eye heights are not exposed; approximate them from collision boxes.
+    let eye = |body: EntityBody| {
+        [
+            (body.min[0] + body.max[0]) * 0.5,
+            body.min[1] + (body.max[1] - body.min[1]) * 0.85,
+            (body.min[2] + body.max[2]) * 0.5,
+        ]
+    };
+    world
+        .raycast(eye(a), eye(b), Some(mob.id()))
+        .is_some_and(|(block, _)| block.is_none())
+}
+fn clear_lane(world: World<'_>, mut body: EntityBody, direction: [f64; 3], gap: f64) -> bool {
+    body.min = inflate(body.min, [0.05, 0.02, 0.05]);
+    body.max = inflate(body.max, [-0.05, -0.02, -0.05]);
+    let distance = (gap - 0.35).clamp(0.0, 8.0);
+    (1..distance.ceil() as i32)
+        .all(|step| crate::flight::clear_body(world, body, direction.map(|v| v * f64::from(step))))
 }
 fn locate(
     world: World<'_>,
@@ -272,6 +350,7 @@ struct Snapshot {
     lateral: f64,
     grounded: bool,
     clear_lane: bool,
+    frozen: bool,
 }
 
 /// AtroxiiaGroundCombatBehaviour.selectAction.
@@ -302,6 +381,7 @@ fn choose(s: &State, t: i64, x: &Snapshot) -> Option<Attack> {
             && x.clear_lane
             && x.health >= 12.0
             && x.grounded
+            && !x.frozen
             && g > 4.0
             && g <= 8.0
             && (x.retreat >= 0.04 || x.kite >= 12)
@@ -386,6 +466,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         goal_phase::STOP => {
             s.active = None;
             s.kite = 0;
+            s.clear_combo();
             s.save(mob);
             ai.stop(mob);
             false
@@ -412,10 +493,33 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 }
             }
             let Some((id, (at, target_body, (health, max)))) = target else {
+                s.clear_combo();
+                s.save(mob);
                 return false;
             };
             let delta = sub(at.position, view.position);
             let g = gap(view, at, width(body), width(target_body));
+            let visible = sight(world, mob, body, target_body);
+            let (uuid, frozen) = ENTITIES
+                .get()
+                .and_then(|entities| {
+                    entities.with_entity(world, id, |target| {
+                        (
+                            MOBS.get()
+                                .and_then(|mobs| mobs.uuid(target))
+                                .map(|uuid| uuid.map(|byte| byte as i8)),
+                            target
+                                .ticks_frozen()
+                                .is_some_and(|ticks| ticks >= FREEZE_THRESHOLD),
+                        )
+                    })
+                })
+                .unwrap_or_default();
+            if swimming {
+                s.clear_combo();
+            } else {
+                s.arm_combo(uuid, frozen, t);
+            }
             ai.look_at(mob, at.position);
             let yaw = turn(mob, view, delta, if swimming { 8.0 } else { 12.0 });
             if swimming {
@@ -426,54 +530,61 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                     motion: delta.map(|v| v / norm * 0.30),
                     ..Default::default()
                 });
-            } else if g > 6.0 {
+            } else if g > 6.0 || !visible {
                 if t % 5 == 0 || !ai.navigating(mob) {
                     ai.walk_to(mob, at.position, 1.45);
                 }
             } else {
                 ai.stop(mob);
             }
-            s.kite = if g > 7.5 {
+            s.kite = if visible && g > 7.5 {
                 (s.kite + 1).min(100)
             } else {
                 (s.kite - 2).max(0)
             };
-            if t < s.decision || (!swimming && !view.on_ground) {
-                s.save(mob);
-                return false;
-            }
-            s.decision = t + 6;
             let dir = horizontal(delta, forward(yaw));
             let retreat = dot(dir, at.motion);
             let lateral = (at.motion[0] - dir[0] * retreat).hypot(at.motion[2] - dir[2] * retreat);
             let facing = dot(dir, forward(yaw));
-            let attack = if swimming {
-                (g <= 5.0 && s.ready(Attack::Bite, t)).then_some(Attack::Bite)
+            let mut snapshot = Snapshot {
+                gap: g,
+                facing,
+                enemies: 1,
+                health,
+                ratio: health / max.max(1.0),
+                kite: s.kite,
+                retreat,
+                lateral,
+                grounded: !wet(world, at.position)
+                    && at.motion[1] <= 0.08
+                    && (at.on_ground
+                        || !crate::flight::clear_body(world, target_body, [0.0, -0.12, 0.0])),
+                clear_lane: false,
+                frozen,
+            };
+            if !swimming && visible && (4.0..=8.0).contains(&g) {
+                // shortcut: clear_body treats any occupied collision cell as solid.
+                snapshot.clear_lane = clear_lane(world, body, dir, g);
+            }
+            let combo = s.combo_action(uuid, t, visible, view.on_ground, &snapshot);
+            let attack = if let Some(action) = combo {
+                action
+            } else if !visible || t < s.decision || (!swimming && !view.on_ground) {
+                None
             } else {
-                let enemies = engaged(world, mob, id, body);
-                // shortcut: native frozen ticks and LOS are not exposed; the frozen-target combo
-                // needs those calls. The block collision sweep approximates the Java lane check.
-                choose(
-                    &s,
-                    t,
-                    &Snapshot {
-                        gap: g,
-                        facing,
-                        enemies,
-                        health,
-                        ratio: health / max.max(1.0),
-                        kite: s.kite,
-                        retreat,
-                        lateral,
-                        grounded: at.on_ground && !wet(world, at.position) && at.motion[1] <= 0.08,
-                        clear_lane: (1..=((g - 0.35).clamp(0.0, 8.0) as i32)).all(|step| {
-                            crate::flight::clear_body(world, body, dir.map(|v| v * f64::from(step)))
-                        }),
-                    },
-                )
+                s.decision = t + 6;
+                if swimming {
+                    (g <= 5.0 && s.ready(Attack::Bite, t)).then_some(Attack::Bite)
+                } else {
+                    snapshot.enemies = engaged(world, mob, id, body);
+                    choose(&s, t, &snapshot)
+                }
             };
             if let Some(a) = attack {
                 s.begin(a, t, yaw);
+                if a == Attack::Quake {
+                    s.reserve_combo(uuid);
+                }
                 sound(world, mob, a, 0);
                 if a != Attack::Bite {
                     ai.stop(mob);
@@ -530,10 +641,20 @@ fn push(target: Entity<'_>, direction: [f64; 3], strength: f64, lift: f64) {
     }
 }
 
-/// AtroxiiaFrostImpact.apply. Native frozen ticks need host support.
+fn frost_ticks(current: i32, duration: i32) -> i32 {
+    current.max(FREEZE_THRESHOLD + duration.max(1) * 2)
+}
+
+/// AtroxiiaFrostImpact.apply.
 fn frost(world: World<'_>, target: Entity<'_>, ticks: i32, particles: bool) {
+    let ticks = ticks.max(1);
     target.add_effect("minecraft:slowness", ticks, 6, false, true);
     target.add_effect("minecraft:weakness", ticks, 1, false, true);
+    // shortcut: the host does not expose canFreeze and currently clamps the
+    // counter to 140; the release's excess freeze duration needs engine support.
+    if let Some(current) = target.ticks_frozen() {
+        target.set_ticks_frozen(frost_ticks(current, ticks));
+    }
     if particles && let (Some(e), Some(v)) = (EFFECTS.get(), target.view()) {
         e.particles(
             world,
@@ -885,6 +1006,7 @@ mod tests {
             lateral: 0.0,
             grounded: true,
             clear_lane: true,
+            frozen: false,
         }
     }
     #[test]
@@ -900,10 +1022,69 @@ mod tests {
         assert_eq!(choose(&s, 0, &retreat), Some(Attack::Gungnir));
         retreat.clear_lane = false;
         assert_eq!(choose(&s, 0, &retreat), None);
+        retreat.clear_lane = true;
+        retreat.frozen = true;
+        assert_eq!(choose(&s, 0, &retreat), None);
         s.begin(Attack::Sweep, 0, 0.0);
         assert_eq!(choose(&s, 31, &snap(2.0)), None);
         assert_eq!(choose(&s, 32, &snap(2.0)), Some(Attack::Slam));
         assert_eq!(choose(&s, 240, &snap(2.0)), Some(Attack::Sweep));
+    }
+    #[test]
+    fn frost_impact_preserves_existing_freeze_and_requests_full_duration() {
+        assert_eq!(frost_ticks(0, 100), 340);
+        assert_eq!(frost_ticks(400, 100), 400);
+        assert_eq!(frost_ticks(0, 60), 260);
+        assert_eq!(frost_ticks(0, 0), 142);
+    }
+    #[test]
+    fn quake_combo_waits_for_cadence_and_bypasses_only_major_cooldown() {
+        let mut s = State::default();
+        let target = Some([42; 16]);
+        s.begin(Attack::Quake, 0, 0.0);
+        s.reserve_combo(target);
+        s.arm_combo(target, true, 39);
+        let mut x = snap(7.0);
+        x.frozen = true;
+        assert_eq!(s.combo_action(target, 39, true, true, &x), Some(None));
+        assert_eq!(s.combo_action(target, 50, false, true, &x), Some(None));
+        assert_eq!(s.combo_action(target, 51, true, false, &x), Some(None));
+        x.grounded = false;
+        assert_eq!(s.combo_action(target, 52, true, true, &x), Some(None));
+        x.grounded = true;
+        s.cooldown[Attack::Gungnir as usize] = 60;
+        assert_eq!(s.combo_action(target, 59, true, true, &x), Some(None));
+        assert!(!s.ready(Attack::Gungnir, 60));
+        assert_eq!(
+            s.combo_action(target, 60, true, true, &x),
+            Some(Some(Attack::Gungnir))
+        );
+        assert_eq!(s.combo_target, None);
+    }
+    #[test]
+    fn quake_combo_expires_or_cancels_on_target_change_thaw_and_blocked_lane() {
+        let target = Some([1; 16]);
+        let mut x = snap(7.0);
+        x.frozen = true;
+        let armed = || {
+            let mut s = State::default();
+            s.reserve_combo(target);
+            s.arm_combo(target, true, 39);
+            s
+        };
+        assert_eq!(armed().combo_action(target, 138, true, true, &x), None);
+        assert_eq!(
+            armed().combo_action(Some([2; 16]), 50, true, true, &x),
+            None
+        );
+        x.frozen = false;
+        assert_eq!(armed().combo_action(target, 50, true, true, &x), None);
+        x.frozen = true;
+        x.clear_lane = false;
+        assert_eq!(armed().combo_action(target, 50, true, true, &x), None);
+        x.clear_lane = true;
+        x.gap = 4.0;
+        assert_eq!(armed().combo_action(target, 50, true, true, &x), None);
     }
     #[test]
     fn forward_geometry_rejects_behind() {
@@ -938,8 +1119,10 @@ mod tests {
         assert_eq!(empty.active, None);
         let mut s = State::default();
         s.begin(Attack::Sweep, 12, 0.0);
+        s.reserve_combo(Some([-2; 16]));
         let d: State = fastnbt::from_bytes(&fastnbt::to_bytes(&s).unwrap()).unwrap();
         assert_eq!(d.active, Some(Attack::Sweep));
         assert_eq!(d.cooldown[0], 252);
+        assert_eq!(d.combo_target, Some([-2; 16]));
     }
 }
