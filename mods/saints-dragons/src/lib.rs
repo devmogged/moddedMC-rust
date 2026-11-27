@@ -124,6 +124,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
         entities.require_extension(EntitiesExtension::Players)?;
+        entities.require_extension(EntitiesExtension::Damage)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }

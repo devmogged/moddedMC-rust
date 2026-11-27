@@ -88,6 +88,7 @@ fn inventory(world: World<'_>, uuid: [u8; 16]) -> Option<Vec<Option<Vec<u8>>>> {
 fn can_access(ivy: Entity<'_>, viewer: Entity<'_>) -> bool {
     MOBS.get().is_some_and(|mobs| mobs.kind(ivy) == Some(KIND))
         && ivy.flags() & ENTITY_ALIVE != 0
+        && !downed_state(ivy).active()
         && taming::is_owner(ivy, viewer)
         && ivy.view().zip(viewer.view()).is_some_and(|(a, b)| {
             flight::length_squared(flight::offset(a.position, b.position)) < RADIUS * RADIUS
@@ -658,6 +659,29 @@ pub fn use_on_mob(click: &UseMob<'_>) -> UseResult {
     let (Some(viewer), Some(ivy)) = (click.player, click.mob) else {
         return UseResult::Pass;
     };
+    let mut downed = downed_state(ivy);
+    if downed.active() {
+        if downed.downed
+            && taming::is_owner(ivy, viewer)
+            && viewer.view().zip(ivy.view()).is_some_and(|(a, b)| {
+                flight::length_squared(flight::offset(a.position, b.position)) <= 9.0
+            })
+        {
+            downed.interact();
+            if let Some(mobs) = MOBS.get() {
+                mobs.message(
+                    viewer,
+                    &format!("Reviving Ivy... {}/60", downed.downed_revive_progress),
+                    true,
+                );
+            }
+            if downed.downed_revive_progress >= 60 {
+                revive(ivy, &mut downed);
+            }
+            save_downed(ivy, &downed);
+        }
+        return UseResult::Consume;
+    }
     if click.sneaking && taming::is_owner(ivy, viewer) {
         if click.main_hand {
             taming::cycle_ivy_order(ivy, viewer);
@@ -724,6 +748,7 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
         entities.with_entity(world, id, |ivy| {
             if mobs.kind(ivy) != Some(KIND)
                 || ivy.flags() & ENTITY_ALIVE == 0
+                || downed_state(ivy).active()
                 || !viewer.view().zip(ivy.view()).is_some_and(|(a, b)| {
                     flight::length_squared(flight::offset(a.position, b.position))
                         <= RADIUS * RADIUS
@@ -770,6 +795,199 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
 const TRADES_ROLLED: &str = "saintsdragons:ivy_trades_rolled";
 
 pub const COMBAT: u64 = 17;
+
+const DOWNED: &str = "saintsdragons:ivy_downed";
+
+/// IvyTheDragonMerchant's saved downed state and revival counters.
+#[derive(Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "PascalCase")]
+struct DownedState {
+    downed: bool,
+    downed_bleed_ticks: i32,
+    downed_finish_hits: i32,
+    downed_revive_progress: i32,
+    grace: i32,
+    arise: i32,
+}
+
+impl DownedState {
+    fn active(&self) -> bool {
+        self.downed || self.arise > 0
+    }
+
+    fn interact(&mut self) {
+        self.grace = 8;
+        self.downed_revive_progress = (self.downed_revive_progress + 5).min(60);
+    }
+
+    fn finish_hit(&mut self) {
+        self.downed_finish_hits += 1;
+        self.downed_bleed_ticks = (self.downed_bleed_ticks - 100).max(0);
+    }
+
+    fn tick(&mut self) -> bool {
+        if self.downed {
+            if self.grace > 0 {
+                self.grace -= 1;
+            } else if self.downed_revive_progress > 0 {
+                self.downed_revive_progress -= 1;
+            }
+            if self.downed_bleed_ticks <= 0 || self.downed_finish_hits >= 3 {
+                return true;
+            }
+            self.downed_bleed_ticks -= 1;
+        } else if self.arise > 0 {
+            self.arise -= 1;
+        }
+        false
+    }
+}
+
+fn downed_state(ivy: Entity<'_>) -> DownedState {
+    ivy.data(DOWNED)
+        .and_then(|bytes| fastnbt::from_bytes(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn save_downed(ivy: Entity<'_>, state: &DownedState) {
+    if let Ok(bytes) = fastnbt::to_bytes(state) {
+        ivy.set_data(DOWNED, &bytes);
+    }
+}
+
+fn revive(ivy: Entity<'_>, state: &mut DownedState) {
+    if let (Some(vitals), Some((_, max))) = (
+        crate::MOB_HEALTH.get(),
+        MOBS.get().and_then(|mobs| mobs.health(ivy)),
+    ) && vitals.set(ivy, (max * 0.35).max(6.0).min(max))
+    {
+        *state = DownedState {
+            arise: 30,
+            ..DownedState::default()
+        };
+    }
+}
+
+/// IvyTheDragonMerchant.hurtDowned. The existing callback has only the type, not the attacker.
+pub fn hurt(ivy: Entity<'_>, damage_type: &str, amount: f32) -> bool {
+    let mut state = downed_state(ivy);
+    if !state.downed
+        || matches!(
+            damage_type,
+            "minecraft:out_of_world" | "minecraft:generic_kill"
+        )
+    {
+        // shortcut: actuallyHurt needs a post-mitigation, pre-death callback to
+        // start Downed at exactly 1 HP (and allow inventory totems first).
+        return true;
+    }
+    if amount > 0.0
+        && !matches!(
+            damage_type,
+            "minecraft:mob_attack"
+                | "minecraft:mob_attack_no_aggro"
+                | "minecraft:arrow"
+                | "minecraft:trident"
+                | "minecraft:mob_projectile"
+        )
+    {
+        // shortcut: projectile owner/direct attacker is unavailable; don't count
+        // ambiguous projectiles as finishing hits until the host exposes the source.
+        state.finish_hit();
+        save_downed(ivy, &state);
+    }
+    false
+}
+
+/// IvyTheDragonMerchant.tickDownedState, including the stock-client animation and revive timer.
+pub fn downed_tick(world: World<'_>, ivy: Entity<'_>) {
+    let mut state = downed_state(ivy);
+    if !state.active() {
+        return;
+    }
+    if let Some(ai) = MOB_AI.get() {
+        ai.stop(ivy);
+        ai.set_target(world, ivy, None);
+    }
+    if let Some(view) = ivy.view() {
+        ivy.change(&EntityChange {
+            mask: SET_MOTION,
+            motion: [0.0, view.motion[1].min(0.0), 0.0],
+            ..EntityChange::default()
+        });
+    }
+    ivy.reset_fall_distance();
+    if state.downed {
+        if let Some(fight) = FIGHTS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&ivy.id())
+        {
+            fight.move_ = None;
+            fight.stance = false;
+            fight.target = None;
+        }
+        if MOBS
+            .get()
+            .and_then(|mobs| mobs.health(ivy))
+            .is_some_and(|(health, _)| health > 1.0)
+        {
+            revive(ivy, &mut state);
+            save_downed(ivy, &state);
+            return;
+        }
+        if moddedmc_api::tick_count().is_multiple_of(10)
+            && let (Some(ai), Some(entities), Some(body)) =
+                (MOB_AI.get(), ENTITIES.get(), ivy.body())
+        {
+            for id in entities.entities_in(
+                world,
+                body.min.map(|v| v - 32.0),
+                body.max.map(|v| v + 32.0),
+                ivy.id(),
+            ) {
+                entities.with_entity(world, id, |other| {
+                    if ai.target(other) == Some(ivy.id()) {
+                        ai.set_target(world, other, None);
+                        ai.stop(other);
+                    }
+                });
+            }
+        }
+        // shortcut: clearing last-hurt/brain memories and observing heal events
+        // directly needs host calls; clear active targets and observe health changes.
+    }
+    let arising = state.arise == 1;
+    if state.tick() {
+        save_downed(ivy, &DownedState::default());
+        ivy.hurt("minecraft:generic_kill", f32::MAX);
+    } else {
+        save_downed(ivy, &state);
+        if arising
+            && combat_allowed(world, ivy)
+            && let (Some(ai), Some(mobs), Some(entities), Some(owner)) =
+                (MOB_AI.get(), MOBS.get(), ENTITIES.get(), taming::owner(ivy))
+            && let Some(id) = mobs.by_uuid(world, &owner)
+            && let Some((attacker, _)) = entities
+                .with_entity(world, id, |owner| ai.last_hurt_by(owner))
+                .flatten()
+            && target_position(world, ivy, attacker).is_some()
+        {
+            ai.set_target(world, ivy, Some(attacker));
+        }
+    }
+}
+
+pub fn downed_clip(ivy: Entity<'_>) -> Option<&'static str> {
+    let state = downed_state(ivy);
+    if state.downed {
+        Some("about_to_die")
+    } else if state.arise > 0 {
+        Some("arise")
+    } else {
+        None
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Hit {
@@ -907,6 +1125,74 @@ const SWORD: [Move; 6] = [
     },
 ];
 
+// IvyCombatBrain.DASH_FORWARD_RIGHT_CROSS and its sword variant.
+const DASH: [Move; 2] = [
+    Move {
+        clip: "orthodox_dash_forward_right_cross",
+        duration: 20,
+        hits: &[hit(8, 5.0, 3.2, 0.28, 0.04, false, true)],
+        cooldown: 30,
+    },
+    Move {
+        clip: "sword_dash_forward_spin_slash",
+        duration: 19,
+        hits: &[hit(13, 5.0, 3.2, 0.28, 0.04, true, true)],
+        cooldown: 30,
+    },
+];
+
+#[derive(Default)]
+struct DashRead {
+    previous: Option<[f64; 3]>,
+    moving: u32,
+}
+
+impl DashRead {
+    /// IvyCombatBrain.updateTargetStillness and readDashCross.
+    fn retreating(&mut self, from: [f64; 3], at: [f64; 3]) -> bool {
+        let Some(previous) = self.previous else {
+            self.previous = Some(at);
+            return false;
+        };
+        let delta = flight::offset(at, previous);
+        let speed = delta[0].hypot(delta[2]);
+        if speed <= 0.05 {
+            self.moving = 0;
+            return false;
+        }
+        self.previous = Some(at);
+        self.moving = self.moving.saturating_add(1);
+        let away = flight::offset(at, from);
+        let old = flight::offset(previous, from);
+        let distance_sq = flight::length_squared(away);
+        let dot = (away[0] * delta[0] + away[2] * delta[2]) / (distance_sq.sqrt() * speed);
+        self.moving >= 10
+            && distance_sq > 2.45_f64.powi(2)
+            && distance_sq <= 4.65_f64.powi(2)
+            && dot >= 0.45
+            && distance_sq > old[0].powi(2) + old[2].powi(2) + 0.015
+    }
+}
+
+fn forward_impulse(
+    from: [f64; 3],
+    at: [f64; 3],
+    motion: [f64; 3],
+    strength: f64,
+    lift: f64,
+) -> [f64; 3] {
+    let toward = flight::offset(at, from);
+    let length = flight::length_squared(toward).sqrt();
+    if length < 0.0001 {
+        return motion;
+    }
+    [
+        toward[0] / length * strength,
+        motion[1] + lift,
+        toward[2] / length * strength,
+    ]
+}
+
 #[derive(Default)]
 struct Fight {
     armor_synced: bool,
@@ -918,6 +1204,9 @@ struct Fight {
     ready: u64,
     hook_ready: u64,
     combo_ready: u64,
+    dash_ready: u64,
+    commit_ready: u64,
+    dash_read: DashRead,
     move_: Option<Move>,
     sword_damage: Option<f32>,
     stance: bool,
@@ -934,6 +1223,7 @@ pub fn forget(id: i32) {
 
 fn combat_allowed(world: World<'_>, ivy: Entity<'_>) -> bool {
     taming::is_tamed(ivy)
+        && !downed_state(ivy).active()
         && taming::order_name(ivy) != "stay"
         && ivy.vehicle().is_none()
         && ivy.view().is_some_and(|view| {
@@ -1097,7 +1387,14 @@ fn update_armor(world: World<'_>, ivy: Entity<'_>) {
     }
 }
 
-fn impact(world: World<'_>, ivy: Entity<'_>, id: i32, hit: Hit, sword_damage: Option<f32>) {
+fn impact(
+    world: World<'_>,
+    ivy: Entity<'_>,
+    id: i32,
+    hit: Hit,
+    sword_damage: Option<f32>,
+    dash: bool,
+) {
     let (Some(ai), Some(mobs), Some(entities), Some(body), Some(from)) = (
         MOB_AI.get(),
         MOBS.get(),
@@ -1118,6 +1415,13 @@ fn impact(world: World<'_>, ivy: Entity<'_>, id: i32, hit: Hit, sword_damage: Op
             })
         {
             return;
+        }
+        if dash {
+            ivy.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: forward_impulse(from.position, view.position, from.motion, 0.2, 0.02),
+                ..EntityChange::default()
+            });
         }
         if hit.reset {
             mobs.reset_hurt_cooldown(target);
@@ -1145,6 +1449,12 @@ fn impact(world: World<'_>, ivy: Entity<'_>, id: i32, hit: Hit, sword_damage: Op
 /// IvyCombatBrain's melee stance, timed attacks and cooldowns.
 pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
     let Some(ai) = MOB_AI.get() else { return false };
+    if downed_state(ivy).active() && phase != goal_phase::STOP {
+        if phase == goal_phase::TICK {
+            ai.stop(ivy);
+        }
+        return matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE);
+    }
     let target = ai.target(ivy).filter(|_| combat_allowed(world, ivy));
     let located = target.and_then(|id| Some((id, target_position(world, ivy, id)?)));
     match phase {
@@ -1156,6 +1466,7 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
                 state.move_ = None;
                 state.stance = false;
                 state.target = None;
+                state.dash_read = DashRead::default();
             }
             return false;
         }
@@ -1177,20 +1488,64 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
         state.sword_damage = equipped_weapon(world, ivy);
         state.stance = true;
         state.move_ = None;
+        state.dash_read = DashRead::default();
         state.ready = now + if state.sword_damage.is_some() { 17 } else { 10 };
     }
     if let Some(action) = state.move_ {
         ai.stop(ivy);
         let elapsed = now.saturating_sub(state.start);
+        let sword_dash = action.clip == DASH[1].clip;
+        if (action.clip == DASH[0].clip && elapsed == 3) || (sword_dash && elapsed == 4) {
+            ivy.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: forward_impulse(
+                    view.position,
+                    at,
+                    view.motion,
+                    if sword_dash { 0.85 } else { 1.15 },
+                    if sword_dash { 0.03 } else { 0.02 },
+                ),
+                ..EntityChange::default()
+            });
+        }
         for &hit in action.hits.iter().filter(|hit| hit.tick == elapsed) {
-            impact(world, ivy, id, hit, state.sword_damage);
+            impact(
+                world,
+                ivy,
+                id,
+                hit,
+                state.sword_damage,
+                sword_dash || action.clip == DASH[0].clip,
+            );
         }
         if elapsed >= action.duration {
             state.move_ = None;
         }
     } else if distance > 2.45 {
-        ai.walk_to(ivy, at, 1.0);
+        let retreat = state.dash_read.retreating(view.position, at);
+        if state.dash_read.moving >= 10 && now >= state.commit_ready {
+            state.commit_ready = now + 18;
+            if retreat
+                && now >= state.ready
+                && now >= state.combo_ready
+                && now >= state.dash_ready
+                && crate::ai::random(100) < 65
+            {
+                ai.stop(ivy);
+                state.sword_damage = equipped_weapon(world, ivy);
+                state.move_ = Some(DASH[usize::from(state.sword_damage.is_some())]);
+                state.start = now;
+                state.ready = now + 30;
+                state.combo_ready = now + 30;
+                state.dash_ready = now + 45;
+            } else {
+                ai.walk_to(ivy, at, 1.0);
+            }
+        } else {
+            ai.walk_to(ivy, at, 1.0);
+        }
     } else {
+        state.dash_read.retreating(view.position, at);
         ai.stop(ivy);
         if now >= state.ready {
             state.sword_damage = equipped_weapon(world, ivy);
@@ -1405,6 +1760,55 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downed_revive_grace_and_bleed_out() {
+        let mut state = DownedState {
+            downed: true,
+            downed_bleed_ticks: 1800,
+            ..DownedState::default()
+        };
+        for _ in 0..12 {
+            state.interact();
+        }
+        assert_eq!(state.downed_revive_progress, 60);
+        for _ in 0..8 {
+            assert!(!state.tick());
+        }
+        assert_eq!(state.downed_revive_progress, 60);
+        assert!(!state.tick());
+        assert_eq!(state.downed_revive_progress, 59);
+        for _ in 0..3 {
+            state.finish_hit();
+        }
+        assert!(state.tick());
+        assert_eq!(state.downed_bleed_ticks, 1491);
+        let saved = fastnbt::to_bytes(&state).unwrap();
+        let restored: DownedState = fastnbt::from_bytes(&saved).unwrap();
+        assert!(restored.downed);
+        assert_eq!(restored.downed_finish_hits, 3);
+    }
+
+    #[test]
+    fn dash_requires_sustained_retreat_in_range() {
+        let mut read = DashRead::default();
+        let from = [0.0; 3];
+        assert!(!read.retreating(from, [2.5, 0.0, 0.0]));
+        for i in 1..10 {
+            assert!(!read.retreating(from, [2.5 + f64::from(i) * 0.1, 0.0, 0.0]));
+        }
+        assert!(read.retreating(from, [3.5, 0.0, 0.0]));
+        assert!(!read.retreating(from, [3.4, 0.0, 0.0]));
+        assert!(!read.retreating(from, [5.0, 0.0, 0.0]));
+        assert_eq!(
+            forward_impulse(from, [3.0, 0.0, 0.0], [0.0; 3], 1.15, 0.02),
+            [1.15, 0.02, 0.0]
+        );
+        assert_eq!(
+            forward_impulse(from, [3.0, 0.0, 0.0], [0.0; 3], 0.85, 0.03),
+            [0.85, 0.03, 0.0]
+        );
+    }
 
     #[test]
     fn equipment_modifiers_obey_slot_and_operation() {

@@ -297,6 +297,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             || stun
             || species.name == "stegonaut"
             || species.name == "varasuchus"
+            || species.name == crate::ivy::SPECIES
             || cfg!(feature = "original-assets")
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
@@ -773,6 +774,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         return false;
     };
     if name == crate::ivy::SPECIES {
+        crate::ivy::downed_tick(world, mob);
         crate::ivy::target_tick(world, mob);
     }
     let volitans_clip = (name == "volitans")
@@ -832,7 +834,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         if name == "varasuchus" {
             crate::combat_varasuchus::clip(mob).or_else(|| crate::baby::eating_clip(mob.id()))
         } else if name == crate::ivy::SPECIES {
-            crate::ivy::combat_clip(mob.id(), view.motion[0].hypot(view.motion[2]) > 0.035)
+            crate::ivy::downed_clip(mob).or_else(|| {
+                crate::ivy::combat_clip(mob.id(), view.motion[0].hypot(view.motion[2]) > 0.035)
+            })
         } else {
             None
         }
