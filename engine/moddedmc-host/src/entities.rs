@@ -339,6 +339,56 @@ pub unsafe extern "C" fn shulker_bullet_target(raw: abi::EntityRef) -> i32 {
     }
 }
 
+fn inventory_stack(
+    base: &dyn EntityBase,
+    slot: u32,
+) -> Option<pumpkin_data::item_stack::ItemStack> {
+    use pumpkin_inventory::Inventory;
+    if slot > 40 {
+        return None;
+    }
+    let stack = base.get_player()?.inventory().get_stack(slot as usize);
+    (!stack.is_empty()).then_some(stack)
+}
+
+pub unsafe extern "C" fn player_inventory_item(
+    raw: abi::EntityRef,
+    slot: u32,
+    out: abi::Sink,
+) -> bool {
+    // SAFETY: the entity is borrowed for the active callback.
+    let Some(stack) = (unsafe { entity(raw) }).and_then(|base| inventory_stack(base, slot)) else {
+        return false;
+    };
+    let key = stack.item.registry_key;
+    let id = if key.contains(':') {
+        key.to_owned()
+    } else {
+        format!("minecraft:{key}")
+    };
+    // SAFETY: the ID lives until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(id.as_bytes())) };
+    true
+}
+
+pub unsafe extern "C" fn player_inventory_stack(
+    raw: abi::EntityRef,
+    slot: u32,
+    out: abi::Sink,
+) -> bool {
+    // SAFETY: the entity is borrowed for the active callback.
+    let Some(saved) = (unsafe { entity(raw) })
+        .and_then(|base| inventory_stack(base, slot))
+        .and_then(|stack| stack.to_nbt())
+    else {
+        return false;
+    };
+    let bytes = Nbt::from(saved).write();
+    // SAFETY: the bytes live until the synchronous sink returns.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
 pub unsafe extern "C" fn flags(raw: abi::EntityRef) -> u32 {
     // SAFETY: the entity is live for the callback.
     let Some(base) = (unsafe { entity(raw) }) else {
