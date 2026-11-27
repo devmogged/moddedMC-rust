@@ -47,6 +47,7 @@ use std::{
     sync::{
         Arc, LazyLock, Mutex, MutexGuard, Once, PoisonError, RwLock, RwLockReadGuard,
         RwLockWriteGuard, Weak,
+        atomic::{AtomicBool, Ordering},
     },
     time::Instant,
 };
@@ -178,6 +179,7 @@ struct Host {
 }
 
 static HOST: LazyLock<Host> = LazyLock::new(Host::default);
+static HAS_MODS: AtomicBool = AtomicBool::new(false);
 
 // A panic elsewhere must not take the content host down with it.
 fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -209,6 +211,7 @@ pub fn load_mods() {
             !eager || register_mod(index, module)
         });
         if count != 0 {
+            HAS_MODS.store(true, Ordering::Relaxed);
             tracing::info!("moddedmc: loaded {count} mods in {:?}", started.elapsed());
         }
     });
@@ -218,7 +221,7 @@ pub fn load_mods() {
 /// Call before the server starts ticking.
 pub fn attach(server: &Arc<Server>) {
     let _ = native::SERVER.set(server.clone());
-    companion::attach(server);
+    companion::attach(server, HAS_MODS.load(Ordering::Relaxed));
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
     pm.register::<WorldSaveEvent, _>(Arc::new(SavedDataSaveHandler), EventPriority::Normal, true);
