@@ -246,6 +246,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:armor", 0.0),
             ]);
         }
+        if species.name == "volitans" {
+            attributes.extend([("minecraft:armor", 6.0), ("minecraft:follow_range", 64.0)]);
+        }
         mobs.add_mob(
             registry,
             &Mob {
@@ -369,6 +372,25 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                     controls: goal_control::MOVE | goal_control::LOOK,
                 },
             )?;
+        }
+        if species.name == "volitans" {
+            for (key, controls) in [
+                (crate::combat_volitans::TARGET, goal_control::TARGET),
+                (
+                    crate::combat_volitans::COMBAT,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority: 1,
+                        controls,
+                    },
+                )?;
+            }
         }
         ai.add_goal(
             registry,
@@ -637,7 +659,15 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             None
         }
     });
-    let clip = clip.unwrap_or_else(|| species.clip(view, wet));
+    let clip = clip
+        .or_else(|| {
+            if name == "volitans" {
+                crate::combat_volitans::ambient(world, mob)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
     false
 }

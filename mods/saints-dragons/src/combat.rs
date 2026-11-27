@@ -60,6 +60,15 @@ fn with_combat<T>(mob: Entity<'_>, f: impl FnOnce(&mut Combat) -> T) -> T {
 }
 
 pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -> bool {
+    if MOBS.get().and_then(|m| m.kind(mob)) == Some("saintsdragons:volitans")
+        && !matches!(
+            damage_type,
+            "minecraft:out_of_world" | "minecraft:generic_kill"
+        )
+        && crate::combat_volitans::exit_invulnerable(mob)
+    {
+        return false;
+    }
     if !crate::stun::hurt(world, mob, damage_type, amount) {
         return false;
     }
