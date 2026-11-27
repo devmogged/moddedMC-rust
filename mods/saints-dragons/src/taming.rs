@@ -593,6 +593,37 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if let Some(result) = crate::stun::feed(click, item) {
         return result;
     }
+    if mobs.kind(mob) == Some(crate::wild::VARASUCHUS)
+        && let Some(mut state) = tamed(mob)
+        && state.owner == uuid
+        && click.main_hand
+        && !crate::eggs::is_juvenile(mob)
+    {
+        if click.sneaking {
+            state.order = match state.order {
+                Order::Follow => Order::Sit,
+                Order::Sit => Order::Wander,
+                Order::Wander => Order::Follow,
+            };
+            mobs.set_state(mob, &state.encode());
+            ai.stop(mob);
+            return UseResult::Success;
+        }
+        if state.happiness <= 30 || !mobs.passengers(mob).is_empty() {
+            return UseResult::Consume;
+        }
+        crate::roost::wake(mob, true, 200);
+        if !player.start_riding(mob.id(), false) {
+            return UseResult::Fail;
+        }
+        if state.order == Order::Sit {
+            state.order = Order::Follow;
+            mobs.set_state(mob, &state.encode());
+        }
+        ai.stop(mob);
+        ai.set_target(click.world, mob, None);
+        return UseResult::Success;
+    }
     if mobs.kind(mob) != Some(crate::CINDERVANE) {
         return UseResult::Pass;
     }
@@ -773,6 +804,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::baby::forget(mob.id());
     crate::combat_volitans::forget(mob.id());
     crate::ivy::forget(mob.id());
+    crate::combat_varasuchus::forget(mob.id());
     crate::visuals::death(world, mob);
     {
         let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
@@ -824,7 +856,11 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             if let Some(&first) = passengers.first() {
                 entities.with_entity(world, first, |rider| {
                     if mobs.uuid(rider) == Some(state.owner) {
-                        ride(mob, rider);
+                        if mobs.kind(mob) == Some(crate::wild::VARASUCHUS) {
+                            crate::combat_varasuchus::ride(world, mob, rider);
+                        } else {
+                            ride(mob, rider);
+                        }
                     } else {
                         rider.stop_riding();
                     }
