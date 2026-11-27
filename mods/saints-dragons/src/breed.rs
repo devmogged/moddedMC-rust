@@ -9,7 +9,7 @@ use std::{
 use moddedmc_api::{
     Pos,
     content::World,
-    entities::Entity,
+    entities::{Entity, EntityChange, SET_MOTION},
     interaction::{UseMob, UseResult},
     mob_ai::goal_phase,
     tick_count,
@@ -32,9 +32,7 @@ struct Breeder {
     distance_sqr: f64,
 }
 
-// shortcut: Volitans' underwater and Nulljaw's own breed behaviours are not ported; they don't
-// take breeding food yet.
-const BREEDERS: [Breeder; 6] = [
+const BREEDERS: [Breeder; 8] = [
     Breeder {
         name: "atroxiia",
         range: 20.0,
@@ -65,7 +63,34 @@ const BREEDERS: [Breeder; 6] = [
         range: 30.0,
         distance_sqr: 16.0,
     },
+    Breeder {
+        name: "volitans",
+        range: 20.0,
+        distance_sqr: 16.0,
+    },
+    Breeder {
+        name: "nulljaw",
+        range: 24.0,
+        distance_sqr: 9.0,
+    },
 ];
+
+impl Breeder {
+    fn courtship_ticks(&self) -> u64 {
+        match self.name {
+            "volitans" | "nulljaw" => 60,
+            _ => 60 + random(50),
+        }
+    }
+
+    fn feed_ticks(&self) -> u64 {
+        if self.name == "nulljaw" {
+            24
+        } else {
+            FEED_COOLDOWN
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Courtship {
@@ -169,7 +194,7 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     }
     crate::audio::eat(click.world, mob);
     with(|state| {
-        state.fed.insert(id, now + FEED_COOLDOWN);
+        state.fed.insert(id, now + breeder.feed_ticks());
         state.love.insert(id, now + LOVE_TICKS);
     });
     taming::feed_particles(click.world, mob, true);
@@ -178,9 +203,14 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
 }
 
 /// `breedingAllowed` and the age half of `canMate`.
-fn ready(mob: Entity<'_>, now: u64) -> bool {
+fn ready(world: World<'_>, mob: Entity<'_>, breeder: &Breeder, now: u64) -> bool {
     taming::is_tamed(mob)
         && !crate::eggs::is_juvenile(mob)
+        && (breeder.name != "volitans"
+            || (position(mob).is_some_and(|at| crate::eggs::water_at(world, block(at)))
+                && MOBS
+                    .get()
+                    .is_some_and(|mobs| mobs.passengers(mob).is_empty())))
         && MOBS
             .get()
             .and_then(|mobs| mobs.health(mob))
@@ -218,7 +248,7 @@ fn find_mate(world: World<'_>, mob: Entity<'_>, breeder: &Breeder, now: u64) -> 
         let candidate = entities.with_entity(world, id, |other| {
             let fits = mobs.kind(other) == Some(kind)
                 && Appearance::is_female(other) != female
-                && ready(other, now)
+                && ready(world, other, breeder, now)
                 && with(|state| {
                     state
                         .courting
@@ -248,8 +278,9 @@ pub fn wants_mate(world: World<'_>, mob: Entity<'_>) -> bool {
         return false;
     }
     with(|state| state.courting.contains_key(&mob.id()))
-        || breeder(mob)
-            .is_some_and(|breeder| ready(mob, now) && find_mate(world, mob, breeder, now).is_some())
+        || breeder(mob).is_some_and(|breeder| {
+            ready(world, mob, breeder, now) && find_mate(world, mob, breeder, now).is_some()
+        })
 }
 
 fn courtship(mob: Entity<'_>) -> Option<Courtship> {
@@ -266,7 +297,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     };
     match phase {
         goal_phase::CAN_START => {
-            if !ready(mob, now) {
+            if !ready(world, mob, breeder, now) {
                 return false;
             }
             if courtship(mob).is_some() {
@@ -276,7 +307,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 return false;
             };
             // `start`: the dragon with the lower id lays the egg after 60 to 109 ticks.
-            let egg_at = now + 60 + random(50);
+            let egg_at = now + breeder.courtship_ticks();
             let ends = now + MAX_ATTEMPT_TICKS;
             let (first, second) = if mob.id() < partner {
                 (egg_at, u64::MAX)
@@ -310,11 +341,13 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 return false;
             };
             now <= court.ends
-                && ready(mob, now)
+                && ready(world, mob, breeder, now)
                 && ENTITIES
                     .get()
                     .and_then(|entities| {
-                        entities.with_entity(world, court.partner, |other| ready(other, now))
+                        entities.with_entity(world, court.partner, |other| {
+                            ready(world, other, breeder, now)
+                        })
                     })
                     .unwrap_or(false)
         }
@@ -349,8 +382,37 @@ fn tick(world: World<'_>, mob: Entity<'_>, breeder: &Breeder, now: u64) {
     let close = distance_sqr(at, other) <= breeder.distance_sqr.min(16.0)
         || (horizontal <= (width(mob) + other_width) / 2.0 + 2.0
             && (at[1] - other[1]).abs() <= 2.5);
+    ai.look_at(mob, other);
     if close {
         ai.stop(mob);
+        if matches!(breeder.name, "volitans" | "nulljaw") {
+            mob.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: [0.0; 3],
+                ..EntityChange::default()
+            });
+        }
+    } else if matches!(breeder.name, "volitans" | "nulljaw") {
+        // shortcut: direct collision-checked motion until the shared dragon waypoint planner is ported.
+        let speed = if breeder.name == "nulljaw" {
+            0.22
+        } else {
+            1.42 * 0.20
+        };
+        let delta = crate::flight::offset(other, at);
+        let motion =
+            delta.map(|v| v * speed / crate::flight::length_squared(delta).sqrt().max(speed));
+        if mob
+            .body()
+            .is_some_and(|body| crate::flight::clear_body(world, body, motion))
+        {
+            mob.reset_fall_distance();
+            mob.change(&EntityChange {
+                mask: SET_MOTION,
+                motion,
+                ..EntityChange::default()
+            });
+        }
     } else if (now + mob.id() as u64).is_multiple_of(10) {
         ai.walk_to(mob, other, 1.0);
     }
@@ -384,18 +446,32 @@ fn lay(world: World<'_>, mob: Entity<'_>, partner: Entity<'_>, breeder: &Breeder
     };
     let midpoint = [
         (at[0] + other[0]) * 0.5,
-        at[1].min(other[1]),
+        if matches!(breeder.name, "volitans" | "nulljaw") {
+            (at[1] + other[1]) * 0.5
+        } else {
+            at[1].min(other[1])
+        },
         (at[2] + other[2]) * 0.5,
     ];
-    if !crate::eggs::lay(
-        world,
-        [block(midpoint), block(mother_at)],
-        breeder.name,
-        taming::owner(mother),
-    ) {
+    let born = if breeder.name == "nulljaw" {
+        crate::eggs::birth_nulljaw(
+            world,
+            midpoint,
+            taming::owner(mob).or_else(|| taming::owner(partner)),
+        )
+    } else {
+        crate::eggs::lay(
+            world,
+            [block(midpoint), block(mother_at)],
+            breeder.name,
+            taming::owner(mother),
+        )
+    };
+    if !born {
         return;
     }
-    // shortcut: the experience orb, the bred-animals stat and its advancement trigger are skipped.
+    taming::feed_particles(world, mother, true);
+    // shortcut: XP (1–7, doMobLoot), animals_bred and BRED_ANIMALS need host calls.
     with(|state| {
         for id in [mob.id(), partner.id()] {
             state.love.remove(&id);
@@ -428,6 +504,19 @@ mod tests {
         assert!(!state.courting.contains_key(&2));
         // A one-sided claim stays until its own dragon lets go.
         assert!(state.courting.contains_key(&3));
-        assert!(breeds("raevyx") && !breeds("volitans"));
+        assert!(breeds("raevyx") && breeds("volitans") && breeds("nulljaw"));
+    }
+
+    #[test]
+    fn aquatic_and_live_birth_courtship_use_fixed_released_timings() {
+        for (name, range, distance, feed) in
+            [("volitans", 20.0, 16.0, 61), ("nulljaw", 24.0, 9.0, 24)]
+        {
+            let b = BREEDERS.iter().find(|b| b.name == name).unwrap();
+            assert_eq!(
+                (b.range, b.distance_sqr, b.feed_ticks(), b.courtship_ticks()),
+                (range, distance, feed, 60)
+            );
+        }
     }
 }

@@ -275,6 +275,15 @@ pub fn register(
             },
         )?;
     }
+    items.add_item(
+        registry,
+        &Item {
+            id: "saintsdragons:baby_nulljaw_display",
+            display_name: "Nulljaw",
+            carrier: "minecraft:paper",
+            model: "minecraft:item/dragon_head",
+        },
+    )?;
     Ok(())
 }
 
@@ -347,9 +356,6 @@ fn particles(world: World<'_>, pos: Pos, starting: bool) {
 }
 
 fn attributes(mob: Entity<'_>, species: &Species, juvenile: bool) -> bool {
-    let Some(health) = MOB_HEALTH.get() else {
-        return false;
-    };
     let (max, armor, scale) = if juvenile {
         (
             f64::from(species.juvenile.0),
@@ -359,16 +365,59 @@ fn attributes(mob: Entity<'_>, species: &Species, juvenile: bool) -> bool {
     } else {
         (species.adult.0, species.adult.1, 1.0)
     };
+    growth_attributes(mob, max, armor, scale)
+        && species.attack.is_none_or(|attack| {
+            MOB_HEALTH.get().is_some_and(|health| {
+                health.set_attribute(
+                    mob,
+                    "minecraft:attack_damage",
+                    if juvenile { 0.0 } else { attack },
+                )
+            })
+        })
+}
+
+fn growth_attributes(mob: Entity<'_>, max: f64, armor: f64, scale: f64) -> bool {
+    let Some(health) = MOB_HEALTH.get() else {
+        return false;
+    };
     health.set_attribute(mob, "minecraft:max_health", max)
         && health.set_attribute(mob, "minecraft:armor", armor)
-        && species.attack.is_none_or(|attack| {
-            health.set_attribute(
-                mob,
-                "minecraft:attack_damage",
-                if juvenile { 0.0 } else { attack },
-            )
-        })
         && health.set_attribute(mob, "minecraft:scale", scale)
+}
+
+/// NulljawBreedBehaviour creates a live juvenile with the coordinating parent's owner.
+pub fn birth_nulljaw(world: World<'_>, at: [f64; 3], owner: Option<[u8; 16]>) -> bool {
+    let (Some(entities), Some(health)) = (ENTITIES.get(), MOB_HEALTH.get()) else {
+        return false;
+    };
+    let Some(id) = roster::spawn(world, "saintsdragons:nulljaw", at) else {
+        return false;
+    };
+    entities.with_entity(world, id, |mob| {
+        if !growth_attributes(mob, 70.0, 4.0, 0.55)
+            || !health.set(mob, 70.0)
+            || !save_growth(
+                mob,
+                &Growth {
+                    remaining: GROW_TICKS,
+                    piebald_on_maturity: false,
+                    void_kissed_on_maturity: false,
+                    stunted: false,
+                },
+            )
+        {
+            mob.discard();
+            return false;
+        }
+        Appearance::set_female(random(2) == 1, mob);
+        if let Some(uuid) = owner {
+            taming::inherit_owner(mob, uuid);
+            crate::codex::remember(world, mob, None);
+        }
+        // shortcut: assigned mother following awaits the shared family AI.
+        true
+    }) == Some(true)
 }
 
 fn hatch(
@@ -630,9 +679,6 @@ pub fn feed_growth(mob: Entity<'_>, ticks: i32) -> Option<bool> {
 }
 
 pub fn grow(mob: Entity<'_>, name: &str) -> bool {
-    let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
-        return false;
-    };
     let Some(mut growth) = growth(mob) else {
         return false;
     };
@@ -644,8 +690,14 @@ pub fn grow(mob: Entity<'_>, name: &str) -> bool {
     }
     growth.remaining -= 1;
     if growth.remaining == 0
-        && (!attributes(mob, species, false)
-            || (growth.piebald_on_maturity && !Appearance::mature_with_variant(mob, 2))
+        && (!(if name == "nulljaw" {
+            growth_attributes(mob, 70.0, 4.0, 1.0)
+        } else {
+            SPECIES
+                .iter()
+                .find(|species| species.name == name)
+                .is_some_and(|species| attributes(mob, species, false))
+        }) || (growth.piebald_on_maturity && !Appearance::mature_with_variant(mob, 2))
             || (growth.void_kissed_on_maturity && !Appearance::mature_with_variant(mob, 1)))
     {
         return true;
@@ -825,19 +877,65 @@ fn egg_spot(world: World<'_>, center: Pos, air: u32) -> Option<Pos> {
     best.map(|(_, pos)| pos)
 }
 
+pub fn water_at(world: World<'_>, pos: Pos) -> bool {
+    matches!(
+        world.fluid_id(pos).as_deref(),
+        Some("minecraft:water" | "minecraft:flowing_water")
+    )
+}
+
+/// VolitansUnderwaterBreedBehaviour: nearest water block above a solid floor,
+/// within eight blocks horizontally and twelve down.
+fn underwater_spot(world: World<'_>, center: Pos) -> Option<Pos> {
+    nearest_underwater_spot(center, |floor, egg| {
+        // shortcut: sturdy top face approximates Java isSolidRender until the SDK exposes it.
+        world.face_sturdy(floor, 1) && water_at(world, egg)
+    })
+}
+
+fn nearest_underwater_spot(center: Pos, suitable: impl Fn(Pos, Pos) -> bool) -> Option<Pos> {
+    let mut best: Option<(i32, Pos)> = None;
+    for x in -8_i32..=8 {
+        for z in -8_i32..=8 {
+            for depth in 0_i32..=12 {
+                let floor = Pos {
+                    x: center.x + x,
+                    y: center.y - depth,
+                    z: center.z + z,
+                };
+                let egg = Pos {
+                    y: floor.y + 1,
+                    ..floor
+                };
+                if suitable(floor, egg) {
+                    let distance = x.pow(2) + (1 - depth).pow(2) + z.pow(2);
+                    if best.is_none_or(|(closest, _)| distance < closest) {
+                        best = Some((distance, egg));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    best.map(|(_, pos)| pos)
+}
+
 /// `DragonBreedBehaviour.breed`: lays `species`' egg near the first center with room, owned by
 /// the mother's owner and with a random baby gender.
 pub fn lay(world: World<'_>, centers: [Pos; 2], species: &str, owner: Option<[u8; 16]>) -> bool {
     let (Some(ids), Some(index)) = (ids(), SPECIES.iter().position(|s| s.name == species)) else {
         return false;
     };
-    let Some(pos) = centers
-        .into_iter()
-        .find_map(|center| egg_spot(world, center, ids.air))
-    else {
+    let Some(pos) = centers.into_iter().find_map(|center| {
+        if species == "volitans" {
+            underwater_spot(world, center)
+        } else {
+            egg_spot(world, center, ids.air)
+        }
+    }) else {
         return false;
     };
-    let wet = species == "volitans" && world.fluid_id(pos).as_deref() == Some("minecraft:water");
+    let wet = species == "volitans" && water_at(world, pos);
     if world.write(&[BlockUpdate {
         position: pos,
         state: ids.stages[index][if wet { 3 } else { 0 }],
@@ -904,6 +1002,25 @@ fn cindervane_piebald(female: bool, roll: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn underwater_nest_prefers_nearest_floor_and_respects_search_limits() {
+        let center = Pos { x: 0, y: 20, z: 0 };
+        let near = Pos { x: 1, y: 18, z: 0 };
+        let far = Pos { x: 8, y: 20, z: 0 };
+        let beyond_radius = Pos { x: 9, y: 20, z: 0 };
+        let beyond_depth = Pos { x: 0, y: 7, z: 0 };
+        assert_eq!(
+            nearest_underwater_spot(center, |floor, _| [near, far, beyond_radius, beyond_depth]
+                .contains(&floor)),
+            Some(Pos { y: 19, ..near })
+        );
+        assert_eq!(
+            nearest_underwater_spot(center, |floor, _| [beyond_radius, beyond_depth]
+                .contains(&floor)),
+            None
+        );
+    }
 
     #[test]
     fn released_piebald_rates_and_legacy_growth() {

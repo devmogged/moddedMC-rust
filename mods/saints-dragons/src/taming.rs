@@ -539,6 +539,14 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if matches!(item, BRUSH | GOLDEN_BRUSH) {
         return brush(click, item == GOLDEN_BRUSH);
     }
+    // These Java handlers route crouch-feeding through breeding even for tame babies.
+    if matches!(
+        mobs.kind(mob),
+        Some("saintsdragons:volitans" | "saintsdragons:nulljaw")
+    ) && let Some(result) = crate::breed::feed(click, item)
+    {
+        return result;
+    }
     if let Some(result) = crate::baby::interact(click, item) {
         return result;
     }

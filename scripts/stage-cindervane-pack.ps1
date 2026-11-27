@@ -188,7 +188,7 @@ if ($AllDragons) {
     )) {
         $copies["$assets/$path"] = "$assets/$path"
     }
-    foreach ($name in @('ignivorus','stegonaut','varasuchus','atroxiia','volitans','cindervane','raevyx')) {
+    foreach ($name in @('ignivorus','stegonaut','varasuchus','atroxiia','volitans','cindervane','raevyx','nulljaw')) {
         $baby = "entity/$name/baby_$name"
         $copies["$assets/geo/$baby.geo.json"] = "$assets/geckolib/models/$baby.geo.json"
         $copies["$assets/animations/$baby.animation.json"] = "$assets/geckolib/animations/$baby.animation.json"

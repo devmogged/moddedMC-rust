@@ -600,7 +600,13 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             mob,
             &format!("baby_{name}"),
             view,
-            if moving { "walk" } else { "idle" },
+            if moving && name == "nulljaw" {
+                "hover"
+            } else if moving {
+                "walk"
+            } else {
+                "idle"
+            },
         );
         return false;
     }

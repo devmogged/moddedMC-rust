@@ -1,0 +1,86 @@
+# Volitans court only in water and lay a waterlogged egg; Nulljaw give live birth.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1029.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn volitans 1023 100 1025
+cmd saintsdragons spawn volitans 1027 100 1025
+wait 2.5
+cmd data merge entity @e[type=minecraft:ravager,x=1023.5,y=100,z=1025.5,distance=..2,limit=1] {data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+cmd data merge entity @e[type=minecraft:ravager,x=1027.5,y=100,z=1025.5,distance=..2,limit=1] {data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1023.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed
+bot use-entity ravager 1027.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed
+cmd item replace entity tester weapon.offhand with minecraft:cod
+bot input sneak
+wait 0.5
+bot use-entity ravager 1023.5 100 1025.5 off
+wait 0.5
+expect Volitans is ready to breed!
+bot use-entity ravager 1027.5 100 1025.5 off
+wait 0.5
+expect Volitans is ready to breed!
+bot input none
+wait 5
+# They are still in love on land; adding water enables their courtship.
+bot input sneak
+wait 0.5
+bot use-entity ravager 1023.5 100 1025.5 off
+wait 0.5
+expect Volitans is already ready to breed
+bot input none
+cmd fill 1017 100 1017 1033 103 1033 minecraft:water
+wait 8
+cmd fill 1017 100 1017 1033 103 1033 saintsdragons:volitans_egg[hatch=1,waterlogged=true] replace saintsdragons:volitans_egg[hatch=0,waterlogged=true]
+wait 0.5
+expect (?i)filled 1 block
+# Spawn Nulljaw on a separate dry platform.
+cmd fill 1013 109 1013 1037 109 1037 minecraft:stone
+cmd tp tester 1025.5 110 1029.5
+cmd saintsdragons spawn nulljaw 1024 110 1025
+cmd saintsdragons spawn nulljaw 1027 110 1025
+wait 2.5
+cmd data merge entity @e[type=minecraft:spider,x=1024.5,y=110,z=1025.5,distance=..2,limit=1] {data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+cmd data merge entity @e[type=minecraft:spider,x=1027.5,y=110,z=1025.5,distance=..2,limit=1] {data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
+cmd tag @e[type=minecraft:spider,x=1025,y=110,z=1025,distance=..5] add nulljaw_parent
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity spider 1024.5 110 1025.5 off
+wait 0.5
+expect Dragon tamed
+bot use-entity spider 1027.5 110 1025.5 off
+wait 0.5
+expect Dragon tamed
+cmd item replace entity tester weapon.offhand with minecraft:chorus_fruit
+bot input sneak
+wait 0.5
+bot use-entity spider 1024.5 110 1025.5 off
+wait 0.5
+expect Nulljaw is ready to breed!
+bot use-entity spider 1027.5 110 1025.5 off
+wait 0.5
+expect Nulljaw is ready to breed!
+bot input none
+wait 7
+cmd data get entity @e[type=minecraft:spider,tag=!nulljaw_parent,limit=1] data."saintsdragons:growth".remaining
+wait 0.5
+expect has the following entity data: 23[0-9]{3}
+cmd data get entity @e[type=minecraft:spider,tag=!nulljaw_parent,limit=1] Health
+wait 0.5
+expect has the following entity data: 70f
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
