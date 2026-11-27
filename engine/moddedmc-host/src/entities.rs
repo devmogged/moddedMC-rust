@@ -161,6 +161,10 @@ pub unsafe extern "C" fn hurt_by(
     server
         .datapack_manager
         .get_damage_type(key)
+        .or_else(|| {
+            let name = key.strip_prefix("minecraft:").unwrap_or(key);
+            pumpkin_data::damage::DamageType::from_name(name)
+        })
         .is_some_and(|damage| {
             target.damage_with_context(
                 target,
