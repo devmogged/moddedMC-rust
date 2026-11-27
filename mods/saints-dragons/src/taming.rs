@@ -292,39 +292,38 @@ fn scale(kind: &str) -> Option<String> {
     .then(|| format!("{kind}_scale"))
 }
 
+/// DragonGroomingComponent.tryBrush.
 fn brush(click: &mut UseMob<'_>, golden: bool) -> UseResult {
     let (Some(player), Some(mob), Some(mobs), Some(stacks)) =
         (click.player, click.mob, MOBS.get(), STACKS.get())
     else {
         return UseResult::Pass;
     };
-    let Some(id) = mobs.kind(mob).and_then(scale) else {
-        return UseResult::Pass;
-    };
+    let id = mobs.kind(mob).and_then(scale);
     let mut guard = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
     let timers = &mut guard.get_or_insert_default().brush;
     let Some(old) = tamed(mob) else {
-        return UseResult::Pass;
+        return UseResult::Consume;
     };
     let now = tick_count();
     timers.retain(|_, until| *until > now);
     if timers.contains_key(&mob.id()) {
         return UseResult::Consume;
     }
-    if old.regrowth > 0 && old.happiness == 100 {
+    if (old.regrowth > 0 || id.is_none()) && old.happiness == 100 {
         mobs.message(player, "This dragon's scales are still growing.", true);
         return UseResult::Consume;
     }
     let Some(view) = mob.view() else {
         return UseResult::Fail;
     };
-    let count = if old.regrowth == 0 {
+    let count = if old.regrowth == 0 && id.is_some() {
         (if golden { 6 } else { 1 }) + random(5) as i32
     } else {
         0
     };
     let Ok(reward) = fastnbt::to_bytes(&HashMap::from([
-        ("id", Value::String(id)),
+        ("id", Value::String(id.unwrap_or_default())),
         ("count", Value::Int(count)),
     ])) else {
         return UseResult::Fail;
@@ -384,6 +383,7 @@ fn brush(click: &mut UseMob<'_>, golden: bool) -> UseResult {
     UseResult::Success
 }
 
+/// DragonGroomingComponent.tryPluck.
 fn pluck(click: &mut UseMob<'_>) -> UseResult {
     let (Some(player), Some(mob), Some(mobs), Some(vitals)) =
         (click.player, click.mob, MOBS.get(), crate::MOB_HEALTH.get())
@@ -393,22 +393,34 @@ fn pluck(click: &mut UseMob<'_>) -> UseResult {
     let _guard = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
     let old = tamed(mob);
     let health = mobs.health(mob).map_or(0.0, |(health, _)| health);
-    let Some(id) = mobs.kind(mob).and_then(scale) else {
-        return UseResult::Pass;
-    };
+    let kind = mobs.kind(mob).unwrap_or_default();
+    let id = scale(kind);
+    let name = crate::binders::saved_name(mob).unwrap_or_else(|| {
+        crate::roster::display(kind.strip_prefix("saintsdragons:").unwrap_or(kind)).to_owned()
+    });
     let reason = match old {
-        None => "Tame the dragon before plucking its scales.",
-        Some(state) if mobs.uuid(player) != Some(state.owner) => "Only the owner can pluck scales.",
-        Some(state) if state.regrowth == 0 => "Brush this dragon before plucking.",
-        Some(state) if state.plucked => "This dragon has already been plucked this cycle.",
-        Some(_) if health <= 5.0 => "The dragon needs more health before plucking.",
-        Some(_) => "",
+        None => format!("{name} must be tamed before a scale can be plucked."),
+        Some(state) if mobs.uuid(player) != Some(state.owner) => {
+            format!("{name} will not let you near its scales.")
+        }
+        Some(_) if crate::eggs::is_juvenile(mob) => {
+            format!("{name} is too young to have a scale plucked.")
+        }
+        Some(_) if id.is_none() => format!("{name} has no scale that can be plucked."),
+        Some(state) if state.regrowth == 0 => {
+            format!("{name}'s scales are ready to be brushed normally.")
+        }
+        Some(state) if state.plucked => format!(
+            "A scale has already been forcibly plucked from {name} during this shedding cycle."
+        ),
+        Some(_) if health <= 5.0 => format!("{name} is too weak to endure having a scale plucked."),
+        Some(_) => String::new(),
     };
     if !reason.is_empty() {
-        mobs.message(player, reason, true);
+        mobs.message(player, &reason, true);
         return UseResult::Consume;
     }
-    let Some(old) = old else {
+    let (Some(old), Some(id)) = (old, id) else {
         return UseResult::Fail;
     };
     let (Ok(reward), Some(original)) = (
@@ -435,7 +447,15 @@ fn pluck(click: &mut UseMob<'_>) -> UseResult {
         mobs.set_state(mob, &old.encode());
         return UseResult::Fail;
     }
-    if !click.give(&reward) {
+    if !click.give(&reward)
+        && !mob.view().is_some_and(|view| {
+            STACKS.get().is_some_and(|stacks| {
+                stacks
+                    .spawn(click.world, view.position, [0.0, 0.2, 0.0], &reward)
+                    .is_some()
+            })
+        })
+    {
         vitals.set(mob, health);
         if wore_tool {
             click.stack.write(&original);
@@ -451,7 +471,15 @@ fn pluck(click: &mut UseMob<'_>) -> UseResult {
         };
         effects.play_sound(click.world, view.position, sound, SOUND_NEUTRAL, 1.0, 1.0);
     }
-    mobs.message(player, "Plucked three scales.", true);
+    crate::roost::wake(mob, false, 100);
+    crate::visuals::hurt_reaction(mob, kind);
+    crate::audio::hurt(click.world, mob, kind);
+    crate::codex::remember(click.world, mob, None);
+    mobs.message(
+        player,
+        &format!("You forcibly pluck a scale from {name}."),
+        true,
+    );
     UseResult::Success
 }
 
@@ -739,7 +767,9 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::stun::forget(mob.id());
     crate::breed::forget(mob.id());
     crate::wild::forget(mob.id());
+    crate::roost::forget(mob.id());
     crate::hunger::forget(mob.id());
+    crate::hunt::forget(mob.id());
     crate::baby::forget(mob.id());
     crate::combat_volitans::forget(mob.id());
     crate::visuals::death(world, mob);

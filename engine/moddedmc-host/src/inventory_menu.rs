@@ -21,16 +21,20 @@ use uuid::Uuid;
 
 use crate::{lock, native, saved_data::Transaction, stacks};
 
+mod managed;
+
 #[derive(Clone, Copy)]
 struct Kind {
     owner: &'static str,
-    callback: abi::InventoryMenuCallback,
+    callback: Option<abi::InventoryMenuCallback>,
+    managed: Option<abi::InventoryMenuManagedCallback>,
     action: Option<abi::InventoryMenuActionCallback>,
 }
 
 #[derive(Clone, Copy, Default)]
 pub struct Registration {
     binding: Option<(u64, abi::InventoryMenuCallback)>,
+    managed: Option<(u64, abi::InventoryMenuManagedCallback)>,
     action: Option<abi::InventoryMenuActionCallback>,
 }
 
@@ -57,18 +61,23 @@ fn invoke_callback<T>(call: impl FnOnce() -> T) -> T {
     result
 }
 
-pub static INVENTORY_MENU: abi::InventoryMenuV1Validity = abi::InventoryMenuV1Validity {
-    base: abi::InventoryMenuV1Actions {
-        base: abi::InventoryMenuV1 {
-            size: size_of::<abi::InventoryMenuV1Validity>(),
-            register: stage_kind,
-            open,
-            restore_matching,
+pub static INVENTORY_MENU: abi::InventoryMenuV1Managed = abi::InventoryMenuV1Managed {
+    base: abi::InventoryMenuV1Validity {
+        base: abi::InventoryMenuV1Actions {
+            base: abi::InventoryMenuV1 {
+                size: size_of::<abi::InventoryMenuV1Managed>(),
+                register: stage_kind,
+                open,
+                restore_matching,
+            },
+            on_action: stage_action,
+            open_with_actions,
         },
-        on_action: stage_action,
-        open_with_actions,
+        open_validated,
     },
-    open_validated,
+    register_managed: stage_managed,
+    open_managed: managed::open,
+    mutate: managed::mutate,
 };
 
 unsafe extern "C" fn stage_kind(
@@ -81,7 +90,7 @@ unsafe extern "C" fn stage_kind(
     }
     // SAFETY: the staging argument and output belong to the current registration.
     let staging = unsafe { native::staging(reg) };
-    if staging.inventory_menu.binding.is_some() {
+    if staging.inventory_menu.binding.is_some() || staging.inventory_menu.managed.is_some() {
         return code::DUPLICATE_ID;
     }
     let id = NEXT_KIND.fetch_add(1, Ordering::Relaxed);
@@ -91,10 +100,30 @@ unsafe extern "C" fn stage_kind(
     code::OK
 }
 
+unsafe extern "C" fn stage_managed(
+    reg: Reg,
+    callback: abi::InventoryMenuManagedCallback,
+    out: *mut u64,
+) -> i32 {
+    if out.is_null() {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: the staging context and output belong to the current registration.
+    let staging = &mut unsafe { native::staging(reg) }.inventory_menu;
+    if staging.binding.is_some() || staging.managed.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    let id = NEXT_KIND.fetch_add(1, Ordering::Relaxed);
+    staging.managed = Some((id, callback));
+    // SAFETY: the caller supplies a valid output for the assigned kind.
+    unsafe { out.write(id) };
+    code::OK
+}
+
 unsafe extern "C" fn stage_action(reg: Reg, callback: abi::InventoryMenuActionCallback) -> i32 {
     // SAFETY: the caller borrows the staging context during registration.
     let staged = &mut unsafe { native::staging(reg) }.inventory_menu;
-    if staged.binding.is_none() {
+    if staged.binding.is_none() && staged.managed.is_none() {
         return code::INVALID_DEFINITION;
     }
     if staged.action.is_some() {
@@ -110,7 +139,19 @@ pub fn register(owner: &'static str, registration: Registration) {
             id,
             Kind {
                 owner,
-                callback,
+                callback: Some(callback),
+                managed: None,
+                action: registration.action,
+            },
+        );
+    }
+    if let Some((id, callback)) = registration.managed {
+        lock(&KINDS).insert(
+            id,
+            Kind {
+                owner,
+                callback: None,
+                managed: Some(callback),
                 action: registration.action,
             },
         );
@@ -158,10 +199,7 @@ unsafe extern "C" fn open_validated(
     context: Str,
     callback: abi::InventoryMenuValidityCallback,
 ) -> bool {
-    if world.is_null()
-        || context.len > abi::MAX_MENU_VALIDITY_CONTEXT
-        || IN_CALLBACK.get()
-    {
+    if world.is_null() || context.len > abi::MAX_MENU_VALIDITY_CONTEXT || IN_CALLBACK.get() {
         return false;
     }
     // SAFETY: the caller borrows the request and context until this call returns.
@@ -195,6 +233,9 @@ fn open_menu(
     let Some(kind) = lock(&KINDS).get(&request.kind).copied() else {
         return false;
     };
+    if kind.callback.is_none() {
+        return false;
+    }
     // SAFETY: the request borrows the complete array and title for this call.
     let access = unsafe { std::slice::from_raw_parts(request.access, request.count) };
     let Some(access): Option<Vec<_>> = access.iter().copied().map(decode_access).collect() else {
@@ -292,6 +333,10 @@ fn open_menu(
 }
 
 fn initialize_inventory(request: &abi::InventoryMenuOpen) -> Option<MenuInventory> {
+    MenuInventory::new(initialize_stacks(request)?)
+}
+
+fn initialize_stacks(request: &abi::InventoryMenuOpen) -> Option<Vec<ItemStack>> {
     let mut initial = vec![Str::EMPTY; request.count];
     // SAFETY: the caller keeps its initializer alive until open returns.
     if !invoke_callback(|| unsafe {
@@ -303,7 +348,7 @@ fn initialize_inventory(request: &abi::InventoryMenuOpen) -> Option<MenuInventor
     }) {
         return None;
     }
-    let stacks: Option<Vec<_>> = initial
+    initial
         .into_iter()
         .map(|stack| {
             if stack.len == 0 {
@@ -312,8 +357,7 @@ fn initialize_inventory(request: &abi::InventoryMenuOpen) -> Option<MenuInventor
                 stacks::read_stack(stack)
             }
         })
-        .collect();
-    MenuInventory::new(stacks?)
+        .collect()
 }
 
 fn menu_actions(
@@ -422,6 +466,9 @@ fn persist(
     stacks: &[ItemStack],
     overflow: &[ItemStack],
 ) -> bool {
+    let Some(callback) = kind.callback else {
+        return false;
+    };
     let Some(player) = player.as_any().downcast_ref::<Player>() else {
         return false;
     };
@@ -455,6 +502,6 @@ fn persist(
         commit: Transaction::commit,
     };
     // SAFETY: the world, trial stacks and transaction live through this synchronous callback.
-    invoke_callback(|| unsafe { (kind.callback)(&raw const change) });
+    invoke_callback(|| unsafe { callback(&raw const change) });
     transaction.committed
 }

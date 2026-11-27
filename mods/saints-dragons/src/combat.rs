@@ -69,6 +69,13 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
     {
         return false;
     }
+    // Ignivorus.hurt interrupts sleep before the taming hold intercepts damage.
+    if amount > 0.0
+        && MOBS.get().and_then(|mobs| mobs.kind(mob)) == Some("saintsdragons:ignivorus")
+        && !IMMUNE.contains(&damage_type)
+    {
+        crate::roost::wake(mob, true, 600);
+    }
     if !crate::stun::hurt(world, mob, damage_type, amount) {
         return false;
     }
@@ -88,6 +95,9 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
         mobs.set_on_fire(mob, 0);
     }
     if !immune && amount > 0.0 {
+        if kind == crate::wild::VARASUCHUS {
+            crate::roost::wake(mob, false, 600);
+        }
         crate::audio::hurt(world, mob, kind);
     }
     if !immune {

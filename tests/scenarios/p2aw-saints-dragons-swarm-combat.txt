@@ -1,0 +1,87 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Verify target exclusions and damage by each swarm member, with no carrier AI or player attacks.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd time set midnight
+cmd tp tester 1025.5 120 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1009 119 1009 1041 119 1041 minecraft:stone
+cmd fill 1009 120 1009 1041 132 1041 minecraft:air
+cmd summon minecraft:enderman 1025.5 120 1028.5 {NoAI:1b}
+cmd saintsdragons spawn latcher 1025 120 1025
+cmd saintsdragons spawn winged 1028 120 1025
+cmd saintsdragons spawn whettled 1031 120 1025
+wait 3
+cmd data get entity @e[type=minecraft:enderman,limit=1] Health
+wait 0.5
+expect following entity data: 40f$
+cmd data get entity @e[type=minecraft:spider,limit=1] Health
+wait 0.5
+expect following entity data: 12f$
+cmd damage @e[type=minecraft:spider,limit=1] 1 minecraft:mob_attack by @e[type=minecraft:enderman,limit=1]
+wait 2
+cmd data get entity @e[type=minecraft:enderman,limit=1] Health
+wait 0.5
+expect following entity data: 40f$
+cmd kill @e[type=minecraft:spider]
+cmd kill @e[type=minecraft:ravager]
+cmd kill @e[type=minecraft:enderman]
+wait 2
+
+cmd summon minecraft:iron_golem 1025.5 120 1028.5 {NoAI:1b}
+cmd saintsdragons spawn latcher 1025 120 1025
+wait 2
+cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+wait 0.5
+expect following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
+cmd kill @e[type=minecraft:spider]
+cmd kill @e[type=minecraft:iron_golem]
+wait 2
+
+cmd summon minecraft:iron_golem 1025.5 120 1028.5 {NoAI:1b}
+cmd saintsdragons spawn winged 1025 120 1025
+wait 7
+cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+wait 0.5
+expect following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
+cmd kill @e[type=minecraft:ravager]
+cmd kill @e[type=minecraft:iron_golem]
+wait 2
+
+cmd summon minecraft:iron_golem 1025.5 120 1031.5 {NoAI:1b}
+cmd saintsdragons spawn whettled 1025 120 1025
+wait 4
+cmd data get entity @e[type=minecraft:iron_golem,limit=1] Health
+wait 0.5
+expect following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
+cmd kill @e[type=minecraft:ravager]
+cmd kill @e[type=minecraft:iron_golem]
+wait 2
+
+# A full Draconian set pacifies the swarm until its wearer attacks.
+cmd item replace entity tester armor.head with saintsdragons:draconian_helmet
+cmd item replace entity tester armor.chest with saintsdragons:draconian_chestplate
+cmd item replace entity tester armor.legs with saintsdragons:draconian_leggings
+cmd item replace entity tester armor.feet with saintsdragons:draconian_boots
+cmd tp tester 1025.5 120 1028.5
+cmd gamemode survival tester
+cmd effect give tester minecraft:instant_health 1 10
+wait 1
+cmd saintsdragons spawn latcher 1025 120 1025
+wait 5
+cmd data get entity tester Health
+wait 0.5
+expect following entity data: 20(?:\.0)?f$
+cmd damage @e[type=minecraft:spider,limit=1] 1 minecraft:player_attack by tester
+wait 5
+cmd data get entity tester Health
+wait 0.5
+expect following entity data: (?:[0-9]|1[0-9])(?:\.[0-9]+)?f$
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

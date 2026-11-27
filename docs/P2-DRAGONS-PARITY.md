@@ -8,19 +8,19 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
-| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Ivy trades from the released table | Ivy's companion inventory and combat, resuming her dialogue after the trade screen closes, swarm combat and pathfinding around obstacles, and exact spawn restrictions, attributes and collision |
+| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table | Ivy's companion inventory and combat, resuming her dialogue after the trade screen closes, exact flight navigation and collision, and exact spawn restrictions and attributes |
 | Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback, and the custom Raevyx storm, Stegonaut lush cave and Volitans underwater spawners | Per-species brains, navigation, growth and breeding |
-| Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees; Volitans AI bite, claw, horn gore, water/poison breath, poison ball, roar and burrow approach/exit attack. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Remaining per-species combat, boss phases, exact projectile entities and collision, damage-source hooks, special rider abilities and navigation |
-| Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, juvenile food taming, growth feeding and raw-moop stunting | Nulljaw wild juvenile feeding, breeding experience orb and stat (host support), grooming animations, owner-bed sleep and sleep reactions, codex hunger display, the hunger hunting behaviour and roster melee scaling; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
-| Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips. The full Dragonlord set's fire, blast and short-fall immunity and the Dragonlord sword's fire on hit | Draconian set swarm pacifying, Dragonlord double jump, flight and landing shockwave, the Blood Tempest dodge, Blood Tempest and Dragonlord sword active abilities and the katana's chain lightning, worn armor models, and remaining equipment components |
-| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock-client interaction and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts with their sleep anchors, Cindervane and Raevyx egg trampling, and Ivy?s house | The advancements awarded by abilities that are not ported yet (Fire Hydrant, Tactical Nuke, cooking with a fire dragon, the Raevyx dive exit and hitting a baby) and recipe unlocks from advancement rewards, original Crucible GUI and animations, some legacy decorations, remaining custom crafting and advancement predicates, and Pellucida hardness, sound and swarm-specific collision |
+| Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees; Volitans AI bite, claw, horn gore, water/poison breath, poison ball, roar and burrow approach/exit attack. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
+| Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, roster melee attribute scaling, juvenile food taming, growth feeding and raw-moop stunting; grooming hurt clips and roost damage wake-up reactions; breeding XP and stats, credited hunting and fresh-drop eating, owner-bed sleep | Nulljaw wild juvenile feeding, contextual breeding advancement, sensory disturbances, codex hunger display; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
+| Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips. The full Dragonlord set's fire, blast and short-fall immunity and the Dragonlord sword's fire on hit, and full Draconian armor swarm pacification with retaliation | Dragonlord double jump, flight and landing shockwave, the Blood Tempest dodge, Blood Tempest and Dragonlord sword active abilities and the katana's chain lightning, worn armor models, and remaining equipment components |
+| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with a stock chest menu, explicit start, processing locks, fuel routing, live shared slot refresh and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts with their sleep anchors, Cindervane and Raevyx egg trampling, and Ivy?s house | The advancements awarded by abilities that are not ported yet (Fire Hydrant, Tactical Nuke, cooking with a fire dragon, the Raevyx dive exit and hitting a baby) and recipe unlocks from advancement rewards, original Crucible screen artwork and animations, some legacy decorations, remaining custom crafting and advancement predicates, and Pellucida hardness, sound and swarm-specific collision |
 | Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, and hurt and death cues for the roster except Moop. A connected bot verified Cindervane, Raevyx and Mossback. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Remaining per-species playback, animation keyframe cues, footsteps, takeoff and landing, and moving or looping sources |
 | Presentation | Adult rig path with Creative gender and skin changes in the Fabric companion, and stock display fallbacks | Juvenile rigs, overlays, particles, special renderers, equipment visuals, screens and translations |
 | Integration | Stock 26.3 client fallback and versioned mod interfaces | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
 
-Volitans has hunger-scaled melee, medium-specific AI selection, persisted cooldowns and breath energy, swept breath/orb damage, poison and roar stun, and water extinguishing fire/solidifying lava with Fire Hydrant credit for its owner. Burrow uses surface navigation and particles; projectiles use transient simulated trajectories rather than the upstream entities. Rider-only ultimate, dash/dodge inputs, exact burrow collision, poison immunity for external effects, incoming attacker-specific reactions and full targeting/navigation remain pending host support. [Retaliation scenario](../tests/scenarios/p2c-volitans-combat.txt) covers melee selection and damage.
+Volitans has hunger-scaled melee, medium-specific AI selection, persisted cooldowns and breath energy, swept breath/orb damage, poison and roar stun, and water extinguishing fire/solidifying lava with Fire Hydrant credit for its owner. Burrow uses surface navigation and particles; projectiles use transient simulated trajectories. Rider-only ultimate, dash/dodge inputs, exact burrow collision, external poison immunity, incoming attacker-specific reactions and full targeting/navigation remain pending host support. [Retaliation scenario](../tests/scenarios/p2c-volitans-combat.txt) covers melee selection and damage.
 
-The Crucible implements the released fuel tiers, nine-slot recipe matching, processing times, and pending output persisted with the block. The 14 upstream processing definitions are present. The Crucible also reads ordinary smelting recipes from the merged datapacks. Original screen, two-block shape, animation, sounds, and automation still need parity.
+The Crucible implements the released fuel tiers, nine-slot recipe matching, processing times, and pending output persisted with the block. The 14 upstream processing definitions are present. The Crucible also reads ordinary smelting recipes from the merged datapacks. A stock chest screen now exposes the grid, fuel, output and explicit start control, locks the grid during processing, routes shift-clicked fuel, and uses identity-bound reach checks. The original screen artwork, two-block shape, animation, sounds, and automation still need parity. [Stock-client scenario](../tests/scenarios/p2ax-saints-dragons-crucible.txt) (pending coordinator run).
 
 The Ignivorus Egg advances through three crack stages while on the Ignivorus
 Incubator. Progress persists across restarts. The hatchling starts with 90 health,
@@ -76,7 +76,7 @@ companion pack includes all three original rigs and animation sets. A stock
 client receives display fallbacks. The scenario verified the four eggs,
 persistence, spawning without gravity, and original hurt and death audio.
 Suspended wandering uses the released movement speeds and takes clear, straight
-routes. Pathfinding around obstacles, coordinated attacks, the encounter's
+routes. Pathfinding around obstacles, the encounter's
 spawn and death animations, and exact hitboxes remain pending. The stock
 `/saintsdragons items` packet includes all eight binders and all four swarm
 eggs. In a local 24-creature smoke check, the final tick query read 4.72 ms
@@ -84,6 +84,17 @@ with ground movement and 3.94 ms with suspended wandering on the same engine
 build. This is a short run with different world seeds and an engine test build
 in the background.
 [Swarm spawn egg scenario](../tests/scenarios/p2ab-saints-dragons-swarm-eggs.txt)
+
+Swarm members now use explicit target and combat goals: retaliation takes
+priority, followed by players and other living entities; swarm members and
+Endermen are excluded. Latcher bites, Winged pulls and dives after two successful
+pulls, and Whettled claws or charges with their released damage and attack
+timings. Reservations limit attacks on one target and the nucleus bounds
+targeting. The direct flight controller approximates the original path and
+collision geometry. The full Draconian armor set pacifies swarm members
+unless the wearer is their last attacker. Target selection and attacks read
+the four worn item IDs through the generic equipment interface.
+[Swarm combat scenario](../tests/scenarios/p2aw-saints-dragons-swarm-combat.txt)
 
 A player-placed Draconian Nucleus records its owner. The Controller toggles
 owned encounters within 64 blocks, removes the active swarm when it stops an
@@ -190,10 +201,9 @@ underwater floor within eight blocks horizontally and twelve down. Their egg
 is waterlogged. Nulljaw eat chorus fruit and court for 60 ticks before giving
 birth to a live juvenile with 70 health, 4 armor, a 0.55 hitbox scale, and the
 coordinating parent's owner. Both use the existing 6,000-tick breeding cooldown.
-The Java behaviours also spawn 1–7 experience when mob loot is enabled and
-attempt to award the breeder the animals-bred stat and advancement trigger.
-These need generic host calls for gamerule queries, spawning XP orbs, awarding
-vanilla statistics and triggering contextual advancements; they remain deferred.
+Successful breeding spawns 1–7 experience when mob loot is enabled and awards
+the animals-bred statistic to the first available feeding player. The contextual
+BRED_ANIMALS advancement trigger remains deferred.
 [More breeding scenario](../tests/scenarios/p2at-saints-dragons-more-breeding.txt)
 
 A wild adult Stegonaut is tamed by any of its foods. Clicking a wild adult
@@ -230,12 +240,26 @@ or 4800 for a Hearty Dragon Meal. Its owner can feed it raw moop to keep it
 small for good.
 [Hunger and juvenile scenario](../tests/scenarios/p2ar-saints-dragons-hunger-babies.txt)
 
+The seven roster dragons now scale their carrier attack damage attribute with
+the same hunger multiplier as Cindervane's abilities, restoring their base damage
+at 60 hunger or higher. Ignivorus keeps its juvenile zero damage and adult
+base of 50. Cindervane, Raevyx, Ignivorus, Varasuchus and Volitans acquire their
+released prey types at 60 hunger or less. After a credited kill, they look
+for fresh food drops (at most 100 ticks old) around the kill for 60 ticks and
+eat one every 20 ticks, restoring 10 hunger. The roster uses a generic melee
+goal until its species combat is ported; dedicated aerial landing, item
+particles and interaction animation blending are still pending.
+[Hunting and melee scaling scenario](../tests/scenarios/p2ba-saints-dragons-hunting.txt)
+
 A tamed adult Varasuchus heals 10 health from its ordinary food or 35 from a
 Hearty Dragon Meal, which also grants Regeneration II for 200 ticks. Meals
 restore hunger and share the species' feeding cooldown with growth and breeding.
 A wild Varasuchus refuses ordinary interactions while falling asleep, sleeping,
-or waking at its roost. Follow AI is also gated on the sleep state. Owner-bed
-sleep is still missing: the SDK cannot read whether a player is sleeping.
+or waking at its roost. Follow AI is also gated on the sleep state. The seven
+released sleep-capable dragons now follow their owner's actual bed sleep at
+night and wake when the owner wakes or conditions no longer permit sleep.
+The released underwater sleep-depth search and sensory disturbances remain
+pending.
 The released tamed mounting interaction wakes the dragon immediately, rather
 than rejecting the ride; tamed Varasuchus riding is outside this port.
 [Varasuchus care scenario](../tests/scenarios/p2au-saints-dragons-varasuchus-care.txt)
