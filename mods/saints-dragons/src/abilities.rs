@@ -11,6 +11,7 @@ use moddedmc_api::{
 use crate::{
     EFFECTS, ENTITIES, MOB_AI, MOBS,
     flight::{add, length_squared, offset},
+    taming,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -749,7 +750,8 @@ fn slash_primary(
                 id,
                 damage * crate::hunger::melee_multiplier(mob),
             );
-            if grab && hit
+            if grab
+                && hit
                 && target.flags() & ENTITY_ALIVE != 0
                 && mobs.passengers(mob).is_empty()
                 && mobs.passengers(target).is_empty()

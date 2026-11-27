@@ -572,9 +572,9 @@ across all their dragons and dimensions and persisted through world saves.
 All eight dragon combat filters and recruited Ivy honor the owner's list and
 the ownership of mod companions; Cindervane's fire aura and Stegonaut's live
 and portable buffs also use the released owner/ally rules. The existing dialog
-uses a paged online-player selector and supports offline removal. The host
-still needs server-wide online player lookup, native pet owner UUID and
-scoreboard team/alliance queries, typed string/entity-selector command
+uses a paged online-player selector and supports offline removal. Native pet
+ownership and scoreboard alliances are also checked. The host still needs
+server-wide online player lookup and typed string/entity-selector command
 arguments for /dragonally, and a text-input screen for the released Codex UI.
 [Global ally scenario](../tests/scenarios/p2-ally-list.txt) (pending coordinator run).
 
@@ -792,4 +792,6 @@ Atroxiia rider melee, movement and frost abilities are ported.
 
 Ignivorus rider movement and abilities are ported.
 
-Cindervane rider combat now dispatches the owner's first-seat left-click, X melee toggle, R double bite, H volley, G hold/release Fire Body and Ctrl+4 flex through the companion. The released timings, cooldowns, forward bite sweep, slash grab motion, rider-aimed volleys, fire aura protection, landing/forward crash blast and flex movement lock are implemented. Remaining gaps: exact flight transitions, animated grab locator, native projectile entity and physics, complete elemental/ally immunity, cooking, griefing-dependent terrain fire and crash imprint, advancement triggers and exact custom visuals. [Registration and manual companion scenario](../tests/scenarios/p2c-cindervane-rider.txt).
+Cindervane rider combat now dispatches the owner's first-seat left-click, X melee toggle, R double bite, H volley, G hold/release Fire Body and Ctrl+4 flex through the companion. The released timings, cooldowns, forward bite sweep, slash grab motion, rider-aimed volleys, fire aura protection, landing/forward crash blast and flex movement lock are implemented. Remaining gaps: exact flight transitions, animated grab locator, native projectile entity and physics, complete elemental/ally immunity, live furnace cooking acceleration, custom crash explosion and exact custom visuals. [Registration and manual companion scenario](../tests/scenarios/p2c-cindervane-rider.txt).
+
+Fire Body samples terrain six times per tick with a 12% ignition chance; Magma Volley ignites eligible air in its 3-by-3 impact layer. A crash carves the released nine-block-radius parabolic imprint, preserves bedrock and obsidian, attempts fire placement across the 7-by-7 impact layer, and awards Tactical Nuke. Terrain changes honor mob griefing; the dragon-specific griefing and ignition settings use their released enabled defaults. The custom explosion resistance calculator and live furnace progress/lit-time boost still need host support. The Java release heats nearby furnaces, smokers and blast furnaces while grounded and ridden; it does not cook dropped item entities. [Terrain scenario](../tests/scenarios/p2-cindervane-terrain.txt).

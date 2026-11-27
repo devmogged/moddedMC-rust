@@ -1,5 +1,5 @@
 //! IgnivorusMagmaPillarEntity and StegonautAmethystPillarEntity, 0.9.88.
-use crate::{EFFECTS, ENTITIES, MOBS, taming};
+use crate::{EFFECTS, ENTITIES, MOBS};
 use moddedmc_api::{
     abi::heightmap,
     content::World,
@@ -175,7 +175,6 @@ fn eligible(world: World<'_>, owner: Option<i32>, target: Entity<'_>) -> bool {
     }
     let Some(owner) = owner else { return true };
     // DragonEntity.isAlly includes village defenders and trusted companions.
-    // shortcut: scoreboard team/allied checks and vanilla pet owners need host queries.
     if matches!(
         target.type_id().trim_start_matches("minecraft:"),
         "villager" | "wandering_trader" | "iron_golem"
@@ -186,8 +185,7 @@ fn eligible(world: World<'_>, owner: Option<i32>, target: Entity<'_>) -> bool {
         .get()
         .and_then(|entities| {
             entities.with_entity(world, owner, |dragon| {
-                !taming::is_owner(dragon, target)
-                    && !taming::owner(dragon).is_some_and(|id| taming::owner(target) == Some(id))
+                !crate::allies::is_ally(world, dragon, target)
             })
         })
         .unwrap_or(true)
