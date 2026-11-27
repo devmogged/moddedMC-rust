@@ -79,6 +79,20 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
     if phase == goal_phase::START && matches!(key, AMBIENT | crate::roster::AMBIENT) {
         crate::roster::finalize_spawn(world, mob);
     }
+    if matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE)
+        && !matches!(
+            key,
+            AMBIENT
+                | crate::roster::AMBIENT
+                | crate::combat::TARGETING
+                | crate::roost::GOAL
+                | crate::taming::RIDE_OR_SIT
+                | crate::stun::GOAL
+        )
+        && crate::roost::sleep_clip(mob.id()).is_some()
+    {
+        return false;
+    }
     match key {
         IDLE_LOOK => idle_look(phase, world, mob),
         GROUND_WANDER => ground_wander(phase, mob),
@@ -111,10 +125,11 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::breed::GOAL => crate::breed::goal(phase, world, mob),
         crate::wild::GOAL => crate::wild::goal(phase, world, mob),
         crate::ivy::COMBAT => crate::ivy::combat_goal(phase, world, mob),
+        crate::hunt::GOAL => crate::hunt::goal(phase, world, mob),
         AMBIENT => match phase {
             goal_phase::CAN_START | goal_phase::CONTINUE => true,
             goal_phase::TICK => {
-                crate::hunger::tick(world, mob, 0.30, Some(0.60));
+                crate::hunger::tick(world, mob, 0.30, Some(0.60), "cindervane");
                 crate::taming::regrow(mob);
                 if crate::eggs::grow(mob, "cindervane") {
                     if let Some(view) = mob.view() {
@@ -129,6 +144,8 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
                     }
                     return false;
                 }
+                crate::hunt::tick(world, mob, "cindervane");
+                crate::roost::owner_tick(world, mob, "cindervane");
                 crate::combat::ambient(world, mob);
                 crate::visuals::tick(world, mob);
                 false

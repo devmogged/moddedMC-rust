@@ -198,6 +198,7 @@ To use the vanilla wall placement and neighbor rules, register the complete wall
 | | `water_evaporates(world, position)` | Read the world's 26.3 water evaporation setting for a loaded position. |
 | `moddedmc:entities` v1 | `has_scoreboard_tag(entity, tag)` | Appended scoreboard tag membership check. Require `EntitiesExtension::ScoreboardTags` before relying on the result. |
 | `moddedmc:entities` v1 | `players(world, out, capacity)` | Appended. The ids of the world's players, spectators and dead ones included; returns the total, which can exceed `capacity`. Require `EntitiesExtension::Players`. |
+| `moddedmc:entities` v1 | `age(EntityRef) -> i32` | Appended at byte 248. Vanilla entity tick count, including item entities; -1 for an invalid entity. The SDK returns `None` on older hosts. |
 | `moddedmc:entities` v1 | `on_entity_inside(reg, callback)` | Stage one callback per mod, called like vanilla `Block.entityInside` for entities touching one of the mod's blocks. It gets the world, position, state and a borrowed entity, all valid only during the call. |
 | | `view(entity, out)` | Fill kind bits (player, living, item), on-ground flag, position, motion, yaw, pitch, head yaw and body yaw. |
 | | `type_id(entity)` | The entity type's resource name. |
@@ -280,6 +281,11 @@ To use the vanilla wall placement and neighbor rules, register the complete wall
 | | `make_persistent` | Prevent a mob from naturally despawning. Pumpkin saves the flag with the mob. |
 | | `add_spawn(reg, definition, check)` | Appended. Require `MobsExtension::NaturalSpawns`. Add a mob type the mod registered to the biome spawn pools (vanilla `MobSpawnSettings`) for a biome id or `#tag`: a `MobCategory` name, weight, group size and `spawn_location`. The natural spawner and chunk generation pick from vanilla and mod entries by weight; the mod mob uses its carrier's size, mob cap and despawn rules, optionally its carrier's spawn rules too, then `check` (vanilla `SpawnPlacements`) with the position, biome, the summed weight of the pool's vanilla entries and whether it is chunk generation. |
 | | `award_advancement(player, advancement, criterion)` | Appended. Require `MobsExtension::Advancements`. Grant one criterion of an advancement, vanilla or from a mod's datapack, to a player, as vanilla `PlayerAdvancements.award` does; the advancement completes when its requirements are met. True when this call granted it. |
+| | `kill_credit(EntityRef) -> i32` | Appended at byte 184. Vanilla living entity kill credit, including the last attacker within the native timeout; -1 if absent. |
+| | `player_sleeping(EntityRef) -> i32` | Appended at byte 192. Vanilla player sleeping state: 1 asleep, 0 awake, -1 for a non-player. |
+| | `award_experience(WorldRef, Vec3, u32) -> bool` | Appended at byte 200. Spawn experience orbs at a finite position with a positive total value. |
+| | `award_stat(EntityRef, Str, Str, i32) -> bool` | Appended at byte 208. Increment a player's vanilla statistic by a positive amount, using the category and registry key (e.g. `minecraft:custom`, `minecraft:animals_bred`). |
+| | `boolean_gamerule(WorldRef, Str) -> i32` | Appended at byte 216. Read a named boolean rule: 0 false, 1 true, -1 unknown or non-boolean. Uses the host's current keys (e.g. `minecraft:mob_drops`, formerly `doMobLoot`). All five appended SDK calls return `None` if unavailable; mutating calls return `Some(false)` on rejection. |
 | | `open_trades(mob, player, offers)` | Appended. Require `MobsExtension::Trading`. Open a villager carrier's vanilla trading screen for a player. Non-empty `offers`, vanilla's saved `Offers` compound as NBT, first replace the carrier's offers; the carrier then counts uses and saves them. False when the mob isn't a villager. |
 | `moddedmc:mob_ai` v1 | `add_goal(reg, definition)` | Stage a goal for a registered mod mob type: a key, a vanilla priority, `goal_control` bits (`MOVE`, `LOOK`, `JUMP`, `TARGET`) and a callback. Every mob of the type gets it as it joins a world, spawned or loaded. The callback is asked each tick with a `goal_phase` (`CAN_START`, `CONTINUE`, `START`, `STOP`, `TICK`), the world and the mob; only the answer to `CAN_START` and `CONTINUE` counts. Goals with `TARGET` run in the target selector. |
 | | `replace_goals(reg, kind)` | Mobs of the type drop their carrier's own goals and targets before getting the mod's. |
@@ -681,6 +687,46 @@ tick speed. It dispatches custom samples in dimension order on the server
 tick thread after the parallel world workers have joined. It skips samples
 whose state has changed or whose chunk is no longer loaded.
 Require the field with `Content::require_random_tick()` in `Mod::start`.
+
+`moddedmc:entities` v1 appends combat and projectile operations after `age`.
+All SDK calls check their individual field offsets and return `None` if an
+older host lacks the field.
+Require `EntitiesExtension::CombatEffects`, `Freezing` or `Projectiles`
+at startup when the corresponding group is mandatory.
+
+- `Entity::hurt_by(attacker, damage_type, amount)` uses the registered damage
+  type with the loaded attacker as both direct and causing entity. Damage
+  still passes through the engine's usual damage hooks and mitigation.
+- `Entity::remove_effect(id)` removes an active vanilla status effect and
+  reports whether it was present. Players use the player-specific removal path.
+- `Entity::attribute_value(id)` reads the computed living attribute, including
+  modifiers. Invalid IDs and nonliving entities return `None`.
+- `Entity::ticks_frozen()` and `Entity::set_ticks_frozen(ticks)` read and write
+  the vanilla frozen counter. The engine clamps it to its supported maximum
+  and updates client metadata. Negative inputs are rejected.
+- `Entities::spawn_projectile(world, kind, owner, target, position, velocity)`
+  creates a supported vanilla projectile in a loaded chunk. A shulker bullet
+  requires a loaded target; other projectile types ignore it. The return is
+  the new entity ID. `Entity::projectile_owner()` returns the resolved owner
+  ID or `None`.
+
+`moddedmc:block_world` v1 appends `World::set_weather(mode, ticks)` and
+`World::raycast(from, to, except)` after `can_see_sky`. Weather modes are
+0 (clear), 1 (rain), and 2 (thunder), with positive durations in ticks.
+Require `WorldExtension::WeatherControl` and `WorldExtension::Raycast`
+respectively.
+Raycast uses collider shapes without fluids and returns the first block
+position and the nearest hittable entity before that block, excluding
+the supplied optional entity ID. It rejects nonfinite/out-of-world endpoints
+and rays longer than 256 blocks. A successful miss is `Some((None, None))`;
+invalid input or a missing host field is `None`.
+The engine treats unloaded blocks as air; the ray does not load chunks.
+
+Current Pumpkin does not expose damage-event causing/direct entities,
+outgoing last-hurt history, its internal freeze eligibility predicate, or
+the shulker bullet's current target. These require engine changes before
+they can be exposed accurately. `MobAi::last_hurt_by` remains available
+and returns the victim's tick count at the last attributed hit.
 
 `moddedmc:block_world` v1 appends `raw_brightness(world, pos, sky_darken)`.
 It returns the greater of block light and sky light minus the supplied darkening,

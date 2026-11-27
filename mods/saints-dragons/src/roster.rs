@@ -179,6 +179,17 @@ const SPECIES: [Species; 13] = [
 
 pub const SWARM_EGG: &str = "draconian_swarm";
 
+/// The current carrier melee bases (ravager 12, spider 2), except Ignivorus,
+/// whose release growth profile already sets 50 for adults and 0 for babies.
+pub fn melee_base(name: &str, juvenile: bool) -> Option<f64> {
+    match name {
+        "ignivorus" => Some(if juvenile { 0.0 } else { 50.0 }),
+        "raevyx" | "stegonaut" | "varasuchus" | "volitans" | "atroxiia" => Some(12.0),
+        "nulljaw" => Some(2.0),
+        _ => None,
+    }
+}
+
 impl Species {
     fn clip(&self, view: EntityView, wet: bool) -> &'static str {
         match self.name {
@@ -240,6 +251,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:flying_speed", 0.5),
                 ("minecraft:knockback_resistance", 1.0),
             ]);
+        }
+        if let Some(damage) = melee_base(species.name, false) {
+            attributes.push(("minecraft:attack_damage", damage));
         }
         if species.name == crate::ivy::SPECIES {
             attributes.extend([
@@ -334,6 +348,11 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             .into_iter()
             .chain(crate::breed::breeds(species.name).then_some((
                 crate::breed::GOAL,
+                1,
+                goal_control::MOVE | goal_control::LOOK,
+            )))
+            .chain(crate::hunt::supported(species.name).then_some((
+                crate::hunt::GOAL,
                 1,
                 goal_control::MOVE | goal_control::LOOK,
             )))
@@ -770,7 +789,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::ivy::target_tick(world, mob);
     }
     if crate::hunger::DRAGONS.contains(&name) {
-        crate::hunger::tick(world, mob, species.speed, None);
+        crate::hunger::tick(world, mob, species.speed, None, name);
     }
     if crate::hunger::DRAGONS.contains(&name) {
         taming::regrow(mob);
@@ -794,6 +813,8 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         );
         return false;
     }
+    crate::hunt::tick(world, mob, name);
+    crate::roost::owner_tick(world, mob, name);
     let wet = species.swim.is_some()
         && matches!(
             world.fluid_id(flight::cell(view.position)).as_deref(),
@@ -806,7 +827,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         }
         swarm::hover(mob, view.motion);
     }
-    let clip = if cfg!(feature = "original-assets") && matches!(name, "ignivorus" | "varasuchus") {
+    let clip = if cfg!(feature = "original-assets") {
         crate::roost::sleep_clip(mob.id())
     } else {
         None
@@ -859,6 +880,16 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn melee_bases_preserve_carriers_and_ignivorus_growth() {
+        assert_eq!(melee_base("raevyx", false), Some(12.0));
+        assert_eq!(melee_base("nulljaw", false), Some(2.0));
+        assert_eq!(melee_base("ignivorus", false), Some(50.0));
+        assert_eq!(melee_base("ignivorus", true), Some(0.0));
+        assert_eq!(melee_base("cindervane", false), None);
+        assert_eq!(melee_base("mossback", false), None);
+    }
 
     #[test]
     fn moop_uses_the_released_swim_speeds_and_land_clip() {

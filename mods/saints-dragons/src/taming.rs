@@ -769,6 +769,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::wild::forget(mob.id());
     crate::roost::forget(mob.id());
     crate::hunger::forget(mob.id());
+    crate::hunt::forget(mob.id());
     crate::baby::forget(mob.id());
     crate::combat_volitans::forget(mob.id());
     crate::ivy::forget(mob.id());
