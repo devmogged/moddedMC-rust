@@ -260,10 +260,10 @@ impl Mobs {
         // SAFETY: registration is live for the call and the trampoline is static.
         let registered =
             RegistrationError::from_code(unsafe { (api.on_death)(reg.reg, s(kind), death) });
-        if registered.is_err() {
-            if let Some(callbacks) = death_callbacks().as_mut() {
-                callbacks.remove(kind);
-            }
+        if registered.is_err()
+            && let Some(callbacks) = death_callbacks().as_mut()
+        {
+            callbacks.remove(kind);
         }
         registered
     }
