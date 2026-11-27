@@ -204,6 +204,12 @@ pub const DRAGONLORD: [&str; 4] = [
     "saintsdragons:dragonlord_leggings",
     "saintsdragons:dragonlord_boots",
 ];
+pub const BLOOD_TEMPEST: [&str; 4] = [
+    "saintsdragons:blood_tempest_helmet",
+    "saintsdragons:blood_tempest_chestplate",
+    "saintsdragons:blood_tempest_leggings",
+    "saintsdragons:blood_tempest_boots",
+];
 /// `DragonlordArmorSetBonus.FALL_DAMAGE_BLOCK_THRESHOLD`.
 const FALL_BLOCK_DISTANCE: f32 = 16.0;
 /// Release 1.20.1 `#is_fire` and `#is_explosion`. Four pieces of 25 fire and blast resistance
@@ -234,6 +240,9 @@ pub fn worn_hurt(
     amount: f32,
     fall_distance: f32,
 ) -> f32 {
+    if armor == BLOOD_TEMPEST && crate::player_moves::dodge_blocks(wearer, damage_type) {
+        return -1.0;
+    }
     if armor != DRAGONLORD {
         return amount;
     }

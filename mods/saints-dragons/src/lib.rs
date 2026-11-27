@@ -33,6 +33,7 @@ mod hunt;
 mod ivy;
 mod ivy_trades;
 mod nucleus;
+mod player_moves;
 mod roost;
 mod roster;
 mod spawners;
@@ -205,7 +206,7 @@ impl Mod for SaintsDragons {
         interaction.on_melee_damage(registry, worldroot::melee_damage)?;
         armor::register(defaults, registry)?;
         let equipment = *EQUIPMENT.get().ok_or(missing)?;
-        for piece in armor::DRAGONLORD {
+        for piece in armor::DRAGONLORD.into_iter().chain(armor::BLOOD_TEMPEST) {
             equipment.on_worn_hurt(registry, piece, armor::worn_hurt)?;
         }
         equipment.on_weapon_hit(registry, worldroot::DRAGONLORD_SWORD, worldroot::weapon_hit)?;
@@ -408,6 +409,7 @@ impl Mod for SaintsDragons {
 }
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
+    player_moves::tick(world, moddedmc_api::tick_count());
     crucible::tick(world, events);
     nucleus::tick(world, time, events);
     eggs::tick(world, events);
