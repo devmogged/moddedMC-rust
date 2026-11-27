@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ProtocolTest {
     @Test
     void advertisesBigEndianVersionAndFlags() {
-        assertArrayEquals(new byte[] {0, 1, 0, 0, 0, 1}, Protocol.hello());
+        assertArrayEquals(new byte[] {0, 1, 0, 0, 0, 3}, Protocol.hello());
     }
 
     @Test
@@ -16,6 +16,9 @@ class ProtocolTest {
         assertNull(Protocol.answer(new byte[] {0, 2, 0, 0, 0, 0}));
         assertNull(Protocol.answer(new byte[] {0, 1, 0, 0, 0, 1}));
         assertEquals(0, Protocol.answer(new byte[] {0, 1, 0, 0, 0, 0}).flags());
+        var actionsOnly = Protocol.answer(new byte[] {0, 1, 0, 0, 0, 2});
+        assertEquals(2, actionsOnly.flags());
+        assertNull(actionsOnly.offer());
     }
 
     @Test

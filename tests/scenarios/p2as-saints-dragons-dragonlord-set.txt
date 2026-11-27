@@ -7,6 +7,8 @@ botstart tester
 wait 3
 cmd op tester
 cmd gamerule minecraft:spawn_mobs false
+# Prevent natural regeneration from masking the small armor-reduced fire hit.
+cmd gamerule minecraft:natural_health_regeneration false
 cmd tp tester 1025.5 105 1025.5
 cmd forceload add 1025 1025
 wait 3

@@ -171,6 +171,11 @@ pub fn forget(id: i32) {
     });
 }
 
+fn clear_stun(id: i32) {
+    // Java clears taming recovery independently of the feeding cooldown.
+    with(|state| state.stunned.remove(&id));
+}
+
 /// `tryEnterHoldStateFromDamage`: a hit that would take the dragon past its stun health leaves
 /// it at that health and holds it instead. False cancels the hit.
 pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -> bool {
@@ -244,7 +249,7 @@ fn lock(world: World<'_>, mob: Entity<'_>) {
 /// `tickRecovery`, run from the hold goal: true while the dragon stays held.
 fn update(world: World<'_>, mob: Entity<'_>) -> bool {
     let Some((profile, health, max)) = wild(mob) else {
-        forget(mob.id());
+        clear_stun(mob.id());
         return false;
     };
     let now = tick_count();
@@ -263,7 +268,7 @@ fn update(world: World<'_>, mob: Entity<'_>) -> bool {
             vitals.set(mob, max);
         }
         notify(world, mob, &text(profile.timeout, profile.display));
-        forget(mob.id());
+        clear_stun(mob.id());
         return false;
     }
     if stun.target > 0.0 && health + 0.5 < stun.target {
@@ -283,7 +288,7 @@ fn update(world: World<'_>, mob: Entity<'_>) -> bool {
     if now < stun.until {
         return true;
     }
-    forget(mob.id());
+    clear_stun(mob.id());
     false
 }
 
@@ -424,7 +429,7 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     let owner = mobs.uuid(player)?;
     let roll = random(1_000_000) as f64 / 10_000.0;
     if roll < chance(profile, item) && taming::tame(click.world, mob, owner) {
-        forget(mob.id());
+        clear_stun(mob.id());
         if hearty {
             mob.add_effect("minecraft:regeneration", 200, 1, false, true);
         }
