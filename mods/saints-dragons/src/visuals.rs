@@ -143,6 +143,36 @@ impl Pose {
 static DISPLAYS: OnceLock<Displays> = OnceLock::new();
 // A mob changing dimension can briefly have an expiring rig in its previous world.
 static RIGS: LazyLock<Mutex<HashMap<i32, Vec<Rig>>>> = LazyLock::new(Mutex::default);
+static HURT: LazyLock<Mutex<HashMap<i32, u64>>> = LazyLock::new(Mutex::default);
+
+/// HurtAbility's one-shot overlay, using the released adult animation lengths.
+// shortcut: the clip protocol can only select one animation, so hurt temporarily
+// replaces the movement/sleep clip instead of blending an overlay controller.
+pub fn hurt_reaction(mob: Entity<'_>, kind: &str) {
+    if !cfg!(feature = "original-assets") {
+        return;
+    }
+    let ticks = match kind {
+        "saintsdragons:cindervane" => 50,
+        "saintsdragons:ignivorus" => 35,
+        "saintsdragons:varasuchus" => 40,
+        "saintsdragons:stegonaut" => 25,
+        "saintsdragons:raevyx" | "saintsdragons:volitans" => 17,
+        "saintsdragons:atroxiia" => 15,
+        _ => return,
+    };
+    HURT.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(mob.id(), tick_count() + ticks);
+}
+
+fn hurt_clip(id: i32, now: u64) -> Option<&'static str> {
+    HURT.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&id)
+        .filter(|until| now < **until)
+        .map(|_| "hurt")
+}
 static STACKS: LazyLock<[Vec<u8>; PARTS]> = LazyLock::new(|| {
     MODELS.map(|(id, _, _)| {
         fastnbt::to_bytes(&HashMap::from([
@@ -311,7 +341,7 @@ pub fn tick(world: World<'_>, mob: Entity<'_>) {
     let landing = crate::flight::landing(mob.id());
     let descriptions = frames(view, now + (mob.id() as u64 % 47), attack.is_some());
     draw(world, mob, "cindervane", view, &descriptions, |pose| {
-        pose.clip(view, now, landing, attack)
+        hurt_clip(mob.id(), now).unwrap_or_else(|| pose.clip(view, now, landing, attack))
     });
 }
 
@@ -331,7 +361,9 @@ pub fn tick_species(
         context: 0,
         interpolation: 2,
     };
-    draw(world, mob, species, view, &[description], |_| clip);
+    draw(world, mob, species, view, &[description], |_| {
+        hurt_clip(mob.id(), tick_count()).unwrap_or(clip)
+    });
 }
 
 fn draw(
@@ -434,6 +466,9 @@ pub fn sweep(world: World<'_>, time: u64, _events: &[ContentEvent]) {
         return;
     }
     let now = tick_count();
+    HURT.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .retain(|_, until| *until > now);
     RIGS.lock()
         .unwrap_or_else(PoisonError::into_inner)
         .retain(|_, rigs| {
@@ -459,6 +494,9 @@ pub fn sweep(world: World<'_>, time: u64, _events: &[ContentEvent]) {
 }
 
 pub fn death(world: World<'_>, mob: Entity<'_>) {
+    HURT.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&mob.id());
     let (Some(displays), Some(entities)) = (DISPLAYS.get(), ENTITIES.get()) else {
         return;
     };

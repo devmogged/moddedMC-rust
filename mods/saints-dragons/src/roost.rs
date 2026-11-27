@@ -15,6 +15,7 @@ const CHECK_INTERVAL: u64 = 19;
 const SETTLE_TICKS: u64 = 60;
 
 static ACTIVE: Mutex<Option<HashMap<i32, Return>>> = Mutex::new(None);
+static SUPPRESSED: Mutex<Option<HashMap<i32, u64>>> = Mutex::new(None);
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 struct Roost {
@@ -103,6 +104,17 @@ struct Return {
 }
 
 impl Return {
+    fn wake(&mut self, now: u64, immediate: bool) {
+        if immediate {
+            self.settled_since = None;
+            self.waking_since = None;
+        } else if self.clip(now).is_some() {
+            self.waking_since.get_or_insert(now);
+        } else {
+            self.settled_since = None;
+        }
+    }
+
     fn clip(&self, now: u64) -> Option<&'static str> {
         if self.waking_since.is_some() {
             return Some("wake_up");
@@ -144,6 +156,50 @@ pub fn sleep_clip(id: i32) -> Option<&'static str> {
     active.as_ref()?.get(&id)?.clip(tick_count())
 }
 
+/// DragonSleepComponent.startSleepExit / wakeUpImmediately and suppressSleep.
+pub fn wake(mob: Entity<'_>, immediate: bool, suppression: u64) {
+    if Profile::for_mob(mob).is_none() {
+        return;
+    }
+    let now = tick_count();
+    let mut active = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(state) = active.as_mut().and_then(|all| all.get_mut(&mob.id())) {
+        state.wake(now, immediate);
+    }
+    let mut suppressed = SUPPRESSED.lock().unwrap_or_else(PoisonError::into_inner);
+    let until = suppressed
+        .get_or_insert_default()
+        .entry(mob.id())
+        .or_default();
+    *until = (*until).max(now + suppression);
+}
+
+fn suppressed(id: i32, now: u64) -> bool {
+    SUPPRESSED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .and_then(|all| all.get(&id))
+        .is_some_and(|until| now < *until)
+}
+
+pub fn forget(id: i32) {
+    if let Some(active) = ACTIVE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        active.remove(&id);
+    }
+    if let Some(suppressed) = SUPPRESSED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+    {
+        suppressed.remove(&id);
+    }
+}
+
 pub fn sweep() {
     let now = tick_count();
     if now.is_multiple_of(200)
@@ -153,6 +209,14 @@ pub fn sweep() {
             .as_mut()
     {
         active.retain(|_, state| now.saturating_sub(state.seen) < 400);
+    }
+    if now.is_multiple_of(200)
+        && let Some(all) = SUPPRESSED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+    {
+        all.retain(|_, until| *until > now);
     }
 }
 
@@ -174,15 +238,16 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 
     let Some(view) = mob.view() else { return false };
     if matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE)
-        && (ai.target(mob).is_some()
-            || world.dimension_id() != Some("minecraft:overworld")
-            || taming::is_tamed(mob))
+        && (world.dimension_id() != Some("minecraft:overworld") || taming::is_tamed(mob))
     {
         return false;
     }
 
     let is_night = night(world);
     if phase == goal_phase::CAN_START {
+        if ai.target(mob).is_some() || suppressed(id, now) {
+            return false;
+        }
         let Some((mut roost, profile)) = mob
             .data(DATA)
             .and_then(|nbt| fastnbt::from_bytes::<Roost>(&nbt).ok())
@@ -215,13 +280,28 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     };
     match phase {
         goal_phase::CONTINUE => {
-            if !is_night && state.clip(now).is_some() {
-                let wake = *state.waking_since.get_or_insert(now);
+            let target = ai.target(mob).is_some();
+            let wet = matches!(
+                world.fluid_id(flight::cell(view.position)).as_deref(),
+                Some("minecraft:water" | "minecraft:flowing_water")
+            );
+            if state.clip(now).is_some() && (target || wet || !is_night) {
+                state.wake(now, wet && !target);
+                if target || wet {
+                    let mut all = SUPPRESSED.lock().unwrap_or_else(PoisonError::into_inner);
+                    let until = all.get_or_insert_default().entry(id).or_default();
+                    *until = (*until).max(now + if target { 600 } else { 200 });
+                }
+            }
+            if let Some(wake) = state.waking_since {
                 if now.saturating_sub(wake) < state.profile.wake_up {
                     return true;
                 }
                 state.waking_since = None;
                 state.settled_since = None;
+            }
+            if target || suppressed(id, now) {
+                return false;
             }
             is_night
                 || horizontal_distance(view.position, state.roost.home)
@@ -234,6 +314,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         goal_phase::TICK => {
             state.seen = now;
             if state.waking_since.is_some() {
+                ai.stop(mob);
                 return false;
             }
             let sleep_site = state.roost.anchor.unwrap_or(state.roost.home);
@@ -303,11 +384,12 @@ mod tests {
         assert_eq!(state.clip(160), Some("fall_asleep"));
         assert_eq!(state.clip(201), Some("fall_asleep"));
         assert_eq!(state.clip(202), Some("sleep"));
-        state.waking_since = Some(300);
+        state.wake(300, false);
         assert_eq!(state.clip(300), Some("wake_up"));
+        state.wake(350, false);
+        assert_eq!(state.waking_since, Some(300));
         assert_eq!(state.clip(428), Some("wake_up"));
-        state.waking_since = None;
-        state.settled_since = None;
+        state.wake(429, true);
         assert_eq!(state.clip(429), None);
     }
 }
