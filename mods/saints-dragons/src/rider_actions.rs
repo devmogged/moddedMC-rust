@@ -22,7 +22,9 @@ const KEYS: &[(&str, &str, u8)] = &[
 ];
 
 pub fn start() -> Result<(), InterfaceUnavailable> {
-    let _ = ACTIONS.set(player_actions::require()?);
+    let actions = player_actions::require()?;
+    actions.require_mounted()?;
+    let _ = ACTIONS.set(actions);
     Ok(())
 }
 
@@ -37,6 +39,17 @@ pub fn register(reg: &mut Registry<'_>) -> Result<(), RegistrationError> {
             phases,
             rider_action,
         )?;
+    }
+    for id in [player_actions::MOUNTED_ATTACK, player_actions::MOUNTED_USE] {
+        actions.subscribe(reg, id, ALL, rider_action)?;
+    }
+    for id in [
+        player_actions::DOUBLE_TAP_FORWARD,
+        player_actions::DOUBLE_TAP_BACK,
+        player_actions::DOUBLE_TAP_LEFT,
+        player_actions::DOUBLE_TAP_RIGHT,
+    ] {
+        actions.subscribe(reg, id, ACTION_PRESSED, rider_action)?;
     }
     Ok(())
 }

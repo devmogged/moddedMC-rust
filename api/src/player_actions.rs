@@ -2,24 +2,37 @@
 use std::sync::OnceLock;
 
 use crate::{
-    InterfaceUnavailable, RegistrationError, Registry, abi,
+    InterfacePrefix, InterfaceUnavailable, RegistrationError, Registry, abi,
     content::{self, World},
     entities::{self, Entity},
-    guard, require_interface,
+    guard,
 };
 
 pub use abi::{ACTION_HELD, ACTION_PRESSED, ACTION_RELEASED};
+pub const MOUNTED_ATTACK: &str = "moddedmc:mounted_attack";
+pub const MOUNTED_USE: &str = "moddedmc:mounted_use";
+pub const DOUBLE_TAP_FORWARD: &str = "moddedmc:double_tap/forward";
+pub const DOUBLE_TAP_BACK: &str = "moddedmc:double_tap/back";
+pub const DOUBLE_TAP_LEFT: &str = "moddedmc:double_tap/left";
+pub const DOUBLE_TAP_RIGHT: &str = "moddedmc:double_tap/right";
 pub type Action = fn(World<'_>, Entity<'_>, &str, u8);
 static CALLBACK: OnceLock<Action> = OnceLock::new();
 
 #[derive(Clone, Copy)]
-pub struct PlayerActions(&'static abi::PlayerActionsV1);
+pub struct PlayerActions(InterfacePrefix<abi::PlayerActionsV1>);
 
 pub fn require() -> Result<PlayerActions, InterfaceUnavailable> {
     content::require()?;
     entities::require()?;
     // SAFETY: this is the published table layout.
-    unsafe { require_interface(abi::PLAYER_ACTIONS, 1) }.map(PlayerActions)
+    unsafe {
+        InterfacePrefix::require(
+            abi::PLAYER_ACTIONS,
+            1,
+            std::mem::offset_of!(abi::PlayerActionsV1, subscribe),
+        )
+    }
+    .map(PlayerActions)
 }
 
 impl PlayerActions {
@@ -38,7 +51,7 @@ impl PlayerActions {
         }
         // SAFETY: all strings and registration are borrowed for this call.
         RegistrationError::from_code(unsafe {
-            (self.0.add)(
+            ((&raw const (*self.0.ptr).add).read())(
                 reg.reg,
                 id.into(),
                 translation.into(),
@@ -46,6 +59,38 @@ impl PlayerActions {
                 phases,
                 dispatch,
             )
+        })
+    }
+
+    pub fn require_mounted(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(std::mem::offset_of!(abi::PlayerActionsV1, subscribe))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:player_actions.subscribe",
+                version: 1,
+            })
+    }
+
+    pub fn subscribe(
+        self,
+        reg: &mut Registry<'_>,
+        id: &str,
+        phases: u8,
+        callback: Action,
+    ) -> Result<(), RegistrationError> {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::PlayerActionsV1, subscribe))
+        else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        if !std::ptr::fn_addr_eq(*CALLBACK.get_or_init(|| callback), callback) {
+            return Err(RegistrationError::InvalidDefinition);
+        }
+        // SAFETY: the checked extension includes subscribe, and id is borrowed for this call.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).subscribe).read())(reg.reg, id.into(), phases, dispatch)
         })
     }
 }

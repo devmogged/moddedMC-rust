@@ -2617,6 +2617,8 @@ pub type PlayerActionCallback = unsafe extern "C" fn(WorldRef, EntityRef, Str, u
 pub struct PlayerActionsV1 {
     pub size: usize,
     pub add: unsafe extern "C" fn(Reg, Str, Str, Str, u8, PlayerActionCallback) -> i32,
+    /// Subscribe to a host-defined mounted input; the id includes the direction for double taps.
+    pub subscribe: unsafe extern "C" fn(Reg, Str, u8, PlayerActionCallback) -> i32,
 }
 
 #[cfg(all(test, target_pointer_width = "64"))]
@@ -2624,7 +2626,8 @@ pub struct PlayerActionsV1 {
 fn player_actions_layout() {
     assert_eq!(std::mem::offset_of!(PlayerActionsV1, size), 0);
     assert_eq!(std::mem::offset_of!(PlayerActionsV1, add), 8);
-    assert_eq!(size_of::<PlayerActionsV1>(), 16);
+    assert_eq!(std::mem::offset_of!(PlayerActionsV1, subscribe), 16);
+    assert_eq!(size_of::<PlayerActionsV1>(), 24);
 }
 
 #[cfg(all(test, target_pointer_width = "64"))]

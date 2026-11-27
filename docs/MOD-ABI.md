@@ -649,16 +649,31 @@ clean restart, the two stock models, and permanent removal.
 ## Player actions (`moddedmc:player_actions` v1)
 
 The optional Fabric companion advertises semantic key actions. Require this named
-table in `Mod::start` to stage actions before worlds load. Its C layout is two
+table in `Mod::start` to stage actions before worlds load. Its original C prefix is two
 pointer-sized fields: `size: usize` (offset 0) and
 `add(Reg, Str id, Str translation, Str default_key, u8 phases, PlayerActionCallback) -> i32`
-(offset 8, size 16 on 64-bit). Registration copies the strings; duplicate ids are
+(offset 8, prefix size 16 on 64-bit). The appended
+`subscribe(Reg, Str id, u8 phases, PlayerActionCallback) -> i32` is at offset 16
+(table size 24 on 64-bit). Registration copies the strings; duplicate custom ids are
 rejected and definitions become visible only after successful mod registration.
 The callback is `unsafe extern "C" fn(WorldRef, EntityRef, Str id, u8 phase)`.
 All handles and the id are borrowed for the call. The phase mask selects
 pressed (1), held (2), and released (4); the callback receives one phase at a time.
 The Rust SDK exposes `player_actions::require` and `PlayerActions::add`.
 Use a single Rust callback per mod and dispatch by action id.
+
+`PlayerActions::require_mounted` checks the appended field. Subscribe with
+`PlayerActions::subscribe` and the SDK constants for `moddedmc:mounted_attack`,
+`moddedmc:mounted_use` (pressed, held, released), and
+`moddedmc:double_tap/forward`, `moddedmc:double_tap/back`,
+`moddedmc:double_tap/left`, `moddedmc:double_tap/right` (pressed only).
+Each registered mod may subscribe once to each built-in; callbacks are dispatched
+to every subscriber of the requested phase. Direction is encoded in the id to
+preserve the existing callback signature. Mounted inputs use the player's
+current vanilla key mappings and do not create additional controls. Attack and
+use are intercepted while the host confirms that the player rides a mod mob;
+movement keys still steer normally. Double taps require two rising edges on
+the same key less than 300 ms apart. Input state resets when the mount changes.
 
 Use namespaced action ids, translation keys and Minecraft key names such as
 `key.keyboard.r`, `key.keyboard.unknown` (unbound), or `ctrl+key.keyboard.4`.
@@ -673,6 +688,14 @@ Configuration capability bit 2 on `moddedmc:negotiate` enables the play channel
 catalog with bytes [1,0] on join; server replies [1,1], a big-endian u16 count,
 then each entry's id, translation and key as u8 byte lengths followed by UTF-8,
 then its u8 phase mask. Client input is [1,2,phase,id-byte-length,id bytes].
+Subscribed built-ins appear once in the catalog with key `moddedmc:mounted`,
+translation equal to their id and the union of subscribed phases. A companion
+queries a newly observed vehicle with [1,3,vehicle-id:i32 BE]. The host replies
+[1,4,vehicle-id:i32 BE,confirmed:u8] (1 only if that vehicle is the player's
+current registered mod mob). The companion requires a matching local vehicle
+and confirmation before intercepting inputs; the host independently checks
+current mounted status on every built-in action. The query shares the input
+rate limit. Original v1 action packets and catalog layout are unchanged.
 The host caps the catalog at 128 actions, ids and translations at 128 bytes,
 keys at 64 bytes, checks the action and phase, rejects dead players and
 rate-limits input to 128 packets per second and repeats of the same phase
