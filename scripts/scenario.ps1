@@ -4,6 +4,7 @@
 # A passing run deletes its run dir, because worlds add up fast. -Keep leaves it; a failing run is always kept.
 # Scenario lines (blank lines and # comments ignored):
 #   mods <path> [...]        copy mods (.mmc, .jar, .dll) into the run dir's mods/ (before the first start)
+#   datapack <path> <name>   copy an existing fixture directory into world/datapacks before start
 #   start                    start the server and wait until it is ready
 #   cmd <console line>       send a console line
 #   wait <seconds>
@@ -110,6 +111,17 @@ foreach ($raw in Get-Content $Scenario) {
     Write-Host "> $line"
     switch ($verb) {
         'mods' { foreach ($m in $arg -split '\s+') { Copy-Item (Join-Path $root $m) (Join-Path $RunDir 'mods') -Force } }
+        'datapack' {
+            $source, $name = $arg -split '\s+', 2
+            if (-not $source -or $name -notmatch '^[a-zA-Z0-9_.-]+$') { throw 'datapack requires a fixture path and simple destination name' }
+            $sourcePath = Join-Path $root $source
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) { throw "datapack fixture not found: $source" }
+            $destinationRoot = Join-Path $RunDir 'world\datapacks'
+            New-Item -ItemType Directory -Force $destinationRoot | Out-Null
+            $destination = Join-Path $destinationRoot $name
+            if (Test-Path -LiteralPath $destination) { throw "datapack destination already exists: $destination" }
+            Copy-Item -LiteralPath $sourcePath -Destination $destination -Recurse
+        }
         'start' { Start-Server }
         'cmd' { $script:p.StandardInput.WriteLine($arg) }
         'botstart' {
