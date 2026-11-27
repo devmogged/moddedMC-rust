@@ -103,3 +103,12 @@ Run these checks with the official client and the server resource pack.
 - Place copper roofing near vanilla copper and wax one side. Expect the unwaxed roofing to age and the waxed roofing to keep its color. Use an axe twice on a waxed, waterlogged stair. Expect wax removal first, then one stage of scraping with the water and shape intact. Strike an exposed roof block with lightning and expect it to return to fresh copper.
 - Mount a waxed, waterlogged tile stair on a Mechanical Bearing. Run the bearing, restart the server, then stop the bearing. Expect the stair to show its roof material in motion and reassemble with the waxed finish, shape and water intact.
 - Build a roof with shingle blocks, slabs and corner stairs. Expect the released textures to load. Check and record seams on the upper faces. The stock-client pack currently uses fixed models for these faces.
+
+## Create metal ladders ([issue #42](https://github.com/devmogged/moddedMC-rust/issues/42), engine `98618b955`)
+
+Use the official 26.3 client with the Fabric companion and the server resource pack.
+
+- Stonecut Andesite Alloy or a Brass or Copper Ingot. Expect two matching ladders. Attach one to a wall. Look down and use another ladder on it. Expect it to hang beneath the first even where the wall stops. Look up and extend the supported run. Expect each assisted placement to spend one ladder in Survival.
+- Climb a run of each metal and press sneak while on it. Expect the same movement as on a stock ladder. Check the hit outline, orientation, hoop texture and whether touching ladders hide the right faces.
+- Place a brass ladder into source water under another brass ladder. Restart and expect both ladders and the water to remain. Remove the upper ladder and expect the lower ladder to drop, leaving water behind.
+- Place a ladder where a second shoulder wall can support it. Use a wrench from above and expect the ladder to turn onto that wall. Sneak-use the wrench in Survival and expect the ladder item back. Place stock waxed copper trapdoors beside the run and check that they retain their original appearance and remain unclimbable on their own.

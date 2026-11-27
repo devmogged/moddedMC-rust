@@ -69,6 +69,14 @@ wait 0.5
 bot inventory-click 54 shift-left
 wait 0.5
 bot inventory-click 15 left
+wait 1
+cmd data get block 1025 105 1027 job.result.id
+wait 0.5
+expect has the following block data: "minecraft:iron_ingot"
+# Reopen while the batch is running to read the authoritative menu snapshot.
+bot inventory-close
+wait 0.25
+bot use 1025 105 1027 north
 wait 0.5
 bot expect slot 15 minecraft:clock 1
 wait 0.3

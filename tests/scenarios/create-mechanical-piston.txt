@@ -9,6 +9,7 @@ cmd tp tester 2342.5 100 2342.5
 wait 2
 cmd fill 2335 98 2336 2347 98 2345 minecraft:stone
 cmd fill 2335 99 2336 2347 106 2345 minecraft:air
+cmd setblock 2342 99 2342 minecraft:stone
 cmd setblock 2340 100 2340 create:creative_motor[facing=up]
 wait 0.5
 cmd kinetics 2340 100 2340 0
@@ -16,10 +17,9 @@ cmd item replace entity tester hotbar.0 with create:sticky_mechanical_piston
 bot look 90 0
 wait 0.3
 bot place 2340 100 2340 up
-wait 0.5
-cmd kinetics 2340 101 2340
-wait 0.3
-expect create:sticky_mechanical_piston\[axis_along_first=true,facing=east,state=retracted\] at 2340 101 2340
+await 5 \[bot\] sound: block.stone.place
+cmd execute if block 2340 101 2340 create:sticky_mechanical_piston[axis_along_first=true,facing=east,state=retracted]
+await 5 Test passed
 cmd fill 2337 101 2340 2339 101 2340 create:piston_extension_pole[facing=east,waterlogged=false]
 cmd fill 2341 102 2339 2341 104 2341 minecraft:cobblestone
 cmd fill 2341 101 2340 2341 104 2340 minecraft:slime_block

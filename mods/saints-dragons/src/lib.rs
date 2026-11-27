@@ -13,6 +13,7 @@ mod binders;
 mod blocks;
 mod breed;
 mod catalog;
+mod cindervane_wild;
 mod codex;
 mod combat;
 mod combat_atroxiia;
@@ -28,6 +29,7 @@ mod discs;
 mod eggs;
 mod flight;
 mod hunger;
+mod hunt;
 mod ivy;
 mod ivy_trades;
 mod nucleus;
@@ -71,6 +73,8 @@ const CINDERVANE_ATTRIBUTES: &[(&str, f64)] = &[
     ("minecraft:flying_speed", 0.60),
     ("minecraft:movement_speed", 0.30),
     ("minecraft:follow_range", 64.0),
+    ("minecraft:knockback_resistance", 0.0),
+    ("minecraft:attack_damage", 0.0),
 ];
 
 const SPAWN: u64 = 1;
@@ -108,15 +112,21 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::Surface)?;
         content.require_extension(WorldExtension::ContentEntityTransaction)?;
+        content.require_extension(WorldExtension::RawBrightness)?;
+        content.require_extension(WorldExtension::DescribeState)?;
+        spawners::require()?;
         content.require_comparator_output()?;
+        content.require_block_material()?;
         let _ = CONTENT.set(content);
         let _ = EFFECTS.set(effects::require()?);
         let _ = COMMANDS.set(commands::require()?);
         let entities = entities::require()?;
+        combat_raevyx::require(content, entities)?;
         entities.require_extension(EntitiesExtension::Carriers)?;
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
         entities.require_extension(EntitiesExtension::Players)?;
+        entities.require_extension(EntitiesExtension::Damage)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -238,9 +248,20 @@ impl Mod for SaintsDragons {
             ),
             (taming::FOLLOW, 2, goal_control::MOVE),
             (breed::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
-            (flight::GOAL, 2, goal_control::MOVE | goal_control::LOOK),
-            (ai::IDLE_LOOK, 3, goal_control::LOOK),
-            (ai::GROUND_WANDER, 4, goal_control::MOVE),
+            (hunt::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
+            (
+                cindervane_wild::SOCIAL,
+                2,
+                goal_control::MOVE | goal_control::LOOK,
+            ),
+            (
+                cindervane_wild::DRINK,
+                3,
+                goal_control::MOVE | goal_control::LOOK,
+            ),
+            (flight::GOAL, 4, goal_control::MOVE | goal_control::LOOK),
+            (ai::IDLE_LOOK, 5, goal_control::LOOK),
+            (ai::GROUND_WANDER, 6, goal_control::MOVE),
             (combat::TARGETING, 1, goal_control::TARGET),
             (ai::AMBIENT, 0, 0),
         ] {
@@ -290,7 +311,7 @@ impl Mod for SaintsDragons {
     }
 
     fn menu_click(&self, player: moddedmc_api::Player<'_>, action: &str) {
-        if !ivy::click(&player, action) {
+        if !ivy::click(&player, action) && !codex::click(&player, action) {
             catalog::click(&player, action);
         }
     }
@@ -326,6 +347,7 @@ impl Mod for SaintsDragons {
             return 1;
         }
         match tag {
+            combat_raevyx::STORM_COMMAND => combat_raevyx::command_storm(world, at, &command),
             SPAWN => {
                 let Some(id) = mobs.spawn(world, CINDERVANE, at) else {
                     command.reply("cindervane: could not spawn");
@@ -392,9 +414,9 @@ fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) 
     eggs::trample(world);
     spawners::tick(world);
     visuals::sweep(world, time, events);
-    if cfg!(feature = "original-assets") {
-        roost::sweep();
-    }
+    roost::sweep();
+    hunt::sweep(time);
+    combat_stegonaut::sweep_aura(world);
 }
 
 const fn literal(name: &str) -> Node<'_> {

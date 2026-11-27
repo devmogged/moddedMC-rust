@@ -151,6 +151,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             if !view.on_ground
                 || now < state.retry
                 || ai.target(mob).is_some()
+                || crate::cindervane_wild::protecting(mob.id())
                 || taming::is_tamed(mob)
                 || world
                     .day_time()
@@ -233,6 +234,7 @@ fn fly(
     // shortcut: orbit a loaded clearing and return to it. The original plans long cruises and
     // picks landing approaches with a separate navigation planner and weather profile.
     flight.landing |= age >= 260
+        || crate::cindervane_wild::protecting(mob.id())
         || world
             .day_time()
             .is_some_and(|time| (13000..23000).contains(&time.ticks.rem_euclid(24000)));

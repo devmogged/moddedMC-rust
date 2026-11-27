@@ -102,6 +102,18 @@ impl Attack {
             Self::Shift => 0.0,
         }
     }
+    /// Bite, horn and claw abilities scale from the live attack attribute.
+    fn scaled_damage(self, phase_two: bool, hunger: f32, attribute: Option<f64>) -> f32 {
+        let mut damage = self.damage(phase_two);
+        if let Some(value) = attribute.filter(|v| *v > 0.0) {
+            match self {
+                Self::Bite | Self::Bite2 | Self::Horn => damage *= (value / 10.0) as f32,
+                Self::Claw => damage = (value * 1.2) as f32,
+                _ => {}
+            }
+        }
+        damage * hunger
+    }
     fn clip(self, phase_two: bool, wet: bool, left: bool) -> &'static str {
         match self {
             Self::Bite => "bite",
@@ -185,6 +197,94 @@ fn wet(world: World<'_>, at: [f64; 3]) -> bool {
 }
 fn dist(a: [f64; 3], b: [f64; 3]) -> f64 {
     flight::length_squared(flight::offset(a, b)).sqrt()
+}
+/// VarasuchusCombatBehaviour.tryPerformAttacks checks sensing only on land.
+fn has_line_of_sight(world: World<'_>, mob: Entity<'_>, target: i32) -> bool {
+    // shortcut: the SDK exposes collision bounds, not the pose-specific eye height.
+    let eye = |e: Entity<'_>| {
+        let mut p = e.view()?.position;
+        let body = e.body()?;
+        p[1] = body.min[1] + (body.max[1] - body.min[1]) * 0.85;
+        Some(p)
+    };
+    ENTITIES.get().is_some_and(|entities| {
+        entities.with_entity(world, target, |other| {
+            eye(mob).zip(eye(other)).is_some_and(|(from, to)| {
+                world
+                    .raycast(from, to, Some(mob.id()))
+                    .is_some_and(|(block, _)| block.is_none())
+            })
+        }) == Some(true)
+    })
+}
+
+/// Vanilla armor reduction used by both released Varasuchus penetration solvers.
+fn damage_after_armor(damage: f32, armor: f32, toughness: f32) -> f32 {
+    let reduction = (armor - damage / (2.0 + toughness / 4.0))
+        .max(armor * 0.2)
+        .min(20.0);
+    damage * (1.0 - reduction / 25.0)
+}
+
+/// VarasuchusHornGoreAbility and VarasuchusTailAttackAbility use different
+/// initial bounds, iteration counts and return values for their inverse search.
+fn penetrating_damage(
+    attack: Attack,
+    phase_two: bool,
+    damage: f32,
+    armor: f32,
+    toughness: f32,
+) -> f32 {
+    let (desired, mut lo, mut hi, steps) = match attack {
+        Attack::Horn => {
+            let penetration = if phase_two { 5.0 } else { 3.0 };
+            let desired = damage_after_armor(damage, (armor - penetration).max(0.0), toughness);
+            (desired, 0.0, (desired + 16.0).max(16.0), 20)
+        }
+        Attack::Tail => (damage, damage, damage, 10),
+        _ => return damage,
+    };
+    for _ in 0..8 {
+        if damage_after_armor(hi, armor, toughness) >= desired {
+            break;
+        }
+        hi *= 2.0;
+    }
+    for _ in 0..steps {
+        let mid = (lo + hi) * 0.5;
+        if damage_after_armor(mid, armor, toughness) < desired {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    if attack == Attack::Horn {
+        (lo + hi) * 0.5
+    } else {
+        hi
+    }
+}
+
+/// LivingEntity.knockback, followed by the horn ability's minimum vertical lift.
+fn horn_motion(
+    motion: [f64; 3],
+    forward: [f64; 3],
+    grounded: bool,
+    resistance: f64,
+    phase_two: bool,
+) -> [f64; 3] {
+    let (strength, lift) = if phase_two { (3.5, 0.9) } else { (2.0, 0.5) };
+    let strength = strength * (1.0 - resistance);
+    let mut motion = motion;
+    if strength > 0.0 {
+        motion[0] = motion[0] * 0.5 + forward[0] * strength;
+        motion[2] = motion[2] * 0.5 + forward[2] * strength;
+        if grounded {
+            motion[1] = (motion[1] * 0.5 + strength).min(0.4);
+        }
+    }
+    motion[1] = motion[1].max(lift);
+    motion
 }
 fn enemy(mob: Entity<'_>, other: Entity<'_>) -> bool {
     abilities::enemy(mob, other)
@@ -511,7 +611,7 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                     return false;
                 }
             }
-            let Some((_, (p, width, prey))) = target else {
+            let Some((id, (p, width, prey))) = target else {
                 return false;
             };
             let prey = prey && !s.committed;
@@ -553,6 +653,8 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 ai.stop(mob);
             }
             if now >= s.next
+                && gap <= 5.0
+                && (in_water || has_line_of_sight(world, mob, id))
                 && let Some(attack) = choose(
                     phase_two,
                     gap,
@@ -637,14 +739,21 @@ fn hit(
             {
                 return;
             }
-            // shortcut: target armor/toughness and knockback resistance getters are missing;
-            // the vanilla mob-attack path applies ordinary armor reduction.
-            ai.attack(
-                world,
-                mob,
-                id,
-                attack.damage(phase_two) * hunger::melee_multiplier(mob),
+            let mut damage = attack.scaled_damage(
+                phase_two,
+                hunger::melee_multiplier(mob),
+                mob.attribute_value("minecraft:attack_damage"),
             );
+            if matches!(attack, Attack::Horn | Attack::Tail)
+                && let (Some(armor), Some(toughness)) = (
+                    e.attribute_value("minecraft:armor"),
+                    e.attribute_value("minecraft:armor_toughness"),
+                )
+            {
+                damage =
+                    penetrating_damage(attack, phase_two, damage, armor as f32, toughness as f32);
+            }
+            ai.attack(world, mob, id, damage);
             let motion = match attack {
                 Attack::Bite | Attack::Bite2 => {
                     let (strength, up) = if attack == Attack::Bite2 {
@@ -659,12 +768,15 @@ fn hit(
                     ]
                 }
                 Attack::Horn => {
-                    let (strength, up) = if phase_two { (3.5, 0.9) } else { (2.0, 0.5) };
-                    [
-                        forward[0] * strength,
-                        other.motion[1].max(up),
-                        forward[2] * strength,
-                    ]
+                    let current = e.view().unwrap_or(other);
+                    horn_motion(
+                        current.motion,
+                        forward,
+                        current.on_ground,
+                        e.attribute_value("minecraft:knockback_resistance")
+                            .unwrap_or(0.0),
+                        phase_two,
+                    )
                 }
                 Attack::Tail => [
                     other.motion[0] + d[0] / distance.max(0.01) * 1.4,
@@ -685,6 +797,39 @@ fn hit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_attack_attribute_and_hunger_scale_released_abilities() {
+        assert_eq!(Attack::Horn.scaled_damage(false, 0.25, Some(10.0)), 2.0);
+        assert_eq!(Attack::Bite.scaled_damage(false, 0.5, Some(20.0)), 15.0);
+        assert_eq!(Attack::Bite2.scaled_damage(true, 0.5, Some(20.0)), 25.0);
+        assert_eq!(Attack::Claw.scaled_damage(true, 0.5, Some(20.0)), 12.0);
+        assert_eq!(Attack::Tail.scaled_damage(false, 0.5, Some(20.0)), 3.5);
+        assert_eq!(Attack::Horn.scaled_damage(false, 0.5, Some(0.0)), 4.0);
+    }
+    #[test]
+    fn horn_pierces_armor_and_tail_deals_flat_damage() {
+        for (armor, toughness) in [(0.0, 0.0), (20.0, 8.0), (30.0, 12.0)] {
+            for (phase_two, pierce) in [(false, 3.0), (true, 5.0)] {
+                let damage = Attack::Horn.damage(phase_two);
+                let raw = penetrating_damage(Attack::Horn, phase_two, damage, armor, toughness);
+                let expected = damage_after_armor(damage, (armor - pierce).max(0.0), toughness);
+                assert!((damage_after_armor(raw, armor, toughness) - expected).abs() < 0.001);
+            }
+            let raw = penetrating_damage(Attack::Tail, false, 7.0, armor, toughness);
+            assert!((damage_after_armor(raw, armor, toughness) - 7.0).abs() < 0.03);
+        }
+    }
+    #[test]
+    fn horn_resistance_does_not_cancel_vertical_lift() {
+        assert_eq!(
+            horn_motion([0.4, 0.0, 0.2], [0.0, 0.0, 1.0], true, 1.0, false),
+            [0.4, 0.5, 0.2]
+        );
+        assert_eq!(
+            horn_motion([0.4, 0.0, 0.2], [0.0, 0.0, 1.0], true, 0.0, true),
+            [0.2, 0.9, 3.6]
+        );
+    }
     #[test]
     fn attack_priority_and_phase() {
         let ready = |_| true;

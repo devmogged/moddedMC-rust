@@ -30,6 +30,27 @@ cmd data get entity @e[tag=ignivorus_target,limit=1] Health
 wait 0.5
 expect has the following entity data: "(Slam|Bite)"
 expect Iron Golem has the following entity data: [0-9]{1,2}(?:\.[0-9]+)?f
+cmd tick freeze
+# Keep the observing player out of the native projectile's flight path.
+cmd tp tester 1036.5 121 1033.5
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".next_decision set value 2147483647L
+cmd data remove entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".attack
+cmd tp @e[tag=ignivorus_probe,limit=1] 1025.5 120 1025.5 0 0
+cmd tp @e[tag=ignivorus_target,limit=1] 1025.5 120 1048.5
+cmd data merge entity @e[tag=ignivorus_target,limit=1] {Health:100f}
+cmd summon minecraft:iron_golem 1031.5 120 1048.5 {NoAI:1b,Tags:["ignivorus_blast_probe"]}
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".phase_two set value 1b
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".charge set value 3
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".age set value 0
+cmd data modify entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".attack set value "Fireball"
+cmd data get entity @e[tag=ignivorus_probe,limit=1] data."saintsdragons:ignivorus_combat".attack
+wait 0.5
+expect has the following entity data: "Fireball"
+cmd tick unfreeze
+wait 3
+cmd data get entity @e[tag=ignivorus_blast_probe,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: (?:[0-2]?[0-9]|30)(?:\.0+)?f
 reject (?i)panic|panicked
 bot quit
 stop

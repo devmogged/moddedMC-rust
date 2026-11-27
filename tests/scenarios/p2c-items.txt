@@ -1,0 +1,79 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Owner Codex physiology/ecology, manual removal of a bound record, release.
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 200 1027.5 0 0
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 199 1024 1032 199 1034 minecraft:stone
+cmd fill 1024 200 1024 1032 207 1034 minecraft:air
+cmd time set midnight
+cmd cindervane spawn 1025 200 1025
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=200,z=1025,distance=..2,limit=1] {Tags:["codex_probe"],CustomName:"Ember",Health:63f,NoAI:1b}
+cmd item replace entity tester hotbar.0 with saintsdragons:creative_dragon_tame_meal
+wait 2
+bot use-entity ravager 1025.5 200 1025.5 main
+wait 0.5
+expect Dragon tamed
+cmd item replace entity tester hotbar.0 with minecraft:chest
+wait 0.5
+bot use-entity ravager 1025.5 200 1025.5 main
+wait 0.5
+expect Ember needs a saddle before you can attach a chest
+cmd item replace entity tester hotbar.0 with minecraft:saddle
+wait 0.5
+bot use-entity ravager 1025.5 200 1025.5 main
+wait 0.5
+expect \[bot\] sound: .*entity\.horse\.saddle
+cmd item replace entity tester hotbar.0 with minecraft:chest
+wait 0.5
+bot use-entity ravager 1025.5 200 1025.5 main
+wait 0.5
+expect \[bot\] sound: .*entity\.donkey\.chest
+cmd item replace entity tester hotbar.0 with saintsdragons:cindervane_binder
+wait 0.5
+bot use-entity ravager 1025.5 200 1025.5 main
+wait 0.5
+expect Bound Ember in the binder
+cmd item replace entity tester weapon.offhand with saintsdragons:draconic_codex
+wait 0.5
+bot use-item off
+wait 0.5
+expect \[bot\] dialog: (?=.*Draconic Codex)(?=.*Ember)(?=.*In binder)
+bot click saintsdragons:codex/1/select/0
+wait 0.5
+expect \[bot\] dialog: (?=.*Physiology)(?=.*Ember)(?=.*Health 63/)
+bot click saintsdragons:codex/2/ecology/0
+wait 0.5
+expect \[bot\] dialog: (?=.*Ecology)(?=.*Cindervane)
+bot click saintsdragons:codex/3/confirm/0
+wait 0.5
+expect \[bot\] dialog: (?=.*Remove this dragon from your Codex)
+bot click saintsdragons:codex/4/remove/0
+wait 0.5
+expect \[bot\] dialog: (?=.*You have no recorded dragons)
+bot quit
+stop
+start
+botstart tester
+wait 4
+bot use-item off
+wait 0.5
+expect \[bot\] dialog: (?=.*You have no recorded dragons)
+bot use 1025 199 1029 up
+wait 0.5
+expect Released Ember from the binder
+bot use-item off
+wait 0.5
+expect \[bot\] dialog: (?=.*Ember)(?=.*Adult)
+cmd damage @e[tag=codex_probe,limit=1] 1000 minecraft:generic
+wait 3
+cmd data get entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:chest"}},limit=1] Item.id
+wait 0.5
+expect minecraft:chest
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

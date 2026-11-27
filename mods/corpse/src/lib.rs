@@ -1,5 +1,7 @@
 //! The server-side port of Corpse 1.1.22+26.3.
 
+mod history;
+mod menus;
 mod records;
 pub mod rules;
 
@@ -15,7 +17,7 @@ use moddedmc_api::{
     Command, InterfaceUnavailable, Mod, Player, Pos, RegistrationError, Registry,
     content::{self, Content, ContentEvent, World},
     entities::{self, EntitiesExtension, EntityChange, SET_MOTION},
-    inventory_menu::{self, Access, Change, MenuKind, Menus},
+    inventory_menu::{self, Actions, MenuKind},
     native_entity::{self, Actor, ActorKind, Actors, Event, Model, Phase, SleepingVisual, Spawn},
     player_death::{self, Death, PlayerDeaths},
     saved_data::{self, Key, SavedData},
@@ -23,20 +25,17 @@ use moddedmc_api::{
 };
 use serde::Deserialize;
 
-use records::{Archive, Grave, SavedStack, blob, unblob};
+use menus::open_inventory;
+use records::{Archive, Grave, SavedStack, unblob};
 use rules::{Lifetime, LifetimePolicy};
 
-const INVENTORY_SLOTS: [i32; 45] = [
-    39, 38, 37, 36, -1, 40, -1, -1, -1, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-    24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0, 1, 2, 3, 4, 5, 6, 7, 8,
-];
 const NEVER_EMPTY: u32 = u32::MAX;
 
 #[derive(Clone, Copy)]
 struct Interfaces {
     content: Content,
     actors: Actors,
-    menus: Menus,
+    menus: Actions,
     death: PlayerDeaths,
     saved: SavedData,
     stacks: ItemStacks,
@@ -68,7 +67,7 @@ impl Mod for Corpse {
         let _ = INTERFACES.set(Interfaces {
             content: content::require()?,
             actors,
-            menus: inventory_menu::require()?,
+            menus: inventory_menu::require_actions()?,
             death: player_death::require()?,
             saved: saved_data::require()?,
             stacks: stacks::require()?,
@@ -82,7 +81,11 @@ impl Mod for Corpse {
             .ok_or(RegistrationError::InvalidDefinition)?;
         let key = interfaces.saved.register(registry, "deaths")?;
         let actor = interfaces.actors.register(registry, actor_event)?;
-        let menu = interfaces.menus.register(registry, inventory_changed)?;
+        let menu = interfaces
+            .menus
+            .menus()
+            .register(registry, menus::changed)?;
+        interfaces.menus.on_action(registry, menus::clicked)?;
         interfaces.death.on_drops(registry, capture)?;
         interfaces.content.on_tick(registry, retry_pending)?;
         registry.add_command(
@@ -90,6 +93,7 @@ impl Mod for Corpse {
             "Recover your saved items at a missing corpse",
             0,
         )?;
+        registry.add_command("deathhistory", "Open your death history", 1)?;
         let _ = RUNTIME.set(Runtime {
             interfaces,
             key,
@@ -99,7 +103,7 @@ impl Mod for Corpse {
         Ok(())
     }
 
-    fn command(&self, _: u64, command: Command<'_>) -> i32 {
+    fn command(&self, tag: u64, command: Command<'_>) -> i32 {
         let (Some(&runtime), Some(player)) = (RUNTIME.get(), command.player) else {
             return 0;
         };
@@ -109,6 +113,13 @@ impl Mod for Corpse {
         let Some(uuid) = profile_uuid(&profile) else {
             return 0;
         };
+        if tag == 1 {
+            return i32::from(
+                player.with_entity_context(|world, _| {
+                    history::show(runtime, world, &player, &uuid, None)
+                }) == Some(true),
+            );
+        }
         i32::from(
             player.with_entity_context(|world, _| {
                 let Some(dimension) = world.dimension_id() else {
@@ -138,6 +149,10 @@ impl Mod for Corpse {
                 }
             }) == Some(true),
         )
+    }
+
+    fn menu_click(&self, player: Player<'_>, action: &str) {
+        history::click(player, action);
     }
 }
 
@@ -173,7 +188,7 @@ fn capture(mut death: Death<'_>) {
         return;
     };
     let saved = archive(runtime, death.world, |current| {
-        let id = current.next_id.checked_add(1)?;
+        let id = i64::from(u32::try_from(current.next_id.checked_add(1)?).ok()?);
         let grave = Grave::new(id, dimension, &death, profile);
         current.next_id = id;
         current.deaths.push(grave.clone());
@@ -519,82 +534,6 @@ fn available(grave: &Grave, dimension: &str) -> bool {
         })
 }
 
-fn open_inventory(runtime: Runtime, world: World<'_>, player: &Player<'_>, id: i64) -> bool {
-    let Some(dimension) = world.dimension_id() else {
-        return false;
-    };
-    let owner = archive(runtime, world, |current| {
-        current
-            .get(id)
-            .filter(|grave| available(grave, dimension))
-            .map(|grave| grave.owner.clone())
-    })
-    .flatten();
-    let Some(owner) = owner else { return false };
-    let access = INVENTORY_SLOTS.map(|slot| Access {
-        take: slot >= 0,
-        insert: false,
-    });
-    runtime.interfaces.menus.open(
-        player,
-        runtime.menu,
-        id as u64,
-        &format!("Corpse of {owner}"),
-        &access,
-        || {
-            archive(runtime, world, |current| {
-                let grave = current
-                    .get(id)
-                    .filter(|grave| available(grave, dimension))?;
-                Some(
-                    INVENTORY_SLOTS
-                        .iter()
-                        .map(|&slot| {
-                            grave
-                                .items
-                                .iter()
-                                .find(|item| item.slot == slot)
-                                .map(SavedStack::bytes)
-                        })
-                        .collect(),
-                )
-            })
-            .flatten()
-        },
-    )
-}
-
-fn inventory_changed(mut change: Change<'_>) {
-    let Some(&runtime) = RUNTIME.get() else {
-        return;
-    };
-    let Some(dimension) = change.world.dimension_id() else {
-        return;
-    };
-    archive(runtime, change.world, |current| {
-        let Some(grave) = current
-            .get_mut(change.inventory as i64)
-            .filter(|grave| available(grave, dimension))
-        else {
-            return;
-        };
-        grave.items = INVENTORY_SLOTS
-            .into_iter()
-            .zip(change.slots())
-            .filter_map(|(slot, stack)| {
-                let stack = stack?;
-                (slot >= 0).then(|| SavedStack::new(slot, stack))
-            })
-            .collect();
-        grave.overflow.extend(change.overflow().map(blob));
-        if let Ok(bytes) = fastnbt::to_bytes(current)
-            && change.commit(runtime.key, &bytes)
-        {
-            INVENTORY_REVISION.fetch_add(1, Ordering::Release);
-        }
-    });
-}
-
 struct Spill([u8; 16]);
 
 impl Drop for Spill {
@@ -615,13 +554,15 @@ fn spill(runtime: Runtime, event: Event<'_>, id: i64) {
         return;
     };
     let started = archive(runtime, event.world, |current| {
-        let grave = current
+        let mut grave = current
             .get(id)
-            .filter(|grave| grave.present && grave.uuid() == Some(event.actor.uuid))?;
+            .filter(|grave| grave.present && grave.uuid() == Some(event.actor.uuid))?
+            .clone();
+        grave.migrate_overflow()?;
         let mut spilling = SPILLING.lock().unwrap_or_else(PoisonError::into_inner);
         spilling
             .insert(event.actor.uuid)
-            .then(|| (Spill(event.actor.uuid), grave.clone()))
+            .then(|| (Spill(event.actor.uuid), grave))
     })
     .flatten();
     let Some((_spill, mut grave)) = started else {
@@ -635,7 +576,17 @@ fn spill(runtime: Runtime, event: Event<'_>, id: i64) {
             .is_none()
     };
     grave.items.retain(|stack| failed(&stack.bytes()));
-    grave.overflow.retain(|bytes| failed(&unblob(bytes)));
+    let mut failed_overflow = Vec::new();
+    for page in std::mem::take(&mut grave.pages) {
+        failed_overflow.extend(
+            page.slots
+                .into_iter()
+                .filter(|bytes| !bytes.is_empty() && failed(&unblob(bytes))),
+        );
+    }
+    if grave.append_overflow(failed_overflow).is_none() {
+        return;
+    }
     grave.present = !grave.is_empty();
     grave.pending = grave.present;
     grave.body_position = view.position;

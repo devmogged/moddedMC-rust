@@ -179,7 +179,57 @@ const SPECIES: [Species; 13] = [
 
 pub const SWARM_EGG: &str = "draconian_swarm";
 
+/// The current carrier melee bases (ravager 12, spider 2), with released
+/// attributes for Varasuchus and Ignivorus's age-dependent growth profile.
+pub fn melee_base(name: &str, juvenile: bool) -> Option<f64> {
+    match name {
+        "ignivorus" => Some(if juvenile { 0.0 } else { 50.0 }),
+        "varasuchus" => Some(10.0),
+        "raevyx" | "volitans" => Some(12.0),
+        "stegonaut" => Some(2.0),
+        "atroxiia" => Some(10.0),
+        "nulljaw" => Some(2.0),
+        _ => None,
+    }
+}
+
 impl Species {
+    /// Release createAttributes and dragon_attribute config defaults. A carrier can have
+    /// attributes the Java creature lacks; explicitly neutralize those instead of inheriting
+    /// the ravager/spider's combat statistics.
+    fn attributes(&self) -> Vec<(&'static str, f64)> {
+        let (armor, range, knockback, attack, flying) = match self.name {
+            "raevyx" => (8.0, 64.0, 1.0, 0.0, Some(0.5)),
+            "stegonaut" => (15.0, 32.0, 1.0, 2.0, None),
+            "varasuchus" => (8.0, 32.0, 1.0, 10.0, None),
+            "ignivorus" => (4.0, 128.0, 2.0, 50.0, Some(0.35)),
+            "volitans" => (6.0, 64.0, 0.0, 0.0, Some(0.38)),
+            "nulljaw" => (4.0, 48.0, 0.0, 0.0, Some(0.42)),
+            "atroxiia" => (10.0, 32.0, 1.0, 10.0, None),
+            "latcher" | "winged" | "whettled" => (
+                0.0,
+                64.0,
+                0.0,
+                swarm::damage(self.name).unwrap_or(0.0),
+                None,
+            ),
+            crate::ivy::SPECIES => (0.0, 32.0, 0.0, 4.0, None),
+            _ => (0.0, 16.0, 0.0, 0.0, None),
+        };
+        let mut attributes = vec![
+            ("minecraft:max_health", self.health),
+            ("minecraft:movement_speed", self.speed),
+            ("minecraft:armor", armor),
+            ("minecraft:follow_range", range),
+            ("minecraft:knockback_resistance", knockback),
+            ("minecraft:attack_damage", attack),
+        ];
+        if let Some(speed) = flying {
+            attributes.push(("minecraft:flying_speed", speed));
+        }
+        attributes
+    }
+
     fn clip(&self, view: EntityView, wet: bool) -> &'static str {
         match self.name {
             "latcher" | "winged" => {
@@ -229,62 +279,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
     for species in &SPECIES {
         let kind = format!("saintsdragons:{}", species.name);
         let swarm_damage = swarm::damage(species.name);
-        let mut attributes = vec![
-            ("minecraft:max_health", species.health),
-            ("minecraft:movement_speed", species.speed),
-        ];
-        if species.name == "raevyx" {
-            attributes.extend([
-                ("minecraft:armor", 8.0),
-                ("minecraft:follow_range", 64.0),
-                ("minecraft:flying_speed", 0.5),
-                ("minecraft:knockback_resistance", 1.0),
-            ]);
-        }
+        let mut attributes = species.attributes();
         if species.name == crate::ivy::SPECIES {
-            attributes.extend([
-                ("minecraft:attack_damage", 4.0),
-                ("minecraft:follow_range", 32.0),
-                ("minecraft:armor", 0.0),
-                ("minecraft:armor_toughness", 0.0),
-            ]);
-        }
-        if species.name == "varasuchus" {
-            attributes.extend([
-                ("minecraft:attack_damage", 10.0),
-                ("minecraft:armor", 8.0),
-                ("minecraft:follow_range", 32.0),
-                ("minecraft:knockback_resistance", 1.0),
-            ]);
-        }
-        if species.name == "stegonaut" {
-            attributes.extend([
-                ("minecraft:armor", 15.0),
-                ("minecraft:attack_damage", 2.0),
-                ("minecraft:follow_range", 32.0),
-                ("minecraft:knockback_resistance", 1.0),
-            ]);
-        }
-        if species.name == "nulljaw" {
-            attributes.extend([("minecraft:armor", 4.0), ("minecraft:follow_range", 48.0)]);
-        }
-        if let Some(damage) = swarm_damage {
-            attributes.extend([
-                ("minecraft:attack_damage", damage),
-                ("minecraft:follow_range", 64.0),
-                ("minecraft:armor", 0.0),
-            ]);
-        }
-        if species.name == "atroxiia" {
-            attributes.extend([
-                ("minecraft:attack_damage", 10.0),
-                ("minecraft:follow_range", 32.0),
-                ("minecraft:armor", 10.0),
-                ("minecraft:knockback_resistance", 1.0),
-            ]);
-        }
-        if species.name == "volitans" {
-            attributes.extend([("minecraft:armor", 6.0), ("minecraft:follow_range", 64.0)]);
+            attributes.push(("minecraft:armor_toughness", 0.0));
         }
         mobs.add_mob(
             registry,
@@ -300,7 +297,8 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             || stun
             || species.name == "stegonaut"
             || species.name == "varasuchus"
-            || (species.name != "moop" && cfg!(feature = "original-assets"))
+            || species.name == crate::ivy::SPECIES
+            || cfg!(feature = "original-assets")
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
         }
@@ -334,6 +332,11 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             .into_iter()
             .chain(crate::breed::breeds(species.name).then_some((
                 crate::breed::GOAL,
+                1,
+                goal_control::MOVE | goal_control::LOOK,
+            )))
+            .chain(crate::hunt::supported(species.name).then_some((
+                crate::hunt::GOAL,
                 1,
                 goal_control::MOVE | goal_control::LOOK,
             )))
@@ -578,6 +581,7 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
             crate::number(Some(base + 2), "z", Some(SPAWN_TAG + index as u64)),
         ]);
     }
+    crate::combat_raevyx::storm_nodes(&mut nodes);
     commands.add(
         registry,
         "saintsdragons",
@@ -763,14 +767,21 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let Some(name) = kind.strip_prefix("saintsdragons:") else {
         return false;
     };
+    if name == "nulljaw" {
+        crate::combat_nulljaw::cloak_tick(world, mob);
+    }
     let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
         return false;
     };
     if name == crate::ivy::SPECIES {
+        crate::ivy::downed_tick(world, mob);
         crate::ivy::target_tick(world, mob);
     }
+    let volitans_clip = (name == "volitans")
+        .then(|| crate::combat_volitans::ambient(world, mob))
+        .flatten();
     if crate::hunger::DRAGONS.contains(&name) {
-        crate::hunger::tick(world, mob, species.speed, None);
+        crate::hunger::tick(world, mob, species.speed, None, name);
     }
     if crate::hunger::DRAGONS.contains(&name) {
         taming::regrow(mob);
@@ -794,6 +805,8 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         );
         return false;
     }
+    crate::hunt::tick(world, mob, name);
+    crate::roost::owner_tick(world, mob, name);
     let wet = species.swim.is_some()
         && matches!(
             world.fluid_id(flight::cell(view.position)).as_deref(),
@@ -806,7 +819,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         }
         swarm::hover(mob, view.motion);
     }
-    let clip = if cfg!(feature = "original-assets") && matches!(name, "ignivorus" | "varasuchus") {
+    let clip = if cfg!(feature = "original-assets") {
         crate::roost::sleep_clip(mob.id())
     } else {
         None
@@ -821,7 +834,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         if name == "varasuchus" {
             crate::combat_varasuchus::clip(mob).or_else(|| crate::baby::eating_clip(mob.id()))
         } else if name == crate::ivy::SPECIES {
-            crate::ivy::combat_clip(mob.id(), view.motion[0].hypot(view.motion[2]) > 0.035)
+            crate::ivy::downed_clip(mob).or_else(|| {
+                crate::ivy::combat_clip(mob.id(), view.motion[0].hypot(view.motion[2]) > 0.035)
+            })
         } else {
             None
         }
@@ -842,14 +857,8 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     } else {
         clip
     };
-    let clip = clip.or_else(|| {
-        if name == "volitans" {
-            crate::combat_volitans::ambient(world, mob)
-        } else {
-            None
-        }
-    });
     let clip = clip
+        .or(volitans_clip)
         .or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count()))
         .unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
@@ -859,6 +868,51 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn melee_bases_preserve_carriers_and_ignivorus_growth() {
+        assert_eq!(melee_base("raevyx", false), Some(12.0));
+        assert_eq!(melee_base("varasuchus", false), Some(10.0));
+        assert_eq!(melee_base("varasuchus", true), Some(10.0));
+        assert_eq!(melee_base("nulljaw", false), Some(2.0));
+        assert_eq!(melee_base("ignivorus", false), Some(50.0));
+        assert_eq!(melee_base("ignivorus", true), Some(0.0));
+        assert_eq!(melee_base("cindervane", false), None);
+        assert_eq!(melee_base("mossback", false), None);
+    }
+
+    #[test]
+    fn released_adult_attributes_replace_carrier_defaults() {
+        for (name, armor, range, knockback, attack) in [
+            ("raevyx", 8.0, 64.0, 1.0, 0.0),
+            ("ignivorus", 4.0, 128.0, 2.0, 50.0),
+            ("stegonaut", 15.0, 32.0, 1.0, 2.0),
+            ("varasuchus", 8.0, 32.0, 1.0, 10.0),
+            ("volitans", 6.0, 64.0, 0.0, 0.0),
+            ("atroxiia", 10.0, 32.0, 1.0, 10.0),
+            ("nulljaw", 4.0, 48.0, 0.0, 0.0),
+            ("moop", 0.0, 16.0, 0.0, 0.0),
+            ("mossback", 0.0, 16.0, 0.0, 0.0),
+            ("latcher", 0.0, 64.0, 0.0, 4.0),
+            ("winged", 0.0, 64.0, 0.0, 1.5),
+            ("whettled", 0.0, 64.0, 0.0, 4.0),
+            (crate::ivy::SPECIES, 0.0, 32.0, 0.0, 4.0),
+        ] {
+            let attributes = SPECIES
+                .iter()
+                .find(|s| s.name == name)
+                .unwrap()
+                .attributes();
+            for (key, value) in [
+                ("minecraft:armor", armor),
+                ("minecraft:follow_range", range),
+                ("minecraft:knockback_resistance", knockback),
+                ("minecraft:attack_damage", attack),
+            ] {
+                assert!(attributes.contains(&(key, value)), "{name}: {key}");
+            }
+        }
+    }
 
     #[test]
     fn moop_uses_the_released_swim_speeds_and_land_clip() {

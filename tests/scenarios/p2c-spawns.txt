@@ -1,0 +1,57 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd time set midnight
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 104 1013 1037 104 1037 minecraft:stone
+cmd fill 1013 105 1013 1037 113 1037 minecraft:air
+cmd saintsdragons spawn stegonaut 1031 105 1031
+wait 1
+cmd attribute @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] minecraft:armor base get
+wait 0.5
+expect is 15
+cmd attribute @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] minecraft:attack_damage base get
+wait 0.5
+expect is 2
+cmd attribute @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] minecraft:follow_range base get
+wait 0.5
+expect is 32
+cmd saintsdragons spawn ignivorus 1018 105 1018
+wait 1
+cmd attribute @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] minecraft:attack_damage base get
+wait 0.5
+expect is 50
+cmd attribute @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] minecraft:follow_range base get
+wait 0.5
+expect is 128
+cmd attribute @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] minecraft:max_health base get
+wait 0.5
+expect is 450
+cmd execute if entity @a[name=tester,advancements={saintsdragons:hatch_ignivorus=true}]
+wait 0.5
+expect Test failed
+cmd item replace entity tester hotbar.0 with saintsdragons:ignivorus_egg
+wait 0.5
+bot place 1025 104 1027 up
+wait 0.5
+cmd execute if block 1025 105 1027 saintsdragons:ignivorus_egg[hatch=0]
+wait 0.5
+expect Test passed
+cmd data merge block 1025 105 1027 {HatchProgress:0.9999d,BabyGender:1b}
+cmd setblock 1025 104 1027 saintsdragons:ignivorus_incubator_block
+wait 2
+cmd execute if block 1025 105 1027 minecraft:air
+wait 0.5
+expect Test passed
+cmd execute if entity @a[name=tester,advancements={saintsdragons:hatch_ignivorus=true}]
+wait 0.5
+expect Test passed
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

@@ -2,6 +2,7 @@
 //! world (spawned or loaded), and the navigation, look and target calls they use.
 
 use std::{
+    cell::Cell,
     collections::BTreeMap,
     ptr,
     sync::{Arc, Mutex, PoisonError},
@@ -30,6 +31,21 @@ use pumpkin_core::{
 use pumpkin_data::{damage::DamageType, data_component_impl::IDSetContent};
 use pumpkin_util::math::vector3::Vector3;
 
+/// Resolve dynamic damage types through their runtime registry, whose keys
+/// are distinct from death-message IDs. Vanilla IDs retain their static names.
+pub fn damage_type_name(server: &Server, damage_type: &DamageType) -> String {
+    if <DamageType as IDSetContent>::from_id(u16::from(damage_type.id)).is_none()
+        && let Some((key, _)) = server
+            .datapack_manager
+            .get_damage_type_registry_map()
+            .into_iter()
+            .find(|(_, entry)| entry.damage_type == *damage_type)
+    {
+        return key;
+    }
+    IDSetContent::to_string(damage_type)
+}
+
 use crate::{
     content::{entity, world},
     mobs, native,
@@ -48,7 +64,69 @@ pub static MOB_AI: abi::MobAiV1 = abi::MobAiV1 {
     on_hurt,
     last_hurt_by,
     attack,
+    damage_source,
 };
+
+thread_local! {
+    static DAMAGE_SOURCE: Cell<Option<(i32, i32)>> = const { Cell::new(None) };
+}
+
+/// Scope the damage source to a synchronous hurt callback, restoring any enclosing hit.
+pub fn with_damage_source<T>(event: &EntityDamageEvent, callback: impl FnOnce() -> T) -> T {
+    struct Restore(Option<(i32, i32)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            DAMAGE_SOURCE.set(self.0);
+        }
+    }
+    let _restore = Restore(DAMAGE_SOURCE.replace(Some((
+        event.causing_entity_id.unwrap_or(-1),
+        event.direct_entity_id.unwrap_or(-1),
+    ))));
+    callback()
+}
+
+unsafe extern "C" fn damage_source(causing: *mut i32, direct: *mut i32) -> bool {
+    let source = DAMAGE_SOURCE.get();
+    let (causing_id, direct_id) = source.unwrap_or((-1, -1));
+    // SAFETY: non-null output pointers are writable for the call.
+    if let Some(out) = unsafe { causing.as_mut() } {
+        *out = causing_id;
+    }
+    // SAFETY: a non-null direct output pointer is writable for the call.
+    if let Some(out) = unsafe { direct.as_mut() } {
+        *out = direct_id;
+    }
+    source.is_some()
+}
+
+#[cfg(test)]
+mod damage_source_tests {
+    use super::*;
+
+    fn read_source() -> (bool, i32, i32) {
+        let (mut causing, mut direct) = (0, 0);
+        // SAFETY: both output pointers are live.
+        let active = unsafe { damage_source(&raw mut causing, &raw mut direct) };
+        (active, causing, direct)
+    }
+
+    #[test]
+    fn nested_hurt_callbacks_restore_outer_source() {
+        let projectile =
+            EntityDamageEvent::new(1, DamageType::ARROW, 2.0).with_source(Some(3), Some(4));
+        let fall = EntityDamageEvent::new(1, DamageType::FALL, 1.0);
+        assert_eq!(read_source(), (false, -1, -1));
+        with_damage_source(&projectile, || {
+            assert_eq!(read_source(), (true, 3, 4));
+            with_damage_source(&fall, || {
+                assert_eq!(read_source(), (true, -1, -1));
+            });
+            assert_eq!(read_source(), (true, 3, 4));
+        });
+        assert_eq!(read_source(), (false, -1, -1));
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct StagedGoal {
@@ -279,17 +357,17 @@ impl EventHandler<EntityDamageEvent> for HurtHandler {
             // The display string is not a protocol identifier and can differ
             // from the original resource location (or be locale-dependent).
             // `registry_key` is the death message id (`inFire`); this is `minecraft:in_fire`.
-            let name = IDSetContent::to_string(&event.damage_type);
+            let name = damage_type_name(server, &event.damage_type);
             let base: &dyn EntityBase = entity.as_ref();
             // SAFETY: the world, the mob and the name outlive this synchronous callback.
-            let take = unsafe {
+            let take = with_damage_source(event, || unsafe {
                 callback(
                     ptr::from_ref(world.as_ref()).cast(),
                     ptr::from_ref(&base).cast(),
                     Str::new(name.as_bytes()),
                     event.damage,
                 )
-            };
+            });
             if !take {
                 event.set_cancelled(true);
             }

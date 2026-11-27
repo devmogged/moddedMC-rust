@@ -8,6 +8,7 @@ cmd tp tester 2581.5 101 2582.5
 wait 2
 cmd fill 2574 97 2575 2586 97 2586 minecraft:stone
 cmd fill 2574 98 2575 2586 106 2586 minecraft:air
+cmd setblock 2581 100 2582 minecraft:stone
 cmd setblock 2580 98 2580 create:creative_motor[facing=up]
 wait 0.5
 cmd kinetics 2580 98 2580 0
@@ -20,13 +21,13 @@ cmd setblock 2582 103 2580 create:shaft[axis=x,waterlogged=false]
 cmd item replace entity tester hotbar.0 with create:belt_connector 2
 wait 0.5
 bot use 2580 101 2580
-wait 0.4
+wait 1.25
 bot use 2580 103 2582
-wait 0.4
+wait 1.25
 bot use 2582 101 2580
-wait 0.4
+wait 1.25
 bot use 2582 103 2580
-wait 0.5
+wait 1
 cmd kinetics 2580 103 2582
 cmd kinetics 2582 101 2580
 wait 0.5

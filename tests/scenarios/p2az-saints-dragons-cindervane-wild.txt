@@ -1,0 +1,36 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Wild Cindervane parent assignment and persistent pack membership.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd time set midnight
+cmd tp tester 1025.5 101 1025.5
+wait 3
+cmd fill 1005 99 1005 1050 99 1045 minecraft:stone
+cmd fill 1005 100 1005 1050 110 1045 minecraft:air
+cmd cindervane spawn 1025 100 1025
+wait 0.5
+cmd tag @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..4,limit=1] add mother
+cmd data merge entity @e[tag=mother,limit=1] {data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+cmd cindervane spawn 1035 100 1025
+wait 0.5
+cmd tag @e[type=minecraft:ravager,x=1035,y=100,z=1025,distance=..4,limit=1] add baby
+cmd data merge entity @e[tag=baby,limit=1] {data:{"saintsdragons:growth":{remaining:20000}}}
+wait 5
+cmd data get entity @e[tag=baby,limit=1] data."saintsdragons:parent".uuid
+wait 0.5
+expect has the following entity data: \[I;\s*-?\d+,\s*-?\d+,\s*-?\d+,\s*-?\d+\]
+cmd cindervane spawn 1045 100 1025
+wait 0.5
+cmd tag @e[type=minecraft:ravager,x=1045,y=100,z=1025,distance=..4,limit=1] add leader
+cmd data merge entity @e[tag=leader,limit=1] {data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
+wait 5
+cmd data get entity @e[tag=leader,limit=1] data."saintsdragons:pack".uuid
+wait 0.5
+expect has the following entity data: \[I;\s*-?\d+,\s*-?\d+,\s*-?\d+,\s*-?\d+\]
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

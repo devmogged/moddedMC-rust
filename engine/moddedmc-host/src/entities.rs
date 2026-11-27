@@ -89,6 +89,13 @@ pub unsafe extern "C" fn id(raw: abi::EntityRef) -> i32 {
     unsafe { entity(raw) }.map_or(0, |base| base.get_entity().entity_id)
 }
 
+pub unsafe extern "C" fn age(raw: abi::EntityRef) -> i32 {
+    // SAFETY: the entity is borrowed for the callback.
+    unsafe { entity(raw) }.map_or(-1, |base| {
+        base.get_entity().tick_count.load(Ordering::Relaxed)
+    })
+}
+
 pub unsafe extern "C" fn with_entity(
     raw: WorldRef,
     id: i32,
@@ -128,6 +135,208 @@ pub unsafe extern "C" fn hurt(raw: abi::EntityRef, damage_type: Str, amount: f32
             pumpkin_data::damage::DamageType::from_name(name)
         })
         .is_some_and(|damage| entity.damage_with_context(entity, amount, damage, None, None, None))
+}
+
+pub unsafe extern "C" fn hurt_by(
+    raw: abi::EntityRef,
+    attacker: i32,
+    damage_type: Str,
+    amount: f32,
+) -> bool {
+    if !amount.is_finite() || amount < 0.0 || damage_type.len == 0 || damage_type.len > 256 {
+        return false;
+    }
+    // SAFETY: the entity and damage type are borrowed for this call.
+    let (Some(target), Ok(key)) = (
+        unsafe { entity(raw) },
+        std::str::from_utf8(unsafe { damage_type.bytes() }),
+    ) else {
+        return false;
+    };
+    let world = target.get_entity().world.load();
+    let (Some(attacker), Some(server)) = (world.get_entity_by_id(attacker), world.server.upgrade())
+    else {
+        return false;
+    };
+    server
+        .datapack_manager
+        .get_damage_type(key)
+        .or_else(|| {
+            let name = key.strip_prefix("minecraft:").unwrap_or(key);
+            pumpkin_data::damage::DamageType::from_name(name)
+        })
+        .is_some_and(|damage| {
+            target.damage_with_context(
+                target,
+                amount,
+                damage,
+                None,
+                Some(attacker.as_ref()),
+                Some(attacker.as_ref()),
+            )
+        })
+}
+
+pub unsafe extern "C" fn remove_effect(raw: abi::EntityRef, effect: Str) -> bool {
+    // SAFETY: the entity and effect are borrowed for this call.
+    let (Some(base), name) = (unsafe { entity(raw) }, unsafe { effect.str() }) else {
+        return false;
+    };
+    let Some(effect) = StatusEffect::from_name(name.strip_prefix("minecraft:").unwrap_or(name))
+    else {
+        return false;
+    };
+    base.get_player().map_or_else(
+        || {
+            base.get_living_entity()
+                .is_some_and(|living| living.remove_effect(effect))
+        },
+        |player| player.remove_effect(effect),
+    )
+}
+
+pub unsafe extern "C" fn attribute_value(raw: abi::EntityRef, attribute: Str) -> f64 {
+    use pumpkin_data::data_component_impl::combat::attribute_from_name;
+    // SAFETY: the entity and attribute are borrowed for this call.
+    let (Some(living), Some(attribute)) = (
+        unsafe { entity(raw) }.and_then(EntityBase::get_living_entity),
+        attribute_from_name(unsafe { attribute.str() }),
+    ) else {
+        return f64::NAN;
+    };
+    living.get_attribute_value(attribute)
+}
+
+pub unsafe extern "C" fn ticks_frozen(raw: abi::EntityRef) -> i32 {
+    // SAFETY: the entity is borrowed for this call.
+    unsafe { entity(raw) }.map_or(-1, |base| base.get_entity().get_frozen_ticks())
+}
+
+pub unsafe extern "C" fn set_ticks_frozen(raw: abi::EntityRef, ticks: i32) -> bool {
+    // SAFETY: the entity is borrowed for this call.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    if ticks < 0 {
+        return false;
+    }
+    base.get_entity().set_frozen_ticks(ticks);
+    true
+}
+
+pub unsafe extern "C" fn spawn_projectile(
+    raw: WorldRef,
+    kind: Str,
+    owner: i32,
+    target: i32,
+    position: abi::Vec3,
+    velocity: abi::Vec3,
+) -> i32 {
+    use pumpkin_core::entity::{
+        mob::shulker::Axis, projectile::shulker_bullet::ShulkerBulletEntity,
+    };
+    // SAFETY: the world and kind are borrowed for this call.
+    let (Some(world), Some(position), Some(velocity)) = (
+        unsafe { world(raw) }.and_then(shared),
+        finite(position),
+        finite(velocity),
+    ) else {
+        return -1;
+    };
+    // SAFETY: the projectile kind is borrowed for this call.
+    let name = unsafe { kind.str() };
+    let name = name.strip_prefix("minecraft:").unwrap_or(name);
+    if !matches!(
+        name,
+        "arrow"
+            | "spectral_arrow"
+            | "trident"
+            | "fireball"
+            | "small_fireball"
+            | "dragon_fireball"
+            | "wither_skull"
+            | "shulker_bullet"
+            | "snowball"
+            | "egg"
+            | "ender_pearl"
+            | "experience_bottle"
+            | "llama_spit"
+            | "wind_charge"
+            | "breeze_wind_charge"
+    ) {
+        return -1;
+    }
+    let Some(kind) = EntityType::from_name(name) else {
+        return -1;
+    };
+    let Some(owner) = world.get_entity_by_id(owner) else {
+        return -1;
+    };
+    if world
+        .get_block_state_id_if_loaded(&BlockPos::floored_v(position))
+        .is_none()
+    {
+        return -1;
+    }
+    let owner = owner.get_entity();
+    let projectile: Arc<dyn EntityBase> = if kind == &EntityType::SHULKER_BULLET {
+        let Some(target) = world.get_entity_by_id(target) else {
+            return -1;
+        };
+        let target = target.get_entity();
+        let bullet = ShulkerBulletEntity::new(owner, target.entity_id, target.pos.load(), Axis::Y);
+        bullet.entity.set_pos(position);
+        Arc::new(bullet)
+    } else {
+        let projectile = from_type(kind, position, &world, Uuid::new_v4());
+        let Some(reference) = projectile.get_projectile_owner() else {
+            return -1;
+        };
+        reference.set_uuid(Some(owner.entity_uuid));
+        projectile
+    };
+    projectile.get_entity().set_velocity(velocity);
+    let id = projectile.get_entity().entity_id;
+    if world.spawn_entity(projectile) {
+        id
+    } else {
+        -1
+    }
+}
+
+pub unsafe extern "C" fn projectile_owner(raw: abi::EntityRef) -> i32 {
+    // SAFETY: the entity is borrowed for this call.
+    unsafe { entity(raw) }
+        .and_then(EntityBase::get_owner_entity)
+        .map_or(-1, |owner| owner.get_entity().entity_id)
+}
+
+pub unsafe extern "C" fn can_freeze(raw: abi::EntityRef) -> bool {
+    // SAFETY: the entity is borrowed for this call.
+    unsafe { entity(raw) }.is_some_and(|base| base.get_entity().can_freeze(base))
+}
+
+pub unsafe extern "C" fn shulker_bullet_target(raw: abi::EntityRef) -> i32 {
+    use pumpkin_core::entity::projectile::shulker_bullet::ShulkerBulletEntity;
+    // SAFETY: the entity is borrowed for this call.
+    let Some(bullet) = (unsafe { entity(raw) })
+        .and_then(|base| base.cast_any().downcast_ref::<ShulkerBulletEntity>())
+    else {
+        return -1;
+    };
+    let target = bullet.target_id();
+    if target >= 0
+        && bullet
+            .entity
+            .world
+            .load()
+            .get_entity_by_id(target)
+            .is_some()
+    {
+        target
+    } else {
+        -1
+    }
 }
 
 pub unsafe extern "C" fn flags(raw: abi::EntityRef) -> u32 {
