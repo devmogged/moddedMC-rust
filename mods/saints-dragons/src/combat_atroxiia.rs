@@ -285,7 +285,7 @@ fn locate(
     id: i32,
 ) -> Option<(EntityView, EntityBody, (f32, f32))> {
     ENTITIES.get()?.with_entity(world, id, |e| {
-        if !hostile(mob, e) {
+        if !hostile(world, mob, e) {
             return None;
         }
         Some((e.view()?, e.body()?, MOBS.get()?.health(e)?))
@@ -293,8 +293,8 @@ fn locate(
 }
 
 /// DragonEntity.isAlly: village defenders and companions of the same owner.
-fn hostile(mob: Entity<'_>, target: Entity<'_>) -> bool {
-    enemy(mob, target)
+fn hostile(world: World<'_>, mob: Entity<'_>, target: Entity<'_>) -> bool {
+    enemy(world, mob, target)
         && !matches!(
             target.type_id().trim_start_matches("minecraft:"),
             "villager" | "wandering_trader" | "iron_golem"
@@ -730,7 +730,7 @@ fn slither_contact(world: World<'_>, mob: Entity<'_>, s: &mut RiderState, t: i64
             continue;
         }
         entities.with_entity(world, id, |target| {
-            if hostile(mob, target) && ai.attack(world, mob, id, 5.0) {
+            if hostile(world, mob, target) && ai.attack(world, mob, id, 5.0) {
                 if let Some(at) = target.view() {
                     push(
                         target,
@@ -1140,7 +1140,7 @@ fn engaged(world: World<'_>, mob: Entity<'_>, primary: i32, body: EntityBody) ->
         .filter(|&id| {
             entities
                 .with_entity(world, id, |e| {
-                    hostile(mob, e)
+                    hostile(world, mob, e)
                         && (id == primary
                             || ai.target(e) == Some(mob.id())
                             || ai
@@ -1279,7 +1279,7 @@ fn hit(world: World<'_>, mob: Entity<'_>, attack: Attack, spec: Hit, pull: bool)
             let (Some(at), Some(b)) = (target.view(), target.body()) else {
                 return;
             };
-            if !hostile(mob, target) {
+            if !hostile(world, mob, target) {
                 return;
             }
             let delta = sub(at.position, v.position);

@@ -73,8 +73,8 @@ fn stegonaut(entity: Entity<'_>) -> bool {
     MOBS.get().and_then(|mobs| mobs.kind(entity)) == Some(KIND)
 }
 
-fn enemy(mob: Entity<'_>, target: Entity<'_>) -> bool {
-    abilities::enemy(mob, target)
+fn enemy(world: World<'_>, mob: Entity<'_>, target: Entity<'_>) -> bool {
+    abilities::enemy(world, mob, target)
         && !stegonaut(target)
         && !taming::owner(mob).is_some_and(|owner| taming::owner(target) == Some(owner))
 }
@@ -118,7 +118,7 @@ fn usable(world: World<'_>, mob: Entity<'_>, id: i32, range: f64) -> bool {
     };
     entities
         .with_entity(world, id, |target| {
-            enemy(mob, target)
+            enemy(world, mob, target)
                 && target
                     .view()
                     .is_some_and(|v| distance(v.position, view.position) <= range)
@@ -376,7 +376,7 @@ fn hit(world: World<'_>, mob: Entity<'_>, id: i32, attack: i32) {
         return;
     };
     entities.with_entity(world, id, |target| {
-        if !enemy(mob, target) {
+        if !enemy(world, mob, target) {
             return;
         }
         let (_, damage, push, lift, _) = attack_spec(attack);
@@ -857,7 +857,7 @@ fn slam(world: World<'_>, mob: Entity<'_>, second: bool, s: &mut RiderState) {
     let max = std::array::from_fn(|i| b.max[i] + ext[i]);
     for id in entities.entities_in(world, min, max, mob.id()) {
         entities.with_entity(world, id, |target| {
-            if enemy(mob, target)
+            if enemy(world, mob, target)
                 && target
                     .view()
                     .is_some_and(|t| distance(v.position, t.position) <= radius)
@@ -933,7 +933,7 @@ fn tick_chunk(world: World<'_>, mob: Entity<'_>, chunk: &mut GroundChunk) -> boo
             .into_iter()
             .any(|id| {
                 entities
-                    .with_entity(world, id, |t| enemy(mob, t))
+                    .with_entity(world, id, |t| enemy(world, mob, t))
                     .unwrap_or(false)
             });
         if block || entity {
@@ -951,7 +951,7 @@ fn tick_chunk(world: World<'_>, mob: Entity<'_>, chunk: &mut GroundChunk) -> boo
     let p = chunk.position;
     for id in entities.entities_in(world, p.map(|x| x - 3.2), p.map(|x| x + 3.2), mob.id()) {
         entities.with_entity(world, id, |target| {
-            if enemy(mob, target) {
+            if enemy(world, mob, target) {
                 damage_push(mob, target, p, 10.0, 0.66, 0.16, false);
             }
         });
@@ -1000,7 +1000,7 @@ fn tick_pillar(world: World<'_>, mob: Entity<'_>, pillar: &mut Pillar) -> bool {
             if !pillar.hits.contains(&id)
                 && entities
                     .with_entity(world, id, |target| {
-                        if !enemy(mob, target) {
+                        if !enemy(world, mob, target) {
                             return false;
                         }
                         damage_push(mob, target, pillar.position, pillar.damage, 0.9, 0.32, true);
@@ -1196,7 +1196,11 @@ pub fn portable_aura(world: World<'_>, time: u64) {
                     return;
                 }
                 if (view.kind & ENTITY_PLAYER != 0
-                    || taming::companion_owner(target) == Some(owner))
+                    || taming::companion_owner(target).is_some_and(|other| {
+                        other == owner
+                            || (stegonaut(target)
+                                && crate::allies::trusts_uuid(world, other, owner))
+                    }))
                     && let Some(uuid) = mobs.uuid(target)
                 {
                     target.add_effect("minecraft:resistance", 40, 0, false, false);
@@ -1283,11 +1287,18 @@ pub fn aura(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             if target.flags() & moddedmc_api::entities::ENTITY_ALIVE != 0
                 && let Some(target_uuid) = mobs.uuid(target)
                 && (target_uuid == owner
-                    || taming::companion_owner(target) == Some(owner)
                     || (target
                         .view()
                         .is_some_and(|v| v.kind & moddedmc_api::entities::ENTITY_PLAYER != 0)
-                        && mobs.allied(mob, target)))
+                        && (crate::allies::trusts_uuid(world, owner, target_uuid)
+                            || mobs.allied(mob, target)))
+                    || taming::companion_owner(target).is_some_and(|other| {
+                        other == owner
+                            || (stegonaut(target)
+                                && crate::allies::trusts_uuid(world, other, owner))
+                            || (mobs.kind(target) == Some(crate::ivy::KIND)
+                                && crate::allies::trusts_uuid(world, owner, other))
+                    }))
             {
                 target.add_effect("minecraft:resistance", 40, 0, false, false);
                 target.add_effect("minecraft:absorption", 40, 0, false, false);

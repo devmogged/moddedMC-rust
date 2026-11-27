@@ -340,7 +340,7 @@ pub fn defend(world: World<'_>, mob: Entity<'_>) -> Option<(bool, Option<i32>)> 
     let usable = |id, range: f64| {
         entities
             .with_entity(world, id, |other| {
-                crate::abilities::enemy(mob, other)
+                crate::abilities::enemy(world, mob, other)
                     && mobs.kind(other) != Some(CINDERVANE)
                     && other
                         .view()

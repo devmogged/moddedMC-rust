@@ -237,7 +237,7 @@ fn target_info(
     id: i32,
 ) -> Option<(EntityView, f64, [f64; 3], bool)> {
     ENTITIES.get()?.with_entity(world, id, |e| {
-        if !enemy(mob, e) {
+        if !enemy(world, mob, e) {
             return None;
         }
         let (v, b) = (e.view()?, e.body()?);
@@ -719,7 +719,7 @@ fn run_action(
         && let Some(e) = ENTITIES.get()
     {
         e.with_entity(world, a.target, |t| {
-            if !enemy(mob, t) {
+            if !enemy(world, mob, t) {
                 return;
             }
             let damage = match a.kind {
@@ -1308,7 +1308,7 @@ fn rider_melee(world: World<'_>, mob: Entity<'_>, a: &mut Action, v: EntityView,
     };
     for id in entities.entities_in(world, min, max, mob.id()) {
         entities.with_entity(world, id, |t| {
-            if !enemy(mob, t) || !a.hit.insert(id) {
+            if !enemy(world, mob, t) || !a.hit.insert(id) {
                 return;
             }
             let damage = match a.kind {
@@ -1602,7 +1602,7 @@ fn for_near(
     if let Some(e) = ENTITIES.get() {
         for id in e.entities_in(world, add(p, [-radius; 3]), add(p, [radius; 3]), mob.id()) {
             e.with_entity(world, id, |t| {
-                if enemy(mob, t)
+                if enemy(world, mob, t)
                     && (!sphere || t.view().is_some_and(|v| distance(v.position, p) <= radius))
                 {
                     f(t);
@@ -1742,7 +1742,7 @@ fn step_shot(
         if let Some(entities) = ENTITIES.get() {
             for &id in &candidates {
                 entities.with_entity(world, id, |t| {
-                    if !enemy(mob, t)
+                    if !enemy(world, mob, t)
                         || !t.body().is_some_and(|b| {
                             (0..3).all(|axis| {
                                 (b.min[axis] - radius..=b.max[axis] + radius).contains(&p[axis])

@@ -18,7 +18,7 @@ use moddedmc_api::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{ENTITIES, MOBS, appearance::Appearance, binders, eggs, roster, taming};
+use crate::{ENTITIES, MOBS, allies, appearance::Appearance, binders, eggs, roster, taming};
 
 pub const ID: &str = "saintsdragons:draconic_codex";
 pub const NAME: &str = "Draconic Codex";
@@ -30,7 +30,18 @@ static NONCE: AtomicU64 = AtomicU64::new(1);
 struct Session {
     nonce: u64,
     expires: u64,
-    entries: Vec<[u8; 16]>,
+    entries: SessionEntries,
+}
+enum SessionEntries {
+    Dragons(Vec<[u8; 16]>),
+    Allies(Vec<AllyAction>),
+}
+#[derive(Clone)]
+enum AllyAction {
+    Add(allies::Ally),
+    Remove(allies::Ally),
+    Page(usize),
+    Back,
 }
 static SESSIONS: LazyLock<Mutex<HashMap<[u8; 16], Session>>> = LazyLock::new(Mutex::default);
 
@@ -215,6 +226,10 @@ fn retain_other_records(records: &mut Vec<Record>, owner: [u8; 16], dragon: [u8;
 }
 
 fn session(owner: [u8; 16], entries: Vec<[u8; 16]>) -> u64 {
+    store_session(owner, SessionEntries::Dragons(entries))
+}
+
+fn store_session(owner: [u8; 16], entries: SessionEntries) -> u64 {
     let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
     let now = moddedmc_api::tick_count();
     let mut sessions = SESSIONS.lock().unwrap_or_else(PoisonError::into_inner);
@@ -308,7 +323,12 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
     }
     let nonce = session(
         owner,
-        owned.iter().take(24).map(|record| record.dragon).collect(),
+        owned
+            .iter()
+            .take(24)
+            .map(|record| record.dragon)
+            .chain([owner])
+            .collect(),
     );
     let mut buttons: Vec<_> = owned
         .iter()
@@ -316,6 +336,7 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
         .enumerate()
         .map(|(index, record)| button(record.name.clone(), nonce, "select", index))
         .collect();
+    buttons.push(button("Ally".into(), nonce, "ally", owned.len().min(24)));
     buttons.push(MenuButton {
         label: "Done".to_owned(),
         action: "saintsdragons:codex/done".to_owned(),
@@ -331,6 +352,102 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
         buttons,
     });
     UseResult::Success
+}
+
+/// The released ally tab manages the owner's global list, including before taming a dragon.
+/// shortcut: the dialog API has no text input; offer the online players instead.
+fn show_allies(world: World<'_>, viewer: Entity<'_>, owner: [u8; 16], page: usize, feedback: &str) {
+    let Some(player) = viewer.as_player() else {
+        return;
+    };
+    let owned = allies::list(world, owner);
+    let mut body = format!("Player Allies: {}/{}", owned.len(), allies::MAX);
+    if !feedback.is_empty() {
+        body.push_str(&format!("\n{feedback}"));
+    }
+    if owned.is_empty() {
+        body.push_str("\nNo player allies added yet.");
+    } else {
+        for ally in &owned {
+            body.push_str(&format!("\n  - {}", ally.name));
+        }
+    }
+    let mut entries: Vec<_> = owned.iter().cloned().map(AllyAction::Remove).collect();
+    const PAGE_SIZE: usize = 12;
+    if owned.len() < allies::MAX {
+        let online: Vec<_> = allies::online(world)
+            .into_iter()
+            .filter(|ally| ally.uuid != owner && !owned.iter().any(|a| a.uuid == ally.uuid))
+            .collect();
+        let page = page.min(online.len().saturating_sub(1) / PAGE_SIZE);
+        entries.extend(
+            online
+                .iter()
+                .skip(page * PAGE_SIZE)
+                .take(PAGE_SIZE)
+                .cloned()
+                .map(AllyAction::Add),
+        );
+        if page > 0 {
+            entries.push(AllyAction::Page(page - 1));
+        }
+        if (page + 1) * PAGE_SIZE < online.len() {
+            entries.push(AllyAction::Page(page + 1));
+        }
+    }
+    entries.push(AllyAction::Back);
+    let labels: Vec<_> = entries
+        .iter()
+        .map(|action| match action {
+            AllyAction::Add(ally) => format!("Add Player: {}", ally.name),
+            AllyAction::Remove(ally) => format!("Remove Player: {}", ally.name),
+            AllyAction::Page(next) => format!("Online players: page {}", next + 1),
+            AllyAction::Back => "Back".into(),
+        })
+        .collect();
+    let nonce = store_session(owner, SessionEntries::Allies(entries));
+    player.show_menu(&Menu {
+        title: format!("{NAME}: Ally"),
+        body,
+        buttons: labels
+            .into_iter()
+            .enumerate()
+            .map(|(i, label)| button(label, nonce, "ally_action", i))
+            .collect(),
+    });
+}
+
+fn apply_ally_action(world: World<'_>, viewer: Entity<'_>, owner: [u8; 16], action: AllyAction) {
+    let feedback = match action {
+        AllyAction::Add(ally) => {
+            if allies::add_online(world, owner, ally.uuid) {
+                format!("Successfully updated player ally {}", ally.name)
+            } else if !allies::online(world).iter().any(|a| a.uuid == ally.uuid) {
+                format!(
+                    "Who is {}? Are you sure you're playing with that person?",
+                    ally.name
+                )
+            } else {
+                "Could not update player ally.".into()
+            }
+        }
+        AllyAction::Remove(ally) => {
+            if allies::remove_saved(world, owner, ally.uuid) {
+                format!("Successfully updated player ally {}", ally.name)
+            } else {
+                format!("{} is not a player ally", ally.name)
+            }
+        }
+        AllyAction::Page(page) => {
+            show_allies(world, viewer, owner, page, "");
+            return;
+        }
+        AllyAction::Back => {
+            show(world, viewer, None);
+            return;
+        }
+    };
+    show_allies(world, viewer, owner, 0, &feedback);
 }
 
 /// Stock-client text equivalent of the released physiology and ecology panels.
@@ -430,7 +547,7 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
         let Some(owner) = MOBS.get().and_then(|mobs| mobs.uuid(viewer)) else {
             return;
         };
-        let dragon = {
+        let entries = {
             let mut sessions = SESSIONS.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(session) = sessions.get(&owner) else {
                 return;
@@ -438,13 +555,29 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
             if session.nonce != nonce || session.expires <= moddedmc_api::tick_count() {
                 return;
             }
-            let Some(dragon) = session.entries.get(index).copied() else {
+            sessions
+                .remove(&owner)
+                .expect("session was just checked")
+                .entries
+        };
+        let dragon = match entries {
+            SessionEntries::Dragons(entries) => {
+                let Some(dragon) = entries.get(index).copied() else {
+                    return;
+                };
+                dragon
+            }
+            SessionEntries::Allies(entries) => {
+                if operation == "ally_action"
+                    && let Some(action) = entries.get(index).cloned()
+                {
+                    apply_ally_action(world, viewer, owner, action);
+                }
                 return;
-            };
-            sessions.remove(&owner);
-            dragon
+            }
         };
         match operation {
+            "ally" if dragon == owner => show_allies(world, viewer, owner, 0, ""),
             "select" | "ecology" => detail(world, viewer, owner, dragon, operation == "ecology"),
             "confirm" => {
                 let nonce = session(owner, vec![dragon]);
