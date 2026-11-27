@@ -18,8 +18,8 @@ const STUNTING_FOOD: &str = "saintsdragons:raw_moop";
 const GROWTH: (i32, i32) = (2400, 4800);
 const TAMED_COOLDOWN: u64 = 22;
 
-// `setFeedingCooldown` per juvenile, kept off disk like the adult cooldowns.
-static FED: Mutex<Option<HashMap<i32, u64>>> = Mutex::new(None);
+// `setFeedingCooldown` per juvenile and Varasuchus, kept off disk like the adult cooldowns.
+static FED: Mutex<Option<HashMap<i32, (u64, u64)>>> = Mutex::new(None);
 
 fn display(species: &str) -> String {
     let mut name = species.to_owned();
@@ -54,19 +54,29 @@ fn wild_chance(kind: &str, item: &str) -> Option<(f64, u64)> {
     }
 }
 
-/// Starts the feeding cooldown, or returns false while the juvenile is still eating.
-fn start_eating(id: i32, cooldown: u64) -> bool {
-    let now = tick_count();
+/// Starts the feeding cooldown, or returns false while the dragon is still eating.
+/// A zero duration only checks whether the dragon can feed.
+pub(crate) fn start_eating(id: i32, cooldown: u64) -> bool {
     let mut fed = FED.lock().unwrap_or_else(PoisonError::into_inner);
-    let fed = fed.get_or_insert_default();
-    fed.retain(|_, until| *until > now);
+    start_eating_at(fed.get_or_insert_default(), id, tick_count(), cooldown)
+}
+
+fn start_eating_at(fed: &mut HashMap<i32, (u64, u64)>, id: i32, now: u64, cooldown: u64) -> bool {
+    fed.retain(|_, (_, until)| *until > now);
     if fed.contains_key(&id) {
         return false;
     }
     if cooldown > 0 {
-        fed.insert(id, now + cooldown);
+        fed.insert(id, (now, now + cooldown));
     }
     true
+}
+
+/// The Varasuchus eating clip lasts two seconds, independently of the feeding cooldown.
+pub fn eating_clip(id: i32) -> Option<&'static str> {
+    let fed = FED.lock().unwrap_or_else(PoisonError::into_inner);
+    let (started, _) = fed.as_ref()?.get(&id)?;
+    (tick_count().saturating_sub(*started) < 40).then_some("eat")
 }
 
 pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
@@ -77,6 +87,11 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     let kind = mobs.kind(mob)?;
     let species = kind.strip_prefix("saintsdragons:")?;
     let name = display(species);
+    let tamed_cooldown = if kind == crate::wild::VARASUCHUS {
+        crate::wild::VARASUCHUS_FEED_COOLDOWN
+    } else {
+        TAMED_COOLDOWN
+    };
     let tamed = taming::is_tamed(mob);
     let uuid = mobs.uuid(player)?;
     if item == STUNTING_FOOD {
@@ -88,7 +103,7 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
             mobs.message(player, &format!("{name} is not growing anymore"), true);
             return Some(UseResult::Success);
         }
-        if !start_eating(mob.id(), TAMED_COOLDOWN) {
+        if !start_eating(mob.id(), tamed_cooldown) {
             mobs.message(player, &format!("{name} is still eating..."), true);
             return Some(UseResult::Consume);
         }
@@ -106,7 +121,11 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         || TAGS
             .get()?
             .contains("item", &format!("saintsdragons:foods/{species}"), item);
-    if !food {
+    if !food
+        || (kind == crate::wild::VARASUCHUS
+            && tamed
+            && (click.sneaking || mobs.game_mode(player) == Some(3)))
+    {
         return None;
     }
     let hearty = item == taming::HEARTY_MEAL;
@@ -115,7 +134,7 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     } else {
         Some(wild_chance(kind, item)?)
     };
-    let cooldown = wild.map_or(TAMED_COOLDOWN, |(_, cooldown)| cooldown);
+    let cooldown = wild.map_or(tamed_cooldown, |(_, cooldown)| cooldown);
     if !start_eating(mob.id(), cooldown) {
         mobs.message(player, &format!("{name} is still eating..."), true);
         return Some(UseResult::Consume);
@@ -162,6 +181,18 @@ pub fn forget(id: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn varasuchus_feeding_and_breeding_share_cooldown() {
+        let mut fed = HashMap::new();
+        assert!(start_eating_at(&mut fed, 1, 100, 50));
+        assert!(!start_eating_at(&mut fed, 1, 149, 0));
+        assert!(!start_eating_at(&mut fed, 1, 149, 61));
+        assert!(start_eating_at(&mut fed, 2, 149, 50));
+        assert!(start_eating_at(&mut fed, 1, 150, 61));
+        assert!(!start_eating_at(&mut fed, 1, 210, 50));
+        assert!(start_eating_at(&mut fed, 1, 211, 50));
+    }
 
     #[test]
     fn juvenile_chances_follow_each_handler() {

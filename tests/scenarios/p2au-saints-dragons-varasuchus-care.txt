@@ -1,0 +1,98 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# 0.9.88: a roosting wild Varasuchus refuses interaction while asleep or waking.
+# Its tamed adult accepts food from either hand, healing and restoring hunger.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1029.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd time set midnight
+cmd saintsdragons spawn varasuchus 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..6,limit=1] {Tags:["vara_care"],data:{"saintsdragons:roost":{home:[1025,100,1025],anchor:[1025,100,1025]}}}
+cmd tp @e[tag=vara_care,limit=1] 1025.5 100 1025.5
+wait 8
+cmd execute positioned 1025 100 1025 as @e[type=minecraft:item_display,distance=..8] run data get entity @s item.components."minecraft:custom_data"."moddedmc:rig_clip"
+wait 0.5
+expect has the following entity data: "animation.varasuchus.sleep"
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.5
+expect Varasuchus is sleeping, wake it up to tame\.
+bot expect riding none
+wait 0.5
+expect \[bot\] expect riding ok none
+cmd time set day
+wait 1
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.5
+expect Varasuchus is sleeping, wake it up to tame\.
+wait 7
+cmd tp @e[tag=vara_care,limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd data merge entity @e[tag=vara_care,limit=1] {Health:150f,NoAI:1b,data:{"saintsdragons:hunger":{Hunger:50}}}
+cmd gamemode survival tester
+cmd item replace entity tester weapon.offhand with minecraft:salmon 3
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.3
+expect Varasuchus is being healed\.\.\.
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.3
+expect Varasuchus is still eating\.\.\.
+cmd data get entity @e[tag=vara_care,limit=1] Health
+wait 0.5
+expect has the following entity data: 160f$
+cmd data get entity @e[tag=vara_care,limit=1] data."saintsdragons:hunger".Hunger
+wait 0.5
+expect has the following entity data: 60$
+cmd clear tester minecraft:salmon 0
+wait 0.5
+expect Found 2 matching item
+wait 2
+cmd item replace entity tester weapon.offhand with saintsdragons:hearty_dragon_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.3
+expect Varasuchus is being healed\.\.\.
+cmd data get entity @e[tag=vara_care,limit=1] Health
+wait 0.5
+expect has the following entity data: 19[5-9]f$
+cmd data get entity @e[tag=vara_care,limit=1] active_effects[0].id
+wait 0.5
+expect has the following entity data: "minecraft:regeneration"
+cmd data get entity @e[tag=vara_care,limit=1] active_effects[0].amplifier
+wait 0.5
+expect has the following entity data: 1b?$
+cmd data get entity @e[tag=vara_care,limit=1] data."saintsdragons:hunger".Hunger
+wait 0.5
+expect has the following entity data: 80$
+wait 10
+cmd data get entity @e[tag=vara_care,limit=1] Health
+wait 0.5
+expect has the following entity data: 200f$
+cmd item replace entity tester weapon.offhand with minecraft:salmon 3
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Feeding Varasuchus\.\.\.
+wait 3
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Feeding Varasuchus\.\.\.
+wait 3
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Varasuchus is fully healed!
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

@@ -275,3 +275,39 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn varasuchus_sleep_refusal_covers_both_transitions() {
+        let mut state = Return {
+            roost: Roost {
+                home: [0; 3],
+                anchor: None,
+            },
+            profile: Profile {
+                territory: 48.0,
+                return_radius: 32.0,
+                sleep_radius: 3.0,
+                fall_asleep: 42,
+                wake_up: 129,
+            },
+            seen: 0,
+            next_path: 0,
+            settled_since: Some(100),
+            waking_since: None,
+        };
+        assert_eq!(state.clip(159), None);
+        assert_eq!(state.clip(160), Some("fall_asleep"));
+        assert_eq!(state.clip(201), Some("fall_asleep"));
+        assert_eq!(state.clip(202), Some("sleep"));
+        state.waking_since = Some(300);
+        assert_eq!(state.clip(300), Some("wake_up"));
+        assert_eq!(state.clip(428), Some("wake_up"));
+        state.waking_since = None;
+        state.settled_since = None;
+        assert_eq!(state.clip(429), None);
+    }
+}

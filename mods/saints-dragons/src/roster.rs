@@ -602,6 +602,8 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             view,
             if moving && name == "nulljaw" {
                 "hover"
+            } else if name == "varasuchus" {
+                crate::baby::eating_clip(mob.id()).unwrap_or(if moving { "walk" } else { "idle" })
             } else if moving {
                 "walk"
             } else {
@@ -628,6 +630,13 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     } else {
         None
     };
+    let clip = clip.or_else(|| {
+        if name == "varasuchus" {
+            crate::baby::eating_clip(mob.id())
+        } else {
+            None
+        }
+    });
     let clip = clip.unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
     false
