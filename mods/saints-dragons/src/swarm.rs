@@ -6,19 +6,20 @@ use std::{
 };
 
 use moddedmc_api::{
+    Pos,
     content::World,
     entities::{
-        ENTITY_ALIVE, ENTITY_LIVING, ENTITY_PLAYER, Entity, EntityChange, EntityView, SET_BODY_YAW,
-        SET_HEAD_YAW, SET_MOTION, SET_YAW,
+        ENTITY_ALIVE, ENTITY_LIVING, ENTITY_PLAYER, Entity, EntityBody, EntityChange, EntityView,
+        SET_BODY_YAW, SET_HEAD_YAW, SET_MOTION, SET_YAW,
     },
     mob_ai::goal_phase,
     tick_count,
 };
 
 use crate::{
-    ENTITIES, EQUIPMENT, MOB_AI, MOBS,
+    CONTENT, ENTITIES, EQUIPMENT, MOB_AI, MOBS,
     ai::random,
-    flight::{add, cell, clear_body, length_squared, offset},
+    flight::{add, cell, length_squared, offset},
 };
 
 pub const WANDER: u64 = 10;
@@ -27,6 +28,45 @@ pub const COMBAT: u64 = 16;
 pub const MEMBERS: [(&str, f64); 3] = [("latcher", 4.0), ("winged", 1.5), ("whettled", 4.0)];
 const WANDER_INTERVAL: u64 = 32;
 const ARRIVAL: f64 = 0.6;
+
+/// AsyncDragonPathfinder.calculateSwarmFlyingPathAsync ignores Pellucida.
+/// shortcut: native movement still collides; use an entity-context block filter when available.
+fn clear_body(world: World<'_>, body: EntityBody, offset: [f64; 3]) -> bool {
+    let pellucida = CONTENT
+        .get()
+        .and_then(|content| content.state("saintsdragons:draconian_pellucida"));
+    clear_body_with(
+        body,
+        offset,
+        pellucida,
+        |pos| world.collision_shape(pos).map(|shape| shape.is_empty()),
+        |pos| {
+            let mut state = [moddedmc_api::content::UNLOADED_STATE];
+            world.read(&[pos], &mut state).then_some(state[0])
+        },
+    )
+}
+
+fn clear_body_with(
+    body: EntityBody,
+    offset: [f64; 3],
+    pellucida: Option<u32>,
+    mut empty_shape: impl FnMut(Pos) -> Option<bool>,
+    mut state: impl FnMut(Pos) -> Option<u32>,
+) -> bool {
+    let min = cell(add(body.min, offset));
+    let max = cell(add(body.max.map(|v| v - 1.0e-5), offset));
+    (min.x..=max.x).all(|x| {
+        (min.y..=max.y).all(|y| {
+            (min.z..=max.z).all(|z| {
+                let pos = Pos { x, y, z };
+                empty_shape(pos).is_some_and(|empty| {
+                    empty || pellucida.is_some_and(|id| state(pos) == Some(id))
+                })
+            })
+        })
+    })
+}
 
 #[derive(Clone, Copy)]
 struct Course {
@@ -955,6 +995,36 @@ fn destination(world: World<'_>, mob: Entity<'_>, from: [f64; 3], yaw: f32) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn swarm_clearance_ignores_only_pellucida_in_shifted_body() {
+        let body = EntityBody {
+            min: [0.25, 0.0, 0.25],
+            max: [1.75, 1.5, 1.75],
+            ..EntityBody::default()
+        };
+        let delta = [1.0, 0.0, 0.0];
+        let pellucida = Pos { x: 1, y: 0, z: 0 };
+        let stone = Pos { x: 2, y: 1, z: 1 };
+        let state = |pos| Some(if pos == pellucida { 42 } else { 43 });
+        let shapes = |pos| Some(pos != pellucida);
+        assert!(clear_body_with(body, delta, Some(42), shapes, state));
+        assert!(!clear_body_with(body, delta, None, shapes, state));
+        assert!(!clear_body_with(
+            body,
+            delta,
+            Some(42),
+            |pos| Some(pos != pellucida && pos != stone),
+            state,
+        ));
+        assert!(!clear_body_with(
+            body,
+            delta,
+            Some(42),
+            |pos| (pos != stone).then_some(pos != pellucida),
+            state,
+        ));
+    }
 
     #[test]
     fn full_draconian_set_pacifies_unless_last_attacker() {
