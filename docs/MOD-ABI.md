@@ -641,6 +641,38 @@ saved item stacks for both hands and the four armor slots.
 `tests/scenarios/abi-native-entity.txt` covers use, chunk unload and load,
 clean restart, the two stock models, and permanent removal.
 
+## Player actions (`moddedmc:player_actions` v1)
+
+The optional Fabric companion advertises semantic key actions. Require this named
+table in `Mod::start` to stage actions before worlds load. Its C layout is two
+pointer-sized fields: `size: usize` (offset 0) and
+`add(Reg, Str id, Str translation, Str default_key, u8 phases, PlayerActionCallback) -> i32`
+(offset 8, size 16 on 64-bit). Registration copies the strings; duplicate ids are
+rejected and definitions become visible only after successful mod registration.
+The callback is `unsafe extern "C" fn(WorldRef, EntityRef, Str id, u8 phase)`.
+All handles and the id are borrowed for the call. The phase mask selects
+pressed (1), held (2), and released (4); the callback receives one phase at a time.
+The Rust SDK exposes `player_actions::require` and `PlayerActions::add`.
+Use a single Rust callback per mod and dispatch by action id.
+
+Use namespaced action ids, translation keys and Minecraft key names such as
+`key.keyboard.r`, `key.keyboard.unknown` (unbound), or `ctrl+key.keyboard.4`.
+The companion creates rebindable controls grouped by action namespace and stores
+the chosen keys locally. Stock clients do not receive or send action packets.
+An action namespace can ship `assets/<namespace>/lang/en_us.json` with its
+translation keys and category label `key.category.moddedmc.actions.<namespace>`.
+Mods must still validate gameplay conditions such as ownership, cooldown and riding.
+
+Configuration capability bit 2 on `moddedmc:negotiate` enables the play channel
+`moddedmc:player_actions`. Its protocol is version 1: client requests the
+catalog with bytes [1,0] on join; server replies [1,1], a big-endian u16 count,
+then each entry's id, translation and key as u8 byte lengths followed by UTF-8,
+then its u8 phase mask. Client input is [1,2,phase,id-byte-length,id bytes].
+The host caps the catalog at 128 actions, ids and translations at 128 bytes,
+keys at 64 bytes, checks the action and phase, rejects dead players and
+rate-limits input to 128 packets per second and repeats of the same phase
+of an action to 40 ms (held: 150 ms). Held input is sent every four client ticks.
+
 ## Inter-mod services (`moddedmc:services` v1)
 
 Mods can publish immutable, process-lifetime `#[repr(C)]` function tables to other native

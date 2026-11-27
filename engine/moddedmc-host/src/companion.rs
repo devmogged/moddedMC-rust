@@ -6,6 +6,7 @@ use crate::content_pack::{CATALOG, Catalog, hex};
 const CHANNEL: &str = "moddedmc:negotiate";
 const VERSION: u16 = 1;
 const ASSETS: u32 = 1;
+const PLAYER_ACTIONS: u32 = 2;
 
 pub fn attach(server: &Server) {
     let _ = server
@@ -31,15 +32,18 @@ fn answer(hello: &[u8], catalog: Option<&Catalog>) -> Option<Vec<u8>> {
         return None;
     };
     let mut reply = VERSION.to_be_bytes().to_vec();
-    if u16::from_be_bytes([v1, v2]) == VERSION
-        && u32::from_be_bytes([a, b, c, d]) & ASSETS != 0
+    let supported = if u16::from_be_bytes([v1, v2]) == VERSION {
+        u32::from_be_bytes([a, b, c, d])
+            & (PLAYER_ACTIONS | if catalog.is_some() { ASSETS } else { 0 })
+    } else {
+        0
+    };
+    reply.extend_from_slice(&supported.to_be_bytes());
+    if supported & ASSETS != 0
         && let Some(catalog) = catalog
     {
-        reply.extend_from_slice(&ASSETS.to_be_bytes());
         reply.extend_from_slice(&catalog.manifest);
         reply.extend_from_slice(&catalog.zip_sha1);
-    } else {
-        reply.extend_from_slice(&0u32.to_be_bytes());
     }
     Some(reply)
 }
@@ -57,13 +61,17 @@ mod tests {
             zip_url: String::new(),
         };
         assert_eq!(answer(&[0, 1, 0, 0, 0, 1], None), baseline);
+        assert_eq!(
+            answer(&[0, 1, 0, 0, 0, 3], None),
+            Some(vec![0, 1, 0, 0, 0, 2])
+        );
         assert_eq!(answer(&[0, 1, 0, 0, 0, 0], Some(&catalog)), baseline);
         assert_eq!(
             answer(&[0, 2, 255, 255, 255, 255], Some(&catalog)),
             baseline
         );
         assert_eq!(answer(&[0, 1], Some(&catalog)), None);
-        let mut expected = vec![0, 1, 0, 0, 0, 1];
+        let mut expected = vec![0, 1, 0, 0, 0, 3];
         expected.extend_from_slice(&[11; 32]);
         expected.extend_from_slice(&[22; 20]);
         assert_eq!(

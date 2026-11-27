@@ -41,6 +41,7 @@ pub mod lifecycle;
 pub mod mob_ai;
 pub mod mobs;
 pub mod native_entity;
+pub mod player_actions;
 pub mod player_death;
 pub mod resources;
 pub mod saved_data;
