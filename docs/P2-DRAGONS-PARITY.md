@@ -512,8 +512,19 @@ the attachments on death. The original rider inventory key requires a client act
 server; typed dynamic attachment slots and atomic entity-backed inventory
 transactions are needed for cargo and equipment removal. The armor and sword
 active abilities require custom key actions and equipped-slot reads, and
-katana chain lightning needs a successful-hit callback, attributed damage
-and alliance/ownable target checks. Swarm pacification likewise needs an
+katana chain lightning needs a synchronous successful direct melee hit callback
+(once per attack, including lethal hits), and attackability, mutual alliance
+and generic tame/ownable target checks. Attributed damage is now available.
+The existing equipment hook runs before defenses and cannot establish success.
+In 0.9.88, `DragonMeleeHitContext.observeResult` calls
+`BloodTempestKatanaAbility.onSuccessfulKatanaHit`: the chain visits up to five
+distinct targets, choosing the nearest bounding box within eight blocks of
+each previous target's center, excluding electricity-immune targets. It deals
+10 player-attributed attack damage initially, multiplied by 0.75 each jump;
+if no first jump exists, it attempts the same damage on the original target
+if still eligible. The custom five-tick Blood Tempest lightning arc also
+needs a companion visual. [Pending chain regression scenario](../tests/scenarios/p2-katana-chain.txt).
+Swarm pacification likewise needs an
 equipped-slot query on candidate targets.
 [Codex scenario](../tests/scenarios/p2ad-saints-dragons-codex.txt)
 [Codex detail and binder removal scenario](../tests/scenarios/p2c-items.txt)
