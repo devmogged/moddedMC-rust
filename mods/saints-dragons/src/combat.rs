@@ -118,6 +118,12 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let Some(entities) = ENTITIES.get() else {
         return false;
     };
+    if crate::eggs::is_juvenile(mob) {
+        if ai.target(mob).is_some() {
+            ai.set_target(world, mob, None);
+        }
+        return false;
+    }
     let usable = |id| {
         entities
             .with_entity(world, id, |target| {
@@ -132,6 +138,19 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         if !kept {
             ai.set_target(world, mob, None);
         }
+    }
+    if let Some((protecting, threat)) = crate::cindervane_wild::defend(world, mob) {
+        if let Some(threat) = threat {
+            ai.set_target(world, mob, Some(threat));
+            return false;
+        }
+        if protecting {
+            ai.set_target(world, mob, None);
+            return false;
+        }
+    }
+    if !crate::taming::is_tamed(mob) && crate::cindervane_wild::protecting(mob.id()) {
+        return false;
     }
     if let Some((attacker, timestamp)) = ai.last_hurt_by(mob) {
         let new = with_combat(mob, |c| c.last_hurt.replace(timestamp) != Some(timestamp));

@@ -95,6 +95,8 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::stun::GOAL => crate::stun::goal(phase, world, mob),
         crate::breed::GOAL => crate::breed::goal(phase, world, mob),
         crate::wild::GOAL => crate::wild::goal(phase, world, mob),
+        crate::cindervane_wild::SOCIAL => crate::cindervane_wild::social(phase, world, mob),
+        crate::cindervane_wild::DRINK => crate::cindervane_wild::drink(phase, world, mob),
         AMBIENT => match phase {
             goal_phase::CAN_START | goal_phase::CONTINUE => true,
             goal_phase::TICK => {
