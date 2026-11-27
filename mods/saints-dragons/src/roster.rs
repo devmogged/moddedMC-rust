@@ -344,6 +344,22 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         )?;
         if !species.aquatic {
             ai.replace_goals(registry, &kind)?;
+            if swarm_damage.is_some() {
+                for (key, priority, controls) in [
+                    (swarm::TARGETING, 1, goal_control::TARGET),
+                    (swarm::COMBAT, 2, goal_control::MOVE | goal_control::LOOK),
+                ] {
+                    ai.add_goal(
+                        registry,
+                        &Goal {
+                            kind: &kind,
+                            key,
+                            priority,
+                            controls,
+                        },
+                    )?;
+                }
+            }
             for (key, priority, controls) in [
                 (ai::IDLE_LOOK, 3, goal_control::LOOK),
                 (
@@ -643,6 +659,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         );
     if swarm::damage(name).is_some() {
         if crate::nucleus::clean_up(world, mob) {
+            swarm::forget(mob.id());
             return false;
         }
         swarm::hover(mob, view.motion);
@@ -659,7 +676,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             None
         }
     });
-    let clip = clip.unwrap_or_else(|| species.clip(view, wet));
+    let clip = clip
+        .or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count()))
+        .unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
     false
 }
