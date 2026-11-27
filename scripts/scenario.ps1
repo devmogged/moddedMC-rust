@@ -47,8 +47,12 @@ function Get-NewLines {
     $script:all.GetRange($script:cursor, $script:all.Count - $script:cursor)
 }
 
+function Resolve-RepoPath([string]$Path) {
+    if ([IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path $root $Path }
+}
+
 function Start-Server {
-    $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $Exe), $ExeArgs)
+    $psi = [Diagnostics.ProcessStartInfo]::new((Resolve-RepoPath $Exe), $ExeArgs)
     $psi.WorkingDirectory = $RunDir
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true
@@ -128,7 +132,7 @@ foreach ($raw in Get-Content $Scenario) {
             if ($bots.ContainsKey($arg) -and -not $bots[$arg].HasExited) {
                 throw "bot $arg is already running"
             }
-            $psi = [Diagnostics.ProcessStartInfo]::new((Join-Path $root $BotExe), "127.0.0.1:${Port} $arg")
+            $psi = [Diagnostics.ProcessStartInfo]::new((Resolve-RepoPath $BotExe), "127.0.0.1:${Port} $arg")
             $psi.UseShellExecute = $false
             $psi.RedirectStandardInput = $true
             $psi.RedirectStandardOutput = $true

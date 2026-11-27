@@ -19,7 +19,8 @@ use std::{
 
 use moddedmc_api::{
     InterfaceUnavailable, RegistrationError, Registry,
-    content::{Block, BlockMaterial, Content, Placement, State},
+    block_physics::{self, BlockPhysics},
+    content::{Block, BlockMaterial, Content, Placement, ShapeBox, State},
     effects::SOUND_BLOCKS,
     interaction::{UseOnBlock, UseResult},
     items::Item,
@@ -33,9 +34,11 @@ use crate::{
 };
 
 static WEATHERING: OnceLock<WeatheringCopper> = OnceLock::new();
+static PHYSICS: OnceLock<BlockPhysics> = OnceLock::new();
 
 pub fn require() -> Result<(), InterfaceUnavailable> {
     let _ = WEATHERING.set(weathering_copper::require()?);
+    let _ = PHYSICS.set(block_physics::require()?);
     Ok(())
 }
 
@@ -184,6 +187,7 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
             Some(map_color),
         )?;
     }
+    register_scaffolding(content, registry)?;
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for &(path, display_name, carrier) in data::ITEMS {
         items.add_item(
@@ -195,6 +199,69 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
                 model: &format!("create:item/{path}"),
             },
         )?;
+    }
+    Ok(())
+}
+
+fn register_scaffolding(
+    content: Content,
+    registry: &mut Registry<'_>,
+) -> Result<(), RegistrationError> {
+    const SCAFFOLD_HALF: [ShapeBox; 1] = [ShapeBox {
+        min: [0, 8, 0],
+        max: [16, 16, 16],
+    }];
+    let physics = PHYSICS.get().ok_or(RegistrationError::InvalidDefinition)?;
+    for (path, display_name, map_color) in [
+        ("andesite_scaffolding", "Andesite Scaffolding", "stone"),
+        (
+            "brass_scaffolding",
+            "Brass Scaffolding",
+            "terracotta_yellow",
+        ),
+        ("copper_scaffolding", "Copper Scaffolding", "color_orange"),
+    ] {
+        let id = format!("create:{path}");
+        let models = [
+            format!("create:block/{path}"),
+            format!("create:block/{path}_horizontal"),
+        ];
+        let variants = std::array::from_fn::<_, 32, _>(|index| {
+            let distance = 7 - index / 4;
+            let bottom = index % 4 >= 2;
+            let wet = index % 2 != 0;
+            let properties = format!("bottom={bottom},distance={distance},waterlogged={wet}");
+            let physical = format!("minecraft:scaffolding[{properties}]");
+            (properties, physical, bottom)
+        });
+        let states = variants.each_ref().map(|(properties, physical, bottom)| {
+            let mut variant = state(properties, physical, &models[usize::from(*bottom)], 0, 0);
+            if *bottom {
+                variant.shape = &SCAFFOLD_HALF;
+            }
+            variant
+        });
+        content.add_block(
+            registry,
+            &Block {
+                id: &id,
+                display_name,
+                entity: "",
+                item_model: &format!("create:item/{path}"),
+                states: &states,
+            },
+            None,
+        )?;
+        content.set_block_material(
+            registry,
+            &id,
+            &BlockMaterial {
+                template: "minecraft:scaffolding",
+                hardness: None,
+                map_color: Some(map_color),
+            },
+        )?;
+        physics.set(registry, &id, 0.0, 0.0, false, "minecraft:copper_block")?;
     }
     Ok(())
 }

@@ -1,0 +1,98 @@
+# Create metal scaffolding survives unsupported and changes only BOTTOM when the support changes.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:andesite_scaffolding \(32 states\) && registered content block create:brass_scaffolding \(32 states\) && registered content block create:copper_scaffolding \(32 states\)
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 1026.5 105 1024.5 -90 10
+await 10 \[bot\] teleported to .*1026\.5.*1024\.5
+wait 2
+cmd fill 1024 105 1024 1033 110 1031 minecraft:air
+cmd fill 1024 104 1024 1033 104 1031 minecraft:stone
+await 5 Successfully filled
+cmd gamemode survival tester
+cmd recipe give tester create:andesite_scaffolding_from_andesite_alloy_stonecutting
+await 5 Unlocked 1 recipe
+cmd recipe give tester create:brass_scaffolding_from_ingots_brass_stonecutting
+await 5 Unlocked 1 recipe
+cmd recipe give tester create:copper_scaffolding_from_ingots_copper_stonecutting
+await 5 Unlocked 1 recipe
+cmd setblock 1026 107 1028 minecraft:stone
+await 5 Changed the block
+cmd item replace entity tester hotbar.0 with create:brass_scaffolding 3
+wait 0.4
+bot place 1026 107 1028 north
+await 5 \[bot\] sound: block.copper.place
+cmd execute if block 1026 107 1027 create:brass_scaffolding[bottom=true,distance=7,waterlogged=false] if block 1026 107 1027 #minecraft:climbable
+await 5 Test passed
+
+bot use 1026 107 1027 north
+await 5 \[bot\] sound: block.copper.place
+cmd execute if block 1026 108 1027 create:brass_scaffolding[bottom=false,distance=0,waterlogged=false]
+await 5 Test passed
+cmd setblock 1027 107 1027 minecraft:water[level=0]
+await 5 Changed the block
+bot use 1026 107 1027 up
+await 5 \[bot\] sound: block.copper.place
+cmd execute if block 1027 107 1027 create:brass_scaffolding[bottom=true,distance=7,waterlogged=true]
+await 5 Test passed
+bot expect block 1027 107 1027 minecraft:waxed_exposed_copper_trapdoor[facing=south,half=bottom,open=false,powered=false,waterlogged=true]
+await 5 \[bot\] expect block ok 1027 107 1027
+cmd clear tester create:brass_scaffolding 0
+await 5 No items were found on player tester
+
+cmd setblock 1026 106 1027 minecraft:stone
+await 5 Changed the block
+cmd execute if block 1026 107 1027 create:brass_scaffolding[bottom=false,distance=7,waterlogged=false]
+await 5 Test passed
+cmd setblock 1026 106 1027 minecraft:air
+await 5 Changed the block
+cmd execute if block 1026 107 1027 create:brass_scaffolding[bottom=true,distance=7,waterlogged=false]
+await 5 Test passed
+cmd setblock 1026 107 1028 minecraft:air
+await 5 Changed the block
+
+cmd save-all flush
+await 10 Saved the game
+stop
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if block 1026 107 1027 create:brass_scaffolding[bottom=true,distance=7] if block 1026 108 1027 create:brass_scaffolding[bottom=false,distance=0] if block 1027 107 1027 create:brass_scaffolding[bottom=true,distance=7,waterlogged=true]
+await 5 Test passed
+# A sneaking off-hand use follows the clicked face instead of the player's look.
+cmd item replace entity tester weapon.offhand with create:brass_scaffolding 1
+cmd item replace entity tester hotbar.0 with minecraft:air
+bot input sneak
+wait 0.4
+bot use 1026 107 1027 west off
+await 5 \[bot\] sound: block.copper.place
+cmd execute if block 1025 107 1027 create:brass_scaffolding[bottom=true,distance=7,waterlogged=false]
+await 5 Test passed
+cmd clear tester create:brass_scaffolding 0
+await 5 No items were found on player tester
+bot input none
+wait 0.4
+
+# Entering the column below its top lets an entity fall through to the bottom platform.
+cmd summon minecraft:armor_stand 1026.5 111 1027.5 {Tags:["scaffold_above"]}
+cmd summon minecraft:armor_stand 1026.5 108.2 1027.5 {Tags:["scaffold_inside"]}
+wait 3
+cmd data get entity @e[type=minecraft:armor_stand,tag=scaffold_above,limit=1] Pos[1]
+await 5 entity data: 109(\.0)?d
+cmd data get entity @e[type=minecraft:armor_stand,tag=scaffold_inside,limit=1] Pos[1]
+await 5 entity data: 108(\.0)?d
+
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.4
+bot input sneak
+wait 0.4
+bot use 1027 107 1027 north
+wait 0.4
+cmd execute if block 1027 107 1027 minecraft:water[level=0]
+await 5 Test passed
+cmd clear tester create:brass_scaffolding 0
+await 5 Found 1 matching item
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop

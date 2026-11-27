@@ -112,3 +112,14 @@ Use the official 26.3 client with the Fabric companion and the server resource p
 - Climb a run of each metal and press sneak while on it. Expect the same movement as on a stock ladder. Check the hit outline, orientation, hoop texture and whether touching ladders hide the right faces.
 - Place a brass ladder into source water under another brass ladder. Restart and expect both ladders and the water to remain. Remove the upper ladder and expect the lower ladder to drop, leaving water behind.
 - Place a ladder where a second shoulder wall can support it. Use a wrench from above and expect the ladder to turn onto that wall. Sneak-use the wrench in Survival and expect the ladder item back. Place stock waxed copper trapdoors beside the run and check that they retain their original appearance and remain unclimbable on their own.
+
+## Create metal scaffolding ([issue #56](https://github.com/devmogged/moddedMC-rust/issues/56))
+
+Create 6.0.10. Use Java 26.3 with the updated Fabric companion and accept the server pack.
+
+- Stonecut Andesite Alloy, a Brass Ingot and a Copper Ingot. Expect two matching scaffolds from each. Place one against the side of a wall above air and extend it from the side. Expect a vertical stack that stays up when the wall is removed.
+- Look along a matching row and use the top face. Expect the row to extend in the direction you face. Use a side while sneaking. Expect the row to extend toward that face, spending one block per placement. Fill seven positions in a row, click from the start, and expect the eighth position to remain empty.
+- Jump into a column and sneak on a non-bottom segment. Expect to climb and descend. Walk onto the top from an adjacent block and expect to stand on the platform. Step into a bottom segment from below and expect its upper half to block movement. Check the outline with the matching scaffold in hand, then with an empty hand.
+- Extend a row into source water. Restart and expect it to remain waterlogged. Sneak-use a wrench in Survival and expect the scaffold item back and the water to remain.
+- Build a floating 3?3 platform of one metal and remove one corner. Expect connected top textures, the inner corner tile and hidden side seams. Place a second metal next to it and expect the colors to stay separate.
+- Place stock bamboo scaffolding and waxed copper trapdoors beside all three variants. Expect bamboo to collapse normally when unsupported and stock trapdoors to retain their original look and behavior.

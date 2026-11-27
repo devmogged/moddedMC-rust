@@ -72,6 +72,10 @@ The first command shows a swinging arm and the second parks it upright. The item
 
 A mod can put an object mapping part paths to block or item models in `assets/<namespace>/moddedmc/display_parts.json`. For example, `{"hinge/arm": "example:block/hinge_arm"}` supplies the item model `example:moddedmc/parts/hinge/arm`. Put that ID in a vanilla item's `minecraft:item_model` component and show it with the existing item display interface. The generated resource pack includes the referenced model and textures. This works in stock clients and requires no additional registry entries.
 
+## Scaffolding shapes
+
+The verified pack can include `assets/moddedmc/moddedmc/scaffolding.json`. Each wire state ID maps to a bottom flag, the placed block item's model identifier, and an optional map of base texture identifiers to connected texture sheet sizes. The connected texture is the base identifier with `_connected` appended. Sheets with two tiles per side apply to horizontal faces and eight-tile sheets apply to vertical faces. The host uses dedicated trapdoor states for this content. The companion uses the flag to select the standing collision and outline shapes, and the model identifier to show the full placement outline when the player holds the matching block. The mapping belongs to the current connection and is released at disconnect.
+
 ## Server Mods Creative tab
 
 A Creative player using the companion sees **Server Mods** when the connected server supplies a catalog. Entries carry the item names, models, and components sent by the server during normal play. Taking a stack uses the normal Creative inventory action. The server checks the player's game mode.
