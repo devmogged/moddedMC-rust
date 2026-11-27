@@ -674,6 +674,46 @@ tick thread after the parallel world workers have joined. It skips samples
 whose state has changed or whose chunk is no longer loaded.
 Require the field with `Content::require_random_tick()` in `Mod::start`.
 
+`moddedmc:entities` v1 appends combat and projectile operations after `age`.
+All SDK calls check their individual field offsets and return `None` if an
+older host lacks the field.
+Require `EntitiesExtension::CombatEffects`, `Freezing` or `Projectiles`
+at startup when the corresponding group is mandatory.
+
+- `Entity::hurt_by(attacker, damage_type, amount)` uses the registered damage
+  type with the loaded attacker as both direct and causing entity. Damage
+  still passes through the engine's usual damage hooks and mitigation.
+- `Entity::remove_effect(id)` removes an active vanilla status effect and
+  reports whether it was present. Players use the player-specific removal path.
+- `Entity::attribute_value(id)` reads the computed living attribute, including
+  modifiers. Invalid IDs and nonliving entities return `None`.
+- `Entity::ticks_frozen()` and `Entity::set_ticks_frozen(ticks)` read and write
+  the vanilla frozen counter. The engine clamps it to its supported maximum
+  and updates client metadata. Negative inputs are rejected.
+- `Entities::spawn_projectile(world, kind, owner, target, position, velocity)`
+  creates a supported vanilla projectile in a loaded chunk. A shulker bullet
+  requires a loaded target; other projectile types ignore it. The return is
+  the new entity ID. `Entity::projectile_owner()` returns the resolved owner
+  ID or `None`.
+
+`moddedmc:block_world` v1 appends `World::set_weather(mode, ticks)` and
+`World::raycast(from, to, except)` after `can_see_sky`. Weather modes are
+0 (clear), 1 (rain), and 2 (thunder), with positive durations in ticks.
+Require `WorldExtension::WeatherControl` and `WorldExtension::Raycast`
+respectively.
+Raycast uses collider shapes without fluids and returns the first block
+position and the nearest hittable entity before that block, excluding
+the supplied optional entity ID. It rejects nonfinite/out-of-world endpoints
+and rays longer than 256 blocks. A successful miss is `Some((None, None))`;
+invalid input or a missing host field is `None`.
+The engine treats unloaded blocks as air; the ray does not load chunks.
+
+Current Pumpkin does not expose damage-event causing/direct entities,
+outgoing last-hurt history, its internal freeze eligibility predicate, or
+the shulker bullet's current target. These require engine changes before
+they can be exposed accurately. `MobAi::last_hurt_by` remains available
+and returns the victim's tick count at the last attributed hit.
+
 `moddedmc:block_world` v1 appends `raw_brightness(world, pos, sky_darken)`.
 It returns the greater of block light and sky light minus the supplied darkening,
 or -1 outside loaded positions. This query never loads a chunk. Require

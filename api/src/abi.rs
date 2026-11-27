@@ -442,7 +442,14 @@ mod layout {
             offset_of!(EntitiesV1, has_scoreboard_tag) + 8
         );
         assert_eq!(offset_of!(EntitiesV1, age), 248);
-        assert_eq!(size_of::<EntitiesV1>(), 256);
+        assert_eq!(offset_of!(EntitiesV1, hurt_by), 256);
+        assert_eq!(offset_of!(EntitiesV1, remove_effect), 264);
+        assert_eq!(offset_of!(EntitiesV1, attribute_value), 272);
+        assert_eq!(offset_of!(EntitiesV1, ticks_frozen), 280);
+        assert_eq!(offset_of!(EntitiesV1, set_ticks_frozen), 288);
+        assert_eq!(offset_of!(EntitiesV1, spawn_projectile), 296);
+        assert_eq!(offset_of!(EntitiesV1, projectile_owner), 304);
+        assert_eq!(size_of::<EntitiesV1>(), 312);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -764,6 +771,18 @@ pub struct BlockWorldV1 {
     pub surface_height: unsafe extern "C" fn(world: WorldRef, x: i32, z: i32, heightmap: u8) -> i32,
     /// Vanilla `Level.canSeeSky(pos)`: full sky light inside the build height.
     pub can_see_sky: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
+    /// Set weather using clear/rain/thunder mode (0/1/2), for a positive number of ticks.
+    pub set_weather: unsafe extern "C" fn(world: WorldRef, mode: u8, ticks: i32) -> bool,
+    /// Collider ray, ignoring fluids. Writes first block (if any) and nearest hit entity before it.
+    /// Returns -1 for invalid input, 0 for no block, 1 for a block. Entity id -1 means no entity.
+    pub raycast: unsafe extern "C" fn(
+        world: WorldRef,
+        from: Vec3,
+        to: Vec3,
+        except: i32,
+        block: *mut Pos,
+        entity: *mut i32,
+    ) -> i32,
 }
 
 /// `BlockWorldV1::surface_height` types: the vanilla `Heightmap.Types` the server keeps live.
@@ -802,7 +821,9 @@ mod block_world_layout {
             offset_of!(BlockWorldV1, compare_replace_content_entity),
             256
         );
-        assert_eq!(size_of::<BlockWorldV1>(), 288);
+        assert_eq!(offset_of!(BlockWorldV1, set_weather), 288);
+        assert_eq!(offset_of!(BlockWorldV1, raycast), 296);
+        assert_eq!(size_of::<BlockWorldV1>(), 304);
         assert_eq!(size_of::<DayTime>(), 16);
     }
 }
@@ -1026,6 +1047,31 @@ pub struct EntitiesV1 {
     pub players: unsafe extern "C" fn(world: WorldRef, out: *mut i32, capacity: usize) -> usize,
     /// Vanilla Entity.tickCount, including non-living entities; -1 for an invalid handle.
     pub age: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    /// Damage attributed to the loaded attacker in the target's world.
+    pub hurt_by: unsafe extern "C" fn(
+        entity: EntityRef,
+        attacker: i32,
+        damage_type: Str,
+        amount: f32,
+    ) -> bool,
+    /// Remove an active vanilla status effect; false if absent or invalid.
+    pub remove_effect: unsafe extern "C" fn(entity: EntityRef, effect: Str) -> bool,
+    /// Computed attribute value, or NaN if the entity or id is invalid.
+    pub attribute_value: unsafe extern "C" fn(entity: EntityRef, attribute: Str) -> f64,
+    pub ticks_frozen: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    pub set_ticks_frozen: unsafe extern "C" fn(entity: EntityRef, ticks: i32) -> bool,
+    /// Spawn a supported vanilla projectile. Target is required for a shulker bullet.
+    /// Returns -1 on failure. The owner and optional target are loaded entity ids.
+    pub spawn_projectile: unsafe extern "C" fn(
+        world: WorldRef,
+        kind: Str,
+        owner: i32,
+        target: i32,
+        position: Vec3,
+        velocity: Vec3,
+    ) -> i32,
+    /// Loaded owner id, or -1 when absent.
+    pub projectile_owner: unsafe extern "C" fn(entity: EntityRef) -> i32,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.

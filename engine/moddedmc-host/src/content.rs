@@ -138,6 +138,8 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     in_biome,
     surface_height,
     can_see_sky,
+    set_weather,
+    raycast,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -150,6 +152,77 @@ unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
 unsafe extern "C" fn is_thundering(raw: WorldRef) -> bool {
     // SAFETY: the world is borrowed for this call.
     unsafe { world(raw) }.is_some_and(World::is_thundering)
+}
+
+unsafe extern "C" fn set_weather(raw: WorldRef, mode: u8, ticks: i32) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    if ticks <= 0 || mode > 2 {
+        return false;
+    }
+    let (clear, rain) = if mode == 0 { (ticks, 0) } else { (0, ticks) };
+    world
+        .weather
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .set_weather_parameters(world, clear, rain, mode != 0, mode == 2);
+    true
+}
+
+unsafe extern "C" fn raycast(
+    raw: WorldRef,
+    from: abi::Vec3,
+    to: abi::Vec3,
+    except: i32,
+    block: *mut Pos,
+    entity: *mut i32,
+) -> i32 {
+    use pumpkin_world::clip::{ClipBlock, ClipContext, ClipFluid};
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return -1;
+    };
+    let [x, y, z] = from.0;
+    let [a, b, c] = to.0;
+    if ![x, y, z, a, b, c]
+        .iter()
+        .all(|v| v.is_finite() && v.abs() <= 30_000_000.0)
+    {
+        return -1;
+    }
+    let from = Vector3::new(x, y, z);
+    let to = Vector3::new(a, b, c);
+    if (to - from).length() > 256.0 {
+        return -1;
+    }
+    let hit = world.clip(&ClipContext::new(
+        from,
+        to,
+        ClipBlock::Collider,
+        ClipFluid::None,
+    ));
+    let end = if hit.is_miss { to } else { hit.location };
+    let id = world
+        .ray_trace_entities(from, end)
+        .into_iter()
+        .find(|(candidate, _, _)| {
+            candidate.get_entity().entity_id != except && candidate.can_be_hit_by_projectile()
+        })
+        .map_or(-1, |(candidate, _, _)| candidate.get_entity().entity_id);
+    // SAFETY: non-null output pointers are writable for the call.
+    if let Some(out) = unsafe { entity.as_mut() } {
+        *out = id;
+    }
+    if hit.is_miss {
+        return 0;
+    }
+    // SAFETY: non-null output pointers are writable for the call.
+    if let Some(out) = unsafe { block.as_mut() } {
+        *out = crate::native::pos(hit.block_pos);
+    }
+    1
 }
 
 unsafe extern "C" fn in_biome(raw: WorldRef, pos: Pos, biomes: Str) -> i32 {
@@ -2792,6 +2865,13 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     has_scoreboard_tag: crate::entities::has_scoreboard_tag,
     players: crate::entities::players,
     age: crate::entities::age,
+    hurt_by: crate::entities::hurt_by,
+    remove_effect: crate::entities::remove_effect,
+    attribute_value: crate::entities::attribute_value,
+    ticks_frozen: crate::entities::ticks_frozen,
+    set_ticks_frozen: crate::entities::set_ticks_frozen,
+    spawn_projectile: crate::entities::spawn_projectile,
+    projectile_owner: crate::entities::projectile_owner,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
