@@ -630,6 +630,30 @@ pub fn feed_growth(mob: Entity<'_>, ticks: i32) -> Option<bool> {
 }
 
 pub fn grow(mob: Entity<'_>, name: &str) -> bool {
+    if name == "nulljaw" {
+        // Nulljaw.ageBoundaryReached: this species is live-born, not an egg
+        // block. Its juvenile and adult health and armor are the same.
+        if let Some(mut growth) = growth(mob)
+            && !growth.stunted
+            && growth.remaining > 0
+        {
+            growth.remaining -= 1;
+            if growth.remaining == 0 {
+                let matured = MOB_HEALTH.get().is_some_and(|health| {
+                    health.set_attribute(mob, "minecraft:max_health", 70.0)
+                        && health.set_attribute(mob, "minecraft:armor", 4.0)
+                        && health.set_attribute(mob, "minecraft:scale", 1.0)
+                });
+                if matured {
+                    mob.set_data(AGE, &[]);
+                }
+            } else {
+                save_growth(mob, &growth);
+            }
+        }
+        // shortcut: Nulljaw uses its adult display until a juvenile rig is available.
+        return false;
+    }
     let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
         return false;
     };
