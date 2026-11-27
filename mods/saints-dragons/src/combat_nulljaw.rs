@@ -360,8 +360,8 @@ fn eligible(mob: Entity<'_>) -> bool {
         && MOBS.get().is_some_and(|m| m.passengers(mob).is_empty())
 }
 
-fn enemy(mob: Entity<'_>, other: Entity<'_>) -> bool {
-    abilities::enemy(mob, other)
+fn enemy(world: World<'_>, mob: Entity<'_>, other: Entity<'_>) -> bool {
+    abilities::enemy(world, mob, other)
         && MOBS.get().is_some_and(|m| {
             m.kind(other) != Some(KIND)
                 && !(taming::owner(mob).is_some() && taming::owner(mob) == taming::owner(other))
@@ -429,7 +429,7 @@ fn retaliate(world: World<'_>, mob: Entity<'_>, attacker: i32, at: Point) {
     };
     if !eligible(mob)
         || !entities
-            .with_entity(world, attacker, |e| enemy(mob, e))
+            .with_entity(world, attacker, |e| enemy(world, mob, e))
             .unwrap_or(false)
     {
         return;
@@ -442,7 +442,7 @@ fn retaliate(world: World<'_>, mob: Entity<'_>, attacker: i32, at: Point) {
                     && eligible(e)
                     && !taming::is_tamed(e)
                     && entities
-                        .with_entity(world, attacker, |a| enemy(e, a))
+                        .with_entity(world, attacker, |a| enemy(world, e, a))
                         .unwrap_or(false))
                 .then(|| mobs.uuid(e))
                 .flatten()
@@ -484,7 +484,7 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     if let Some(id) = ai.target(mob) {
         if entities
             .with_entity(world, id, |e| {
-                enemy(mob, e)
+                enemy(world, mob, e)
                     && e.view()
                         .is_some_and(|v| distance2(v.position, view.position) <= FOLLOW * FOLLOW)
             })
@@ -514,7 +514,7 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                     let v = e.view()?;
                     let d = distance2(v.position, view.position);
                     (e.type_id().trim_start_matches("minecraft:") == "shulker"
-                        && enemy(mob, e)
+                        && enemy(world, mob, e)
                         && d <= 256.0
                         && visible(world, eye, flight::add(v.position, [0.0, 0.5, 0.0])))
                     .then_some((id, d))
@@ -827,7 +827,7 @@ fn bite_tick(world: World<'_>, mob: Entity<'_>, now: u64) {
                     let (Some(v), Some(body)) = (e.view(), e.body()) else {
                         return false;
                     };
-                    enemy(mob, e)
+                    enemy(world, mob, e)
                         && (id.is_some()
                             || !matches!(
                                 e.type_id(),
@@ -893,7 +893,7 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         entities
             .with_entity(world, id, |e| {
                 let (v, body) = (e.view()?, e.body()?);
-                (enemy(mob, e) && distance2(v.position, view.position) <= FOLLOW * FOLLOW)
+                (enemy(world, mob, e) && distance2(v.position, view.position) <= FOLLOW * FOLLOW)
                     .then_some((id, v, body))
             })
             .flatten()

@@ -241,7 +241,7 @@ fn unit(delta: [f64; 3]) -> [f64; 3] {
 
 fn target_view(world: World<'_>, mob: Entity<'_>, id: i32) -> Option<EntityView> {
     ENTITIES.get()?.with_entity(world, id, |target| {
-        enemy(mob, target).then(|| target.view()).flatten()
+        enemy(world, mob, target).then(|| target.view()).flatten()
     })?
 }
 
@@ -270,7 +270,7 @@ fn nearby(
         .filter_map(|id| {
             entities
                 .with_entity(world, id, |target| {
-                    if !enemy(mob, target) {
+                    if !enemy(world, mob, target) {
                         return None;
                     }
                     let body = target.body()?;
@@ -329,7 +329,7 @@ fn sound(world: World<'_>, mob: Entity<'_>, name: &str, volume: f32) {
 fn lightning(world: World<'_>, mob: Entity<'_>, id: i32, amount: f32, dragon_melee: bool) {
     if let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) {
         entities.with_entity(world, id, |target| {
-            if !enemy(mob, target) || mobs.kind(target) == Some("saintsdragons:raevyx") {
+            if !enemy(world, mob, target) || mobs.kind(target) == Some("saintsdragons:raevyx") {
                 return;
             }
             let damage_type = if dragon_melee
@@ -394,7 +394,7 @@ fn chain(
 fn melee(world: World<'_>, mob: Entity<'_>, id: i32, amount: f32, push: [f64; 3]) {
     if let (Some(ai), Some(entities)) = (MOB_AI.get(), ENTITIES.get()) {
         entities.with_entity(world, id, |target| {
-            if enemy(mob, target)
+            if enemy(world, mob, target)
                 && ai.attack(
                     world,
                     mob,
@@ -479,7 +479,7 @@ fn armor_hit(
 ) {
     if let Some(entities) = ENTITIES.get() {
         entities.with_entity(world, id, |target| {
-            if !enemy(mob, target) {
+            if !enemy(world, mob, target) {
                 return;
             }
             let armor = target.attribute_value("minecraft:armor").unwrap_or(0.0) as f32;
@@ -1066,7 +1066,7 @@ fn rider_beam(world: World<'_>, mob: Entity<'_>, view: EntityView, state: &State
     let max = std::array::from_fn(|i| from[i].max(to[i]) + radius);
     for id in entities.entities_in(world, min, max, mob.id()) {
         entities.with_entity(world, id, |target| {
-            if !enemy(mob, target)
+            if !enemy(world, mob, target)
                 || MOBS.get().and_then(|m| m.kind(target)) == Some("saintsdragons:raevyx")
             {
                 return;

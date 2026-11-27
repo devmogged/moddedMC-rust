@@ -2,16 +2,13 @@
 
 use moddedmc_api::{
     content::World,
-    entities::{
-        ENTITY_ALIVE, ENTITY_LIVING, ENTITY_PLAYER, Entity, EntityBody, EntityChange, SET_MOTION,
-    },
+    entities::{ENTITY_ALIVE, ENTITY_LIVING, Entity, EntityBody, EntityChange, SET_MOTION},
     tick_count,
 };
 
 use crate::{
     EFFECTS, ENTITIES, MOB_AI, MOBS,
     flight::{add, length_squared, offset},
-    taming,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +76,7 @@ pub struct Shot {
     rider: bool,
 }
 
-pub fn enemy(mob: Entity<'_>, target: Entity<'_>) -> bool {
+pub fn enemy(world: World<'_>, mob: Entity<'_>, target: Entity<'_>) -> bool {
     let (Some(mobs), Some(view)) = (MOBS.get(), target.view()) else {
         return false;
     };
@@ -87,8 +84,7 @@ pub fn enemy(mob: Entity<'_>, target: Entity<'_>) -> bool {
         && view.kind & ENTITY_LIVING != 0
         && target.flags() & ENTITY_ALIVE != 0
         && !matches!(mobs.game_mode(target), Some(1 | 3))
-        && (view.kind & ENTITY_PLAYER == 0 || !taming::is_owner(mob, target))
-        && !taming::is_kin(mob, target)
+        && !crate::allies::is_ally(world, mob, target)
         && !mob.has_indirect_passenger(target.id())
 }
 
@@ -419,7 +415,7 @@ fn rider_bite(
     let max = std::array::from_fn(|i| origin[i].max(end[i]) + range);
     for id in entities.entities_in(world, min, max, mob.id()) {
         entities.with_entity(world, id, |target| {
-            if !enemy(mob, target) {
+            if !enemy(world, mob, target) {
                 return;
             }
             if repeat && first_hits.contains(&id) {
@@ -472,7 +468,7 @@ fn rider_grab_candidate(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
                 .with_entity(world, id, |target| {
                     let body = target.body()?;
                     let at = target.view()?;
-                    (enemy(mob, target)
+                    (enemy(world, mob, target)
                         && target.vehicle().is_none()
                         && mobs.passengers(target).is_empty()
                         && !mobs
@@ -508,7 +504,7 @@ fn hold_rider_grab(world: World<'_>, mob: Entity<'_>, id: i32) {
 fn rider_slash(world: World<'_>, mob: Entity<'_>, primary: i32, damage: f32) {
     if let (Some(ai), Some(entities)) = (MOB_AI.get(), ENTITIES.get()) {
         entities.with_entity(world, primary, |target| {
-            if enemy(mob, target) {
+            if enemy(world, mob, target) {
                 ai.attack(
                     world,
                     mob,
@@ -568,10 +564,7 @@ fn rider_fire_aura(world: World<'_>, mob: Entity<'_>) {
         mob.id(),
     ) {
         entities.with_entity(world, id, |target| {
-            if taming::is_owner(mob, target)
-                || taming::is_kin(mob, target)
-                || mob.has_indirect_passenger(id)
-            {
+            if crate::allies::is_ally(world, mob, target) || mob.has_indirect_passenger(id) {
                 target.add_effect("minecraft:fire_resistance", 60, 0, true, false);
                 target.add_effect("minecraft:resistance", 40, 4, true, false);
                 mobs.set_on_fire(target, 0);
@@ -585,7 +578,7 @@ fn rider_fire_aura(world: World<'_>, mob: Entity<'_>) {
         mob.id(),
     ) {
         entities.with_entity(world, id, |target| {
-            if !enemy(mob, target) || fire_immune(target) {
+            if !enemy(world, mob, target) || fire_immune(target) {
                 return;
             }
             target.hurt("minecraft:dragon_breath", 3.0);
@@ -637,7 +630,7 @@ fn fire_crash(world: World<'_>, mob: Entity<'_>, pos: [f64; 3]) {
     if let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) {
         for id in entities.entities_in(world, add(pos, [-17.5; 3]), add(pos, [17.5; 3]), mob.id()) {
             entities.with_entity(world, id, |target| {
-                if enemy(mob, target)
+                if enemy(world, mob, target)
                     && !fire_immune(target)
                     && target
                         .hurt_by(mob.id(), "minecraft:player_explosion", 200.0)
@@ -666,7 +659,7 @@ fn melee(world: World<'_>, mob: Entity<'_>, id: i32, damage: f32, reach: f64, re
         };
         let gap = length_squared(offset(at.position, view.position)).sqrt()
             - (2.5 + body.max[0] - body.min[0]) * 0.5;
-        if !enemy(mob, target) || gap > reach {
+        if !enemy(world, mob, target) || gap > reach {
             return;
         }
         if repeat {
@@ -691,7 +684,7 @@ fn melee(world: World<'_>, mob: Entity<'_>, id: i32, damage: f32, reach: f64, re
 fn strike_alive(world: World<'_>, mob: Entity<'_>, id: i32) -> bool {
     ENTITIES.get().is_some_and(|entities| {
         entities.with_entity(world, id, |target| {
-            enemy(mob, target) && target.vehicle().is_none()
+            enemy(world, mob, target) && target.vehicle().is_none()
         }) == Some(true)
     })
 }
@@ -715,7 +708,7 @@ fn strike_candidate(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
             entities
                 .with_entity(world, id, |target| {
                     let at = target.view()?;
-                    (enemy(mob, target) && target.vehicle().is_none())
+                    (enemy(world, mob, target) && target.vehicle().is_none())
                         .then_some((id, length_squared(offset(at.position, center))))
                 })
                 .flatten()
@@ -737,7 +730,7 @@ fn slash_primary(
     };
     entities
         .with_entity(world, id, |target| {
-            if !enemy(mob, target) || target.vehicle().is_some() {
+            if !enemy(world, mob, target) || target.vehicle().is_some() {
                 return false;
             }
             if repeat {
@@ -779,7 +772,7 @@ fn slash(world: World<'_>, mob: Entity<'_>, primary: i32, damage: f32, repeat: b
             continue;
         }
         entities.with_entity(world, id, |target| {
-            if !enemy(mob, target) || target.vehicle().is_some() {
+            if !enemy(world, mob, target) || target.vehicle().is_some() {
                 return;
             }
             if repeat {
@@ -804,6 +797,7 @@ fn release(world: World<'_>, mob: Entity<'_>, id: i32, damage: bool) {
             && target.stop_riding()
             && damage
             && target.vehicle() != Some(mob.id())
+            && !crate::allies::is_ally(world, mob, target)
         {
             mobs.reset_hurt_cooldown(target);
             ai.attack(world, mob, id, 7.0);
@@ -861,7 +855,7 @@ fn area(
         mob.id(),
     ) {
         entities.with_entity(world, id, |entity| {
-            if enemy(mob, entity)
+            if enemy(world, mob, entity)
                 && entity.view().is_some_and(|view| {
                     let [x, y, z] = offset(view.position, center);
                     x.hypot(z) <= radius && y.abs() <= vertical
@@ -913,7 +907,7 @@ pub fn effects(world: World<'_>, mob: Entity<'_>, shots: &mut Vec<Shot>, fire: b
                 .filter_map(|id| {
                     entities
                         .with_entity(world, id, |entity| {
-                            if enemy(mob, entity) {
+                            if enemy(world, mob, entity) {
                                 entity.body()
                             } else {
                                 None
@@ -950,7 +944,7 @@ pub fn effects(world: World<'_>, mob: Entity<'_>, shots: &mut Vec<Shot>, fire: b
                             mob.id(),
                         ) {
                             entities.with_entity(world, id, |target| {
-                                if enemy(mob, target) && !fire_immune(target) {
+                                if enemy(world, mob, target) && !fire_immune(target) {
                                     target.hurt_by(mob.id(), "minecraft:player_explosion", 20.0);
                                     mobs.set_on_fire(target, 80);
                                 }

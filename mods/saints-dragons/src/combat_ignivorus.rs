@@ -172,7 +172,7 @@ fn rider_aim(world: World<'_>, s: &State) -> Option<[f64; 3]> {
 }
 fn target_at(world: World<'_>, mob: Entity<'_>, id: i32) -> Option<([f64; 3], f64)> {
     ENTITIES.get()?.with_entity(world, id, |e| {
-        if !abilities::enemy(mob, e) {
+        if !abilities::enemy(world, mob, e) {
             return None;
         }
         let (view, body) = (e.view()?, e.body()?);
@@ -332,7 +332,7 @@ fn strike(world: World<'_>, mob: Entity<'_>, id: i32, center: [f64; 3], hit: Hit
     };
     entities
         .with_entity(world, id, |e| {
-            if !abilities::enemy(mob, e) {
+            if !abilities::enemy(world, mob, e) {
                 return false;
             }
             if !hit.melee
@@ -1221,7 +1221,7 @@ fn fireball_impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], multiplier: 
     let visual_scale = 4.0 * f64::from(multiplier);
     for id in entities.entities_in(world, add(at, [-radius; 3]), add(at, [radius; 3]), mob.id()) {
         entities.with_entity(world, id, |target| {
-            if !abilities::enemy(mob, target)
+            if !abilities::enemy(world, mob, target)
                 || crate::TAGS.get().is_some_and(|tags| {
                     tags.contains(
                         "entity_type",

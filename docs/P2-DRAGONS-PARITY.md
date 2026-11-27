@@ -28,6 +28,7 @@ six subscriptions.
 | Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, hurt and death cues including Moop's inherited generic sounds, adult dragon ambient and feeding profiles, swarm ambient calls, entity-bound one-shot dragon vocalizations, movement clip footstep and flap cues, and flight transition cues. A connected bot verified Cindervane, Raevyx and Mossback before the entity-bound changes. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Exact client animation keyframe playback and overlapping vocal animations, full per-ability cues on the remaining combat and Ivy controllers, exact flight state transitions, timed/looping sound instances, carrier sound suppression |
 | Presentation | Adult and eight dragon juvenile rigs in the Fabric companion, gender and skin changes, model/animation switches on growth, stock display fallbacks and food item particles | Overlays, custom particles, special renderers, equipment visuals, screens and translations |
 | Integration | Versioned mod interfaces; the companion is required when loaded mods require it | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
+| Global dragon allies | Owner-scoped save-wide UUID list (ten players), Codex add/remove, shared dragon and Ivy combat trust, and ally buff eligibility | Native pet ownership and scoreboard teams; server-wide player enumeration, typed command arguments and original ally text-input screen |
 
 Volitans and Mossback reject poison before effects are applied, including external applications, matching their released canBeAffected overrides. Other effects retain vanilla admission rules. [Effect veto scenario](../tests/scenarios/p2-effect-veto.txt) (pending coordinator run).
 
@@ -97,7 +98,7 @@ checks empty binders, main inventory, offhand and explicit cleanup (pending coor
 run). Mounted Stegonaut supports X melee selection, rider-directed melee, G charge/release, H tap/hold/repress, Ctrl+4 flex, ground jumping and acceleration. Ground eating cancels before 29 ticks, fires 18 ticks after a full-charge release and cools down for 30 ticks. Ground slam hits at tick 18, chains at tick 23 and hits again after 25 ticks, spawning sixteen independent pillars with a four-tick warmup and 26-tick active lifetime. The [combat scenario](../tests/scenarios/p2c-stegonaut-combat.txt) also checks mounting and documents manual companion input tests. The selected melee uses the vanilla attack key through the mounted input callback. Remaining: original chunk and pillar renderers, exact collision and screen shake,
 Ivy's own binder
 inventory aura; separate particle/icon visibility;
-native pet ownership, ally lists, raid membership, exact visibility, last attack and
+native pet ownership, raid membership, exact visibility, last attack and
 projectile damager history. The hurt callback exposes source entities, but the mod does not yet use them for this behavior
 or transform incoming damage for 30% fall damage and wild Stegonaut immunity; a player
 attack callback is needed for the pre-damage baby-hit advancement.
@@ -501,9 +502,9 @@ removal of a record without destroying its dragon or binder. Gender and
 biome are included when available (the latter via the active generator's
 biome list and a loaded-block membership check). Binder capture snapshots
 the live dragon before discarding it, committing its bound record only after
-discard succeeds. The original companion renderer, ally tab, effective armor
-attribute, and cross-dimension discovery need client rendering, team/alliance
-enumeration, attribute reads, and loaded entity enumeration across worlds.
+discard succeeds. The original companion renderer, ally tab text input, effective
+armor attribute, and cross-dimension discovery need client rendering, dialog
+text input, attribute reads, and loaded entity enumeration across worlds.
 Destroyed-binder handling needs an item-stack destruction callback with its
 NBT and removal cause, rather than guessing that a missing dropped item died.
 Owned adult Cindervane, Atroxiia and Stegonaut accept saddles and then
@@ -517,6 +518,17 @@ and alliance/ownable target checks. Swarm pacification likewise needs an
 equipped-slot query on candidate targets.
 [Codex scenario](../tests/scenarios/p2ad-saints-dragons-codex.txt)
 [Codex detail and binder removal scenario](../tests/scenarios/p2c-items.txt)
+
+The Codex Ally tab saves up to ten online players by UUID per owner, shared
+across all their dragons and dimensions and persisted through world saves.
+All eight dragon combat filters and recruited Ivy honor the owner's list and
+the ownership of mod companions; Cindervane's fire aura and Stegonaut's live
+and portable buffs also use the released owner/ally rules. The existing dialog
+uses a paged online-player selector and supports offline removal. The host
+still needs server-wide online player lookup, native pet owner UUID and
+scoreboard team/alliance queries, typed string/entity-selector command
+arguments for /dragonally, and a text-input screen for the released Codex UI.
+[Global ally scenario](../tests/scenarios/p2-ally-list.txt) (pending coordinator run).
 
 Ivy's spawn egg creates the saved `saintsdragons:ivy_oleander` entity. The
 asset pack includes her original rig. The server reads the 25 released

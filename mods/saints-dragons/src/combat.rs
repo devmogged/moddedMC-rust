@@ -183,7 +183,8 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let usable = |id| {
         entities
             .with_entity(world, id, |target| {
-                abilities::enemy(mob, target) || holding(mob, id)
+                abilities::enemy(world, mob, target)
+                    || (holding(mob, id) && !crate::allies::is_ally(world, mob, target))
             })
             .unwrap_or(false)
     };
