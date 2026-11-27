@@ -213,7 +213,7 @@ pub fn is_owner(mob: Entity<'_>, entity: Entity<'_>) -> bool {
     tamed(mob).is_some_and(|state| MOBS.get().and_then(|m| m.uuid(entity)) == Some(state.owner))
 }
 
-fn held_item(click: &UseMob<'_>) -> Option<String> {
+pub fn held_item(click: &UseMob<'_>) -> Option<String> {
     let held = click
         .stack
         .read()
@@ -524,6 +524,9 @@ pub fn regrow(mob: Entity<'_>) {
 }
 
 pub fn interact(click: &mut UseMob<'_>) -> UseResult {
+    if click.mob.and_then(|mob| MOBS.get()?.kind(mob)) == Some(crate::mossback::KIND) {
+        return crate::mossback::interact(click);
+    }
     let (Some(player), Some(mob), Some(mobs), Some(ai), Some(entities), Some(tags)) = (
         click.player,
         click.mob,
@@ -759,6 +762,12 @@ pub fn feed_particles(world: World<'_>, mob: Entity<'_>, happy: bool) {
 }
 
 pub fn death(world: World<'_>, mob: Entity<'_>) {
+    if MOBS.get().and_then(|mobs| mobs.kind(mob)) == Some(crate::mossback::KIND)
+        && crate::mossback::baby(mob)
+        && let Ok(loot) = moddedmc_api::mobs::require_loot()
+    {
+        loot.suppress(mob);
+    }
     crate::audio::death(world, mob);
     crate::nucleus::defeated(world, mob);
     crate::codex::remove(world, mob);

@@ -31,6 +31,7 @@ mod hunger;
 mod hunt;
 mod ivy;
 mod ivy_trades;
+mod mossback;
 mod nucleus;
 mod roost;
 mod roster;
@@ -117,6 +118,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
         entities.require_extension(EntitiesExtension::Players)?;
+        entities.require_extension(EntitiesExtension::Damage)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -181,6 +183,7 @@ impl Mod for SaintsDragons {
         venom_arrow::register(registry)?;
         binders::register(defaults, registry)?;
         interaction.on_use_item(registry, |click| match click.item {
+            mossback::KIND => mossback::throw_item(click),
             codex::ID => codex::use_item(click),
             ivy::PLUSHIE => ivy::use_item(click),
             nucleus::CONTROLLER => nucleus::use_item(click),

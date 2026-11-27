@@ -1,0 +1,46 @@
+# Mossback adult fall immunity, toxin, capture and throw; baby bit survives capture.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 105 1025.5 0 0
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 104 1013 1037 104 1037 minecraft:stone
+cmd fill 1013 105 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn mossback 1025 105 1027
+wait 0.5
+expect saintsdragons:mossback: spawned
+cmd damage @e[type=minecraft:wolf,sort=nearest,limit=1] 4 minecraft:fall
+cmd data get entity @e[type=minecraft:wolf,sort=nearest,limit=1] Health
+wait 0.5
+expect has the following entity data: 10(\.0)?f
+cmd item replace entity tester weapon.mainhand with minecraft:air
+bot use-entity wolf 1025.5 105 1027.5 main
+wait 0.5
+cmd data get entity tester Inventory[{Slot:0b}].id
+wait 0.5
+expect "saintsdragons:mossback"
+bot use-item main
+wait 3
+expect \[bot\] sound: saintsdragons:mossback_landed
+expect \[bot\] sound: saintsdragons:mossback_toxin
+cmd data get entity @e[type=minecraft:wolf,sort=nearest,limit=1] Health
+wait 0.5
+expect has the following entity data: 10(\.0)?f
+cmd damage @e[type=minecraft:wolf,sort=nearest,limit=1] 1 minecraft:generic
+wait 0.5
+expect \[bot\] sound: saintsdragons:mossback_hurt
+expect \[bot\] sound: saintsdragons:mossback_toxin
+cmd kill @e[type=minecraft:wolf]
+cmd item replace entity tester hotbar.0 with saintsdragons:mossback[minecraft:custom_data={BabyMossback:1b}]
+bot use-item main
+wait 3
+expect \[bot\] sound: saintsdragons:mossback_landed
+expect \[bot\] sound: saintsdragons:mossback_die
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
