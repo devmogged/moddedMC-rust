@@ -26,22 +26,17 @@ cmd tp @e[tag=effect_volitans,limit=1] 1025.5 105 1027.5
 cmd tp @e[tag=effect_mossback,limit=1] 1028.5 105 1027.5
 cmd tp @e[tag=effect_control,limit=1] 1027 105 1029.5
 cmd tp tester 1027 105 1027.5
-cmd item replace entity tester weapon.mainhand with minecraft:splash_potion[minecraft:potion_contents={potion:"minecraft:poison"}]
+cmd item replace entity tester weapon.mainhand with minecraft:splash_potion[minecraft:potion_contents={potion:"minecraft:poison",custom_effects:[{id:"minecraft:slowness",duration:1800}]}]
 wait 1
 bot look 0 90
 bot use-item main
 wait 1
-cmd item replace entity tester weapon.mainhand with minecraft:splash_potion[minecraft:potion_contents={potion:"minecraft:slowness"}]
-wait 0.5
-bot use-item main
-wait 1
-cmd execute if entity @e[tag=effect_volitans,nbt={active_effects:[{id:"minecraft:slowness"}]}] unless entity @e[tag=effect_volitans,nbt={active_effects:[{id:"minecraft:poison"}]}] run say VOLITANS_VETO_OK
-cmd execute if entity @e[tag=effect_mossback,nbt={active_effects:[{id:"minecraft:slowness"}]}] unless entity @e[tag=effect_mossback,nbt={active_effects:[{id:"minecraft:poison"}]}] run say MOSSBACK_VETO_OK
-cmd execute if entity @e[tag=effect_control,nbt={active_effects:[{id:"minecraft:poison"}]}] run say CONTROL_POISON_OK
-wait 0.5
-expect VOLITANS_VETO_OK
-expect MOSSBACK_VETO_OK
-expect CONTROL_POISON_OK
+cmd data get entity @e[tag=effect_volitans,limit=1] active_effects
+await 5 Ravager has the following entity data: (?!.*\bpoison\b).*\bslowness\b
+cmd data get entity @e[tag=effect_mossback,limit=1] active_effects
+await 5 Wolf has the following entity data: (?!.*\bpoison\b).*\bslowness\b
+cmd data get entity @e[tag=effect_control,limit=1] active_effects
+await 5 Villager has the following entity data: (?=.*\bpoison\b).*\bslowness\b
 reject (?i)panic|panicked
 bot quit
 stop

@@ -276,7 +276,10 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
         return UseResult::Pass;
     };
     let mut s = state(mob);
-    if click.stack.count() == 0 {
+    // The host can expose a positive raw count for an air stack (e.g. /item replace).
+    // Like vanilla ItemStack.isEmpty, the saved item ID distinguishes an empty hand.
+    let held = crate::taming::held_item(click);
+    if held.is_none() {
         if click.give(&captured_stack(s.baby())) {
             crate::visuals::death(click.world, mob);
             mob.discard();
@@ -284,7 +287,7 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
         }
         return UseResult::Fail;
     }
-    if crate::taming::held_item(click).as_deref() != Some("minecraft:pufferfish") {
+    if held.as_deref() != Some("minecraft:pufferfish") {
         // The wolf carrier would otherwise accept bones and become tamed.
         return UseResult::Fail;
     }

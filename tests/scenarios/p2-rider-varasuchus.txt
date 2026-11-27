@@ -1,5 +1,6 @@
-# Tamed Varasuchus can mount without a saddle and dash using the stock
-# movement input. Companion-only checks to run manually with a real client:
+# Tamed Varasuchus can mount without a saddle and dash using the companion
+# action protocol. Physical key detection still needs a real client.
+# Additional checks to run manually:
 # R hold (17 ticks) then nearby mob attack: zero damage, parry sweep;
 # early R release: no parry. H shifts phase; R barrage; G claw or tail;
 # X switches bite/horn; attack key requires companion attack dispatch.
@@ -32,13 +33,8 @@ wait 0.75
 bot expect riding ravager
 wait 0.5
 expect \[bot\] expect riding ok ravager
-bot input forward
-wait 0.1
-bot input none
-wait 0.1
-bot input forward
+bot action moddedmc:double_tap/forward pressed
 wait 0.5
-bot input none
 cmd execute positioned 1025 100 1025 as @e[type=minecraft:item_display,distance=..32] run data get entity @s item.components."minecraft:custom_data"."moddedmc:rig_clip"
 wait 0.5
 expect has the following entity data: "animation.varasuchus.(?:tail_swipe_left|tail_swipe_right)"

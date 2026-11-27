@@ -9,23 +9,28 @@ cmd tp tester 1025.5 105 1025.5
 cmd forceload add 1025 1025
 wait 2
 cmd fill 1015 104 1015 1040 104 1040 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd fill 1015 105 1015 1040 125 1040 minecraft:air
+await 30 Successfully filled|No blocks were filled
 cmd item replace entity tester armor.head with saintsdragons:dragonlord_helmet
 cmd item replace entity tester armor.chest with saintsdragons:dragonlord_chestplate
 cmd item replace entity tester armor.legs with saintsdragons:dragonlord_leggings
 cmd item replace entity tester armor.feet with saintsdragons:dragonlord_boots
+await 10 Replaced a slot on tester with \[Dragonlord Boots\]
 cmd gamemode survival tester
 cmd tp tester 1025.5 115 1025.5
-wait 0.3
+await 5 \[bot\] teleported to Vector3 .*y: 115\.0
+wait 0.15
 bot input jump
 wait 0.1
 bot input none
-expect \[bot\] (entity )?sound: saintsdragons:dragonlord_armor_double_jump
+await 5 \[bot\] (entity )?sound: saintsdragons:dragonlord_armor_double_jump
 wait 3
 cmd item replace entity tester armor.head with saintsdragons:blood_tempest_helmet
 cmd item replace entity tester armor.chest with saintsdragons:blood_tempest_chestplate
 cmd item replace entity tester armor.legs with saintsdragons:blood_tempest_leggings
 cmd item replace entity tester armor.feet with saintsdragons:blood_tempest_boots
+await 10 Replaced a slot on tester with \[Blood Tempest Boots\]
 wait 0.3
 bot input forward
 wait 0.05

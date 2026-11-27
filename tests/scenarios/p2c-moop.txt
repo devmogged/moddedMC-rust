@@ -10,10 +10,11 @@ cmd tp tester 1025.5 110 1025.5
 cmd forceload add 1025 1025
 wait 3
 cmd fill 1016 99 1016 1034 109 1034 minecraft:glass
+await 30 Successfully filled|No blocks were filled
 cmd fill 1017 100 1017 1033 108 1033 minecraft:water
+await 30 Successfully filled|No blocks were filled
 cmd saintsdragons spawn moop 1025 104 1025
-wait 1
-expect saintsdragons:moop: spawned \d+
+await 30 saintsdragons:moop: spawned \d+
 cmd data get entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},limit=1] Health
 wait 0.5
 expect has the following entity data: 3(?:\.0)?f$

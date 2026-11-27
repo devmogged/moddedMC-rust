@@ -5,6 +5,7 @@
 //!   break <x> <y> <z>      start digging the block (instant in Creative)
 //!   click <action-id>      press a dialog button whose action is a custom click
 //!   click-match <prefix> <suffix>  press the unique matching action in the latest dialog
+//!   action <id> <pressed|held|released>  send a companion semantic action
 //!   quit
 //! Usage: moddedmc-bot <host:port> <name>
 
@@ -41,8 +42,8 @@ use pumpkin_protocol::{
         },
         packet_encoder::TCPNetworkEncoder,
         server::play::{
-            SChatCommand, SChunkBatch, SCustomClickAction, SKeepAlive, SPlayerAction, SUseItem,
-            SUseItemOn, Status,
+            SChatCommand, SChunkBatch, SCustomClickAction, SCustomPayload, SKeepAlive,
+            SPlayerAction, SUseItem, SUseItemOn, Status,
         },
     },
     packet::MultiVersionJavaPacket,
@@ -99,6 +100,7 @@ async fn main() -> Result<(), String> {
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
             "cmd" => send(&writer, &SChatCommand { command: rest }).await,
+            "action" => companion_action(&writer, rest).await,
             "use" | "place" | "use-item" | "release-item" | "break" | "dig" | "swap-hands"
             | "drop-item" => world_actions.perform(&player, &writer, verb, rest).await,
             "click" => {
@@ -199,6 +201,40 @@ async fn main() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Exercise the same semantic action packet as the companion, including its play-channel hello.
+async fn companion_action(writer: &Writer, args: &str) -> Result<(), String> {
+    let (id, phase) = args.split_once(' ').ok_or("expected action ID and phase")?;
+    let phase = match phase {
+        "pressed" => 1,
+        "held" => 2,
+        "released" => 4,
+        _ => return Err("invalid action phase".into()),
+    };
+    if id.is_empty() || id.len() > 128 || id.contains(char::is_whitespace) {
+        return Err("invalid action ID".into());
+    }
+    let id_len = u8::try_from(id.len()).map_err(|_| "invalid action ID length")?;
+    let channel = "moddedmc:player_actions";
+    send(
+        writer,
+        &SCustomPayload {
+            channel,
+            data: &[1, 0],
+        },
+    )
+    .await?;
+    let mut data = vec![1, 2, phase, id_len];
+    data.extend_from_slice(id.as_bytes());
+    send(
+        writer,
+        &SCustomPayload {
+            channel,
+            data: &data,
+        },
+    )
+    .await
 }
 
 /// Answers keep-alives and teleports and prints what scenarios check (chat, dialogs).

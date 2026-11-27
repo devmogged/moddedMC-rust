@@ -15,35 +15,37 @@ cmd fill 1013 105 1013 1037 110 1037 minecraft:air
 await 30 Successfully filled|No blocks were filled
 cmd saintsdragons spawn mossback 1025 105 1027
 await 30 saintsdragons:mossback: spawned
-wait 1
-cmd damage @e[type=minecraft:wolf,sort=nearest,limit=1] 4 minecraft:fall
-cmd data get entity @e[type=minecraft:wolf,sort=nearest,limit=1] Health
+cmd tag @e[type=minecraft:wolf,nbt={data:{moddedmc:{mob:"saintsdragons:mossback"}}},sort=nearest,limit=1] add test_mossback
+await 5 Added tag
+cmd damage @e[tag=test_mossback,limit=1] 4 minecraft:fall
+cmd data get entity @e[tag=test_mossback,limit=1] Health
 wait 0.5
 expect has the following entity data: 10(\.0)?f
+bot hotbar 0
 cmd item replace entity tester weapon.mainhand with minecraft:air
 await 10 Replaced a slot on tester
+cmd tp @e[tag=test_mossback,limit=1] 1025.5 105 1027.5
+await 5 Teleported Wolf
 bot use-entity wolf 1025.5 105 1027.5 main
-wait 0.5
+wait 1
 cmd data get entity tester Inventory[{Slot:0b}].id
-wait 0.5
-expect "saintsdragons:mossback"
+await 5 tester has the following entity data: "saintsdragons:mossback"
+bot look 0 80
 bot use-item main
-wait 3
-expect \[bot\] sound: saintsdragons:mossback_landed
-expect \[bot\] sound: saintsdragons:mossback_toxin
-cmd data get entity @e[type=minecraft:wolf,sort=nearest,limit=1] Health
-wait 0.5
-expect has the following entity data: 10(\.0)?f
-cmd damage @e[type=minecraft:wolf,sort=nearest,limit=1] 1 minecraft:generic
-wait 0.5
-expect \[bot\] sound: saintsdragons:mossback_hurt
-expect \[bot\] sound: saintsdragons:mossback_toxin
-cmd kill @e[type=minecraft:wolf]
+await 10 \[bot\] sound: saintsdragons:mossback_landed
+await 5 \[bot\] sound: saintsdragons:mossback_toxin
+cmd data get entity @e[type=minecraft:wolf,nbt={data:{moddedmc:{mob:"saintsdragons:mossback"}}},sort=nearest,limit=1] Health
+await 5 Wolf has the following entity data: 10(\.0)?f
+cmd damage @e[type=minecraft:wolf,nbt={data:{moddedmc:{mob:"saintsdragons:mossback"}}},sort=nearest,limit=1] 1 minecraft:generic
+await 5 \[bot\] sound: saintsdragons:mossback_toxin
+await 5 \[bot\] sound: saintsdragons:mossback_hurt
+cmd kill @e[type=minecraft:wolf,nbt={data:{moddedmc:{mob:"saintsdragons:mossback"}}}]
+await 5 \[bot\] sound: saintsdragons:mossback_die
 cmd item replace entity tester hotbar.0 with saintsdragons:mossback[minecraft:custom_data={BabyMossback:1b}]
+await 5 Replaced a slot on tester
 bot use-item main
-wait 3
-expect \[bot\] sound: saintsdragons:mossback_landed
-expect \[bot\] sound: saintsdragons:mossback_die
+await 10 \[bot\] sound: saintsdragons:mossback_landed
+await 5 \[bot\] sound: saintsdragons:mossback_die
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop
