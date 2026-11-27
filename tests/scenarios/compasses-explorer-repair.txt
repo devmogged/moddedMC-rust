@@ -1,0 +1,135 @@
+# Repair the found Explorer's Compass through the real player crafting grid.
+# The weighted-group datapack supplies deterministic nonzero locate offsets.
+mods target\mods\compasses.mmc
+start
+cmd datapack enable "file/weighted-group" last
+wait 2
+expect Loaded datapack 'weighted-group'
+stop
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd experience set tester 7 levels
+cmd experience set tester 3 points
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+cmd item replace entity tester hotbar.1 with minecraft:compass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+bot click-label Search groups
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+wait 30
+expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*aaa_compass_test:member_b in minecraft:overworld
+bot click-label Find next / retry
+wait 2
+expect Compass search started
+wait 30
+expect Found aaa_compass_test:member_a at X -151, Z -1141 in minecraft:overworld
+cmd experience query tester levels
+cmd experience query tester points
+wait 1
+expect-all tester has 7 experience levels && tester has 3 experience points
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*aaa_compass_test:member_a in minecraft:overworld
+bot click-label Find next / retry
+wait 2
+expect Compass search started
+wait 15
+expect No aaa_compass_test:member_a found within the search limits
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+cmd experience query tester levels
+cmd experience query tester points
+wait 1
+expect-all tester has 7 experience levels && tester has 3 experience points
+bot use-item main
+wait 1
+bot click-label Search groups
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+wait 30
+expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*aaa_compass_test:member_b in minecraft:overworld
+bot inventory-click 36 left
+wait 0.5
+bot inventory-click 1 left
+wait 0.5
+bot inventory-click 37 left
+wait 0.5
+bot inventory-click 2 left
+wait 1
+bot expect slot 0 minecraft:compass 1
+wait 1
+reject \[bot\] error:|panicked
+expect \[bot\] expect inventory ok slot 0 compass 1
+bot inventory-click 0 left
+wait 0.5
+bot inventory-click 36 left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+bot expect slot 1 minecraft:air 0
+bot expect slot 2 minecraft:air 0
+bot expect slot 36 minecraft:compass 1
+wait 1
+reject \[bot\] error:|panicked
+expect-all \[bot\] expect inventory ok slot 0 air 0 && \[bot\] expect inventory ok slot 1 air 0 && \[bot\] expect inventory ok slot 2 air 0 && \[bot\] expect inventory ok slot 36 compass 1
+bot inventory-close
+wait 1
+bot expect tracker 36 absent
+bot expect slot 37 minecraft:air 0
+bot expect cursor minecraft:air 0
+wait 1
+expect-all \[bot\] expect inventory ok tracker 36 absent && \[bot\] expect inventory ok slot 37 air 0 && \[bot\] expect inventory ok cursor air 0
+cmd clear tester explorerscompass:explorerscompass 0
+wait 1
+expect Found 1 matching item
+bot click-label Find next / retry
+wait 1
+reject Compass search started
+expect Compass or dimension changed
+bot quit
+stop
+start
+botstart tester
+wait 3
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot hotbar 0
+bot use-item main
+wait 1
+reject \[bot\] dialog button: Find next / retry ->
+expect \[bot\] dialog: .*Select a target in this dimension
+bot click-label Search groups
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+wait 30
+expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+cmd experience query tester levels
+cmd experience query tester points
+wait 1
+expect-all tester has 7 experience levels && tester has 3 experience points
+reject \[bot\] error:|panicked
+bot quit
+stop

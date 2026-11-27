@@ -233,3 +233,29 @@ stale direct selection. After disabling the pack a second time, a
 fresh selection must find the same seed-42 birch forest. This exercises
 the live tag manager without assuming the generator hot-reloads its
 dynamic registries. It has not been run yet.
+
+## Additional repair, XP and navigation acceptance cases
+
+After the next coordinated rebuild, run the following cases separately
+with `run-compass.ps1 -Case <case> -Keep`. The runner stages their
+configuration and any required datapack automatically.
+
+| Case | Required result |
+| --- | --- |
+| group-navigation | Old group-entry and return-page tokens cannot reopen a dialog. Replacing the original stack with another of the same item ID invalidates its group action. A fresh menu works, and replay of the successful pick is inert. |
+| repair | With explicit zero XP cost, locate a biome, craft the found Nature compass plus a vanilla compass in the 2x2 player grid, obtain exactly one fresh mod compass, consume both ingredients, reject the pre-repair menu, persist absent tracker across restart, and locate the same biome again. |
+| explorer-repair | Find both weighted members, exhaust the group, check unchanged XP, locate the first member again, repair via stock crafting, reject the stale action, and recover the first member after restart. |
+| unsupported-xp | Valid positive XP configuration fails registration with its precise atomic-charge capability error. |
+| unsupported-durability | Valid positive durability configuration fails registration with its precise atomic-damage capability error. |
+
+The two repair cases set 7 XP levels and 3 XP points and verify those
+values remain unchanged. The Explorer case also checks failed search
+exhaustion. The two unsupported-setting cases are transitional tests:
+replace them with successful paid-search and broken-compass repair cases
+when the shared atomic capabilities are implemented. They are not evidence
+that positive XP costs or durability already work. The shipped repair
+recipes match the source's unconditional fresh-output shapeless recipe;
+no special repair-specific recipe serializer is needed.
+
+These five cases and the updated config/recipe unit tests are source-only
+until the prime grants the compilation and scenario gates.

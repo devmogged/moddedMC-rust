@@ -102,9 +102,15 @@ item to repair. Sneak reset clears search state but not damage.
 Implement XP charging as a transaction with exact-stack CAS acceptance
 and sufficient-level validation. Implement successful-search damage
 atomically with the resulting item state and tracker. An ordinary tool
-break operation that deletes the item is not source-equivalent. Repair
-must return the appropriate compass with its damage restored, rather
-than letting an arbitrary static recipe bypass the damage semantics.
+break operation that deletes the item is not source-equivalent. Both
+upstream repair recipes are ordinary shapeless recipes: one mod compass
+plus one vanilla compass produces a fresh compass of the same mod type.
+The native resources already ship these recipes. A fresh result must not
+copy the input's custom data, damage, history or lodestone tracker.
+There is no upstream requirement for a damage-gated repair recipe.
+The missing generic capability is atomic successful-search damage, not
+a special crafting hook. The existing stock-grid repair path still needs
+protocol verification.
 The current default (zero cost and no durability) is implemented;
 explicit enabled settings reject startup with a precise error.
 

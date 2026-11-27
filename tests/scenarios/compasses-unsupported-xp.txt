@@ -1,0 +1,6 @@
+# Transitional guard: positive XP configuration must not silently register free compasses.
+mods target\mods\compasses.mmc
+start
+reject registered content item (naturescompass|explorerscompass):
+expect-all Invalid compass configuration: .*nonzero defaultXpLevels requires atomic XP charging && moddedmc: compasses failed to register
+stop

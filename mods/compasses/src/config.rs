@@ -37,10 +37,18 @@ impl Options {
         if raw.allow_teleport == Some(true) {
             return Err("allowTeleport=true requires permission-checked teleport support");
         }
-        if raw.default_xp_levels.unwrap_or(0) != 0 {
+        let default_xp = raw.default_xp_levels.unwrap_or(0);
+        if default_xp > 3 {
+            return Err("defaultXpLevels must be 0..=3");
+        }
+        if default_xp != 0 {
             return Err("nonzero defaultXpLevels requires atomic XP charging");
         }
-        if raw.compass_durability.unwrap_or(0) != 0 {
+        let durability = raw.compass_durability.unwrap_or(0);
+        if durability > 10_000 {
+            return Err("compassDurability must be 0..=10000");
+        }
+        if durability != 0 {
             return Err("nonzero compassDurability requires atomic damage and repair support");
         }
         if (nature && !raw.per_structure_xp_levels.is_empty())
@@ -232,6 +240,30 @@ mod tests {
             ] {
                 let raw = serde_json::from_str(text).unwrap();
                 assert!(Options::parse(raw, nature).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_source_limits_are_distinct_from_unimplemented_valid_settings() {
+        for nature in [true, false] {
+            for (json, expected) in [
+                (r#"{"defaultXpLevels":4}"#, "defaultXpLevels must be 0..=3"),
+                (
+                    r#"{"defaultXpLevels":3}"#,
+                    "nonzero defaultXpLevels requires atomic XP charging",
+                ),
+                (
+                    r#"{"compassDurability":10001}"#,
+                    "compassDurability must be 0..=10000",
+                ),
+                (
+                    r#"{"compassDurability":10000}"#,
+                    "nonzero compassDurability requires atomic damage and repair support",
+                ),
+            ] {
+                let raw = serde_json::from_str(json).unwrap();
+                assert_eq!(Options::parse(raw, nature).err(), Some(expected));
             }
         }
     }

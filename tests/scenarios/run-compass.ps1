@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group','reset','visibility','visibility-reload','multiplayer','interrupted','same-item')]
+    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group','reset','visibility','visibility-reload','multiplayer','interrupted','same-item','repair','explorer-repair','unsupported-xp','unsupported-durability','group-navigation')]
     [string]$Case,
     [ValidateRange(1024,65534)]
     [int]$Port = 26180,
@@ -29,6 +29,8 @@ $fixture = switch ($Case) {
     'multiplayer' { 'weighted-group' }
     'interrupted' { 'zero-frequency' }
     'same-item' { 'weighted-group' }
+    'explorer-repair' { 'weighted-group' }
+    'group-navigation' { 'weighted-group' }
     default { $null }
 }
 foreach ($path in @('engine/target/pack/pack-dev.exe','engine/target/pack/moddedmc-bot.exe','target/mods/compasses.mmc')) {
@@ -56,6 +58,13 @@ if ($Case -eq 'interrupted') {
     $config = Join-Path $absolute 'config/compasses'
     New-Item -ItemType Directory -Force -Path $config | Out-Null
     Copy-Item -LiteralPath (Join-Path $source 'explorerscompass.json') -Destination $config
+}
+if ($Case -in @('repair','explorer-repair','unsupported-xp','unsupported-durability')) {
+    $configFixture = if ($Case -eq 'explorer-repair') { 'repair' } else { $Case }
+    $source = Join-Path $PSScriptRoot "compasses-fixtures/$configFixture/config"
+    $config = Join-Path $absolute 'config/compasses'
+    New-Item -ItemType Directory -Force -Path $config | Out-Null
+    Copy-Item -Path (Join-Path $source '*.json') -Destination $config
 }
 # The underlying runner retains failing worlds and logs; successful worlds
 # are discarded unless Keep is requested to avoid accumulating large data.

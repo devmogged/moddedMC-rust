@@ -1,0 +1,7 @@
+{
+  "defaultXpLevels": 0,
+  "perStructureXpLevels": [
+    "minecraft:*village*,0"
+  ],
+  "compassDurability": 0
+}

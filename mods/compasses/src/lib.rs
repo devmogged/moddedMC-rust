@@ -1122,6 +1122,31 @@ moddedmc_api::export_mod!(Compasses);
 mod dialog_tests {
     use super::*;
     #[test]
+    fn repair_recipes_return_fresh_matching_compasses_without_state_components() {
+        for (id, text) in [
+            (
+                NATURE,
+                include_str!("../resources/data/naturescompass/recipe/repair_natures_compass.json"),
+            ),
+            (
+                EXPLORER,
+                include_str!(
+                    "../resources/data/explorerscompass/recipe/repair_explorers_compass.json"
+                ),
+            ),
+        ] {
+            let recipe: serde_json::Value = serde_json::from_str(text).unwrap();
+            assert_eq!(recipe["type"], "crafting_shapeless");
+            assert_eq!(
+                recipe["ingredients"],
+                serde_json::json!([id, "minecraft:compass"])
+            );
+            // A fresh result resets search history, tracker and future custom damage.
+            assert_eq!(recipe["result"], serde_json::json!({"id": id}));
+        }
+    }
+
+    #[test]
     fn progress_matches_original_radius_rounding_and_omits_ring_radius() {
         assert_eq!(
             progress_message(NATURE, "minecraft:badlands", Some((19, Some(1499)))),
