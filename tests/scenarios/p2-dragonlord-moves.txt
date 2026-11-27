@@ -21,6 +21,10 @@ bot input jump
 wait 0.1
 bot input none
 expect \[bot\] (entity )?sound: saintsdragons:dragonlord_armor_double_jump
+bot input jump
+wait 0.1
+bot input none
+expect \[bot\] (entity )?sound: saintsdragons:dragonlord_armor_flap
 wait 3
 cmd item replace entity tester armor.head with saintsdragons:blood_tempest_helmet
 cmd item replace entity tester armor.chest with saintsdragons:blood_tempest_chestplate

@@ -389,6 +389,96 @@ pub unsafe extern "C" fn player_inventory_stack(
     true
 }
 
+pub unsafe extern "C" fn player_fall_flying(raw: abi::EntityRef) -> bool {
+    // SAFETY: borrowed entity for this call.
+    unsafe { entity(raw) }
+        .and_then(EntityBase::get_player)
+        .is_some_and(|p| p.get_entity().is_fall_flying())
+}
+
+pub unsafe extern "C" fn set_player_fall_flying(raw: abi::EntityRef, flying: bool) -> bool {
+    // SAFETY: borrowed entity for this call.
+    let Some(player) = (unsafe { entity(raw) }).and_then(EntityBase::get_player) else {
+        return false;
+    };
+    crate::player_actions::set_glide(player.entity_id(), flying);
+    if flying && !player.get_entity().is_fall_flying() {
+        player.get_entity().set_fall_flying(true);
+    } else if !flying && player.get_entity().is_fall_flying() {
+        player.get_entity().stop_fall_flying();
+    }
+    true
+}
+
+pub unsafe extern "C" fn player_flight_boost(raw: abi::EntityRef, ticks: u32) -> bool {
+    // SAFETY: borrowed entity for this call.
+    let Some(player) = (unsafe { entity(raw) }).and_then(EntityBase::get_player) else {
+        return false;
+    };
+    crate::player_actions::flight_boost(player, ticks)
+}
+
+pub unsafe extern "C" fn player_selected_slot(raw: abi::EntityRef) -> i32 {
+    // SAFETY: borrowed entity for this call.
+    unsafe { entity(raw) }
+        .and_then(EntityBase::get_player)
+        .map_or(-1, |p| i32::from(p.inventory().get_selected_slot()))
+}
+
+pub unsafe extern "C" fn can_move_by(raw: abi::EntityRef, delta: abi::Vec3) -> bool {
+    // SAFETY: entity is borrowed for this call.
+    let (Some(base), Some(delta)) = (unsafe { entity(raw) }, finite(delta)) else {
+        return false;
+    };
+    let e = base.get_entity();
+    let world = e.world.load();
+    let bounds = e.bounding_box.load().shift(delta);
+    world.no_collision(base, bounds)
+        && world
+            .worldborder
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .collision_shape_contains(&bounds)
+}
+
+pub unsafe extern "C" fn player_item_cooldown(raw: abi::EntityRef, item: Str, ticks: u32) -> bool {
+    // SAFETY: entity and item are borrowed for this call.
+    let (Some(player), Ok(ticks)) = (
+        (unsafe { entity(raw) }).and_then(EntityBase::get_player),
+        i32::try_from(ticks),
+    ) else {
+        return false;
+    };
+    let item = unsafe { item.str() };
+    if player.has_item_cooldown(item) {
+        return false;
+    }
+    if ticks > 0 {
+        player.set_item_cooldown(item, ticks);
+    }
+    true
+}
+
+pub unsafe extern "C" fn player_damage_held_item(raw: abi::EntityRef, amount: u32) -> bool {
+    // SAFETY: entity is borrowed for this call.
+    let (Some(player), Ok(amount)) = (
+        (unsafe { entity(raw) }).and_then(EntityBase::get_player),
+        i32::try_from(amount),
+    ) else {
+        return false;
+    };
+    player.damage_held_item(amount)
+}
+
+pub unsafe extern "C" fn player_reset_attack(raw: abi::EntityRef) -> bool {
+    // SAFETY: entity is borrowed for this call.
+    let Some(player) = (unsafe { entity(raw) }).and_then(EntityBase::get_player) else {
+        return false;
+    };
+    player.last_attacked_ticks.store(0, Ordering::Relaxed);
+    true
+}
+
 pub unsafe extern "C" fn flags(raw: abi::EntityRef) -> u32 {
     // SAFETY: the entity is live for the callback.
     let Some(base) = (unsafe { entity(raw) }) else {
@@ -421,6 +511,12 @@ pub unsafe extern "C" fn flags(raw: abi::EntityRef) -> u32 {
     }
     if entity.get_vehicle().is_some() {
         flags |= abi::ENTITY_PASSENGER;
+    }
+    if entity.is_in_water() {
+        flags |= abi::ENTITY_IN_WATER;
+    }
+    if base.on_climbable() {
+        flags |= abi::ENTITY_ON_CLIMBABLE;
     }
     flags
 }
