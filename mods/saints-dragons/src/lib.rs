@@ -296,7 +296,7 @@ impl Mod for SaintsDragons {
     }
 
     fn menu_click(&self, player: moddedmc_api::Player<'_>, action: &str) {
-        if !ivy::click(&player, action) {
+        if !ivy::click(&player, action) && !codex::click(&player, action) {
             catalog::click(&player, action);
         }
     }
