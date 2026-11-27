@@ -7,9 +7,13 @@ use std::{
 
 use moddedmc_api::abi::{self, Reg, Str, code};
 use pumpkin_core::{
-    entity::{EntityBase, player::JavaPlayer},
+    entity::{
+        EntityBase,
+        player::{JavaPlayer, Player},
+    },
     plugin::{
         BoxFuture, EventHandler, EventPriority,
+        entity::entity_toggle_glide::EntityToggleGlideEvent,
         player::{player_custom_payload::PlayerCustomPayloadEvent, player_leave::PlayerLeaveEvent},
     },
     server::Server,
@@ -23,6 +27,56 @@ const MAX_ACTIONS: usize = 128;
 const PHASES: u8 = abi::ACTION_PRESSED | abi::ACTION_HELD | abi::ACTION_RELEASED;
 const BUILTIN_KEY: &str = "moddedmc:mounted";
 const QUERY_RATE_KEY: &str = "\0mount";
+static MOD_GLIDE: LazyLock<Mutex<HashMap<i32, Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn set_glide(id: i32, active: bool) {
+    if active {
+        lock(&MOD_GLIDE).insert(id, Instant::now());
+    } else {
+        lock(&MOD_GLIDE).remove(&id);
+    }
+}
+
+pub fn flight_boost(player: &Player, ticks: u32) -> bool {
+    if ticks > 1200 || !lock(&CLIENTS).contains_key(&player.entity_id()) {
+        return false;
+    }
+    let world = player.world();
+    let Some(server) = world.server.upgrade() else {
+        return false;
+    };
+    let Some(player) = world.get_player_by_id(player.entity_id()) else {
+        return false;
+    };
+    let mut packet = vec![VERSION, 5];
+    packet.extend_from_slice(&ticks.to_be_bytes());
+    server.spawn_task(async move {
+        JavaPlayer(&player)
+            .send_custom_payload(CHANNEL, &packet)
+            .await;
+    });
+    true
+}
+
+struct Glide;
+impl EventHandler<EntityToggleGlideEvent> for Glide {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut EntityToggleGlideEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if !event.is_gliding
+                && lock(&MOD_GLIDE)
+                    .get(&event.entity_id)
+                    .is_some_and(|last| last.elapsed() < Duration::from_secs(2))
+            {
+                event.cancelled = true;
+            }
+        })
+    }
+}
 
 fn builtin_phases(id: &str) -> Option<u8> {
     use moddedmc_api::player_actions::{
@@ -237,6 +291,11 @@ const fn mount_query(data: &[u8]) -> Option<i32> {
 }
 
 pub fn attach(server: &Server) {
+    server.plugin_manager.register::<EntityToggleGlideEvent, _>(
+        Arc::new(Glide),
+        EventPriority::Normal,
+        true,
+    );
     server
         .plugin_manager
         .register::<PlayerCustomPayloadEvent, _>(Arc::new(Payload), EventPriority::Normal, true);
@@ -350,6 +409,7 @@ impl EventHandler<PlayerLeaveEvent> for Leave {
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             lock(&CLIENTS).remove(&event.player.entity_id());
+            set_glide(event.player.entity_id(), false);
         })
     }
 }

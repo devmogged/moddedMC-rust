@@ -695,7 +695,10 @@ queries a newly observed vehicle with [1,3,vehicle-id:i32 BE]. The host replies
 current registered mod mob). The companion requires a matching local vehicle
 and confirmation before intercepting inputs; the host independently checks
 current mounted status on every built-in action. The query shares the input
-rate limit. Original v1 action packets and catalog layout are unchanged.
+rate limit. The host can also send [1,5,duration:u32 BE] to request a bounded
+fall-flying boost (0 cancels). The companion applies it only during eligible
+flight; this packet is server-to-client only. Original v1 action packets and
+catalog layout are unchanged.
 The host caps the catalog at 128 actions, ids and translations at 128 bytes,
 keys at 64 bytes, checks the action and phase, rejects dead players and
 rate-limits input to 128 packets per second and repeats of the same phase
@@ -786,6 +789,18 @@ at startup when the corresponding group is mandatory.
   36–39 are armor (feet to head), and 40 is offhand. Both return None for
   empty or invalid slots, nonplayers and older hosts. Require
   `EntitiesExtension::PlayerInventory`. Each read is a snapshot of one slot.
+
+- Require `EntitiesExtension::PlayerFlight` for fall-flying state and
+  mod-controlled glide start/stop, a companion acceleration request (0 cancels,
+  1–1200 ticks), and the server's selected hotbar slot (0–8), usable with the
+  inventory ID and NBT queries above. A mod starting glide must renew it each
+  tick and stop it when eligibility ends. This extension sets the
+  `ENTITY_IN_WATER` and `ENTITY_ON_CLIMBABLE` flags from native movement contact.
+  The companion applies the requested acceleration
+  only while airborne and gliding. This extension also provides native
+  translated-box collision testing, item cooldown readiness/start,
+  held-item durability damage and attack-strength reset. Older hosts
+  safely reject these calls.
 
 `moddedmc:block_world` v1 appends `World::set_weather(mode, ticks)` and
 `World::raycast(from, to, except)` after `can_see_sky`. Weather modes are

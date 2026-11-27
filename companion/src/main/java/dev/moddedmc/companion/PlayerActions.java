@@ -43,6 +43,8 @@ public final class PlayerActions {
     private static boolean confirmedVehicle;
     private static boolean mountReplyReceived;
     private static int queryTicks;
+    private static int boostTicks;
+    private static int boostGrace;
     private static final Properties saved = new Properties();
     private static final java.nio.file.Path SAVE = FabricLoader.getInstance().getConfigDir()
             .resolve("moddedmc-player-actions.properties");
@@ -58,16 +60,28 @@ public final class PlayerActions {
         ClientPlayConnectionEvents.JOIN.register((listener, sender, client) -> {
             active.clear();
             resetMounted();
+            boostTicks = 0;
             if (enabled) listener.send(new ServerboundCustomPayloadPacket(new Packet(new byte[] {VERSION, 0})));
         });
         ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> {
             persist();
             active.clear();
             resetMounted();
+            boostTicks = 0;
             enabled = false;
         });
         ClientPlayNetworking.registerGlobalReceiver(Packet.TYPE, (packet, context) -> {
             byte[] bytes = packet.bytes();
+            if (bytes.length == 6 && bytes[0] == VERSION && bytes[1] == 5) {
+                int ticks = ByteBuffer.wrap(bytes, 2, 4).getInt();
+                context.client().execute(() -> {
+                    if (enabled && ticks >= 0 && ticks <= 1200) {
+                        boostTicks = ticks;
+                        boostGrace = 5;
+                    }
+                });
+                return;
+            }
             if (bytes.length == 7 && bytes[0] == VERSION && bytes[1] == 4) {
                 int id = ByteBuffer.wrap(bytes, 2, 4).getInt();
                 boolean allowed = bytes[6] == 1;
@@ -235,6 +249,23 @@ public final class PlayerActions {
 
     private static void tick(Minecraft client) {
         if (!enabled || client.getConnection() == null || client.player == null) return;
+        if (boostTicks > 0 && !client.isPaused()) {
+            var player = client.player;
+            if (!player.isAlive() || player.isSpectator() || player.isPassenger()
+                    || player.onGround() || player.getAbilities().flying
+                    || player.isInWater() || player.onClimbable()) {
+                boostTicks = 0;
+            } else if (player.isFallFlying()) {
+                var look = player.getLookAngle().normalize();
+                var motion = player.getDeltaMovement();
+                player.setDeltaMovement(motion.scale(0.5).add(look.scale(0.85)));
+                player.resetFallDistance();
+                boostTicks--;
+                boostGrace = 0;
+            } else if (boostGrace-- <= 0) {
+                boostTicks = 0;
+            }
+        }
         for (var binding : active.values()) {
             boolean clicked = binding.mapping.consumeClick();
             while (binding.mapping.consumeClick()) {}
