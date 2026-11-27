@@ -19,6 +19,7 @@ mod combat_raevyx;
 mod combat_atroxiia;
 mod combat_ignivorus;
 mod combat_volitans;
+mod combat_stegonaut;
 mod consumables;
 mod crucible;
 mod discs;
