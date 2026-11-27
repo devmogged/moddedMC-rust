@@ -167,12 +167,15 @@ bot input sneak
 wait 0.25
 bot place 2124 100 2114 up
 wait 0.25
+cmd execute if block 2124 101 2114 create:brass_funnel
+await 5 Test passed
 bot input none
 cmd item replace entity tester hotbar.0 with minecraft:iron_ingot
 wait 0.5
+bot expect slot 36 minecraft:iron_ingot 1
+await 5 \[bot\] expect inventory ok slot 36
 bot use 2124 101 2114 north main 0.5 0.125 0
-wait 0.5
-expect Filter: minecraft:iron_ingot
+await 5 Filter: minecraft:iron_ingot
 cmd item replace entity tester hotbar.0 with minecraft:gold_ingot 4
 wait 0.5
 bot use 2124 101 2114 up
