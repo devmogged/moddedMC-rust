@@ -451,28 +451,39 @@ impl ItemBehaviour for ItemUse {
         BlockActionResult::Pass
     }
 
-    fn modify_melee_damage(&self, item: &Item, target: &dyn EntityBase, damage: f32) -> f32 {
-        let Some(callback) = crate::content::melee_damage_callback(item.id) else {
-            return damage;
-        };
-        let kind = crate::mobs::registered_kind(target).unwrap_or("");
-        // SAFETY: both IDs are borrowed for this synchronous call.
-        let adjusted = unsafe {
-            callback(
-                Str::new(item.registry_key.as_bytes()),
-                Str::new(kind.as_bytes()),
-                damage,
-            )
-        };
-        if adjusted.is_finite() && adjusted >= 0.0 {
-            adjusted
-        } else {
-            damage
-        }
+    fn modify_melee_damage(
+        &self,
+        item: &Item,
+        attacker: &Player,
+        target: &dyn EntityBase,
+        damage: f32,
+    ) -> f32 {
+        let damage = content_melee_damage(item, target, damage);
+        crate::equipment::weapon_hit(item.registry_key, attacker, target, damage)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+fn content_melee_damage(item: &Item, target: &dyn EntityBase, damage: f32) -> f32 {
+    let Some(callback) = crate::content::melee_damage_callback(item.id) else {
+        return damage;
+    };
+    let kind = crate::mobs::registered_kind(target).unwrap_or("");
+    // SAFETY: both IDs are borrowed for this synchronous call.
+    let adjusted = unsafe {
+        callback(
+            Str::new(item.registry_key.as_bytes()),
+            Str::new(kind.as_bytes()),
+            damage,
+        )
+    };
+    if adjusted.is_finite() && adjusted >= 0.0 {
+        adjusted
+    } else {
+        damage
     }
 }
 

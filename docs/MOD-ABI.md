@@ -368,6 +368,26 @@ The item id and target reference live for the call. The SDK requires
 for its bound arrows. The projectile saves its ammunition stack and pickup
 rules with the chunk.
 
+## Worn and held equipment (`moddedmc:equipment` v1)
+
+Both calls stage a hook for an item this mod registered. Each item takes at
+most one hook of each kind. The SDK passes one handler per mod for each kind,
+and the handler receives the item id. Require the table with
+`equipment::require()` in `Mod::start`.
+
+- `on_worn_hurt(reg, item, callback)`: before a player wearing `item` in a head,
+  chest, legs or feet slot takes damage. The callback borrows the world and
+  player, the four armor item ids in head, chest, legs, feet order
+  (`minecraft:air` when a slot is empty), the damage type id, the amount and the
+  player's fall distance. It returns the damage to take. A negative value
+  cancels the hit. A player wearing several hooked items gets each distinct
+  item's hook in that slot order, each with the amount the last one returned.
+- `on_weapon_hit(reg, item, callback)`: during a direct melee hit by a player
+  holding `item` in the main hand, after the `moddedmc:interaction` melee
+  modifier and before the target's defenses. The callback borrows the world,
+  attacker and target, the damage type id and the amount, and returns the
+  damage to deal. A negative or non-finite result keeps the original amount.
+
 ## Fish buckets (`moddedmc:fish_buckets` v1)
 
 `bind(reg, item, mob)` associates an item carried by `minecraft:cod_bucket` with a custom mob carried by cod, salmon, tropical fish, or pufferfish. Both definitions must already be staged by the same mod. Each item and mob can participate in one binding. Pumpkin handles water-bucket pickup, release, and the carrier's bucket data, including health, name and persistent flags. The item and released fish keep their registered mod identities.

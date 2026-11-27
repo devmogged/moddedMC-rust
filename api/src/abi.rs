@@ -2353,3 +2353,52 @@ mod services_layout {
         assert_eq!(size_of::<ServicesV1>(), 16);
     }
 }
+
+/// Hooks for items a player wears or holds.
+pub const EQUIPMENT: &str = "moddedmc:equipment";
+
+/// A player wearing `item` in a head, chest, legs or feet slot is about to take damage.
+/// `armor` holds the item ids in those four slots, in that order (`minecraft:air` when empty).
+/// Returns the damage to take; a negative value cancels the hit.
+pub type WornHurtFn = unsafe extern "C" fn(
+    world: WorldRef,
+    item: Str,
+    wearer: EntityRef,
+    armor: *const [Str; 4],
+    damage_type: Str,
+    amount: f32,
+    fall_distance: f32,
+) -> f32;
+
+/// A player holding `item` in the main hand is about to deal direct melee damage to `target`,
+/// before the target's defenses. Returns the damage to deal.
+pub type WeaponHitFn = unsafe extern "C" fn(
+    world: WorldRef,
+    item: Str,
+    attacker: EntityRef,
+    target: EntityRef,
+    damage_type: Str,
+    amount: f32,
+) -> f32;
+
+#[repr(C)]
+pub struct EquipmentV1 {
+    pub size: usize,
+    /// Call `callback` when a player wearing this mod's `item` is hurt.
+    pub on_worn_hurt: unsafe extern "C" fn(reg: Reg, item: Str, callback: WornHurtFn) -> i32,
+    /// Call `callback` when a player holding this mod's `item` hits an entity.
+    pub on_weapon_hit: unsafe extern "C" fn(reg: Reg, item: Str, callback: WeaponHitFn) -> i32,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod equipment_layout {
+    use super::*;
+    use std::mem::offset_of;
+
+    #[test]
+    fn equipment_v1() {
+        assert_eq!(offset_of!(EquipmentV1, on_worn_hurt), 8);
+        assert_eq!(offset_of!(EquipmentV1, on_weapon_hit), 16);
+        assert_eq!(size_of::<EquipmentV1>(), 24);
+    }
+}

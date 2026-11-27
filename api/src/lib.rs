@@ -31,6 +31,7 @@ pub mod content;
 pub mod crafting;
 pub mod effects;
 pub mod entities;
+pub mod equipment;
 pub mod fluid_world;
 pub mod interaction;
 pub mod inventory_menu;

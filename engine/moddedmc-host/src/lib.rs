@@ -20,6 +20,7 @@ mod content_walls;
 mod crafting;
 mod effects;
 mod entities;
+mod equipment;
 mod fluid_world;
 mod interaction;
 mod interfaces;
@@ -147,6 +148,7 @@ pub struct Staging<'a> {
     inventory_menu: inventory_menu::Registration,
     native_actor: Option<(u64, abi::NativeEntityCallback)>,
     services: Vec<services::Registration>,
+    equipment: Vec<(String, equipment::Hook)>,
 }
 
 /// Loaded custom blocks of one world.
@@ -225,6 +227,11 @@ pub fn attach(server: &Arc<Server>) {
     pm.register::<DialogClickActionEvent, _>(Arc::new(MenuHandler), EventPriority::Normal, true);
     pm.register::<EntityDamageEvent, _>(Arc::new(mob_ai::HurtHandler), EventPriority::Normal, true);
     pm.register::<EntityDeathEvent, _>(Arc::new(mob_ai::DeathHandler), EventPriority::Normal, true);
+    pm.register::<EntityDamageEvent, _>(
+        Arc::new(equipment::WornHurtHandler),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<PlayerInteractEntityEvent, _>(
         Arc::new(actor_visual::UseVisual),
         EventPriority::Normal,
@@ -431,6 +438,7 @@ fn register_legacy_mods(server: &Server) {
     install_commands(server);
 }
 
+#[allow(clippy::too_many_lines)]
 fn register_mod(mod_idx: usize, module: Native) -> bool {
     let (
         result,
@@ -449,6 +457,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         inventory_menu_kind,
         native_actor_kind,
         services,
+        equipment_hooks,
     ) = {
         let registry = read(&HOST.registry);
         let mut staging = Staging {
@@ -469,6 +478,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             inventory_menu: inventory_menu::Registration::default(),
             native_actor: None,
             services: Vec::new(),
+            equipment: Vec::new(),
         };
         let result = module.register(&mut staging);
         (
@@ -488,6 +498,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.inventory_menu,
             staging.native_actor,
             staging.services,
+            staging.equipment,
         )
     };
     let result = match result {
@@ -526,6 +537,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     inventory_menu::register(module.id, inventory_menu_kind);
     native_entity::register(module.id, native_actor_kind);
     services::commit(services);
+    equipment::register(equipment_hooks);
     lock(&HOST.commands).push(PendingCommands {
         module,
         legacy: commands,

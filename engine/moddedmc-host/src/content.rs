@@ -220,7 +220,7 @@ pub struct Registration {
 }
 
 pub struct ItemRegistration {
-    id: String,
+    pub(crate) id: String,
     name: String,
     carrier: &'static Item,
     model: String,
