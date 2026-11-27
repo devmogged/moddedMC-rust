@@ -3,6 +3,7 @@
 pub mod biome_search;
 pub mod biome_spiral;
 mod config;
+pub mod global_catalog;
 pub mod group_search;
 mod state;
 pub mod structure_search;
