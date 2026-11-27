@@ -201,12 +201,7 @@ fn build_pack(
     let mut carrier_variants = CarrierVariants::new();
     let mut display_models = HashMap::new();
     pack.namespace_assets(blocks, items)?;
-    for namespace in crate::player_actions::namespaces() {
-        let path = format!("assets/{namespace}/lang/en_us.json");
-        if let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file)) {
-            pack.files.insert(path, bytes);
-        }
-    }
+    pack.action_translations();
     pack.standalone_items(items)?;
     for block in blocks {
         let Some(registered) = Block::from_name(&block.id) else {
@@ -594,6 +589,15 @@ impl Pack {
         self.files
             .insert(path.to_owned(), serde_json::to_vec(value)?);
         Ok(())
+    }
+
+    fn action_translations(&mut self) {
+        for namespace in crate::player_actions::namespaces() {
+            let path = format!("assets/{namespace}/lang/en_us.json");
+            if let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file)) {
+                self.files.insert(path, bytes);
+            }
+        }
     }
 
     fn namespace_assets(&mut self, blocks: &[BlockAssets], items: &[ItemAssets]) -> io::Result<()> {

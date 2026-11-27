@@ -197,6 +197,7 @@ mod registration_tests {
             inventory_menu: Registration::default(),
             native_actor: None,
             services: Vec::new(),
+            player_actions: Vec::new(),
             equipment: Vec::new(),
         };
         let reg = (&raw mut staging).cast();
