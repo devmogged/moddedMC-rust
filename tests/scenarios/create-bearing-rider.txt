@@ -21,8 +21,7 @@ cmd tick rate 1
 wait 1.2
 cmd kinetics 2470 99 2470 15
 cmd tick sprint 20t
-wait 1.2
-expect \[bot\].*commands.tick.sprint.report
+await 5 \[bot\].*commands.tick.sprint.report
 cmd kinetics 2470 99 2470 0
 wait 1.2
 cmd tick rate 20

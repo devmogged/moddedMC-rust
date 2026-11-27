@@ -9,6 +9,7 @@
 #   wait <seconds>
 #   expect <regex>           fail unless a log line since the previous expect/start matches
 #   expect-all <regex> && <regex>  require each pattern in the same log window, in any order
+#   await <seconds> <regex>  wait up to the given time for a match in the same log window
 #   reject <regex>           fail if any log line since the previous expect/start matches
 #   stop                     send stop and wait for exit
 #   botstart <name>          join with moddedmc-bot (its output goes into the log)
@@ -145,9 +146,19 @@ foreach ($raw in Get-Content $Scenario) {
             Write-Host "  $line"
         }
         'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000)) }
-        { $_ -in 'expect', 'expect-all' } {
+        { $_ -in 'expect', 'expect-all', 'await' } {
+            if ($_ -eq 'await') {
+                $seconds, $arg = $arg -split '\s+', 2
+                $deadline = [Diagnostics.Stopwatch]::StartNew()
+                do {
+                    $new = @(Get-NewLines)
+                    if ($new -match $arg) { break }
+                    Start-Sleep -Milliseconds 25
+                } while ($deadline.Elapsed.TotalSeconds -lt [double]$seconds)
+            } else {
+                $new = @(Get-NewLines)
+            }
             $patterns = if ($_ -eq 'expect-all') { $arg -split ' && ' } else { $arg }
-            $new = @(Get-NewLines)
             $consumed = 0
             foreach ($pattern in $patterns) {
                 $i = 0

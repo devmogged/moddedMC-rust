@@ -11,6 +11,8 @@ cmd tp tester 2455.5 102 2438.5 90 35
 wait 6
 cmd fill 2432 100 2434 2472 108 2466 minecraft:air
 cmd fill 2432 99 2434 2472 99 2466 minecraft:stone
+cmd execute if block 2444 99 2440 minecraft:stone if block 2460 99 2440 minecraft:stone
+await 10 Test passed
 cmd item replace entity tester weapon.mainhand with create:track 64
 cmd tp tester 2444.5 101 2438.5 90 35
 wait 0.75
@@ -20,6 +22,9 @@ cmd tp tester 2460.5 101 2438.5 90 35
 wait 0.75
 bot use 2460 99 2440
 wait 0.5
+cmd execute if block 2444 100 2440 create:track if block 2460 100 2440 create:track
+wait 0.5
+expect Test passed
 cmd tp tester 2436.5 101 2446.5 0 35
 wait 0.75
 bot use 2436 99 2448
