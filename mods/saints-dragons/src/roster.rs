@@ -179,12 +179,13 @@ const SPECIES: [Species; 13] = [
 
 pub const SWARM_EGG: &str = "draconian_swarm";
 
-/// The current carrier melee bases (ravager 12, spider 2), except Ignivorus,
-/// whose release growth profile already sets 50 for adults and 0 for babies.
+/// The current carrier melee bases (ravager 12, spider 2), with released
+/// attributes for Varasuchus and Ignivorus's age-dependent growth profile.
 pub fn melee_base(name: &str, juvenile: bool) -> Option<f64> {
     match name {
         "ignivorus" => Some(if juvenile { 0.0 } else { 50.0 }),
-        "raevyx" | "stegonaut" | "varasuchus" | "volitans" | "atroxiia" => Some(12.0),
+        "varasuchus" => Some(10.0),
+        "raevyx" | "stegonaut" | "volitans" | "atroxiia" => Some(12.0),
         "nulljaw" => Some(2.0),
         _ => None,
     }
@@ -265,7 +266,6 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         }
         if species.name == "varasuchus" {
             attributes.extend([
-                ("minecraft:attack_damage", 10.0),
                 ("minecraft:armor", 8.0),
                 ("minecraft:follow_range", 32.0),
                 ("minecraft:knockback_resistance", 1.0),
@@ -884,6 +884,8 @@ mod tests {
     #[test]
     fn melee_bases_preserve_carriers_and_ignivorus_growth() {
         assert_eq!(melee_base("raevyx", false), Some(12.0));
+        assert_eq!(melee_base("varasuchus", false), Some(10.0));
+        assert_eq!(melee_base("varasuchus", true), Some(10.0));
         assert_eq!(melee_base("nulljaw", false), Some(2.0));
         assert_eq!(melee_base("ignivorus", false), Some(50.0));
         assert_eq!(melee_base("ignivorus", true), Some(0.0));
