@@ -34,6 +34,7 @@ mod ivy;
 mod ivy_trades;
 mod mossback;
 mod nucleus;
+mod particles;
 mod roost;
 mod roster;
 mod spawners;

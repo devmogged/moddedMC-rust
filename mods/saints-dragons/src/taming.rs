@@ -812,17 +812,7 @@ pub fn tame(world: World<'_>, mob: Entity<'_>, owner: [u8; 16]) -> bool {
 }
 
 pub fn feed_particles(world: World<'_>, mob: Entity<'_>, happy: bool) {
-    let (Some(effects), Some(view)) = (EFFECTS.get(), mob.view()) else {
-        return;
-    };
-    // The carrier may not react to the taming status packet.
-    let [x, y, z] = view.position;
-    let particle = if happy {
-        "minecraft:heart"
-    } else {
-        "minecraft:smoke"
-    };
-    effects.particles(world, particle, [x, y + 1.5, z], [0.6, 0.5, 0.6], 0.0, 7);
+    crate::particles::tame(world, mob, happy);
 }
 
 pub fn death(world: World<'_>, mob: Entity<'_>) {

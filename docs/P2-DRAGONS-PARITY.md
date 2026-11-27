@@ -645,3 +645,5 @@ Checked entries have an item registration in P2. Each still needs its original b
 | `textures` | 1046 |
 
 Bound Stegonaut binders refresh portable Resistance I and Absorption I every 20 ticks with cleanup when removed. [Portable aura scenario](../tests/scenarios/p2-stegonaut-portable-aura.txt).
+
+Dragon taming, hurt and combat particles, near-ground flight dust, Raevyx rend/dive dust and Atroxiia quake bursts are ported. [Particle scenario](../tests/scenarios/p2-particles.txt). Custom particle textures remain pending.
