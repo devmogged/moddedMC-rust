@@ -81,6 +81,9 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
     if !immune && amount > 0.0 {
         crate::audio::hurt(world, mob, kind);
     }
+    if !immune {
+        crate::hunger::hit(world, mob);
+    }
     !immune
 }
 

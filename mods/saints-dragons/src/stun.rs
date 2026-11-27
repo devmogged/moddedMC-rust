@@ -319,6 +319,11 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     }
 }
 
+/// A species' taming chance in percent for `item` and its untamed feeding cooldown.
+pub fn taming_chance(kind: &str, item: &str) -> Option<(f64, u64)> {
+    profile(kind).map(|profile| (chance(profile, item), profile.cooldowns.0))
+}
+
 fn chance(profile: &Profile, item: &str) -> f64 {
     if item == taming::HEARTY_MEAL {
         return profile.hearty;
@@ -379,6 +384,7 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     }
     crate::audio::eat(click.world, mob);
     let hearty = item == taming::HEARTY_MEAL;
+    let hungry = crate::hunger::feed(mob, hearty);
     if tamed {
         if hearty {
             mob.add_effect("minecraft:regeneration", 200, 1, false, true);
@@ -392,7 +398,11 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         mobs.heal(mob, heal);
         taming::feed_particles(click.world, mob, true);
         let message = if health + heal >= max {
-            "%s is fully healed!"
+            if hungry {
+                "Feeding %s..."
+            } else {
+                "%s is fully healed!"
+            }
         } else {
             "%s is being healed..."
         };

@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use fastnbt::Value;
 use moddedmc_api::{
     RegistrationError, Registry,
+    content::World,
+    entities::Entity,
     items::{Item, ItemDefaults},
 };
 
@@ -193,4 +195,60 @@ pub fn register(
         }
     }
     Ok(())
+}
+
+/// The full Dragonlord set, head to feet.
+pub const DRAGONLORD: [&str; 4] = [
+    "saintsdragons:dragonlord_helmet",
+    "saintsdragons:dragonlord_chestplate",
+    "saintsdragons:dragonlord_leggings",
+    "saintsdragons:dragonlord_boots",
+];
+/// `DragonlordArmorSetBonus.FALL_DAMAGE_BLOCK_THRESHOLD`.
+const FALL_BLOCK_DISTANCE: f32 = 16.0;
+/// Release 1.20.1 `#is_fire` and `#is_explosion`. Four pieces of 25 fire and blast resistance
+/// reach the 100 that makes the set immune.
+const FIRE: [&str; 7] = [
+    "minecraft:in_fire",
+    "minecraft:campfire",
+    "minecraft:on_fire",
+    "minecraft:lava",
+    "minecraft:hot_floor",
+    "minecraft:unattributed_fireball",
+    "minecraft:fireball",
+];
+const EXPLOSION: [&str; 4] = [
+    "minecraft:fireworks",
+    "minecraft:explosion",
+    "minecraft:player_explosion",
+    "minecraft:bad_respawn_point",
+];
+
+/// `DragonlordArmorSetBonus.blocksDamage`: the full set ignores short falls, fire and blasts.
+pub fn worn_hurt(
+    _world: World<'_>,
+    _item: &str,
+    wearer: Entity<'_>,
+    armor: [&str; 4],
+    damage_type: &str,
+    amount: f32,
+    fall_distance: f32,
+) -> f32 {
+    if armor != DRAGONLORD {
+        return amount;
+    }
+    let fall = matches!(damage_type, "minecraft:fall" | "minecraft:stalagmite");
+    if fall && fall_distance <= FALL_BLOCK_DISTANCE {
+        return -1.0;
+    }
+    if FIRE.contains(&damage_type) {
+        if let Some(mobs) = crate::MOBS.get() {
+            mobs.set_on_fire(wearer, 0);
+        }
+        return -1.0;
+    }
+    if EXPLOSION.contains(&damage_type) {
+        return -1.0;
+    }
+    amount
 }

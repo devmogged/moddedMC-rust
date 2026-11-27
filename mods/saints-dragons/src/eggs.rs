@@ -159,6 +159,9 @@ struct Growth {
     piebald_on_maturity: bool,
     #[serde(default)]
     void_kissed_on_maturity: bool,
+    /// `GrowthStunted`: raw moop keeps a tamed juvenile small for good.
+    #[serde(default)]
+    stunted: bool,
 }
 
 fn properties(species: &Species) -> Vec<String> {
@@ -433,6 +436,7 @@ fn init_hatchling(world: World<'_>, mob: Entity<'_>, species: &Species, egg: &Eg
         piebald_on_maturity,
         void_kissed_on_maturity: species.name == "varasuchus"
             && world.dimension_id() == Some("minecraft:the_end"),
+        stunted: false,
     }) else {
         return false;
     };
@@ -593,16 +597,48 @@ pub fn is_juvenile(mob: Entity<'_>) -> bool {
     mob.data(AGE).is_some()
 }
 
+fn growth(mob: Entity<'_>) -> Option<Growth> {
+    mob.data(AGE)
+        .and_then(|data| fastnbt::from_bytes::<Growth>(&data).ok())
+}
+
+fn save_growth(mob: Entity<'_>, growth: &Growth) -> bool {
+    fastnbt::to_bytes(growth).is_ok_and(|bytes| mob.set_data(AGE, &bytes))
+}
+
+pub fn is_stunted(mob: Entity<'_>) -> bool {
+    growth(mob).is_some_and(|growth| growth.stunted)
+}
+
+pub fn stunt(mob: Entity<'_>) -> bool {
+    growth(mob).is_some_and(|mut growth| {
+        growth.stunted = true;
+        save_growth(mob, &growth)
+    })
+}
+
+/// `applyBabyGrowth`: brings a juvenile `ticks` closer to adulthood. `Some(true)` when that
+/// finishes its growth (it matures on its next tick), `None` when it is stunted.
+pub fn feed_growth(mob: Entity<'_>, ticks: i32) -> Option<bool> {
+    let mut growth = growth(mob)?;
+    if growth.stunted {
+        return None;
+    }
+    growth.remaining = (growth.remaining - ticks).max(1);
+    save_growth(mob, &growth);
+    Some(growth.remaining == 1)
+}
+
 pub fn grow(mob: Entity<'_>, name: &str) -> bool {
     let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
         return false;
     };
-    let Some(mut growth) = mob
-        .data(AGE)
-        .and_then(|data| fastnbt::from_bytes::<Growth>(&data).ok())
-    else {
+    let Some(mut growth) = growth(mob) else {
         return false;
     };
+    if growth.stunted {
+        return true;
+    }
     if growth.remaining <= 0 {
         return false;
     }
@@ -616,8 +652,8 @@ pub fn grow(mob: Entity<'_>, name: &str) -> bool {
     }
     if growth.remaining == 0 {
         mob.set_data(AGE, &[]);
-    } else if let Ok(bytes) = fastnbt::to_bytes(&growth) {
-        mob.set_data(AGE, &bytes);
+    } else {
+        save_growth(mob, &growth);
     }
     growth.remaining > 0
 }

@@ -1,0 +1,56 @@
+# Saint's Dragons 0.9.88 Dragonlord gear through moddedmc:equipment. The full armor set ignores
+# fire and explosions but not other damage, and only while all four pieces are worn. The set's
+# health bonuses raise a player's base health by half, to 30. The Dragonlord sword sets what it hits on fire.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1024 104 1024 1030 104 1030 minecraft:stone
+cmd fill 1024 105 1024 1030 108 1030 minecraft:air
+cmd item replace entity tester armor.head with saintsdragons:dragonlord_helmet
+cmd item replace entity tester armor.chest with saintsdragons:dragonlord_chestplate
+cmd item replace entity tester armor.legs with saintsdragons:dragonlord_leggings
+cmd item replace entity tester armor.feet with saintsdragons:dragonlord_boots
+cmd gamemode survival tester
+wait 1
+cmd effect give tester minecraft:instant_health 1 10
+wait 1
+cmd data get entity tester Health
+wait 0.5
+expect has the following entity data: 30(\.0)?f
+cmd damage tester 6 minecraft:in_fire
+wait 0.6
+cmd damage tester 6 minecraft:explosion
+wait 0.6
+cmd data get entity tester Health
+wait 0.5
+expect has the following entity data: 30(\.0)?f
+cmd damage tester 6 minecraft:generic
+wait 0.5
+cmd data get entity tester Health
+wait 0.5
+expect has the following entity data: 2\d(\.\d+)?f
+cmd item replace entity tester armor.feet with minecraft:air
+wait 1
+cmd damage tester 6 minecraft:in_fire
+wait 0.5
+cmd data get entity tester Health
+wait 0.5
+expect has the following entity data: (1\d|2[0-3])(\.\d+)?f
+cmd summon minecraft:cow 1025.5 105 1027.5 {NoAI:1b}
+cmd item replace entity tester hotbar.0 with saintsdragons:dragonlord_sword
+wait 1
+bot look 0 0
+bot attack cow 1025.5 105 1027.5
+wait 0.5
+cmd data get entity @e[type=minecraft:cow,x=1025.5,y=105,z=1027.5,distance=..5,limit=1] Fire
+wait 0.5
+expect has the following entity data: [1-9]\d*s
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

@@ -119,6 +119,22 @@ pub fn codex_stats(mob: Entity<'_>) -> Option<([u8; 16], u8)> {
     tamed(mob).map(|state| (state.owner, state.happiness))
 }
 
+pub fn happiness(mob: Entity<'_>) -> Option<u8> {
+    tamed(mob).map(|state| state.happiness)
+}
+
+/// Change a tamed dragon's happiness within 0..=100 and return the new value.
+pub fn add_happiness(mob: Entity<'_>, delta: i32) -> Option<u8> {
+    let _guard = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut state = tamed(mob)?;
+    let next = (i32::from(state.happiness) + delta).clamp(0, 100) as u8;
+    if next != state.happiness {
+        state.happiness = next;
+        MOBS.get()?.set_state(mob, &state.encode());
+    }
+    Some(next)
+}
+
 pub fn order_name(mob: Entity<'_>) -> &'static str {
     match tamed(mob).map(|state| state.order) {
         Some(Order::Follow) => "follow",
@@ -523,6 +539,9 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
     if matches!(item, BRUSH | GOLDEN_BRUSH) {
         return brush(click, item == GOLDEN_BRUSH);
     }
+    if let Some(result) = crate::baby::interact(click, item) {
+        return result;
+    }
     if let Some(result) = crate::breed::feed(click, item) {
         return result;
     }
@@ -547,6 +566,8 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
             return UseResult::Consume;
         }
         fed.insert(mob.id(), now + FEED_COOLDOWN);
+        // `add_happiness` takes the timer lock.
+        drop(lock);
         if !click.creative {
             click.stack.shrink(1);
         }
@@ -555,9 +576,20 @@ pub fn interact(click: &mut UseMob<'_>) -> UseResult {
         if hearty {
             mob.add_effect("minecraft:regeneration", 200, 1, false, true);
         }
+        let hungry = crate::hunger::feed(mob, hearty);
         if state.is_some() {
-            mobs.heal(mob, if hearty { 15.0 } else { 5.0 });
+            let heal = if hearty { 15.0 } else { 5.0 };
+            let full = mobs
+                .health(mob)
+                .is_some_and(|(health, max)| health + heal >= max);
+            mobs.heal(mob, heal);
             feed_particles(click.world, mob, true);
+            let message = match (full, hungry) {
+                (true, true) => "Feeding Cindervane...",
+                (true, false) => "Cindervane is fully healed!",
+                _ => "Cindervane is being healed...",
+            };
+            mobs.message(player, message, true);
         } else {
             let chance = match item {
                 HEARTY_MEAL => 500_000,
@@ -693,6 +725,8 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::stun::forget(mob.id());
     crate::breed::forget(mob.id());
     crate::wild::forget(mob.id());
+    crate::hunger::forget(mob.id());
+    crate::baby::forget(mob.id());
     crate::visuals::death(world, mob);
     {
         let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);

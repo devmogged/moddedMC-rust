@@ -590,6 +590,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let Some(species) = SPECIES.iter().find(|species| species.name == name) else {
         return false;
     };
+    if crate::hunger::DRAGONS.contains(&name) {
+        crate::hunger::tick(world, mob, species.speed, None);
+    }
     if crate::eggs::grow(mob, name) {
         let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
         visuals::tick_species(

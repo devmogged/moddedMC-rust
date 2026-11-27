@@ -217,7 +217,12 @@ fn melee(world: World<'_>, mob: Entity<'_>, id: i32, damage: f32, reach: f64, re
         if repeat {
             mobs.reset_hurt_cooldown(target);
         }
-        if ai.attack(world, mob, id, damage) {
+        if ai.attack(
+            world,
+            mob,
+            id,
+            damage * crate::hunger::melee_multiplier(mob),
+        ) {
             let angle = f64::from(view.yaw).to_radians();
             target.change(&EntityChange {
                 mask: SET_MOTION,
@@ -256,7 +261,12 @@ fn slash(world: World<'_>, mob: Entity<'_>, primary: i32, damage: f32, grab: boo
             if !grab {
                 mobs.reset_hurt_cooldown(target);
             }
-            let hit = ai.attack(world, mob, id, damage);
+            let hit = ai.attack(
+                world,
+                mob,
+                id,
+                damage * crate::hunger::melee_multiplier(mob),
+            );
             if grab
                 && id == primary
                 && hit
@@ -345,7 +355,12 @@ fn area(
                     x.hypot(z) <= radius && y.abs() <= vertical
                 })
             {
-                ai.attack(world, mob, id, damage);
+                ai.attack(
+                    world,
+                    mob,
+                    id,
+                    damage * crate::hunger::melee_multiplier(mob),
+                );
                 if fire > 0 {
                     mobs.set_on_fire(entity, fire);
                 }

@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use fastnbt::Value;
 use moddedmc_api::{
     RegistrationError, Registry,
+    content::World,
+    entities::Entity,
     items::{Item, ItemDefaults},
 };
 
@@ -260,4 +262,25 @@ pub fn register(
         )?;
     }
     Ok(())
+}
+
+pub const DRAGONLORD_SWORD: &str = "saintsdragons:dragonlord_sword";
+/// `DragonheartSwordItem.DRAGONLORD_FIRE_ASPECT_SECONDS`.
+const FIRE_TICKS: u32 = 8 * 20;
+
+/// `DragonheartSwordItem.hurtEnemy`: the Dragonlord sword sets what it hits on fire.
+pub fn weapon_hit(
+    _world: World<'_>,
+    item: &str,
+    _attacker: Entity<'_>,
+    target: Entity<'_>,
+    _damage_type: &str,
+    amount: f32,
+) -> f32 {
+    if item == DRAGONLORD_SWORD
+        && let Some(mobs) = crate::MOBS.get()
+    {
+        mobs.set_on_fire(target, FIRE_TICKS);
+    }
+    amount
 }

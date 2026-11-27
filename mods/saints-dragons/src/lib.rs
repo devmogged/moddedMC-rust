@@ -8,6 +8,7 @@ mod ai;
 mod appearance;
 mod armor;
 mod audio;
+mod baby;
 mod binders;
 mod blocks;
 mod breed;
@@ -19,6 +20,7 @@ mod crucible;
 mod discs;
 mod eggs;
 mod flight;
+mod hunger;
 mod ivy;
 mod ivy_trades;
 mod nucleus;
@@ -42,6 +44,7 @@ use moddedmc_api::{
     content::{self, Content, WorldExtension},
     effects::{self, Effects},
     entities::{self, Entities, EntitiesExtension},
+    equipment::{self, Equipment},
     interaction::{self, Interaction, InteractionExtension},
     items::{self, Items},
     mob_ai::{self, Goal, MobAi, MobAiExtension, goal_control},
@@ -72,6 +75,7 @@ static CONTENT: OnceLock<Content> = OnceLock::new();
 static EFFECTS: OnceLock<Effects> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
+static EQUIPMENT: OnceLock<Equipment> = OnceLock::new();
 static FISH_BUCKETS: OnceLock<mobs::FishBuckets> = OnceLock::new();
 static MOB_HEALTH: OnceLock<mobs::MobHealth> = OnceLock::new();
 static MOBS: OnceLock<Mobs> = OnceLock::new();
@@ -108,6 +112,7 @@ impl Mod for SaintsDragons {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
         let _ = ENTITIES.set(entities);
+        let _ = EQUIPMENT.set(equipment::require()?);
         let _ = FISH_BUCKETS.set(mobs::require_fish_buckets()?);
         if cfg!(feature = "original-assets") {
             let _ = STRUCTURE_MOBS.set(mobs::require_structure_mobs()?);
@@ -175,6 +180,11 @@ impl Mod for SaintsDragons {
         worldroot::register(defaults, registry)?;
         interaction.on_melee_damage(registry, worldroot::melee_damage)?;
         armor::register(defaults, registry)?;
+        let equipment = *EQUIPMENT.get().ok_or(missing)?;
+        for piece in armor::DRAGONLORD {
+            equipment.on_worn_hurt(registry, piece, armor::worn_hurt)?;
+        }
+        equipment.on_weapon_hit(registry, worldroot::DRAGONLORD_SWORD, worldroot::weapon_hit)?;
         consumables::register(defaults, registry)?;
         discs::register(defaults, registry)?;
         let content = *CONTENT.get().ok_or(missing)?;
