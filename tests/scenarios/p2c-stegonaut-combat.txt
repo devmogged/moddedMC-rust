@@ -49,7 +49,7 @@ wait 0.5
 expect tester has the following entity data: (?=.*minecraft:resistance)(?=.*minecraft:absorption)
 cmd effect give tester minecraft:resistance 60 0 true
 cmd effect give tester minecraft:absorption 60 0 true
-cmd kill @e[type=minecraft:ravager,limit=1]
+cmd kill @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1]
 wait 0.5
 cmd data get entity tester active_effects[0].id
 wait 0.5

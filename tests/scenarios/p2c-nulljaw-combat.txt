@@ -29,12 +29,11 @@ expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
 cmd kill @e[tag=nulljaw_target]
 cmd tag @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] add cloak_probe
 cmd effect give tester minecraft:invisibility 300 0 true
-cmd data merge entity @e[tag=cloak_probe,limit=1] {data:{"saintsdragons:nulljaw_cloak":{rider:[I;0,0,0,0]}}}
-cmd data modify entity @e[tag=cloak_probe,limit=1] data."saintsdragons:nulljaw_cloak".rider set from entity tester UUID
 cmd data get entity tester active_effects
 wait 0.5
 expect tester has the following entity data: .*minecraft:invisibility
-cmd data modify entity @e[tag=cloak_probe,limit=1] data."saintsdragons:nulljaw_cloak".remaining set value 6000
+# Offline UUID for tester; Pumpkin cannot copy entity NBT with set from.
+cmd data merge entity @e[tag=cloak_probe,limit=1] {data:{"saintsdragons:nulljaw_cloak":{remaining:6000,rider:[I;-1682285485,-1605083636,-2145891436,1632881141]}}}
 wait 1
 cmd data get entity @e[tag=cloak_probe,limit=1] data."saintsdragons:nulljaw_cloak"
 wait 0.5
