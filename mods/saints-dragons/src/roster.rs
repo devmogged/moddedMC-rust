@@ -263,6 +263,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 ("minecraft:knockback_resistance", 1.0),
             ]);
         }
+        if species.name == "nulljaw" {
+            attributes.extend([("minecraft:armor", 4.0), ("minecraft:follow_range", 48.0)]);
+        }
         if let Some(damage) = swarm_damage {
             attributes.extend([
                 ("minecraft:attack_damage", damage),
@@ -454,6 +457,25 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 (crate::combat_volitans::TARGET, goal_control::TARGET),
                 (
                     crate::combat_volitans::COMBAT,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority: 1,
+                        controls,
+                    },
+                )?;
+            }
+        }
+        if species.name == "nulljaw" {
+            for (key, controls) in [
+                (crate::combat_nulljaw::TARGETING, 0),
+                (
+                    crate::combat_nulljaw::COMBAT,
                     goal_control::MOVE | goal_control::LOOK,
                 ),
             ] {
@@ -774,6 +796,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         None
     };
     let clip = clip.or_else(|| {
+        if name == "nulljaw" { return crate::combat_nulljaw::clip(mob); }
         if name == "stegonaut" {
             return crate::combat_stegonaut::clip(mob);
         }

@@ -21,6 +21,7 @@ mod combat_ignivorus;
 mod combat_volitans;
 mod combat_stegonaut;
 mod combat_varasuchus;
+mod combat_nulljaw;
 mod consumables;
 mod crucible;
 mod discs;
