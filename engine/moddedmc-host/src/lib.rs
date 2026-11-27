@@ -154,6 +154,7 @@ pub struct Staging<'a> {
     mob_ai: std::collections::BTreeMap<String, mob_ai::TypeAi>,
     saved_keys: Vec<(u64, String)>,
     player_death: Option<abi::PlayerDeathCallback>,
+    brewed_potion: Option<abi::BrewedPotionFn>,
     inventory_menu: inventory_menu::Registration,
     native_actor: Option<(u64, abi::NativeEntityCallback)>,
     services: Vec<services::Registration>,
@@ -480,6 +481,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         ai,
         saved_keys,
         player_death_callback,
+        brewed_potion_callback,
         inventory_menu_kind,
         native_actor_kind,
         services,
@@ -502,6 +504,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             mob_ai: std::collections::BTreeMap::new(),
             saved_keys: Vec::new(),
             player_death: None,
+            brewed_potion: None,
             inventory_menu: inventory_menu::Registration::default(),
             native_actor: None,
             services: Vec::new(),
@@ -523,6 +526,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.mob_ai,
             staging.saved_keys,
             staging.player_death,
+            staging.brewed_potion,
             staging.inventory_menu,
             staging.native_actor,
             staging.services,
@@ -563,6 +567,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     mob_ai::register(ai);
     saved_data::register(module.id, saved_keys);
     player_death::register(module.id, player_death_callback);
+    interaction::register_brewed_potion(brewed_potion_callback);
     inventory_menu::register(module.id, inventory_menu_kind);
     native_entity::register(module.id, native_actor_kind);
     services::commit(services);

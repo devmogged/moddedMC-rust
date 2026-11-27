@@ -161,6 +161,7 @@ pub enum InteractionExtension {
     PlayerPlaced,
     Exhaustion,
     HeldTracker,
+    BrewedPotion,
 }
 
 /// Vanilla Item.use, with the held stack and the look reported by this action.
@@ -206,6 +207,30 @@ impl UseItem<'_> {
 /// Called after a player successfully places a block owned by this mod.
 pub type PlayerPlaced = fn(World<'_>, Entity<'_>, Pos, u32);
 static PLAYER_PLACED: OnceLock<PlayerPlaced> = OnceLock::new();
+
+/// Observe a player taking a brewing stand bottle, with its item id and saved stack NBT.
+pub type BrewedPotion = fn(World<'_>, Entity<'_>, &str, &[u8]);
+static BREWED_POTION: OnceLock<BrewedPotion> = OnceLock::new();
+
+unsafe extern "C" fn brewed_potion(
+    world: abi::WorldRef,
+    player: abi::EntityRef,
+    item: abi::Str,
+    stack: abi::Str,
+) {
+    guard("brewed potion", (), || {
+        if let (Some(callback), Some(world), Some(player)) = (
+            BREWED_POTION.get(),
+            World::borrowed(world),
+            Entity::borrowed(player),
+        ) {
+            // SAFETY: both slices are borrowed from the host for this callback.
+            callback(world, player, unsafe { item.str() }, unsafe {
+                stack.bytes()
+            });
+        }
+    });
+}
 
 unsafe extern "C" fn player_placed(
     world: abi::WorldRef,
@@ -714,6 +739,10 @@ impl Interaction {
                 std::mem::offset_of!(abi::InteractionV1, stack_set_lodestone),
                 "moddedmc:interaction.stack_set_lodestone",
             ),
+            InteractionExtension::BrewedPotion => (
+                std::mem::offset_of!(abi::InteractionV1, on_brewed_potion),
+                "moddedmc:interaction.brewed_potion",
+            ),
             InteractionExtension::ImmediateItemUse => (
                 std::mem::offset_of!(abi::InteractionV1, on_use_item),
                 "moddedmc:interaction.use_item",
@@ -855,6 +884,25 @@ impl Interaction {
         // SAFETY: the table size was checked and the trampoline is static.
         RegistrationError::from_code(unsafe {
             ((&raw const (*self.0.ptr).on_player_placed).read())(reg.reg, player_placed)
+        })
+    }
+
+    /// Register one observer for player takes from brewing stand bottle slots.
+    pub fn on_brewed_potion(
+        self,
+        reg: &mut Registry<'_>,
+        callback: BrewedPotion,
+    ) -> Result<(), RegistrationError> {
+        let table = self
+            .0
+            .upto(std::mem::offset_of!(abi::InteractionV1, on_brewed_potion))
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        BREWED_POTION
+            .set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        // SAFETY: the table size was checked and the registration and trampoline are live.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*table).on_brewed_potion).read())(reg.reg, brewed_potion)
         })
     }
 

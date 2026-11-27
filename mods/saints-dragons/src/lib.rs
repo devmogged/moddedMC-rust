@@ -168,6 +168,7 @@ impl Mod for SaintsDragons {
         interaction.require_extension(InteractionExtension::BlockUse)?;
         interaction.require_extension(InteractionExtension::ImmediateItemUse)?;
         interaction.require_extension(InteractionExtension::PlayerPlaced)?;
+        interaction.require_extension(InteractionExtension::BrewedPotion)?;
         codex::require()?;
         allies::require()?;
         crucible::require()?;
@@ -219,6 +220,7 @@ impl Mod for SaintsDragons {
         allies::register(registry)?;
         ivy::register(defaults, registry)?;
         interaction.on_player_placed(registry, nucleus::placed)?;
+        interaction.on_brewed_potion(registry, advancements::brewed_potion)?;
         worldroot::register(defaults, registry)?;
         interaction.on_melee_damage(registry, worldroot::melee_damage)?;
         armor::register(defaults, registry)?;

@@ -1,0 +1,77 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# The brewing take hook must match the taken potion identity.
+# A vanilla potion must grant neither mod advancement; brewing itself grants
+# neither; taking each custom bottle grants only its corresponding criterion.
+start
+expect Added \d+ datapack advancements to the advancement tree
+botstart tester
+wait 3
+cmd op tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1023 104 1028 104 1028 minecraft:stone
+cmd fill 1023 105 1023 1028 108 1028 minecraft:air
+cmd gamemode survival tester
+cmd clear tester
+cmd setblock 1025 105 1027 minecraft:brewing_stand
+cmd setblock 1026 105 1027 minecraft:brewing_stand
+cmd setblock 1024 105 1027 minecraft:brewing_stand
+cmd item replace block 1025 105 1027 container.0 with minecraft:potion[minecraft:potion_contents={potion:"minecraft:awkward"}]
+cmd item replace block 1026 105 1027 container.0 with minecraft:potion[minecraft:potion_contents={potion:"minecraft:awkward"}]
+cmd item replace block 1024 105 1027 container.0 with minecraft:potion[minecraft:potion_contents={potion:"minecraft:awkward"}]
+cmd item replace block 1026 105 1027 container.3 with saintsdragons:varasuchus_scale
+cmd item replace block 1024 105 1027 container.3 with saintsdragons:ignivorus_tooth
+cmd item replace block 1026 105 1027 container.4 with minecraft:blaze_powder
+cmd item replace block 1024 105 1027 container.4 with minecraft:blaze_powder
+cmd tick sprint 700t
+wait 10
+cmd data get block 1026 105 1027 Items[{Slot:0b}].id
+wait 0.5
+expect has the following block data: "saintsdragons:potion_of_tideguard"
+cmd data get block 1024 105 1027 Items[{Slot:0b}].id
+wait 0.5
+expect has the following block data: "saintsdragons:potion_of_searing"
+cmd execute if entity @a[name=tester,advancements={saintsdragons:brew_tideguard=false,saintsdragons:brew_searing=false}]
+wait 0.5
+expect Test passed
+bot use 1025 105 1027 up
+wait 1
+bot inventory-click 0 left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd execute unless data block 1025 105 1027 Items[{Slot:0b}]
+wait 0.5
+expect Test passed
+cmd execute if entity @a[name=tester,advancements={saintsdragons:brew_tideguard=false,saintsdragons:brew_searing=false}]
+wait 0.5
+expect Test passed
+bot use 1026 105 1027 up
+wait 1
+bot inventory-click 0 left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd execute unless data block 1026 105 1027 Items[{Slot:0b}]
+wait 0.5
+expect Test passed
+cmd execute if entity @a[name=tester,advancements={saintsdragons:brew_tideguard=true,saintsdragons:brew_searing=false}]
+wait 0.5
+expect Test passed
+bot use 1024 105 1027 up
+wait 1
+bot inventory-click 0 shift-left
+wait 0.5
+bot inventory-close
+wait 0.5
+cmd execute unless data block 1024 105 1027 Items[{Slot:0b}]
+wait 0.5
+expect Test passed
+cmd execute if entity @a[name=tester,advancements={saintsdragons:brew_tideguard=true,saintsdragons:brew_searing=true}]
+wait 0.5
+expect Test passed
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
