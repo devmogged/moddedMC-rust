@@ -6,37 +6,44 @@ botstart tester
 wait 2
 expect \[bot\] fetched content resource pack
 cmd gamemode creative tester
-cmd forceload add 21 21 28 28
-cmd tp tester 24.5 105 24.5
-wait 3
-cmd fill 21 104 21 28 104 28 minecraft:stone
-cmd fill 21 105 21 28 110 28 minecraft:air
+cmd gamerule minecraft:spawn_mobs false
+# Use fresh chunks away from mobs already spawned around the world spawn.
+cmd forceload add 1007 1007 1047 1047
+cmd tp tester 1024.5 105 1024.5
+wait 12
+cmd fill 1008 104 1008 1040 104 1040 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1008 105 1008 1040 110 1040 minecraft:air
+await 30 Successfully filled|No blocks were filled
 cmd time set midnight
-cmd saintsdragons spawn cindervane 24 105 26
+cmd saintsdragons spawn cindervane 1024 105 1026
 wait 0.5
 expect saintsdragons:cindervane: spawned
-cmd damage @e[type=minecraft:ravager,limit=1] 2 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 2 minecraft:generic
 wait 0.5
 expect \[bot\] (entity )?sound: saintsdragons:cindervane_hurt
-cmd damage @e[type=minecraft:ravager,limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1000 minecraft:generic
 wait 0.5
 expect \[bot\] sound: saintsdragons:cindervane_die
-cmd saintsdragons spawn raevyx 24 105 26
+cmd saintsdragons spawn raevyx 1024 105 1026
 wait 0.5
 expect saintsdragons:raevyx: spawned
-cmd damage @e[type=minecraft:ravager,x=24,y=105,z=26,distance=..6,limit=1] 2 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 2 minecraft:generic
 wait 0.5
 expect \[bot\] (entity )?sound: saintsdragons:raevyx_hurt
-cmd damage @e[type=minecraft:ravager,x=24,y=105,z=26,distance=..6,limit=1] 1000 minecraft:generic
+wait 1
+# Wild Raevyx intercepts lethal ordinary damage for stun taming; use a
+# bypass-invulnerability damage type to exercise the actual death sound.
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1000 minecraft:generic_kill
 wait 0.5
 expect \[bot\] sound: saintsdragons:raevyx_die
-cmd saintsdragons spawn mossback 24 105 26
+cmd saintsdragons spawn mossback 1024 105 1026
 wait 0.5
 expect saintsdragons:mossback: spawned
-cmd damage @e[type=minecraft:wolf,x=24,y=105,z=26,distance=..6,limit=1] 1 minecraft:generic
+cmd damage @e[type=minecraft:wolf,nbt={data:{moddedmc:{mob:"saintsdragons:mossback"}}},limit=1] 1 minecraft:generic
 wait 0.5
 expect \[bot\] sound: saintsdragons:mossback_hurt
-cmd damage @e[type=minecraft:wolf,x=24,y=105,z=26,distance=..6,limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:wolf,nbt={data:{moddedmc:{mob:"saintsdragons:mossback"}}},limit=1] 1000 minecraft:generic
 wait 0.5
 expect \[bot\] sound: saintsdragons:mossback_die
 bot quit
