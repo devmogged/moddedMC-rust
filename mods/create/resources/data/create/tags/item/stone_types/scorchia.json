@@ -6,6 +6,10 @@
     "create:small_scorchia_bricks",
     "create:layered_scorchia",
     "create:scorchia_pillar",
-    "create:scorchia"
+    "create:scorchia",
+    "create:cut_scorchia_stairs",
+    "create:polished_cut_scorchia_stairs",
+    "create:cut_scorchia_brick_stairs",
+    "create:small_scorchia_brick_stairs"
   ]
 }

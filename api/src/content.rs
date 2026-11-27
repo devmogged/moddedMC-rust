@@ -8,7 +8,7 @@ use crate::{
 pub use abi::{
     BlockUpdate, CollisionBox, ContentEvent, LOADED, MOVED_STATE_CHANGED, NEIGHBOR_CHANGED,
     STATE_CHANGED, ShapeBox, UNLOADED, UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS,
-    UPDATE_KNOWN_SHAPE, UPDATE_MOVED, UPDATE_NEIGHBORS,
+    UPDATE_FROM_NEIGHBOR_SHAPES, UPDATE_KNOWN_SHAPE, UPDATE_MOVED, UPDATE_NEIGHBORS,
 };
 
 #[derive(Clone, Copy)]
@@ -73,6 +73,7 @@ pub enum WorldExtension {
     BlockTransformer,
     RedstoneConductor,
     PlayerActorBlockDrops,
+    NeighborShapes,
 }
 
 impl WorldExtension {
@@ -141,6 +142,10 @@ impl WorldExtension {
             Self::Dimension => (
                 std::mem::offset_of!(abi::BlockWorldV1, dimension_id),
                 "moddedmc:block_world.dimension_id",
+            ),
+            Self::NeighborShapes => (
+                std::mem::offset_of!(abi::BlockWorldV1, write_with_neighbor_shapes),
+                "moddedmc:block_world.write_with_neighbor_shapes",
             ),
         }
     }
@@ -546,6 +551,21 @@ impl World<'_> {
         // SAFETY: the slice and world handle are live.
         unsafe {
             ((&raw const (*self.api.ptr).write).read())(self.raw, updates.as_ptr(), updates.len())
+        }
+    }
+
+    /// Apply an ordered batch, resolving neighbor shapes for entries that request it.
+    pub fn write_with_neighbor_shapes(self, updates: &[BlockUpdate]) -> usize {
+        if !WorldExtension::NeighborShapes.available(self.api) {
+            return 0;
+        }
+        // SAFETY: the complete callback field and borrowed slice are live for the call.
+        unsafe {
+            ((&raw const (*self.api.ptr).write_with_neighbor_shapes).read())(
+                self.raw,
+                updates.as_ptr(),
+                updates.len(),
+            )
         }
     }
 

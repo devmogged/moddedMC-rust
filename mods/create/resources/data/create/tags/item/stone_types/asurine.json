@@ -6,6 +6,10 @@
     "create:small_asurine_bricks",
     "create:layered_asurine",
     "create:asurine_pillar",
-    "create:asurine"
+    "create:asurine",
+    "create:cut_asurine_stairs",
+    "create:polished_cut_asurine_stairs",
+    "create:cut_asurine_brick_stairs",
+    "create:small_asurine_brick_stairs"
   ]
 }

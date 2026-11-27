@@ -203,6 +203,7 @@ impl Mod for Create {
         content.require_extension(WorldExtension::BlockTransformer)?;
         content.require_extension(WorldExtension::RedstoneConductor)?;
         content.require_extension(WorldExtension::PlayerActorBlockDrops)?;
+        content.require_extension(WorldExtension::NeighborShapes)?;
         let _ = CONTENT.set(content);
         // WS-3: save-global Create railway data through the generic ABI.
         trains::require_saved()?;

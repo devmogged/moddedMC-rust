@@ -485,6 +485,8 @@ pub const UPDATE_ALL: u8 = UPDATE_NEIGHBORS | UPDATE_CLIENTS;
 pub const UPDATE_MOVED: u8 = 4;
 /// Skip neighbour shape updates. Requires the fluid world tick-control extension.
 pub const UPDATE_KNOWN_SHAPE: u8 = 8;
+/// Resolve the new state's neighbor shapes just before placing it in the batch.
+pub const UPDATE_FROM_NEIGHBOR_SHAPES: u8 = 16;
 
 #[repr(C)]
 pub struct StateDefinition {
@@ -743,6 +745,11 @@ pub struct BlockWorldV1 {
         destination: u32,
         replacement: Str,
     ) -> bool,
+    /// Appended after the existing non-Create capabilities so those ABI
+    /// offsets remain stable. Rebuild older main-only Create packages.
+    /// Like `write`, with `UPDATE_FROM_NEIGHBOR_SHAPES` supported per entry.
+    pub write_with_neighbor_shapes:
+        unsafe extern "C" fn(world: WorldRef, updates: *const BlockUpdate, count: usize) -> usize,
 }
 
 #[repr(C)]
@@ -769,8 +776,12 @@ mod block_world_layout {
         assert_eq!(offset_of!(BlockWorldV1, content_entity_snapshot), 224);
         assert_eq!(offset_of!(BlockWorldV1, compare_content_entity), 232);
         assert_eq!(offset_of!(BlockWorldV1, game_time), 240);
-        assert_eq!(offset_of!(BlockWorldV1, compare_replace_content_entity), 248);
-        assert_eq!(size_of::<BlockWorldV1>(), 256);
+        assert_eq!(
+            offset_of!(BlockWorldV1, compare_replace_content_entity),
+            248
+        );
+        assert_eq!(offset_of!(BlockWorldV1, write_with_neighbor_shapes), 256);
+        assert_eq!(size_of::<BlockWorldV1>(), 264);
         assert_eq!(size_of::<DayTime>(), 16);
     }
 }
@@ -1395,11 +1406,7 @@ pub struct CraftingV1 {
     /// crafting menu is available, even if it has no recipe. Zero otherwise.
     /// The low 14 bits hold the number of matches; bit 15 marks truncation.
     /// Never opens a UI or mutates the player's ingredients.
-    pub current_choices: unsafe extern "C" fn(
-        player: PlayerRef,
-        limit: u16,
-        out: Sink,
-    ) -> u16,
+    pub current_choices: unsafe extern "C" fn(player: PlayerRef, limit: u16, out: Sink) -> u16,
     /// Select an index from `current_choices` in the player's current menu.
     /// The engine pins the selection to the exact input stack snapshot,
     /// invalidates it on any input edit, and synchronizes the result slot.
@@ -1412,11 +1419,8 @@ pub struct CraftingV1 {
     /// Enumerate recipes for the genuine placed Crafter whose stock 3x3 menu
     /// the player currently has open. Shares current_choices' bit flags.
     /// Append-only: older hosts intentionally do not expose machine selection.
-    pub current_machine_choices: unsafe extern "C" fn(
-        player: PlayerRef,
-        limit: u16,
-        out: Sink,
-    ) -> u16,
+    pub current_machine_choices:
+        unsafe extern "C" fn(player: PlayerRef, limit: u16, out: Sink) -> u16,
     /// Set this machine's durable recipe identity without consuming inputs.
     /// Invalid/stale grids and spectator menus fail closed.
     pub select_machine_recipe: unsafe extern "C" fn(player: PlayerRef, index: u16) -> bool,

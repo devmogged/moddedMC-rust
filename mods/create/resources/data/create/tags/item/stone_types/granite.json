@@ -6,6 +6,10 @@
     "create:small_granite_bricks",
     "create:layered_granite",
     "create:granite_pillar",
-    "minecraft:granite"
+    "minecraft:granite",
+    "create:cut_granite_stairs",
+    "create:polished_cut_granite_stairs",
+    "create:cut_granite_brick_stairs",
+    "create:small_granite_brick_stairs"
   ]
 }

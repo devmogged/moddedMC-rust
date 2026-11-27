@@ -24,6 +24,18 @@ const AXES: [&str; 3] = ["x", "y", "z"];
 const AXIS_PROPERTIES: [&str; 3] = ["axis=x", "axis=y", "axis=z"];
 const VERTICAL: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
+pub(crate) fn is_stone_partial(id: &str) -> bool {
+    let Some((base, "slab" | "stairs")) = id
+        .strip_prefix("create:")
+        .and_then(|id| id.rsplit_once('_'))
+    else {
+        return false;
+    };
+    slab_data::SLABS
+        .iter()
+        .any(|(path, _, _, _)| path.strip_suffix("_slab") == Some(base))
+}
+
 fn state<'a>(properties: &'a str, physical: &'a str, model: &'a str, x: i16, y: i16) -> State<'a> {
     State {
         properties,
@@ -134,6 +146,13 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
             None,
         )?;
         content.set_block_material(registry, &id, &material)?;
+        let stairs = path
+            .strip_suffix("_slab")
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        let stairs_name = name
+            .strip_suffix(" Slab")
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        register_stairs(content, registry, stairs, stairs_name, &material)?;
     }
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for &(path, display_name, carrier) in data::ITEMS {
@@ -148,6 +167,60 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         )?;
     }
     Ok(())
+}
+
+fn register_stairs(
+    content: Content,
+    registry: &mut Registry<'_>,
+    base: &str,
+    name: &str,
+    material: &BlockMaterial<'_>,
+) -> Result<(), RegistrationError> {
+    let path = format!("{base}_stairs");
+    let id = format!("create:{path}");
+    let mut variants = Vec::with_capacity(80);
+    for (facing, y) in [("north", 270i16), ("east", 0), ("south", 90), ("west", 180)] {
+        for (half, x) in [("bottom", 0), ("top", 180)] {
+            for (shape, suffix, left) in [
+                ("straight", "", false),
+                ("inner_left", "_inner", true),
+                ("inner_right", "_inner", false),
+                ("outer_left", "_outer", true),
+                ("outer_right", "_outer", false),
+            ] {
+                let y = (y - if left { 90 } else { 0 }
+                    + if x == 180 && !suffix.is_empty() {
+                        90
+                    } else {
+                        0
+                    })
+                .rem_euclid(360);
+                for wet in [false, true] {
+                    let properties =
+                        format!("facing={facing},half={half},shape={shape},waterlogged={wet}");
+                    let physical = format!("minecraft:stone_stairs[{properties}]");
+                    let model = format!("create:block/{path}{suffix}");
+                    variants.push((properties, physical, model, x, y));
+                }
+            }
+        }
+    }
+    let states: Vec<_> = variants
+        .iter()
+        .map(|(properties, physical, model, x, y)| state(properties, physical, model, *x, *y))
+        .collect();
+    content.add_block(
+        registry,
+        &Block {
+            id: &id,
+            display_name: &format!("{name} Stairs"),
+            entity: "",
+            item_model: &format!("create:item/{path}"),
+            states: &states,
+        },
+        None,
+    )?;
+    content.set_block_material(registry, &id, material)
 }
 
 pub(crate) fn placed_state(args: &Placement<'_>, content: Content) -> Option<u32> {

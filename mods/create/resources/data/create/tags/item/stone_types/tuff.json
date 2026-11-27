@@ -6,6 +6,10 @@
     "create:small_tuff_bricks",
     "create:layered_tuff",
     "create:tuff_pillar",
-    "minecraft:tuff"
+    "minecraft:tuff",
+    "create:cut_tuff_stairs",
+    "create:polished_cut_tuff_stairs",
+    "create:cut_tuff_brick_stairs",
+    "create:small_tuff_brick_stairs"
   ]
 }

@@ -160,13 +160,14 @@ expect block data: "minecraft:iron_ingot"
 
 # A vertical collector filters hand insertion and pauses under redstone.
 cmd tp tester 2124.5 100 2112.5
+await 5 \[bot\] teleported to .*2124\.5.*2112\.5
 cmd setblock 2124 100 2114 minecraft:barrel
 cmd item replace entity tester hotbar.0 with create:brass_funnel
 wait 0.5
 bot input sneak
 wait 0.25
 bot place 2124 100 2114 up
-wait 0.25
+wait 1
 cmd execute if block 2124 101 2114 create:brass_funnel
 await 5 Test passed
 bot input none

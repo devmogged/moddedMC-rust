@@ -6,6 +6,10 @@
     "create:small_scoria_bricks",
     "create:layered_scoria",
     "create:scoria_pillar",
-    "create:scoria"
+    "create:scoria",
+    "create:cut_scoria_stairs",
+    "create:polished_cut_scoria_stairs",
+    "create:cut_scoria_brick_stairs",
+    "create:small_scoria_brick_stairs"
   ]
 }
