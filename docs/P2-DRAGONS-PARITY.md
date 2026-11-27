@@ -8,7 +8,7 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
-| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Ivy trades from the released table | Ivy's companion inventory and combat, resuming her dialogue after the trade screen closes, swarm combat and pathfinding around obstacles, and exact spawn restrictions, attributes and collision |
+| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table | Ivy's companion inventory and combat, resuming her dialogue after the trade screen closes, swarm armor pacification, exact flight navigation and collision, and exact spawn restrictions and attributes |
 | Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback, and the custom Raevyx storm, Stegonaut lush cave and Volitans underwater spawners | Per-species brains, navigation, growth and breeding |
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, juvenile food taming, growth feeding and raw-moop stunting | Nulljaw juvenile feeding, Varasuchus food healing and sleep refusal, Volitans and Nulljaw breeding, the breeding experience orb and stat, grooming animations, sleep reactions, codex hunger display, the hunger hunting behaviour and roster melee scaling; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
@@ -74,7 +74,7 @@ companion pack includes all three original rigs and animation sets. A stock
 client receives display fallbacks. The scenario verified the four eggs,
 persistence, spawning without gravity, and original hurt and death audio.
 Suspended wandering uses the released movement speeds and takes clear, straight
-routes. Pathfinding around obstacles, coordinated attacks, the encounter's
+routes. Pathfinding around obstacles, the encounter's
 spawn and death animations, and exact hitboxes remain pending. The stock
 `/saintsdragons items` packet includes all eight binders and all four swarm
 eggs. In a local 24-creature smoke check, the final tick query read 4.72 ms
@@ -82,6 +82,17 @@ with ground movement and 3.94 ms with suspended wandering on the same engine
 build. This is a short run with different world seeds and an engine test build
 in the background.
 [Swarm spawn egg scenario](../tests/scenarios/p2ab-saints-dragons-swarm-eggs.txt)
+
+Swarm members now use explicit target and combat goals: retaliation takes
+priority, followed by players and other living entities; swarm members and
+Endermen are excluded. Latcher bites, Winged pulls and dives after two successful
+pulls, and Whettled claws or charges with their released damage and attack
+timings. Reservations limit attacks on one target and the nucleus bounds
+targeting. The direct flight controller approximates the original path and
+collision geometry. Draconian armor pacification needs an SDK call returning
+the four equipped item IDs of a borrowed player entity; the worn-hurt callback
+cannot answer this query at target-selection time.
+[Swarm combat scenario](../tests/scenarios/p2aw-saints-dragons-swarm-combat.txt)
 
 A player-placed Draconian Nucleus records its owner. The Controller toggles
 owned encounters within 64 blocks, removes the active swarm when it stops an
