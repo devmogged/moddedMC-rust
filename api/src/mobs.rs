@@ -185,6 +185,8 @@ pub enum MobsExtension {
     NaturalSpawns,
     /// `Mobs::open_trades`.
     Trading,
+    /// `Mobs::award_advancement`.
+    Advancements,
 }
 
 /// Where a spawn entry's mob can appear (vanilla `SpawnPlacementTypes`).
@@ -312,6 +314,10 @@ impl Mobs {
                 std::mem::offset_of!(abi::MobsV1, open_trades),
                 "moddedmc:mobs.trading",
             ),
+            MobsExtension::Advancements => (
+                std::mem::offset_of!(abi::MobsV1, award_advancement),
+                "moddedmc:mobs.advancements",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -370,6 +376,23 @@ impl Mobs {
                 mob.raw(),
                 player.raw(),
                 abi::Str::new(offers),
+            )
+        }
+    }
+
+    /// Grant `criterion` of the advancement `advancement` (a full id, such as a datapack's
+    /// `mymod:tame_dragon`) to `player`. True when this granted it. Needs
+    /// `MobsExtension::Advancements`.
+    pub fn award_advancement(self, player: Entity<'_>, advancement: &str, criterion: &str) -> bool {
+        if self.require_extension(MobsExtension::Advancements).is_err() {
+            return false;
+        }
+        // SAFETY: the size is checked; the player and strings are live for the call.
+        unsafe {
+            ((&raw const (*self.0.ptr).award_advancement).read())(
+                player.raw(),
+                abi::Str::new(advancement.as_bytes()),
+                abi::Str::new(criterion.as_bytes()),
             )
         }
     }

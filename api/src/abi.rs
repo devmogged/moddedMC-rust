@@ -1482,6 +1482,12 @@ pub struct MobsV1 {
     /// The carrier then counts uses and saves them. False when `mob` isn't a villager or `player`
     /// isn't a player.
     pub open_trades: unsafe extern "C" fn(mob: EntityRef, player: EntityRef, offers: Str) -> bool,
+    /// Vanilla `PlayerAdvancements.award`: grants `criterion` of the advancement with the full id
+    /// `advancement` to a player, completing it when its requirements are met. True when this
+    /// granted the criterion; false when it was already granted, the advancement or criterion is
+    /// unknown, or `player` isn't a player.
+    pub award_advancement:
+        unsafe extern "C" fn(player: EntityRef, advancement: Str, criterion: Str) -> bool,
 }
 
 /// A mod mob dying; the entity is still in the world.
@@ -1629,7 +1635,8 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, make_persistent), 152);
         assert_eq!(offset_of!(MobsV1, add_spawn), 160);
         assert_eq!(offset_of!(MobsV1, open_trades), 168);
-        assert_eq!(size_of::<MobsV1>(), 176);
+        assert_eq!(offset_of!(MobsV1, award_advancement), 176);
+        assert_eq!(size_of::<MobsV1>(), 184);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

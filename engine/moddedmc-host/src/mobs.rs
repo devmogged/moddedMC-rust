@@ -60,6 +60,7 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     make_persistent,
     add_spawn,
     open_trades,
+    award_advancement,
 };
 
 pub static MOB_LOOT: abi::MobLootV1 = abi::MobLootV1 {
@@ -810,6 +811,42 @@ unsafe extern "C" fn open_trades(mob: EntityRef, player: EntityRef, offers: Str)
     }
     villager.open_trading_screen(&player);
     true
+}
+
+unsafe extern "C" fn award_advancement(player: EntityRef, advancement: Str, criterion: Str) -> bool {
+    use pumpkin_core::entity::player::advancement::PlayerAdvancement;
+    // SAFETY: the player is live and the strings borrowed for the call.
+    let (Some(player), id, criterion) = (
+        unsafe { entity(player) }.and_then(EntityBase::get_player),
+        unsafe { advancement.str() },
+        unsafe { criterion.str() },
+    ) else {
+        return false;
+    };
+    let Some(advancement) = pumpkin_data::Advancement::from_minecraft_name(id) else {
+        return false;
+    };
+    if advancement.get_criterion(criterion).is_none() {
+        return false;
+    }
+    let Some(player) = player.world().get_player_by_uuid(player.gameprofile.id) else {
+        return false;
+    };
+    let result = player
+        .advancements
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .award(advancement, criterion);
+    // Completion events and rewards re-enter the advancement lock, so they run after it.
+    PlayerAdvancement::finish_award(&player, advancement, result);
+    if result.awarded() {
+        player
+            .advancements
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .flush_dirty(&player, true);
+    }
+    result.awarded()
 }
 
 unsafe extern "C" fn make_persistent(raw: EntityRef) -> bool {
