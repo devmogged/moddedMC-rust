@@ -12,13 +12,14 @@ use moddedmc_api::abi::{self, BlockUpdate, ContentEvent, Pos, Reg, Sink, Str, Wo
 use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
-        BlockBehaviour, BlockHitResult, CanUpdateAtArgs, EmitsRedstonePowerArgs,
+        BlockBehaviour, BlockHitResult, CanPlaceAtArgs, CanUpdateAtArgs, EmitsRedstonePowerArgs,
         GetComparatorOutputArgs, GetRedstonePowerArgs, GetStateForNeighborUpdateArgs,
         ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
         PathComputationType, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
         UseWithItemArgs,
         blocks::{
             iron_bars::IronBarsBlock,
+            ladder::LadderBlock,
             redstone::{block_receives_redstone_power, get_redstone_power},
             slabs::SlabBlock,
             stairs::StairBlock,
@@ -336,6 +337,7 @@ struct RuntimeBlock {
     stairs: bool,
     wall: bool,
     pane: bool,
+    ladder: bool,
     weathering: bool,
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
@@ -1287,6 +1289,7 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
     let mut carriers = notes.chain(targets).chain(hives);
     let mut dry_leaves = reserve_dry_leaves();
     let mut pane_carriers = content_panes::CARRIERS.into_iter();
+    let mut ladder_carriers = crate::content_ladders::CARRIERS.into_iter();
     let mut slab_carriers = crate::content_slab::CARRIERS.into_iter();
     let mut straight_carriers = crate::content_stairs::STRAIGHT_CARRIERS.into_iter();
     let mut corner_carriers = crate::content_stairs::corner_carriers();
@@ -1304,6 +1307,15 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
     });
     for index in order {
         let block = &mut blocks[index].1;
+        let ladder_carrier = if crate::content_ladders::has_ladder_shape(&block.states) {
+            Some(
+                ladder_carriers
+                    .next()
+                    .ok_or_else(|| io::Error::other("custom ladder carrier slots exhausted"))?,
+            )
+        } else {
+            None
+        };
         let slab = crate::content_slab::template(&block.states);
         let slab_carrier = slab.and_then(|_| slab_carriers.next());
         let pane = content_panes::has_pane_shape(&block.states);
@@ -1330,7 +1342,9 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
                 visual.x.rem_euclid(360),
                 visual.y.rem_euclid(360),
             );
-            let (carrier, replacement) = if pane {
+            let (carrier, replacement) = if let Some(carrier) = ladder_carrier {
+                crate::content_ladders::allocate(state.physical.id, carrier)
+            } else if pane {
                 visual.pane = true;
                 content_panes::allocate(state.physical.id, pane_carrier)
             } else if wall_overlay {
@@ -1425,6 +1439,7 @@ fn open_registry(
             registry.add_copper_family(ids.each_ref().map(String::as_str))?;
         }
     }
+    crate::content_ladders::reserve_carriers(&mut registry, &definitions)?;
     assign_block_display_carriers(blocks, &definitions, &mut registry)?;
     Ok(registry)
 }
@@ -1551,6 +1566,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
                 owner,
                 slab: crate::content_slab::template(&block.states),
                 stairs: crate::content_stairs::has_stair_shape(&block.states),
+                ladder: crate::content_ladders::has_ladder_shape(&block.states),
                 weathering: matches!(block.copper_stage, Some(0..=2)),
                 wall: content_walls::has_wall_shape(&block.states),
                 pane: content_panes::has_pane_shape(&block.states),
@@ -1788,6 +1804,13 @@ impl BlockBehaviour for Behaviour {
         accepted.min(u32::from(args.stack.item_count)) as u8
     }
 
+    fn can_place_at(&self, args: CanPlaceAtArgs<'_>) -> bool {
+        if runtime_block(args.block.id).is_some_and(|block| block.ladder) {
+            return LadderBlock.can_place_at(args);
+        }
+        true
+    }
+
     fn can_update_at(&self, args: CanUpdateAtArgs<'_>) -> bool {
         runtime_block(args.block.id)
             .and_then(|block| block.slab)
@@ -1809,6 +1832,9 @@ impl BlockBehaviour for Behaviour {
         }
         if block.pane {
             return IronBarsBlock.get_state_for_neighbor_update(args);
+        }
+        if block.ladder {
+            return LadderBlock.get_state_for_neighbor_update(args);
         }
         block.slab.map_or(args.state_id, |slab| {
             crate::content_slab::neighbor_update(&args, slab)
@@ -1833,6 +1859,9 @@ impl BlockBehaviour for Behaviour {
             if block.pane {
                 return IronBarsBlock.on_place(args);
             }
+            if block.ladder {
+                return LadderBlock.on_place(args);
+            }
             return block
                 .slab
                 .map_or(default, |slab| crate::content_slab::on_place(args, slab));
@@ -1853,7 +1882,13 @@ impl BlockBehaviour for Behaviour {
             .ok()
             .and_then(BlockStateId::from_runtime_id)
             .filter(|id| id.to_block().id == args.block.id)
-            .unwrap_or(default)
+            .unwrap_or_else(|| {
+                if block.ladder {
+                    LadderBlock.on_place(args)
+                } else {
+                    default
+                }
+            })
     }
 
     fn player_placed(&self, args: PlayerPlacedArgs<'_>) {

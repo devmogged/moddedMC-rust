@@ -13,6 +13,7 @@ mod console;
 mod container_loot;
 mod containers;
 mod content;
+mod content_ladders;
 mod content_pack;
 mod content_panes;
 mod content_slab;

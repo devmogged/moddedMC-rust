@@ -1,6 +1,6 @@
 # moddedMC-rust
 
-Modded Minecraft Java 26.3 on Pumpkin, a Rust server. Players use a stock client; mods run on the server. Server owners install mods by dropping `.mmc` (Rust) or `.jar` (Fabric) files into `mods/`. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/MOD-ABI.md](docs/MOD-ABI.md) before changing the host, the API or a mod. [CONTRIBUTING.md](CONTRIBUTING.md) has the project rules; they apply to you too.
+Modded Minecraft Java 26.3 on Pumpkin, a Rust server. Players use a Fabric client with the one moddedMC companion mod installed; mods run on the server, and the companion gets each server mod's content (items, models, sounds, keybinds) from the server. A vanilla client cannot join a modded server. Server owners install mods by dropping `.mmc` (Rust) or `.jar` (Fabric) files into `mods/`. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/MOD-ABI.md](docs/MOD-ABI.md) before changing the host, the API or a mod. [CONTRIBUTING.md](CONTRIBUTING.md) has the project rules; they apply to you too.
 
 What we never compromise on:
 
@@ -17,6 +17,7 @@ What we never compromise on:
 4. **No game files in git.** Minecraft jars, assets and downloaded mods live in the ignored `cache/`.
 5. **Port the latest release.** The server is Minecraft Java 26.3. Each port follows the mod's newest release on Modrinth or CurseForge, whatever loader or Minecraft version that release targets. Check it before you start, take behaviour, data and assets from that release only (never from an older jar, such as one in a local modpack), and record the version in the crate's `description`. Don't add engine support for an older version's quirks unless a planned port's latest release needs it.
 6. **PowerShell 5.1 gotchas:** a native command's stderr under `$ErrorActionPreference = 'Stop'` becomes a terminating error, so run long builds through `powershell -File` from bash or without stderr redirection; `$PSScriptRoot` is empty inside `param()` defaults.
+7. **Use the execution playbook.** Before coordinating concurrent implementation, builds, validation or delivery, follow [docs/ENGINEERING-EXECUTION.md](docs/ENGINEERING-EXECUTION.md). It defines ownership, build gates, evidence freshness, progress reporting and safe delivery. Never clean or reset a shared/dirty checkout just to satisfy a fresh-main workflow.
 
 ## Working alongside other people
 

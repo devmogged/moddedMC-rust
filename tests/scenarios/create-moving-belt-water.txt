@@ -9,6 +9,7 @@ await 10 \[bot\] teleported to .*2642\.5.*2642\.5
 wait 2
 cmd fill 2636 97 2636 2647 97 2647 minecraft:stone
 cmd fill 2636 98 2636 2647 107 2647 minecraft:air
+cmd setblock 2642 100 2642 minecraft:stone
 cmd setblock 2640 98 2640 create:creative_motor[facing=up]
 wait 0.5
 cmd kinetics 2640 98 2640 0
@@ -21,11 +22,11 @@ cmd execute if block 2640 101 2640 create:shaft if block 2640 101 2642 create:sh
 await 5 Test passed
 cmd item replace entity tester hotbar.0 with create:belt_connector
 await 5 Replaced a slot on tester with .*Mechanical Belt
-wait 0.25
+wait 0.5
 bot use 2640 101 2640
-wait 1
+wait 1.25
 bot use 2640 101 2642
-wait 1
+wait 1.25
 cmd kinetics 2640 101 2641
 await 5 create:belt\[facing=south,part=pulley,slope=horizontal,waterlogged=true\] at 2640 101 2641
 
