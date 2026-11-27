@@ -1,0 +1,67 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# 0.9.88: a hit interrupts roost sleep and prevents immediate re-entry.
+# A tame adult sheds scales, allows one forced pluck, and reacts with its hurt clip.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1028.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd time set midnight
+cmd saintsdragons spawn varasuchus 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..6,limit=1] {Tags:["grooming"],data:{"saintsdragons:roost":{home:[1025,100,1025],anchor:[1025,100,1025]}}}
+cmd tp @e[tag=grooming,limit=1] 1025.5 100 1025.5
+wait 8
+cmd execute positioned 1025 100 1025 as @e[type=minecraft:item_display,distance=..8] run data get entity @s item.components."minecraft:custom_data"."moddedmc:rig_clip"
+wait 0.5
+expect has the following entity data: "animation.varasuchus.sleep"
+bot use-entity ravager 1025.5 100 1025.5 main
+wait 0.3
+expect Varasuchus is sleeping, wake it up to tame\.
+cmd damage @e[tag=grooming,limit=1] 1 minecraft:generic
+wait 0.5
+cmd execute positioned 1025 100 1025 as @e[type=minecraft:item_display,distance=..8] run data get entity @s item.components."minecraft:custom_data"."moddedmc:rig_clip"
+wait 0.5
+expect has the following entity data: "animation.varasuchus.wake_up"
+wait 7
+cmd tp @e[tag=grooming,limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.3
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed\.
+cmd data merge entity @e[tag=grooming,limit=1] {Health:150f}
+cmd gamemode survival tester
+cmd item replace entity tester weapon.offhand with saintsdragons:scale_plucker
+wait 0.3
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.3
+expect Varasuchus's scales are ready to be brushed normally\.
+cmd item replace entity tester weapon.offhand with saintsdragons:golden_dragon_brush
+wait 0.3
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Brushed off (6|7|8|9|10) scales\.
+cmd item replace entity tester weapon.offhand with saintsdragons:scale_plucker
+wait 0.3
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.3
+expect You forcibly pluck a scale from Varasuchus\.
+cmd execute positioned 1025 100 1025 as @e[type=minecraft:item_display,distance=..8] run data get entity @s item.components."minecraft:custom_data"."moddedmc:rig_clip"
+wait 0.3
+expect has the following entity data: "animation.varasuchus.hurt"
+cmd data get entity @e[tag=grooming,limit=1] Health
+wait 0.5
+expect has the following entity data: 145f$
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect A scale has already been forcibly plucked from Varasuchus during this shedding cycle\.
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

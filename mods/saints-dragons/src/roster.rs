@@ -593,6 +593,9 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     if crate::hunger::DRAGONS.contains(&name) {
         crate::hunger::tick(world, mob, species.speed, None);
     }
+    if crate::hunger::DRAGONS.contains(&name) {
+        taming::regrow(mob);
+    }
     if crate::eggs::grow(mob, name) {
         let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
         visuals::tick_species(
@@ -622,8 +625,6 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             return false;
         }
         swarm::hover(mob, view.motion);
-    } else {
-        taming::regrow(mob);
     }
     let clip = if cfg!(feature = "original-assets") && matches!(name, "ignivorus" | "varasuchus") {
         crate::roost::sleep_clip(mob.id())
