@@ -81,7 +81,7 @@ unsafe extern "C" fn pet_owner(raw: EntityRef, out: *mut [u8; 16]) -> bool {
     let (Some(base), Some(out)) = (unsafe { entity(raw) }, unsafe { out.as_mut() }) else {
         return false;
     };
-    let Some(owner) = base.get_mob().and_then(|mob| mob.get_owner_uuid()) else {
+    let Some(owner) = base.get_mob().and_then(pumpkin_core::entity::mob::Mob::get_owner_uuid) else {
         return false;
     };
     *out = *owner.as_bytes();
@@ -133,10 +133,10 @@ unsafe extern "C" fn set_dismount_offsets(
     if registered_kind(base).is_none() || count > 512 || (count != 0 && offsets.is_null()) {
         return false;
     }
-    // SAFETY: a nonempty input is borrowed from the mod for the call.
     let offsets = if count == 0 {
         &[]
     } else {
+        // SAFETY: a nonempty input is borrowed from the mod for the call.
         unsafe { std::slice::from_raw_parts(offsets, count) }
     };
     if !offsets

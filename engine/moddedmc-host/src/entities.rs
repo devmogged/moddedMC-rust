@@ -449,6 +449,7 @@ pub unsafe extern "C" fn player_item_cooldown(raw: abi::EntityRef, item: Str, ti
     ) else {
         return false;
     };
+    // SAFETY: the item string is borrowed for this call.
     let item = unsafe { item.str() };
     if player.has_item_cooldown(item) {
         return false;
