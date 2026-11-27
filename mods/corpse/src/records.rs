@@ -1,12 +1,10 @@
-use std::{
-    collections::hash_map::RandomState,
-    hash::BuildHasher,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::hash_map::RandomState, hash::BuildHasher};
 
 use fastnbt::ByteArray;
 use moddedmc_api::player_death::Death;
 use serde::{Deserialize, Serialize};
+
+use crate::settings::{now_millis, settings};
 
 pub fn blob(bytes: &[u8]) -> ByteArray {
     ByteArray::new(bytes.iter().copied().map(u8::cast_signed).collect())
@@ -56,6 +54,11 @@ pub struct Grave {
     pub body_position: [f64; 3],
     pub yaw: f32,
     pub created_at: i64,
+    #[serde(
+        default = "history_default",
+        skip_serializing_if = "history_is_default"
+    )]
+    recorded: bool,
     profile: ByteArray,
     pub pending: bool,
     pub present: bool,
@@ -71,6 +74,14 @@ pub struct Grave {
 
 fn is_zero(value: &i32) -> bool {
     *value == 0
+}
+
+const fn history_default() -> bool {
+    true
+}
+
+const fn history_is_default(recorded: &bool) -> bool {
+    *recorded
 }
 
 pub const PAGE_SLOTS: usize = 45;
@@ -96,11 +107,8 @@ impl Grave {
             position: death.position,
             body_position: death.position,
             yaw: death.player.position().yaw,
-            created_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |time| {
-                    i64::try_from(time.as_millis()).unwrap_or(i64::MAX)
-                }),
+            created_at: now_millis(),
+            recorded: settings().history_days != 0,
             profile: blob(&profile),
             pending: true,
             present: true,
@@ -132,6 +140,21 @@ impl Grave {
 
     pub fn is_empty(&self) -> bool {
         self.items.is_empty() && self.pages.is_empty() && self.overflow.is_empty()
+    }
+
+    pub fn is_recorded(&self, now: i64) -> bool {
+        self.recorded && settings().keeps_history_at(self.created_at, now)
+    }
+
+    pub fn prune_history(&mut self, now: i64) {
+        if !self.is_recorded(now) {
+            self.recorded = false;
+            if !self.present {
+                // The carrier still needs its immutable equipment while the body exists.
+                self.original.clear();
+                self.profile = ByteArray::new(Vec::new());
+            }
+        }
     }
 
     pub fn migrate_overflow(&mut self) -> Option<()> {

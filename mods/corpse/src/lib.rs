@@ -4,6 +4,7 @@ mod history;
 mod menus;
 mod records;
 pub mod rules;
+mod settings;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -16,8 +17,9 @@ use std::{
 use moddedmc_api::{
     Command, InterfaceUnavailable, Mod, Player, Pos, RegistrationError, Registry,
     content::{self, Content, ContentEvent, World},
-    entities::{self, EntitiesExtension, EntityChange, SET_MOTION},
+    entities::{self, Entities, EntitiesExtension, EntityChange, SET_MOTION},
     inventory_menu::{self, Actions, MenuKind},
+    mobs::{self, Mobs, MobsExtension},
     native_entity::{self, Actor, ActorKind, Actors, Event, Model, Phase, SleepingVisual, Spawn},
     player_death::{self, Death, PlayerDeaths},
     saved_data::{self, Key, SavedData},
@@ -27,7 +29,8 @@ use serde::Deserialize;
 
 use menus::open_inventory;
 use records::{Archive, Grave, SavedStack, unblob};
-use rules::{Lifetime, LifetimePolicy};
+use rules::Lifetime;
+use settings::{now_millis, settings};
 
 const NEVER_EMPTY: u32 = u32::MAX;
 
@@ -35,6 +38,8 @@ const NEVER_EMPTY: u32 = u32::MAX;
 struct Interfaces {
     content: Content,
     actors: Actors,
+    entities: Entities,
+    mobs: Mobs,
     menus: Actions,
     death: PlayerDeaths,
     saved: SavedData,
@@ -45,6 +50,7 @@ struct Interfaces {
 struct Runtime {
     interfaces: Interfaces,
     key: Key,
+    preview_key: Key,
     actor: ActorKind,
     menu: MenuKind,
 }
@@ -61,17 +67,24 @@ struct Corpse;
 
 impl Mod for Corpse {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
-        entities::require()?.require_extension(EntitiesExtension::Player)?;
+        let entities = entities::require()?;
+        entities.require_extension(EntitiesExtension::Player)?;
+        entities.require_extension(EntitiesExtension::Movement)?;
+        let mobs = mobs::require()?;
+        mobs.require_extension(MobsExtension::Taming)?;
         let actors = native_entity::require()?;
         actors.require_visual()?;
         let _ = INTERFACES.set(Interfaces {
             content: content::require()?,
             actors,
+            entities,
+            mobs,
             menus: inventory_menu::require_actions()?,
             death: player_death::require()?,
             saved: saved_data::require()?,
             stacks: stacks::require()?,
         });
+        settings();
         Ok(())
     }
 
@@ -80,6 +93,7 @@ impl Mod for Corpse {
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?;
         let key = interfaces.saved.register(registry, "deaths")?;
+        let preview_key = interfaces.saved.register(registry, "history_preview")?;
         let actor = interfaces.actors.register(registry, actor_event)?;
         let menu = interfaces
             .menus
@@ -97,6 +111,7 @@ impl Mod for Corpse {
         let _ = RUNTIME.set(Runtime {
             interfaces,
             key,
+            preview_key,
             actor,
             menu,
         });
@@ -190,6 +205,9 @@ fn capture(mut death: Death<'_>) {
     let saved = archive(runtime, death.world, |current| {
         let id = i64::from(u32::try_from(current.next_id.checked_add(1)?).ok()?);
         let grave = Grave::new(id, dimension, &death, profile);
+        for old in &mut current.deaths {
+            old.prune_history(grave.created_at);
+        }
         current.next_id = id;
         current.deaths.push(grave.clone());
         let bytes = fastnbt::to_bytes(current).ok()?;
@@ -234,7 +252,9 @@ fn spawn(runtime: Runtime, world: World<'_>, grave: &Grave) {
         return;
     };
     let mut position = grave.body_position;
-    position[1] = position[1].max(min_height(world));
+    if let Some(min_y) = min_height(world) {
+        position[1] = position[1].max(min_y);
+    }
     position[1] = clear_floor_overlap(world, position);
     runtime.interfaces.actors.spawn(
         &world,
@@ -310,7 +330,7 @@ fn actor_event(event: Event<'_>) -> bool {
     let Some(dimension) = event.world.dimension_id() else {
         return false;
     };
-    let policy = LifetimePolicy::default();
+    let policy = settings().life;
     match event.phase {
         Phase::Loaded => {
             let grave = archive(runtime, event.world, |current| current.get(id).cloned()).flatten();
@@ -330,7 +350,10 @@ fn actor_event(event: Event<'_>) -> bool {
             remember_position(runtime, &event, id);
         }
         Phase::Tick => {
-            advance_motion(event.actor, event.world);
+            if advance_motion(event.actor, event.world) {
+                event.actor.entity.discard();
+                return true;
+            }
             let was_skeleton = life.age_ticks >= policy.skeleton_after;
             let Some(empty) = is_empty(runtime, &event, id) else {
                 return false;
@@ -436,15 +459,22 @@ fn profile_uuid(profile: &[u8]) -> Option<[u8; 16]> {
     Some(result)
 }
 
-fn advance_motion(actor: Actor<'_>, world: World<'_>) {
+/// Returns true when the corpse has fallen past the vanilla void boundary.
+fn advance_motion(actor: Actor<'_>, world: World<'_>) -> bool {
     let Some(view) = actor.entity.view() else {
-        return;
+        return false;
     };
     let [x, y, z] = view.position;
     let [vx, vy, vz] = view.motion;
     let min_y = min_height(world);
-    if y < min_y {
-        actor.entity.set_position([x, min_y, z]);
+    let fall = settings().fall_into_void;
+    if let Some(min_y) = min_y {
+        if fall && y < min_y - 64.0 {
+            return true;
+        }
+        if !fall && y < min_y {
+            actor.entity.set_position([x, min_y, z]);
+        }
     }
     let eye = Pos {
         x: x.floor() as i32,
@@ -468,7 +498,7 @@ fn advance_motion(actor: Actor<'_>, world: World<'_>) {
         } else {
             0.0
         }
-    } else if y > min_y {
+    } else if fall || min_y.is_none_or(|min_y| y > min_y) {
         (vy - 0.0625).max(-2.0)
     } else {
         0.0
@@ -480,13 +510,15 @@ fn advance_motion(actor: Actor<'_>, world: World<'_>) {
         ..EntityChange::default()
     });
     actor.entity.move_by(motion);
+    false
 }
 
-fn min_height(world: World<'_>) -> f64 {
-    if world.dimension_id() == Some("minecraft:overworld") {
-        -64.0
-    } else {
-        0.0
+fn min_height(world: World<'_>) -> Option<f64> {
+    // shortcut: clamp only vanilla dimensions until the world interface exposes build height.
+    match world.dimension_id()? {
+        "minecraft:overworld" => Some(-64.0),
+        "minecraft:the_nether" | "minecraft:the_end" => Some(0.0),
+        _ => None,
     }
 }
 
@@ -502,6 +534,9 @@ fn render(actor: Actor<'_>, grave: &Grave, skeleton: bool) -> bool {
         fastnbt::from_bytes::<ProfileSettings>(&profile).map_or(0, |profile| profile.hotbar_slot);
     let keys = [held, 40, 36, 37, 38, 39];
     let equipment = keys.map(|key| {
+        if !settings().show_equipment {
+            return None;
+        }
         grave
             .original
             .iter()
@@ -590,6 +625,7 @@ fn spill(runtime: Runtime, event: Event<'_>, id: i64) {
     grave.present = !grave.is_empty();
     grave.pending = grave.present;
     grave.body_position = view.position;
+    grave.prune_history(now_millis());
     archive(runtime, event.world, |current| {
         let Some(record) = current.get_mut(id) else {
             return;

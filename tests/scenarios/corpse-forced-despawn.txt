@@ -1,0 +1,40 @@
+# Prewrite config/corpse-synced.toml with [corpse.despawn] force_time = 80.
+# Omit -Fresh so the runner keeps the settings.
+mods target\mods\corpse.mmc
+start
+expect moddedmc: loaded corpse
+cmd forceload add 1024 1024
+botstart tester
+wait 4
+cmd gamemode spectator tester
+cmd tp tester 1025.5 300 1025.5
+wait 3
+cmd gamerule minecraft:keep_inventory false
+cmd fill 1024 299 1024 1031 299 1031 minecraft:quartz_block
+wait 0.5
+expect Successfully filled 64 block
+cmd gamemode survival tester
+cmd tp tester 1025.5 300 1025.5
+cmd spawnpoint tester 1025 300 1029
+wait 1
+cmd item replace entity tester hotbar.0 with minecraft:diamond 3
+cmd kill tester
+wait 1
+bot respawn
+wait 1
+cmd tp tester 1025.5 300 1029.5
+wait 6
+cmd execute positioned 1025.5 300 1025.5 unless entity @e[type=minecraft:interaction,distance=..2]
+wait 0.5
+expect Test passed
+bot expect entity minecraft:interaction near 1025.5 300 1025.5 within 2 count 0
+wait 0.5
+expect \[bot\] expect entity ok minecraft:interaction
+bot expect entity minecraft:item near 1025.5 300 1025.5 within 2 count 1
+wait 0.5
+expect \[bot\] expect entity ok minecraft:item
+bot cmd corpse_recover
+wait 0.5
+expect You have no recoverable corpse nearby
+bot quit
+stop

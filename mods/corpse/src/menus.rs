@@ -17,7 +17,8 @@ const INVENTORY_SLOTS: [i32; 45] = [
     39, 38, 37, 36, -1, 40, -1, -1, -1, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
     24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0, 1, 2, 3, 4, 5, 6, 7, 8,
 ];
-const RESTORE: u64 = 0;
+pub const RESTORE: u64 = 0;
+pub const RESTORE_SLOT: u8 = 8;
 const ADDITIONAL: u64 = 1;
 const BACK: u64 = 2;
 const PREVIOUS: u64 = 3;
@@ -30,6 +31,13 @@ struct Button {
     title: &'static str,
 }
 
+const RESTORE_BUTTON: Button = Button {
+    slot: RESTORE_SLOT,
+    tag: RESTORE,
+    item: "minecraft:hopper",
+    title: "Transfer items",
+};
+
 const MAIN_CONTROLS: &[Button] = &[
     Button {
         slot: 7,
@@ -37,12 +45,7 @@ const MAIN_CONTROLS: &[Button] = &[
         item: "minecraft:chest",
         title: "Additional items",
     },
-    Button {
-        slot: 8,
-        tag: RESTORE,
-        item: "minecraft:hopper",
-        title: "Transfer items",
-    },
+    RESTORE_BUTTON,
 ];
 const PAGE_CONTROLS: &[Button] = &[
     Button {
@@ -137,15 +140,7 @@ fn open_view(runtime: Runtime, world: World<'_>, player: &Player<'_>, view: View
     };
 
     let (access, buttons) = if view.page == 0 {
-        (
-            INVENTORY_SLOTS
-                .map(|slot| Access {
-                    take: slot >= 0,
-                    insert: false,
-                })
-                .to_vec(),
-            MAIN_CONTROLS,
-        )
+        (main_access(true).to_vec(), MAIN_CONTROLS)
     } else {
         (
             (0..54)
@@ -213,6 +208,13 @@ pub fn inventory_slots(items: &[SavedStack]) -> Vec<Option<Vec<u8>>> {
         .collect()
 }
 
+pub fn main_access(take: bool) -> [Access; INVENTORY_SLOTS.len()] {
+    INVENTORY_SLOTS.map(|slot| Access {
+        take: take && slot >= 0,
+        insert: false,
+    })
+}
+
 #[derive(Serialize)]
 struct Components {
     #[serde(rename = "minecraft:custom_name")]
@@ -233,7 +235,15 @@ fn button_stack(button: &Button) -> Option<Vec<u8>> {
     .ok()
 }
 
+pub fn restore_button_stack() -> Option<Vec<u8>> {
+    button_stack(&RESTORE_BUTTON)
+}
+
 pub fn clicked(action: Action<'_>) {
+    if let Some(player_id) = crate::history::creative_player(action.inventory) {
+        crate::history::transfer(action, player_id);
+        return;
+    }
     let (Some(&runtime), Some(view)) = (RUNTIME.get(), View::from_inventory(action.inventory))
     else {
         return;
@@ -263,6 +273,20 @@ pub fn clicked(action: Action<'_>) {
     }
 }
 
+pub fn matching_targets() -> Vec<Target> {
+    (0_u8..41)
+        .filter_map(|player_slot| {
+            let menu_slot = INVENTORY_SLOTS
+                .iter()
+                .position(|&slot| slot == i32::from(player_slot))?;
+            Some(Target {
+                menu_slot: u8::try_from(menu_slot).ok()?,
+                player_slot,
+            })
+        })
+        .collect()
+}
+
 fn restore(runtime: Runtime, action: Action<'_>, view: View) {
     let Some(pages) = with_grave(runtime, action.world, view.id, |grave| {
         grave.pages.iter().map(|page| page.id).collect::<Vec<_>>()
@@ -271,18 +295,12 @@ fn restore(runtime: Runtime, action: Action<'_>, view: View) {
     };
     let menus = runtime.interfaces.menus.menus();
     if view.page == 0 {
-        let targets: Vec<_> = (0_u8..41)
-            .filter_map(|player_slot| {
-                let menu_slot = INVENTORY_SLOTS
-                    .iter()
-                    .position(|&slot| slot == i32::from(player_slot))?;
-                Some(Target {
-                    menu_slot: u8::try_from(menu_slot).ok()?,
-                    player_slot,
-                })
-            })
-            .collect();
-        menus.restore_matching(&action.player, runtime.menu, action.inventory, &targets);
+        menus.restore_matching(
+            &action.player,
+            runtime.menu,
+            action.inventory,
+            &matching_targets(),
+        );
     }
     let loose: Vec<_> = (0..PAGE_SLOTS)
         .filter_map(|menu_slot| {
@@ -314,6 +332,10 @@ fn restore(runtime: Runtime, action: Action<'_>, view: View) {
 }
 
 pub fn changed(mut change: Change<'_>) {
+    if let Some(player_id) = crate::history::creative_player(change.inventory) {
+        crate::history::change(change, player_id);
+        return;
+    }
     let (Some(&runtime), Some(dimension), Some(view)) = (
         RUNTIME.get(),
         change.world.dimension_id(),
