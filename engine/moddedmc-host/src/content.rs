@@ -2874,6 +2874,8 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     projectile_owner: crate::entities::projectile_owner,
     can_freeze: crate::entities::can_freeze,
     shulker_bullet_target: crate::entities::shulker_bullet_target,
+    player_inventory_item: crate::entities::player_inventory_item,
+    player_inventory_stack: crate::entities::player_inventory_stack,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {

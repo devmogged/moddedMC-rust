@@ -451,7 +451,9 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, projectile_owner), 304);
         assert_eq!(offset_of!(EntitiesV1, can_freeze), 312);
         assert_eq!(offset_of!(EntitiesV1, shulker_bullet_target), 320);
-        assert_eq!(size_of::<EntitiesV1>(), 328);
+        assert_eq!(offset_of!(EntitiesV1, player_inventory_item), 328);
+        assert_eq!(offset_of!(EntitiesV1, player_inventory_stack), 336);
+        assert_eq!(size_of::<EntitiesV1>(), 344);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -1078,6 +1080,12 @@ pub struct EntitiesV1 {
     pub can_freeze: unsafe extern "C" fn(entity: EntityRef) -> bool,
     /// The shulker bullet's loaded target id, or -1 when absent or not a shulker bullet.
     pub shulker_bullet_target: unsafe extern "C" fn(entity: EntityRef) -> i32,
+    /// Read a nonempty player inventory slot's namespaced item ID (0..=40).
+    pub player_inventory_item:
+        unsafe extern "C" fn(entity: EntityRef, slot: u32, out: Sink) -> bool,
+    /// Read the same slot as Java named-root stack NBT. False for empty/invalid slots.
+    pub player_inventory_stack:
+        unsafe extern "C" fn(entity: EntityRef, slot: u32, out: Sink) -> bool,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.

@@ -44,6 +44,8 @@ pub enum EntitiesExtension {
     CanFreeze,
     /// The current target of a shulker bullet.
     ShulkerBulletTarget,
+    /// Read player inventory item IDs and stack NBT.
+    PlayerInventory,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -152,6 +154,10 @@ impl Entities {
             EntitiesExtension::ShulkerBulletTarget => (
                 std::mem::offset_of!(abi::EntitiesV1, shulker_bullet_target),
                 "moddedmc:entities.shulker_bullet_target",
+            ),
+            EntitiesExtension::PlayerInventory => (
+                std::mem::offset_of!(abi::EntitiesV1, player_inventory_stack),
+                "moddedmc:entities.player_inventory",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -632,6 +638,40 @@ impl<'a> Entity<'a> {
         (id >= 0).then_some(id)
     }
 
+    /// Namespaced item ID: 0–35 main inventory, 36–39 armor (feet to head),
+    /// 40 offhand. None for empty slots, invalid slots, nonplayers or older hosts.
+    pub fn player_inventory_item(self, slot: u32) -> Option<String> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, player_inventory_item))?;
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: the field is size checked, and the borrowed entity and sink live for the call.
+        if !unsafe { ((&raw const (*api).player_inventory_item).read())(self.raw, slot, sink) } {
+            return None;
+        }
+        String::from_utf8(data).ok()
+    }
+
+    /// Java named-root stack NBT for a nonempty player inventory slot.
+    pub fn player_inventory_stack(self, slot: u32) -> Option<Vec<u8>> {
+        let api = self.api.upto(std::mem::offset_of!(
+            abi::EntitiesV1,
+            player_inventory_stack
+        ))?;
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: the field is size checked, and the borrowed entity and sink live for the call.
+        unsafe { ((&raw const (*api).player_inventory_stack).read())(self.raw, slot, sink) }
+            .then_some(data)
+    }
+
     /// Apply damage without an attacker. Requires [EntitiesExtension::Damage].
     pub fn hurt(self, damage_type: &str, amount: f32) -> bool {
         if Entities(self.api)
@@ -704,6 +744,26 @@ impl Entities {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_queries_are_unavailable_on_old_hosts() {
+        let api = InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: std::mem::offset_of!(abi::EntitiesV1, player_inventory_item),
+        };
+        let entity = Entity {
+            raw: std::ptr::null(),
+            api,
+            scope: PhantomData,
+        };
+        assert_eq!(entity.player_inventory_item(0), None);
+        assert_eq!(entity.player_inventory_stack(40), None);
+        assert!(
+            Entities(api)
+                .require_extension(EntitiesExtension::PlayerInventory)
+                .is_err()
+        );
+    }
 
     #[test]
     fn combat_calls_are_unavailable_on_old_hosts() {

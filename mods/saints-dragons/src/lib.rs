@@ -111,6 +111,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
         entities.require_extension(EntitiesExtension::Players)?;
+        entities.require_extension(EntitiesExtension::PlayerInventory)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -386,6 +387,7 @@ fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) 
     roost::sweep();
     hunt::sweep(time);
     combat_stegonaut::sweep_aura(world);
+    combat_stegonaut::portable_aura(world, time);
 }
 
 const fn literal(name: &str) -> Node<'_> {

@@ -1,0 +1,33 @@
+# Stegonaut 0.9.88: bound inventory slots provide portable buffs, empty binders do not.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd item replace entity tester hotbar.0 with saintsdragons:stegonaut_binder
+wait 1.5
+cmd data get entity tester active_effects[0].id
+wait 0.5
+expect Found no elements matching active_effects
+cmd item replace entity tester inventory.17 with saintsdragons:stegonaut_binder[minecraft:custom_data={IsBound:1b,BoundDragonUUID:[I;1,2,3,4]}]
+wait 1.5
+cmd data get entity tester active_effects
+wait 0.5
+expect tester has the following entity data: (?=.*minecraft:resistance)(?=.*minecraft:absorption)
+cmd item replace entity tester weapon.offhand with saintsdragons:stegonaut_binder[minecraft:custom_data={IsBound:1b,BoundDragonUUID:[I;1,2,3,4]}]
+cmd item replace entity tester inventory.17 with minecraft:air
+wait 1.5
+cmd data get entity tester active_effects
+wait 0.5
+expect tester has the following entity data: (?=.*minecraft:resistance)(?=.*minecraft:absorption)
+cmd effect give tester minecraft:resistance 60 0 true
+cmd effect give tester minecraft:absorption 60 0 true
+cmd item replace entity tester weapon.offhand with minecraft:air
+wait 1.5
+cmd data get entity tester active_effects[0].id
+wait 0.5
+expect Found no elements matching active_effects
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

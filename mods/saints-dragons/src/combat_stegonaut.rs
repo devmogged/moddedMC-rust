@@ -511,6 +511,8 @@ type AuraKey = (&'static str, Uuid);
 type AuraTargets = HashMap<AuraKey, HashSet<Uuid>>;
 static AURA_TARGETS: std::sync::LazyLock<Mutex<AuraTargets>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+static PORTABLE_TARGETS: std::sync::LazyLock<Mutex<HashMap<&'static str, HashSet<Uuid>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn replace_targets(key: AuraKey, current: HashSet<Uuid>) -> Vec<Uuid> {
     let mut tracked = AURA_TARGETS.lock().unwrap_or_else(PoisonError::into_inner);
@@ -524,6 +526,10 @@ fn replace_targets(key: AuraKey, current: HashSet<Uuid>) -> Vec<Uuid> {
 
 fn clear_missing(world: World<'_>, key: AuraKey, current: HashSet<Uuid>) {
     let missing = replace_targets(key, current);
+    remove_buffs(world, missing);
+}
+
+fn remove_buffs(world: World<'_>, missing: impl IntoIterator<Item = Uuid>) {
     if let (Some(mobs), Some(entities)) = (MOBS.get(), ENTITIES.get()) {
         for uuid in missing {
             if let Some(id) = mobs.by_uuid(world, &uuid) {
@@ -534,6 +540,94 @@ fn clear_missing(world: World<'_>, key: AuraKey, current: HashSet<Uuid>) {
             }
         }
     }
+}
+
+const BINDER: &str = "saintsdragons:stegonaut_binder";
+
+fn bound_binder(nbt: &[u8]) -> bool {
+    use fastnbt::Value;
+    let Ok(stack) = fastnbt::from_bytes::<HashMap<String, Value>>(nbt) else {
+        return false;
+    };
+    // Recheck the ID in the snapshot in case the slot changed since the ID query.
+    if stack.get("id") != Some(&Value::String(BINDER.into())) {
+        return false;
+    }
+    let Some(Value::Compound(components)) = stack.get("components") else {
+        return false;
+    };
+    let Some(Value::Compound(custom)) = components.get("minecraft:custom_data") else {
+        return false;
+    };
+    custom.get("IsBound") == Some(&Value::Byte(1))
+        && matches!(custom.get("BoundDragonUUID"), Some(Value::IntArray(uuid)) if uuid.len() == 4)
+}
+
+fn has_bound_binder(player: Entity<'_>) -> bool {
+    (0..=40).any(|slot| {
+        player.player_inventory_item(slot).as_deref() == Some(BINDER)
+            && player
+                .player_inventory_stack(slot)
+                .is_some_and(|nbt| bound_binder(&nbt))
+    })
+}
+
+/// StegonautBuffAbility.updateAllPortableBuffs: all players with a bound binder
+/// share one target set per dimension. Refresh every 20 ticks and remove lost targets.
+pub fn portable_aura(world: World<'_>, time: u64) {
+    use moddedmc_api::entities::{ENTITY_ALIVE, ENTITY_LIVING, ENTITY_PLAYER};
+    if !time.is_multiple_of(20) {
+        return;
+    }
+    let (Some(dimension), Some(mobs), Some(entities)) =
+        (world.dimension_id(), MOBS.get(), ENTITIES.get())
+    else {
+        return;
+    };
+    let mut current = HashSet::new();
+    for id in entities.players(world) {
+        entities.with_entity(world, id, |player| {
+            if player.flags() & ENTITY_ALIVE == 0 || !has_bound_binder(player) {
+                return;
+            }
+            let Some(owner) = mobs.uuid(player) else {
+                return;
+            };
+            let mut apply = |target: Entity<'_>| {
+                let Some(view) = target.view() else { return };
+                if target.flags() & ENTITY_ALIVE == 0
+                    || view.kind & (ENTITY_LIVING | ENTITY_PLAYER) == 0
+                {
+                    return;
+                }
+                // shortcut: native pet ownership and Stegonaut allies require additional host/mod support.
+                if (view.kind & ENTITY_PLAYER != 0 || taming::owner(target) == Some(owner))
+                    && let Some(uuid) = mobs.uuid(target)
+                {
+                    target.add_effect("minecraft:resistance", 40, 0, false, false);
+                    target.add_effect("minecraft:absorption", 40, 0, false, false);
+                    current.insert(uuid);
+                }
+            };
+            apply(player);
+            for target in nearby(world, player, 8.0) {
+                entities.with_entity(world, target, &mut apply);
+            }
+        });
+    }
+    // shortcut: Ivy's own binder inventory is not exposed by the player inventory hook.
+    let previous = {
+        let mut tracked = PORTABLE_TARGETS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let previous = tracked.remove(dimension).unwrap_or_default();
+        let missing = previous.difference(&current).copied().collect::<Vec<_>>();
+        if !current.is_empty() {
+            tracked.insert(dimension, current);
+        }
+        missing
+    };
+    remove_buffs(world, previous);
 }
 
 /// StegonautBuffAbility.clearAuraTargets on removal, including capture by a binder.
@@ -607,6 +701,39 @@ pub fn aura(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn portable_aura_requires_bound_binder_with_uuid() {
+        use fastnbt::{IntArray, Value};
+        let encode = |id: &str, bound: i8, uuid: Vec<i32>| {
+            fastnbt::to_bytes(&HashMap::from([
+                ("id", Value::String(id.into())),
+                (
+                    "components",
+                    Value::Compound(HashMap::from([(
+                        "minecraft:custom_data".into(),
+                        Value::Compound(HashMap::from([
+                            ("IsBound".into(), Value::Byte(bound)),
+                            (
+                                "BoundDragonUUID".into(),
+                                Value::IntArray(IntArray::new(uuid)),
+                            ),
+                        ])),
+                    )])),
+                ),
+            ]))
+            .unwrap()
+        };
+        assert!(bound_binder(&encode(BINDER, 1, vec![1, 2, 3, 4])));
+        assert!(!bound_binder(&encode(BINDER, 0, vec![1, 2, 3, 4])));
+        assert!(!bound_binder(&encode(BINDER, 1, vec![1, 2, 3])));
+        assert!(!bound_binder(&encode(
+            "minecraft:paper",
+            1,
+            vec![1, 2, 3, 4]
+        )));
+        assert!(!bound_binder(&[]));
+    }
 
     #[test]
     fn aura_removes_only_targets_missing_from_this_source() {

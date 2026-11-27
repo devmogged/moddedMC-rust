@@ -704,6 +704,13 @@ at startup when the corresponding group is mandatory.
   ID, or `None` for other entities, missing targets or older hosts (ABI -1
   for absent targets). Require `EntitiesExtension::ShulkerBulletTarget`.
 
+- `Entity::player_inventory_item(slot)` returns the namespaced ID of a
+  nonempty stack; `Entity::player_inventory_stack(slot)` returns its Java
+  named-root stack NBT. Slots 0–35 are the main inventory (0–8 hotbar),
+  36–39 are armor (feet to head), and 40 is offhand. Both return None for
+  empty or invalid slots, nonplayers and older hosts. Require
+  `EntitiesExtension::PlayerInventory`. Each read is a snapshot of one slot.
+
 `moddedmc:block_world` v1 appends `World::set_weather(mode, ticks)` and
 `World::raycast(from, to, except)` after `can_see_sky`. Weather modes are
 0 (clear), 1 (rain), and 2 (thunder), with positive durations in ticks.
