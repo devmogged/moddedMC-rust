@@ -1,0 +1,28 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# A close-range retaliation chooses the major sweep and damages a hostile target.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd tp tester 1029.5 121 1033.5
+wait 4
+cmd fill 1007 119 1007 1051 119 1057 minecraft:stone
+cmd fill 1007 120 1007 1051 129 1057 minecraft:air
+cmd time set midnight
+wait 3
+cmd saintsdragons spawn atroxiia 1025 120 1025
+cmd summon minecraft:warden 1025.5 120 1028.25 {NoAI:1b,Silent:1b,Tags:["atroxiia_target"]}
+wait 2
+cmd tp @e[type=minecraft:ravager,limit=1] 1025.5 120 1025.5 0 0
+wait 0.25
+cmd damage @e[type=minecraft:ravager,limit=1] 1 minecraft:mob_attack by @e[tag=atroxiia_target,limit=1]
+wait 1.25
+cmd data get entity @e[type=minecraft:ravager,limit=1] data."saintsdragons:atroxiia_combat".last
+cmd data get entity @e[tag=atroxiia_target,limit=1] Health
+wait 0.5
+expect has the following entity data: "?Sweep"?
+expect Warden has the following entity data: 4[0-9]{2}(?:\.[0-9]+)?f
+reject (?i)panic|panicked
+bot quit
+stop

@@ -16,6 +16,7 @@ mod catalog;
 mod codex;
 mod combat;
 mod combat_raevyx;
+mod combat_atroxiia;
 mod consumables;
 mod crucible;
 mod discs;
