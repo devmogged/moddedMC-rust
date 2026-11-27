@@ -20,9 +20,14 @@ cmd setblock 2440 102 2440 minecraft:redstone_block
 wait 0.5
 cmd setblock 2440 102 2440 minecraft:air
 wait 0.5
+cmd tick rate 1
+await 5 Set the target tick rate to 1\.0
 cmd kinetics 2440 99 2440 15
-wait 0.95
+cmd tick sprint 20t
+await 5 \[bot\].*commands.tick.sprint.report
 cmd kinetics 2440 99 2440 0
+wait 1.2
+cmd tick rate 20
 wait 0.5
 bot expect block 2440 101 2439 minecraft:cobblestone
 bot expect block 2441 101 2440 minecraft:air
@@ -35,9 +40,14 @@ cmd setblock 2440 102 2440 minecraft:redstone_block
 wait 0.5
 cmd setblock 2440 102 2440 minecraft:air
 wait 0.5
+cmd tick rate 1
+await 5 Set the target tick rate to 1\.0
 cmd kinetics 2440 99 2440 15
-wait 0.95
+cmd tick sprint 20t
+await 5 \[bot\].*commands.tick.sprint.report
 cmd kinetics 2440 99 2440 0
+wait 1.2
+cmd tick rate 20
 wait 0.5
 bot expect block 2440 101 2439 minecraft:cobblestone
 bot expect block 2439 101 2440 minecraft:air
