@@ -385,6 +385,7 @@ fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) 
     visuals::sweep(world, time, events);
     roost::sweep();
     hunt::sweep(time);
+    combat_stegonaut::sweep_aura(world);
 }
 
 const fn literal(name: &str) -> Node<'_> {

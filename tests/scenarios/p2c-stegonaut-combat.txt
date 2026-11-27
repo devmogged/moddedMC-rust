@@ -1,4 +1,4 @@
-# Stegonaut 0.9.88: a wild adult retaliates with bite/chin slam, then a tame adult buffs its owner.
+# Stegonaut 0.9.88: attributed chin slam, then a tame adult's aura and explicit cleanup.
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 start
 botstart tester
@@ -15,6 +15,7 @@ cmd saintsdragons spawn stegonaut 1025 100 1025
 cmd summon minecraft:iron_golem 1025.5 100 1028.25 {NoAI:1b,Tags:["stego_target"]}
 wait 2
 cmd tp @e[type=minecraft:ravager,limit=1] 1025.5 100 1025.5 0 0
+cmd data merge entity @e[type=minecraft:ravager,limit=1] {data:{"saintsdragons:stegonaut_combat":{bite_cooldown:200}}}
 wait 0.25
 cmd damage @e[type=minecraft:ravager,limit=1] 1 minecraft:mob_attack by @e[tag=stego_target,limit=1]
 wait 2
@@ -31,6 +32,26 @@ expect Stegonaut has been tamed!
 cmd data get entity tester active_effects
 wait 0.5
 expect tester has the following entity data: (?=.*minecraft:resistance)(?=.*minecraft:absorption)
+# Long-duration copies ensure removal is not merely natural expiration.
+cmd effect give tester minecraft:resistance 60 0 true
+cmd effect give tester minecraft:absorption 60 0 true
+cmd tp tester 1036.5 100 1036.5
+wait 1.5
+cmd data get entity tester active_effects[0].id
+wait 0.5
+expect Found no elements matching active_effects
+cmd tp tester 1025.5 100 1029.5
+wait 1.5
+cmd data get entity tester active_effects
+wait 0.5
+expect tester has the following entity data: (?=.*minecraft:resistance)(?=.*minecraft:absorption)
+cmd effect give tester minecraft:resistance 60 0 true
+cmd effect give tester minecraft:absorption 60 0 true
+cmd kill @e[type=minecraft:ravager,limit=1]
+wait 0.5
+cmd data get entity tester active_effects[0].id
+wait 0.5
+expect Found no elements matching active_effects
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop
