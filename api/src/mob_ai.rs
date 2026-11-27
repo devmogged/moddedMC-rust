@@ -19,6 +19,16 @@ pub type GoalHandler = fn(phase: u32, key: u64, world: World<'_>, mob: Entity<'_
 pub type HurtHandler =
     fn(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -> bool;
 
+/// Adjusts a hit after mitigation. Lethal includes absorption.
+pub type HurtFinalHandler = fn(
+    world: World<'_>,
+    mob: Entity<'_>,
+    damage_type: &str,
+    amount: f32,
+    lethal: bool,
+    absorption: f32,
+) -> f32;
+
 /// Calls appended to `moddedmc:mob_ai` v1 after its first release.
 #[derive(Clone, Copy)]
 pub enum MobAiExtension {
@@ -26,6 +36,8 @@ pub enum MobAiExtension {
     Combat,
     /// `damage_source`.
     DamageSource,
+    /// `on_hurt_final`.
+    HurtFinal,
 }
 
 #[derive(Clone, Copy)]
@@ -43,6 +55,7 @@ pub struct Goal<'a> {
 
 static HANDLER: OnceLock<GoalHandler> = OnceLock::new();
 static HURT: OnceLock<HurtHandler> = OnceLock::new();
+static HURT_FINAL: OnceLock<HurtFinalHandler> = OnceLock::new();
 
 pub fn require() -> Result<MobAi, InterfaceUnavailable> {
     // SAFETY: this is the published table type for moddedmc:mob_ai v1; appended fields are read
@@ -67,6 +80,34 @@ unsafe extern "C" fn hurt(
     })
 }
 
+unsafe extern "C" fn hurt_final(
+    world: abi::WorldRef,
+    mob: abi::EntityRef,
+    damage_type: abi::Str,
+    amount: f32,
+    lethal: bool,
+    absorption: f32,
+) -> f32 {
+    guard("mob hurt final", amount, || {
+        let (Some(handler), Some(world), Some(mob)) = (
+            HURT_FINAL.get(),
+            World::borrowed(world),
+            Entity::borrowed(mob),
+        ) else {
+            return amount;
+        };
+        // SAFETY: the host borrows the id for this call.
+        handler(
+            world,
+            mob,
+            unsafe { damage_type.str() },
+            amount,
+            lethal,
+            absorption,
+        )
+    })
+}
+
 unsafe extern "C" fn goal(phase: u32, key: u64, world: abi::WorldRef, mob: abi::EntityRef) -> bool {
     guard("mob goal", false, || {
         let (Some(handler), Some(world), Some(mob)) =
@@ -88,6 +129,10 @@ impl MobAi {
             MobAiExtension::DamageSource => (
                 std::mem::offset_of!(abi::MobAiV1, damage_source),
                 "moddedmc:mob_ai.damage_source",
+            ),
+            MobAiExtension::HurtFinal => (
+                std::mem::offset_of!(abi::MobAiV1, on_hurt_final),
+                "moddedmc:mob_ai.hurt_final",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -115,6 +160,26 @@ impl MobAi {
         })
     }
 
+    /// Register the mod's final damage handler for this kind.
+    pub fn on_hurt_final(
+        self,
+        reg: &mut Registry<'_>,
+        kind: &str,
+        handler: HurtFinalHandler,
+    ) -> Result<(), RegistrationError> {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobAiV1, on_hurt_final))
+        else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        let _ = HURT_FINAL.set(handler);
+        // SAFETY: registration is live and the table prefix includes this field.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_hurt_final).read())(reg.reg, s(kind), hurt_final)
+        })
+    }
+
     /// Who last hurt `mob` and its tick count then (vanilla `getLastHurtByMob` and
     /// `getLastHurtByMobTimestamp`). Needs `MobAiExtension::Combat`.
     pub fn last_hurt_by(self, mob: Entity<'_>) -> Option<(i32, i32)> {
@@ -138,7 +203,7 @@ impl MobAi {
         unsafe { ((&raw const (*api).attack).read())(world.raw(), mob.raw(), target, amount) }
     }
 
-    /// The causing and direct entity ids for the current mob hurt or worn hurt callback.
+    /// The causing and direct entity ids for the current mob hurt, final hurt or worn hurt callback.
     /// Either id may be -1. None outside those callbacks or on an older host.
     pub fn damage_source(self) -> Option<(i32, i32)> {
         let api = self

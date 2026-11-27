@@ -8,7 +8,7 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
-| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs; swarm combat; Ivy trades, persistent companion inventory, recruited melee and dash attacks, saved downed/revival counters | Ivy's original inventory UI, lethal-hit downed entry, recovery items and projectile combat, owner-initiated targeting, resuming dialogue after trading, exact navigation, spawn restrictions, attributes and collision |
+| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs; swarm combat; Ivy trades, persistent companion inventory, recruited melee and dash attacks, lethal-hit downed entry and saved downed/revival counters | Ivy's original inventory UI, recovery items and projectile combat, owner-initiated targeting, resuming dialogue after trading, exact navigation, spawn restrictions, attributes and collision |
 | Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback, and the custom Raevyx storm, Stegonaut lush cave and Volitans underwater spawners | Per-species brains, navigation, growth and breeding |
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Varasuchus AI bite, phase-two bite, horn gore, claw, tail sweep, slash barrage and phase transition, horn armor penetration, armor-compensated tail sweep, resistance-aware horn knockback and land attack visibility. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Other per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects; Varasuchus rider abilities, parry and exact eye-height sensing |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, roster melee attribute scaling, juvenile food taming, growth feeding and raw-moop stunting; grooming hurt clips and roost damage wake-up reactions; breeding XP and stats, credited hunting and fresh-drop eating, owner-bed sleep | Nulljaw wild juvenile feeding, contextual breeding advancement, sensory disturbances, codex hunger display; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
@@ -319,12 +319,16 @@ remain pending.
 Ivy's boxing and sword dashes use the released moving-target pressure,
 retreat direction, action durations, impulses and cooldowns. Saved downed
 state supports a 90-second bleed-out, three finishing hits, owner revival
-interactions, healing and the 30-tick arise animation. Natural downed entry
-requires a post-mitigation pre-death damage hook; the current pre-armor hook
-cannot determine lethal damage or its attacker reliably. The host also
+interactions, healing and the 30-tick arise animation. The final damage hook
+allows recruited Ivy to enter downed at one health on a lethal hit after
+mitigation, except for damage that bypasses invulnerability. Varasuchus
+halves drowning damage using the same hook. Tailguard parry awaits rider
+ability input and inventory totems remain pending. The host also
 lacks full aggro-memory clearing and heal-event interception. The
 [Ivy downed scenario](../tests/scenarios/p2ba-saints-dragons-ivy-downed.txt)
 seeds the saved state to exercise its supported behavior.
+[Final damage scenario](../tests/scenarios/p2bc-saints-dragons-hurt-final.txt)
+exercises natural downed entry and drowning damage.
 
 ## Released creative tab
 

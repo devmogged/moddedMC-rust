@@ -131,6 +131,8 @@ impl Mod for SaintsDragons {
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;
+        ai.require_extension(MobAiExtension::DamageSource)?;
+        ai.require_extension(MobAiExtension::HurtFinal)?;
         let _ = MOB_AI.set(ai);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::MobUse)?;

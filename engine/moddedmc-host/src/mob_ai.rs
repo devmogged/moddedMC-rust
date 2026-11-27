@@ -21,7 +21,10 @@ use pumpkin_core::{
     plugin::{
         BoxFuture, Cancellable, EventHandler,
         api::events::{
-            entity::{entity_damage::EntityDamageEvent, entity_death::EntityDeathEvent},
+            entity::{
+                entity_damage::EntityDamageEvent, entity_damage_final::EntityDamageFinalEvent,
+                entity_death::EntityDeathEvent,
+            },
             player::player_interact_entity_event::PlayerInteractEntityEvent,
         },
     },
@@ -50,6 +53,7 @@ pub static MOB_AI: abi::MobAiV1 = abi::MobAiV1 {
     last_hurt_by,
     attack,
     damage_source,
+    on_hurt_final,
 };
 
 thread_local! {
@@ -127,6 +131,7 @@ pub struct TypeAi {
     replace: bool,
     goals: Vec<StagedGoal>,
     hurt: Option<abi::HurtCallback>,
+    hurt_final: Option<abi::HurtFinalCallback>,
     use_mob: Option<abi::UseMobFn>,
     death: Option<abi::MobDeathFn>,
 }
@@ -186,6 +191,18 @@ unsafe extern "C" fn on_hurt(reg: Reg, kind: Str, callback: abi::HurtCallback) -
         return code::DUPLICATE_ID;
     }
     ai.hurt = Some(callback);
+    code::OK
+}
+
+unsafe extern "C" fn on_hurt_final(reg: Reg, kind: Str, callback: abi::HurtFinalCallback) -> i32 {
+    // SAFETY: registration is live for the call.
+    let Some(ai) = (unsafe { staged(reg, kind) }) else {
+        return code::INVALID_DEFINITION;
+    };
+    if ai.hurt_final.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    ai.hurt_final = Some(callback);
     code::OK
 }
 
@@ -312,6 +329,7 @@ pub fn register(staged: BTreeMap<String, TypeAi>) {
         entry.replace |= ai.replace;
         entry.goals.extend(ai.goals);
         entry.hurt = entry.hurt.or(ai.hurt);
+        entry.hurt_final = entry.hurt_final.or(ai.hurt_final);
         entry.use_mob = entry.use_mob.or(ai.use_mob);
         entry.death = entry.death.or(ai.death);
     }
@@ -355,6 +373,47 @@ impl EventHandler<EntityDamageEvent> for HurtHandler {
             });
             if !take {
                 event.set_cancelled(true);
+            }
+        })
+    }
+}
+
+/// Dispatch damage after mitigation to the registered mod mob.
+pub struct HurtFinalHandler;
+
+impl EventHandler<EntityDamageFinalEvent> for HurtFinalHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut EntityDamageFinalEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if types().values().all(|ai| ai.hurt_final.is_none()) {
+                return;
+            }
+            let Some((world, entity)) = find(server, event.hit.entity_id) else {
+                return;
+            };
+            let Some(callback) = mobs::registered_kind(entity.as_ref())
+                .and_then(|kind| types().get(kind).and_then(|ai| ai.hurt_final))
+            else {
+                return;
+            };
+            let name = IDSetContent::to_string(&event.hit.damage_type);
+            let base: &dyn EntityBase = entity.as_ref();
+            // SAFETY: the world, mob and name outlive the synchronous callback.
+            let amount = with_damage_source(&event.hit, || unsafe {
+                callback(
+                    ptr::from_ref(world.as_ref()).cast(),
+                    ptr::from_ref(&base).cast(),
+                    Str::new(name.as_bytes()),
+                    event.hit.damage,
+                    event.lethal,
+                    event.absorption,
+                )
+            });
+            if amount.is_finite() {
+                event.hit.damage = amount.max(0.0);
             }
         })
     }
