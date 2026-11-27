@@ -1,0 +1,53 @@
+# A genuine vanilla Crafter keeps its machine-local Polymorph selection.
+# The machine consumes one real ingredient on redstone activation and emits
+# the selected datapack result, without a fabricated item grant.
+mods target\mods\polymorph.mmc
+start
+expect moddedmc: loaded polymorph
+cmd datapack enable "file/conflicts" last
+wait 1
+expect Loaded datapack 'conflicts'
+stop
+start
+botstart alice
+wait 3
+cmd gamemode survival alice
+cmd tp alice 1025.5 101 1023.5
+wait 4
+cmd fill 1020 99 1020 1031 99 1030 minecraft:stone
+cmd fill 1020 100 1020 1031 105 1030 minecraft:air
+cmd setblock 1025 100 1025 minecraft:crafter[orientation=up_north]
+wait 2
+cmd item replace entity alice hotbar.0 with minecraft:stone 3
+bot use 1025 100 1025 north
+wait 1
+bot inventory-click 36 left
+bot inventory-click 1 left
+wait 1
+bot expect slot 45 minecraft:stone_button 1
+bot cmd polymorph list
+wait 1
+expect polymorph_test:02_emerald
+bot cmd polymorph choose 3
+wait 1
+bot expect slot 45 minecraft:emerald 1
+bot expect slot 1 minecraft:stone 3
+bot inventory-close
+cmd data get block 1025 100 1025
+wait 1
+expect moddedmc:generated_crafting|polymorph_test:02_emerald
+cmd setblock 1025 102 1025 minecraft:air
+cmd setblock 1025 101 1025 minecraft:redstone_block
+wait 0.35
+cmd data get block 1025 100 1025 Items
+wait 1
+expect count: 2
+bot expect entity minecraft:item near 1025.5 100.5 1025.5 within 4 count 1
+wait 1
+expect \[bot\] expect entity ok minecraft:item
+cmd data get entity @e[type=minecraft:item,x=1025.5,y=100.5,z=1025.5,distance=..4,nbt={Item:{id:"minecraft:emerald"}},limit=1] Item.id
+wait 1
+expect minecraft:emerald
+reject (?i)panicked|\[bot\] error:
+bot quit
+stop

@@ -310,12 +310,24 @@ unsafe extern "C" fn select_machine_recipe(player: PlayerRef, index: u16) -> boo
     };
     let machine_position = crafter.get_position();
     if world.get_block(&machine_position) != &pumpkin_data::Block::CRAFTER {
+        tracing::warn!(
+            "polymorph machine selection rejected: not crafter block at {machine_position:?}"
+        );
         return false;
     }
     let Some(live_machine) = world.get_block_entity(&machine_position) else {
+        tracing::warn!(
+            "polymorph machine selection rejected: block entity missing at {machine_position:?}"
+        );
         return false;
     };
-    if !std::ptr::eq(live_machine.as_any(), crafter) {
+    if !std::ptr::eq(
+        live_machine.as_any() as *const dyn std::any::Any as *const (),
+        crafter as *const CrafterBlockEntity as *const (),
+    ) {
+        tracing::warn!(
+            "polymorph machine selection rejected: stale block entity at {machine_position:?}"
+        );
         return false;
     }
     // Keep the current menu fixed throughout validation and application.
@@ -324,9 +336,11 @@ unsafe extern "C" fn select_machine_recipe(player: PlayerRef, index: u16) -> boo
     let screen = crate::lock(&player.current_screen_handler).clone();
     let mut screen = crate::lock(&screen);
     let Some(menu) = screen.as_any_mut().downcast_mut::<CrafterScreenHandler>() else {
+        tracing::warn!("polymorph machine selection rejected: menu not Crafter");
         return false;
     };
-    if menu.is_spectator || !std::ptr::eq(menu.container.as_any(), container.as_any()) {
+    if menu.is_spectator || !std::sync::Arc::ptr_eq(&menu.container, &container) {
+        tracing::warn!("polymorph machine selection rejected: menu container changed or spectator");
         return false;
     }
     let _craft_guard = crafter
@@ -336,9 +350,14 @@ unsafe extern "C" fn select_machine_recipe(player: PlayerRef, index: u16) -> boo
     // Do not update a detached incarnation after removal/conversion while a
     // stale menu stays open. The position alone is not the machine identity.
     let Some(still_live) = world.get_block_entity(&machine_position) else {
+        tracing::warn!("polymorph machine selection rejected: entity removed during selection");
         return false;
     };
-    if !std::ptr::eq(still_live.as_any(), crafter) {
+    if !std::ptr::eq(
+        still_live.as_any() as *const dyn std::any::Any as *const (),
+        crafter as *const CrafterBlockEntity as *const (),
+    ) {
+        tracing::warn!("polymorph machine selection rejected: entity replaced during selection");
         return false;
     }
     let frozen = crafter.ingredient_snapshot();
@@ -361,14 +380,22 @@ unsafe extern "C" fn select_machine_recipe(player: PlayerRef, index: u16) -> boo
             ordinal < usize::from(abi::MAX_CRAFTING_CHOICES)
         },
     );
-    if chosen.is_none()
-        || revision_before != server.recipe_manager.recipe_revision()
-        || crafter
-            .ingredient_snapshot()
-            .iter()
-            .zip(frozen.iter())
-            .any(|(a, b)| a.item_count != b.item_count || !a.are_items_and_components_equal(b))
-    {
+    let current_revision = server.recipe_manager.recipe_revision();
+    let input_changed = crafter
+        .ingredient_snapshot()
+        .iter()
+        .zip(frozen.iter())
+        .any(|(a, b)| a.item_count != b.item_count || !a.are_items_and_components_equal(b));
+    if chosen.is_none() || revision_before != current_revision || input_changed {
+        tracing::warn!(
+            ?index,
+            ordinal,
+            ?revision_before,
+            ?current_revision,
+            input_changed,
+            found = chosen.is_some(),
+            "polymorph machine selection rejected: recipe no longer matches"
+        );
         return false;
     }
     let Some(selected) = chosen else {
