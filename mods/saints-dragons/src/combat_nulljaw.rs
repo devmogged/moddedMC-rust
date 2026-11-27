@@ -9,7 +9,8 @@ use moddedmc_api::{
     content::World,
     effects::SOUND_NEUTRAL,
     entities::{
-        ENTITY_ALIVE, Entity, EntityChange, SET_BODY_YAW, SET_HEAD_YAW, SET_MOTION, SET_YAW,
+        ENTITY_ALIVE, ENTITY_PLAYER, Entity, EntityChange, SET_BODY_YAW, SET_HEAD_YAW, SET_MOTION,
+        SET_YAW,
     },
     mob_ai::goal_phase,
     tick_count,
@@ -137,7 +138,7 @@ fn deactivate_cloak(world: World<'_>, mob: Entity<'_>, cloak: &Cloak) {
         && let Some(id) = mobs.by_uuid(world, &cloak.uuid())
     {
         entities.with_entity(world, id, |rider| {
-            if rider.type_id() == "minecraft:player" {
+            if rider.view().is_some_and(|v| v.kind & ENTITY_PLAYER != 0) {
                 rider.remove_effect(INVISIBILITY);
             }
         });
@@ -156,7 +157,7 @@ pub fn cloak_tick(world: World<'_>, mob: Entity<'_>) {
     let uuid = cloak.uuid();
     let rider = mobs.passengers(mob).first().copied().filter(|&id| {
         entities.with_entity(world, id, |e| {
-            e.type_id() == "minecraft:player" && mobs.uuid(e) == Some(uuid)
+            e.view().is_some_and(|v| v.kind & ENTITY_PLAYER != 0) && mobs.uuid(e) == Some(uuid)
         }) == Some(true)
     });
     cloak.remaining -= 1;
