@@ -103,6 +103,7 @@ struct Courtship {
 #[derive(Default)]
 struct State {
     love: HashMap<i32, u64>,
+    love_cause: HashMap<i32, [u8; 16]>,
     cooldown: HashMap<i32, u64>,
     fed: HashMap<i32, u64>,
     courting: HashMap<i32, Courtship>,
@@ -130,6 +131,7 @@ pub fn breeds(species: &str) -> bool {
 pub fn forget(id: i32) {
     with(|state| {
         state.love.remove(&id);
+        state.love_cause.remove(&id);
         state.cooldown.remove(&id);
         state.fed.remove(&id);
         release(state, id);
@@ -203,6 +205,9 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     with(|state| {
         state.fed.insert(id, now + breeder.feed_ticks());
         state.love.insert(id, now + LOVE_TICKS);
+        if let Some(uuid) = MOBS.get().and_then(|mobs| mobs.uuid(player)) {
+            state.love_cause.insert(id, uuid);
+        }
     });
     taming::feed_particles(click.world, mob, true);
     message(player, "%s is ready to breed!", name);
@@ -478,10 +483,34 @@ fn lay(world: World<'_>, mob: Entity<'_>, partner: Entity<'_>, breeder: &Breeder
         return;
     }
     taming::feed_particles(world, mother, true);
-    // shortcut: XP (1–7, doMobLoot), animals_bred and BRED_ANIMALS need host calls.
+    if let Some(mobs) = MOBS.get() {
+        if mobs.boolean_gamerule(world, "minecraft:mob_drops") == Some(true) {
+            let at = if breeder.name == "nulljaw" {
+                midpoint
+            } else {
+                mother_at
+            };
+            let _ = mobs.award_experience(world, at, (1 + random(7)) as u32);
+        }
+        let causes =
+            with(|state| [mob.id(), partner.id()].map(|id| state.love_cause.get(&id).copied()));
+        if let Some(entities) = ENTITIES.get() {
+            for uuid in causes.into_iter().flatten() {
+                if let Some(id) = mobs.by_uuid(world, &uuid)
+                    && entities.with_entity(world, id, |player| {
+                        mobs.award_stat(player, "minecraft:custom", "minecraft:animals_bred", 1)
+                    }) == Some(Some(true))
+                {
+                    break;
+                }
+            }
+        }
+    }
+    // shortcut: the contextual BRED_ANIMALS advancement trigger still needs a host call.
     with(|state| {
         for id in [mob.id(), partner.id()] {
             state.love.remove(&id);
+            state.love_cause.remove(&id);
             state.cooldown.insert(id, now + COOLDOWN_TICKS);
             release(state, id);
         }
