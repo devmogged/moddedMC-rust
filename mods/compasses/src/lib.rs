@@ -6,6 +6,7 @@ mod config;
 pub mod group_search;
 mod state;
 pub mod structure_search;
+pub mod teleport;
 
 use moddedmc_api::{
     InterfaceUnavailable, Menu, MenuButton, Mod, Player, Pos, RegistrationError, Registry,
@@ -13,6 +14,7 @@ use moddedmc_api::{
     entities::{self, Entities, EntitiesExtension},
     interaction::{self, Interaction, InteractionExtension, PlayerStackData, UseItem, UseResult},
     items::{self, Item, ItemDefaults},
+    mobs::{self, Mobs, MobsExtension},
     tags::{self, Tags},
     worldgen_lookup::{self, Lookup, StructureGroups, Structures, WorldgenLookup},
 };
@@ -32,6 +34,7 @@ struct Host {
     structures: Structures,
     groups: Option<StructureGroups>,
     tags: Tags,
+    modes: Option<Mobs>,
 }
 static HOST: OnceLock<Host> = OnceLock::new();
 static CONFIG: OnceLock<(config::Options, config::Options)> = OnceLock::new();
@@ -345,6 +348,24 @@ fn horizontal_distance(player: moddedmc_api::Position, target: Pos) -> i32 {
     ((dx * dx + dz * dz) as f32).sqrt() as i32
 }
 
+fn search_tooltip(item: &str, requested: &str, description: &str) -> String {
+    let levels = options(item).map_or(0, |opts| opts.costs.xp_for(requested));
+    if levels == 0 {
+        description.into()
+    } else {
+        format!("{description} (cost: {levels} XP level(s))")
+    }
+}
+
+fn wear_message(item: &str, state: &State) -> Option<String> {
+    let durability = options(item)?.costs.durability;
+    if durability == 0 {
+        return None;
+    }
+    let remaining = durability.saturating_sub(state.wear);
+    Some(format!("Compass uses remaining: {remaining}/{durability}."))
+}
+
 fn open_menu(player: &Player<'_>, selection: &Selection, page: usize) {
     let nonce = selection.token;
     let start = page.saturating_mul(PAGE);
@@ -356,7 +377,7 @@ fn open_menu(player: &Player<'_>, selection: &Selection, page: usize) {
         .take(PAGE)
         .map(|(index, id)| MenuButton {
             label: id.clone(),
-            tooltip: "Search from your current position".into(),
+            tooltip: search_tooltip(selection.item, id, "Search from your current position"),
             action: format!("compasses:pick/{nonce:x}/{index}"),
         })
         .collect();
@@ -384,11 +405,15 @@ fn open_menu(player: &Player<'_>, selection: &Selection, page: usize) {
     if selection.can_next() {
         buttons.push(MenuButton {
             label: "Find next / retry".into(),
-            tooltip: selection.state.target.clone(),
+            tooltip: search_tooltip(
+                selection.item,
+                &selection.state.target,
+                &selection.state.target,
+            ),
             action: format!("compasses:next/{nonce:x}/0"),
         });
     }
-    let body = match selection.state.status {
+    let mut body = match selection.state.status {
         Status::Found => selection
             .state
             .previous
@@ -422,6 +447,10 @@ fn open_menu(player: &Player<'_>, selection: &Selection, page: usize) {
         ),
         _ => "Select a target in this dimension.".into(),
     };
+    if let Some(wear) = wear_message(selection.item, &selection.state) {
+        body.push(' ');
+        body.push_str(&wear);
+    }
     player.show_menu(&Menu {
         title: if selection.item == NATURE {
             "Nature's Compass"
@@ -447,7 +476,11 @@ fn open_group_menu(player: &Player<'_>, selection: &Selection, page: usize) {
             let group = selection.groups.get(group)?;
             Some(MenuButton {
                 label: group.id.clone(),
-                tooltip: format!("Search {} member structures", group.members.len()),
+                tooltip: search_tooltip(
+                    selection.item,
+                    &group.id,
+                    &format!("Search {} member structures", group.members.len()),
+                ),
                 action: format!("compasses:gpick/{nonce:x}/{index}"),
             })
         })
@@ -471,9 +504,14 @@ fn open_group_menu(player: &Player<'_>, selection: &Selection, page: usize) {
         tooltip: String::new(),
         action: format!("compasses:page/{nonce:x}/0"),
     });
+    let mut body = "Select a structure set to search all its members.".to_owned();
+    if let Some(wear) = wear_message(selection.item, &selection.state) {
+        body.push(' ');
+        body.push_str(&wear);
+    }
     player.show_menu(&Menu {
         title: "Explorer's Compass: Groups".into(),
-        body: "Select a structure set to search all its members.".into(),
+        body,
         buttons,
     });
 }
@@ -517,16 +555,21 @@ fn use_item(ctx: &mut UseItem<'_>) -> UseResult {
     // Sneak-use clears the selected target without opening a dialog.
     // The new nonce also invalidates stale clicks and in-flight search results.
     if ctx.sneaking() {
-        let Some(blank) = State::blank().encode(item) else {
+        let old_nonce = state.nonce;
+        state.reset_search();
+        let Some(blank) = state.encode(item) else {
             return UseResult::Fail;
         };
         if !ctx.stack.set_lodestone(&blank, None) {
             return UseResult::Fail;
         }
         with_runtime(|rt| {
-            rt.jobs
-                .retain(|job| job.key() != (entity.id(), state.nonce));
+            rt.jobs.retain(|job| job.key() != (entity.id(), old_nonce));
         });
+        return UseResult::Success;
+    }
+    if state.broken(options.costs.durability) {
+        player.send_message("Compass is broken. Repair it with a vanilla compass.");
         return UseResult::Success;
     }
     if state.status == Status::Searching {
@@ -643,6 +686,10 @@ fn start_search(
             return;
         }
         let mut state = selection.state;
+        if state.broken(options.costs.durability) {
+            player.send_message("Compass is broken. Repair it with a vanilla compass.");
+            return;
+        }
         let same = state.target == target
             && state.is_group == is_group
             && state.dimension == selection.dimension;
@@ -727,6 +774,10 @@ fn start_search(
             y: if selection.item == EXPLORER { 16 } else { 0 },
             ..Pos::default()
         });
+        // A successful non-creative search may introduce the MCc3 wear
+        // field. Include those bytes in the worst-case size reservation.
+        let previous_wear = state.wear;
+        state.wear = state.successful_wear(options.costs.durability, false);
         let fits = state.encode(selection.item).is_some()
             && longest_member.is_none_or(|member| {
                 let original = std::mem::replace(&mut state.target, member);
@@ -735,6 +786,7 @@ fn start_search(
                 fits
             });
         state.previous.pop();
+        state.wear = previous_wear;
         if !fits {
             player.send_message("Compass history is too large.");
             return;
@@ -884,6 +936,23 @@ fn tick(world: World<'_>, time: u64, _: &[content::ContentEvent]) {
                         }
                     }
                 };
+                let old_wear = job.state.wear;
+                // The state and tracker are written together by the existing
+                // exact-stack CAS. A failed/cancelled search never changes wear.
+                let durability = options(job.item).map_or(0, |opts| opts.costs.durability);
+                let result = if matches!(result, Lookup::Found(_)) && durability != 0 {
+                    match host.modes.and_then(|m| m.game_mode(entity)) {
+                        Some(mode) if (0..=3).contains(&mode) => {
+                            job.state.wear = job.state.successful_wear(durability, mode == 1);
+                            result
+                        }
+                        // Never grant an uncharged success when the host cannot
+                        // establish whether the player has infinite materials.
+                        _ => Lookup::Unavailable,
+                    }
+                } else {
+                    result
+                };
                 let mut message = match result {
                     Lookup::Pending => return true,
                     Lookup::Found(pos) => {
@@ -914,6 +983,7 @@ fn tick(world: World<'_>, time: u64, _: &[content::ContentEvent]) {
                 // Never leave the durable stack Searching or announce a
                 // result whose tracker cannot be stored.
                 let bytes = job.state.encode(job.item).or_else(|| {
+                    job.state.wear = old_wear;
                     job.state.target.clone_from(&job.failure_target);
                     job.state.fail();
                     message = format!("Search for {} unavailable.", job.state.target);
@@ -929,6 +999,11 @@ fn tick(world: World<'_>, time: u64, _: &[content::ContentEvent]) {
                     )
                 {
                     player.send_message(&message);
+                    if job.state.status == Status::Found
+                        && let Some(wear) = wear_message(job.item, &job.state)
+                    {
+                        player.send_message(&wear);
+                    }
                 }
                 false
             })
@@ -964,6 +1039,9 @@ impl Mod for Compasses {
             structures: worldgen_lookup::require_structures()?,
             groups: worldgen_lookup::require_groups().ok(),
             tags: tags::require()?,
+            modes: mobs::require()
+                .ok()
+                .filter(|m| m.require_extension(MobsExtension::Taming).is_ok()),
         });
         Ok(())
     }
@@ -971,10 +1049,12 @@ impl Mod for Compasses {
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let host = HOST.get().ok_or(RegistrationError::InvalidDefinition)?;
         let load = |nature| {
-            config::Options::load(moddedmc_api::data_dir(), nature).map_err(|error| {
-                moddedmc_api::error(&format!("Invalid compass configuration: {error}"));
-                RegistrationError::InvalidDefinition
-            })
+            config::Options::load(moddedmc_api::data_dir(), nature, host.modes.is_some()).map_err(
+                |error| {
+                    moddedmc_api::error(&format!("Invalid compass configuration: {error}"));
+                    RegistrationError::InvalidDefinition
+                },
+            )
         };
         let _ = CONFIG.set((load(true)?, load(false)?));
         use fastnbt::Value;
@@ -1333,6 +1413,7 @@ mod dialog_tests {
             radius: 1,
             step: 1,
             display_coordinates: true,
+            costs: config::SearchCosts::default(),
         };
         let ids = [
             "test:z",

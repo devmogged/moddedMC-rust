@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group','reset','visibility','visibility-reload','multiplayer','interrupted','same-item','repair','explorer-repair','unsupported-xp','unsupported-durability','group-navigation')]
+    [ValidateSet('items','search','negative','dimension','explorer','inventory','height','absent','custom-rings','offset','weighted-group','reset','visibility','visibility-reload','multiplayer','interrupted','same-item','repair','explorer-repair','unsupported-xp','invalid-durability','group-navigation','durability','explorer-durability')]
     [string]$Case,
     [ValidateRange(1024,65534)]
     [int]$Port = 26180,
@@ -31,6 +31,7 @@ $fixture = switch ($Case) {
     'same-item' { 'weighted-group' }
     'explorer-repair' { 'weighted-group' }
     'group-navigation' { 'weighted-group' }
+    'explorer-durability' { 'weighted-group' }
     default { $null }
 }
 foreach ($path in @('engine/target/pack/pack-dev.exe','engine/target/pack/moddedmc-bot.exe','target/mods/compasses.mmc')) {
@@ -59,8 +60,12 @@ if ($Case -eq 'interrupted') {
     New-Item -ItemType Directory -Force -Path $config | Out-Null
     Copy-Item -LiteralPath (Join-Path $source 'explorerscompass.json') -Destination $config
 }
-if ($Case -in @('repair','explorer-repair','unsupported-xp','unsupported-durability')) {
-    $configFixture = if ($Case -eq 'explorer-repair') { 'repair' } else { $Case }
+if ($Case -in @('repair','explorer-repair','unsupported-xp','invalid-durability','durability','explorer-durability')) {
+    $configFixture = switch ($Case) {
+        'explorer-repair' { 'repair' }
+        'explorer-durability' { 'durability' }
+        default { $Case }
+    }
     $source = Join-Path $PSScriptRoot "compasses-fixtures/$configFixture/config"
     $config = Join-Path $absolute 'config/compasses'
     New-Item -ItemType Directory -Force -Path $config | Out-Null

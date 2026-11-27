@@ -1,0 +1,7 @@
+{
+  "type": "minecraft:stronghold",
+  "biomes": "#aaa_compass_test:empty",
+  "spawn_overrides": {},
+  "step": "surface_structures",
+  "terrain_adaptation": "bury"
+}

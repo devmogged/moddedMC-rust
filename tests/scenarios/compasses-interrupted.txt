@@ -2,6 +2,7 @@
 # The only visible target has zero frequency and spacing one. It cannot finish
 # within the short test window; no probabilistic distant-biome assumption.
 # Also start two same-ID jobs for one player, then cancel only the offhand.
+# Positive durability must not consume wear on interruption or cancellation.
 mods target\mods\compasses.mmc
 start
 cmd datapack enable "file/zero-frequency" last
@@ -30,7 +31,7 @@ cmd item replace entity tester weapon.offhand with explorerscompass:explorerscom
 wait 1
 bot use-item off
 wait 1
-expect \[bot\] dialog: .*Select a target in this dimension
+expect \[bot\] dialog: .*Select a target in this dimension.*Compass uses remaining: 3/3
 bot click-label aaa_compass_test:desert_pyramid
 wait 1
 expect Compass search started
@@ -49,7 +50,7 @@ expect-all \[bot\] expect inventory ok tracker 36 absent && \[bot\] expect inven
 bot use-item off
 wait 1
 reject Compass search in progress|Found aaa_compass_test:|No aaa_compass_test:|Search for aaa_compass_test:.*unavailable
-expect \[bot\] dialog: .*Select a target in this dimension
+expect \[bot\] dialog: .*Select a target in this dimension.*Compass uses remaining: 3/3
 bot use-item main
 wait 1
 expect Compass search in progress\. aaa_compass_test:desert_pyramid
@@ -67,11 +68,11 @@ expect-all \[bot\] expect inventory ok tracker 36 absent && \[bot\] expect inven
 bot use-item off
 wait 1
 reject Compass search in progress|Previous search for aaa_compass_test:
-expect \[bot\] dialog: .*Select a target in this dimension
+expect \[bot\] dialog: .*Select a target in this dimension.*Compass uses remaining: 3/3
 bot use-item main
 wait 1
 reject Compass search in progress|\[bot\] dialog button: Find next / retry ->
-expect \[bot\] dialog: .*Previous search for aaa_compass_test:desert_pyramid failed or was interrupted
+expect \[bot\] dialog: .*Previous search for aaa_compass_test:desert_pyramid failed or was interrupted.*Compass uses remaining: 3/3
 bot expect tracker 36 absent
 wait 1
 expect \[bot\] expect inventory ok tracker 36 absent
@@ -94,7 +95,7 @@ wait 6
 bot use-item main
 wait 1
 reject Compass search in progress|\[bot\] dialog button: Find next / retry ->
-expect \[bot\] dialog: .*Previous search for aaa_compass_test:desert_pyramid failed or was interrupted
+expect \[bot\] dialog: .*Previous search for aaa_compass_test:desert_pyramid failed or was interrupted.*Compass uses remaining: 3/3
 bot click-label aaa_compass_test:desert_pyramid
 wait 1
 expect Compass search started
@@ -106,7 +107,7 @@ wait 1
 reject Found aaa_compass_test:|No aaa_compass_test:|Search for aaa_compass_test:.*unavailable
 bot use-item main
 wait 1
-expect \[bot\] dialog: .*Select a target in this dimension
+expect \[bot\] dialog: .*Select a target in this dimension.*Compass uses remaining: 3/3
 bot expect tracker 36 absent
 wait 1
 expect \[bot\] expect inventory ok tracker 36 absent

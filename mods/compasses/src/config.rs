@@ -30,35 +30,34 @@ pub struct Options {
     pub radius: i32,
     pub step: i32,
     pub display_coordinates: bool,
+    pub costs: SearchCosts,
 }
 
-impl Options {
-    fn parse(raw: FileOptions, nature: bool) -> Result<Self, &'static str> {
-        if raw.allow_teleport == Some(true) {
-            return Err("allowTeleport=true requires permission-checked teleport support");
-        }
+/// Separate gameplay policy from host capability discovery. Costs must never
+/// be activated unless the host can atomically authorize the stack update.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SearchCosts {
+    default_xp: u8,
+    overrides: Vec<(String, u8)>,
+    pub durability: u16,
+}
+
+impl SearchCosts {
+    fn parse(raw: &FileOptions, nature: bool) -> Result<Self, &'static str> {
         let default_xp = raw.default_xp_levels.unwrap_or(0);
         if default_xp > 3 {
             return Err("defaultXpLevels must be 0..=3");
         }
-        if default_xp != 0 {
-            return Err("nonzero defaultXpLevels requires atomic XP charging");
-        }
         let durability = raw.compass_durability.unwrap_or(0);
         if durability > 10_000 {
             return Err("compassDurability must be 0..=10000");
-        }
-        if durability != 0 {
-            return Err("nonzero compassDurability requires atomic damage and repair support");
         }
         if (nature && !raw.per_structure_xp_levels.is_empty())
             || (!nature && !raw.per_biome_xp_levels.is_empty())
         {
             return Err("XP override belongs to the other compass config");
         }
-        // The source supports "pattern,levels" entries. Zero-cost overrides
-        // are already represented by our default zero-cost search. Reject
-        // malformed or nonzero entries rather than silently dropping costs.
+        let mut overrides: Vec<(String, u8)> = Vec::new();
         for entry in raw
             .per_biome_xp_levels
             .iter()
@@ -71,15 +70,67 @@ impl Options {
                 return Err("XP override pattern must be a nonempty resource-ID glob");
             }
             let levels = levels
-                .parse::<u32>()
+                .parse::<u8>()
                 .map_err(|_| "XP override levels must be an integer 0..=3")?;
             if levels > 3 {
                 return Err("XP override levels must be an integer 0..=3");
             }
-            if levels != 0 {
-                return Err("nonzero per-target XP overrides require atomic XP charging");
+            // As in the source map, a repeated identical pattern replaces its
+            // previous value. For distinct overlapping globs the native JSON
+            // contract uses explicit declaration order rather than Java's
+            // unspecified HashMap iteration order.
+            if let Some((_, cost)) = overrides.iter_mut().find(|(id, _)| id == pattern) {
+                *cost = levels;
+            } else {
+                overrides.push((pattern.to_owned(), levels));
             }
         }
+        Ok(Self {
+            default_xp: default_xp as u8,
+            overrides,
+            durability: durability as u16,
+        })
+    }
+
+    /// For an explicit group search, pass the selected group ID. For
+    /// find-next, pass the actual member saved by the preceding result.
+    pub fn xp_for(&self, requested: &str) -> u8 {
+        self.overrides
+            .iter()
+            .find(|(pattern, _)| glob(pattern.as_bytes(), requested.as_bytes()))
+            .map_or(self.default_xp, |(_, cost)| *cost)
+    }
+
+    fn require_supported(&self, durable_state: bool) -> Result<(), &'static str> {
+        if self.default_xp != 0 {
+            return Err("nonzero defaultXpLevels requires atomic XP charging");
+        }
+        if self.durability != 0 && !durable_state {
+            return Err("nonzero compassDurability requires player mode and atomic stack state");
+        }
+        if self.overrides.iter().any(|(_, cost)| *cost != 0) {
+            return Err("nonzero per-target XP overrides require atomic XP charging");
+        }
+        Ok(())
+    }
+}
+
+impl Options {
+    #[cfg(test)]
+    fn parse(raw: FileOptions, nature: bool) -> Result<Self, &'static str> {
+        Self::parse_with_durability(raw, nature, false)
+    }
+
+    fn parse_with_durability(
+        raw: FileOptions,
+        nature: bool,
+        durable_state: bool,
+    ) -> Result<Self, &'static str> {
+        if raw.allow_teleport == Some(true) {
+            return Err("allowTeleport=true requires permission-checked teleport support");
+        }
+        let costs = SearchCosts::parse(&raw, nature)?;
+        costs.require_supported(durable_state)?;
         let limit = if nature { 25 } else { 100 };
         let max_next = raw.max_next_searches.unwrap_or(limit);
         let max_samples = raw
@@ -129,10 +180,11 @@ impl Options {
             radius,
             step: step * 4,
             display_coordinates: raw.display_coordinates.unwrap_or(true),
+            costs,
         })
     }
 
-    pub fn load(dir: &Path, nature: bool) -> Result<Self, String> {
+    pub fn load(dir: &Path, nature: bool, durable_state: bool) -> Result<Self, String> {
         let path = dir.join(if nature {
             "naturescompass.json"
         } else {
@@ -145,7 +197,8 @@ impl Options {
             Err(e) if e.kind() == ErrorKind::NotFound => FileOptions::default(),
             Err(e) => return Err(format!("{}: {e}", path.display())),
         };
-        Self::parse(raw, nature).map_err(|e| format!("{}: {e}", path.display()))
+        Self::parse_with_durability(raw, nature, durable_state)
+            .map_err(|e| format!("{}: {e}", path.display()))
     }
 
     pub fn blocked(&self, id: &str) -> bool {
@@ -195,6 +248,27 @@ fn glob(pattern: &[u8], value: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cost_policy_handles_group_and_member_costs_and_zero_override() {
+        let raw = serde_json::from_str(
+            r#"{
+            "defaultXpLevels":2,
+            "perStructureXpLevels":[
+                "test:pair,3","test:member_b,0","test:member_?,1","test:pair,2"
+            ],
+            "compassDurability":3
+        }"#,
+        )
+        .unwrap();
+        let costs = SearchCosts::parse(&raw, false).unwrap();
+        assert_eq!(costs.xp_for("test:pair"), 2);
+        assert_eq!(costs.xp_for("test:member_b"), 0);
+        assert_eq!(costs.xp_for("test:member_a"), 1);
+        assert_eq!(costs.xp_for("minecraft:stronghold"), 2);
+        assert_eq!(costs.durability, 3);
+        assert!(costs.require_supported(false).is_err());
+    }
+
     #[test]
     fn wildcard_matches_full_id_and_literal_punctuation() {
         assert!(glob(b"minecraft:*village*", b"minecraft:village_plains"));
@@ -259,7 +333,7 @@ mod tests {
                 ),
                 (
                     r#"{"compassDurability":10000}"#,
-                    "nonzero compassDurability requires atomic damage and repair support",
+                    "nonzero compassDurability requires player mode and atomic stack state",
                 ),
             ] {
                 let raw = serde_json::from_str(json).unwrap();
@@ -296,6 +370,20 @@ mod tests {
         }
         for pattern in ["*", "*:*", "minecraft:*_forest", "mod:dir/a.b-?"] {
             assert!(valid_pattern(pattern));
+        }
+    }
+
+    #[test]
+    fn durable_stack_state_enables_wear_without_enabling_xp_charges() {
+        for nature in [true, false] {
+            let raw = serde_json::from_str(r#"{"compassDurability":2}"#).unwrap();
+            assert!(Options::parse_with_durability(raw, nature, true).is_ok());
+            let raw =
+                serde_json::from_str(r#"{"compassDurability":2,"defaultXpLevels":1}"#).unwrap();
+            assert_eq!(
+                Options::parse_with_durability(raw, nature, true).err(),
+                Some("nonzero defaultXpLevels requires atomic XP charging")
+            );
         }
     }
 }

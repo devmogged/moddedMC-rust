@@ -1,0 +1,86 @@
+# Pending shared atomic XP/stack transaction. Do not run on the current host.
+# Stage this directory's config under the new world's config/compasses.
+mods target\mods\compasses.mmc
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+cmd gamemode survival tester
+cmd item replace entity tester hotbar.0 with naturescompass:naturescompass
+cmd experience set tester 2 levels
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 4/4
+bot click-label minecraft:birch_forest
+wait 1
+reject Compass search started|Found minecraft:birch_forest
+expect Not enough XP levels
+cmd experience query tester levels
+await 2 tester has 2 experience levels
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+cmd experience set tester 7 levels
+bot use-item main
+wait 1
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 5 Compass uses remaining: 3/4
+cmd experience query tester levels
+await 2 tester has 4 experience levels
+bot click-replay
+wait 1
+reject Compass search started|Found minecraft:birch_forest
+expect \[bot\] did: click-replay
+cmd experience query tester levels
+await 2 tester has 4 experience levels
+cmd experience set tester 2 levels
+bot use-item main
+wait 1
+bot click-label Find next / retry
+wait 1
+reject Compass search started|Found minecraft:birch_forest
+expect Not enough XP levels
+cmd experience query tester levels
+await 2 tester has 2 experience levels
+bot expect tracker 36 minecraft:overworld -287 6
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -287 6
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 3/4
+cmd item replace entity tester hotbar.0 with naturescompass:naturescompass
+cmd experience set tester 7 levels
+bot click-label minecraft:birch_forest
+wait 1
+reject Compass search started|Found minecraft:birch_forest
+expect Compass or dimension changed
+cmd experience query tester levels
+await 2 tester has 7 experience levels
+cmd gamemode creative tester
+cmd experience set tester 0 levels
+bot use-item main
+wait 1
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 5 Compass uses remaining: 4/4
+cmd experience query tester levels
+await 2 tester has 0 experience levels
+cmd gamemode survival tester
+bot use-item main
+wait 1
+bot click-label minecraft:beach
+wait 2
+expect Compass search started
+# The zero-cost override is accepted even at level zero; exact beach
+# coordinate is intentionally not asserted until a seed-42 oracle exists.
+cmd experience query tester levels
+await 2 tester has 0 experience levels
+reject \[bot\] error:|panicked
+stop

@@ -1,0 +1,6 @@
+# Out-of-range durability must fail validation instead of truncating.
+mods target\mods\compasses.mmc
+start
+reject registered content item (naturescompass|explorerscompass):
+expect-all Invalid compass configuration: .*compassDurability must be 0\.\.=10000 && moddedmc: compasses failed to register
+stop

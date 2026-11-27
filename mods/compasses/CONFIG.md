@@ -75,7 +75,9 @@ dimension until a new search or sneak-use reset. This avoids suggesting a
 structure exists at the same coordinates in an unrelated dimension.
 Every ordinary item use now reconciles the saved needle state even when
 the current dimension has an empty or unavailable target catalog. The
-legacy MCc1/MCc2 formats remain readable, but malformed identifiers,
+legacy MCc1/MCc2 formats remain readable. MCc3 adds a two-byte
+per-stack successful-search wear count when durability is enabled.
+Malformed identifiers,
 inconsistent status/history, and coordinates outside the host's supported
 tracker bounds are rejected. An invalid terminal worldgen result is
 converted to a failed search, not a false success.
@@ -112,13 +114,27 @@ only the target. No per-tick network updates or inventory writes are
 performed just to display progress; this is a stock-client adaptation
 of the original modded HUD.
 
-These are native-port settings, not drop-in NeoForge TOML files. XP charging,
-durability/repair, and permission-checked teleport still need generic host
+These are native-port settings, not drop-in NeoForge TOML files.
+Durability accepts 0–10,000 successful searches. Zero disables wear.
+With positive durability, successful non-creative results atomically
+update the custom wear count alongside the search data and tracker.
+Failures, canceled jobs, creative successes, and sneak-reset do not
+consume or restore wear. A broken compass remains in inventory but
+cannot start a search; the shipped shapeless recipe (mod compass plus
+one vanilla compass) produces a fresh compass with no history or wear.
+The native stock-client presentation reports remaining uses in the
+dialog and on successful search. It does not yet project a graphical
+vanilla durability bar; the original mod uses its own custom damage
+component rather than vanilla tool breakage.
+
+XP charging and permission-checked teleport still need generic host
 capabilities. Explicit disabled settings above (including valid per-target
-`"pattern,0"` XP overrides) are accepted to aid migration
-from the Java General config. A request to enable teleport, charge XP
-(including per-target overrides), or enable durability rejects registration
-with a field-specific error rather than silently dropping a gameplay cost.
+`"pattern,0"` XP overrides) are accepted to aid migration from the Java
+General config. A request to enable teleport or charge XP rejects
+registration with a field-specific error rather than silently dropping
+a gameplay cost. The parsed XP policy uses declaration order for
+overlapping distinct globs and the last value for repeated identical
+patterns; Java's HashMap iteration order is unspecified.
 The upstream `allowTeleport` default is true; the native default remains
 disabled until a permission-checked host action exists.
 The stock-client dialog deliberately displays only searchable

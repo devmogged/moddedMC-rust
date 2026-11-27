@@ -20,7 +20,6 @@ expect \[bot\] dialog button: minecraft:birch_forest ->
 bot click-label minecraft:birch_forest
 wait 2
 expect Compass search started
-wait 30
-expect Found minecraft:birch_forest at X .* Z .* in minecraft:overworld
+await 30 Found minecraft:birch_forest at X .* Z .* in minecraft:overworld
 reject \[bot\] error:|panicked
 stop

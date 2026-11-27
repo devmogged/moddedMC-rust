@@ -27,6 +27,9 @@ pub struct State {
     pub dimension: String,
     pub status: Status,
     pub previous: Vec<Pos>,
+    /// Successful non-creative searches since the last fresh-item repair.
+    /// Separate from search history: reset/failure must never repair a compass.
+    pub wear: u16,
 }
 
 pub fn nonce() -> u128 {
@@ -47,6 +50,28 @@ impl State {
             dimension: String::new(),
             status: Status::Idle,
             previous: Vec::new(),
+            wear: 0,
+        }
+    }
+
+    /// Reset the needle/history and retire any old search, preserving wear.
+    pub fn reset_search(&mut self) {
+        let wear = self.wear;
+        *self = Self::blank();
+        self.wear = wear;
+    }
+
+    pub fn broken(&self, durability: u16) -> bool {
+        durability != 0 && self.wear >= durability
+    }
+
+    /// Compute the next wear value for a successful result. The host must
+    /// publish it together with the exact-stack result CAS and visible damage.
+    pub fn successful_wear(&self, durability: u16, infinite_materials: bool) -> u16 {
+        if durability == 0 || infinite_materials || self.broken(durability) {
+            self.wear
+        } else {
+            self.wear + 1
         }
     }
     pub fn limit(item: &str) -> usize {
@@ -100,6 +125,7 @@ impl State {
         if !matches!(item, NATURE | EXPLORER)
             || self.previous.len() > Self::limit(item) + 1
             || (item == NATURE && self.is_group)
+            || self.wear > 10_000
         {
             return false;
         }
@@ -135,10 +161,19 @@ impl State {
         // Retain the old encoding for ordinary stacks. The extended encoding
         // adds one signed byte per Explorer position (vanilla locate_offset
         // components are bounded to ±16) and a group flag in the status byte.
+        // MCc3 stores wear as a u16 and uses the same compact XYZ layout
+        // as MCc2 for Explorer. Keep old versions for pristine stacks.
+        let worn = self.wear != 0;
         let extended =
-            self.is_group || (item == EXPLORER && self.previous.iter().any(|p| p.y != 0));
+            item == EXPLORER && (worn || self.is_group || self.previous.iter().any(|p| p.y != 0));
         let mut out = Vec::new();
-        out.extend_from_slice(if extended { b"MCc2" } else { b"MCc1" });
+        out.extend_from_slice(if worn {
+            b"MCc3"
+        } else if extended {
+            b"MCc2"
+        } else {
+            b"MCc1"
+        });
         out.extend_from_slice(&self.nonce.to_le_bytes());
         let status = match self.status {
             Status::Idle => 0,
@@ -147,6 +182,9 @@ impl State {
             Status::Failed => 3,
         };
         out.push(status | if self.is_group { 0x80 } else { 0 });
+        if worn {
+            out.extend_from_slice(&self.wear.to_le_bytes());
+        }
         for s in [&self.target, &self.dimension] {
             out.extend_from_slice(&u16::try_from(s.len()).ok()?.to_le_bytes());
             out.extend_from_slice(s.as_bytes());
@@ -182,9 +220,10 @@ impl State {
         if data.len() > moddedmc_api::interaction::MAX_STACK_DATA {
             return None;
         }
-        let extended = match take(&mut data, 4)? {
-            b"MCc1" => false,
-            b"MCc2" if item == EXPLORER => true,
+        let (extended, worn) = match take(&mut data, 4)? {
+            b"MCc1" => (false, false),
+            b"MCc2" if item == EXPLORER => (true, false),
+            b"MCc3" => (item == EXPLORER, true),
             _ => return None,
         };
         let nonce = u128::from_le_bytes(take(&mut data, 16)?.try_into().ok()?);
@@ -199,6 +238,15 @@ impl State {
             2 => Status::Found,
             3 => Status::Failed,
             _ => return None,
+        };
+        let wear = if worn {
+            let wear = u16::from_le_bytes(take(&mut data, 2)?.try_into().ok()?);
+            if !(1..=10_000).contains(&wear) {
+                return None;
+            }
+            wear
+        } else {
+            0
         };
         let target = string(&mut data)?;
         let dimension = string(&mut data)?;
@@ -233,6 +281,7 @@ impl State {
             dimension,
             status,
             previous,
+            wear,
         };
         state.valid(item).then_some(state)
     }
@@ -241,6 +290,72 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn wear_is_persistent_across_reset_failure_and_history_migration() {
+        for item in [NATURE, EXPLORER] {
+            let mut state = State::blank();
+            let legacy = state.encode(item).unwrap();
+            assert_eq!(State::decode(item, &legacy).unwrap().wear, 0);
+            state.target = "test:member".into();
+            state.dimension = "minecraft:overworld".into();
+            state.status = Status::Found;
+            state.is_group = item == EXPLORER;
+            state.previous.push(Pos {
+                x: -287,
+                y: 7,
+                z: 6,
+            });
+            assert_eq!(state.successful_wear(2, true), 0);
+            assert_eq!(state.successful_wear(0, false), 0);
+            state.wear = state.successful_wear(2, false);
+            let bytes = state.encode(item).unwrap();
+            assert_eq!(&bytes[..4], b"MCc3");
+            assert_eq!(State::decode(item, &bytes), Some(state.clone()));
+            for len in 0..bytes.len() {
+                assert!(State::decode(item, &bytes[..len]).is_none());
+            }
+            let mut invalid = bytes.clone();
+            invalid[21..23].copy_from_slice(&10_001_u16.to_le_bytes());
+            assert!(State::decode(item, &invalid).is_none());
+            state.fail();
+            assert_eq!(state.wear, 1);
+            state.reset_search();
+            assert_eq!(state.wear, 1);
+            assert_eq!(state.status, Status::Idle);
+            assert_eq!(state.tracker(), None);
+            assert_ne!(state.nonce, State::decode(item, &bytes).unwrap().nonce);
+            assert!(!state.broken(2));
+            state.wear = state.successful_wear(2, false);
+            assert!(state.broken(2));
+            assert!(!state.broken(0));
+            assert_eq!(state.successful_wear(2, false), 2);
+            assert_eq!(
+                State::decode(item, &state.encode(item).unwrap()),
+                Some(state)
+            );
+            assert_eq!(State::blank().wear, 0);
+        }
+    }
+
+    #[test]
+    fn max_default_history_and_wear_fit_in_one_stack() {
+        let mut state = State::blank();
+        state.status = Status::Found;
+        state.target = "minecraft:buried_treasure".into();
+        state.dimension = "minecraft:overworld".into();
+        state.is_group = true;
+        state.wear = 10_000;
+        state.previous = (0..101)
+            .map(|x| Pos {
+                x: x * 16 + 9,
+                y: 7,
+                z: -x * 16 + 9,
+            })
+            .collect();
+        let bytes = state.encode(EXPLORER).unwrap();
+        assert_eq!(State::decode(EXPLORER, &bytes), Some(state));
+    }
+
     #[test]
     fn full_structure_history_and_malformed_state() {
         let mut state = State::blank();
