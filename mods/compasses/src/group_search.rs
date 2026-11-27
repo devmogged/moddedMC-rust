@@ -102,6 +102,7 @@ pub struct Search {
     inner: structure_search::Search,
     plan: Vec<Placement>,
     probe: Option<Probe>,
+    best_match: Option<Match>,
 }
 
 #[derive(Clone, Copy)]
@@ -135,6 +136,7 @@ impl Search {
             inner,
             plan,
             probe: None,
+            best_match: None,
         }
     }
 
@@ -147,10 +149,16 @@ impl Search {
             resolver,
             plan: &self.plan,
             probe: &mut self.probe,
+            best_match: &mut self.best_match,
             matched: None,
         };
         match self.inner.advance(&mut adapter) {
-            Lookup::Found(_) => adapter.matched.map_or(Lookup::Unavailable, Lookup::Found),
+            Lookup::Found(pos) => adapter
+                .best_match
+                .as_ref()
+                .filter(|m| m.position == pos)
+                .cloned()
+                .map_or(Lookup::Unavailable, Lookup::Found),
             Lookup::Pending => Lookup::Pending,
             Lookup::Absent => Lookup::Absent,
             Lookup::Unavailable => Lookup::Unavailable,
@@ -162,6 +170,7 @@ struct Adapter<'a, R> {
     resolver: &'a mut R,
     plan: &'a [Placement],
     probe: &'a mut Option<Probe>,
+    best_match: &'a mut Option<Match>,
     matched: Option<Match>,
 }
 
@@ -213,8 +222,15 @@ impl<R: Resolver> structure_search::Resolver for Adapter<'_, R> {
                 *self.probe = Some(probe);
                 Lookup::Pending
             }
-            Lookup::Unavailable => Lookup::Unavailable,
+            Lookup::Unavailable => {
+                *self.probe = Some(probe);
+                Lookup::Unavailable
+            }
         }
+    }
+
+    fn accept(&mut self, position: Pos) {
+        *self.best_match = self.matched.take().filter(|m| m.position == position);
     }
 }
 
@@ -332,15 +348,16 @@ mod tests {
         assert_eq!(
             fake.calls,
             [
-                (7, "test:a".into(), 1, 0),
+                (7, "test:a".into(), 3, 0),
+                (7, "test:a".into(), 3, 0),
+                (7, "test:b".into(), 3, 0),
                 (7, "test:a".into(), 1, 0),
                 (7, "test:b".into(), 1, 0),
                 (7, "test:a".into(), 2, 0),
                 (7, "test:b".into(), 2, 0),
-                (7, "test:a".into(), 3, 0),
-                (7, "test:b".into(), 3, 0),
             ]
         );
+        assert_eq!(search.progress(), (3, None));
     }
 
     #[test]
@@ -379,5 +396,79 @@ mod tests {
             })
         );
         assert_eq!(resolver.0, [7, 8]);
+    }
+
+    #[test]
+    fn closest_member_survives_ignored_and_unprobed_ring_entries() {
+        let group = group("test:group", &["test:a", "test:b"]);
+        let placements = plan(&group, |_| Some(vec![(7, 0)])).unwrap();
+        let mut search = Search::new(Pos::default(), vec![Pos { x: 16, y: 0, z: 0 }], placements);
+        #[derive(Default)]
+        struct Members {
+            calls: Vec<(i32, String)>,
+            retry: bool,
+        }
+        impl Resolver for Members {
+            fn candidate(&mut self, _: u32, _: i32, _: i32) -> Option<Pos> {
+                unreachable!()
+            }
+            fn rings(&mut self, _: u32) -> Lookup<Vec<Pos>> {
+                Lookup::Found(
+                    [4, 2, 1, 5]
+                        .into_iter()
+                        .map(|x| Pos { x, y: 0, z: 0 })
+                        .collect(),
+                )
+            }
+            fn start(&mut self, _: u32, member: &str, x: i32, _: i32) -> Lookup<Pos> {
+                self.calls.push((x, member.into()));
+                if x == 2 && member == "test:b" && !self.retry {
+                    self.retry = true;
+                    return Lookup::Unavailable;
+                }
+                let winner = if x == 2 { "test:b" } else { "test:a" };
+                if member == winner {
+                    Lookup::Found(Pos {
+                        x: x * 16,
+                        y: 0,
+                        z: 0,
+                    })
+                } else {
+                    Lookup::Absent
+                }
+            }
+        }
+        let mut resolver = Members::default();
+        assert_eq!(search.advance(&mut resolver), Lookup::Pending); // 4/a best
+        assert_eq!(search.advance(&mut resolver), Lookup::Pending); // 2/a absent
+        assert_eq!(search.advance(&mut resolver), Lookup::Unavailable); // 2/b retryable
+        assert_eq!(search.progress(), (1, None));
+        assert_eq!(search.advance(&mut resolver), Lookup::Pending); // 2/b best
+        assert_eq!(
+            search.advance(&mut resolver),
+            Lookup::Found(Match {
+                position: Pos { x: 32, y: 0, z: 0 },
+                structure: "test:b".into()
+            })
+        ); // 1/a ignored; 5 skipped without a lookup
+        assert_eq!(
+            resolver.calls,
+            [
+                (4, "test:a".into()),
+                (2, "test:a".into()),
+                (2, "test:b".into()),
+                (2, "test:b".into()),
+                (1, "test:a".into())
+            ]
+        );
+        assert_eq!(search.progress(), (4, None));
+        assert_eq!(
+            search.advance(&mut resolver),
+            Lookup::Found(Match {
+                position: Pos { x: 32, y: 0, z: 0 },
+                structure: "test:b".into(),
+            })
+        );
+        assert_eq!(resolver.calls.len(), 5);
     }
 }

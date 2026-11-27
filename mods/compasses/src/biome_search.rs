@@ -354,4 +354,134 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn connection_gap_resumes_at_interrupted_height_and_checks_all_previous_positions() {
+        let mut search = Search::new(
+            (0, 0, 0),
+            -1,
+            64,
+            4,
+            100,
+            100,
+            vec![(-16, 0, 0), (0, 0, -16)],
+        )
+        .unwrap();
+        // Initial candidate, then the first interpolation column's two heights.
+        assert_eq!(
+            search.advance(1, |x, y, z| {
+                assert_eq!((x, y, z), (0, 0, 0));
+                Some(true)
+            }),
+            SearchResult::Pending
+        );
+        assert_eq!(
+            search.advance(1, |x, y, z| {
+                assert_eq!((x, y, z), (-3, 0, 0));
+                Some(false)
+            }),
+            SearchResult::Pending
+        );
+        assert_eq!(
+            search.advance(1, |x, y, z| {
+                assert_eq!((x, y, z), (-3, 16, 0));
+                None
+            }),
+            SearchResult::Unavailable
+        );
+        assert_eq!(
+            search.advance(1, |x, y, z| {
+                assert_eq!((x, y, z), (-3, 16, 0));
+                Some(false)
+            }),
+            SearchResult::Pending
+        );
+        let mut seen = vec![];
+        assert_eq!(
+            search.advance(3, |x, y, z| {
+                seen.push((x, y, z));
+                Some(false)
+            }),
+            SearchResult::Found {
+                position: (0, 0, 0),
+                samples: 0,
+                radius: 0
+            }
+        );
+        assert_eq!(seen, [(0, 0, -3), (0, 16, -3)]);
+        assert_eq!(search.previous().len(), 3);
+    }
+
+    #[test]
+    fn matching_upper_height_prevents_false_connection_gap() {
+        let mut search = Search::new((0, 0, 0), -1, 64, 4, 100, 0, vec![(-16, 0, 0)]).unwrap();
+        let mut seen = vec![];
+        let result = search.advance(32, |x, y, z| {
+            seen.push((x, y, z));
+            Some(x == 0 || y == 16)
+        });
+        assert_eq!(
+            result,
+            SearchResult::NotFound {
+                samples: 1,
+                radius: 0
+            }
+        );
+        assert_eq!(
+            seen,
+            [
+                (0, 0, 0),
+                (-3, 0, 0),
+                (-3, 16, 0),
+                (-2, 0, 0),
+                (-2, 16, 0),
+                (-1, 0, 0),
+                (-1, 16, 0)
+            ]
+        );
+        assert_eq!(search.previous(), &[(-16, 0, 0)]);
+    }
+
+    #[test]
+    fn gap_requires_consecutive_misses_and_caps_threshold_at_ten() {
+        // Eighty intervals: the upstream 25% gap threshold is capped at ten.
+        // Nine misses followed by a matching column must reset the streak.
+        let mut search = Search::new((0, 0, 0), -1, 0, 4, 100, 0, vec![(-320, 0, 0)]).unwrap();
+        let mut seen = vec![];
+        let result = search.advance(100, |x, _, _| {
+            seen.push(x);
+            Some(x == 0 || x == -70)
+        });
+        assert_eq!(
+            result,
+            SearchResult::Found {
+                position: (0, 0, 0),
+                samples: 0,
+                radius: 0
+            }
+        );
+        let expected: Vec<_> = std::iter::once(0).chain(-79..=-60).collect();
+        assert_eq!(seen, expected);
+    }
+
+    #[test]
+    fn previous_history_does_not_allow_connection_checks_beyond_radius_limit() {
+        let mut search = Search::new((0, 0, 0), -1, 0, 4, 1, 10, vec![(-16, 0, 0)]).unwrap();
+        let mut seen = vec![];
+        let result = search.advance(10, |x, y, z| {
+            seen.push((x, y, z));
+            Some(z == -1)
+        });
+        // The original scheduler removes a worker that crosses the radius
+        // boundary before its pending connection check can run.
+        assert_eq!(
+            result,
+            SearchResult::NotFound {
+                samples: 1,
+                radius: 4
+            }
+        );
+        assert_eq!(seen, [(0, 0, 0), (0, 0, -1)]);
+        assert_eq!(search.previous(), &[(-16, 0, 0)]);
+    }
 }

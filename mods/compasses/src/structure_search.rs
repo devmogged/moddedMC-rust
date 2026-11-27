@@ -3,6 +3,9 @@ use moddedmc_api::{Pos, worldgen_lookup::Lookup};
 
 const MAX_RADIUS: i32 = 10_000;
 const MAX_SAMPLES: u32 = 100_000;
+// Count cheap distance-only entries in batches while making at most one
+// potentially expensive structure-start request per advance.
+const RING_ENTRIES_PER_ADVANCE: usize = 64;
 
 #[derive(Debug)]
 struct Ring {
@@ -47,7 +50,10 @@ pub struct Search {
     placements: Vec<(u32, i32)>,
     index: usize,
     ring: Ring,
+    spread_candidate: Option<Pos>,
     concentric: Option<Vec<Pos>>,
+    closest: Option<(i64, Pos)>,
+    found: Option<Pos>,
     cursor: usize,
     samples: u32,
     radius: i32,
@@ -59,6 +65,8 @@ pub trait Resolver {
     fn candidate(&mut self, placement: u32, x: i32, z: i32) -> Option<Pos>;
     fn rings(&mut self, placement: u32) -> Lookup<Vec<Pos>>;
     fn start(&mut self, placement: u32, x: i32, z: i32) -> Lookup<Pos>;
+    /// Called only for a non-ignored start that becomes the worker's best match.
+    fn accept(&mut self, _position: Pos) {}
 }
 
 impl Search {
@@ -79,7 +87,10 @@ impl Search {
             placements,
             index: 0,
             ring: Ring::new(),
+            spread_candidate: None,
             concentric: None,
+            closest: None,
+            found: None,
             cursor: 0,
             samples: 0,
             radius: 0,
@@ -90,8 +101,14 @@ impl Search {
 
     fn next_placement(&mut self) {
         self.index += 1;
+        if self.index == self.placements.len() {
+            // Retain the final worker's sample/radius totals until discarded.
+            return;
+        }
         self.ring = Ring::new();
+        self.spread_candidate = None;
         self.concentric = None;
+        self.closest = None;
         self.cursor = 0;
         self.samples = 0;
         self.radius = 0;
@@ -104,30 +121,29 @@ impl Search {
         let radius = self
             .placements
             .get(self.index)
+            .or_else(|| self.placements.last())
             .and_then(|&(_, spacing)| (spacing != 0).then_some(self.radius));
         (self.samples, radius)
     }
 
     pub fn advance(&mut self, resolver: &mut impl Resolver) -> Lookup<Pos> {
+        if let Some(pos) = self.found {
+            return Lookup::Found(pos);
+        }
         let Some(&(placement, spacing)) = self.placements.get(self.index) else {
             return Lookup::Absent;
         };
-        if self.max_radius == 0
+        if self.max_radius <= 0
             || self.samples >= self.max_samples
             || (spacing != 0 && self.radius >= self.max_radius)
         {
             self.next_placement();
             return Lookup::Pending;
         }
-        let candidate = if spacing == 0 {
+        if spacing == 0 {
             if self.concentric.is_none() {
                 match resolver.rings(placement) {
-                    Lookup::Found(mut chunks) => {
-                        // Java chooses nearest chunk center; stable sort preserves ties.
-                        // The original worker considers only the first max_samples
-                        // ring entries, even if a later entry is closer.
-                        chunks.truncate(self.max_samples as usize);
-                        chunks.sort_by_key(|p| distance_sq(self.origin, *p));
+                    Lookup::Found(chunks) => {
                         self.concentric = Some(chunks);
                     }
                     Lookup::Pending => return Lookup::Pending,
@@ -138,15 +154,45 @@ impl Search {
                     Lookup::Unavailable => return Lookup::Unavailable,
                 }
             }
-            let Some(candidate) = self
-                .concentric
-                .as_ref()
-                .and_then(|p| p.get(self.cursor))
-                .copied()
-            else {
+            let chunks = self.concentric.as_ref().unwrap();
+            if self.cursor >= chunks.len() {
                 self.next_placement();
                 return Lookup::Pending;
-            };
+            }
+            // Java visits the original ring order and counts every entry,
+            // even when a farther/equidistant chunk needs no start lookup.
+            let mut queried = false;
+            for _ in 0..RING_ENTRIES_PER_ADVANCE {
+                let candidate = chunks[self.cursor];
+                let distance = distance_sq(self.origin, candidate);
+                if self.closest.is_none_or(|(best, _)| distance < best) {
+                    if queried {
+                        return Lookup::Pending;
+                    }
+                    queried = true;
+                    match resolver.start(placement, candidate.x, candidate.z) {
+                        Lookup::Pending => return Lookup::Pending,
+                        Lookup::Unavailable => return Lookup::Unavailable,
+                        Lookup::Found(pos) if !self.previous.contains(&pos) => {
+                            self.closest = Some((distance, pos));
+                            resolver.accept(pos);
+                        }
+                        _ => {}
+                    }
+                }
+                self.samples += 1;
+                self.cursor += 1;
+                if self.samples >= self.max_samples || self.cursor == chunks.len() {
+                    if let Some((_, pos)) = self.closest {
+                        self.found = Some(pos);
+                        return Lookup::Found(pos);
+                    }
+                    return Lookup::Pending;
+                }
+            }
+            return Lookup::Pending;
+        }
+        let candidate = if let Some(candidate) = self.spread_candidate {
             candidate
         } else {
             let (x, z) = self.ring.current();
@@ -165,25 +211,25 @@ impl Search {
             let Some(candidate) = resolver.candidate(placement, x, z) else {
                 return Lookup::Unavailable;
             };
+            self.spread_candidate = Some(candidate);
             candidate
         };
-        let result = resolver.start(placement, candidate.x, candidate.z);
-        match result {
+        let found = match resolver.start(placement, candidate.x, candidate.z) {
             Lookup::Pending => return Lookup::Pending,
             Lookup::Unavailable => return Lookup::Unavailable,
-            Lookup::Found(pos) if !self.previous.contains(&pos) => {
-                return Lookup::Found(pos);
-            }
-            _ => {}
-        }
+            Lookup::Found(pos) if !self.previous.contains(&pos) => Some(pos),
+            _ => None,
+        };
         self.samples += 1;
+        self.spread_candidate = None;
         // StructureUtils.getHorizontalDistanceToLocation uses Mth.sqrt(float)
         // followed by truncation to an integer.
         self.radius = (distance_sq(self.origin, candidate) as f32).sqrt() as i32;
-        if spacing == 0 {
-            self.cursor += 1;
-        } else {
-            self.ring.next();
+        self.ring.next();
+        if let Some(pos) = found {
+            self.found = Some(pos);
+            resolver.accept(pos);
+            return Lookup::Found(pos);
         }
         Lookup::Pending
     }
@@ -263,15 +309,17 @@ mod tests {
         };
         assert_eq!(search.advance(&mut fake), Lookup::Pending);
         assert_eq!(search.advance(&mut fake), Lookup::Pending);
+        assert_eq!(search.advance(&mut fake), Lookup::Pending);
         assert_eq!(
             search.advance(&mut fake),
             Lookup::Found(Pos { x: 48, y: 0, z: 0 })
         );
-        assert_eq!(fake.calls, [(1, 0), (1, 0), (3, 0)]);
+        assert_eq!(fake.calls, [(5, 0), (5, 0), (1, 0), (3, 0)]);
+        assert_eq!(search.progress(), (3, None));
     }
 
     #[test]
-    fn ring_sample_limit_applies_before_distance_order() {
+    fn ring_sample_limit_applies_to_generation_order() {
         let mut search = Search::with_limits(Pos::default(), vec![], vec![(0, 0)], 10_000, 1);
         let mut fake = Fake {
             calls: vec![],
@@ -292,11 +340,13 @@ mod tests {
             pending: false,
         };
         let mut search = Search::with_limits(Pos::default(), vec![], vec![(0, 0)], 1, 3);
+        assert_eq!(search.advance(&mut fake), Lookup::Pending);
         assert_eq!(
             search.advance(&mut fake),
             Lookup::Found(Pos { x: 16, y: 0, z: 0 })
         );
-        assert_eq!(fake.calls, [(1, 0)]);
+        assert_eq!(fake.calls, [(5, 0), (1, 0)]);
+        assert_eq!(search.progress(), (3, None));
         for (radius, samples) in [(0, 3), (10_000, 0)] {
             fake.calls.clear();
             let mut search =
@@ -328,6 +378,163 @@ mod tests {
         assert_eq!(search.advance(&mut fake), Lookup::Pending);
         assert_eq!(search.progress(), (0, Some(0)));
         assert_eq!(search.advance(&mut fake), Lookup::Found(Pos::default()));
+        assert_eq!(search.progress(), (1, Some(11)));
+    }
+
+    #[test]
+    fn equidistant_ring_candidates_keep_first_generation_order_and_count_skips() {
+        let mut search = Search::with_limits(
+            Pos {
+                x: 16,
+                y: 100,
+                z: 8,
+            },
+            vec![],
+            vec![(0, 0)],
+            1,
+            3,
+        );
+        struct Ties(Vec<i32>);
+        impl Resolver for Ties {
+            fn candidate(&mut self, _: u32, _: i32, _: i32) -> Option<Pos> {
+                unreachable!()
+            }
+            fn rings(&mut self, _: u32) -> Lookup<Vec<Pos>> {
+                Lookup::Found(vec![
+                    Pos { x: 1, y: 0, z: 0 },
+                    Pos::default(),
+                    Pos { x: 2, y: 0, z: 0 },
+                ])
+            }
+            fn start(&mut self, _: u32, x: i32, _: i32) -> Lookup<Pos> {
+                self.0.push(x);
+                Lookup::Found(Pos {
+                    x: x * 16,
+                    y: 0,
+                    z: 0,
+                })
+            }
+        }
+        let mut resolver = Ties(vec![]);
+        assert_eq!(
+            search.advance(&mut resolver),
+            Lookup::Found(Pos { x: 16, y: 0, z: 0 })
+        );
+        assert_eq!(resolver.0, [1]);
+        assert_eq!(search.progress(), (3, None));
+    }
+
+    #[test]
+    fn distance_only_ring_entries_are_batched_without_extra_world_lookups() {
+        struct Farther {
+            lookups: u32,
+        }
+        impl Resolver for Farther {
+            fn candidate(&mut self, _: u32, _: i32, _: i32) -> Option<Pos> {
+                unreachable!()
+            }
+            fn rings(&mut self, _: u32) -> Lookup<Vec<Pos>> {
+                Lookup::Found((0..200).map(|x| Pos { x, y: 0, z: 0 }).collect())
+            }
+            fn start(&mut self, _: u32, x: i32, z: i32) -> Lookup<Pos> {
+                self.lookups += 1;
+                assert_eq!((x, z), (0, 0));
+                Lookup::Found(Pos::default())
+            }
+        }
+        let mut search = Search::new(Pos::default(), vec![], vec![(0, 0)]);
+        let mut resolver = Farther { lookups: 0 };
+        for samples in [64, 128, 192] {
+            assert_eq!(search.advance(&mut resolver), Lookup::Pending);
+            assert_eq!(search.progress(), (samples, None));
+        }
+        assert_eq!(search.advance(&mut resolver), Lookup::Found(Pos::default()));
+        assert_eq!(search.progress(), (200, None));
+        assert_eq!(resolver.lookups, 1);
+        assert_eq!(search.advance(&mut resolver), Lookup::Found(Pos::default()));
+        assert_eq!(search.progress(), (200, None));
+        assert_eq!(resolver.lookups, 1);
+    }
+
+    #[test]
+    fn random_spread_retries_the_same_negative_section_and_counts_completed_starts() {
+        #[derive(Default)]
+        struct Spread {
+            sections: Vec<(i32, i32)>,
+            starts: Vec<(i32, i32)>,
+            retry: bool,
+        }
+        impl Resolver for Spread {
+            fn candidate(&mut self, placement: u32, x: i32, z: i32) -> Option<Pos> {
+                assert_eq!(placement, 7);
+                self.sections.push((x, z));
+                Some(Pos {
+                    x: x + 1,
+                    y: 0,
+                    z: z + 2,
+                })
+            }
+            fn rings(&mut self, _: u32) -> Lookup<Vec<Pos>> {
+                unreachable!()
+            }
+            fn start(&mut self, _: u32, x: i32, z: i32) -> Lookup<Pos> {
+                self.starts.push((x, z));
+                if (x, z) == (-33, -31) {
+                    if !self.retry {
+                        self.retry = true;
+                        return Lookup::Pending;
+                    }
+                    return Lookup::Absent;
+                }
+                Lookup::Found(Pos {
+                    x: x * 16,
+                    y: 5,
+                    z: z * 16,
+                })
+            }
+        }
+        let mut search = Search::with_limits(
+            Pos {
+                x: -17,
+                y: 120,
+                z: -1,
+            },
+            vec![Pos {
+                x: -16,
+                y: 5,
+                z: 16,
+            }],
+            vec![(7, 32)],
+            10_000,
+            3,
+        );
+        let mut resolver = Spread::default();
+        assert_eq!(search.advance(&mut resolver), Lookup::Pending);
+        assert_eq!(search.progress(), (1, Some(26)));
+        assert_eq!(search.advance(&mut resolver), Lookup::Pending);
+        assert_eq!(search.progress(), (1, Some(26)));
+        assert_eq!(search.advance(&mut resolver), Lookup::Pending);
+        assert_eq!(search.progress().0, 2);
+        assert_eq!(
+            search.advance(&mut resolver),
+            Lookup::Found(Pos {
+                x: -528,
+                y: 5,
+                z: 16
+            })
+        );
+        assert_eq!(search.progress(), (3, Some(503)));
+        assert_eq!(
+            search.advance(&mut resolver),
+            Lookup::Found(Pos {
+                x: -528,
+                y: 5,
+                z: 16
+            })
+        );
+        assert_eq!(search.progress(), (3, Some(503)));
+        assert_eq!(resolver.sections, [(-2, -1), (-34, -33), (-34, -1)]);
+        assert_eq!(resolver.starts, [(-1, 1), (-33, -31), (-33, -31), (-33, 1)]);
     }
 
     #[test]
@@ -358,6 +565,8 @@ mod tests {
         assert_eq!(search.advance(&mut resolver), Lookup::Pending);
         assert_eq!(search.radius, MAX_RADIUS);
         assert_eq!(search.advance(&mut resolver), Lookup::Pending);
+        assert_eq!(search.advance(&mut resolver), Lookup::Absent);
+        assert_eq!(search.progress(), (1, Some(MAX_RADIUS)));
         assert_eq!(search.advance(&mut resolver), Lookup::Absent);
         assert_eq!(resolver.0, 1);
     }
