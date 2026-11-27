@@ -600,6 +600,9 @@ fn tick_attack(
     let age = state.age;
     let id = state.target;
     let dir = state.direction;
+    if attack == Attack::Rend {
+        crate::particles::rend(world, mob, view, age, dir);
+    }
     match attack {
         Attack::Bite if age == 3 => {
             if target_view(world, mob, id).is_some() {
@@ -745,6 +748,7 @@ fn impact_stats(speed: f64) -> (f64, f32, f64, f64) {
 
 fn impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], speed: f64) {
     let (power, damage, radius, knockback) = impact_stats(speed);
+    crate::particles::dive_impact(world, at, power);
     let targets = nearby(world, mob, at, radius);
     for &(id, pos, _) in &targets {
         let d = flight::offset(pos, at);

@@ -750,6 +750,9 @@ fn nudge(mob: Entity<'_>, yaw: f32, speed: f64) {
 
 /// Ability tracks from the seven Atroxiia ability classes. Slither is rider-only.
 fn execute(world: World<'_>, mob: Entity<'_>, a: Attack, t: i64, target: Option<i32>, yaw: f32) {
+    if a == Attack::Quake {
+        crate::particles::quake(world, mob, t);
+    }
     let spec = match (a, t) {
         (Attack::Slam, 10) => Hit {
             range: 5.5,

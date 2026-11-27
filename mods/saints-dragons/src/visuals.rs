@@ -335,6 +335,7 @@ pub fn start() -> Result<(), InterfaceUnavailable> {
 
 pub fn tick(world: World<'_>, mob: Entity<'_>) {
     let Some(view) = mob.view() else { return };
+    crate::particles::flight_dust(world, mob, view);
     let now = tick_count();
     crate::audio::tick(world, mob.id(), view, now);
     let attack = crate::combat::active_attack(mob);
@@ -352,6 +353,9 @@ pub fn tick_species(
     view: EntityView,
     clip: &'static str,
 ) {
+    if matches!(species, "raevyx" | "ignivorus" | "volitans") {
+        crate::particles::flight_dust(world, mob, view);
+    }
     let description = ItemDisplay {
         position: view.position,
         rotation: Rotation::axis(1, -f64::from(view.yaw).to_radians())

@@ -1,0 +1,32 @@
+# Stock-client particle smoke test: tame a Cindervane, feed it, then spawn an airborne Raevyx.
+# Manual visual check: seven hearts over the dragon at feeding; cloud dust under airborne Raevyx.
+# The bot does not decode particle packets; assertions cover interaction and server survival.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1027.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1018 99 1018 1032 99 1032 minecraft:stone
+cmd fill 1018 100 1018 1032 110 1032 minecraft:air
+cmd time set midnight
+cmd cindervane spawn 1025 100 1025
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed
+cmd item replace entity tester weapon.offhand with minecraft:chicken
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+wait 0.5
+expect Cindervane is fully healed
+cmd saintsdragons spawn raevyx 1030 107 1025
+wait 2
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

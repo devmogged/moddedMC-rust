@@ -31,6 +31,7 @@ mod hunger;
 mod ivy;
 mod ivy_trades;
 mod nucleus;
+mod particles;
 mod roost;
 mod roster;
 mod spawners;
