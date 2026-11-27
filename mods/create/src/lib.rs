@@ -70,6 +70,7 @@ mod kinetics;
 mod large_water_wheel;
 mod list_filter;
 mod manual_application;
+mod metal_ladder;
 mod millstone;
 mod mixer;
 mod piston;
@@ -187,6 +188,7 @@ impl Mod for Create {
         content.require_replaced()?;
         content.require_block_material()?;
         decor::require()?;
+        metal_ladder::require()?;
         fluids::tank_connectivity::require()?;
         fluids::open_end_runtime::require()?;
         water_wheel::require()?;
@@ -298,6 +300,7 @@ impl Mod for Create {
         register_casings(content, registry)?;
         zinc::register(*content, registry)?;
         decor::register(*content, registry)?;
+        metal_ladder::register(*content, registry)?;
         for (path, name) in [
             ("sturdy_sheet", "Sturdy Sheet"),
             ("unprocessed_obsidian_sheet", "Unprocessed Obsidian Sheet"),
@@ -1201,6 +1204,9 @@ fn states() -> Option<&'static StateIds> {
 
 /// Each block's `getStateForPlacement`.
 fn placed_state(args: Placement<'_>) -> Option<u32> {
+    if let Some(state) = metal_ladder::assisted_state(&args) {
+        return Some(state);
+    }
     if usize::from(args.face) >= FACES.len() {
         return None;
     }
@@ -2275,7 +2281,8 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
         return result;
     }
     if context.item == WRENCH
-        && let Some(result) = decor::wrench_pickup(context)
+        && let Some(result) =
+            metal_ladder::rotate(context).or_else(|| decor::wrench_pickup(context))
     {
         return result;
     }
@@ -2342,6 +2349,9 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
 /// `useItemOn` for the mod's blocks.
 fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
     if let Some(states) = states() {
+        if let Some(result) = metal_ladder::use_block(context, states) {
+            return result;
+        }
         if let Some(&block) = states.steam_engines.get(&context.state) {
             return steam_engine::use_block(context, states, block);
         }
