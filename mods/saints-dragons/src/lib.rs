@@ -30,6 +30,7 @@ mod flight;
 mod hunger;
 mod ivy;
 mod ivy_trades;
+mod moop;
 mod nucleus;
 mod roost;
 mod roster;

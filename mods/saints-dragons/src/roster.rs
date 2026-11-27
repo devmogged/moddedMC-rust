@@ -368,7 +368,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 },
             },
         )?;
-        if !species.aquatic {
+        if species.name == "moop" {
+            crate::moop::register(registry)?;
+        } else if !species.aquatic {
             ai.replace_goals(registry, &kind)?;
             if swarm_damage.is_some() {
                 for (key, priority, controls) in [
