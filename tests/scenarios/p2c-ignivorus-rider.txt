@@ -1,0 +1,37 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+expect-all registered player action saintsdragons:ability_primary && registered player action saintsdragons:ability_secondary && registered player action saintsdragons:ability_tertiary && registered player action saintsdragons:toggle_melee && registered player action saintsdragons:flex
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 120 1030.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 119 1013 1037 119 1037 minecraft:stone
+cmd fill 1013 120 1013 1037 129 1037 minecraft:air
+cmd saintsdragons spawn ignivorus 1025 120 1025
+wait 2
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] 1025.5 120 1025.5 0 0
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 120 1025.5 off
+wait 0.5
+expect Dragon tamed
+bot use-entity ravager 1025.5 120 1025.5 main
+wait 0.5
+bot expect riding ravager
+# Stock bot cannot send companion packets. Fabric companion continuation:
+# Tap R: roar; hold R for 4+ ticks then release: fireball after 15 ticks.
+# Hold until the 25/50 charge boundaries and compare blast damage.
+# Hold G: breath starts after 9 ticks and drains; release stops.
+# H at full health: health becomes 50, nova at tick 125; repeat H rejects.
+# X toggles melee; airborne X rejects. Ctrl+4: 170-tick flex lock.
+# After the mounted-input merge: left click bites/slams; double-tap S changes
+# phase (wing/stomp); double-tap W bulldozes or leaps in phase two.
+bot input sneak
+wait 0.5
+bot expect riding none
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
