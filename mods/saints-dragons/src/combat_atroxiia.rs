@@ -8,6 +8,8 @@ use moddedmc_api::{
         SET_YAW,
     },
     mob_ai::{Goal, goal_control, goal_phase},
+    mobs::{PLAYER_INPUT_JUMP, PLAYER_INPUT_SPRINT},
+    player_actions::{ACTION_HELD, ACTION_PRESSED, ACTION_RELEASED},
     tick_count,
 };
 use serde::{Deserialize, Serialize};
@@ -21,6 +23,7 @@ const KIND: &str = "saintsdragons:atroxiia";
 const FOLLOW: f64 = 32.0;
 const FREEZE_THRESHOLD: i32 = 140;
 const COMBO_WINDOW: i64 = 100;
+const RIDER_DATA: &str = "saintsdragons:atroxiia_rider";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[repr(usize)]
@@ -35,6 +38,16 @@ enum Attack {
 }
 
 impl Attack {
+    // DragonAbility starts its cooldown when the ability ends, unlike AI pacing.
+    fn rider_cooldown(self) -> i64 {
+        match self {
+            Self::Sweep => 18,
+            Self::Quake => 50,
+            Self::Gungnir | Self::Precise => 30,
+            Self::Slam | Self::Bite => 12,
+            Self::Swipe => 8,
+        }
+    }
     fn pacing(self) -> (i64, i64, i64, i64) {
         // duration, cadence, per-ability cooldown, major cooldown
         match self {
@@ -432,6 +445,521 @@ fn sound(world: World<'_>, mob: Entity<'_>, attack: Attack, elapsed: i64) {
 pub fn clip(mob: Entity<'_>) -> Option<&'static str> {
     let s = State::load(mob);
     s.active.map(|a| a.clip(s.right, now() - s.started))
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(into = "i32", try_from = "i32")]
+enum RiderAbility {
+    Combat(Attack),
+    Slither,
+    Flex,
+}
+
+impl From<RiderAbility> for i32 {
+    fn from(value: RiderAbility) -> Self {
+        value.slot() as i32
+    }
+}
+
+impl TryFrom<i32> for RiderAbility {
+    type Error = &'static str;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Combat(Attack::Sweep),
+            1 => Self::Combat(Attack::Quake),
+            2 => Self::Combat(Attack::Gungnir),
+            3 => Self::Combat(Attack::Precise),
+            4 => Self::Combat(Attack::Slam),
+            5 => Self::Combat(Attack::Swipe),
+            6 => Self::Combat(Attack::Bite),
+            7 => Self::Slither,
+            8 => Self::Flex,
+            _ => return Err("invalid Atroxiia rider ability"),
+        })
+    }
+}
+
+impl RiderAbility {
+    fn slot(self) -> usize {
+        match self {
+            Self::Combat(a) => a as usize,
+            Self::Slither => 7,
+            Self::Flex => 8,
+        }
+    }
+    fn cooldown(self) -> i64 {
+        match self {
+            Self::Combat(a) => a.rider_cooldown(),
+            Self::Slither => 30,
+            Self::Flex => 120,
+        }
+    }
+    fn duration(self) -> i64 {
+        match self {
+            Self::Combat(Attack::Quake) => 34,
+            Self::Combat(a) => a.pacing().0,
+            Self::Slither => 75,
+            Self::Flex => 67,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct Contact {
+    id: i32,
+    until: i64,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(default)]
+struct RiderState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active: Option<RiderAbility>,
+    started: i64,
+    stamp: i64,
+    cooldown: [i64; 9],
+    swipe: bool,
+    right: bool,
+    released: bool,
+    chain_requested: bool,
+    chain_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tertiary: Option<i64>,
+    contact: Vec<Contact>,
+    ascend: bool,
+    descend: bool,
+    accelerate: bool,
+}
+
+impl RiderState {
+    fn load(mob: Entity<'_>) -> Self {
+        let state: Self = mob
+            .data(RIDER_DATA)
+            .and_then(|v| fastnbt::from_bytes(&v).ok())
+            .unwrap_or_default();
+        if state.stamp > now() {
+            Self::default()
+        } else {
+            state
+        }
+    }
+    fn save(&mut self, mob: Entity<'_>) {
+        self.stamp = now();
+        if let Ok(bytes) = fastnbt::to_bytes(self) {
+            mob.set_data(RIDER_DATA, &bytes);
+        }
+    }
+    fn begin(&mut self, ability: RiderAbility, time: i64) -> bool {
+        if self.active.is_some() || time < self.cooldown[ability.slot()] {
+            return false;
+        }
+        self.active = Some(ability);
+        self.started = time;
+        self.released = false;
+        self.chain_requested = false;
+        self.chain_at = 0;
+        self.contact.clear();
+        if matches!(ability, RiderAbility::Combat(Attack::Slam | Attack::Swipe)) {
+            self.right = !self.right;
+        }
+        true
+    }
+    fn end(&mut self, time: i64) {
+        if let Some(ability) = self.active.take() {
+            self.cooldown[ability.slot()] = if ability == RiderAbility::Flex {
+                self.started + ability.cooldown()
+            } else {
+                time + ability.cooldown()
+            };
+        }
+        self.contact.clear();
+    }
+    fn quake_chain(&self, elapsed: i64) -> bool {
+        self.chain_at == 0 && elapsed >= 22 && (!self.released || self.chain_requested)
+    }
+}
+
+fn controlling(mob: Entity<'_>, player: Entity<'_>) -> bool {
+    taming::is_owner(mob, player)
+        && !crate::eggs::is_juvenile(mob)
+        && MOBS
+            .get()
+            .is_some_and(|m| m.passengers(mob).first() == Some(&player.id()))
+}
+
+fn grounded(world: World<'_>, mob: Entity<'_>, v: EntityView) -> bool {
+    !wet(world, v.position)
+        && v.motion[1] <= 0.08
+        && (v.on_ground
+            || mob
+                .body()
+                .is_some_and(|b| !crate::flight::clear_body(world, b, [0.0, -0.12, 0.0])))
+}
+
+fn begin_rider(world: World<'_>, mob: Entity<'_>, s: &mut RiderState, a: RiderAbility) {
+    let Some(v) = mob.view() else { return };
+    let allowed = if a == RiderAbility::Combat(Attack::Bite) {
+        wet(world, v.position)
+    } else {
+        grounded(world, mob, v)
+    };
+    if !allowed || !s.begin(a, now()) {
+        return;
+    }
+    if let Some(ai) = MOB_AI.get() {
+        ai.stop(mob);
+        ai.set_target(world, mob, None);
+    }
+    match a {
+        RiderAbility::Combat(attack) => sound(world, mob, attack, 0),
+        RiderAbility::Slither | RiderAbility::Flex => {
+            let cue = if a == RiderAbility::Slither {
+                "slither"
+            } else {
+                "flex"
+            };
+            if let Some(effects) = EFFECTS.get() {
+                let sound = if cfg!(feature = "original-assets") {
+                    format!("saintsdragons:atroxiia_{cue}")
+                } else {
+                    "minecraft:entity.ravager.roar".into()
+                };
+                effects.play_sound(world, v.position, &sound, SOUND_NEUTRAL, 1.4, 1.0);
+            }
+        }
+    }
+}
+
+/// Atroxiia's released rider bindings. Built-in attack and double-tap-W
+/// callbacks are connected by the shared mouse-input task.
+pub fn rider_action(
+    world: World<'_>,
+    player: Entity<'_>,
+    mob: Entity<'_>,
+    action: &str,
+    phase: u8,
+) {
+    if !controlling(mob, player) {
+        return;
+    }
+    let Some(v) = mob.view() else { return };
+    let mut s = RiderState::load(mob);
+    let t = now();
+    let a = match (action, phase) {
+        ("saintsdragons:ascend", ACTION_PRESSED | ACTION_RELEASED) => {
+            s.ascend = phase == ACTION_PRESSED;
+            None
+        }
+        ("saintsdragons:descend", ACTION_PRESSED | ACTION_RELEASED) => {
+            s.descend = phase == ACTION_PRESSED;
+            None
+        }
+        ("saintsdragons:accelerate", ACTION_PRESSED | ACTION_RELEASED) => {
+            s.accelerate = phase == ACTION_PRESSED;
+            None
+        }
+        ("saintsdragons:toggle_melee", ACTION_PRESSED)
+            if !wet(world, v.position) && s.active.is_none() =>
+        {
+            s.swipe = !s.swipe;
+            None
+        }
+        ("saintsdragons:ability_primary", ACTION_PRESSED) => {
+            Some(RiderAbility::Combat(Attack::Sweep))
+        }
+        ("saintsdragons:ability_secondary", ACTION_PRESSED) => {
+            if s.active == Some(RiderAbility::Combat(Attack::Quake)) && s.chain_at == 0 {
+                s.chain_requested = true;
+            }
+            Some(RiderAbility::Combat(Attack::Quake))
+        }
+        ("saintsdragons:ability_secondary", ACTION_RELEASED) => {
+            if s.active == Some(RiderAbility::Combat(Attack::Quake)) {
+                s.released = true;
+            }
+            None
+        }
+        ("saintsdragons:ability_tertiary", ACTION_PRESSED) => {
+            s.tertiary = Some(t);
+            None
+        }
+        ("saintsdragons:ability_tertiary", ACTION_HELD)
+            if s.tertiary.is_some_and(|start| t - start >= 4) =>
+        {
+            s.tertiary = None;
+            Some(RiderAbility::Combat(Attack::Precise))
+        }
+        ("saintsdragons:ability_tertiary", ACTION_RELEASED) => s.tertiary.take().map(|start| {
+            RiderAbility::Combat(if t - start >= 4 {
+                Attack::Precise
+            } else {
+                Attack::Gungnir
+            })
+        }),
+        ("saintsdragons:flex", ACTION_PRESSED) => Some(RiderAbility::Flex),
+        ("moddedmc:mounted_attack", ACTION_PRESSED) => {
+            Some(RiderAbility::Combat(if wet(world, v.position) {
+                Attack::Bite
+            } else if s.swipe {
+                Attack::Swipe
+            } else {
+                Attack::Slam
+            }))
+        }
+        ("moddedmc:double_tap/forward", ACTION_PRESSED) => Some(RiderAbility::Slither),
+        _ => return,
+    };
+    if let Some(a) = a {
+        begin_rider(world, mob, &mut s, a);
+    }
+    s.save(mob);
+}
+
+fn slither_contact(world: World<'_>, mob: Entity<'_>, s: &mut RiderState, t: i64, v: EntityView) {
+    let (Some(entities), Some(ai), Some(body)) = (ENTITIES.get(), MOB_AI.get(), mob.body()) else {
+        return;
+    };
+    s.contact.retain(|c| c.until > t);
+    for id in entities.entities_in(
+        world,
+        inflate(body.min, [-0.75, -0.35, -0.75]),
+        inflate(body.max, [0.75, 0.35, 0.75]),
+        mob.id(),
+    ) {
+        if s.contact.iter().any(|c| c.id == id) {
+            continue;
+        }
+        entities.with_entity(world, id, |target| {
+            if hostile(mob, target) && ai.attack(world, mob, id, 5.0) {
+                if let Some(at) = target.view() {
+                    push(
+                        target,
+                        horizontal(sub(at.position, v.position), forward(v.yaw).map(|x| -x)),
+                        0.35,
+                        0.0,
+                    );
+                }
+                s.contact.push(Contact { id, until: t + 10 });
+            }
+        });
+    }
+    if let Some(effects) = EFFECTS.get() {
+        effects.particles(
+            world,
+            "minecraft:cloud",
+            v.position,
+            [0.75, 0.1, 0.75],
+            0.08,
+            2,
+        );
+    }
+}
+
+/// AtroxiiaRiderController: the ground dragon must not use Cindervane's flight
+/// controls. Apply the ability movement after the ordinary rider movement.
+pub fn ride(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
+    let (Some(v), Some(look), Some(body), Some(mobs)) =
+        (mob.view(), rider.view(), rider.body(), MOBS.get())
+    else {
+        return;
+    };
+    if !controlling(mob, rider) {
+        return;
+    }
+    let s = RiderState::load(mob);
+    let keys = mobs.player_input(rider).unwrap_or(0);
+    let sprint = s.accelerate || keys & PLAYER_INPUT_SPRINT != 0;
+    let yaw = v.yaw + ((look.yaw - v.yaw + 180.0).rem_euclid(360.0) - 180.0) * 0.28;
+    let (sin, cos) = f64::from(yaw).to_radians().sin_cos();
+    let forward = body.input[2] * if body.input[2] < 0.0 { 0.5 } else { 1.0 };
+    let strafe = body.input[0];
+    let motion = if wet(world, v.position) {
+        let up = s.ascend || keys & PLAYER_INPUT_JUMP != 0;
+        let down = s.descend;
+        let pitch = f64::from(if up {
+            -25.0
+        } else if down {
+            25.0
+        } else {
+            look.pitch
+        })
+        .to_radians();
+        let dir = [
+            -sin * pitch.cos() * forward + cos * strafe * 0.36,
+            if up || down {
+                0.0
+            } else {
+                -pitch.sin() * forward * 0.65
+            },
+            cos * pitch.cos() * forward + sin * strafe * 0.36,
+        ];
+        let norm = length(dir);
+        let speed = if sprint { 0.42 } else { 0.30 };
+        let desired = if norm > 1e-6 {
+            dir.map(|d| d / norm * speed)
+        } else {
+            [0.0, v.motion[1] * 0.9, 0.0]
+        };
+        let mut motion = std::array::from_fn(|i| {
+            (v.motion[i] + (desired[i] - v.motion[i]) * 0.28) * if i == 1 { 0.96 } else { 0.94 }
+        });
+        if up {
+            motion[1] = (motion[1] + 0.10).min(0.36);
+        } else if down {
+            motion[1] = (motion[1] - 0.12).max(-0.36);
+        }
+        motion
+    } else {
+        let speed = if sprint { 0.43 } else { 0.12 };
+        let speed = speed * crate::hunger::speed_multiplier(taming::happiness(mob).unwrap_or(100));
+        [
+            (-sin * forward * 0.9 + cos * strafe * 0.5) * speed,
+            v.motion[1].min(0.0),
+            (cos * forward * 0.9 + sin * strafe * 0.5) * speed,
+        ]
+    };
+    let locked = matches!(
+        s.active,
+        Some(RiderAbility::Flex | RiderAbility::Combat(Attack::Quake))
+    );
+    let yaw = if locked { v.yaw } else { yaw };
+    mob.change(&EntityChange {
+        mask: SET_YAW | SET_BODY_YAW | SET_HEAD_YAW | SET_MOTION,
+        yaw,
+        body_yaw: yaw,
+        head_yaw: yaw,
+        motion: if locked {
+            [0.0, motion[1], 0.0]
+        } else {
+            motion
+        },
+        ..Default::default()
+    });
+    rider.reset_fall_distance();
+    mob.reset_fall_distance();
+    rider_tick(world, mob);
+}
+
+/// Ambient animation and cleanup when the controlling passenger dismounts.
+pub fn rider_clip(mob: Entity<'_>) -> Option<&'static str> {
+    let mut s = RiderState::load(mob);
+    if MOBS.get().is_none_or(|m| m.passengers(mob).is_empty()) {
+        if s.active.is_some() || s.tertiary.is_some() || s.ascend || s.descend || s.accelerate {
+            s.end(now());
+            s.tertiary = None;
+            s.ascend = false;
+            s.descend = false;
+            s.accelerate = false;
+            s.save(mob);
+        }
+        return None;
+    }
+    match s.active? {
+        RiderAbility::Combat(Attack::Quake) => Some(if s.chain_at == 0 {
+            "helheim_quake1"
+        } else {
+            "helheim_quake2"
+        }),
+        RiderAbility::Combat(a) => Some(a.clip(s.right, now() - s.started)),
+        RiderAbility::Slither => Some("slither"),
+        RiderAbility::Flex => Some("flex"),
+    }
+}
+
+/// Tick mounted abilities within the controlling rider's movement goal.
+fn rider_tick(world: World<'_>, mob: Entity<'_>) -> Option<&'static str> {
+    let mut s = RiderState::load(mob);
+    let a = s.active?;
+    let t = now();
+    let elapsed = t - s.started;
+    let v = mob.view()?;
+    let mounted = MOBS
+        .get()
+        .and_then(|m| m.passengers(mob).first().copied())
+        .is_some_and(|id| {
+            ENTITIES
+                .get()
+                .and_then(|e| e.with_entity(world, id, |player| controlling(mob, player)))
+                == Some(true)
+        });
+    let duration = if a == RiderAbility::Combat(Attack::Quake) && s.chain_at != 0 {
+        s.chain_at + 17
+    } else {
+        a.duration()
+    };
+    if !mounted
+        || wet(world, v.position) != (a == RiderAbility::Combat(Attack::Bite))
+        || elapsed >= duration
+    {
+        s.end(t);
+        s.tertiary = None;
+        s.save(mob);
+        if a == RiderAbility::Slither {
+            nudge(mob, v.yaw, 0.0);
+        }
+        return None;
+    }
+    let clip = match a {
+        RiderAbility::Combat(attack) => {
+            if attack == Attack::Quake {
+                nudge(mob, v.yaw, 0.0);
+                if elapsed == 18 {
+                    execute(world, mob, attack, 18, None, v.yaw);
+                }
+                if s.quake_chain(elapsed) {
+                    s.chain_at = elapsed;
+                    execute(world, mob, attack, 22, None, v.yaw);
+                }
+                if s.chain_at != 0 && elapsed == s.chain_at + 14 {
+                    execute(world, mob, attack, 36, None, v.yaw);
+                }
+                if s.chain_at != 0 {
+                    "helheim_quake2"
+                } else {
+                    "helheim_quake1"
+                }
+            } else {
+                if attack == Attack::Bite && elapsed == 9 {
+                    hit(
+                        world,
+                        mob,
+                        attack,
+                        Hit {
+                            range: 5.0,
+                            horizontal: 3.0,
+                            vertical: 2.75,
+                            angle: 95.0,
+                            damage: 10.0,
+                            push: 0.2,
+                            lift: 0.05,
+                            stun: 0,
+                        },
+                        false,
+                    );
+                } else {
+                    execute(world, mob, attack, elapsed, None, v.yaw);
+                }
+                attack.clip(s.right, elapsed)
+            }
+        }
+        RiderAbility::Slither => {
+            match elapsed {
+                7..=21 => nudge(mob, v.yaw, 24.0 / 15.0),
+                22..=66 => {
+                    nudge(mob, v.yaw, 0.43 * 4.0);
+                    slither_contact(world, mob, &mut s, t, v);
+                }
+                _ => nudge(mob, v.yaw, 0.0),
+            }
+            "slither"
+        }
+        RiderAbility::Flex => {
+            nudge(mob, v.yaw, 0.0);
+            "flex"
+        }
+    };
+    s.save(mob);
+    Some(clip)
 }
 
 fn turn(mob: Entity<'_>, view: EntityView, delta: [f64; 3], degrees: f32) -> f32 {
@@ -994,6 +1522,34 @@ fn execute(world: World<'_>, mob: Entity<'_>, a: Attack, t: i64, target: Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rider_quake_release_chain_and_cooldown() {
+        let mut s = RiderState::default();
+        let quake = RiderAbility::Combat(Attack::Quake);
+        assert!(s.begin(quake, 20));
+        assert!(!s.quake_chain(21));
+        assert!(s.quake_chain(22));
+        s.released = true;
+        assert!(!s.quake_chain(22));
+        s.chain_requested = true;
+        assert!(s.quake_chain(23));
+        s.chain_at = 23;
+        assert!(!s.quake_chain(24));
+        s.end(60);
+        assert!(!s.begin(quake, 109));
+        assert!(s.begin(quake, 110));
+        let encoded = fastnbt::to_bytes(&s).unwrap();
+        let decoded: RiderState = fastnbt::from_bytes(&encoded).unwrap();
+        assert_eq!(decoded.active, Some(quake));
+    }
+    #[test]
+    fn rider_flex_cooldown_begins_on_activation() {
+        let mut s = RiderState::default();
+        assert!(s.begin(RiderAbility::Flex, 100));
+        s.end(167);
+        assert!(!s.begin(RiderAbility::Flex, 219));
+        assert!(s.begin(RiderAbility::Flex, 220));
+    }
     fn snap(gap: f64) -> Snapshot {
         Snapshot {
             gap,

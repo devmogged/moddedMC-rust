@@ -824,7 +824,11 @@ pub fn ride_or_sit(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             if let Some(&first) = passengers.first() {
                 entities.with_entity(world, first, |rider| {
                     if mobs.uuid(rider) == Some(state.owner) {
-                        ride(mob, rider);
+                        if mobs.kind(mob) == Some("saintsdragons:atroxiia") {
+                            crate::combat_atroxiia::ride(world, mob, rider);
+                        } else {
+                            ride(mob, rider);
+                        }
                     } else {
                         rider.stop_riding();
                     }

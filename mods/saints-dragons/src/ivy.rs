@@ -769,7 +769,7 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
 
 const TRADES_ROLLED: &str = "saintsdragons:ivy_trades_rolled";
 
-pub const COMBAT: u64 = 17;
+pub const COMBAT: u64 = 170;
 
 #[derive(Clone, Copy)]
 struct Hit {

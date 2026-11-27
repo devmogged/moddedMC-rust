@@ -854,7 +854,10 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     };
     let clip = clip.or_else(|| {
         (name == "atroxiia")
-            .then(|| crate::combat_atroxiia::clip(mob))
+            .then(|| {
+                crate::combat_atroxiia::rider_clip(mob)
+                    .or_else(|| crate::combat_atroxiia::clip(mob))
+            })
             .flatten()
     });
     let clip = if name == "ignivorus" {
