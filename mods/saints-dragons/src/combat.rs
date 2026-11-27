@@ -73,6 +73,9 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
     let Some(kind) = MOBS.get().and_then(|mobs| mobs.kind(mob)) else {
         return true;
     };
+    if kind == crate::ivy::KIND && !crate::ivy::hurt(mob, damage_type, amount) {
+        return false;
+    }
     let immune = (kind == crate::CINDERVANE && IMMUNE.contains(&damage_type))
         || (damage_type == "minecraft:fall"
             && kind

@@ -8,7 +8,7 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
-| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table | Ivy's companion inventory and combat, resuming her dialogue after the trade screen closes, exact flight navigation and collision, and exact spawn restrictions and attributes |
+| Adult creature roster | Fourteen creature types with carriers, saved identity and spawn eggs; swarm combat; Ivy trades, persistent companion inventory, recruited melee and dash attacks, saved downed/revival counters | Ivy's original inventory UI, lethal-hit downed entry, recovery items and projectile combat, owner-initiated targeting, resuming dialogue after trading, exact navigation, spawn restrictions, attributes and collision |
 | Movement and lifecycle | Shared ground AI, baseline flight and swimming, partial Cindervane wild AI, and released Moop idle, swim, fast swim and on-land animation selection, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback, and the custom Raevyx storm, Stegonaut lush cave and Volitans underwater spawners | Per-species brains, navigation, growth and breeding |
 | Combat | Cindervane bite, double bite, slash grab, magma volley and fire body in varying degrees. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Per-species combat, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects |
 | Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, roster melee attribute scaling, juvenile food taming, growth feeding and raw-moop stunting; grooming hurt clips and roost damage wake-up reactions; breeding XP and stats, credited hunting and fresh-drop eating, owner-bed sleep | Nulljaw wild juvenile feeding, contextual breeding advancement, sensory disturbances, codex hunger display; equipment, inventories, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls |
@@ -199,7 +199,7 @@ underwater floor within eight blocks horizontally and twelve down. Their egg
 is waterlogged. Nulljaw eat chorus fruit and court for 60 ticks before giving
 birth to a live juvenile with 70 health, 4 armor, a 0.55 hitbox scale, and the
 coordinating parent's owner. Both use the existing 6,000-tick breeding cooldown.
-Successful breeding spawns 1–7 experience when mob loot is enabled and awards
+Successful breeding spawns 1â€“7 experience when mob loot is enabled and awards
 the animals-bred statistic to the first available feeding player. The contextual
 BRED_ANIMALS advancement trigger remains deferred.
 [More breeding scenario](../tests/scenarios/p2at-saints-dragons-more-breeding.txt)
@@ -284,11 +284,31 @@ bound to Ivy and her owner. The plushie recalls loaded Ivy in the same
 dimension and sends the teleport sound and particles. The stock-client
 scenario followed the recruitment dialogue, earned the plushie, verified
 its UUID after recall on a restarted server, and rejected a different player.
-The original trade
-and companion inventory screens, custom name input, cross-dimension recall,
-merchant combat, and client dialogue animations remain
-pending.
+Her companion inventory uses a stock chest screen with four armor slots, a
+weapon slot and 27 storage slots, restricted to her recruited owner within
+eight blocks. Inventory transactions persist by Ivy's UUID. Equipment affects
+melee damage and armor attributes. Recruited Ivy retaliates against attackers
+and protects her owner while following, with the released boxing and sword
+attack timings and melee animation clips. The stock menu does not provide the
+original equipment slot layout or automatic shift-click routing. Equipment
+wear, recovery items, venom projectiles, dodges, lethal-hit downed entry
+and outgoing owner attack detection remain pending. The SDK has no merchant
+menu close callback for automatic dialogue resumption, nor a transactional
+entity inventory API for equipment wear and consumption.
+Custom name input, cross-dimension recall and client dialogue animations
+remain pending.
 [Ivy recruitment scenario](../tests/scenarios/p2ae-saints-dragons-ivy.txt)
+[Ivy companion scenario](../tests/scenarios/p2az-saints-dragons-ivy-companion.txt)
+
+Ivy's boxing and sword dashes use the released moving-target pressure,
+retreat direction, action durations, impulses and cooldowns. Saved downed
+state supports a 90-second bleed-out, three finishing hits, owner revival
+interactions, healing and the 30-tick arise animation. Natural downed entry
+requires a post-mitigation pre-death damage hook; the current pre-armor hook
+cannot determine lethal damage or its attacker reliably. The host also
+lacks full aggro-memory clearing and heal-event interception. The
+[Ivy downed scenario](../tests/scenarios/p2ba-saints-dragons-ivy-downed.txt)
+seeds the saved state to exercise its supported behavior.
 
 ## Released creative tab
 

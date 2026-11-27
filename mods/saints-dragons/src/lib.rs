@@ -110,6 +110,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
         entities.require_extension(EntitiesExtension::Players)?;
+        entities.require_extension(EntitiesExtension::Damage)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -145,7 +146,9 @@ impl Mod for SaintsDragons {
         let _ = ITEMS.set(items::require()?);
         let _ = ITEM_DEFAULTS.set(items::require_defaults()?);
         let _ = RESOURCES.set(resources::require()?);
-        let _ = STACKS.set(stacks::require()?);
+        let stacks = stacks::require()?;
+        stacks.require_extension(stacks::StacksExtension::Component)?;
+        let _ = STACKS.set(stacks);
         let _ = TAGS.set(tags::require()?);
         visuals::start()?;
         venom_arrow::start()?;
