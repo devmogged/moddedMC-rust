@@ -1784,6 +1784,10 @@ pub struct MobsV1 {
         unsafe extern "C" fn(player: EntityRef, category: Str, stat: Str, amount: i32) -> bool,
     /// Read a boolean gamerule by its 26.3 resource key; -1 if missing or not boolean.
     pub boolean_gamerule: unsafe extern "C" fn(world: WorldRef, rule: Str) -> i32,
+    /// Last living target damaged by this entity, or -1. Writes the game time if found.
+    pub last_hurt_mob: unsafe extern "C" fn(entity: EntityRef, timestamp: *mut i64) -> i32,
+    /// Remembered living attacker, or -1. Writes the game time of the hit if found.
+    pub last_hurt_by_mob: unsafe extern "C" fn(entity: EntityRef, timestamp: *mut i64) -> i32,
 }
 
 /// A mod mob dying; the entity is still in the world.
@@ -1937,7 +1941,9 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, award_experience), 200);
         assert_eq!(offset_of!(MobsV1, award_stat), 208);
         assert_eq!(offset_of!(MobsV1, boolean_gamerule), 216);
-        assert_eq!(size_of::<MobsV1>(), 224);
+        assert_eq!(offset_of!(MobsV1, last_hurt_mob), 224);
+        assert_eq!(offset_of!(MobsV1, last_hurt_by_mob), 232);
+        assert_eq!(size_of::<MobsV1>(), 240);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);
