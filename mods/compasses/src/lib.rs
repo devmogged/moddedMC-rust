@@ -805,8 +805,9 @@ fn start_search(
         let search = if options.radius == 0 || (selection.item == NATURE && options.step == 0) {
             Some(Search::Disabled)
         } else if let Some(group) = group {
-            group_search::plan(group, |member| host.structures.placements(world, member)).map(
-                |plan| {
+            group_search::plan(group, |member| host.structures.placements(world, member))
+                .filter(|plan| !plan.is_empty())
+                .map(|plan| {
                     longest_member = plan
                         .iter()
                         .flat_map(|p| &p.members)
@@ -819,8 +820,7 @@ fn start_search(
                         options.radius,
                         options.max_samples,
                     ))
-                },
-            )
+                })
         } else if selection.item == NATURE {
             host.biomes
                 .height_bounds(world)
@@ -839,6 +839,10 @@ fn start_search(
         } else {
             host.structures
                 .placements(world, &state.target)
+                // Registered but unplaced structure IDs remain visible in a
+                // future global catalog. They cannot start a paid search when
+                // the active dimension has no actual placement set.
+                .filter(|placements| !placements.is_empty())
                 .map(|placements| {
                     Search::Structure(structure_search::Search::with_limits(
                         origin,

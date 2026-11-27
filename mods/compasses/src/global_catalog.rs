@@ -19,6 +19,17 @@ pub enum SelectionError {
     NotRegistered,
     Hidden,
     WrongDimension,
+    PlacementUnavailable,
+    NoPlacements,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlacementGate {
+    /// Biome search uses noise biome sampling, not structure placement sets.
+    Biome,
+    /// Structure search must have a successful current-world placement lookup.
+    /// `None` is an unavailable lookup, `Some(0)` is a known unplaced entry.
+    Structure(Option<usize>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,14 +129,16 @@ impl GlobalCatalog {
 
     /// Authorize a requested search against the current complete snapshot,
     /// not the list formerly shown by a client. This is an eligibility check,
-    /// not a placement check: an eligible but unplaced structure may still
-    /// yield a normal no-result search. Call before XP debit or state changes.
+    /// and placement readiness before XP debit or state changes. A registered
+    /// structure that has eligible biomes but no structure set is not a valid
+    /// executable search target in the current world.
     pub fn authorize_search(
         &self,
         id: &str,
         dimension: &str,
         hidden: &HashSet<String>,
         blocked: impl Fn(&str) -> bool,
+        placement: PlacementGate,
     ) -> Result<(), SelectionError> {
         let entry = self.get(id).ok_or(SelectionError::NotRegistered)?;
         if hidden.contains(id) || blocked(id) {
@@ -133,6 +146,11 @@ impl GlobalCatalog {
         }
         if !entry.may_generate_in(dimension) {
             return Err(SelectionError::WrongDimension);
+        }
+        match placement {
+            PlacementGate::Biome | PlacementGate::Structure(Some(1..)) => {}
+            PlacementGate::Structure(Some(0)) => return Err(SelectionError::NoPlacements),
+            PlacementGate::Structure(None) => return Err(SelectionError::PlacementUnavailable),
         }
         Ok(())
     }
@@ -245,28 +263,84 @@ mod tests {
             ["minecraft:basalt_deltas", "minecraft:birch_forest"]
         );
         assert_eq!(
-            catalog.authorize_search("minecraft:basalt_deltas", overworld, &hidden, |_| false),
+            catalog.authorize_search(
+                "minecraft:basalt_deltas",
+                overworld,
+                &hidden,
+                |_| false,
+                PlacementGate::Biome,
+            ),
             Err(SelectionError::WrongDimension)
         );
         assert_eq!(
-            catalog.authorize_search("test:never_eligible", overworld, &hidden, |_| false),
+            catalog.authorize_search(
+                "test:never_eligible",
+                overworld,
+                &hidden,
+                |_| false,
+                PlacementGate::Structure(Some(0)),
+            ),
             Err(SelectionError::Hidden)
         );
         assert_eq!(
-            catalog.authorize_search("test:never_eligible", overworld, &HashSet::new(), |_| false),
+            catalog.authorize_search(
+                "test:never_eligible",
+                overworld,
+                &HashSet::new(),
+                |_| false,
+                PlacementGate::Structure(Some(0)),
+            ),
             Err(SelectionError::WrongDimension)
         );
         assert_eq!(
-            catalog.authorize_search("test:unplaced", overworld, &hidden, |_| false),
-            Ok(())
+            catalog.authorize_search(
+                "test:unplaced",
+                overworld,
+                &hidden,
+                |_| false,
+                PlacementGate::Structure(Some(0)),
+            ),
+            Err(SelectionError::NoPlacements)
         );
         assert_eq!(
-            catalog.authorize_search("test:unplaced", overworld, &hidden, |_| true),
+            catalog.authorize_search(
+                "test:unplaced",
+                overworld,
+                &hidden,
+                |_| true,
+                PlacementGate::Structure(Some(1)),
+            ),
             Err(SelectionError::Hidden)
         );
         assert_eq!(
-            catalog.authorize_search("test:unknown", overworld, &hidden, |_| false),
+            catalog.authorize_search(
+                "test:unknown",
+                overworld,
+                &hidden,
+                |_| false,
+                PlacementGate::Biome,
+            ),
             Err(SelectionError::NotRegistered)
+        );
+        assert_eq!(
+            catalog.authorize_search(
+                "test:unplaced",
+                overworld,
+                &hidden,
+                |_| false,
+                PlacementGate::Structure(None),
+            ),
+            Err(SelectionError::PlacementUnavailable)
+        );
+        assert_eq!(
+            catalog.authorize_search(
+                "test:unplaced",
+                overworld,
+                &hidden,
+                |_| false,
+                PlacementGate::Structure(Some(2)),
+            ),
+            Ok(())
         );
     }
 }
