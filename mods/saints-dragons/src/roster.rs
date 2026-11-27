@@ -394,6 +394,26 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 },
             )?;
         }
+        if species.name == "ignivorus" {
+            for (key, priority, controls) in [
+                (crate::combat_ignivorus::TARGETING, 0, goal_control::TARGET),
+                (
+                    crate::combat_ignivorus::COMBAT,
+                    1,
+                    goal_control::MOVE | goal_control::LOOK,
+                ),
+            ] {
+                ai.add_goal(
+                    registry,
+                    &Goal {
+                        kind: &kind,
+                        key,
+                        priority,
+                        controls,
+                    },
+                )?;
+            }
+        }
         if species.flight.is_some() {
             ai.add_goal(
                 registry,
@@ -707,6 +727,12 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             .then(|| crate::combat_atroxiia::clip(mob))
             .flatten()
     });
+    let clip = if name == "ignivorus" {
+        crate::combat_ignivorus::ambient(world, mob);
+        crate::combat_ignivorus::clip(mob).or(clip)
+    } else {
+        clip
+    };
     let clip = clip.or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count())).unwrap_or_else(|| species.clip(view, wet));
     visuals::tick_species(world, mob, name, view, clip);
     false
