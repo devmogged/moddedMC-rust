@@ -100,19 +100,46 @@ on success, not cancellation or failure, and a broken compass remains an
 item to repair. Sneak reset clears search state but not damage.
 
 Implement XP charging as a transaction with exact-stack CAS acceptance
-and sufficient-level validation. Implement successful-search damage
-atomically with the resulting item state and tracker. An ordinary tool
-break operation that deletes the item is not source-equivalent. Both
+and sufficient-level validation. The native mod now implements
+successful-search wear as custom MCc3 state written atomically with the
+result and tracker through the existing CAS. It queries the existing
+player-mode interface at completion; creative players consume no wear.
+An ordinary tool break operation that deletes the item is not
+source-equivalent. Both
 upstream repair recipes are ordinary shapeless recipes: one mod compass
 plus one vanilla compass produces a fresh compass of the same mod type.
 The native resources already ship these recipes. A fresh result must not
 copy the input's custom data, damage, history or lodestone tracker.
 There is no upstream requirement for a damage-gated repair recipe.
-The missing generic capability is atomic successful-search damage, not
-a special crafting hook. The existing stock-grid repair path still needs
-protocol verification.
-The current default (zero cost and no durability) is implemented;
-explicit enabled settings reject startup with a precise error.
+The stock dialog and result chat show remaining uses. The remaining
+presentation gap is graphical damage-bar projection without introducing
+vanilla breakage or alternate repair mechanics. Positive durability and
+independent same-ID stacks are verified in the coordinated protocol run;
+group exhaustion, search interruption, cancellation, and world transfer
+do not consume wear. Stock-grid repair produces a fresh blank compass.
+See the scenario evidence for the full restart and creative-mode checks.
+The current default (zero cost and no durability) remains unchanged;
+positive XP settings reject startup with a precise error.
+
+Paid-search acceptance after the shared transaction interface is available:
+
+- Start a three-level Nature search with only two levels. It must neither
+  replace the held stack nor debit XP nor enqueue a worker. Retry with
+  sufficient levels, then replay the original action; only the accepted
+  search may debit XP. The prior found tracker must survive a rejected start.
+- Configure a two-level Explorer group, a one-level actual member B, and a
+  three-level actual member A. In the deterministic weighted-pair fixture,
+  charge two levels for selecting the group, one for finding the next member,
+  and three for the final exhausted search. Exhaustion still costs XP; it
+  must not consume successful-search durability. A zero-level override
+  must not fall back to the default cost.
+- Verify that a stale action after dropping, repairing, or replacing the
+  stack cannot charge the player, even when enough levels remain. Creative
+  starts must not debit XP. Navigation and sneak reset must also be free.
+- Exercise sufficient-level validation and exact-stack replacement in one
+  host transaction, including rejection of ambiguous duplicate stack data.
+  Separate calls to query/debit XP and replace a stack would permit races
+  and are not equivalent to this contract.
 
 ## Teleport
 
@@ -129,3 +156,8 @@ saved target dimension. Reject stale or unprivileged requests; do not
 expose the unconditional Player::teleport call as a public menu action.
 The source's fixed fallback Y=256 is not a safe default for arbitrary
 dimensions and should not be copied as if it were a verified landing.
+The mod-side `teleport::find_landing` selector is implemented and
+unit-tested: scan the sea-level-outwards column, prefer upward ties,
+require two dry collision-free cells on safe support, and return None
+if no valid landing exists. It is not exposed as an action without
+server-side permissions and a coherent generated-column snapshot.

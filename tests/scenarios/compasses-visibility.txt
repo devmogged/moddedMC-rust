@@ -43,15 +43,13 @@ wait 1
 bot click-label aaa_compass_test:weighted_pair
 wait 2
 expect Compass search started
-wait 30
-expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+await 30 Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
 bot use-item main
 wait 1
 bot click-label Find next / retry
 wait 2
 expect Compass search started
-wait 10
-expect Found aaa_compass_test:member_a at X -151, Z -1141 in minecraft:overworld
+await 10 Found aaa_compass_test:member_a at X -151, Z -1141 in minecraft:overworld
 bot expect tracker 37 minecraft:overworld -151 7 -1141
 wait 1
 expect \[bot\] expect inventory ok tracker 37 minecraft:overworld -151 7 -1141

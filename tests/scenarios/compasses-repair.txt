@@ -19,8 +19,7 @@ expect \[bot\] dialog: .*Nature's Compass
 bot click-label minecraft:birch_forest
 wait 2
 expect Compass search started
-wait 15
-expect Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
 bot expect tracker 36 minecraft:overworld -287 6
 wait 1
 expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -287 6
@@ -54,16 +53,14 @@ bot expect slot 36 minecraft:compass 1
 wait 1
 reject \[bot\] error:|panicked
 expect-all \[bot\] expect inventory ok slot 0 air 0 && \[bot\] expect inventory ok slot 1 air 0 && \[bot\] expect inventory ok slot 2 air 0 && \[bot\] expect inventory ok slot 36 compass 1
-bot inventory-close
-wait 1
+# Player inventory uses window zero; there is no separate container to close.
 bot expect tracker 36 absent
 bot expect slot 37 minecraft:air 0
 bot expect cursor minecraft:air 0
 wait 1
 expect-all \[bot\] expect inventory ok tracker 36 absent && \[bot\] expect inventory ok slot 37 air 0 && \[bot\] expect inventory ok cursor air 0
 cmd clear tester naturescompass:naturescompass 0
-wait 1
-expect Found 1 matching item
+await 1 Found 1 matching item
 bot click-label Find next / retry
 wait 1
 reject Compass search started
@@ -92,8 +89,7 @@ expect \[bot\] dialog: .*Select a target in this dimension
 bot click-label minecraft:birch_forest
 wait 2
 expect Compass search started
-wait 15
-expect Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
 cmd experience query tester levels
 cmd experience query tester points
 wait 1

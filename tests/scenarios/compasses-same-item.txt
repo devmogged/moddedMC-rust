@@ -23,8 +23,7 @@ wait 1
 bot click-label aaa_compass_test:member_b
 wait 2
 expect Compass search started
-wait 30
-expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+await 30 Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
 bot expect tracker 36 minecraft:overworld 137 7 875
 bot expect tracker 45 absent
 wait 1
@@ -52,8 +51,7 @@ expect \[bot\] dialog:
 bot click-label aaa_compass_test:member_a
 wait 2
 expect Compass search started
-wait 30
-expect Found aaa_compass_test:member_a at X -151, Z -1141 in minecraft:overworld
+await 30 Found aaa_compass_test:member_a at X -151, Z -1141 in minecraft:overworld
 bot expect tracker 36 minecraft:overworld 137 7 875
 bot expect tracker 45 minecraft:overworld -151 7 -1141
 wait 1

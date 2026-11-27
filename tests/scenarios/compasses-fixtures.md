@@ -246,16 +246,63 @@ configuration and any required datapack automatically.
 | repair | With explicit zero XP cost, locate a biome, craft the found Nature compass plus a vanilla compass in the 2x2 player grid, obtain exactly one fresh mod compass, consume both ingredients, reject the pre-repair menu, persist absent tracker across restart, and locate the same biome again. |
 | explorer-repair | Find both weighted members, exhaust the group, check unchanged XP, locate the first member again, repair via stock crafting, reject the stale action, and recover the first member after restart. |
 | unsupported-xp | Valid positive XP configuration fails registration with its precise atomic-charge capability error. |
-| unsupported-durability | Valid positive durability configuration fails registration with its precise atomic-damage capability error. |
+| invalid-durability | Out-of-range durability (>10000) rejects registration. |
+| durability | Positive Nature wear, separate same-ID stacks, sneak-reset, broken stack/restart, real repair and creative exemption. |
+| explorer-durability | Positive Explorer wear on weighted-member successes, no wear on exhaustion, broken stack retained with exact tracker over restart. |
 
 The two repair cases set 7 XP levels and 3 XP points and verify those
 values remain unchanged. The Explorer case also checks failed search
-exhaustion. The two unsupported-setting cases are transitional tests:
-replace them with successful paid-search and broken-compass repair cases
-when the shared atomic capabilities are implemented. They are not evidence
-that positive XP costs or durability already work. The shipped repair
+exhaustion. The unsupported-XP case is transitional: replace it with
+successful paid-search cases when the shared atomic charge capability
+is implemented. Positive durability is now implemented as atomic custom
+stack state, using stock dialog/chat remaining-use display. The shipped repair
 recipes match the source's unconditional fresh-output shapeless recipe;
 no special repair-specific recipe serializer is needed.
 
-These five cases and the updated config/recipe unit tests are source-only
-until the prime grants the compilation and scenario gates.
+These cases require the updated package and coordinated scenario gate.
+
+## Expanded durability and regression run, 2026-11-27
+
+The coordinated scoped build passed 53/53 Rust tests and produced a
+219,256-byte release package (SHA-256
+`9B47C4DAB2389D58A33060FE4098AC12DB97BB74ECD25CA2AF76DAE9C97BF849`).
+The sequential runner records the exact mod, host, and bot artifacts and
+retains complete logs separately from disposable passing worlds. It also
+scans the entire log for bot errors and panics, independent of individual
+scenario assertion cursors. No host or bot rebuild occurred during the run.
+
+The initial 21-case batch completed with 18 clean passes and three failed
+fixtures, recorded in `run/compass-full-53tests/results.tsv`. Both repair
+cases passed every gameplay assertion but erroneously asked the bot to close
+a separate container after using its window-zero crafting inventory. The
+inventory case expected a server slot update for a client-predicted drop;
+the bot does not predict that action. No errors were hidden or waived.
+The corrected inventory fixture uses a nonmutating server item count and
+then reconnects to check the authoritative empty slot and independent
+Explorer tracker. The repair fixtures no longer send the invalid close.
+
+All four corrected cases (inventory, repair, explorer-repair, durability)
+passed with no bot errors or panics; logs and result table are in
+`run/compass-corrected-53tests/`. In particular:
+
+- Nature durability: separate wear for same-ID stacks, two successful
+  survival searches consume both uses, broken state persists after restart,
+  sneak reset preserves wear, real 2x2 repair restores both uses, creative
+  success does not consume wear, and survival success consumes one use.
+- Explorer durability: weighted pair yields the exact members/offsets,
+  unsuccessful exhaustion consumes no wear, a new successful search consumes
+  the final use, and the broken state persists with its exact tracker.
+- The interrupted case now enables durability 3. Its independent same-target
+  jobs, offhand cancellation, restart, dimension change, and final reset all
+  preserve 3/3 uses and strict component absence.
+
+Both visibility and visibility-reload also passed when rerun on this same
+219,256-byte package, in `run/compass-visibility-53tests/`. The three batch
+result tables therefore cover all 24 distinct Compass scenarios with a
+clean final pass for each case, on identical pinned artifacts. Initial
+failure logs and their worlds are retained; only passing worlds created by
+the batch runner are removed.
+
+These are stock protocol checks, not a graphical client inspection. Positive
+XP charging, permission-checked teleport, full registry/dimension catalog,
+and graphical durability presentation remain separate host-capability work.

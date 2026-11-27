@@ -1,0 +1,71 @@
+# Successful group members consume wear; unsuccessful exhaustion does not.
+mods target\mods\compasses.mmc
+start
+cmd datapack enable "file/weighted-group" last
+wait 2
+expect Loaded datapack 'weighted-group'
+stop
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd item replace entity tester hotbar.0 with explorerscompass:explorerscompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 3/3
+bot click-label Search groups
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+await 15 Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+await 5 Compass uses remaining: 2/3
+bot use-item main
+wait 1
+bot click-label Find next / retry
+wait 2
+expect Compass search started
+await 15 Found aaa_compass_test:member_a at X -151, Z -1141 in minecraft:overworld
+await 5 Compass uses remaining: 1/3
+bot use-item main
+wait 1
+bot click-label Find next / retry
+wait 2
+expect Compass search started
+wait 10
+reject Compass uses remaining: 0/3
+expect No aaa_compass_test:member_a found within the search limits
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 1/3
+bot click-label Search groups
+wait 1
+bot click-label aaa_compass_test:weighted_pair
+wait 2
+expect Compass search started
+await 15 Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
+await 5 Compass uses remaining: 0/3
+bot quit
+stop
+start
+botstart tester
+wait 3
+bot expect tracker 36 minecraft:overworld 137 7 875
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld 137 7 875
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+reject \[bot\] dialog:|Compass search started
+expect Compass is broken. Repair it with a vanilla compass.
+reject \[bot\] error:|panicked
+bot quit
+stop

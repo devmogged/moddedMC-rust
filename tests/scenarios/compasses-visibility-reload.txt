@@ -49,8 +49,7 @@ expect \[bot\] dialog: .*Nature's Compass
 bot click-label minecraft:birch_forest
 wait 2
 expect Compass search started
-wait 15
-expect Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
 bot expect tracker 36 minecraft:overworld -287 6
 wait 1
 expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -287 6

@@ -1,6 +1,0 @@
-# Transitional guard: durability must not silently register unbreakable compasses.
-mods target\mods\compasses.mmc
-start
-reject registered content item (naturescompass|explorerscompass):
-expect-all Invalid compass configuration: .*nonzero compassDurability requires atomic damage and repair support && moddedmc: compasses failed to register
-stop

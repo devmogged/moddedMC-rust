@@ -40,9 +40,9 @@ expect Compass search started
 wait 30
 reject Found minecraft:badlands|No minecraft:badlands found|Search for minecraft:badlands unavailable
 expect Found aaa_compass_test:member_b at X 137, Z 875 in minecraft:overworld
-bot expect tracker 36 none
+bot expect tracker 36 absent
 wait 1
-expect \[bot\] expect inventory ok tracker 36 none
+expect \[bot\] expect inventory ok tracker 36 absent
 botselect bob
 bot expect tracker 36 minecraft:overworld 137 7 875
 wait 1

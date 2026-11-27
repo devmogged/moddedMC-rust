@@ -1,0 +1,126 @@
+# Actual per-stack successful-search wear, reset, persistence and repair.
+mods target\mods\compasses.mmc
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode survival tester
+cmd item replace entity tester hotbar.0 with naturescompass:naturescompass
+cmd item replace entity tester hotbar.1 with naturescompass:naturescompass
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 2/2
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 5 Compass uses remaining: 1/2
+bot hotbar 1
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 2/2
+bot hotbar 0
+wait 1
+bot input sneak
+wait 0.5
+bot use-item main
+bot input none
+wait 1
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 1/2
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 5 Compass uses remaining: 0/2
+bot use-item main
+wait 1
+reject \[bot\] dialog:|Compass search started
+expect Compass is broken. Repair it with a vanilla compass.
+bot click-replay
+wait 1
+reject Compass search started|Found minecraft:
+expect \[bot\] did: click-replay
+bot quit
+stop
+start
+botstart tester
+wait 3
+bot expect tracker 36 minecraft:overworld -287 6
+wait 1
+expect \[bot\] expect inventory ok tracker 36 minecraft:overworld -287 6
+bot hotbar 0
+wait 1
+bot use-item main
+wait 1
+reject \[bot\] dialog:
+expect Compass is broken. Repair it with a vanilla compass.
+bot input sneak
+wait 0.5
+bot use-item main
+bot input none
+wait 1
+bot expect tracker 36 absent
+wait 1
+expect \[bot\] expect inventory ok tracker 36 absent
+bot use-item main
+wait 1
+reject \[bot\] dialog:
+expect Compass is broken. Repair it with a vanilla compass.
+cmd item replace entity tester hotbar.2 with minecraft:compass
+wait 1
+bot inventory-click 36 left
+wait 0.5
+bot inventory-click 1 left
+wait 0.5
+bot inventory-click 38 left
+wait 0.5
+bot inventory-click 2 left
+wait 1
+bot expect slot 0 minecraft:compass 1
+wait 1
+expect \[bot\] expect inventory ok slot 0 compass 1
+bot inventory-click 0 left
+wait 0.5
+bot inventory-click 36 left
+wait 0.5
+bot expect slot 0 minecraft:air 0
+bot expect slot 1 minecraft:air 0
+bot expect slot 2 minecraft:air 0
+bot expect slot 38 minecraft:air 0
+wait 1
+expect-all \[bot\] expect inventory ok slot 0 air 0 && \[bot\] expect inventory ok slot 1 air 0 && \[bot\] expect inventory ok slot 2 air 0 && \[bot\] expect inventory ok slot 38 air 0
+# Player inventory uses window zero; there is no separate container to close.
+cmd clear tester naturescompass:naturescompass 0
+await 1 Found 2 matching item
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 2/2
+cmd gamemode creative tester
+wait 1
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 5 Compass uses remaining: 2/2
+cmd gamemode survival tester
+wait 1
+bot use-item main
+wait 1
+expect \[bot\] dialog: .*Compass uses remaining: 2/2
+bot click-label minecraft:birch_forest
+wait 2
+expect Compass search started
+await 15 Found minecraft:birch_forest at X -287, Z 6 in minecraft:overworld
+await 5 Compass uses remaining: 1/2
+reject \[bot\] error:|panicked
+bot quit
+stop
