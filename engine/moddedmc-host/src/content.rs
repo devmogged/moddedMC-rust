@@ -2949,6 +2949,8 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     set_ticks_frozen: crate::entities::set_ticks_frozen,
     spawn_projectile: crate::entities::spawn_projectile,
     projectile_owner: crate::entities::projectile_owner,
+    can_freeze: crate::entities::can_freeze,
+    shulker_bullet_target: crate::entities::shulker_bullet_target,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {

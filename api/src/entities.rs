@@ -40,6 +40,10 @@ pub enum EntitiesExtension {
     Freezing,
     /// Native projectile spawning and ownership.
     Projectiles,
+    /// Vanilla freeze eligibility.
+    CanFreeze,
+    /// The current target of a shulker bullet.
+    ShulkerBulletTarget,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -140,6 +144,14 @@ impl Entities {
             EntitiesExtension::Projectiles => (
                 std::mem::offset_of!(abi::EntitiesV1, projectile_owner),
                 "moddedmc:entities.projectiles",
+            ),
+            EntitiesExtension::CanFreeze => (
+                std::mem::offset_of!(abi::EntitiesV1, can_freeze),
+                "moddedmc:entities.can_freeze",
+            ),
+            EntitiesExtension::ShulkerBulletTarget => (
+                std::mem::offset_of!(abi::EntitiesV1, shulker_bullet_target),
+                "moddedmc:entities.shulker_bullet_target",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -601,6 +613,25 @@ impl<'a> Entity<'a> {
         (id >= 0).then_some(id)
     }
 
+    /// Whether the entity can freeze, or None if the host lacks the extension.
+    pub fn can_freeze(self) -> Option<bool> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, can_freeze))?;
+        // SAFETY: the field is size checked and the handle is borrowed.
+        Some(unsafe { ((&raw const (*api).can_freeze).read())(self.raw) })
+    }
+
+    /// The shulker bullet's loaded target id, if any.
+    pub fn shulker_bullet_target(self) -> Option<i32> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, shulker_bullet_target))?;
+        // SAFETY: the field is size checked and the handle is borrowed.
+        let id = unsafe { ((&raw const (*api).shulker_bullet_target).read())(self.raw) };
+        (id >= 0).then_some(id)
+    }
+
     /// Apply damage without an attacker. Requires [EntitiesExtension::Damage].
     pub fn hurt(self, damage_type: &str, amount: f32) -> bool {
         if Entities(self.api)
@@ -694,6 +725,31 @@ mod tests {
         assert!(
             Entities(api)
                 .require_extension(EntitiesExtension::Projectiles)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn freeze_and_target_queries_are_unavailable_on_old_hosts() {
+        let api = InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: std::mem::offset_of!(abi::EntitiesV1, can_freeze),
+        };
+        let entity = Entity {
+            raw: std::ptr::null(),
+            api,
+            scope: PhantomData,
+        };
+        assert_eq!(entity.can_freeze(), None);
+        assert_eq!(entity.shulker_bullet_target(), None);
+        assert!(
+            Entities(api)
+                .require_extension(EntitiesExtension::CanFreeze)
+                .is_err()
+        );
+        assert!(
+            Entities(api)
+                .require_extension(EntitiesExtension::ShulkerBulletTarget)
                 .is_err()
         );
     }

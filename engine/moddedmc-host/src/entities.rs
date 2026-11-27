@@ -307,6 +307,34 @@ pub unsafe extern "C" fn projectile_owner(raw: abi::EntityRef) -> i32 {
         .map_or(-1, |owner| owner.get_entity().entity_id)
 }
 
+pub unsafe extern "C" fn can_freeze(raw: abi::EntityRef) -> bool {
+    // SAFETY: the entity is borrowed for this call.
+    unsafe { entity(raw) }.is_some_and(|base| base.get_entity().can_freeze(base))
+}
+
+pub unsafe extern "C" fn shulker_bullet_target(raw: abi::EntityRef) -> i32 {
+    use pumpkin_core::entity::projectile::shulker_bullet::ShulkerBulletEntity;
+    // SAFETY: the entity is borrowed for this call.
+    let Some(bullet) = (unsafe { entity(raw) })
+        .and_then(|base| base.cast_any().downcast_ref::<ShulkerBulletEntity>())
+    else {
+        return -1;
+    };
+    let target = bullet.target_id();
+    if target >= 0
+        && bullet
+            .entity
+            .world
+            .load()
+            .get_entity_by_id(target)
+            .is_some()
+    {
+        target
+    } else {
+        -1
+    }
+}
+
 pub unsafe extern "C" fn flags(raw: abi::EntityRef) -> u32 {
     // SAFETY: the entity is live for the callback.
     let Some(base) = (unsafe { entity(raw) }) else {
