@@ -33,6 +33,7 @@ mod hunt;
 mod ivy;
 mod ivy_trades;
 mod mossback;
+mod moop;
 mod nucleus;
 mod particles;
 mod roost;

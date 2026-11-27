@@ -133,6 +133,7 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         | crate::mossback::PANIC
         | crate::mossback::BREED
         | crate::mossback::WANDER => crate::mossback::goal(phase, key, world, mob),
+        crate::moop::SWIM | crate::moop::PANIC => crate::moop::goal(phase, key, world, mob),
         AMBIENT => match phase {
             goal_phase::CAN_START | goal_phase::CONTINUE => true,
             goal_phase::TICK => {

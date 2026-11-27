@@ -1,0 +1,32 @@
+# Moop's independent random swimming, panic after an attack, and survival in water.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 110 1025.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1016 99 1016 1034 109 1034 minecraft:glass
+cmd fill 1017 100 1017 1033 108 1033 minecraft:water
+cmd saintsdragons spawn moop 1025 104 1025
+wait 1
+expect saintsdragons:moop: spawned \d+
+cmd data get entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},limit=1] Health
+wait 0.5
+expect has the following entity data: 3.0f
+wait 10
+cmd execute if entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},x=1025.5,y=104,z=1025.5,distance=1..15,limit=1]
+await 5 Test passed
+cmd damage @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},limit=1] 1 minecraft:player_attack by tester
+wait 3
+cmd data get entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},limit=1] Health
+wait 0.5
+expect has the following entity data: 2.0f
+cmd execute if entity @e[type=minecraft:cod,nbt={data:{moddedmc:{mob:"saintsdragons:moop"}}},x=1025.5,y=104,z=1025.5,distance=..15,limit=1]
+await 5 Test passed
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

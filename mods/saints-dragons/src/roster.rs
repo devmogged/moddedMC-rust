@@ -390,7 +390,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 },
             },
         )?;
-        if !species.aquatic {
+        if species.name == "moop" {
+            crate::moop::register(registry)?;
+        } else if !species.aquatic {
             ai.replace_goals(registry, &kind)?;
             if species.name == "mossback" {
                 INTERACTION
