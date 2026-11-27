@@ -271,7 +271,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    #[derive(Default)]
+    #[derive(Clone, Default)]
     struct Memory {
         legacy: Option<Vec<u8>>,
         manifest: Option<Vec<u8>>,
@@ -508,6 +508,130 @@ mod tests {
         assert!(read_initialized(&store, 1).is_none());
         assert!(load_or_init(&mut store, 2).is_none());
         assert!(!store.shards.contains_key(&2));
+    }
+
+    /// The host flushes one atomic file containing all saved-data keys.
+    /// Model a crash after any accepted write in that file's history, rather
+    /// than assuming each in-memory write was independently durable.
+    struct PrefixHistory {
+        current: Memory,
+        prefixes: Vec<Memory>,
+    }
+
+    impl PrefixHistory {
+        fn record(&mut self, written: bool) -> bool {
+            if written {
+                self.prefixes.push(self.current.clone());
+            }
+            written
+        }
+    }
+
+    impl Store for PrefixHistory {
+        fn legacy(&self) -> Option<Vec<u8>> {
+            self.current.legacy()
+        }
+        fn manifest(&self) -> Option<Vec<u8>> {
+            self.current.manifest()
+        }
+        fn write_manifest(&mut self, bytes: &[u8]) -> bool {
+            let written = self.current.write_manifest(bytes);
+            self.record(written)
+        }
+        fn read(&self, index: usize) -> Option<Vec<u8>> {
+            self.current.read(index)
+        }
+        fn write(&mut self, index: usize, bytes: &[u8]) -> bool {
+            let written = self.current.write(index, bytes);
+            self.record(written)
+        }
+        fn mark_migrated(&mut self, bytes: &[u8]) -> bool {
+            let written = self.current.mark_migrated(bytes);
+            self.record(written)
+        }
+    }
+
+    #[test]
+    fn all_atomic_migration_prefixes_preserve_claims_and_compaction() {
+        let (store, a, b, c) = fixture();
+        let mut history = PrefixHistory {
+            prefixes: vec![store.clone()],
+            current: store,
+        };
+        let mut shard = load_or_init(&mut history, 0).unwrap();
+        // Commit a consumed inventory while another legacy shard is still
+        // unmigrated. Later recovery must not resurrect the old stack.
+        let cut_before_consumption = history.prefixes.len();
+        assert!(
+            shard
+                .archive
+                .get_mut(b, [2; 16])
+                .unwrap()
+                .replace(std::iter::repeat_n(None, 27),)
+                .is_some()
+        );
+        assert!(history.write(0, &shard.encode().unwrap()));
+        assert!(load_or_init(&mut history, 63).is_some());
+        assert!(load_or_init(&mut history, 17).is_some());
+        assert_eq!(history.current.legacy.as_deref(), Some(MIGRATED));
+        assert!(history.prefixes.len() > 8);
+
+        for (cut, mut restored) in history.prefixes.into_iter().enumerate() {
+            // Exercise the opposite migration order on recovery.
+            assert_eq!(
+                load_or_init(&mut restored, 63)
+                    .unwrap()
+                    .archive
+                    .open(B, [1; 16], 27, || panic!("legacy claim rerolled"),),
+                Some(c),
+                "cut {cut}",
+            );
+            let mut shard = load_or_init(&mut restored, 0).unwrap();
+            assert_eq!(
+                shard
+                    .archive
+                    .open(A, [1; 16], 27, || panic!("empty claim rerolled")),
+                Some(a)
+            );
+            assert_eq!(
+                shard
+                    .archive
+                    .open(A, [2; 16], 27, || panic!("consumed claim rerolled")),
+                Some(b)
+            );
+            let slots = shard.archive.get(b, [2; 16]).unwrap().slots();
+            let expected = if cut < cut_before_consumption {
+                Some(vec![1, 2, 3])
+            } else {
+                None
+            };
+            assert_eq!(slots[0], expected, "cut {cut}");
+            assert!(slots[1..].iter().all(Option::is_none));
+            assert!(!shard.archive.bind_site(
+                A,
+                &crate::state::Site {
+                    dimension: "minecraft:overworld".into(),
+                    position: [1, 2, 4],
+                }
+            ));
+            assert!(
+                shard
+                    .archive
+                    .open(A, [3; 16], 27, || Some(vec![None; 27]))
+                    .unwrap()
+                    > c
+            );
+            assert!(
+                load_or_init(&mut restored, 17)
+                    .unwrap()
+                    .archive
+                    .records
+                    .is_empty()
+            );
+            assert_eq!(restored.legacy.as_deref(), Some(MIGRATED), "cut {cut}");
+            assert!(read_initialized(&restored, 0).is_some());
+            assert!(read_initialized(&restored, 63).is_some());
+        }
     }
 
     #[test]

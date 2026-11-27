@@ -1,4 +1,5 @@
 //! Lootr per-player inventory storage.
+pub mod journal;
 mod lifecycle;
 mod scheduler;
 mod shards;
