@@ -20,10 +20,10 @@ wait 3
 cmd data get entity @e[type=minecraft:enderman,limit=1] Health
 wait 0.5
 expect Enderman has the following entity data: 40f$
-cmd data get entity @e[type=minecraft:spider,limit=1] Health
+cmd data get entity @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:latcher"}}},limit=1] Health
 wait 0.5
 expect Spider has the following entity data: 12f$
-cmd damage @e[type=minecraft:spider,limit=1] 1 minecraft:mob_attack by @e[type=minecraft:enderman,limit=1]
+cmd damage @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:latcher"}}},limit=1] 1 minecraft:mob_attack by @e[type=minecraft:enderman,limit=1]
 wait 2
 cmd data get entity @e[type=minecraft:enderman,limit=1] Health
 wait 0.5
@@ -77,7 +77,7 @@ wait 5
 cmd data get entity tester Health
 wait 0.5
 expect tester has the following entity data: 20(?:\.0)?f$
-cmd damage @e[type=minecraft:spider,limit=1] 1 minecraft:player_attack by tester
+cmd damage @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:latcher"}}},limit=1] 1 minecraft:player_attack by tester
 wait 5
 cmd data get entity tester Health
 wait 0.5
