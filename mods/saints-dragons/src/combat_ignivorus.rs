@@ -2,7 +2,7 @@
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, abilities, taming};
 use moddedmc_api::{
-    abi::{SOUND_NEUTRAL, heightmap},
+    abi::{CollisionBox, SOUND_NEUTRAL, heightmap},
     content::World,
     entities::{Entity, EntityChange, SET_BODY_YAW, SET_MOTION, SET_YAW},
     mob_ai::goal_phase,
@@ -775,6 +775,13 @@ fn shot_motion(velocity: [f64; 3], travelled: f64, multiplier: f32) -> [f64; 3] 
     }
 }
 
+fn point_in_collision_shape(point: [f64; 3], shape: &[CollisionBox]) -> bool {
+    let local = point.map(|v| v - v.floor());
+    shape
+        .iter()
+        .any(|b| (0..3).all(|i| local[i] >= b.min[i] && local[i] <= b.max[i]))
+}
+
 /// Fireball flight and impact continue independently of the ability's recovery.
 pub fn ambient(world: World<'_>, mob: Entity<'_>) {
     let mut s = State::load(mob);
@@ -811,12 +818,12 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>) {
             let p = add(shot.position, scale(shot.velocity, f64::from(step) / 20.0));
             let collision = world
                 .collision_shape(crate::flight::cell(p))
-                .is_some_and(|shape| !shape.is_empty());
+                .is_some_and(|shape| point_in_collision_shape(p, &shape));
             let entity = entities
                 .entities_in(world, add(p, [-0.5; 3]), add(p, [0.5; 3]), mob.id())
                 .into_iter()
                 .any(|id| target_at(world, mob, id).is_some());
-            if collision || entity || shot.age > 200 {
+            if collision || entity || (shot.age > 200 && step == 20) {
                 if entities.with_entity(world, id, |projectile| projectile.discard()) == Some(true)
                 {
                     fireball_impact(world, mob, p, shot.multiplier);
@@ -878,5 +885,16 @@ mod tests {
                 [5.0, -0.01, 0.0]
             );
         }
+    }
+
+    #[test]
+    fn fireball_sweep_respects_partial_block_shapes() {
+        let slab = [CollisionBox {
+            min: [0.0; 3],
+            max: [1.0, 0.5, 1.0],
+        }];
+        assert!(point_in_collision_shape([-1.25, 10.25, 5.5], &slab));
+        assert!(!point_in_collision_shape([-1.25, 10.75, 5.5], &slab));
+        assert!(!point_in_collision_shape([-1.25, 10.25, 5.5], &[]));
     }
 }
