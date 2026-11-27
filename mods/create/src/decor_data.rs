@@ -149,3 +149,9 @@ pub const PANES: &[(&str, &str, Option<&str>)] = &[
     ("warped_window_pane", "Warped Window Pane", Some("warped_stem")),
     ("weathered_iron_window_pane", "Weathered Iron Window Pane", Some("terracotta_light_gray")),
 ];
+
+pub const BARS: &[(&str, &str, &str)] = &[
+    ("andesite_bars", "Andesite Bars", "stone"),
+    ("brass_bars", "Brass Bars", "terracotta_yellow"),
+    ("copper_bars", "Copper Bars", "color_orange"),
+];

@@ -1,0 +1,43 @@
+# A waxed, waterlogged tile stair survives contraption movement and restart.
+mods target/mods/create.mmc
+start
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 2300.5 101 2303.5
+await 10 \[bot\] teleported to .*2300\.5.*2303\.5
+wait 2
+cmd fill 2296 100 2296 2305 105 2305 minecraft:air
+cmd fill 2296 99 2296 2305 99 2305 minecraft:stone
+await 5 Successfully filled
+cmd setblock 2300 99 2300 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2300 99 2300 0
+await 5 create:creative_motor.*Speed=0
+cmd setblock 2300 100 2300 create:mechanical_bearing[facing=up]
+cmd setblock 2300 101 2300 create:waxed_weathered_copper_tile_stairs[facing=south,half=top,shape=straight,waterlogged=true]
+cmd kinetics 2300 99 2300 1
+await 5 create:creative_motor.*Speed=1
+wait 1
+cmd execute if block 2300 101 2300 minecraft:water[level=0]
+await 5 Test passed
+cmd execute if entity @e[type=minecraft:block_display,x=2300,y=101,z=2300,distance=..2]
+await 5 Test passed
+cmd save-all flush
+await 10 Saved the game
+stop
+
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if entity @e[type=minecraft:block_display,x=2300,y=101,z=2300,distance=..2]
+await 5 Test passed
+cmd kinetics 2300 99 2300 0
+await 5 create:creative_motor.*Speed=0
+wait 1
+cmd execute if block 2300 101 2300 create:waxed_weathered_copper_tile_stairs[facing=south,half=top,shape=straight,waterlogged=true]
+await 5 Test passed
+cmd execute unless entity @e[type=minecraft:block_display,x=2300,y=101,z=2300,distance=..1]
+await 5 Test passed
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop

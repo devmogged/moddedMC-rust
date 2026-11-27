@@ -472,6 +472,15 @@ pub const FLUID_WORLD: &str = "moddedmc:fluid_world";
 pub const ITEMS: &str = "moddedmc:items";
 pub const ITEM_DEFAULTS: &str = "moddedmc:item_defaults";
 
+pub const WEATHERING_COPPER: &str = "moddedmc:weathering_copper";
+
+#[repr(C)]
+pub struct WeatheringCopperV1 {
+    pub size: usize,
+    /// Eight staged block IDs, first unwaxed and then waxed, each from unaffected to oxidized.
+    pub register: unsafe extern "C" fn(Reg, *const [Str; 8]) -> i32,
+}
+
 #[repr(C)]
 pub struct ItemDefaultsV1 {
     pub size: usize,
