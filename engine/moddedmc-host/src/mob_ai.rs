@@ -27,7 +27,7 @@ use pumpkin_core::{
     server::Server,
     world::World,
 };
-use pumpkin_data::{damage::DamageType, tag::Taggable};
+use pumpkin_data::{damage::DamageType, data_component_impl::IDSetContent};
 use pumpkin_util::math::vector3::Vector3;
 
 use crate::{
@@ -278,7 +278,8 @@ impl EventHandler<EntityDamageEvent> for HurtHandler {
             // Native hurt callbacks expect the stable Minecraft registry key.
             // The display string is not a protocol identifier and can differ
             // from the original resource location (or be locale-dependent).
-            let name = format!("minecraft:{}", event.damage_type.registry_key());
+            // `registry_key` is the death message id (`inFire`); this is `minecraft:in_fire`.
+            let name = IDSetContent::to_string(&event.damage_type);
             let base: &dyn EntityBase = entity.as_ref();
             // SAFETY: the world, the mob and the name outlive this synchronous callback.
             let take = unsafe {
