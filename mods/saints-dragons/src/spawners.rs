@@ -5,10 +5,16 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Mutex, PoisonError},
+    sync::{Mutex, OnceLock, PoisonError},
 };
 
-use moddedmc_api::{Pos, abi::heightmap, content::World, entities::ENTITY_ALIVE};
+use moddedmc_api::{
+    InterfaceUnavailable, Pos,
+    abi::heightmap,
+    content::World,
+    entities::ENTITY_ALIVE,
+    worldgen_lookup::{self, WorldgenLookup},
+};
 
 use crate::{
     ENTITIES, MOBS,
@@ -17,9 +23,17 @@ use crate::{
 };
 
 const SPECTATOR: i32 = 3;
-// shortcut: overworld build limits; every tag these spawners use names overworld biomes.
-const MIN_Y: i32 = -64;
-const MAX_Y: i32 = 320;
+static WORLDGEN: OnceLock<WorldgenLookup> = OnceLock::new();
+
+pub fn require() -> Result<(), InterfaceUnavailable> {
+    let _ = WORLDGEN.set(worldgen_lookup::require()?);
+    Ok(())
+}
+
+fn bounds(world: World<'_>) -> Option<(i32, i32)> {
+    let (min, max) = WORLDGEN.get()?.height_bounds(world)?;
+    (min < max - 2).then_some((min + 1, max - 2))
+}
 
 struct Spawner {
     kind: &'static str,
@@ -192,9 +206,9 @@ fn offset(spread: i32) -> i32 {
 
 /// A wild one of this species in the cube around `pos`.
 fn wild_near(world: World<'_>, spawner: &Spawner, pos: Pos) -> bool {
-    dragons_near(world, pos, spawner.nearby_radius)
+    dragons_near(world, pos, spawner.nearby_radius + 0.5)
         .iter()
-        .any(|(kind, tamed, _)| *kind == spawner.kind && !tamed)
+        .any(|(kind, tamed)| *kind == spawner.kind && !tamed)
 }
 
 /// `Level.hasNearbyAlivePlayer(x + 0.5, y, z + 0.5, 24)`.
@@ -212,21 +226,34 @@ fn player_clear(pos: Pos, players: &[Player]) -> bool {
     })
 }
 
-/// `Level.noCollision` for the species' box standing at the block's center.
-// shortcut: any block shape in the box's cells counts as a collision; vanilla tests the shapes
-// against the box, which only differs for partial blocks at the box's edges.
+fn overlaps(min: [f64; 3], max: [f64; 3], other_min: [f64; 3], other_max: [f64; 3]) -> bool {
+    (0..3).all(|i| min[i] < other_max[i] && max[i] > other_min[i])
+}
+
+/// Block portion of `Level.noCollision` for the species' box at the block's center.
+// shortcut: world-border and entity collision require a generic host no_collision query.
 fn fits(world: World<'_>, spawner: &Spawner, pos: Pos) -> bool {
     let (width, height) = spawner.size;
     let half = width / 2.0;
     let [cx, cz] = [f64::from(pos.x) + 0.5, f64::from(pos.z) + 0.5];
     let range = |min: f64, max: f64| (min.floor() as i32)..=((max - 1e-7).floor() as i32);
     let y = f64::from(pos.y);
+    let min = [cx - half, y, cz - half];
+    let max = [cx + half, y + height, cz + half];
     range(cx - half, cx + half).all(|x| {
         range(cz - half, cz + half).all(|z| {
             range(y, y + height).all(|y| {
-                world
-                    .collision_shape(Pos { x, y, z })
-                    .is_some_and(|shape| shape.is_empty())
+                world.collision_shape(Pos { x, y, z }).is_some_and(|shape| {
+                    let base = [x, y, z].map(f64::from);
+                    shape.iter().all(|b| {
+                        !overlaps(
+                            min,
+                            max,
+                            std::array::from_fn(|i| base[i] + b.min[i]),
+                            std::array::from_fn(|i| base[i] + b.max[i]),
+                        )
+                    })
+                })
             })
         })
     })
@@ -247,8 +274,9 @@ fn find(world: World<'_>, index: usize, center: Pos, players: &[Player]) -> Opti
             .then_some(pos)
         }),
         1 => {
-            let top = (center.y + 24).clamp(MIN_Y + 1, MAX_Y - 2);
-            let bottom = (center.y - 32).clamp(MIN_Y + 1, MAX_Y - 2);
+            let (min_y, max_y) = bounds(world)?;
+            let top = (center.y + 24).clamp(min_y, max_y);
+            let bottom = (center.y - 32).clamp(min_y, max_y);
             (0..24).find_map(|_| {
                 let (x, z) = (center.x + offset(48), center.z + offset(48));
                 (bottom..=top).rev().map(|y| Pos { x, y, z }).find(|&pos| {
@@ -261,10 +289,13 @@ fn find(world: World<'_>, index: usize, center: Pos, players: &[Player]) -> Opti
                 })
             })
         }
-        _ => (0..64).find_map(|_| {
-            let (x, z) = (center.x + offset(96), center.z + offset(96));
-            underwater(world, x, z, MIN_Y + 1, MAX_Y - 2).filter(|&pos| fits(world, &VOLITANS, pos))
-        }),
+        _ => {
+            let (min_y, max_y) = bounds(world)?;
+            (0..64).find_map(|_| {
+                let (x, z) = (center.x + offset(96), center.z + offset(96));
+                underwater(world, x, z, min_y, max_y).filter(|&pos| fits(world, &VOLITANS, pos))
+            })
+        }
     }
 }
 
@@ -278,8 +309,9 @@ fn underwater(world: World<'_>, x: i32, z: i32, min_y: i32, max_y: i32) -> Optio
     };
     // Nothing above the world surface heightmap holds fluid, so start there.
     let surface = world.surface_height(x, z, heightmap::WORLD_SURFACE)?;
-    let start = max_y.clamp(MIN_Y + 1, MAX_Y - 2).min(surface - 1);
-    let end = min_y.clamp(MIN_Y + 1, MAX_Y - 2);
+    let (min, max) = bounds(world)?;
+    let start = max_y.clamp(min, max).min(surface - 1);
+    let end = min_y.clamp(min, max);
     let top = (end..=start).rev().find(|&y| wet(y))?;
     let bottom = (end..=top).rev().take_while(|&y| wet(y)).last()?;
     if top - bottom + 1 < 3 {
@@ -368,7 +400,23 @@ fn spawn_one(world: World<'_>, index: usize, pos: Pos, players: &[Player]) -> bo
 
 #[cfg(test)]
 mod tests {
-    use super::offset;
+    use super::{offset, overlaps};
+
+    #[test]
+    fn partial_shapes_only_collide_when_they_overlap() {
+        assert!(!overlaps(
+            [0.5, 0.0, 0.0],
+            [1.5, 2.0, 1.0],
+            [0.0; 3],
+            [0.5, 1.0, 1.0]
+        ));
+        assert!(overlaps(
+            [0.49, 0.0, 0.0],
+            [1.5, 2.0, 1.0],
+            [0.0; 3],
+            [0.5, 1.0, 1.0]
+        ));
+    }
 
     #[test]
     fn offsets_stay_in_the_search_square() {

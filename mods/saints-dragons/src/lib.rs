@@ -72,6 +72,8 @@ const CINDERVANE_ATTRIBUTES: &[(&str, f64)] = &[
     ("minecraft:flying_speed", 0.60),
     ("minecraft:movement_speed", 0.30),
     ("minecraft:follow_range", 64.0),
+    ("minecraft:knockback_resistance", 0.0),
+    ("minecraft:attack_damage", 0.0),
 ];
 
 const SPAWN: u64 = 1;
@@ -108,6 +110,9 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::Surface)?;
         content.require_extension(WorldExtension::ContentEntityTransaction)?;
+        content.require_extension(WorldExtension::RawBrightness)?;
+        content.require_extension(WorldExtension::DescribeState)?;
+        spawners::require()?;
         content.require_comparator_output()?;
         content.require_block_material()?;
         let _ = CONTENT.set(content);
