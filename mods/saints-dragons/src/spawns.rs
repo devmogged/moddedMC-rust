@@ -93,7 +93,20 @@ const UP: u8 = 1;
 
 pub fn register(registry: &mut Registry<'_>, mobs: Mobs) -> Result<(), RegistrationError> {
     for spawn in SPAWNS {
-        mobs.add_spawn(registry, spawn, check)?;
+        if let Some((weight, min_count, max_count)) = crate::config::spawn_settings(
+            spawn.kind,
+            spawn.weight,
+            spawn.min_count,
+            spawn.max_count,
+        ) {
+            let configured = Spawn {
+                weight,
+                min_count,
+                max_count,
+                ..*spawn
+            };
+            mobs.add_spawn(registry, &configured, check)?;
+        }
     }
     Ok(())
 }

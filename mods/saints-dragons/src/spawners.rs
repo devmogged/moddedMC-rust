@@ -121,10 +121,19 @@ pub fn tick(world: World<'_>) {
 fn run(world: World<'_>, index: usize) {
     let spawner = SPAWNERS[index];
     let raevyx = index == 0;
+    let Some((weight, _, _)) = crate::config::spawn_settings(
+        spawner.kind,
+        (spawner.chance / if raevyx { 2 } else { 1 }) as i32,
+        spawner.min_group as i32,
+        spawner.max_group as i32,
+    ) else {
+        return;
+    };
+    let chance = (weight * if raevyx { 2 } else { 1 }).min(100) as u64;
     let players = players(world);
     if players.is_empty()
         || (raevyx && !crate::raevyx_weather::allows_wild_spawns(world))
-        || random(100) >= spawner.chance
+        || random(100) >= chance
     {
         return;
     }
@@ -368,7 +377,15 @@ fn near(world: World<'_>, index: usize, origin: Pos, players: &[Player]) -> Opti
 
 fn spawn_pack(world: World<'_>, index: usize, origin: Pos, players: &[Player]) -> bool {
     let spawner = SPAWNERS[index];
-    let count = spawner.min_group + random(spawner.max_group - spawner.min_group + 1);
+    let Some((_, min, max)) = crate::config::spawn_settings(
+        spawner.kind,
+        (spawner.chance / if index == 0 { 2 } else { 1 }) as i32,
+        spawner.min_group as i32,
+        spawner.max_group as i32,
+    ) else {
+        return false;
+    };
+    let count = min as u64 + random((max - min + 1) as u64);
     if !spawn_one(world, index, origin, players) {
         return false;
     }

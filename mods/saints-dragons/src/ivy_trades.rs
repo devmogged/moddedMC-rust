@@ -1,23 +1,109 @@
-//! `IvyTradeRegistry`: Ivy's offers from `data/saintsdragons/ivy_trades/default.json`, its fixed
-//! trades and weighted pools, rolled once into vanilla's saved `Offers` compound.
+//! `IvyTradeReloadListener`: all datapack trade sources in resource-id order.
 
 use fastnbt::Value;
 use serde_json::Value as Json;
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::{Mutex, PoisonError},
+};
 
 use crate::{RESOURCES, ai::random};
 
-// shortcut: only the bundled file; datapacks can't add or replace Ivy's trades yet.
-const FILE: &str = "saintsdragons:ivy_trades/default.json";
+static SOURCES: Mutex<(u64, u64, Vec<Json>)> = Mutex::new((0, 0, Vec::new()));
 
-/// The saved `Offers` NBT for a new roll, or `None` when the file is missing or malformed.
+pub fn revision() -> Option<u64> {
+    let mut sources = SOURCES.lock().unwrap_or_else(PoisonError::into_inner);
+    refresh(&mut sources)?;
+    Some(sources.1)
+}
+
+fn refresh(sources: &mut (u64, u64, Vec<Json>)) -> Option<()> {
+    let resources = RESOURCES.get()?;
+    let generation = resources.generation();
+    if generation == 0 {
+        return None;
+    }
+    if sources.0 != generation {
+        let mut ids = resources.list("ivy_trades")?;
+        ids.sort_unstable();
+        let mut fingerprint = DefaultHasher::new();
+        generation.hash(&mut fingerprint);
+        let roots = ids
+            .into_iter()
+            .filter(|id| id.ends_with(".json"))
+            .filter_map(|id| {
+                let bytes = resources.read(&id);
+                id.hash(&mut fingerprint);
+                bytes.hash(&mut fingerprint);
+                let parsed = bytes
+                    .and_then(|bytes| serde_json::from_slice::<Json>(&bytes).ok())
+                    .filter(valid_source);
+                if parsed.is_none() {
+                    moddedmc_api::warn(&format!("Saint's Dragons: invalid Ivy trade file {id}"));
+                }
+                parsed
+            })
+            .collect();
+        *sources = (generation, fingerprint.finish(), roots);
+    }
+    Some(())
+}
+
+/// Roll a fresh set of offers after a reload or restock.
 pub fn roll() -> Option<Vec<u8>> {
-    let bytes = RESOURCES.get()?.read(FILE)?;
-    let root: Json = serde_json::from_slice(&bytes).ok()?;
-    let recipes = roll_from(&root, &mut |bound| random(bound))?;
+    let mut sources = SOURCES.lock().unwrap_or_else(PoisonError::into_inner);
+    refresh(&mut sources)?;
+    let recipes = sources
+        .2
+        .iter()
+        .filter_map(|root| roll_from(root, &mut random))
+        .flatten()
+        .collect();
     fastnbt::to_bytes(&Value::Compound(
         [("Recipes".to_owned(), Value::List(recipes))].into(),
     ))
     .ok()
+}
+
+fn valid_source(root: &Json) -> bool {
+    let valid_trade = |trade: &Json| {
+        trade.get("results").is_none_or(|results| {
+            results.as_array().is_some_and(|entries| {
+                !entries.is_empty()
+                    && entries
+                        .iter()
+                        .all(|entry| valid_weight(entry) && stack(entry, &mut |_| 0).is_some())
+            })
+        }) && offer(trade, &mut |_| 0).is_some()
+    };
+    let trades = root.get("trades").map(Json::as_array);
+    let pools = root.get("pools").map(Json::as_array);
+    if trades == Some(None) || pools == Some(None) {
+        return false;
+    }
+    let trades = trades.flatten().map_or(&[][..], Vec::as_slice);
+    let pools = pools.flatten().map_or(&[][..], Vec::as_slice);
+    (!trades.is_empty() || !pools.is_empty())
+        && trades.iter().all(valid_trade)
+        && pools.iter().all(|pool| {
+            pool.get("entries")
+                .and_then(Json::as_array)
+                .is_some_and(|entries| {
+                    let rolls = pool.get("rolls").map_or(Some(1), Json::as_u64);
+                    rolls.is_some_and(|rolls| rolls > 0 && rolls <= entries.len() as u64)
+                        && entries.iter().all(|entry| {
+                            valid_weight(entry) && valid_trade(entry.get("trade").unwrap_or(entry))
+                        })
+                })
+        })
+}
+
+fn valid_weight(entry: &Json) -> bool {
+    entry.get("weight").is_none_or(|weight| {
+        weight
+            .as_u64()
+            .is_some_and(|w| (1..=i32::MAX as u64).contains(&w))
+    })
 }
 
 fn roll_from(root: &Json, rng: &mut dyn FnMut(u64) -> u64) -> Option<Vec<Value>> {
@@ -119,9 +205,12 @@ fn stack(spec: &Json, rng: &mut dyn FnMut(u64) -> u64) -> Option<Value> {
                 .and_then(Json::as_u64)
                 .unwrap_or(min)
                 .max(min);
+            if min == 0 || max > i32::MAX as u64 {
+                return None;
+            }
             min + rng(max - min + 1)
         }
-        Some(count) => count.as_u64()?,
+        Some(count) => count.as_u64().filter(|count| *count > 0)?,
     };
     let mut item = vec![
         ("id".to_owned(), Value::String(id.to_owned())),
@@ -163,8 +252,24 @@ fn stack(spec: &Json, rng: &mut dyn FnMut(u64) -> u64) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::roll_from;
+    use super::{roll_from, valid_source};
     use fastnbt::Value;
+
+    #[test]
+    fn invalid_unselected_result_rejects_entire_file() {
+        let mut root = serde_json::json!({"trades": [{
+            "cost_a": {"item": "minecraft:egg"},
+            "results": [
+                {"item": "minecraft:diamond"},
+                {"item": "minecraft:coal", "weight": u64::MAX}
+            ]
+        }]});
+        assert!(!valid_source(&root));
+        root["trades"][0]["results"][1]["weight"] = serde_json::json!(1);
+        assert!(valid_source(&root));
+        root["trades"][0]["results"][1]["count"] = serde_json::json!(0);
+        assert!(!valid_source(&root));
+    }
 
     #[test]
     fn rolls_fixed_trades_and_distinct_pool_entries() {

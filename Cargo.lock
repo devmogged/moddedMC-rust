@@ -1325,6 +1325,7 @@ dependencies = [
  "moddedmc-api",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

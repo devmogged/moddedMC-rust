@@ -917,7 +917,7 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
                 .unwrap_or((&session.path, &action.next));
             if session.trade {
                 save_memory(world, viewer, &memory);
-                if open_trades(viewer, ivy) {
+                if open_trades(world, viewer, ivy) {
                     TRADE_RESUMES
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
@@ -2057,12 +2057,25 @@ pub fn combat_clip(id: i32, moving: bool) -> Option<&'static str> {
     })
 }
 
-/// `IvyTheDragonMerchant.getOffers`: rolled the first time, then kept by her villager carrier.
-fn open_trades(viewer: Entity<'_>, ivy: Entity<'_>) -> bool {
+/// `IvyTheDragonMerchant.tickRestocking`: refresh at the next trade interaction after a
+/// resource reload or the restock deadline (the host can replace offers only when opening).
+fn open_trades(world: World<'_>, viewer: Entity<'_>, ivy: Entity<'_>) -> bool {
     let Some(mobs) = MOBS.get() else {
         return false;
     };
-    let offers = if ivy.data(TRADES_ROLLED).is_some() {
+    let now = world.game_time().unwrap_or_default();
+    let Some(revision) = crate::ivy_trades::revision() else {
+        return false;
+    };
+    let generation = revision as i64;
+    let previous = ivy
+        .data(TRADES_ROLLED)
+        .and_then(|bytes| fastnbt::from_bytes::<Compound>(&bytes).ok());
+    let current = previous.is_some_and(|state| {
+        state.get("generation") == Some(&Value::Long(generation))
+            && matches!(state.get("next_restock"), Some(Value::Long(next)) if *next > now)
+    });
+    let offers = if current {
         Vec::new()
     } else {
         crate::ivy_trades::roll().unwrap_or_default()
@@ -2070,7 +2083,16 @@ fn open_trades(viewer: Entity<'_>, ivy: Entity<'_>) -> bool {
     let opened = mobs.open_trades(ivy, viewer, &offers);
     if opened
         && !offers.is_empty()
-        && let Ok(flag) = fastnbt::to_bytes(&Value::Compound(Compound::new()))
+        && let Ok(flag) = fastnbt::to_bytes(&Value::Compound(
+            [
+                ("generation".into(), Value::Long(generation)),
+                (
+                    "next_restock".into(),
+                    Value::Long(now.saturating_add(crate::config::restock_interval())),
+                ),
+            ]
+            .into(),
+        ))
     {
         ivy.set_data(TRADES_ROLLED, &flag);
     }

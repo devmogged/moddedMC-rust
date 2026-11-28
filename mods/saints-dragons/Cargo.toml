@@ -17,3 +17,4 @@ moddedmc-api.workspace = true
 fastnbt = "2.6.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "1.2.1"
