@@ -119,9 +119,13 @@ The Rust SDK checks the host's size before reading `get_interface` and checks th
 | | `command_dimension(source)` | Static dimension name for the current command source. Empty when the source has no world. |
 | `moddedmc:chunks` | `is_generated(dimension, x, z, ctx, completed)` | Check whether a chunk is loaded or saved. The callback receives the result. |
 | | `ensure_generated(dimension, x, z, ctx, completed)` | Skip an existing chunk, otherwise load or generate it. The callback receives true after the operation returns, or false if interrupted. |
-| `moddedmc:commands` | `add(reg, name, description, op_level, nodes, count)` | Stage a root and its children during registration. The 1 to 128 child nodes name an earlier parent or the root. Nodes are literals or bounded integers. Executable nodes pass a tag to `ModApi::command`. The permission is `<mod id>:command.<name>`, with a default operator level from 0 to 4. |
+| `moddedmc:commands` | `add(reg, name, description, op_level, nodes, count)` | Stage a root and its children during registration. The 1 to 128 child nodes name an earlier parent or the root. Nodes are literals, bounded integers or (with the appended extension) quotable strings and single/multiple entity/player selectors. Executable nodes pass a tag to `ModApi::command`. The permission is `<mod id>:command.<name>`, with a default operator level from 0 to 4. |
 | | `integer(source, name, out)` | Copy a parsed integer to the caller's output slot. False means the argument was absent. |
 | | `feedback(source, text)` | Send command feedback using the source's feedback settings. |
+| | `string(source, name, sink)` | Copy a parsed quotable string at sink key 0; false if absent. |
+| | `select(source, name, kind, ctx, visit)` | Resolve the selector with Pumpkin's entity/player parser for the specified kind; visit each resolved entity with its world, borrowed entity handle and display name. False on resolution failure; sends the command's native error. |
+| | `online_player(source, name, ctx, visit)` | Resolve an online player by name or UUID across dimensions using the same synchronous visitor. False if absent. |
+| | `failure(source, text)` | Send a command error to its source. |
 | `moddedmc:lifecycle` | `on_stopping(reg, callback)` | Stage one callback per mod. The host runs it on a blocking thread and waits for it before world save. |
 | `moddedmc:worldgen_lookup` | `biomes(world, out)` | Enumerate biome identifiers from the active dimension generator, including its datapack biome source. Does not load chunks. |
 | | `noise_biomes(world, positions, count, out)` | Sample up to 256 quart-coordinate positions; the sink key is the input index. False on invalid input or unsupported generator. |
