@@ -73,8 +73,8 @@ pub fn item_destroyed(
                 Arc::as_ptr(world).cast(),
                 Str::new(&bytes),
                 Str::new(cause.as_bytes()),
-            )
-        };
+            );
+        }
     }
 }
 
