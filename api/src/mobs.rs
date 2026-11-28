@@ -198,6 +198,7 @@ pub enum MobsExtension {
     PetsSeats,
     /// Validated, transient companion rig bone positions.
     RigBones,
+    RaidContext,
 }
 
 #[cfg(test)]
@@ -450,6 +451,10 @@ impl Mobs {
                 std::mem::offset_of!(abi::MobsV1, rig_bone_position),
                 "moddedmc:mobs.rig_bones",
             ),
+            MobsExtension::RaidContext => (
+                std::mem::offset_of!(abi::MobsV1, raid_member),
+                "moddedmc:mobs.raid_context",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -539,6 +544,24 @@ impl Mobs {
         let id =
             unsafe { ((&raw const (*api).last_hurt_mob).read())(mob.raw(), &raw mut timestamp) };
         (id >= 0).then_some((id, timestamp))
+    }
+
+    /// Whether the mob is within an active native raid.
+    pub fn active_raid(self, world: World<'_>, mob: Entity<'_>) -> Option<bool> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, active_raid))?;
+        // SAFETY: field is size checked, handles are borrowed for the call.
+        Some(unsafe { ((&raw const (*api).active_raid).read())(world.raw(), mob.raw()) })
+    }
+
+    /// Whether an entity is a member of a live active raid.
+    pub fn raid_member(self, world: World<'_>, entity: Entity<'_>) -> Option<bool> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, raid_member))?;
+        // SAFETY: field is size checked; both handles are borrowed.
+        Some(unsafe { ((&raw const (*api).raid_member).read())(world.raw(), entity.raw()) })
     }
 
     /// Remembered living attacker, as (entity id, game time).

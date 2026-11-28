@@ -494,7 +494,11 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, broadcast_event), 416);
         assert_eq!(offset_of!(EntitiesV1, remove_all_effects), 424);
         assert_eq!(offset_of!(EntitiesV1, set_custom_name), 432);
-        assert_eq!(size_of::<EntitiesV1>(), 440);
+        assert_eq!(offset_of!(EntitiesV1, player_fall_state), 440);
+        assert_eq!(offset_of!(EntitiesV1, game_events), 448);
+        assert_eq!(size_of::<EntitiesV1>(), 456);
+        assert_eq!(offset_of!(PlayerFallState, movement), 8);
+        assert_eq!(size_of::<PlayerFallState>(), 32);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -1187,7 +1191,35 @@ pub struct EntitiesV1 {
     pub remove_all_effects: unsafe extern "C" fn(entity: EntityRef) -> bool,
     /// Set a custom name from a JSON text component; false for invalid input.
     pub set_custom_name: unsafe extern "C" fn(entity: EntityRef, json: Str) -> bool,
+    /// Player fall distance and whether ordinary falling is possible.
+    pub player_fall_state:
+        unsafe extern "C" fn(entity: EntityRef, out: *mut PlayerFallState) -> bool,
+    /// Observe recent vanilla game events near a mod mob. Returns the latest event cursor.
+    pub game_events: unsafe extern "C" fn(
+        world: WorldRef,
+        mob: EntityRef,
+        radius: f64,
+        after: u64,
+        context: *mut c_void,
+        visit: GameEventVisit,
+    ) -> u64,
 }
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PlayerFallState {
+    pub distance: f32,
+    pub falling: bool,
+    pub movement: [f64; 3],
+}
+
+/// An event kind, position, optional source ID and UUID, source flags and world tick.
+pub type GameEventVisit =
+    unsafe extern "C" fn(*mut c_void, Str, Vec3, i32, *const [u8; 16], u32, i64);
+
+pub const GAME_EVENT_SOURCE_SNEAKING: u32 = 1;
+pub const GAME_EVENT_SOURCE_SILENT: u32 = 2;
+pub const GAME_EVENT_SOURCE_SPECTATOR: u32 = 4;
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.
 pub const CARRIER_MARKER: u8 = 0;
@@ -2046,6 +2078,10 @@ pub struct MobsV1 {
         reporter: *const [u8; 16],
         out: *mut Vec3,
     ) -> bool,
+    /// Whether an active raid is present at the mob's position.
+    pub active_raid: unsafe extern "C" fn(world: WorldRef, mob: EntityRef) -> bool,
+    /// Whether this entity belongs to a live active raid.
+    pub raid_member: unsafe extern "C" fn(world: WorldRef, entity: EntityRef) -> bool,
 }
 
 pub type MerchantCloseFn =
@@ -2211,7 +2247,9 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, set_seat_offset), 272);
         assert_eq!(offset_of!(MobsV1, set_dismount_offsets), 280);
         assert_eq!(offset_of!(MobsV1, rig_bone_position), 288);
-        assert_eq!(size_of::<MobsV1>(), 296);
+        assert_eq!(offset_of!(MobsV1, active_raid), 296);
+        assert_eq!(offset_of!(MobsV1, raid_member), 304);
+        assert_eq!(size_of::<MobsV1>(), 312);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

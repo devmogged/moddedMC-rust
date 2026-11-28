@@ -75,7 +75,43 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     set_seat_offset,
     set_dismount_offsets,
     rig_bone_position,
+    active_raid,
+    raid_member,
 };
+
+unsafe extern "C" fn active_raid(raw_world: WorldRef, raw_mob: EntityRef) -> bool {
+    // SAFETY: both handles are borrowed for the call.
+    let (Some(world), Some(mob)) = (unsafe { world(raw_world) }, unsafe { entity(raw_mob) }) else {
+        return false;
+    };
+    world
+        .raids
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_raid_at(&mob.get_entity().block_pos.load())
+        .is_some_and(|raid| raid.is_active() && !raid.is_stopped())
+}
+
+unsafe extern "C" fn raid_member(raw_world: WorldRef, raw_entity: EntityRef) -> bool {
+    // SAFETY: handles are borrowed for the call.
+    let (Some(world), Some(entity)) = (unsafe { world(raw_world) }, unsafe { entity(raw_entity) })
+    else {
+        return false;
+    };
+    let Some(id) = entity
+        .get_mob()
+        .and_then(|m| m.as_raider())
+        .and_then(|r| r.get_raider_data().raid_id.load())
+    else {
+        return false;
+    };
+    world
+        .raids
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(id)
+        .is_some_and(|raid| raid.is_active() && !raid.is_stopped())
+}
 
 unsafe extern "C" fn rig_bone_position(
     raw: EntityRef,

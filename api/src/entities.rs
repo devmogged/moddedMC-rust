@@ -51,6 +51,7 @@ pub enum EntitiesExtension {
     Attackable,
     /// Java entity events, clearing active effects, and styled entity names.
     EntityEvents,
+    Senses,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -58,6 +59,16 @@ const MAX_QUERY: usize = 256;
 
 #[derive(Clone, Copy)]
 pub struct Entities(InterfacePrefix<abi::EntitiesV1>);
+
+/// Copied observation of a vanilla game event; source identity survives despawn.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GameEventObservation {
+    pub kind: String,
+    pub position: [f64; 3],
+    pub source: Option<(i32, [u8; 16])>,
+    pub flags: u32,
+    pub tick: i64,
+}
 
 /// An entity, valid only during the callback that passed it.
 #[derive(Clone, Copy)]
@@ -103,6 +114,32 @@ unsafe extern "C" fn inside(world: abi::WorldRef, pos: Pos, state: u32, entity: 
 }
 
 impl Entities {
+    /// Read recent events in the listener's range. Save the returned cursor for the next poll.
+    pub fn game_events(
+        self,
+        world: World<'_>,
+        mob: Entity<'_>,
+        radius: f64,
+        after: u64,
+    ) -> Option<(u64, Vec<GameEventObservation>)> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::EntitiesV1, game_events))?;
+        let mut events = Vec::new();
+        // SAFETY: field is size checked; the callback copies into the live local vector.
+        let cursor = unsafe {
+            ((&raw const (*api).game_events).read())(
+                world.raw(),
+                mob.raw(),
+                radius,
+                after,
+                (&raw mut events).cast(),
+                collect_event,
+            )
+        };
+        Some((cursor, events))
+    }
+
     pub fn require_extension(
         self,
         extension: EntitiesExtension,
@@ -175,6 +212,10 @@ impl Entities {
             EntitiesExtension::EntityEvents => (
                 std::mem::offset_of!(abi::EntitiesV1, set_custom_name),
                 "moddedmc:entities.entity_events",
+            ),
+            EntitiesExtension::Senses => (
+                std::mem::offset_of!(abi::EntitiesV1, game_events),
+                "moddedmc:entities.senses",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -349,6 +390,17 @@ impl Entities {
 }
 
 impl Entity<'_> {
+    /// Read the native player's ordinary falling state.
+    pub fn player_fall_state(self) -> Option<abi::PlayerFallState> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, player_fall_state))?;
+        let mut state = abi::PlayerFallState::default();
+        // SAFETY: size checked, output and entity live for the call.
+        unsafe { ((&raw const (*api).player_fall_state).read())(self.raw, &raw mut state) }
+            .then_some(state)
+    }
+
     /// An entity another interface's callback passed in, when this mod required the table.
     pub(crate) fn borrowed(raw: abi::EntityRef) -> Option<Self> {
         (!raw.is_null()).then_some(())?;
@@ -536,6 +588,30 @@ impl Entity<'_> {
         let id = unsafe { ((&raw const (*self.api.ptr).vehicle).read())(self.raw) };
         (id != 0).then_some(id)
     }
+}
+
+unsafe extern "C" fn collect_event(
+    context: *mut c_void,
+    kind: abi::Str,
+    position: abi::Vec3,
+    id: i32,
+    uuid: *const [u8; 16],
+    flags: u32,
+    tick: i64,
+) {
+    guard("game event observation", (), || {
+        // SAFETY: the synchronous caller passes our local vector and borrowed event data.
+        let events = unsafe { &mut *context.cast::<Vec<GameEventObservation>>() };
+        let source = unsafe { uuid.as_ref() }.map(|uuid| (id, *uuid));
+        let kind = unsafe { kind.str() }.to_owned();
+        events.push(GameEventObservation {
+            kind,
+            position: position.0,
+            source,
+            flags,
+            tick,
+        });
+    });
 }
 
 impl crate::Player<'_> {

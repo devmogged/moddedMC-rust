@@ -1694,6 +1694,9 @@ fn install_runtime(runtime: Runtime) -> io::Result<()> {
         || !install_content_behaviour(Arc::new(Behaviour))
         || !crate::interaction::install()
         || !install_entity_added_hook(on_entity_added)
+        || !pumpkin_core::world::game_event::install_game_event_observer(
+            crate::entities::observe_game_event,
+        )
         || !crate::mobs::install_structure_mobs()
         || !crate::mobs::install_natural_spawns()
         || (has_conversion && !container_conversion::install(propose_container_conversion))
@@ -2246,12 +2249,7 @@ pub fn tick(server: &Arc<Server>, time: u64) {
             TICK_WORLD.with(|current| current.set(raw));
             // SAFETY: the world and event array are live for this synchronous callback.
             unsafe {
-                callback(
-                    raw,
-                    time,
-                    events.as_ptr(),
-                    events.len(),
-                );
+                callback(raw, time, events.as_ptr(), events.len());
             };
             TICK_WORLD.with(|current| current.set(ptr::null()));
         }
@@ -3158,6 +3156,8 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     broadcast_event: crate::entities::broadcast_event,
     remove_all_effects: crate::entities::remove_all_effects,
     set_custom_name: crate::entities::set_custom_name,
+    player_fall_state: crate::entities::player_fall_state,
+    game_events: crate::entities::game_events,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
