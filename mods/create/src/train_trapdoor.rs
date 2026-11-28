@@ -8,6 +8,10 @@ use moddedmc_api::{
 pub const TRAIN: &str = "create:train_trapdoor";
 pub const GLASS: &str = "create:framed_glass_trapdoor";
 
+pub fn is_trapdoor(id: &str) -> bool {
+    matches!(id, TRAIN | GLASS)
+}
+
 pub fn register(
     content: Content,
     physics: BlockPhysics,

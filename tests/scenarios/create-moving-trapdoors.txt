@@ -1,0 +1,42 @@
+# Capturing a waterlogged trapdoor leaves water, and disassembly restores the open trapdoor.
+mods target/mods/create.mmc
+start
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 2300.5 101 2303.5
+await 10 \[bot\] teleported to .*2300\.5.*2303\.5
+wait 2
+cmd fill 2296 100 2296 2305 106 2305 minecraft:air
+cmd fill 2296 99 2296 2305 99 2305 minecraft:stone
+await 5 Successfully filled
+cmd setblock 2300 99 2300 create:creative_motor[facing=up]
+wait 0.5
+cmd kinetics 2300 99 2300 0
+await 5 create:creative_motor.*Speed=0
+cmd setblock 2300 100 2300 create:mechanical_bearing[facing=up]
+cmd setblock 2300 101 2300 create:framed_glass_trapdoor[facing=north,half=top,open=true,waterlogged=true]
+await 5 Changed the block at 2300, 101, 2300
+cmd kinetics 2300 99 2300 1
+await 5 create:creative_motor.*Speed=1
+await-cmd 5 Test passed && execute if block 2300 101 2300 minecraft:water[level=0]
+bot expect entity minecraft:block_display near 2300.5 101.5 2300.5 within 0.05 count 1
+await 5 \[bot\] expect entity ok minecraft:block_display
+cmd save-all flush
+await 10 Saved the game
+stop
+
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if block 2300 101 2300 minecraft:water[level=0]
+await 5 Test passed
+bot expect entity minecraft:block_display near 2300.5 101.5 2300.5 within 0.05 count 1
+await 5 \[bot\] expect entity ok minecraft:block_display
+cmd kinetics 2300 99 2300 0
+await 5 create:creative_motor.*Speed=0
+await-cmd 5 Test passed && execute if block 2300 101 2300 create:framed_glass_trapdoor[half=top,open=true,waterlogged=true]
+bot expect entity minecraft:block_display near 2300.5 101.5 2300.5 within 0.05 count 0
+await 5 \[bot\] expect entity ok minecraft:block_display
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop
