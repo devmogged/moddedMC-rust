@@ -202,8 +202,8 @@ unsafe extern "C" fn weather_state(raw: WorldRef, out: *mut abi::WeatherState) -
             raining: weather.raining,
             thundering: weather.thundering,
             cycle_enabled: world.level_info.load().game_rules.advance_weather,
-        });
-    }
+        })
+    };
     true
 }
 
