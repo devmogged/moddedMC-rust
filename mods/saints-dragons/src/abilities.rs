@@ -758,7 +758,11 @@ fn slash_primary(
                 && mobs.passengers(target).is_empty()
             {
                 taming::configure_seats(mob, crate::CINDERVANE, true);
-                target.start_riding(mob.id(), true)
+                let mounted = target.start_riding(mob.id(), true);
+                if !mounted {
+                    taming::configure_seats(mob, crate::CINDERVANE, false);
+                }
+                mounted
             } else {
                 false
             }
@@ -822,6 +826,10 @@ fn release(world: World<'_>, mob: Entity<'_>, id: i32, damage: bool) {
             });
         }
     });
+    // positionRider uses the ordinary anchor again once the slash-grab passenger leaves.
+    if mobs.passengers(mob).is_empty() {
+        taming::configure_seats(mob, crate::CINDERVANE, false);
+    }
 }
 
 fn volley(world: World<'_>, mob: Entity<'_>, id: i32) -> Vec<Shot> {
