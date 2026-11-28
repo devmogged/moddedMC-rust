@@ -32,7 +32,7 @@ expect following block data: (?=.*minecraft:book)(?=.*Slot: 0b)(?=.*Slot: 5b)
 
 cmd execute positioned -352 75 880 run data get entity @e[type=minecraft:item_frame,distance=..30,limit=1] Item
 wait 0.5
-expect following entity data: (?=.*minecraft:player_head)(?=.*Armaralis Egg)(?=.*minecraft:profile)(?=.*minecraft:movement_speed)
+expect following entity data: (?=.*minecraft:player_head)(?=.*Armaralis Egg)(?=.*yellow)(?=.*italic"?\s*:\s*0b)(?=.*minecraft:profile)(?=.*minecraft:movement_speed)
 
 bot quit
 stop

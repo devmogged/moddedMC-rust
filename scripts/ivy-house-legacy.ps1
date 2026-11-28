@@ -72,11 +72,11 @@ function Convert-IvyHouseDecorations([string] $nbt) {
     $new = $head + $newCount + (NbtHeader 10 'components') + (NbtHeader 10 'minecraft:block_entity_data') +
         (NbtString 'id' 'minecraft:skull') + $end + (NbtHeader 10 'minecraft:profile')
     $nbt = ReplaceExact $nbt $old $new 1
-    # shortcut: Pumpkin CustomNameImpl reads plain strings only; use a styled
-    # text component when the host accepts one without rejecting the item.
     $oldName = '{"italic":false,"extra":[{"text":""},{"color":"yellow","text":"Armaralis Egg"}],"text":""}'
     $old = (NbtHeader 10 'display') + (NbtString 'Name' $oldName) + $end
-    $nbt = ReplaceExact $nbt $old (NbtString 'minecraft:custom_name' 'Armaralis Egg') 1
+    $styledName = (NbtHeader 10 'minecraft:custom_name') + (NbtString 'text' 'Armaralis Egg') +
+        (NbtString 'color' 'yellow') + (NbtHeader 1 'italic') + [char]0 + $end
+    $nbt = ReplaceExact $nbt $old $styledName 1
     $oldModifier = [regex]::Escape((NbtHeader 9 'AttributeModifiers') + $oneCompound + (NbtHeader 6 'Amount')) +
         '(?<amount>.{8})' + [regex]::Escape((NbtString 'Slot' 'mainhand') +
         (NbtString 'AttributeName' 'minecraft:generic.movement_speed') + (NbtHeader 3 'Operation') +

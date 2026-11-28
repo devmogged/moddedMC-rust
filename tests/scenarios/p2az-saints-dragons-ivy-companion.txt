@@ -438,12 +438,17 @@ cmd data get entity @e[tag=ivy_target,limit=1] Health
 wait 0.5
 expect Zombie has the following entity data: (?:[0-3]?[0-9])(?:\.[0-9]+)?f
 # Ivy uses her saved totem before the downed path; the next lethal hit has none.
+cmd data merge entity @e[tag=ivy_probe,limit=1] {active_effects:[{id:"minecraft:night_vision",amplifier:0,duration:2400,ambient:0b,show_particles:0b,show_icon:1b}]}
+cmd data get entity @e[tag=ivy_probe,limit=1] active_effects
+await 5 following entity data: .*minecraft:night_vision
 wait 1
 cmd damage @e[tag=ivy_probe,limit=1] 100 minecraft:generic
 wait 0.5
 cmd data get entity @e[tag=ivy_probe,limit=1] data."saintsdragons:ivy_downed".Downed
 wait 0.5
 expect following entity data: 0b
+cmd data get entity @e[tag=ivy_probe,limit=1] active_effects
+await 5 following entity data: (?!.*minecraft:night_vision)(?=.*minecraft:regeneration)(?=.*minecraft:absorption)(?=.*minecraft:fire_resistance)
 wait 1
 cmd damage @e[tag=ivy_probe,limit=1] 100 minecraft:generic
 wait 0.5

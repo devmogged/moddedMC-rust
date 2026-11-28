@@ -195,6 +195,63 @@ pub unsafe extern "C" fn remove_effect(raw: abi::EntityRef, effect: Str) -> bool
     )
 }
 
+pub unsafe extern "C" fn broadcast_event(raw: abi::EntityRef, event: u8) -> bool {
+    // SAFETY: the entity is borrowed for the current callback.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    let entity = base.get_entity();
+    let packet =
+        pumpkin_protocol::java::client::play::CEntityStatus::new(entity.entity_id, event as i8);
+    entity
+        .world
+        .load()
+        .send_to_tracking_players_and_self(entity, &packet);
+    true
+}
+
+pub unsafe extern "C" fn remove_all_effects(raw: abi::EntityRef) -> bool {
+    // SAFETY: the entity is borrowed for the current callback.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    if let Some(player) = base.get_player() {
+        return player.remove_all_effects();
+    }
+    let Some(living) = base.get_living_entity() else {
+        return false;
+    };
+    let effects: Vec<_> = living
+        .active_effects
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .keys()
+        .copied()
+        .collect();
+    let mut removed = false;
+    for effect in effects {
+        removed |= living.remove_effect(effect);
+    }
+    removed
+}
+
+pub unsafe extern "C" fn set_custom_name(raw: abi::EntityRef, json: Str) -> bool {
+    if json.len == 0 || json.len > 64 * 1024 {
+        return false;
+    }
+    // SAFETY: the entity and text bytes are borrowed for the current call.
+    let Some(base) = (unsafe { entity(raw) }) else {
+        return false;
+    };
+    let Ok(name) =
+        serde_json::from_slice::<pumpkin_util::text::TextComponent>(unsafe { json.bytes() })
+    else {
+        return false;
+    };
+    base.get_entity().set_custom_name(name);
+    true
+}
+
 pub unsafe extern "C" fn attribute_value(raw: abi::EntityRef, attribute: Str) -> f64 {
     use pumpkin_data::data_component_impl::combat::attribute_from_name;
     // SAFETY: the entity and attribute are borrowed for this call.
