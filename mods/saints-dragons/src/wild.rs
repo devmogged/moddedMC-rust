@@ -1,6 +1,11 @@
 //! 0.9.88 taming for the two species without a stun: Stegonaut takes food, and Varasuchus is
 //! ridden until it either gives in or bucks the rider off.
 
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex, PoisonError},
+};
+
 use moddedmc_api::{
     content::World,
     effects::SOUND_NEUTRAL,
@@ -8,7 +13,6 @@ use moddedmc_api::{
     interaction::{UseMob, UseResult},
     mob_ai::goal_phase,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, TAGS, ai::random, taming};
 
@@ -23,42 +27,45 @@ const BUCK_COOLDOWN: u64 = 100;
 /// `varasuchus.json` `taming_chance`, in percent.
 const RODEO_CHANCE: f64 = 16.6667;
 
-const DATA: &str = "saintsdragons:rodeo";
+// Java does not write these fields to NBT. A loaded mounted wild ride starts again.
+static RODEOS: LazyLock<Mutex<HashMap<i32, Rodeo>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Default)]
 struct Rodeo {
-    /// Remaining ticks of the current mounted attempt, tied to its rider UUID.
+    /// Remaining ticks of the current mounted attempt.
     remaining: i32,
-    rider: Option<[i32; 4]>,
     cooldown: i32,
 }
 
 impl Rodeo {
     fn load(mob: Entity<'_>) -> Self {
-        mob.data(DATA)
-            .and_then(|bytes| fastnbt::from_bytes(&bytes).ok())
+        RODEOS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&mob.id())
+            .copied()
             .unwrap_or_default()
     }
 
     fn save(&self, mob: Entity<'_>) {
+        let mut states = RODEOS.lock().unwrap_or_else(PoisonError::into_inner);
         if self.remaining == 0 && self.cooldown == 0 {
-            mob.set_data(DATA, &[]);
-        } else if let Ok(bytes) = fastnbt::to_bytes(self) {
-            mob.set_data(DATA, &bytes);
+            states.remove(&mob.id());
+        } else {
+            states.insert(mob.id(), *self);
         }
     }
 
     fn clear_ride(&mut self) {
         self.remaining = 0;
-        self.rider = None;
     }
 }
 
-fn rider_uuid(rider: Entity<'_>) -> Option<[i32; 4]> {
-    let uuid = MOBS.get()?.uuid(rider)?;
-    Some(std::array::from_fn(|i| {
-        i32::from_be_bytes(uuid[i * 4..i * 4 + 4].try_into().unwrap())
-    }))
+pub fn forget(id: i32) {
+    RODEOS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&id);
 }
 
 fn mounted_rider(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
@@ -87,12 +94,10 @@ pub fn tick_state(world: World<'_>, mob: Entity<'_>) {
         state.save(mob);
     }
     let rider = mounted_rider(world, mob);
-    let uuid = rider.and_then(|id| ENTITIES.get()?.with_entity(world, id, rider_uuid)?);
-    if let Some(uuid) = uuid {
-        if state.remaining <= 0 || state.rider != Some(uuid) {
+    if rider.is_some() {
+        if state.remaining <= 0 {
             // Java also restarts an untamed ride if a loaded mount already has a rider.
             state.remaining = RIDE_TICKS as i32;
-            state.rider = Some(uuid);
             state.save(mob);
         }
     } else if state.remaining > 0 {
@@ -217,7 +222,6 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         return Some(UseResult::Fail);
     }
     state.remaining = RIDE_TICKS as i32;
-    state.rider = rider_uuid(player);
     state.save(mob);
     if let Some(ai) = MOB_AI.get() {
         ai.stop(mob);
@@ -247,9 +251,6 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     if !wild_adult(mob) || rider.is_none() {
         state.clear_ride();
         state.save(mob);
-        return false;
-    }
-    if rider.and_then(|id| entities.with_entity(world, id, rider_uuid)?) != state.rider {
         return false;
     }
     match phase {
@@ -333,20 +334,6 @@ fn finish(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn rodeo_nbt_preserves_attempt_and_cooldown() {
-        let state = Rodeo {
-            remaining: 31,
-            rider: Some([-1; 4]),
-            cooldown: 12,
-        };
-        let restored: Rodeo = fastnbt::from_bytes(&fastnbt::to_bytes(&state).unwrap()).unwrap();
-        assert_eq!(
-            (restored.remaining, restored.rider, restored.cooldown),
-            (31, Some([-1; 4]), 12)
-        );
-    }
 
     #[test]
     fn varasuchus_food_amounts_and_messages() {

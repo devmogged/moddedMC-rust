@@ -36,6 +36,20 @@ fn nearby(world: World<'_>, center: Pos) -> bool {
     else {
         return false;
     };
+    scan_nearby(
+        center,
+        state,
+        |positions, states| world.read(positions, states),
+        |pos| world.block_entity(pos).is_some_and(|nbt| playing(&nbt)),
+    )
+}
+
+fn scan_nearby(
+    center: Pos,
+    state: u32,
+    mut read: impl FnMut(&[Pos], &mut [u32]) -> bool,
+    mut is_playing: impl FnMut(Pos) -> bool,
+) -> bool {
     // Three X slices per ABI batch (3*33*33 < 4096); only read NBT for records.
     // A stopped record is not a playing jukebox.
     let mut positions = Vec::with_capacity(3267);
@@ -53,10 +67,11 @@ fn nearby(world: World<'_>, center: Pos) -> bool {
                 }
             }
         }
-        if world.read(&positions, &mut states[..positions.len()])
-            && positions.iter().zip(&states).any(|(&pos, &id)| {
-                id == state && world.block_entity(pos).is_some_and(|nbt| playing(&nbt))
-            })
+        if read(&positions, &mut states[..positions.len()])
+            && positions
+                .iter()
+                .zip(&states)
+                .any(|(&pos, &id)| id == state && is_playing(pos))
         {
             return true;
         }
@@ -133,5 +148,35 @@ mod tests {
             fastnbt::to_bytes(&HashMap::from([("ticks_since_song_started", 0_i64)])).unwrap();
         assert!(!playing(&stopped));
         assert!(playing(&playing_nbt));
+    }
+
+    // Worst-case empty world: twenty juveniles complete all eleven batch reads.
+    // This measures the mod-side loop and synthetic state copying, not host chunk access.
+    #[test]
+    fn twenty_juvenile_scan_cost() {
+        use std::{hint::black_box, time::Instant};
+        let mut positions_read = 0;
+        let mut batches = 0;
+        let start = Instant::now();
+        for _ in 0..20 {
+            assert!(!scan_nearby(
+                Pos { x: 0, y: 64, z: 0 },
+                black_box(1),
+                |positions, states| {
+                    positions_read += black_box(positions).len();
+                    batches += 1;
+                    black_box(states).fill(0);
+                    true
+                },
+                |_| panic!("no record in the synthetic world"),
+            ));
+        }
+        let elapsed = start.elapsed();
+        assert_eq!(positions_read, 20 * 33 * 33 * 33);
+        assert_eq!(batches, 220);
+        eprintln!(
+            "dance scan: {positions_read} positions, {batches} batches, twenty juveniles: {elapsed:?}; average per tick at 10-tick cadence: {:?}",
+            elapsed / 10
+        );
     }
 }
