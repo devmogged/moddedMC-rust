@@ -106,7 +106,7 @@ fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
     flight::length_squared(flight::offset(a, b))
 }
 
-fn parent_minimum(a: f64, b: f64) -> f64 {
+pub(crate) fn parent_minimum(a: f64, b: f64) -> f64 {
     (2.75_f64.max((a + b) * 0.5 + 1.5)).powi(2)
 }
 
@@ -116,21 +116,24 @@ fn width(mob: Entity<'_>) -> f64 {
 
 /// DragonFollowParentBehaviour.resolveParent: retain an assigned adult, otherwise choose
 /// the nearest living female in the 20 x 8 search box.
-fn find_parent(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
+pub(crate) fn find_parent(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
     let (entities, mobs, view) = (ENTITIES.get()?, MOBS.get()?, mob.view()?);
+    let kind = mobs.kind(mob)?;
     let assigned = link(mob, PARENT);
     let mut best: Option<(f64, i32, [u8; 16])> = None;
     for id in nearby(world, mob, 20.0, 8.0) {
         let Some(Some((uuid, female, at))) = entities.with_entity(world, id, |other| {
-            adult(other)
-                .then(|| {
-                    Some((
-                        mobs.uuid(other)?,
-                        Appearance::is_female(other),
-                        other.view()?.position,
-                    ))
-                })
-                .flatten()
+            (mobs.kind(other) == Some(kind)
+                && other.flags() & ENTITY_ALIVE != 0
+                && !eggs::is_juvenile(other))
+            .then(|| {
+                Some((
+                    mobs.uuid(other)?,
+                    Appearance::is_female(other),
+                    other.view()?.position,
+                ))
+            })
+            .flatten()
         }) else {
             continue;
         };

@@ -1,19 +1,14 @@
 //! 0.9.88 taming for the two species without a stun: Stegonaut takes food, and Varasuchus is
 //! ridden until it either gives in or bucks the rider off.
 
-use std::{
-    collections::HashMap,
-    sync::{Mutex, PoisonError},
-};
-
 use moddedmc_api::{
     content::World,
     effects::SOUND_NEUTRAL,
-    entities::{Entity, EntityChange, SET_MOTION},
+    entities::{ENTITY_ALIVE, ENTITY_PLAYER, Entity, EntityChange, SET_MOTION},
     interaction::{UseMob, UseResult},
     mob_ai::goal_phase,
-    tick_count,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, TAGS, ai::random, taming};
 
@@ -28,28 +23,82 @@ const BUCK_COOLDOWN: u64 = 100;
 /// `varasuchus.json` `taming_chance`, in percent.
 const RODEO_CHANCE: f64 = 16.6667;
 
-#[derive(Default)]
-struct State {
-    /// The tick each wild ride started.
-    rides: HashMap<i32, u64>,
-    bucked: HashMap<i32, u64>,
+const DATA: &str = "saintsdragons:rodeo";
+
+#[derive(Default, Deserialize, Serialize)]
+struct Rodeo {
+    /// Remaining ticks of the current mounted attempt, tied to its rider UUID.
+    remaining: i32,
+    rider: Option<[i32; 4]>,
+    cooldown: i32,
 }
 
-// shortcut: a ride in progress lives in memory; a restart ends it with the rider still seated.
-static STATE: Mutex<Option<State>> = Mutex::new(None);
+impl Rodeo {
+    fn load(mob: Entity<'_>) -> Self {
+        mob.data(DATA)
+            .and_then(|bytes| fastnbt::from_bytes(&bytes).ok())
+            .unwrap_or_default()
+    }
 
-fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
-    f(STATE
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get_or_insert_default())
+    fn save(&self, mob: Entity<'_>) {
+        if self.remaining == 0 && self.cooldown == 0 {
+            mob.set_data(DATA, &[]);
+        } else if let Ok(bytes) = fastnbt::to_bytes(self) {
+            mob.set_data(DATA, &bytes);
+        }
+    }
+
+    fn clear_ride(&mut self) {
+        self.remaining = 0;
+        self.rider = None;
+    }
 }
 
-pub fn forget(id: i32) {
-    with(|state| {
-        state.rides.remove(&id);
-        state.bucked.remove(&id);
-    });
+fn rider_uuid(rider: Entity<'_>) -> Option<[i32; 4]> {
+    let uuid = MOBS.get()?.uuid(rider)?;
+    Some(std::array::from_fn(|i| {
+        i32::from_be_bytes(uuid[i * 4..i * 4 + 4].try_into().unwrap())
+    }))
+}
+
+fn mounted_rider(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
+    let id = MOBS.get()?.passengers(mob).first().copied()?;
+    ENTITIES.get()?.with_entity(world, id, |rider| {
+        let flags = rider.flags();
+        (rider
+            .view()
+            .is_some_and(|view| view.kind & ENTITY_PLAYER != 0)
+            && flags & ENTITY_ALIVE != 0)
+            .then_some(id)
+    })?
+}
+
+/// Wild ride counters advance only while the entity is loaded.
+pub fn tick_state(world: World<'_>, mob: Entity<'_>) {
+    let mut state = Rodeo::load(mob);
+    if !wild_adult(mob) {
+        if state.remaining > 0 || state.cooldown > 0 {
+            Rodeo::default().save(mob);
+        }
+        return;
+    }
+    if state.cooldown > 0 {
+        state.cooldown -= 1;
+        state.save(mob);
+    }
+    let rider = mounted_rider(world, mob);
+    let uuid = rider.and_then(|id| ENTITIES.get()?.with_entity(world, id, rider_uuid)?);
+    if let Some(uuid) = uuid {
+        if state.remaining <= 0 || state.rider != Some(uuid) {
+            // Java also restarts an untamed ride if a loaded mount already has a rider.
+            state.remaining = RIDE_TICKS as i32;
+            state.rider = Some(uuid);
+            state.save(mob);
+        }
+    } else if state.remaining > 0 {
+        state.clear_ride();
+        state.save(mob);
+    }
 }
 
 fn roll(percent: f64) -> bool {
@@ -153,10 +202,9 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if kind != VARASUCHUS || !item.is_empty() || !click.main_hand || click.sneaking {
         return None;
     }
-    let now = tick_count();
-    let cooldown = with(|state| state.bucked.get(&mob.id()).copied()).filter(|&until| until > now);
-    if let Some(until) = cooldown {
-        let seconds = (until - now).div_ceil(20).max(1);
+    let mut state = Rodeo::load(mob);
+    if state.cooldown > 0 {
+        let seconds = (state.cooldown + 19) / 20;
         mobs.message(
             player,
             &format!("Nuh-uh. Varasuchus said no. Try again in {seconds} seconds."),
@@ -168,7 +216,9 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if !mobs.passengers(mob).is_empty() || !player.start_riding(mob.id(), false) {
         return Some(UseResult::Fail);
     }
-    with(|state| state.rides.insert(mob.id(), now));
+    state.remaining = RIDE_TICKS as i32;
+    state.rider = rider_uuid(player);
+    state.save(mob);
     if let Some(ai) = MOB_AI.get() {
         ai.stop(mob);
         ai.set_target(click.world, mob, None);
@@ -186,15 +236,20 @@ pub fn interact(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
 
 /// `tickWildRideState`, as a goal that holds the Varasuchus still while it bucks.
 pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
-    let Some(started) = with(|state| state.rides.get(&mob.id()).copied()) else {
+    let mut state = Rodeo::load(mob);
+    if state.remaining <= 0 {
+        return false;
+    }
+    let (Some(ai), Some(entities)) = (MOB_AI.get(), ENTITIES.get()) else {
         return false;
     };
-    let (Some(mobs), Some(ai), Some(entities)) = (MOBS.get(), MOB_AI.get(), ENTITIES.get()) else {
+    let rider = mounted_rider(world, mob);
+    if !wild_adult(mob) || rider.is_none() {
+        state.clear_ride();
+        state.save(mob);
         return false;
-    };
-    let rider = mobs.passengers(mob).first().copied();
-    if taming::is_tamed(mob) || !wild_adult(mob) || rider.is_none() {
-        forget_ride(mob);
+    }
+    if rider.and_then(|id| entities.with_entity(world, id, rider_uuid)?) != state.rider {
         return false;
     }
     match phase {
@@ -205,20 +260,27 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             let Some(rider) = rider else {
                 return false;
             };
-            if tick_count() < started + RIDE_TICKS {
+            mob.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: [0.0; 3],
+                ..EntityChange::default()
+            });
+            if phase == goal_phase::START {
+                return false;
+            }
+            state.remaining -= 1;
+            if state.remaining > 0 {
+                state.save(mob);
                 entities.with_entity(world, rider, |rider| rider.reset_fall_distance());
                 return false;
             }
-            forget_ride(mob);
+            state.clear_ride();
+            state.save(mob);
             entities.with_entity(world, rider, |rider| finish(world, mob, rider));
             false
         }
         _ => false,
     }
-}
-
-fn forget_ride(mob: Entity<'_>) {
-    with(|state| state.rides.remove(&mob.id()));
 }
 
 /// The ride's single roll: tame and keep the rider, or buck them off and turn on them.
@@ -235,7 +297,11 @@ fn finish(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
         taming::feed_particles(world, mob, true);
         return;
     }
-    with(|state| state.bucked.insert(mob.id(), tick_count() + BUCK_COOLDOWN));
+    Rodeo {
+        cooldown: BUCK_COOLDOWN as i32,
+        ..Rodeo::default()
+    }
+    .save(mob);
     rider.stop_riding();
     let (Some(at), Some(from)) = (mob.view(), rider.view()) else {
         return;
@@ -267,6 +333,20 @@ fn finish(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rodeo_nbt_preserves_attempt_and_cooldown() {
+        let state = Rodeo {
+            remaining: 31,
+            rider: Some([-1; 4]),
+            cooldown: 12,
+        };
+        let restored: Rodeo = fastnbt::from_bytes(&fastnbt::to_bytes(&state).unwrap()).unwrap();
+        assert_eq!(
+            (restored.remaining, restored.rider, restored.cooldown),
+            (31, Some([-1; 4]), 12)
+        );
+    }
 
     #[test]
     fn varasuchus_food_amounts_and_messages() {

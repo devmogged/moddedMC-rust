@@ -358,6 +358,11 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 1,
                 goal_control::MOVE | goal_control::LOOK,
             )))
+            .chain(crate::family::speed(species.name).is_some().then_some((
+                crate::family::GOAL,
+                2,
+                goal_control::MOVE | goal_control::LOOK,
+            )))
             .chain(crate::hunt::supported(species.name).then_some((
                 crate::hunt::GOAL,
                 1,
@@ -838,19 +843,31 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         .then(|| crate::combat_volitans::ambient(world, mob))
         .flatten();
     if crate::hunger::DRAGONS.contains(&name) {
+        if crate::breed::breeds(name) {
+            crate::breed::tick_age(mob);
+        }
+        if crate::stun::uses_stun(name) {
+            crate::stun::update(world, mob);
+        }
+        if name == "varasuchus" {
+            crate::wild::tick_state(world, mob);
+        }
         crate::hunger::tick(world, mob, species.speed, None, name);
     }
     if crate::hunger::DRAGONS.contains(&name) {
         taming::regrow(mob);
     }
     if crate::eggs::grow(mob, name) {
+        let dancing = crate::dance::tick(world, mob, name);
         let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
         visuals::tick_species(
             world,
             mob,
             &format!("baby_{name}"),
             view,
-            if moving && name == "nulljaw" {
+            if dancing {
+                "dance"
+            } else if moving && name == "nulljaw" {
                 "hover"
             } else if name == "varasuchus" {
                 crate::baby::eating_clip(mob.id()).unwrap_or(if moving { "walk" } else { "idle" })
@@ -921,6 +938,11 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         .or(volitans_clip)
         .or_else(|| swarm::clip(mob.id(), moddedmc_api::tick_count()))
         .unwrap_or_else(|| species.clip(view, wet));
+    let clip = if name == crate::ivy::SPECIES && crate::dance::tick(world, mob, name) {
+        "dance"
+    } else {
+        clip
+    };
     visuals::tick_species(world, mob, name, view, clip);
     false
 }

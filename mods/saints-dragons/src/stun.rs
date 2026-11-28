@@ -14,6 +14,7 @@ use moddedmc_api::{
     mob_ai::goal_phase,
     tick_count,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOB_HEALTH, MOBS, TAGS, ai::random, taming};
 
@@ -112,24 +113,35 @@ const PROFILES: [Profile; 4] = [
     },
 ];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 struct Stun {
-    /// Held down and waiting for food, until `until`; otherwise recovering after a feed.
+    /// Held down and waiting for food, otherwise recovering after a feed.
     awaiting: bool,
-    until: u64,
+    remaining: i32,
     /// Health a failed feed restores, or 0.
     target: f32,
-    last: u64,
+}
+
+const DATA: &str = "saintsdragons:taming_stun";
+
+impl Stun {
+    fn load(mob: Entity<'_>) -> Option<Self> {
+        mob.data(DATA)
+            .and_then(|bytes| fastnbt::from_bytes(&bytes).ok())
+    }
+
+    fn save(self, mob: Entity<'_>) {
+        if let Ok(bytes) = fastnbt::to_bytes(&self) {
+            mob.set_data(DATA, &bytes);
+        }
+    }
 }
 
 #[derive(Default)]
 struct State {
-    stunned: HashMap<i32, Stun>,
     fed: HashMap<i32, u64>,
 }
 
-// shortcut: the hold lives in memory, so a restart drops it; a dragon still at or below its
-// stun health is held again on its next AI tick, like `tickRecovery`.
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
 fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
@@ -165,15 +177,12 @@ fn threshold(profile: &Profile, max: f32) -> f32 {
 }
 
 pub fn forget(id: i32) {
-    with(|state| {
-        state.stunned.remove(&id);
-        state.fed.remove(&id);
-    });
+    with(|state| state.fed.remove(&id));
 }
 
-fn clear_stun(id: i32) {
+fn clear_stun(mob: Entity<'_>) {
     // Java clears taming recovery independently of the feeding cooldown.
-    with(|state| state.stunned.remove(&id));
+    mob.set_data(DATA, &[]);
 }
 
 /// `tryEnterHoldStateFromDamage`: a hit that would take the dragon past its stun health leaves
@@ -195,7 +204,7 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
     if threshold <= 0.0
         || health <= threshold
         || health - amount > threshold
-        || with(|state| state.stunned.contains_key(&mob.id()))
+        || Stun::load(mob).is_some()
     {
         return true;
     }
@@ -208,18 +217,13 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
 
 /// `enterHoldState`.
 fn hold(world: World<'_>, mob: Entity<'_>) {
-    let now = tick_count();
-    with(|state| {
-        state.stunned.insert(
-            mob.id(),
-            Stun {
-                awaiting: true,
-                until: now + HOLD_TICKS,
-                target: 0.0,
-                last: now,
-            },
-        )
-    });
+    Stun {
+        awaiting: true,
+        remaining: HOLD_TICKS as i32,
+        target: 0.0,
+    }
+    .save(mob);
+    crate::roost::wake(mob, true, 200);
     lock(world, mob);
     if let (Some(effects), Some(view)) = (EFFECTS.get(), mob.view()) {
         effects.play_sound(
@@ -246,50 +250,46 @@ fn lock(world: World<'_>, mob: Entity<'_>) {
     }
 }
 
-/// `tickRecovery`, run from the hold goal: true while the dragon stays held.
-fn update(world: World<'_>, mob: Entity<'_>) -> bool {
+/// `tickRecovery`, run once per loaded entity tick from the ambient goal.
+pub fn update(world: World<'_>, mob: Entity<'_>) {
     let Some((profile, health, max)) = wild(mob) else {
-        clear_stun(mob.id());
-        return false;
+        if Stun::load(mob).is_some() {
+            clear_stun(mob);
+        }
+        return;
     };
-    let now = tick_count();
-    let Some(stun) = with(|state| state.stunned.get(&mob.id()).copied()) else {
+    let Some(mut stun) = Stun::load(mob) else {
         if health <= threshold(profile, max) {
             hold(world, mob);
-            return true;
         }
-        return false;
+        return;
     };
+    stun.remaining = stun.remaining.saturating_sub(1).max(0);
     if stun.awaiting {
-        if now < stun.until {
-            return true;
+        if stun.remaining > 0 {
+            stun.save(mob);
+            return;
         }
         if let Some(vitals) = MOB_HEALTH.get() {
             vitals.set(mob, max);
         }
         notify(world, mob, &text(profile.timeout, profile.display));
-        clear_stun(mob.id());
-        return false;
+        clear_stun(mob);
+        return;
     }
     if stun.target > 0.0 && health + 0.5 < stun.target {
-        // The goal may not tick every game tick, so heal for the ticks since the last one.
-        let ticks = now.saturating_sub(stun.last).max(1) as f32;
-        let step = (max * 0.02).max(2.0) * ticks;
+        let step = (max * 0.02).max(2.0);
         if let Some(mobs) = MOBS.get() {
             mobs.heal(mob, step.min(stun.target - health));
         }
-        with(|state| {
-            if let Some(stun) = state.stunned.get_mut(&mob.id()) {
-                stun.last = now;
-            }
-        });
-        return true;
+        stun.save(mob);
+        return;
     }
-    if now < stun.until {
-        return true;
+    if stun.remaining > 0 {
+        stun.save(mob);
+        return;
     }
-    clear_stun(mob.id());
-    false
+    clear_stun(mob);
 }
 
 /// The timeout message goes to players within 32 blocks.
@@ -315,7 +315,9 @@ fn notify(world: World<'_>, mob: Entity<'_>, message: &str) {
 
 pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     match phase {
-        goal_phase::CAN_START | goal_phase::CONTINUE => update(world, mob),
+        goal_phase::CAN_START | goal_phase::CONTINUE => {
+            wild(mob).is_some() && Stun::load(mob).is_some()
+        }
         goal_phase::START | goal_phase::TICK => {
             lock(world, mob);
             false
@@ -355,7 +357,7 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     let (health, max) = mobs.health(mob)?;
     let now = tick_count();
     let tamed = taming::is_tamed(mob);
-    let stun = with(|state| state.stunned.get(&mob.id()).copied());
+    let stun = Stun::load(mob);
     if !tamed && stun.is_some_and(|stun| !stun.awaiting) {
         mobs.message(player, &text(profile.dazed, profile.display), true);
         return Some(UseResult::Consume);
@@ -415,38 +417,29 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         return Some(UseResult::Success);
     }
     // `enterStun`: the feed ends the hold and starts a short grace period.
-    with(|state| {
-        state.stunned.insert(
-            mob.id(),
-            Stun {
-                awaiting: false,
-                until: now + 20,
-                target: 0.0,
-                last: now,
-            },
-        )
-    });
+    Stun {
+        awaiting: false,
+        remaining: 20,
+        target: 0.0,
+    }
+    .save(mob);
+    crate::roost::wake(mob, true, 200);
     let owner = mobs.uuid(player)?;
     let roll = random(1_000_000) as f64 / 10_000.0;
     if roll < chance(profile, item) && taming::tame(click.world, mob, owner) {
-        clear_stun(mob.id());
+        clear_stun(mob);
         if hearty {
             mob.add_effect("minecraft:regeneration", 200, 1, false, true);
         }
         taming::feed_particles(click.world, mob, true);
     } else {
         // `setRecoveryTarget(getMaxHealth())`.
-        with(|state| {
-            state.stunned.insert(
-                mob.id(),
-                Stun {
-                    awaiting: false,
-                    until: now + 40,
-                    target: max,
-                    last: now,
-                },
-            )
-        });
+        Stun {
+            awaiting: false,
+            remaining: 40,
+            target: max,
+        }
+        .save(mob);
         taming::feed_particles(click.world, mob, false);
         mobs.message(player, &text(profile.failed, profile.display), true);
     }
@@ -456,6 +449,20 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_nbt_preserves_remaining_grace_and_target() {
+        let original = Stun {
+            awaiting: false,
+            remaining: 17,
+            target: 180.0,
+        };
+        let recovered: Stun = fastnbt::from_bytes(&fastnbt::to_bytes(&original).unwrap()).unwrap();
+        assert_eq!(
+            (recovered.awaiting, recovered.remaining, recovered.target),
+            (false, 17, 180.0)
+        );
+    }
 
     #[test]
     fn profiles_match_the_released_attributes() {

@@ -1270,6 +1270,29 @@ pub fn downed_clip(ivy: Entity<'_>) -> Option<&'static str> {
     }
 }
 
+/// IvyTheDragonMerchant.canDance: refuse while downed, riding, wet, in dialogue or combat.
+pub fn can_dance(world: World<'_>, ivy: Entity<'_>) -> bool {
+    let Some(uuid) = MOBS.get().and_then(|mobs| mobs.uuid(ivy)) else {
+        return false;
+    };
+    !downed_state(ivy).active()
+        && ivy.vehicle().is_none()
+        && combat_clip(ivy.id(), false).is_none()
+        && ivy
+            .view()
+            .is_some_and(|view| !crate::eggs::water_at(world, flight::cell(view.position)))
+        && !SESSIONS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|session| session.ivy == uuid && session.expires > moddedmc_api::tick_count())
+        && !TRADE_RESUMES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|trade| trade.ivy == uuid)
+}
+
 #[derive(Clone, Copy)]
 struct Hit {
     tick: u64,
