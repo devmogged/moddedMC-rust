@@ -195,6 +195,7 @@ mod registration_tests {
             saved_keys: Vec::new(),
             player_death: None,
             brewed_potion: None,
+            projectile_impact: None,
             inventory_menu: Registration::default(),
             native_actor: None,
             services: Vec::new(),

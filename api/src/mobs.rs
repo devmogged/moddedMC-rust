@@ -201,6 +201,9 @@ pub enum MobsExtension {
     RaidContext,
     /// Native swept custom projectile movement and direct/causing damage sources.
     ControlledProjectiles,
+    ProjectileImpacts,
+    EffectProjectiles,
+    BeamWires,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -208,6 +211,46 @@ pub enum ProjectileStep {
     Miss([f64; 3]),
     Block([f64; 3]),
     Entity([f64; 3]),
+}
+
+/// Borrowed collision information before native impact effects run.
+pub struct ProjectileImpact<'a> {
+    pub world: World<'a>,
+    pub projectile: Entity<'a>,
+    pub target: Option<Entity<'a>>,
+    pub block: Option<abi::Pos>,
+    pub position: [f64; 3],
+    pub world_border: bool,
+}
+pub type ProjectileImpactHandler = fn(ProjectileImpact<'_>) -> bool;
+static PROJECTILE_IMPACT: OnceLock<ProjectileImpactHandler> = OnceLock::new();
+
+unsafe extern "C" fn projectile_impact(
+    world: abi::WorldRef,
+    projectile: abi::EntityRef,
+    target: abi::EntityRef,
+    block: *const abi::Pos,
+    position: abi::Vec3,
+    world_border: bool,
+) -> bool {
+    guard("projectile impact", false, || {
+        let (Some(handler), Some(world), Some(projectile)) = (
+            PROJECTILE_IMPACT.get(),
+            World::borrowed(world),
+            Entity::borrowed(projectile),
+        ) else {
+            return false;
+        };
+        handler(ProjectileImpact {
+            world,
+            projectile,
+            target: Entity::borrowed(target),
+            // SAFETY: optional position is borrowed for the synchronous callback.
+            block: unsafe { block.as_ref() }.copied(),
+            position: position.0,
+            world_border,
+        })
+    })
 }
 
 #[cfg(test)]
@@ -483,6 +526,18 @@ impl Mobs {
                 std::mem::offset_of!(abi::MobsV1, hurt_from),
                 "moddedmc:mobs.controlled_projectiles",
             ),
+            MobsExtension::ProjectileImpacts => (
+                std::mem::offset_of!(abi::MobsV1, on_projectile_impact),
+                "moddedmc:mobs.projectile_impacts",
+            ),
+            MobsExtension::EffectProjectiles => (
+                std::mem::offset_of!(abi::MobsV1, step_effect_projectile),
+                "moddedmc:mobs.effect_projectiles",
+            ),
+            MobsExtension::BeamWires => (
+                std::mem::offset_of!(abi::MobsV1, power_beam_wires),
+                "moddedmc:mobs.beam_wires",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -657,6 +712,93 @@ impl Mobs {
             1 => Some(ProjectileStep::Block(out.0)),
             2 => Some(ProjectileStep::Entity(out.0)),
             _ => None,
+        }
+    }
+
+    /// Return true from the callback to prevent the native impact.
+    pub fn on_projectile_impact(
+        self,
+        reg: &mut Registry<'_>,
+        handler: ProjectileImpactHandler,
+    ) -> Result<(), RegistrationError> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, on_projectile_impact))
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        PROJECTILE_IMPACT
+            .set(handler)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        // SAFETY: registration is active and field size was checked.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_projectile_impact).read())(reg.reg, projectile_impact)
+        })
+    }
+
+    /// Sweep an actor against blocks and living targets without running vanilla effects.
+    pub fn step_effect_projectile<F: Fn(Entity<'_>) -> bool>(
+        self,
+        projectile: Entity<'_>,
+        velocity: [f64; 3],
+        margin: f64,
+        block_first: bool,
+        filter: F,
+    ) -> Option<ProjectileStep> {
+        use std::ffi::c_void;
+        unsafe extern "C" fn accept<F: Fn(Entity<'_>) -> bool>(
+            context: *const c_void,
+            raw: abi::EntityRef,
+        ) -> bool {
+            // SAFETY: filter is borrowed for the synchronous host call.
+            let filter = unsafe { &*context.cast::<F>() };
+            guard("effect projectile filter", false, || {
+                Entity::borrowed(raw).is_some_and(filter)
+            })
+        }
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, step_effect_projectile))?;
+        let mut out = abi::Vec3([0.0; 3]);
+        // SAFETY: field size checked and all handles and context are borrowed.
+        let result = unsafe {
+            ((&raw const (*api).step_effect_projectile).read())(
+                projectile.raw(),
+                abi::Vec3(velocity),
+                margin,
+                block_first,
+                (&raw const filter).cast(),
+                accept::<F>,
+                &raw mut out,
+            )
+        };
+        match result {
+            0 => Some(ProjectileStep::Miss(out.0)),
+            1 => Some(ProjectileStep::Block(out.0)),
+            2 => Some(ProjectileStep::Entity(out.0)),
+            _ => None,
+        }
+    }
+
+    /// Renew this source's transient wire power. Empty positions release its wires.
+    pub fn power_beam_wires(
+        self,
+        world: World<'_>,
+        source: Entity<'_>,
+        wires: &[abi::Pos],
+    ) -> bool {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, power_beam_wires))
+        else {
+            return false;
+        };
+        // SAFETY: the world, source and positions are borrowed for the call.
+        unsafe {
+            ((&raw const (*api).power_beam_wires).read())(
+                world.raw(),
+                source.raw(),
+                wires.as_ptr(),
+                wires.len(),
+            )
         }
     }
 

@@ -134,7 +134,7 @@ fn cooking_radius_uses_block_centers_in_three_dimensions() {
 }
 
 /// CindervaneFireballEntity.igniteArea: the 3 by 3 impact layer.
-pub(super) fn volley(world: World<'_>, position: [f64; 3]) {
+pub(crate) fn volley(world: World<'_>, position: [f64; 3]) {
     if !griefing(world) {
         return;
     }

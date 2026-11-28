@@ -441,6 +441,126 @@ pub unsafe extern "C" fn step_controlled_projectile(
     }
 }
 
+static PROJECTILE_IMPACT_CALLBACKS: Mutex<Vec<abi::ProjectileImpactFn>> = Mutex::new(Vec::new());
+
+pub unsafe extern "C" fn on_projectile_impact(
+    reg: abi::Reg,
+    callback: abi::ProjectileImpactFn,
+) -> i32 {
+    // SAFETY: reg is the active mod registration.
+    let slot = &mut unsafe { crate::native::staging(reg) }.projectile_impact;
+    if slot.is_some() {
+        return abi::code::DUPLICATE_ID;
+    }
+    *slot = Some(callback);
+    abi::code::OK
+}
+
+pub fn register_projectile_impact(callback: Option<abi::ProjectileImpactFn>) {
+    let Some(callback) = callback else { return };
+    let mut callbacks = crate::lock(&PROJECTILE_IMPACT_CALLBACKS);
+    if callbacks.is_empty()
+        && !pumpkin_core::entity::projectile::install_projectile_impact_hook(
+            dispatch_projectile_impact,
+        )
+    {
+        tracing::error!("moddedmc: projectile impact hook already installed");
+        return;
+    }
+    callbacks.push(callback);
+}
+
+fn dispatch_projectile_impact(
+    projectile: &dyn EntityBase,
+    hit: &pumpkin_core::entity::projectile::ProjectileHit,
+) -> bool {
+    use pumpkin_core::entity::projectile::ProjectileHit;
+    let callbacks = crate::lock(&PROJECTILE_IMPACT_CALLBACKS).clone();
+    let world = projectile.get_entity().world.load();
+    let (target, block, border) = match hit {
+        ProjectileHit::Entity { entity, .. } => (Some(entity.as_ref()), None, false),
+        ProjectileHit::Block {
+            pos, world_border, ..
+        } => (
+            None,
+            Some(abi::Pos {
+                x: pos.0.x,
+                y: pos.0.y,
+                z: pos.0.z,
+            }),
+            *world_border,
+        ),
+    };
+    let point = hit.hit_pos();
+    let mut canceled = false;
+    for callback in callbacks {
+        // SAFETY: all handles and the optional position live for the synchronous call.
+        canceled |= unsafe {
+            callback(
+                Arc::as_ptr(&world).cast(),
+                (&raw const projectile).cast(),
+                target
+                    .as_ref()
+                    .map_or(std::ptr::null(), |t| std::ptr::from_ref(t).cast()),
+                block.as_ref().map_or(std::ptr::null(), std::ptr::from_ref),
+                abi::Vec3([point.x, point.y, point.z]),
+                border,
+            )
+        };
+    }
+    canceled
+}
+
+pub unsafe extern "C" fn step_effect_projectile(
+    raw: abi::EntityRef,
+    velocity: abi::Vec3,
+    margin: f64,
+    block_first: bool,
+    context: *const c_void,
+    filter: abi::ProjectileFilter,
+    out: *mut abi::Vec3,
+) -> i32 {
+    use pumpkin_core::entity::projectile::{ProjectileHit, trace_projectile_ordered};
+    use pumpkin_world::clip::ClipBlock;
+    // SAFETY: handle and output are borrowed for the call.
+    let (Some(projectile), Some(velocity), false) =
+        (unsafe { entity(raw) }, finite(velocity), out.is_null())
+    else {
+        return -1;
+    };
+    let base = projectile.get_entity();
+    if base.is_removed()
+        || base.entity_type != &EntityType::INTERACTION
+        || velocity.length_squared() > 64.0 * 64.0
+        || !(0.0..=1.0).contains(&margin)
+    {
+        return -1;
+    }
+    base.set_velocity(velocity);
+    let hit = trace_projectile_ordered(
+        projectile,
+        |candidate| {
+            candidate.get_living_entity().is_some_and(LivingEntity::is_alive)
+                // SAFETY: caller's filter context is borrowed synchronously.
+                && unsafe { filter(context, (&raw const candidate).cast()) }
+        },
+        ClipBlock::Collider,
+        margin,
+        block_first,
+    );
+    let position = hit
+        .as_ref()
+        .map_or_else(|| base.pos.load() + velocity, ProjectileHit::hit_pos);
+    base.set_pos(position);
+    // SAFETY: output is checked above and borrowed for this call.
+    unsafe { out.write(abi::Vec3([position.x, position.y, position.z])) };
+    match hit {
+        None => 0,
+        Some(ProjectileHit::Block { .. }) => 1,
+        Some(ProjectileHit::Entity { .. }) => 2,
+    }
+}
+
 pub unsafe extern "C" fn hurt_from(
     raw: abi::EntityRef,
     direct: abi::EntityRef,

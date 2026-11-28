@@ -314,7 +314,7 @@ fn scale(a: [f64; 3], n: f64) -> [f64; 3] {
     a.map(|v| v * n)
 }
 
-fn sword_target(player: Entity<'_>, target: Entity<'_>) -> bool {
+pub(crate) fn sword_target(player: Entity<'_>, target: Entity<'_>) -> bool {
     target.flags() & ENTITY_ALIVE != 0
         && target.is_attackable() == Some(true)
         && can_chain_from_hit(player, target)
@@ -629,7 +629,8 @@ fn shockwave(world: World<'_>, player: Entity<'_>, at: [f64; 3]) {
         1.35,
         0.92,
     );
-    // shortcut: lava fissure, debris and camera effects require their companion/host carriers.
+    crate::effect_actors::fissure(world, player, at);
+    // shortcut: debris, decal and camera effects require their companion renderers.
 }
 
 #[cfg(test)]
