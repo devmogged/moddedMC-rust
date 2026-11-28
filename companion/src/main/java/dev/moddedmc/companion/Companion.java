@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 public final class Companion implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("moddedmc-companion");
     private static volatile Session session;
+    private static volatile boolean negotiated;
 
     private static final class Session {
         private final Protocol.Offer offer;
@@ -42,9 +43,9 @@ public final class Companion implements ClientModInitializer {
     public void onInitializeClient() {
         CreativeCatalog.register();
         PlayerActions.register();
-        ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> session = null);
-        ClientConfigurationConnectionEvents.INIT.register((listener, client) -> session = null);
-        ClientConfigurationConnectionEvents.DISCONNECT.register((listener, client) -> session = null);
+        ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> clearSession());
+        ClientConfigurationConnectionEvents.INIT.register((listener, client) -> clearSession());
+        ClientConfigurationConnectionEvents.DISCONNECT.register((listener, client) -> clearSession());
         PayloadTypeRegistry.clientboundConfiguration().register(Negotiate.TYPE, Negotiate.CODEC);
         PayloadTypeRegistry.serverboundConfiguration().register(Negotiate.TYPE, Negotiate.CODEC);
         ClientConfigurationNetworking.registerGlobalReceiver(Negotiate.TYPE, (packet, context) -> {
@@ -54,11 +55,21 @@ public final class Companion implements ClientModInitializer {
             }
             var answer = Protocol.answer(packet.bytes());
             if (answer != null) {
+                negotiated = true;
                 session = answer.offer() == null ? null : new Session(answer.offer());
                 PlayerActions.negotiated((answer.flags() & Protocol.PLAYER_ACTIONS) != 0);
                 LOGGER.info("moddedMC companion protocol {}, active capabilities {}", Protocol.VERSION, answer.flags());
             }
         });
+    }
+
+    private static void clearSession() {
+        session = null;
+        negotiated = false;
+    }
+
+    public static boolean negotiated() {
+        return negotiated;
     }
 
     static byte[] creativeCatalog() {

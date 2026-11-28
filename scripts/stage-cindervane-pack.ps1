@@ -29,6 +29,7 @@ $files = [ordered]@{
 }
 $species = @('cindervane')
 if ($AllDragons) {
+    $copies["$assets/textures/gui/draconic_crucible_gui.png"] = "$assets/textures/gui/draconic_crucible_gui.png"
     $species += @('atroxiia','ignivorus','moop','mossback','nulljaw','raevyx','stegonaut','varasuchus','volitans')
 }
 foreach ($name in $species) {

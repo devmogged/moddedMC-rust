@@ -1,0 +1,37 @@
+{
+  "draconic_crucible": {
+    "version": 1,
+    "title": "Draconic Crucible",
+    "width": 176,
+    "height": 208,
+    "texture": "textures/gui/draconic_crucible_gui.png",
+    "textureWidth": 256,
+    "textureHeight": 256,
+    "containerSlots": 27,
+    "stateSlot": 15,
+    "slots": [
+      {"index": 6, "x": 80, "y": 21},
+      {"index": 4, "x": 30, "y": 91},
+      {"index": 0, "x": 62, "y": 60, "hideWhen": "processing"},
+      {"index": 1, "x": 80, "y": 60, "hideWhen": "processing"},
+      {"index": 2, "x": 98, "y": 60, "hideWhen": "processing"},
+      {"index": 9, "x": 62, "y": 78, "hideWhen": "processing"},
+      {"index": 10, "x": 80, "y": 78, "hideWhen": "processing"},
+      {"index": 11, "x": 98, "y": 78, "hideWhen": "processing"},
+      {"index": 18, "x": 62, "y": 96, "hideWhen": "processing"},
+      {"index": 19, "x": 80, "y": 96, "hideWhen": "processing"},
+      {"index": 20, "x": 98, "y": 96, "hideWhen": "processing"}
+    ],
+    "inventory": {"x": 8, "y": 126, "hotbarY": 184},
+    "layers": [
+      {"x": 80, "y": 46, "u": 180, "v": 3, "width": 17, "height": 9, "fill": "arrow"},
+      {"x": 35, "y": 28, "u": 182, "v": 25, "width": 7, "height": 56, "fill": "gauge"},
+      {"x": 58, "y": 56, "u": 176, "v": 87, "width": 70, "height": 60, "visibleWhen": "processing"},
+      {"x": 118, "y": 61, "u": 245, "v": 92, "width": 5, "height": 40, "fill": "bar", "visibleWhen": "processing"}
+    ],
+    "buttons": [
+      {"slot": 15, "x": 145, "y": 99, "u": 232, "v": 0, "hoverV": 14, "pressedV": 28, "width": 24, "height": 14, "enabledWhen": "can_start", "label": "Crucible control"}
+    ],
+    "labels": []
+  }
+}
