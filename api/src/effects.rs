@@ -222,6 +222,54 @@ impl Effects {
         unsafe { ((&raw const (*api).set_entity_silent).read())(world.raw(), entity, silent) }
     }
 
+    pub fn require_effect_flags(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(offset_of!(abi::EffectsV1, has_effect))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:effects.has_effect",
+                version: 1,
+            })
+    }
+
+    /// Apply a vanilla effect with separate particle and icon visibility.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_effect_with_flags(
+        self,
+        entity: Entity<'_>,
+        effect: &str,
+        duration: i32,
+        amplifier: u8,
+        ambient: bool,
+        show_particles: bool,
+        show_icon: bool,
+    ) -> bool {
+        let Some(api) = self
+            .0
+            .upto(offset_of!(abi::EffectsV1, add_effect_with_flags))
+        else {
+            return false;
+        };
+        // SAFETY: prefix checked and both handles are borrowed for this call.
+        unsafe {
+            ((&raw const (*api).add_effect_with_flags).read())(
+                entity.raw(),
+                s(effect),
+                duration,
+                amplifier,
+                ambient,
+                show_particles,
+                show_icon,
+            )
+        }
+    }
+
+    pub fn has_effect(self, entity: Entity<'_>, effect: &str) -> Option<bool> {
+        let api = self.0.upto(offset_of!(abi::EffectsV1, has_effect))?;
+        // SAFETY: prefix checked and both handles are borrowed for this call.
+        Some(unsafe { ((&raw const (*api).has_effect).read())(entity.raw(), s(effect)) })
+    }
+
     /// Require the appended mob effect admission callback.
     pub fn require_effect_veto(self) -> Result<(), InterfaceUnavailable> {
         self.0
@@ -454,5 +502,15 @@ mod tests {
         });
         assert!(effects.require_block_animation().is_ok());
         assert!(effects.require_entity_audio().is_err());
+    }
+
+    #[test]
+    fn entity_audio_prefix_has_no_effect_flags() {
+        let effects = Effects(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: offset_of!(abi::EffectsV1, add_effect_with_flags),
+        });
+        assert!(effects.require_entity_audio().is_ok());
+        assert!(effects.require_effect_flags().is_err());
     }
 }

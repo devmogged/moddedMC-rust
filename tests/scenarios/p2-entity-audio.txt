@@ -1,5 +1,9 @@
 # Pack with original assets. The bot observes the vanilla trigger; a companion
 # client must also verify movement, looping, stopping and absence of carrier sounds.
+# Manual: a second client enters tracking during a sustained Raevyx beam or
+# Volitans breath, hears the loop for its remaining lifetime, leaves tracking,
+# re-enters, and hears it again only while still active. No duplicate start
+# on the client already tracking; stopping the ability clears both clients.
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 start
 botstart tester

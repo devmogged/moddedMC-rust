@@ -73,6 +73,8 @@ expect \[bot\] expect riding ok none
 # Companion manual extension (open air, mounted adult):
 # H toggles five-minute invisibility on both entities; holding H does not
 # retrigger, and a second press or dismount removes it from both.
+# The invisibility status icon stays visible, with no effect particles. Clear
+# the effect on the controlling player with /effect clear; it returns on the next tick.
 # R teleports mount and rider up to 16 blocks along the rider's look vector,
 # stops before a wall, refuses a blocked first block, and has a two-second cooldown.
 # Press the normal attack key while mounted to start a bite;

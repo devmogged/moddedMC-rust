@@ -184,12 +184,32 @@ pub fn cloak_tick(world: World<'_>, mob: Entity<'_>) {
         && cloak.remaining > 0
         && taming::owner(mob) == Some(uuid)
     {
-        // shortcut: no has-effect query or independent icon flag. Refresh the
-        // remaining duration periodically instead of reapplying every tick.
-        if cloak.remaining % 20 == 0 {
-            mob.add_effect(INVISIBILITY, cloak.remaining, 0, false, false);
+        // Nulljaw.tickCloak restores a removed effect immediately; its icon
+        // remains visible while its particles are suppressed.
+        if let Some(effects) = EFFECTS.get() {
+            if effects.has_effect(mob, INVISIBILITY) == Some(false) {
+                effects.add_effect_with_flags(
+                    mob,
+                    INVISIBILITY,
+                    cloak.remaining,
+                    0,
+                    false,
+                    false,
+                    true,
+                );
+            }
             entities.with_entity(world, rider, |e| {
-                e.add_effect(INVISIBILITY, cloak.remaining, 0, false, false)
+                if effects.has_effect(e, INVISIBILITY) == Some(false) {
+                    effects.add_effect_with_flags(
+                        e,
+                        INVISIBILITY,
+                        cloak.remaining,
+                        0,
+                        false,
+                        false,
+                        true,
+                    );
+                }
             });
         }
         if let Ok(nbt) = fastnbt::to_bytes(&cloak) {
@@ -218,8 +238,18 @@ fn toggle_cloak(world: World<'_>, mob: Entity<'_>, player: Entity<'_>) {
         && let Ok(nbt) = fastnbt::to_bytes(&Cloak::new(uuid))
         && mob.set_data(CLOAK_DATA, &nbt)
     {
-        mob.add_effect(INVISIBILITY, CLOAK_DURATION, 0, false, false);
-        player.add_effect(INVISIBILITY, CLOAK_DURATION, 0, false, false);
+        if let Some(effects) = EFFECTS.get() {
+            effects.add_effect_with_flags(mob, INVISIBILITY, CLOAK_DURATION, 0, false, false, true);
+            effects.add_effect_with_flags(
+                player,
+                INVISIBILITY,
+                CLOAK_DURATION,
+                0,
+                false,
+                false,
+                true,
+            );
+        }
     }
 }
 

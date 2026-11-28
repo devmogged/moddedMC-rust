@@ -35,6 +35,7 @@ public final class EntityAudio {
         final boolean loop;
         final long end;
         boolean triggered;
+        boolean duplicateTrigger;
         MovingSound sound;
 
         Entry(UUID playback, int id, SoundSource source, float volume, float pitch, boolean loop, long end) {
@@ -74,7 +75,12 @@ public final class EntityAudio {
                 if (source < 0 || source >= SoundSource.values().length || duration <= 0
                         || !Float.isFinite(volume) || volume < 0 || !Float.isFinite(pitch) || pitch <= 0) return;
                 var previous = ACTIVE.get(key);
-                if (previous != null && previous.playback.equals(playback)) return;
+                if (previous != null && previous.playback.equals(playback)) {
+                    // A leave/re-enter transition can arrive before the client tick
+                    // discards the old sound. Consume its paired vanilla trigger.
+                    previous.duplicateTrigger = true;
+                    return;
+                }
                 stop(client, previous);
                 var entry = new Entry(playback, id, SoundSource.values()[source], volume, pitch, loop,
                         level.getGameTime() + duration);
@@ -133,6 +139,11 @@ public final class EntityAudio {
         updateLevel(client);
         for (var pair : ACTIVE.entrySet()) {
             var entry = pair.getValue();
+            if (entry.duplicateTrigger && entry.id == id && entry.source == source
+                    && pair.getKey().sound.equals(sound)) {
+                entry.duplicateTrigger = false;
+                return true;
+            }
             if (!entry.triggered && entry.id == id && entry.source == source
                     && pair.getKey().sound.equals(sound) && level.getGameTime() < entry.end) {
                 entry.triggered = true;

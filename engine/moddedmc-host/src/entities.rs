@@ -816,6 +816,19 @@ pub unsafe extern "C" fn add_effect(
     ambient: bool,
     visible: bool,
 ) -> bool {
+    // SAFETY: forwards the same borrowed handles for this call.
+    unsafe { add_effect_with_flags(raw, effect, duration, amplifier, ambient, visible, visible) }
+}
+
+pub unsafe extern "C" fn add_effect_with_flags(
+    raw: abi::EntityRef,
+    effect: Str,
+    duration: i32,
+    amplifier: u8,
+    ambient: bool,
+    show_particles: bool,
+    show_icon: bool,
+) -> bool {
     // SAFETY: the entity is live and the id is borrowed for the call.
     let (Some(base), name) = (unsafe { entity(raw) }, unsafe { effect.str() }) else {
         return false;
@@ -830,8 +843,8 @@ pub unsafe extern "C" fn add_effect(
         duration,
         amplifier,
         ambient,
-        show_particles: visible,
-        show_icon: visible,
+        show_particles,
+        show_icon,
         blend: false,
     };
     if let Some(player) = base.get_player() {
@@ -842,6 +855,24 @@ pub unsafe extern "C" fn add_effect(
         return false;
     }
     true
+}
+
+pub unsafe extern "C" fn has_effect(raw: abi::EntityRef, effect: Str) -> bool {
+    // SAFETY: the entity and effect id are borrowed for this call.
+    let (Some(base), name) = (unsafe { entity(raw) }, unsafe { effect.str() }) else {
+        return false;
+    };
+    let Some(effect) = StatusEffect::from_name(name.strip_prefix("minecraft:").unwrap_or(name))
+    else {
+        return false;
+    };
+    base.get_player().map_or_else(
+        || {
+            base.get_living_entity()
+                .is_some_and(|living| living.has_effect(effect))
+        },
+        |player| player.has_effect(effect),
+    )
 }
 
 pub unsafe extern "C" fn step_height(raw: abi::EntityRef) -> f64 {

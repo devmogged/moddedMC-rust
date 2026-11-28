@@ -1577,6 +1577,18 @@ pub struct EffectsV1 {
     pub stop_entity_audio: unsafe extern "C" fn(world: WorldRef, entity: i32, key: Str) -> bool,
     /// Set the vanilla carrier's silent flag, independently of explicit mod audio.
     pub set_entity_silent: unsafe extern "C" fn(world: WorldRef, entity: i32, silent: bool) -> bool,
+    /// Apply a vanilla effect with independent particle and inventory icon visibility.
+    pub add_effect_with_flags: unsafe extern "C" fn(
+        entity: EntityRef,
+        effect: Str,
+        duration: i32,
+        amplifier: u8,
+        ambient: bool,
+        show_particles: bool,
+        show_icon: bool,
+    ) -> bool,
+    /// Whether a loaded living entity currently has this vanilla effect.
+    pub has_effect: unsafe extern "C" fn(entity: EntityRef, effect: Str) -> bool,
 }
 
 /// A pending mob effect, before it is stored or applied.
@@ -1605,7 +1617,9 @@ fn effects_v1_layout() {
     assert_eq!(offset_of!(EffectsV1, start_entity_audio), 88);
     assert_eq!(offset_of!(EffectsV1, stop_entity_audio), 96);
     assert_eq!(offset_of!(EffectsV1, set_entity_silent), 104);
-    assert_eq!(size_of::<EffectsV1>(), 112);
+    assert_eq!(offset_of!(EffectsV1, add_effect_with_flags), 112);
+    assert_eq!(offset_of!(EffectsV1, has_effect), 120);
+    assert_eq!(size_of::<EffectsV1>(), 128);
     assert_eq!(offset_of!(ParticleOptions, item), 0);
     assert_eq!(offset_of!(ParticleOptions, kind), 16);
     assert_eq!(offset_of!(ParticleOptions, block_state), 20);

@@ -1,7 +1,7 @@
 //! `moddedmc:effects` v1: sounds, particles and mob effect admission.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ptr,
     sync::{Arc, LazyLock, Mutex, Weak},
 };
@@ -75,6 +75,18 @@ type Key = (i32, String);
 static BARS: LazyLock<Mutex<HashMap<Key, Bar>>> = LazyLock::new(Mutex::default);
 static MUSIC: LazyLock<Mutex<HashMap<Key, Lease>>> = LazyLock::new(Mutex::default);
 
+type AudioKey = (Uuid, Uuid, String);
+struct AudioLoop {
+    entity: i32,
+    source: u8,
+    volume: f32,
+    pitch: f32,
+    until: u64,
+    playback: Uuid,
+    viewers: HashSet<i32>,
+}
+static AUDIO_LOOPS: LazyLock<Mutex<HashMap<AudioKey, AudioLoop>>> = LazyLock::new(Mutex::default);
+
 fn now() -> u64 {
     crate::native::SERVER.get().map_or(0, |s| {
         u64::try_from(s.tick_count.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(0)
@@ -109,6 +121,70 @@ pub fn tick_display(time: u64) {
             stop_track(&player, key);
             return false;
         }
+        true
+    });
+    tick_audio_loops(time);
+}
+
+/// Replays an active loop only to new trackers, with the original playback identity
+/// and remaining lease duration. Leaving tracking removes the player from the set.
+fn tick_audio_loops(time: u64) {
+    let mut loops = crate::lock(&AUDIO_LOOPS);
+    if loops.is_empty() {
+        return;
+    }
+    let Some(server) = crate::native::SERVER.get() else {
+        return;
+    };
+    let worlds = server.worlds.load();
+    loops.retain(|(world_id, uuid, key), audio| {
+        if time >= audio.until {
+            return false;
+        }
+        let Some(world) = worlds.iter().find(|world| world.uuid == *world_id) else {
+            return false;
+        };
+        let Some(entity) = world.get_entity_by_id(audio.entity) else {
+            return false;
+        };
+        if entity.get_entity().entity_uuid != *uuid {
+            return false;
+        }
+        let tracked = world.entity_tracker.get_tracked_entity(audio.entity);
+        let players = world.players.load();
+        let mut current = HashSet::new();
+        for player in players.iter() {
+            let id = player.entity_id();
+            if id != audio.entity
+                && !tracked
+                    .as_ref()
+                    .is_some_and(|t| t.is_seen_by(&player.gameprofile.id))
+            {
+                continue;
+            }
+            current.insert(id);
+            if audio.viewers.contains(&id) {
+                continue;
+            }
+            let duration = u32::try_from(audio.until - time).unwrap_or(u32::MAX);
+            let Ok(payload) = serde_json::to_vec(&serde_json::json!({
+                "entity": audio.entity, "uuid": uuid.to_string(), "key": key,
+                "source": audio.source, "volume": audio.volume, "pitch": audio.pitch,
+                "duration": duration, "loop": true, "playback": audio.playback.to_string(),
+            })) else {
+                continue;
+            };
+            player.try_send_client_packet(&CCustomPayload::new("moddedmc:entity_audio", &payload));
+            player.try_send_client_packet(&CEntitySoundEffect::new(
+                data_to_proto_sound(&sound_event(key)),
+                SOURCES[usize::from(audio.source)],
+                VarInt(audio.entity),
+                audio.volume,
+                audio.pitch,
+                get_seed() as i64,
+            ));
+        }
+        audio.viewers = current;
         true
     });
 }
@@ -495,17 +571,15 @@ unsafe extern "C" fn start_entity_audio(
         return false;
     };
     let emitter = entity.get_entity();
+    let playback = Uuid::new_v4();
     let Ok(payload) = serde_json::to_vec(&serde_json::json!({
         "entity": emitter.entity_id, "uuid": emitter.entity_uuid.to_string(),
         "key": key, "source": source, "volume": volume, "pitch": pitch,
-        "duration": duration, "loop": looping, "playback": Uuid::new_v4().to_string(),
+        "duration": duration, "loop": looping, "playback": playback.to_string(),
     })) else {
         return false;
     };
-    world.send_to_tracking_players_and_self(
-        emitter,
-        &CCustomPayload::new("moddedmc:entity_audio", &payload),
-    );
+    let metadata = CCustomPayload::new("moddedmc:entity_audio", &payload);
     // The following entity sound is the start trigger, as with loop_music.
     let packet = CEntitySoundEffect::new(
         data_to_proto_sound(&sound_event(key)),
@@ -515,7 +589,45 @@ unsafe extern "C" fn start_entity_audio(
         pitch,
         get_seed() as i64,
     );
-    world.send_to_tracking_players_and_self(emitter, &packet);
+    let audio_key = (world.uuid, emitter.entity_uuid, key.to_owned());
+    let mut loops = crate::lock(&AUDIO_LOOPS);
+    if looping {
+        let tracked = world.entity_tracker.get_tracked_entity(emitter.entity_id);
+        let viewers = world
+            .players
+            .load()
+            .iter()
+            .filter_map(|player| {
+                let id = player.entity_id();
+                if id != emitter.entity_id
+                    && !tracked
+                        .as_ref()
+                        .is_some_and(|t| t.is_seen_by(&player.gameprofile.id))
+                {
+                    return None;
+                }
+                player.try_send_client_packet(&metadata);
+                player.try_send_client_packet(&packet);
+                Some(id)
+            })
+            .collect();
+        loops.insert(
+            audio_key,
+            AudioLoop {
+                entity: emitter.entity_id,
+                source,
+                volume,
+                pitch,
+                until: now().saturating_add(u64::from(duration)),
+                playback,
+                viewers,
+            },
+        );
+    } else {
+        loops.remove(&audio_key);
+        world.send_to_tracking_players_and_self(emitter, &metadata);
+        world.send_to_tracking_players_and_self(emitter, &packet);
+    }
     true
 }
 
@@ -531,6 +643,7 @@ unsafe extern "C" fn stop_entity_audio(raw: WorldRef, entity: i32, key: Str) -> 
         return false;
     };
     let emitter = entity.get_entity();
+    crate::lock(&AUDIO_LOOPS).remove(&(world.uuid, emitter.entity_uuid, key.to_owned()));
     let Ok(payload) = serde_json::to_vec(&serde_json::json!({
         "entity": emitter.entity_id, "uuid": emitter.entity_uuid.to_string(),
         "key": key, "stop": true,
@@ -719,6 +832,8 @@ pub static EFFECTS: abi::EffectsV1 = abi::EffectsV1 {
     start_entity_audio,
     stop_entity_audio,
     set_entity_silent,
+    add_effect_with_flags: crate::entities::add_effect_with_flags,
+    has_effect: crate::entities::has_effect,
 };
 
 #[cfg(test)]
