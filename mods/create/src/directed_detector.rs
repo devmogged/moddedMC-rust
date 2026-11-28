@@ -73,21 +73,14 @@ impl Mount {
     }
 
     pub(crate) fn rotated(mut self, face: u8) -> Self {
-        const CLOCKWISE_X: [u8; 6] = [3, 2, 0, 1, 4, 5];
-        const CLOCKWISE_Y: [u8; 6] = [0, 1, 5, 4, 2, 3];
-        const CLOCKWISE_Z: [u8; 6] = [4, 5, 2, 3, 1, 0];
         if face < 2 {
-            self.facing = CLOCKWISE_Y[usize::from(self.facing)];
+            self.facing = clockwise(self.facing, 1);
             if self.target >= 2 {
                 self.target = self.facing;
             }
         } else {
-            let rotation = if face_axis(face) == 0 {
-                CLOCKWISE_X
-            } else {
-                CLOCKWISE_Z
-            };
-            self.target = rotation[usize::from(self.target)] ^ u8::from(face.is_multiple_of(2));
+            self.target =
+                clockwise(self.target, face_axis(face)) ^ u8::from(face.is_multiple_of(2));
             if self.target >= 2 {
                 self.facing = self.target;
             }
@@ -126,6 +119,12 @@ impl Mount {
         }
         face >= 2 && face_axis(face) != face_axis(self.facing)
     }
+}
+
+/// Vanilla `Direction.getClockWise(axis)`, with axes numbered x, y, z.
+pub(crate) fn clockwise(direction: u8, axis: u8) -> u8 {
+    const CLOCKWISE: [[u8; 6]; 3] = [[3, 2, 0, 1, 4, 5], [0, 1, 5, 4, 2, 3], [4, 5, 2, 3, 1, 0]];
+    CLOCKWISE[usize::from(axis)][usize::from(direction)]
 }
 
 /// Blockstate rotations are clockwise when looking along the positive axis.

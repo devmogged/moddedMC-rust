@@ -173,3 +173,7 @@ Use Java 26.3 with the matching Fabric companion, the Saints Dragons server mod 
 ## Create sneak-wrench pickup ([issue #65](https://github.com/devmogged/moddedMC-rust/issues/65))
 
 - In Survival, sneak-use a wrench on a Shaft, Gearbox, Mechanical Press, Redstone Link, White Sail and Fluid Pipe. Expect each block to vanish with the wrench removal sound and its item to go into your inventory, with no item entity on the ground. Repeat in Creative and expect the block removed and no item given. Sneak-use the wrench on stone and expect nothing to happen.
+
+## Create wrench rotation
+
+- Power a Shaft from a Creative Motor and use a wrench on the shaft's top face. Expect it to turn sideways with the wrench rotate sound and stop; use it again and expect it to spin. Wrench an Encased Fan, Mechanical Press and Mechanical Pump from the top, a sail from the side, a Deployer's side and a Mechanical Saw from above. Expect each model to turn the way Create's would (the pump flips, the saw blade flips on the floor and ceiling) and the Deployer's front half to do nothing. Wrench Andesite Casing and expect nothing to happen and no arm swing.

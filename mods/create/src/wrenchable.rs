@@ -12,7 +12,7 @@ const DYED_SUFFIXES: [&str; 5] = [
     "_table_cloth",
     "_nixie_tube",
 ];
-const DYES: [&str; 16] = [
+pub(crate) const DYES: [&str; 16] = [
     "white",
     "orange",
     "magenta",

@@ -1,0 +1,124 @@
+# A Wrench use rotates Create's blocks around the clicked face's axis, as IWrenchable.onWrenched
+# and its overrides do, and the kinetic network follows the new orientation.
+mods target\mods\create.mmc
+start
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 3202.5 105 3202.5
+wait 3
+cmd fill 3196 97 3196 3210 110 3210 minecraft:air
+cmd fill 3196 97 3196 3210 99 3210 minecraft:stone
+cmd tp tester 3203.5 100 3204.5
+cmd gamemode survival tester
+cmd clear tester
+cmd item replace entity tester hotbar.0 with create:wrench
+cmd setblock 3200 100 3200 create:creative_motor[facing=east]
+cmd setblock 3201 100 3200 create:shaft[axis=x]
+cmd setblock 3202 100 3200 create:gearbox[axis=y]
+cmd setblock 3200 100 3202 create:encased_fan[facing=north]
+cmd setblock 3201 100 3202 create:mechanical_press[facing=north]
+cmd setblock 3202 100 3202 create:andesite_casing
+cmd setblock 3203 100 3202 create:mechanical_pump[facing=north]
+cmd setblock 3204 100 3202 create:white_sail[facing=up]
+cmd setblock 3205 100 3202 create:deployer[facing=up]
+cmd setblock 3206 100 3202 create:mechanical_saw[facing=up]
+cmd setblock 3207 100 3202 create:mechanical_bearing[facing=up]
+wait 1
+cmd kinetics 3201 100 3200
+wait 0.3
+expect shaft\[axis=x,waterlogged=false\] at 3201 100 3200 Speed=16
+
+# Turning the shaft off the motor's axis stops it, and turning it back reconnects it.
+bot use 3201 100 3200 up
+wait 0.5
+cmd kinetics 3201 100 3200
+wait 0.3
+expect shaft\[axis=z,waterlogged=false\] at 3201 100 3200 Speed=0
+bot use 3201 100 3200 up
+wait 0.5
+cmd kinetics 3201 100 3200
+wait 0.3
+expect shaft\[axis=x,waterlogged=false\] at 3201 100 3200 Speed=16
+bot use 3202 100 3200 north
+wait 0.5
+cmd kinetics 3202 100 3200
+wait 0.3
+expect gearbox\[axis=x\] at 3202 100 3200
+
+# Horizontal facings only turn from the top or bottom; the pump flips; casings refuse.
+bot use 3200 100 3202 up
+wait 0.3
+bot use 3201 100 3202 up
+wait 0.3
+bot use 3201 100 3202 south
+wait 0.3
+bot use 3202 100 3202 up
+wait 0.3
+bot use 3203 100 3202 up
+wait 0.3
+bot use 3204 100 3202 north
+wait 0.3
+# The Deployer's front half switches mode instead of turning.
+bot use 3205 100 3202 up
+wait 0.3
+bot use 3206 100 3202 up
+wait 0.3
+bot use 3207 100 3202 north
+wait 1
+cmd kinetics 3200 100 3202
+wait 0.3
+expect encased_fan\[facing=east\]
+cmd kinetics 3201 100 3202
+wait 0.3
+expect mechanical_press\[facing=east\]
+cmd kinetics 3203 100 3202
+wait 0.3
+expect mechanical_pump\[facing=south,waterlogged=false\]
+cmd kinetics 3205 100 3202
+wait 0.3
+expect deployer\[axis_along_first=true,facing=up\]
+cmd kinetics 3206 100 3202
+wait 0.3
+expect mechanical_saw\[axis_along_first=true,facing=up,flipped=true\]
+cmd kinetics 3207 100 3202
+wait 0.3
+expect mechanical_bearing\[facing=east\]
+cmd execute if block 3202 100 3202 create:andesite_casing if block 3204 100 3202 create:white_sail[facing=east]
+wait 0.3
+expect Test passed
+bot use 3205 100 3202 north
+wait 0.5
+cmd kinetics 3205 100 3202
+wait 0.3
+expect deployer\[axis_along_first=true,facing=east\]
+
+# A belt pulley gives its shaft back and becomes a middle segment.
+cmd setblock 3201 100 3206 create:creative_motor[facing=east]
+cmd setblock 3202 100 3206 create:shaft[axis=x]
+cmd setblock 3202 100 3209 create:shaft[axis=x]
+cmd setblock 3202 100 3207 create:shaft[axis=x]
+cmd item replace entity tester hotbar.0 with create:belt_connector
+wait 0.5
+bot use 3202 100 3206 east
+wait 0.5
+bot use 3202 100 3209 east
+wait 1.5
+cmd kinetics 3202 100 3207
+wait 0.3
+expect create:belt\[.*part=pulley.*\] at 3202 100 3207
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 3202 100 3207 east
+wait 1
+cmd kinetics 3202 100 3207
+wait 0.3
+expect create:belt\[.*part=middle.*\] at 3202 100 3207
+cmd clear tester create:shaft 0
+wait 0.3
+expect Found 1 matching item
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop
