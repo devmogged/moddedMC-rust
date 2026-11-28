@@ -95,6 +95,18 @@ fn inventory(world: World<'_>, uuid: [u8; 16]) -> Option<Vec<Option<Vec<u8>>>> {
     Some(inventory_record(world, uuid)?.slots)
 }
 
+/// StegonautBuffAbility.hasBoundStegonautBinder checks Ivy's actual saved inventory.
+pub fn has_bound_binder(world: World<'_>, ivy: Entity<'_>) -> bool {
+    MOBS.get()
+        .and_then(|mobs| inventory(world, mobs.uuid(ivy)?))
+        .is_some_and(|slots| {
+            slots
+                .iter()
+                .flatten()
+                .any(|stack| crate::combat_stegonaut::bound_binder(stack))
+        })
+}
+
 // A new revision invalidates the old native view when Ivy consumes a stack.
 fn inventory_id(id: i32, revision: u32) -> u64 {
     (u64::from(revision) << 32) | u64::from(id as u32)
@@ -784,6 +796,10 @@ pub fn use_on_mob(click: &UseMob<'_>) -> UseResult {
     let (Some(viewer), Some(ivy)) = (click.player, click.mob) else {
         return UseResult::Pass;
     };
+    if click.stack.read().is_some_and(|stack| named_tag(&stack)) {
+        // The original refuses a named tag before every other interaction.
+        return UseResult::Consume;
+    }
     let mut downed = downed_state(ivy);
     if downed.active() {
         if downed.downed
@@ -1048,16 +1064,18 @@ pub fn hurt(world: World<'_>, ivy: Entity<'_>, damage_type: &str, amount: f32) -
 }
 
 /// IvyTheDragonMerchant.consumeOneInventoryItem: consume the first matching storage stack.
-fn consume_totem(slots: &mut [Option<Vec<u8>>]) -> bool {
+fn consume_matching(
+    slots: &mut [Option<Vec<u8>>],
+    matches: impl Fn(&Compound, &[u8]) -> bool,
+) -> bool {
     for slot in slots.iter_mut().skip(STORAGE_START) {
-        let Some(mut stack) = slot
-            .as_deref()
-            .and_then(|bytes| fastnbt::from_bytes::<Compound>(bytes).ok())
-        else {
+        let Some(bytes) = slot.as_deref() else {
             continue;
         };
-        if !matches!(stack.get("id"), Some(Value::String(id)) if id == "minecraft:totem_of_undying")
-        {
+        let Ok(mut stack) = fastnbt::from_bytes::<Compound>(bytes) else {
+            continue;
+        };
+        if !matches(&stack, bytes) {
             continue;
         }
         match stack.get("count") {
@@ -1076,14 +1094,25 @@ fn consume_totem(slots: &mut [Option<Vec<u8>>]) -> bool {
     false
 }
 
-fn use_totem(world: World<'_>, ivy: Entity<'_>) -> Option<()> {
+fn consume_totem(slots: &mut [Option<Vec<u8>>]) -> bool {
+    consume_matching(
+        slots,
+        |stack, _| matches!(stack.get("id"), Some(Value::String(id)) if id == "minecraft:totem_of_undying"),
+    )
+}
+
+fn consume_inventory(
+    world: World<'_>,
+    ivy: Entity<'_>,
+    consume: impl FnOnce(&mut [Option<Vec<u8>>]) -> bool,
+) -> Option<()> {
     let uuid = MOBS.get()?.uuid(ivy)?;
     let _lock = INVENTORY_WRITE
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
     let mut records = inventories(world)?;
     let record = records.iter_mut().find(|record| record.ivy == uuid)?;
-    if !consume_totem(&mut record.slots) {
+    if !consume(&mut record.slots) {
         return None;
     }
     record.revision = record.revision.checked_add(1)?;
@@ -1092,6 +1121,99 @@ fn use_totem(world: World<'_>, ivy: Entity<'_>) -> Option<()> {
         .get()?
         .write(&world, *INVENTORY_KEY.get()?, &bytes)
         .then_some(())
+}
+
+fn use_totem(world: World<'_>, ivy: Entity<'_>) -> Option<()> {
+    consume_inventory(world, ivy, consume_totem)
+}
+
+fn named_tag(bytes: &[u8]) -> bool {
+    fastnbt::from_bytes::<Compound>(bytes).is_ok_and(|stack| {
+        matches!(stack.get("id"), Some(Value::String(id)) if id == "minecraft:name_tag")
+            && matches!(stack.get("components"), Some(Value::Compound(components)) if components.contains_key("minecraft:custom_name"))
+    })
+}
+
+/// IvyTheDragonMerchant.isCookedRecoveryFood: cooked edible items only.
+fn cooked_food(stack: &Compound, bytes: &[u8]) -> bool {
+    let Some(Value::String(id)) = stack.get("id") else {
+        return false;
+    };
+    let Some((_, path)) = id.split_once(':') else {
+        return false;
+    };
+    path.contains("cooked") && component(bytes, "minecraft:food").is_some()
+}
+
+fn has_recovery_food(world: World<'_>, ivy: Entity<'_>) -> bool {
+    MOBS.get()
+        .and_then(|mobs| inventory(world, mobs.uuid(ivy)?))
+        .is_some_and(|slots| {
+            slots.iter().skip(STORAGE_START).flatten().any(|bytes| {
+                fastnbt::from_bytes::<Compound>(bytes).is_ok_and(|stack| cooked_food(&stack, bytes))
+            })
+        })
+}
+
+/// IvyTheDragonMerchant.tickPassiveUse: 20 ticks, consume on tick 14, 100 tick cooldown.
+fn passive_recovery(world: World<'_>, ivy: Entity<'_>, blocked: bool) {
+    let now = moddedmc_api::tick_count();
+    let (Some(mobs), Some(uuid)) = (MOBS.get(), MOBS.get().and_then(|mobs| mobs.uuid(ivy))) else {
+        return;
+    };
+    let (start, ready) = {
+        let states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(state) = states.get(&ivy.id()) else {
+            return;
+        };
+        (state.recovery_start, state.recovery_ready)
+    };
+    if start.is_none()
+        && (blocked
+            || now < ready
+            || !mobs
+                .health(ivy)
+                .is_some_and(|(health, _)| health > 0.0 && health < 20.0))
+    {
+        return;
+    }
+    let busy = blocked
+        || downed_state(ivy).active()
+        || SESSIONS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|session| session.ivy == uuid && session.expires > now)
+        || TRADE_RESUMES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|session| session.ivy == uuid);
+    if let Some(start) = start {
+        let age = now.saturating_sub(start);
+        if busy || age >= 20 {
+            if let Some(state) = FIGHTS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get_mut(&ivy.id())
+            {
+                state.recovery_start = None;
+            }
+        } else if age == 14
+            && consume_inventory(world, ivy, |slots| consume_matching(slots, cooked_food)).is_some()
+        {
+            mobs.heal(ivy, 8.0);
+        }
+    } else if !busy
+        && has_recovery_food(world, ivy)
+        && let Some(state) = FIGHTS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&ivy.id())
+    {
+        state.recovery_start = Some(now);
+        state.recovery_ready = now + 100;
+    }
 }
 
 /// IvyTheDragonMerchant.tryUseInventoryTotem: vanilla effects after the final hit commits.
@@ -1249,10 +1371,15 @@ pub fn downed_tick(world: World<'_>, ivy: Entity<'_>) {
             && let (Some(ai), Some(mobs), Some(entities), Some(owner)) =
                 (MOB_AI.get(), MOBS.get(), ENTITIES.get(), taming::owner(ivy))
             && let Some(id) = mobs.by_uuid(world, &owner)
-            && let Some((attacker, _)) = entities
-                .with_entity(world, id, |owner| ai.last_hurt_by(owner))
+            && let Some(attacker) = entities
+                .with_entity(world, id, |owner| {
+                    [mobs.last_hurt_by_mob(owner), mobs.last_hurt_mob(owner)]
+                        .into_iter()
+                        .flatten()
+                        .map(|(id, _)| id)
+                        .find(|&id| target_position(world, ivy, id).is_some())
+                })
                 .flatten()
-            && target_position(world, ivy, attacker).is_some()
         {
             ai.set_target(world, ivy, Some(attacker));
         }
@@ -1500,8 +1627,11 @@ fn forward_impulse(
 #[derive(Default)]
 struct Fight {
     armor_synced: bool,
-    self_hurt: Option<(i32, i32)>,
-    owner_hurt: Option<(i32, i32)>,
+    self_hurt: Option<(i32, i64)>,
+    owner_hurt: Option<(i32, i64)>,
+    owner_attack: Option<(i32, i64)>,
+    recovery_start: Option<u64>,
+    recovery_ready: u64,
     owner_synced: bool,
     target: Option<i32>,
     start: u64,
@@ -1544,7 +1674,7 @@ fn enemy(world: World<'_>, ivy: Entity<'_>, target: Entity<'_>) -> bool {
     crate::abilities::enemy(world, ivy, target)
         && !matches!(
             target.type_id().trim_start_matches("minecraft:"),
-            "iron_golem" | "snow_golem" | "villager"
+            "iron_golem" | "villager" | "wandering_trader"
         )
         && !(taming::owner(target).is_some() && taming::owner(ivy) == taming::owner(target))
 }
@@ -1566,23 +1696,33 @@ pub fn target_tick(world: World<'_>, ivy: Entity<'_>) {
     else {
         return;
     };
-    let own_hurt = ai.last_hurt_by(ivy);
-    let owner_hurt = mobs.by_uuid(world, &owner).and_then(|id| {
-        entities
-            .with_entity(world, id, |owner| ai.last_hurt_by(owner))
-            .flatten()
-    });
-    let (own, defense, sync_armor) = {
+    let own_hurt = mobs.last_hurt_by_mob(ivy);
+    let (owner_hurt, owner_attack) = mobs
+        .by_uuid(world, &owner)
+        .and_then(|id| {
+            entities.with_entity(world, id, |owner| {
+                if owner.flags() & moddedmc_api::entities::ENTITY_ALIVE != 0 {
+                    (mobs.last_hurt_by_mob(owner), mobs.last_hurt_mob(owner))
+                } else {
+                    (None, None)
+                }
+            })
+        })
+        .unwrap_or_default();
+    let (own, defense, offense, sync_armor) = {
         let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
         let state = states.entry(ivy.id()).or_default();
         let own = own_hurt.filter(|hit| state.self_hurt != Some(*hit));
         state.self_hurt = own_hurt;
         let defense = owner_hurt.filter(|hit| state.owner_synced && state.owner_hurt != Some(*hit));
         state.owner_hurt = owner_hurt;
+        let offense =
+            owner_attack.filter(|hit| state.owner_synced && state.owner_attack != Some(*hit));
+        state.owner_attack = owner_attack;
         state.owner_synced = true;
         let sync = !state.armor_synced;
         state.armor_synced = true;
-        (own, defense, sync)
+        (own, defense, offense, sync)
     };
     if sync_armor {
         update_armor(world, ivy);
@@ -1591,6 +1731,7 @@ pub fn target_tick(world: World<'_>, ivy: Entity<'_>) {
         if ai.target(ivy).is_some() {
             ai.set_target(world, ivy, None);
         }
+        passive_recovery(world, ivy, false);
         return;
     }
     if ai
@@ -1599,17 +1740,19 @@ pub fn target_tick(world: World<'_>, ivy: Entity<'_>) {
     {
         ai.set_target(world, ivy, None);
     }
-    // shortcut: the API exposes last_hurt_by, but not the owner's last_hurt_mob
-    // timestamp; attacking a target first cannot trigger owner defense yet.
-    for (id, _) in own
+    let follow = taming::order_name(ivy) == "follow";
+    for id in own
+        .map(|hit| hit.0)
         .into_iter()
-        .chain(defense.filter(|_| taming::order_name(ivy) == "follow"))
+        .chain(defense.filter(|_| follow).map(|hit| hit.0))
+        .chain(offense.filter(|_| follow).map(|hit| hit.0))
     {
         if target_position(world, ivy, id).is_some() {
             ai.set_target(world, ivy, Some(id));
             break;
         }
     }
+    passive_recovery(world, ivy, ai.target(ivy).is_some());
 }
 
 fn choose_move(
@@ -1897,6 +2040,9 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
 pub fn combat_clip(id: i32, moving: bool) -> Option<&'static str> {
     let states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
     let state = states.get(&id)?;
+    if state.recovery_start.is_some() {
+        return Some("main_hand_eat");
+    }
     if !state.stance {
         return None;
     }
@@ -2067,6 +2213,29 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refuses_only_custom_named_tags() {
+        let stack = |id: &str, named: bool| {
+            let mut components = Compound::new();
+            if named {
+                components.insert(
+                    "minecraft:custom_name".into(),
+                    Value::String("Not Ivy".into()),
+                );
+            }
+            fastnbt::to_bytes(&Compound::from([
+                ("id".into(), Value::String(id.into())),
+                ("count".into(), Value::Int(1)),
+                ("components".into(), Value::Compound(components)),
+            ]))
+            .unwrap()
+        };
+        assert!(named_tag(&stack("minecraft:name_tag", true)));
+        assert!(!named_tag(&stack("minecraft:name_tag", false)));
+        assert!(!named_tag(&stack("minecraft:paper", true)));
+        assert!(!named_tag(&[]));
+    }
 
     #[test]
     fn totem_consumes_one_in_storage_order_and_preserves_components() {
