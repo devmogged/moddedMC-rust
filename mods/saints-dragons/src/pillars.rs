@@ -1,5 +1,5 @@
 //! IgnivorusMagmaPillarEntity and StegonautAmethystPillarEntity, 0.9.88.
-use crate::{EFFECTS, ENTITIES, MOBS};
+use crate::{EFFECTS, ENTITIES, MOBS, taming};
 use moddedmc_api::{
     abi::heightmap,
     content::World,
@@ -209,6 +209,7 @@ fn eligible(world: World<'_>, owner: Option<i32>, player_owned: bool, target: En
     };
     if view.kind & ENTITY_LIVING == 0
         || target.flags() & ENTITY_ALIVE == 0
+        || target.is_attackable() != Some(true)
         || mobs.game_mode(target) == Some(3)
         || (!player_owned && mobs.game_mode(target) == Some(1))
         || owner == Some(target.id())
@@ -219,7 +220,6 @@ fn eligible(world: World<'_>, owner: Option<i32>, player_owned: bool, target: En
     if player_owned {
         // SwordAbilityTargeting excludes all tamed/owned animals, not just the
         // caster's pets, and checks the alliance in both directions.
-        // shortcut: no native LivingEntity.attackable query yet.
         return !taming::is_tamed(target)
             && mobs.pet_owner(target).is_none()
             && ENTITIES
