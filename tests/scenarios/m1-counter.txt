@@ -27,8 +27,7 @@ wait 5
 cmd moddedmc dump demo:counter
 wait 0.5
 # One live counter (the vanilla barrel next to it is not tagged) that has ticked ~4 times.
-expect moddedmc dump: 1 live demo:counter
-expect demo:counter at 1025 100 1025 state=0[3-6]00000000000000
+expect-all moddedmc dump: 1 live demo:counter && demo:counter at 1025 100 1025 state=0[3-6]00000000000000
 
 # Use it: the mod answers in the action bar instead of opening the barrel.
 bot use 1025 100 1025
@@ -45,9 +44,9 @@ cmd tp tester 1025.5 101 1023.5
 wait 4
 cmd moddedmc dump demo:counter
 wait 0.5
-expect moddedmc dump: 1 live demo:counter
 # It resumed from its saved count (no reset to 0) and did not tick while unloaded (< 0x0f).
-expect demo:counter at 1025 100 1025 state=0[5-9a-e]00000000000000
+# The count and state lines can reach the logger in either order.
+expect-all moddedmc dump: 1 live demo:counter && demo:counter at 1025 100 1025 state=0[5-9a-e]00000000000000
 
 # Restart: identity and count survive a save and a cold start.
 bot quit

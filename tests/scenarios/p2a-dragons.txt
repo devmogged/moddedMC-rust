@@ -69,10 +69,8 @@ expect cindervane: found 1: .* target=none
 cmd summon minecraft:villager 1031 100 1025
 wait 1
 cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1 minecraft:mob_attack by @e[type=minecraft:villager,limit=1]
-wait 1
-cmd cindervane find 1025 100 1025
-wait 1
-expect cindervane: found 1: .* target=villager
+# Observe retaliation immediately: the volley can kill the villager in under a second.
+await-cmd 5 cindervane: found 1: .* target=villager && cindervane find 1025 100 1025
 wait 10
 # The magma volley may kill the villager far from the original arena. Verify its
 # death, then return the surviving dragon to the query radius before checking its target.
@@ -81,11 +79,13 @@ await 5 \[bot\] sound: entity.villager.death
 wait 2
 cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1025.5 100 1025.5
 await 5 Teleported Ravager
+# Clear unrelated terrain drops before asserting the exact nearby entity list.
+cmd kill @e[type=minecraft:item,x=1009,y=84,z=1009,dx=32,dy=32,dz=32]
+wait 1
 cmd cindervane find 1025 100 1025
 wait 1
 expect cindervane: found 1: .* target=none; around: player$
 # It dies with its own empty loot table, not the ravager's saddle.
-cmd kill @e[type=minecraft:item,x=1009,y=84,z=1009,dx=32,dy=32,dz=32]
 cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1000 minecraft:generic
 await 5 Applied 1000 damage to Ravager
 wait 3
