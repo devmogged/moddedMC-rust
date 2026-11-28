@@ -69,8 +69,8 @@ fn parse_bone(data: &[u8]) -> Option<(i32, &str, [f64; 3])> {
         return None;
     }
     let mut position = [0.0; 3];
-    for (value, bytes) in position.iter_mut().zip(coordinates.chunks_exact(8)) {
-        *value = f64::from_be_bytes(bytes.try_into().ok()?);
+    for (value, bytes) in position.iter_mut().zip(coordinates.as_chunks::<8>().0) {
+        *value = f64::from_be_bytes(*bytes);
     }
     position.iter().all(|v| v.is_finite()).then_some((
         i32::from_be_bytes([*a, *b, *c, *d]),

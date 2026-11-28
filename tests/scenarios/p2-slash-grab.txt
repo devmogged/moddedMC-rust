@@ -1,12 +1,13 @@
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 start
 botstart tester
-wait 3
+await 60 \[bot\] joined as tester
+wait 10
 cmd op tester
 cmd gamerule minecraft:spawn_mobs false
+cmd forceload add 1013 1013 1037 1037
 cmd tp tester 1025.5 100 1028.5 0 0
-cmd forceload add 1025 1025
-wait 3
+wait 20
 cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
 await 30 Successfully filled|No blocks were filled
 cmd fill 1013 100 1013 1037 110 1037 minecraft:air
@@ -35,17 +36,20 @@ wait 0.5
 expect \[bot\] expect riding ok ravager
 # A target starts in the slash acquisition area, and the reported bone is
 # deliberately on the opposite side from the neutral grab anchor.
-cmd summon minecraft:husk 1023.9 100 1030.75 {NoAI:1b,PersistenceRequired:1b}
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] {NoAI:0b,OnGround:1b}
+cmd summon minecraft:husk 1023.9 100 1030.75 {PersistenceRequired:1b,attributes:[{id:"minecraft:movement_speed",base:0.0d}]}
 bot action saintsdragons:toggle_melee pressed
 wait 0.2
 bot action moddedmc:mounted_attack pressed
-bot rig-bone automountBoneRight 1030.5 102 1028.5 28
+bot rig-bone automountBoneRight 1030.5 102 1028.5 60
 wait 1.4
-cmd execute positioned 1030.5 102 1028.5 if entity @e[type=minecraft:husk,distance=..2.5]
-wait 0.5
-expect Test passed
+cmd cindervane find 1025 100 1025
+await 15 attack=slash-grab
+cmd data get entity @e[type=minecraft:husk,limit=1] Pos
+await-cmd 15 Test passed && execute positioned 1030.5 102 1028.5 if entity @e[type=minecraft:husk,distance=..2.5]
 # The ordinary mount remains attached throughout the grab.
 bot expect riding ravager
-wait 0.5
-expect \[bot\] expect riding ok ravager
+await 15 \[bot\] expect riding ok ravager
+reject (?i)panic|panicked|\[bot\] error
+bot quit
 stop
