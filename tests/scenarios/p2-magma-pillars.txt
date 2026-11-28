@@ -30,6 +30,9 @@ expect Ravager has the following entity data: 100(?:\.0+)?f
 cmd tick unfreeze
 # Enter the first lane after it spawned, outside the later waves.
 wait 0.8
+# A pillar now has a persistent native actor carrier while its damage window is active.
+cmd data get entity @e[type=minecraft:interaction,x=1020.5,y=300,z=1043.5,distance=..8,sort=nearest,limit=1] data.moddedmc.native_actor
+expect has the following entity data: "saintsdragons"
 cmd tp @e[tag=late_pillar_probe,limit=1] 1020.5 300 1043.5
 wait 0.5
 cmd data get entity @e[tag=late_pillar_probe,limit=1] Health

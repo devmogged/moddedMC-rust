@@ -115,6 +115,7 @@ static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static TAGS: OnceLock<Tags> = OnceLock::new();
 
 struct SaintsDragons;
+mod effect_actors;
 mod raevyx_weather;
 mod rider_actions;
 
@@ -152,6 +153,7 @@ impl Mod for SaintsDragons {
         let entities = entities::require()?;
         combat_raevyx::require(content, entities)?;
         raevyx_weather::require()?;
+        effect_actors::require()?;
         entities.require_extension(EntitiesExtension::Carriers)?;
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
@@ -188,6 +190,8 @@ impl Mod for SaintsDragons {
         mobs.require_extension(MobsExtension::RigBones)?;
         mobs.require_extension(MobsExtension::RaidContext)?;
         mobs.require_extension(MobsExtension::ControlledProjectiles)?;
+        mobs.require_extension(MobsExtension::EffectProjectiles)?;
+        mobs.require_extension(MobsExtension::BeamWires)?;
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;
@@ -226,6 +230,7 @@ impl Mod for SaintsDragons {
         let missing = RegistrationError::InvalidDefinition;
         rider_actions::register(registry)?;
         raevyx_weather::register(registry)?;
+        effect_actors::register(registry)?;
         CONTENT.get().ok_or(missing)?.on_tick(registry, tick)?;
         let interaction = INTERACTION.get().ok_or(missing)?;
         interaction.on_use_block(registry, |click| {
@@ -494,7 +499,6 @@ fn can_be_affected(
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
     flight_route::tick(world, moddedmc_api::tick_count());
-    pillars::tick(world, moddedmc_api::tick_count());
     vfx::tick(world);
     combat::heat_tick(world);
     ivy::trade_resume_tick(world);

@@ -1,10 +1,10 @@
 //! Cindervane's double bite, slash grab, Magma Volley and Fire Body.
 
-mod terrain;
+pub(crate) mod terrain;
 
 use moddedmc_api::{
     content::World,
-    entities::{ENTITY_ALIVE, ENTITY_LIVING, Entity, EntityBody, EntityChange, SET_MOTION},
+    entities::{ENTITY_ALIVE, ENTITY_LIVING, Entity, EntityChange, SET_MOTION},
     tick_count,
 };
 
@@ -114,9 +114,6 @@ struct Running {
 pub struct Shot {
     position: [f64; 3],
     motion: [f64; 3],
-    age: u16,
-    rider: bool,
-    display: Option<i32>,
 }
 
 pub fn enemy(world: World<'_>, mob: Entity<'_>, target: Entity<'_>) -> bool {
@@ -656,9 +653,6 @@ fn rider_volley(world: World<'_>, mob: Entity<'_>, rider: i32) -> Vec<Shot> {
             Shot {
                 position: add(origin, d.map(|v| v * 5.0)),
                 motion: add(d.map(|v| v * 0.55), [0.0, -0.15, 0.0]),
-                age: 0,
-                rider: true,
-                display: None,
             }
         })
         .collect()
@@ -725,7 +719,7 @@ fn rider_fire_aura(world: World<'_>, mob: Entity<'_>) {
     }
 }
 
-fn fire_immune(entity: Entity<'_>) -> bool {
+pub(crate) fn fire_immune(entity: Entity<'_>) -> bool {
     crate::TAGS.get().is_some_and(|tags| {
         tags.contains(
             "entity_type",
@@ -959,9 +953,6 @@ fn volley(world: World<'_>, mob: Entity<'_>, id: i32) -> Vec<Shot> {
             Shot {
                 position: add(view.position, [cos * 2.0, 1.5, sin * 2.0]),
                 motion: [cos * 0.55, vertical, sin * 0.55],
-                age: 0,
-                rider: false,
-                display: None,
             }
         })
         .collect()
@@ -1027,91 +1018,9 @@ pub fn effects(world: World<'_>, mob: Entity<'_>, shots: &mut Vec<Shot>, fire: b
             area(world, mob, view.position, 3.5, 2.5, 3.0, 80);
         }
     }
-    shots.retain_mut(|shot| {
-        shot.age += 1;
-        shot.motion[1] -= 0.04;
-        let next = add(shot.position, shot.motion);
-        let lower = std::array::from_fn(|i| shot.position[i].min(next[i]) - 0.3);
-        let upper = std::array::from_fn(|i| shot.position[i].max(next[i]) + 0.3);
-        let targets: Vec<EntityBody> = ENTITIES.get().map_or_else(Vec::new, |entities| {
-            entities
-                .entities_in(world, lower, upper, mob.id())
-                .into_iter()
-                .filter_map(|id| {
-                    entities
-                        .with_entity(world, id, |entity| {
-                            if enemy(world, mob, entity) {
-                                entity.body()
-                            } else {
-                                None
-                            }
-                        })
-                        .flatten()
-                })
-                .collect()
-        });
-        let steps = ((length_squared(shot.motion).sqrt() * 4.0).ceil() as u32).max(1);
-        for i in 1..=steps {
-            let point = add(
-                shot.position,
-                shot.motion.map(|v| v * f64::from(i) / f64::from(steps)),
-            );
-            let Some(shape) = world.collision_shape(crate::flight::cell(point)) else {
-                return false;
-            };
-            if !shape.is_empty()
-                || shot.age >= 200
-                || targets.iter().any(|body| {
-                    (0..3).all(|axis| {
-                        (body.min[axis] - 0.3..=body.max[axis] + 0.3).contains(&point[axis])
-                    })
-                })
-            {
-                visuals.particles(world, "minecraft:lava", point, [1.0, 0.45, 1.0], 0.0, 12);
-                crate::vfx::burst(
-                    world,
-                    point,
-                    3.0,
-                    "shared/explosions/fire_ground_impact/fire_ground_impact",
-                    6,
-                    false,
-                );
-                if shot.rider {
-                    if let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) {
-                        for id in entities.entities_in(
-                            world,
-                            add(point, [-7.0; 3]),
-                            add(point, [7.0; 3]),
-                            mob.id(),
-                        ) {
-                            entities.with_entity(world, id, |target| {
-                                if enemy(world, mob, target) && !fire_immune(target) {
-                                    target.hurt_by(mob.id(), "minecraft:player_explosion", 20.0);
-                                    mobs.set_on_fire(target, 80);
-                                }
-                            });
-                        }
-                    }
-                } else {
-                    area(world, mob, point, 7.0, 3.5, 20.0, 0);
-                }
-                terrain::volley(world, point);
-                return false;
-            }
-        }
-        visuals.particles(world, "minecraft:flame", next, [0.2; 3], 0.03, 4);
-        crate::vfx::projectile(
-            world,
-            &mut shot.display,
-            crate::vfx::FIREBALL,
-            next,
-            shot.motion,
-            1.0,
-        );
-        shot.position = next;
-        shot.motion = shot.motion.map(|v| v * 0.98);
-        true
-    });
+    for shot in shots.drain(..) {
+        crate::effect_actors::fireball(world, mob, shot.position, shot.motion);
+    }
 }
 
 #[cfg(test)]

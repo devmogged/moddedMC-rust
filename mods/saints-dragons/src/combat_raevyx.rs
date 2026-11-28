@@ -1120,6 +1120,7 @@ fn tick_attack(
                 }
                 state.beam_firing += 1;
                 let impact = clipped_beam(world, mob, from, state.direction);
+                beam_wires(world, mob, from, impact, 0.75);
                 if aligned
                     && entities
                         .with_entity(world, id, |t| {
@@ -1293,6 +1294,48 @@ fn segment_hits(from: [f64; 3], to: [f64; 3], min: [f64; 3], max: [f64; 3]) -> b
     true
 }
 
+/// DragonUtilities.applyLightningBeamImpact: sample every half block, then test
+/// the entire beam against each unique inflated block box.
+fn beam_wires(world: World<'_>, mob: Entity<'_>, start: [f64; 3], end: [f64; 3], radius: f64) {
+    let Some(mobs) = MOBS.get() else { return };
+    let delta = std::array::from_fn::<_, 3, _>(|i| end[i] - start[i]);
+    let length = delta.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if length < 0.0001 {
+        mobs.power_beam_wires(world, mob, &[]);
+        return;
+    }
+    let radius = radius.max(0.5);
+    let range = radius.ceil() as i32;
+    let samples = (length / 0.5).ceil() as u32;
+    let mut visited = std::collections::HashSet::new();
+    let mut hits = Vec::new();
+    for sample in 0..=samples {
+        let center = flight::cell(std::array::from_fn(|i| {
+            start[i] + delta[i] * f64::from(sample) / f64::from(samples)
+        }));
+        for x in -range..=range {
+            for y in -range..=range {
+                for z in -range..=range {
+                    let pos = moddedmc_api::Pos {
+                        x: center.x + x,
+                        y: center.y + y,
+                        z: center.z + z,
+                    };
+                    if !visited.insert((pos.x, pos.y, pos.z)) {
+                        continue;
+                    }
+                    let min = [pos.x, pos.y, pos.z].map(|v| f64::from(v) - radius);
+                    let max = min.map(|v| v + 1.0 + 2.0 * radius);
+                    if segment_hits(start, end, min, max) {
+                        hits.push(pos);
+                    }
+                }
+            }
+        }
+    }
+    mobs.power_beam_wires(world, mob, &hits);
+}
+
 fn aim(view: EntityView) -> [f64; 3] {
     let yaw = f64::from(view.yaw).to_radians();
     let pitch = f64::from(view.pitch).to_radians();
@@ -1423,6 +1466,7 @@ fn rider_beam(world: World<'_>, mob: Entity<'_>, view: EntityView, state: &State
     );
     let to = clipped_beam(world, mob, from, dir);
     let radius = 1.2;
+    beam_wires(world, mob, from, to, radius);
     let min = std::array::from_fn(|i| from[i].min(to[i]) - radius);
     let max = std::array::from_fn(|i| from[i].max(to[i]) + radius);
     for id in entities.entities_in(world, min, max, mob.id()) {

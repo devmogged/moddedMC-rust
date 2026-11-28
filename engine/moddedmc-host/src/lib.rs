@@ -7,6 +7,7 @@
 //! chunk), and delivers due block entities to each mod in one batch per tick.
 
 mod actor_visual;
+mod beam_wires;
 mod block_displays;
 mod companion;
 mod console;
@@ -156,6 +157,7 @@ pub struct Staging<'a> {
     saved_keys: Vec<(u64, String)>,
     player_death: Option<abi::PlayerDeathCallback>,
     brewed_potion: Option<abi::BrewedPotionFn>,
+    projectile_impact: Option<abi::ProjectileImpactFn>,
     inventory_menu: inventory_menu::Registration,
     native_actor: Option<(u64, abi::NativeEntityCallback)>,
     services: Vec<services::Registration>,
@@ -448,6 +450,7 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
             }
             tick_due(event.tick);
             content::tick(server, event.tick as u64);
+            beam_wires::tick(server);
             effects::tick_display(event.tick as u64);
         })
     }
@@ -492,6 +495,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         saved_keys,
         player_death_callback,
         brewed_potion_callback,
+        projectile_impact_callback,
         inventory_menu_kind,
         native_actor_kind,
         services,
@@ -516,6 +520,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             saved_keys: Vec::new(),
             player_death: None,
             brewed_potion: None,
+            projectile_impact: None,
             inventory_menu: inventory_menu::Registration::default(),
             native_actor: None,
             services: Vec::new(),
@@ -539,6 +544,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.saved_keys,
             staging.player_death,
             staging.brewed_potion,
+            staging.projectile_impact,
             staging.inventory_menu,
             staging.native_actor,
             staging.services,
@@ -581,6 +587,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     saved_data::register(module.id, saved_keys);
     player_death::register(module.id, player_death_callback);
     interaction::register_brewed_potion(brewed_potion_callback);
+    entities::register_projectile_impact(projectile_impact_callback);
     inventory_menu::register(module.id, inventory_menu_kind);
     native_entity::register(module.id, native_actor_kind);
     services::commit(services);

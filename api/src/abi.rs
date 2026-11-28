@@ -2191,9 +2191,25 @@ pub struct MobsV1 {
         damage_type: Str,
         amount: f32,
     ) -> bool,
+    /// Register a callback that can cancel native projectile impacts.
+    pub on_projectile_impact: unsafe extern "C" fn(Reg, ProjectileImpactFn) -> i32,
+    /// Sweep a persistent nonliving effect carrier.
+    pub step_effect_projectile: unsafe extern "C" fn(
+        EntityRef,
+        Vec3,
+        f64,
+        bool,
+        *const c_void,
+        ProjectileFilter,
+        *mut Vec3,
+    ) -> i32,
+    /// Replace the transient wire power contribution of a living source.
+    pub power_beam_wires: unsafe extern "C" fn(WorldRef, EntityRef, *const Pos, usize) -> bool,
 }
 
 pub type ProjectileFilter = unsafe extern "C" fn(*const c_void, EntityRef) -> bool;
+pub type ProjectileImpactFn =
+    unsafe extern "C" fn(WorldRef, EntityRef, EntityRef, *const Pos, Vec3, bool) -> bool;
 
 pub type MerchantCloseFn =
     unsafe extern "C" fn(world: WorldRef, player: EntityRef, merchant: EntityRef);
@@ -2363,7 +2379,10 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, spawn_controlled_projectile), 312);
         assert_eq!(offset_of!(MobsV1, step_controlled_projectile), 320);
         assert_eq!(offset_of!(MobsV1, hurt_from), 328);
-        assert_eq!(size_of::<MobsV1>(), 336);
+        assert_eq!(offset_of!(MobsV1, on_projectile_impact), 336);
+        assert_eq!(offset_of!(MobsV1, step_effect_projectile), 344);
+        assert_eq!(offset_of!(MobsV1, power_beam_wires), 352);
+        assert_eq!(size_of::<MobsV1>(), 360);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

@@ -1,18 +1,19 @@
 //! IgnivorusMagmaPillarEntity and StegonautAmethystPillarEntity, 0.9.88.
-use crate::{EFFECTS, ENTITIES, MOBS, taming, vfx};
+use crate::{EFFECTS, ENTITIES, MOBS, effect_actors, taming, vfx};
 use moddedmc_api::{
     abi::heightmap,
     content::World,
     effects::SOUND_PLAYERS,
     entities::{ENTITY_ALIVE, ENTITY_LIVING, ENTITY_PLAYER, Entity, EntityChange, SET_MOTION},
-    tick_count,
+    native_entity::{Event, Phase},
 };
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::{LazyLock, Mutex},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 enum Kind {
     Magma(u32),
     Amethyst,
@@ -57,23 +58,21 @@ impl Kind {
     }
 }
 
-struct Pillar {
+#[derive(Serialize, Deserialize)]
+pub(crate) struct Pillar {
     kind: Kind,
     position: [f64; 3],
     owner: [u8; 16],
     player_owned: bool,
-    born: u64,
+    age: u64,
+    yaw: f32,
     damage: f32,
     knockback: f64,
     hits: HashSet<[u8; 16]>,
-    display: Option<i32>,
-    subsiding: bool,
 }
 
-// shortcut: the host lacks a tickable custom nonliving effect entity and its
-// load callback; these world-ticked effects survive the owner's removal but
-// do not persist across server restarts or pause on a chunk unload.
-static ACTIVE: LazyLock<Mutex<HashMap<&'static str, Vec<Pillar>>>> =
+// Display IDs are process-local; recreate them on carrier load.
+static DISPLAYS: LazyLock<Mutex<HashMap<[u8; 16], i32>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn spawn(
@@ -86,33 +85,36 @@ fn spawn(
     knockback: f64,
 ) {
     let player_owned = owner.view().is_some_and(|v| v.kind & ENTITY_PLAYER != 0);
-    let (Some(dimension), Some(owner)) =
-        (world.dimension_id(), MOBS.get().and_then(|m| m.uuid(owner)))
-    else {
+    let Some(owner) = MOBS.get().and_then(|m| m.uuid(owner)) else {
         return;
     };
     if matches!(kind, Kind::Magma(_)) {
         magma_sound(world, position, false, player_owned);
     }
-    let (model, clip, scale) = kind.rig(false);
-    let display = vfx::pillar(world, model, clip, position, yaw, scale);
-    ACTIVE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .entry(dimension)
-        .or_default()
-        .push(Pillar {
+    let (width, height) = match kind {
+        Kind::Magma(stage) => {
+            let scale = 1.0 + stage as f32 * 0.2;
+            (5.5 * scale, 5.5 * scale)
+        }
+        Kind::Amethyst => (2.0, 4.0),
+    };
+    effect_actors::spawn(
+        world,
+        position,
+        width,
+        height,
+        effect_actors::Effect::Pillar(Pillar {
             kind,
             position,
             owner,
             player_owned,
-            born: tick_count(),
+            age: 0,
+            yaw,
             damage,
             knockback,
             hits: HashSet::new(),
-            display,
-            subsiding: false,
-        });
+        }),
+    );
 }
 
 /// IgnivorusRoarAbility.spawnWave: three lanes, staggered by six blocks.
@@ -335,46 +337,67 @@ impl Pillar {
     }
 }
 
-/// The effect rises, hits once per target from warmup through lifetime inclusive,
-/// and cannot be interacted with while it subsides.
-pub fn tick(world: World<'_>, now: u64) {
-    let Some(dimension) = world.dimension_id() else {
-        return;
-    };
-    let Some(mut pillars) = ACTIVE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .remove(dimension)
-    else {
-        return;
-    };
-    pillars.retain_mut(|pillar| {
-        let age = now.saturating_sub(pillar.born);
-        let (warmup, lifetime, subside) = pillar.kind.timing();
-        if age >= lifetime + subside {
-            if let Some(id) = pillar.display {
+impl Pillar {
+    /// The loaded carrier ticks independently of its owner; age and hits are saved.
+    pub(crate) fn event(&mut self, event: &Event<'_>) -> bool {
+        let world = event.world;
+        let uuid = event.actor.uuid;
+        if matches!(event.phase, Phase::Removed | Phase::Unloaded) {
+            if let Some(id) = DISPLAYS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&uuid)
+            {
                 vfx::remove(world, id);
             }
             return false;
         }
-        if age == 0 {
+        if event.phase == Phase::Used {
+            return false;
+        }
+        let (warmup, lifetime, subside) = self.kind.timing();
+        let age = self.age;
+        if !DISPLAYS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&uuid)
+        {
+            let (model, clip, scale) = self.kind.rig(age >= lifetime);
+            if let Some(id) = vfx::pillar(world, model, clip, self.position, self.yaw, scale) {
+                DISPLAYS
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(uuid, id);
+            }
+        }
+        if event.phase != Phase::Tick {
             return true;
         }
-        if (warmup..=lifetime).contains(&age) {
-            pillar.impact(world);
+        self.age += 1;
+        let age = self.age;
+        if age >= lifetime + subside {
+            event.actor.entity.discard();
+            return false;
         }
-        if age >= lifetime && !pillar.subsiding {
-            pillar.subsiding = true;
-            if let Some(id) = pillar.display {
-                let (model, clip, _) = pillar.kind.rig(true);
+        if (warmup..=lifetime).contains(&age) {
+            self.impact(world);
+        }
+        if age == lifetime {
+            if let Some(id) = DISPLAYS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&uuid)
+                .copied()
+            {
+                let (model, clip, _) = self.kind.rig(true);
                 vfx::pillar_clip(world, id, model, clip);
             }
         }
         // Supplement the model with the release's sparse amethyst particles
         // and an approximation of the magma impact emitter.
         if let Some(effects) = EFFECTS.get() {
-            let [x, y, z] = pillar.position;
-            if age == 1 && matches!(pillar.kind, Kind::Magma(_)) {
+            let [x, y, z] = self.position;
+            if age == 1 && matches!(self.kind, Kind::Magma(_)) {
                 effects.particles(
                     world,
                     "minecraft:lava",
@@ -384,7 +407,7 @@ pub fn tick(world: World<'_>, now: u64) {
                     64,
                 );
             }
-            if matches!(pillar.kind, Kind::Amethyst) && crate::ai::random(100) < 35 {
+            if matches!(self.kind, Kind::Amethyst) && crate::ai::random(100) < 35 {
                 effects.particles(
                     world,
                     "minecraft:end_rod",
@@ -396,14 +419,6 @@ pub fn tick(world: World<'_>, now: u64) {
             }
         }
         true
-    });
-    if !pillars.is_empty() {
-        ACTIVE
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entry(dimension)
-            .or_default()
-            .append(&mut pillars);
     }
 }
 
