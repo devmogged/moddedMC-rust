@@ -482,7 +482,7 @@ fn visit_entity(base: &dyn EntityBase, ctx: *mut c_void, visit: abi::CommandEnti
             Arc::as_ptr(&world).cast(),
             (&raw const base).cast(),
             Str::from(name.as_str()),
-        )
+        );
     };
 }
 
@@ -542,17 +542,14 @@ unsafe extern "C" fn online_player(
         return false;
     };
     let server = context.source.server();
-    let player = if let Ok(uuid) = uuid::Uuid::parse_str(name) {
-        server.get_player_by_uuid(uuid)
-    } else {
-        server.get_player_by_name(name)
-    };
-    if let Some(player) = player {
+    let player = uuid::Uuid::parse_str(name).map_or_else(
+        |_| server.get_player_by_name(name),
+        |uuid| server.get_player_by_uuid(uuid),
+    );
+    player.is_some_and(|player| {
         visit_entity(player.as_ref(), ctx, visit);
         true
-    } else {
-        false
-    }
+    })
 }
 
 unsafe extern "C" fn failure(source: *const c_void, message: Str) {

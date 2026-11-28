@@ -395,7 +395,7 @@ unsafe extern "C" fn furnace_heat(
             total,
             lit: furnace.get_lit_time_remaining(),
             lit_duration: furnace.get_lit_total_time(),
-        })
+        });
     };
     true
 }

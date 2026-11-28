@@ -2133,7 +2133,7 @@ thread_local! {
 }
 
 /// Whether this thread is dispatching the serial content tick for this world.
-pub(crate) fn in_world_tick(world: WorldRef) -> bool {
+pub fn in_world_tick(world: WorldRef) -> bool {
     TICK_WORLD.with(|current| current.get() == world && !world.is_null())
 }
 
