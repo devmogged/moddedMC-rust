@@ -170,13 +170,26 @@ pub fn require_managed() -> Result<Managed, InterfaceUnavailable> {
         InterfacePrefix::require(
             abi::INVENTORY_MENU,
             1,
-            size_of::<abi::InventoryMenuV1Managed>(),
+            std::mem::offset_of!(abi::InventoryMenuV1Managed, open_limited),
         )
     }
     .map(Managed)
 }
 
 impl Managed {
+    pub fn require_limits(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(std::mem::offset_of!(
+                abi::InventoryMenuV1Managed,
+                open_limited
+            ))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:inventory_menu.open_limited",
+                version: 1,
+            })
+    }
+
     pub fn register(
         self,
         registry: &mut Registry<'_>,
@@ -232,13 +245,53 @@ impl Managed {
     where
         F: FnOnce() -> Option<Vec<Option<Vec<u8>>>>,
     {
+        self.open_inner(player, kind, inventory, title, slots, None, load)
+    }
+
+    /// Limits contain one entry per container slot. Zero keeps the native limit.
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_limited<F>(
+        self,
+        player: &Player<'_>,
+        kind: MenuKind,
+        inventory: u64,
+        title: &str,
+        slots: ManagedSlots<'_>,
+        limits: &[u8],
+        load: F,
+    ) -> bool
+    where
+        F: FnOnce() -> Option<Vec<Option<Vec<u8>>>>,
+    {
+        if limits.len() != slots.access.len() {
+            return false;
+        }
+        self.open_inner(player, kind, inventory, title, slots, Some(limits), load)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn open_inner<F>(
+        self,
+        player: &Player<'_>,
+        kind: MenuKind,
+        inventory: u64,
+        title: &str,
+        slots: ManagedSlots<'_>,
+        limits: Option<&[u8]>,
+        load: F,
+    ) -> bool
+    where
+        F: FnOnce() -> Option<Vec<Option<Vec<u8>>>>,
+    {
         let Some(api) = self.0.upto(std::mem::offset_of!(
             abi::InventoryMenuV1Managed,
             open_managed
         )) else {
             return false;
         };
-        if slots.context.len() > abi::MAX_MENU_VALIDITY_CONTEXT {
+        if slots.context.len() > abi::MAX_MENU_VALIDITY_CONTEXT
+            || limits.is_some() && self.require_limits().is_err()
+        {
             return false;
         }
         open_menu(
@@ -251,7 +304,7 @@ impl Managed {
             |request| {
                 // SAFETY: the host borrows this request and copies the view context.
                 unsafe {
-                    ((*api).open_managed)(&abi::InventoryMenuManagedOpen {
+                    let request = abi::InventoryMenuManagedOpen {
                         base: abi::InventoryMenuOpen { ..*request },
                         world: slots.world.raw(),
                         controls: slots.controls.as_ptr(),
@@ -260,7 +313,11 @@ impl Managed {
                         validity: dispatch_managed_validity,
                         accepts: dispatch_accept,
                         quick_move: dispatch_route,
-                    })
+                    };
+                    match limits {
+                        Some(limits) => ((*api).open_limited)(&request, limits.as_ptr()),
+                        None => ((*api).open_managed)(&request),
+                    }
                 }
             },
         )

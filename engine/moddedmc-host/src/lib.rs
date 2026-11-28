@@ -252,6 +252,9 @@ pub fn attach(server: &Arc<Server>) {
         true,
     );
     pm.register::<EntityDeathEvent, _>(Arc::new(mob_ai::DeathHandler), EventPriority::Normal, true);
+    pm.register::<pumpkin_core::plugin::api::events::entity::entity_regain_health::EntityRegainHealthEvent, _>(
+        Arc::new(mob_ai::HealHandler), EventPriority::Normal, true,
+    );
     pm.register::<EntityPotionEffectEvent, _>(
         Arc::new(effects::EffectVetoHandler),
         EventPriority::Normal,

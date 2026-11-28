@@ -80,6 +80,7 @@ pub static INVENTORY_MENU: abi::InventoryMenuV1Managed = abi::InventoryMenuV1Man
     register_managed: stage_managed,
     open_managed: managed::open,
     mutate: managed::mutate,
+    open_limited: managed::open_limited,
 };
 
 unsafe extern "C" fn stage_kind(

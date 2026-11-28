@@ -3290,6 +3290,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     mob_geometry: crate::mobs::mob_geometry,
     mob_spawn_clear: crate::mobs::mob_spawn_clear,
     eye_height: entity_eye_height,
+    with_entity_uuid: crate::entities::with_entity_uuid,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {

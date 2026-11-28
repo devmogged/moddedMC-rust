@@ -23,7 +23,7 @@ use pumpkin_core::{
         api::events::{
             entity::{
                 entity_damage::EntityDamageEvent, entity_damage_final::EntityDamageFinalEvent,
-                entity_death::EntityDeathEvent,
+                entity_death::EntityDeathEvent, entity_regain_health::EntityRegainHealthEvent,
             },
             player::player_interact_entity_event::PlayerInteractEntityEvent,
         },
@@ -69,6 +69,7 @@ pub static MOB_AI: abi::MobAiV1 = abi::MobAiV1 {
     attack,
     damage_source,
     on_hurt_final,
+    on_heal,
 };
 
 thread_local! {
@@ -147,6 +148,7 @@ pub struct TypeAi {
     goals: Vec<StagedGoal>,
     hurt: Option<abi::HurtCallback>,
     hurt_final: Option<abi::HurtFinalCallback>,
+    heal: Option<abi::HealCallback>,
     use_mob: Option<abi::UseMobFn>,
     death: Option<abi::MobDeathFn>,
     merchant_close: Option<abi::MerchantCloseFn>,
@@ -219,6 +221,18 @@ unsafe extern "C" fn on_hurt_final(reg: Reg, kind: Str, callback: abi::HurtFinal
         return code::DUPLICATE_ID;
     }
     ai.hurt_final = Some(callback);
+    code::OK
+}
+
+unsafe extern "C" fn on_heal(reg: Reg, kind: Str, callback: abi::HealCallback) -> i32 {
+    // SAFETY: registration and kind are borrowed for the call.
+    let Some(ai) = (unsafe { staged(reg, kind) }) else {
+        return code::INVALID_DEFINITION;
+    };
+    if ai.heal.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    ai.heal = Some(callback);
     code::OK
 }
 
@@ -366,9 +380,44 @@ pub fn register(staged: BTreeMap<String, TypeAi>) {
         entry.goals.extend(ai.goals);
         entry.hurt = entry.hurt.or(ai.hurt);
         entry.hurt_final = entry.hurt_final.or(ai.hurt_final);
+        entry.heal = entry.heal.or(ai.heal);
         entry.use_mob = entry.use_mob.or(ai.use_mob);
         entry.death = entry.death.or(ai.death);
         entry.merchant_close = entry.merchant_close.or(ai.merchant_close);
+    }
+}
+
+pub struct HealHandler;
+impl EventHandler<EntityRegainHealthEvent> for HealHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut EntityRegainHealthEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if event.cancelled() || types().values().all(|ai| ai.heal.is_none()) {
+                return;
+            }
+            let Some((world, entity)) = find(server, event.entity_id) else {
+                return;
+            };
+            let Some(callback) = mobs::registered_kind(entity.as_ref())
+                .and_then(|kind| types().get(kind).and_then(|ai| ai.heal))
+            else {
+                return;
+            };
+            let base: &dyn EntityBase = entity.as_ref();
+            // SAFETY: world and entity remain live for this synchronous callback.
+            if !unsafe {
+                callback(
+                    Arc::as_ptr(&world).cast(),
+                    (&raw const base).cast(),
+                    event.amount,
+                )
+            } {
+                event.set_cancelled(true);
+            }
+        })
     }
 }
 

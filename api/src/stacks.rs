@@ -12,24 +12,59 @@ pub struct ItemStacks(
     &'static abi::ItemStacksV1,
     Option<&'static abi::ItemStacksV1Fuel>,
     Option<&'static abi::ItemStacksV1MaxEnchantment>,
+    Option<&'static abi::ItemStacksV1Damage>,
 );
 
 pub fn require() -> Result<ItemStacks, InterfaceUnavailable> {
+    // SAFETY: this is the full append-only v1 table.
+    if let Ok(table) = unsafe { require_interface::<abi::ItemStacksV1Damage>(abi::ITEM_STACKS, 1) }
+    {
+        return Ok(ItemStacks(
+            &table.base.base.base,
+            Some(&table.base.base),
+            Some(&table.base),
+            Some(table),
+        ));
+    }
     // SAFETY: this is the extended table type for moddedmc:item_stacks v1.
     if let Ok(table) =
         unsafe { require_interface::<abi::ItemStacksV1MaxEnchantment>(abi::ITEM_STACKS, 1) }
     {
-        return Ok(ItemStacks(&table.base.base, Some(&table.base), Some(table)));
+        return Ok(ItemStacks(
+            &table.base.base,
+            Some(&table.base),
+            Some(table),
+            None,
+        ));
     }
     // SAFETY: this is the extended table type for moddedmc:item_stacks v1.
     if let Ok(table) = unsafe { require_interface::<abi::ItemStacksV1Fuel>(abi::ITEM_STACKS, 1) } {
-        return Ok(ItemStacks(&table.base, Some(table), None));
+        return Ok(ItemStacks(&table.base, Some(table), None, None));
     }
     // SAFETY: this is the published table type for moddedmc:item_stacks v1.
-    unsafe { require_interface(abi::ITEM_STACKS, 1) }.map(|table| ItemStacks(table, None, None))
+    unsafe { require_interface(abi::ITEM_STACKS, 1) }
+        .map(|table| ItemStacks(table, None, None, None))
 }
 
 impl ItemStacks {
+    /// Apply vanilla durability wear, including Unbreaking. Empty bytes indicate a broken stack.
+    pub fn damage(self, stack: &[u8], amount: i32) -> Option<Vec<u8>> {
+        let table = self.3?;
+        let mut data = Vec::new();
+        let sink = abi::Sink {
+            ctx: (&raw mut data).cast(),
+            put: crate::content::bytes,
+        };
+        // SAFETY: stack and sink are borrowed for the call.
+        unsafe { (table.damage)(abi::Str::new(stack), amount, sink) }.then_some(data)
+    }
+
+    pub fn require_damage(self) -> Result<(), InterfaceUnavailable> {
+        self.3.map(|_| ()).ok_or(InterfaceUnavailable {
+            name: "moddedmc:item_stacks.damage",
+            version: 1,
+        })
+    }
     /// The stack an item entity carries; `None` for other entities.
     pub fn entity_stack(self, entity: Entity<'_>) -> Option<Vec<u8>> {
         let mut data = Vec::new();

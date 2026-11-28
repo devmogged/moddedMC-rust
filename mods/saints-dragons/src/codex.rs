@@ -282,9 +282,10 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
         if record.bound {
             continue;
         }
-        if let Some(id) = mobs.by_uuid(world, &record.dragon)
-            && let Some(Some(current)) =
-                entities.with_entity(world, id, |dragon| snapshot(world, dragon, None))
+        if let Some(Some(current)) =
+            entities.with_entity_uuid(world, record.dragon, |level, dragon| {
+                snapshot(level, dragon, None)
+            })
             && current.owner == owner
         {
             store_record(world, current.clone(), false);
@@ -626,10 +627,9 @@ fn detail(world: World<'_>, viewer: Entity<'_>, owner: [u8; 16], dragon: [u8; 16
         return;
     };
     if !record.bound
-        && let (Some(mobs), Some(entities)) = (MOBS.get(), ENTITIES.get())
-        && let Some(id) = mobs.by_uuid(world, &dragon)
+        && let Some(entities) = ENTITIES.get()
         && let Some(Some(current)) =
-            entities.with_entity(world, id, |mob| snapshot(world, mob, None))
+            entities.with_entity_uuid(world, dragon, |level, mob| snapshot(level, mob, None))
         && current.owner == owner
     {
         store_record(world, current.clone(), false);

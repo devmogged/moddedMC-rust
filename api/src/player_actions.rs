@@ -11,6 +11,7 @@ use crate::{
 pub use abi::{ACTION_HELD, ACTION_PRESSED, ACTION_RELEASED};
 pub const MOUNTED_ATTACK: &str = "moddedmc:mounted_attack";
 pub const MOUNTED_USE: &str = "moddedmc:mounted_use";
+pub const MOUNTED_INVENTORY: &str = "moddedmc:mounted_inventory";
 pub const DOUBLE_TAP_FORWARD: &str = "moddedmc:double_tap/forward";
 pub const DOUBLE_TAP_BACK: &str = "moddedmc:double_tap/back";
 pub const DOUBLE_TAP_LEFT: &str = "moddedmc:double_tap/left";

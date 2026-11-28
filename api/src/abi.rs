@@ -455,6 +455,14 @@ mod layout {
             offset_of!(ItemStacksV1Fuel, fuel),
             size_of::<ItemStacksV1>()
         );
+        assert_eq!(
+            offset_of!(ItemStacksV1Damage, damage),
+            size_of::<ItemStacksV1MaxEnchantment>()
+        );
+        assert_eq!(
+            offset_of!(MobStorageV1Transfer, transfer),
+            size_of::<MobStorageV1>()
+        );
         assert_eq!(offset_of!(BlockWorldV1, size), 0);
         assert_eq!(offset_of!(BlockWorldV1, read), 8);
         assert_eq!(offset_of!(BlockWorldV1, write), 16);
@@ -500,7 +508,8 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, mob_geometry), 464);
         assert_eq!(offset_of!(EntitiesV1, mob_spawn_clear), 472);
         assert_eq!(offset_of!(EntitiesV1, eye_height), 480);
-        assert_eq!(size_of::<EntitiesV1>(), 488);
+        assert_eq!(offset_of!(EntitiesV1, with_entity_uuid), 488);
+        assert_eq!(size_of::<EntitiesV1>(), 496);
         assert_eq!(offset_of!(PlayerFallState, movement), 8);
         assert_eq!(size_of::<PlayerFallState>(), 32);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
@@ -1223,6 +1232,13 @@ pub struct EntitiesV1 {
     pub mob_spawn_clear: unsafe extern "C" fn(world: WorldRef, kind: Str, position: Vec3) -> bool,
     /// Current native eye height, or NaN for an invalid entity.
     pub eye_height: unsafe extern "C" fn(entity: EntityRef) -> f64,
+    /// Visit a loaded entity and its actual dimension without loading chunks.
+    pub with_entity_uuid: unsafe extern "C" fn(
+        WorldRef,
+        *const [u8; 16],
+        *mut c_void,
+        unsafe extern "C" fn(*mut c_void, WorldRef, EntityRef),
+    ) -> bool,
 }
 
 /// Saved stack NBT, and the damage-type registry key or "despawn".
@@ -1680,6 +1696,13 @@ pub struct ItemStacksV1MaxEnchantment {
     pub base: ItemStacksV1Fuel,
     /// Whether an applied enchantment reaches its defined maximum level.
     pub has_maxed_enchantment: unsafe extern "C" fn(stack: Str) -> bool,
+}
+
+#[repr(C)]
+pub struct ItemStacksV1Damage {
+    pub base: ItemStacksV1MaxEnchantment,
+    /// Apply native durability damage; a successful empty output means the stack broke.
+    pub damage: unsafe extern "C" fn(Str, i32, Sink) -> bool,
 }
 
 #[repr(C)]
@@ -2294,6 +2317,14 @@ pub struct MobStorageV1 {
     pub restore: unsafe extern "C" fn(world: WorldRef, kind: Str, nbt: Str, at: Vec3) -> i32,
 }
 
+#[repr(C)]
+pub struct MobStorageV1Transfer {
+    pub base: MobStorageV1,
+    /// Transfer a live registered mob to a loaded destination, preserving its UUID and NBT.
+    /// Returns the new entity ID; failure leaves the original in place.
+    pub transfer: unsafe extern "C" fn(EntityRef, WorldRef, Vec3) -> i32,
+}
+
 pub const FISH_BUCKETS: &str = "moddedmc:fish_buckets";
 
 #[repr(C)]
@@ -2469,7 +2500,11 @@ pub struct MobAiV1 {
     /// Hear damage after armor and magic mitigation, before absorption and health loss.
     pub on_hurt_final:
         unsafe extern "C" fn(reg: Reg, kind: Str, callback: HurtFinalCallback) -> i32,
+    /// Observe healing before health changes; false consumes/cancels ordinary healing.
+    pub on_heal: unsafe extern "C" fn(Reg, Str, HealCallback) -> i32,
 }
+
+pub type HealCallback = unsafe extern "C" fn(WorldRef, EntityRef, f32) -> bool;
 
 /// Returns the adjusted damage. Lethal accounts for current health and absorption.
 pub type HurtFinalCallback = unsafe extern "C" fn(
@@ -2509,7 +2544,8 @@ mod mob_ai_layout {
         assert_eq!(offset_of!(MobAiV1, attack), 88);
         assert_eq!(offset_of!(MobAiV1, damage_source), 96);
         assert_eq!(offset_of!(MobAiV1, on_hurt_final), 104);
-        assert_eq!(size_of::<MobAiV1>(), 112);
+        assert_eq!(offset_of!(MobAiV1, on_heal), 112);
+        assert_eq!(size_of::<MobAiV1>(), 120);
         assert_eq!(offset_of!(GoalDefinition, key), 16);
         assert_eq!(offset_of!(GoalDefinition, controls), 28);
         assert_eq!(offset_of!(GoalDefinition, callback), 32);
@@ -2790,6 +2826,8 @@ pub struct InventoryMenuV1Managed {
     pub register_managed: unsafe extern "C" fn(Reg, InventoryMenuManagedCallback, *mut u64) -> i32,
     pub open_managed: unsafe extern "C" fn(*const InventoryMenuManagedOpen) -> bool,
     pub mutate: unsafe extern "C" fn(*const InventoryMenuMutation) -> bool,
+    /// As open_managed, with one maximum stack count per container slot (0 = vanilla).
+    pub open_limited: unsafe extern "C" fn(*const InventoryMenuManagedOpen, *const u8) -> bool,
 }
 
 #[cfg(all(test, target_pointer_width = "64"))]
@@ -2802,7 +2840,8 @@ fn inventory_menu_v1_managed_layout() {
     assert_eq!(offset_of!(InventoryMenuV1Managed, register_managed), 56);
     assert_eq!(offset_of!(InventoryMenuV1Managed, open_managed), 64);
     assert_eq!(offset_of!(InventoryMenuV1Managed, mutate), 72);
-    assert_eq!(size_of::<InventoryMenuV1Managed>(), 80);
+    assert_eq!(offset_of!(InventoryMenuV1Managed, open_limited), 80);
+    assert_eq!(size_of::<InventoryMenuV1Managed>(), 88);
     assert_eq!(
         offset_of!(InventoryMenuManagedChange, context),
         size_of::<InventoryMenuChange>()

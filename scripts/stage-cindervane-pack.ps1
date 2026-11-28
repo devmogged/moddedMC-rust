@@ -82,6 +82,7 @@ if ($AllDragons) {
         textures = $vfxTextures
     } | ConvertTo-Json -Compress
     $copies["$assets/textures/gui/draconic_crucible_gui.png"] = "$assets/textures/gui/draconic_crucible_gui.png"
+    $copies["$assets/textures/gui/dragon_inventory_gui.png"] = "$assets/textures/gui/dragon_inventory_gui.png"
     $copies["$assets/textures/gui/dialogue/dialogue_box.png"] = "$assets/textures/gui/dialogue/dialogue_box.png"
     $copies["$assets/textures/gui/ivy/ivy_inventory.png"] = "$assets/textures/gui/ivy/ivy_inventory.png"
     $copies["$assets/textures/gui/draconiccodex/physiology_tab.png"] = "$assets/textures/gui/draconiccodex/physiology_tab.png"
@@ -119,6 +120,9 @@ foreach ($name in $species) {
         clip = "animation.$name.idle"
         yaw_offset = 180
         author = 'Leon Saint'
+    }
+    if ($name -in @('cindervane','atroxiia','stegonaut')) {
+        $rig.mounted_inventory = $true
     }
     if ($name -eq 'cindervane') {
         # The stock body display is 1.85x and sits 1.15 blocks above the feet.

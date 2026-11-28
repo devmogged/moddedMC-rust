@@ -2,6 +2,7 @@ package dev.moddedmc.companion;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.moddedmc.companion.mixin.OptionsAccessor;
+import dev.moddedmc.companion.rig.DisplayRigs;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +22,8 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
@@ -38,6 +41,7 @@ public final class PlayerActions {
     private static final Map<String, Binding> active = new LinkedHashMap<>();
     private static final Map<String, Definition> mounted = new HashMap<>();
     private static final String ATTACK = "moddedmc:mounted_attack", USE = "moddedmc:mounted_use";
+    private static final String INVENTORY = "moddedmc:mounted_inventory";
     private static final String[] DIRECTIONS = {"forward", "back", "left", "right"};
     private static final String BUILTIN_KEY = "moddedmc:mounted";
     private static final MountedInput mountedInput = new MountedInput();
@@ -142,7 +146,7 @@ public final class PlayerActions {
         var mappings = new ArrayList<>(Arrays.asList(client.options.keyMappings));
         for (var action : definitions) {
             if (action.key.equals(BUILTIN_KEY)) {
-                if (action.id.equals(ATTACK) || action.id.equals(USE)
+                if (action.id.equals(ATTACK) || action.id.equals(USE) || action.id.equals(INVENTORY)
                         || Arrays.stream(DIRECTIONS).anyMatch(dir -> action.id.equals("moddedmc:double_tap/" + dir))) {
                     mounted.put(action.id, action);
                 }
@@ -218,6 +222,22 @@ public final class PlayerActions {
             client.getConnection().send(new ServerboundCustomPayloadPacket(new Packet(query.array())));
         }
         if (!confirmedVehicle || vehicle == 0) return;
+        var inventory = mounted.get(INVENTORY);
+        // Use the player's vanilla inventory mapping (including rebindings).
+        // If vanilla opened it before this tick, replace it as the release does.
+        var screen = client.gui.screen();
+        boolean ownInventory = screen instanceof InventoryScreen || screen instanceof CreativeModeInventoryScreen;
+        if (inventory != null && (ownInventory || screen == null && client.options.keyInventory.isDown())
+                && client.player.getVehicle().getFirstPassenger() == client.player
+                && DisplayRigs.hasMountedInventory(client.player.getVehicle())) {
+            boolean clicked = client.options.keyInventory.consumeClick();
+            if (ownInventory || clicked) {
+                while (client.options.keyInventory.consumeClick()) {}
+                if (ownInventory) client.gui.setScreen(null);
+                send(client, inventory, PRESSED);
+                return;
+            }
+        }
         boolean eligible = mountedEligible(client);
         var attack = mounted.get(ATTACK);
         var use = mounted.get(USE);

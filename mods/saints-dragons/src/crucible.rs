@@ -52,7 +52,9 @@ pub(crate) fn managed_menu() -> Option<(Managed, MenuKind)> {
 }
 
 pub fn require() -> Result<(), InterfaceUnavailable> {
-    let _ = MENUS.set(inventory_menu::require_managed()?);
+    let menus = inventory_menu::require_managed()?;
+    menus.require_limits()?;
+    let _ = MENUS.set(menus);
     let automation = item_input::require()?;
     automation.require_output()?;
     let _ = AUTOMATION.set(automation);

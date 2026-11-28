@@ -9,12 +9,19 @@ use moddedmc_api::{
     inventory_menu::{Access, ManagedChange, ManagedSlots, Validity},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex, PoisonError},
+};
 
 const DATA: &str = "saintsdragons:cargo";
 const MAX_CARGO: usize = 15;
 const SLOTS: usize = 18;
+const STATE_SLOT: usize = SLOTS - 1;
+const LIMITS: [u8; SLOTS] = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 type Stack = HashMap<String, Value>;
+type Reopen = ([u8; 16], &'static str, [u8; 16]);
+static REOPEN: LazyLock<Mutex<Vec<Reopen>>> = LazyLock::new(Mutex::default);
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Cargo {
@@ -54,7 +61,7 @@ impl Cargo {
             | u64::from(mob.id() as u32)
     }
 
-    fn stacks(&self, state: Tamed) -> Option<Vec<Option<Vec<u8>>>> {
+    fn stacks(&self, state: Tamed, capacity: usize) -> Option<Vec<Option<Vec<u8>>>> {
         let mut stacks = vec![Stack::new(); SLOTS];
         if state.saddle {
             stacks[0] = attachment(SADDLE);
@@ -63,6 +70,7 @@ impl Cargo {
             stacks[1] = attachment(CHEST);
             stacks[2..2 + MAX_CARGO].clone_from_slice(&self.slots);
         }
+        stacks[STATE_SLOT] = screen_marker(state, capacity);
         stacks
             .iter()
             .map(|stack| {
@@ -74,6 +82,35 @@ impl Cargo {
             })
             .collect()
     }
+}
+
+fn screen_marker(state: Tamed, capacity: usize) -> Stack {
+    let mut stack = attachment("minecraft:paper");
+    stack.insert(
+        "components".into(),
+        Value::Compound(HashMap::from([(
+            "minecraft:custom_data".into(),
+            Value::Compound(HashMap::from([(
+                "moddedmc:screen_state".into(),
+                Value::Compound(HashMap::from([
+                    ("hide_cargo".into(), Value::Int(i32::from(!state.chest))),
+                    (
+                        "hide_last_row".into(),
+                        Value::Int(i32::from(!state.chest || capacity < 15)),
+                    ),
+                    (
+                        "cargo_two_rows".into(),
+                        Value::Int(i32::from(state.chest && capacity == 10)),
+                    ),
+                    (
+                        "cargo_three_rows".into(),
+                        Value::Int(i32::from(state.chest && capacity == 15)),
+                    ),
+                ])),
+            )])),
+        )])),
+    );
+    stack
 }
 
 fn attachment(id: &str) -> Stack {
@@ -165,28 +202,61 @@ pub(crate) fn open(world: World<'_>, rider: Entity<'_>, mob: Entity<'_>) {
     if !accessible(rider, mob, state) {
         return;
     }
-    // shortcut: the shared managed menu cannot alter access during a click;
-    // attachment transitions invalidate this view and the rider reopens it.
+    // Attachment transitions invalidate the old view; tick_reopen opens the updated one.
     let inventory = cargo.inventory(mob, state);
-    menus.open(
+    menus.open_limited(
         &player,
         kind,
         inventory,
-        "Dragon Inventory",
+        "moddedmc:screen/saintsdragons:dragon_inventory",
         ManagedSlots {
             world,
             access: &access(&context),
             controls: &[],
             context: &context,
         },
+        &LIMITS,
         || {
             let current = Cargo::load(mob)?;
             let state = tamed(mob)?;
             (current.inventory(mob, state) == inventory)
-                .then(|| current.stacks(state))
+                .then(|| current.stacks(state, usize::from(context[16])))
                 .flatten()
         },
     );
+}
+
+/// Reopen only after the transaction has released the host's menu/cursor locks.
+pub(crate) fn tick_reopen(world: World<'_>) {
+    let (Some(mobs), Some(entities), Some(dimension)) =
+        (MOBS.get(), ENTITIES.get(), world.dimension_id())
+    else {
+        return;
+    };
+    let ready = {
+        let mut pending = REOPEN.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut ready = Vec::new();
+        pending.retain(|entry| {
+            if entry.1 == dimension {
+                ready.push(*entry);
+                false
+            } else {
+                true
+            }
+        });
+        ready
+    };
+    for (owner, _, dragon) in ready {
+        let (Some(rider), Some(mob)) = (mobs.by_uuid(world, &owner), mobs.by_uuid(world, &dragon))
+        else {
+            continue;
+        };
+        entities.with_entity(world, rider, |rider| {
+            if rider.vehicle() == Some(mob) {
+                entities.with_entity(world, mob, |mob| open(world, rider, mob));
+            }
+        });
+    }
 }
 
 fn matches(mob: Entity<'_>, state: Tamed, cargo: &Cargo, inventory: u64, expected: &[u8]) -> bool {
@@ -291,8 +361,8 @@ pub(crate) fn changed(mut event: ManagedChange<'_>) {
                 || !matches(mob, state, &before, event.change.inventory, event.context)
                 || chest && !saddle
                 || state.chest && !saddle
-                || proposed[2 + cap..].iter().any(|s| !s.is_empty())
-                || !state.chest && proposed[2..].iter().any(|s| !s.is_empty())
+                || proposed[2 + cap..STATE_SLOT].iter().any(|s| !s.is_empty())
+                || !state.chest && proposed[2..STATE_SLOT].iter().any(|s| !s.is_empty())
             {
                 return None;
             }
@@ -309,6 +379,7 @@ pub(crate) fn changed(mut event: ManagedChange<'_>) {
             } else {
                 Vec::new()
             };
+            let transitioned = next.saddle != state.saddle || next.chest != state.chest;
             event
                 .commit_external(|| {
                     if !after.save(mob) {
@@ -320,10 +391,19 @@ pub(crate) fn changed(mut event: ManagedChange<'_>) {
                     }
                     true
                 })
-                .then_some(drops)
+                .then_some((drops, transitioned))
         });
-        if let Some(drops) = drops {
+        if let Some((drops, transitioned)) = drops {
             drop_stacks(world, mob, drops);
+            if transitioned
+                && let (Some(dimension), Some(uuid)) = (world.dimension_id(), mobs.uuid(mob))
+            {
+                REOPEN.lock().unwrap_or_else(PoisonError::into_inner).push((
+                    event.change.player_uuid,
+                    dimension,
+                    uuid,
+                ));
+            }
         }
     });
 }

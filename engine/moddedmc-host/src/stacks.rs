@@ -190,19 +190,42 @@ unsafe extern "C" fn has_maxed_enchantment(stack: Str) -> bool {
     })
 }
 
-pub static ITEM_STACKS: abi::ItemStacksV1MaxEnchantment = abi::ItemStacksV1MaxEnchantment {
-    base: abi::ItemStacksV1Fuel {
-        base: abi::ItemStacksV1 {
-            size: size_of::<abi::ItemStacksV1MaxEnchantment>(),
-            entity_stack,
-            set_entity_stack,
-            spawn,
-            info,
-            component,
+unsafe extern "C" fn damage(stack: Str, amount: i32, out: Sink) -> bool {
+    if !(0..=1024).contains(&amount) {
+        return false;
+    }
+    let Some(mut stack) = read_stack(stack) else {
+        return false;
+    };
+    stack.damage_item(amount);
+    if stack.is_empty() {
+        return true;
+    }
+    let Some(nbt) = stack.to_nbt() else {
+        return false;
+    };
+    let bytes = Nbt::from(nbt).write();
+    // SAFETY: output bytes are borrowed for this synchronous call.
+    unsafe { (out.put)(out.ctx, 0, Str::new(&bytes)) };
+    true
+}
+
+pub static ITEM_STACKS: abi::ItemStacksV1Damage = abi::ItemStacksV1Damage {
+    base: abi::ItemStacksV1MaxEnchantment {
+        base: abi::ItemStacksV1Fuel {
+            base: abi::ItemStacksV1 {
+                size: size_of::<abi::ItemStacksV1Damage>(),
+                entity_stack,
+                set_entity_stack,
+                spawn,
+                info,
+                component,
+            },
+            fuel,
         },
-        fuel,
+        has_maxed_enchantment,
     },
-    has_maxed_enchantment,
+    damage,
 };
 
 /// Validated display fields, or `None` when any is out of range.

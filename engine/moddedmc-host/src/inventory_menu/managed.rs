@@ -69,6 +69,20 @@ fn move_route(context: Arc<[u8]>, route: abi::InventoryMenuRoute) -> Arc<Route> 
 }
 
 pub(super) unsafe extern "C" fn open(raw: *const abi::InventoryMenuManagedOpen) -> bool {
+    open_impl(raw, ptr::null())
+}
+
+pub(super) unsafe extern "C" fn open_limited(
+    raw: *const abi::InventoryMenuManagedOpen,
+    limits: *const u8,
+) -> bool {
+    if limits.is_null() {
+        return false;
+    }
+    open_impl(raw, limits)
+}
+
+fn open_impl(raw: *const abi::InventoryMenuManagedOpen, limits: *const u8) -> bool {
     if IN_CALLBACK.get() {
         return false;
     }
@@ -150,6 +164,12 @@ pub(super) unsafe extern "C" fn open(raw: *const abi::InventoryMenuManagedOpen) 
     }
     let rule = item_rule(Arc::clone(&context), raw.accepts);
     let route = move_route(Arc::clone(&context), raw.quick_move);
+    let limits = if limits.is_null() {
+        vec![0; request.count]
+    } else {
+        // SAFETY: the open_limited contract supplies one entry per validated slot.
+        unsafe { std::slice::from_raw_parts(limits, request.count) }.to_vec()
+    };
     if !Arc::ptr_eq(&world, &player.world()) {
         return false;
     }
@@ -162,6 +182,7 @@ pub(super) unsafe extern "C" fn open(raw: *const abi::InventoryMenuManagedOpen) 
         actions,
         &rule,
         route,
+        &limits,
         Arc::new(move |player, stacks| {
             persist_managed(kind, callback, id, &context, player, stacks)
         }),

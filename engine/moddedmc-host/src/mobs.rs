@@ -370,11 +370,76 @@ unsafe extern "C" fn suppress_loot(raw: EntityRef) -> bool {
     true
 }
 
-pub static MOB_STORAGE: abi::MobStorageV1 = abi::MobStorageV1 {
-    size: size_of::<abi::MobStorageV1>(),
-    save: save_mob,
-    restore: restore_mob,
+pub static MOB_STORAGE: abi::MobStorageV1Transfer = abi::MobStorageV1Transfer {
+    base: abi::MobStorageV1 {
+        size: size_of::<abi::MobStorageV1Transfer>(),
+        save: save_mob,
+        restore: restore_mob,
+    },
+    transfer: transfer_mob,
 };
+
+// Serialize transfers so two simultaneous recalls cannot move the same UUID twice.
+static TRANSFER: Mutex<()> = Mutex::new(());
+
+unsafe extern "C" fn transfer_mob(raw: EntityRef, destination: WorldRef, at: Vec3) -> i32 {
+    // SAFETY: entity and destination are live for this call.
+    let (Some(base), Some(destination)) = (
+        unsafe { entity(raw) },
+        unsafe { world(destination) }.and_then(shared),
+    ) else {
+        return -1;
+    };
+    let Some(kind) = registered_kind(base) else {
+        return -1;
+    };
+    let Some(carrier) = types().get(kind).map(|ty| ty.carrier) else {
+        return -1;
+    };
+    let _lock = TRANSFER.lock().unwrap_or_else(PoisonError::into_inner);
+    let original = base.get_entity();
+    let source = original.world.load_full();
+    let [x, y, z] = at.0;
+    let cell = BlockPos::new(x.floor() as i32, y.floor() as i32, z.floor() as i32);
+    if Arc::ptr_eq(&source, &destination)
+        || !at.0.into_iter().all(f64::is_finite)
+        || !original.is_alive()
+        || original.removed.load(Ordering::Acquire)
+        || !destination.is_loaded(&cell)
+        || destination
+            .get_entity_by_uuid(original.entity_uuid)
+            .is_some()
+        || source.get_entity_by_uuid(original.entity_uuid).is_none()
+    {
+        return -1;
+    }
+    let mut saved = NbtCompound::new();
+    base.write_nbt(&mut saved);
+    saved.child_tags.remove("Passengers");
+    saved.put(
+        "Pos",
+        NbtTag::List(at.0.into_iter().map(NbtTag::Double).collect()),
+    );
+    saved.put("Motion", NbtTag::List(vec![NbtTag::Double(0.0); 3]));
+    saved.put_bool("OnGround", false);
+    saved.put_double("fall_distance", 0.0);
+    let moved = load_entity(carrier, Vector3::new(x, y, z), &saved, &destination);
+    let moved_base = moved.get_entity();
+    if moved_base.entity_uuid != original.entity_uuid
+        || registered_kind(moved.as_ref()) != Some(kind)
+        || !moved_base.is_alive()
+        || !destination.no_collision(moved.as_ref(), moved_base.bounding_box.load())
+    {
+        return -1;
+    }
+    let id = moved_base.entity_id;
+    // Commit the destination first: a spawn veto must leave the source intact.
+    if !destination.spawn_entity(moved) {
+        return -1;
+    }
+    source.remove_entity(base);
+    id
+}
 
 unsafe extern "C" fn save_mob(raw: EntityRef, out: Sink) -> bool {
     // SAFETY: the entity is borrowed for this call.

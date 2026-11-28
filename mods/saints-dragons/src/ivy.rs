@@ -58,6 +58,7 @@ static INVENTORY_KEY: OnceLock<Key> = OnceLock::new();
 static INVENTORY_MENUS: OnceLock<Validated> = OnceLock::new();
 static INVENTORY_KIND: OnceLock<MenuKind> = OnceLock::new();
 static INVENTORY_WRITE: Mutex<()> = Mutex::new(());
+static TRANSFER: OnceLock<moddedmc_api::mobs::MobTransfer> = OnceLock::new();
 
 // IvyInventoryMenu: four armor slots, one weapon, and 27 storage slots.
 // A vanilla four-row screen has four padding slots.
@@ -331,6 +332,7 @@ fn change_inventory(mut change: Change<'_>) {
 }
 
 pub fn require() -> Result<(), InterfaceUnavailable> {
+    let _ = TRANSFER.set(moddedmc_api::mobs::require_transfer()?);
     let _ = SAVES.set(saved_data::require()?);
     let _ = INVENTORY_MENUS.set(inventory_menu::require_validity()?);
     Ok(())
@@ -1158,6 +1160,18 @@ fn revive(ivy: Entity<'_>, state: &mut DownedState) {
 }
 
 /// IvyTheDragonMerchant.hurtDowned.
+pub fn heal(_world: World<'_>, ivy: Entity<'_>, amount: f32) -> bool {
+    let mut state = downed_state(ivy);
+    if state.downed && amount > 0.0 {
+        revive(ivy, &mut state);
+        if !state.downed {
+            save_downed(ivy, &state);
+            return false;
+        }
+    }
+    true
+}
+
 pub fn hurt(world: World<'_>, ivy: Entity<'_>, damage_type: &str, amount: f32) -> bool {
     let mut state = downed_state(ivy);
     if !state.downed
@@ -1335,12 +1349,14 @@ fn passive_recovery(world: World<'_>, ivy: Entity<'_>, blocked: bool) {
                 state.recovery_start = None;
             }
         } else if age == 14
-            && consume_inventory(world, ivy, |slots| consume_matching(slots, cooked_food)).is_some()
+            && (!taming::is_tamed(ivy)
+                || consume_inventory(world, ivy, |slots| consume_matching(slots, cooked_food))
+                    .is_some())
         {
             mobs.heal(ivy, 8.0);
         }
     } else if !busy
-        && has_recovery_food(world, ivy)
+        && (!taming::is_tamed(ivy) || has_recovery_food(world, ivy))
         && let Some(state) = FIGHTS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -1379,6 +1395,9 @@ pub fn hurt_final(
     lethal: bool,
     absorption: f32,
 ) -> f32 {
+    if !downed_state(ivy).downed {
+        wear_armor(world, ivy, damage_type, amount);
+    }
     if !lethal
         || matches!(
             damage_type,
@@ -1950,6 +1969,74 @@ fn equipped_weapon(world: World<'_>, ivy: Entity<'_>) -> Option<f32> {
     attribute(stack, "attack_damage", "mainhand", 1.0).map(|damage| damage.max(0.0) as f32)
 }
 
+/// Successful sword attacks wear the actual persisted equipment, preserving components.
+fn wear_weapon(world: World<'_>, ivy: Entity<'_>) {
+    consume_inventory(world, ivy, |slots| {
+        let Some(slot) = slots.get_mut(4) else {
+            return false;
+        };
+        let Some(bytes) = slot.as_deref() else {
+            return false;
+        };
+        let Some(stacks) = STACKS.get() else {
+            return false;
+        };
+        let amount = if fastnbt::from_bytes::<Compound>(bytes)
+            .ok()
+            .and_then(|stack| stack.get("id").cloned())
+            .is_some_and(|id| matches!(id, Value::String(id) if id.ends_with("_axe")))
+        {
+            2
+        } else {
+            1
+        };
+        let Some(next) = stacks.damage(bytes, amount) else {
+            return false;
+        };
+        if next == bytes {
+            return false;
+        }
+        *slot = (!next.is_empty()).then_some(next);
+        true
+    });
+}
+
+fn wear_armor(world: World<'_>, ivy: Entity<'_>, damage_type: &str, amount: f32) {
+    let Some(tags) = crate::TAGS.get() else {
+        return;
+    };
+    if amount <= 0.0 || tags.contains("damage_type", "minecraft:bypasses_armor", damage_type) {
+        return;
+    }
+    let Some(stacks) = STACKS.get() else {
+        return;
+    };
+    let fire = tags.contains("damage_type", "minecraft:is_fire", damage_type);
+    consume_inventory(world, ivy, |slots| {
+        let mut changed = false;
+        for slot in slots.iter_mut().take(4) {
+            let Some(bytes) = slot.as_deref() else {
+                continue;
+            };
+            if fire
+                && stacks
+                    .component(bytes, "minecraft:damage_resistant")
+                    .is_some()
+            {
+                continue;
+            }
+            let Some(next) = stacks.damage(bytes, (amount / 4.0).max(1.0) as i32) else {
+                continue;
+            };
+            if next != bytes {
+                *slot = (!next.is_empty()).then_some(next);
+                changed = true;
+            }
+        }
+        changed
+    });
+}
+
 fn update_armor(world: World<'_>, ivy: Entity<'_>) {
     let (Some(health), Some(uuid)) = (
         crate::MOB_HEALTH.get(),
@@ -2014,7 +2101,9 @@ fn impact(
         } else {
             hit.damage
         };
-        ai.attack(world, ivy, id, damage);
+        if ai.attack(world, ivy, id, damage) && hit.sword {
+            wear_weapon(world, ivy);
+        }
         let delta = flight::offset(view.position, from.position);
         if delta[0].hypot(delta[2]) > 0.01 {
             target.change(&EntityChange {
@@ -2284,8 +2373,7 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
         .get("BoundIvyUUID")
         .and_then(parse_uuid)
         .or_else(|| memory(click.world, viewer).recruited);
-    let Some((id, uuid)) = ivy.and_then(|uuid| Some((mobs.by_uuid(click.world, &uuid)?, uuid)))
-    else {
+    let Some(uuid) = ivy else {
         speak(
             viewer,
             "message.saintsdragons.ivy_plushie.not_loaded",
@@ -2293,7 +2381,7 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
         );
         return UseResult::Fail;
     };
-    let result = entities.with_entity(click.world, id, |ivy| {
+    let result = entities.with_entity_uuid(click.world, uuid, |source, ivy| {
         if mobs.kind(ivy) != Some(KIND)
             || ivy.flags() & ENTITY_ALIVE == 0
             || !taming::is_owner(ivy, viewer)
@@ -2324,18 +2412,26 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
         if !fastnbt::to_bytes(&stack).is_ok_and(|nbt| click.stack.write(&nbt)) {
             return false;
         }
-        ivy.stop_riding();
-        ivy.set_position(at);
-        ivy.reset_fall_distance();
-        ivy.change(&EntityChange {
-            mask: SET_MOTION,
-            motion: [0.0; 3],
-            ..EntityChange::default()
-        });
+        if source.id() == click.world.id() {
+            ivy.stop_riding();
+            ivy.set_position(at);
+            ivy.reset_fall_distance();
+            ivy.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: [0.0; 3],
+                ..EntityChange::default()
+            });
+        } else if TRANSFER
+            .get()
+            .and_then(|transfer| transfer.transfer(ivy, click.world, at))
+            .is_none()
+        {
+            return false;
+        }
         if let Some(effects) = EFFECTS.get() {
-            for pos in [from.position, at] {
+            for (world, pos) in [(source, from.position), (click.world, at)] {
                 effects.play_sound(
-                    click.world,
+                    world,
                     pos,
                     "minecraft:entity.enderman.teleport",
                     SOUND_NEUTRAL,
@@ -2343,7 +2439,7 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
                     1.1,
                 );
                 effects.particles(
-                    click.world,
+                    world,
                     "minecraft:portal",
                     flight::add(pos, [0.0, 1.0, 0.0]),
                     [0.45, 0.75, 0.45],
@@ -2353,10 +2449,17 @@ pub fn use_item(click: &mut UseItem<'_>) -> UseResult {
             }
         }
         true
-    }) == Some(true);
-    if result {
+    });
+    if result == Some(true) {
         click.cooldown(40);
         UseResult::Success
+    } else if result.is_none() {
+        speak(
+            viewer,
+            "message.saintsdragons.ivy_plushie.not_loaded",
+            "Ivy is too far away for the plushie's magic to reach.",
+        );
+        UseResult::Fail
     } else {
         speak(
             viewer,
