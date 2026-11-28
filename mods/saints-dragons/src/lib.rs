@@ -29,6 +29,7 @@ mod crucible;
 mod discs;
 mod eggs;
 mod flight;
+mod flight_route;
 mod hunger;
 mod hunt;
 mod ivy;
@@ -463,6 +464,7 @@ fn can_be_affected(
 }
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
+    flight_route::tick(world, moddedmc_api::tick_count());
     pillars::tick(world, moddedmc_api::tick_count());
     combat::heat_tick(world);
     ivy::trade_resume_tick(world);

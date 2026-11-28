@@ -39,6 +39,7 @@ struct FlightState {
 static FLIGHTS: Mutex<Option<HashMap<i32, FlightState>>> = Mutex::new(None);
 
 pub fn forget(id: i32) {
+    crate::flight_route::forget(id);
     if let Some(states) = FLIGHTS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -195,6 +196,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 && mobs.passengers(mob).is_empty()
         }
         goal_phase::STOP => {
+            crate::flight_route::forget(mob.id());
             state.active = None;
             state.retry = now + LANDING_COOLDOWN;
             false
@@ -262,7 +264,13 @@ fn fly(
         }
         point
     };
-    let [dx, dy, dz] = offset(goal, at);
+    // The final landing descent intentionally contacts the ground.
+    let waypoint = if flight.landing && (x - at[0]).hypot(z - at[2]) < 1.0 {
+        goal
+    } else {
+        crate::flight_route::waypoint(world, mob, at, goal, false)
+    };
+    let [dx, dy, dz] = offset(waypoint, at);
     let horizontal = dx.hypot(dz).max(CRUISE_SPEED);
     let motion = [
         dx / horizontal * CRUISE_SPEED,
@@ -270,12 +278,11 @@ fn fly(
         dz / horizontal * CRUISE_SPEED,
     ];
     let motion = if motion[1] >= 0.0 && !clear_body(world, body, motion) {
-        if flight.landing {
-            return false;
-        }
-        flight.landing = true;
-        [0.0, -0.18, 0.0]
+        // Wait for a confirmed detour instead of abandoning the flight.
+        crate::flight_route::blocked(mob.id());
+        [0.0, 0.08, 0.0]
     } else if motion[1] < 0.0 && !clear_body(world, body, [motion[0], 0.0, motion[2]]) {
+        crate::flight_route::blocked(mob.id());
         [0.0, motion[1], 0.0]
     } else {
         motion

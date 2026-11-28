@@ -1,0 +1,30 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Latcher retaliation routes around a solid barrier to an otherwise occluded target.
+start
+botstart tester
+await 10 \[bot\] joined as tester
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd time set midnight
+cmd tp tester 1025.5 120 1025.5
+cmd forceload add 1009 1009 1041 1041
+await 10 Marked .*force loaded
+await-cmd 30 Test passed && execute if loaded 1025 120 1025 if loaded 1025 120 1034
+cmd fill 1009 119 1009 1041 119 1041 minecraft:stone
+await 60 Successfully filled|No blocks were filled
+cmd fill 1009 120 1009 1041 132 1041 minecraft:air
+await 60 Successfully filled|No blocks were filled
+cmd fill 1023 120 1029 1027 124 1029 minecraft:stone
+await 10 Successfully filled|No blocks were filled
+cmd summon minecraft:iron_golem 1025.5 120 1034.5 {NoAI:1b,Tags:["route_target"]}
+cmd saintsdragons spawn latcher 1025 120 1025
+wait 1
+cmd damage @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:latcher"}}},limit=1] 1 minecraft:mob_attack by @e[tag=route_target,limit=1]
+cmd tick sprint 300t
+await 25 \[bot\] chat: (?=.*commands\.tick\.sprint\.report)(?=.*with [0-9.]+ [0-9.]+)
+cmd data get entity @e[tag=route_target,limit=1] Health
+await 5 Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f$
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
