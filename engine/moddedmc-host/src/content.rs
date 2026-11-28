@@ -15,8 +15,8 @@ use pumpkin_core::{
     block::{
         BlockBehaviour, BlockHitResult, CanPlaceAtArgs, CanUpdateAtArgs, EmitsRedstonePowerArgs,
         ExplodeArgs, GetComparatorOutputArgs, GetRedstonePowerArgs, GetStateForNeighborUpdateArgs,
-        ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
-        PathComputationType, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
+        ItemInputArgs, ItemOutputArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs,
+        OnPlaceArgs, PathComputationType, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
         UseWithItemArgs,
         blocks::{
             iron_bars::IronBarsBlock,
@@ -352,6 +352,7 @@ pub struct Registration {
     material: Option<BlockMaterial>,
     placement: Option<abi::ContentPlacement>,
     item_input: Option<abi::ItemInputFn>,
+    item_output: Option<(u32, abi::ItemOutputFn)>,
     random_tick: Option<abi::ContentRandomTick>,
     physics: Option<content::BlockPhysics>,
     copper_stage: Option<usize>,
@@ -397,6 +398,7 @@ struct RuntimeBlock {
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
     item_input: Option<abi::ItemInputFn>,
+    item_output: Option<(u32, abi::ItemOutputFn)>,
 }
 
 struct Runtime {
@@ -675,6 +677,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
         placement: def.on_place,
         random_tick: None,
         item_input: None,
+        item_output: None,
         physics: None,
         copper_stage: None,
         copper_ids: None,
@@ -698,10 +701,37 @@ unsafe extern "C" fn add_item_input(reg: Reg, block: Str, receive: abi::ItemInpu
     code::OK
 }
 
+unsafe extern "C" fn add_item_output(
+    reg: Reg,
+    block: Str,
+    slots: u32,
+    take: abi::ItemOutputFn,
+) -> i32 {
+    if reg.is_null() || RUNTIME.get().is_some() || !(1..=256).contains(&slots) {
+        return code::INVALID_DEFINITION;
+    }
+    // SAFETY: registration and the id are borrowed for this call.
+    let (staging, id) = unsafe { (native::staging(reg), block.str()) };
+    let Some(block) = staging.content.iter_mut().find(|entry| entry.id == id) else {
+        return code::INVALID_DEFINITION;
+    };
+    if block.item_output.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    block.item_output = Some((slots, take));
+    code::OK
+}
+
 pub static ITEM_INPUT: abi::ItemInputV1 = abi::ItemInputV1 {
     size: size_of::<abi::ItemInputV1>(),
     add: add_item_input,
+    add_output: add_item_output,
 };
+
+unsafe extern "C" fn collect_item_output(ctx: *mut c_void, _key: u64, stack: Str) {
+    // SAFETY: the synchronous callback supplies a live output slot and borrowed stack.
+    unsafe { *ctx.cast::<Option<ItemStack>>() = crate::stacks::read_stack(stack) };
+}
 
 unsafe extern "C" fn register_copper_family(reg: Reg, ids: *const [Str; 8]) -> i32 {
     if reg.is_null() || ids.is_null() || RUNTIME.get().is_some() {
@@ -1661,6 +1691,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
                 placement: block.placement,
                 random_tick: block.random_tick,
                 item_input: block.item_input,
+                item_output: block.item_output,
             },
         );
         tracing::info!(
@@ -1893,6 +1924,47 @@ impl BlockBehaviour for Behaviour {
             )
         };
         accepted.min(u32::from(args.stack.item_count)) as u8
+    }
+
+    fn item_output_slots(&self, block: &Block) -> u32 {
+        runtime_block(block.id)
+            .and_then(|entry| entry.item_output)
+            .map_or(0, |(slots, _)| slots)
+    }
+
+    fn extract_item(&self, args: ItemOutputArgs<'_>) -> Option<ItemStack> {
+        if args.world.get_block_state_id(&args.position) != args.state {
+            return None;
+        }
+        let (slots, take) = runtime_block(Block::from_state_id(args.state).id)?.item_output?;
+        if args.slot >= slots {
+            return None;
+        }
+        let expected = match args.expected {
+            Some(stack) => Nbt::from(stack.to_nbt()?).write(),
+            None => Vec::new(),
+        };
+        if expected.len() > abi::MAX_STACK_BYTES {
+            return None;
+        }
+        let mut output: Option<ItemStack> = None;
+        let sink = Sink {
+            ctx: ptr::from_mut(&mut output).cast(),
+            put: collect_item_output,
+        };
+        // SAFETY: the callback borrows the world, expected stack and sink synchronously.
+        let ok = unsafe {
+            take(
+                ptr::from_ref(args.world).cast(),
+                abi_pos(args.position),
+                u32::from(args.state.as_u16()),
+                args.face.to_index(),
+                args.slot,
+                Str::new(&expected),
+                sink,
+            )
+        };
+        output.filter(|item| ok && item.item_count == 1 && !item.is_empty())
     }
 
     fn can_place_at(&self, args: CanPlaceAtArgs<'_>) -> bool {

@@ -6,11 +6,12 @@ use std::{
 use fastnbt::Value;
 use moddedmc_api::{
     InterfaceUnavailable, Player, Pos, RegistrationError, Registry,
-    content::{self, Block, Content, ContentEvent, EntitySnapshot, State, World},
+    content::{self, Block, Content, ContentEvent, EntitySnapshot, Placement, State, World},
     interaction::{BlockUseResult, PlayerWillDestroy, UseBlock},
     inventory_menu::{
         self, Access, Action, Control, Managed, ManagedChange, ManagedSlots, MenuKind, Validity,
     },
+    item_input::{self, ItemInput, Offer, Take},
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +40,8 @@ const COST: [i32; 4] = [0, 1, 2, 6];
 type Stack = HashMap<String, Value>;
 
 static RECIPES: OnceLock<Vec<Recipe>> = OnceLock::new();
-static BLOCK_STATE: OnceLock<u32> = OnceLock::new();
+static BLOCK_STATES: OnceLock<[u32; 4]> = OnceLock::new();
+static AUTOMATION: OnceLock<ItemInput> = OnceLock::new();
 static ACTIVE: Mutex<Option<HashMap<usize, HashSet<Pos>>>> = Mutex::new(None);
 static DIRTY_SCREEN: Mutex<Option<HashMap<usize, HashSet<Pos>>>> = Mutex::new(None);
 static MENUS: OnceLock<Managed> = OnceLock::new();
@@ -47,6 +49,9 @@ static KIND: OnceLock<MenuKind> = OnceLock::new();
 
 pub fn require() -> Result<(), InterfaceUnavailable> {
     let _ = MENUS.set(inventory_menu::require_managed()?);
+    let automation = item_input::require()?;
+    automation.require_output()?;
+    let _ = AUTOMATION.set(automation);
     Ok(())
 }
 
@@ -136,6 +141,37 @@ struct Job {
 }
 
 impl Crucible {
+    /// The released container is unsided: output, fuel, then the nine input slots.
+    /// canPlaceItem refuses every automated insertion while processing.
+    fn insert_one(&mut self, offered: &Stack, limit: i32, is_fuel: bool) -> bool {
+        if self.job.is_some() || count(offered) != 1 || limit < 1 {
+            return false;
+        }
+        for slot in std::iter::once(&mut self.fuel)
+            .filter(|_| is_fuel)
+            .chain(&mut self.input)
+        {
+            if slot.is_empty() {
+                *slot = offered.clone();
+                return true;
+            }
+            if same_item(slot, offered) && count(slot) < limit {
+                slot.insert("count".into(), Value::Int(count(slot) + 1));
+                return true;
+            }
+        }
+        false
+    }
+
+    fn automation_slot(&mut self, slot: u32) -> Option<&mut Stack> {
+        match slot {
+            0 => Some(&mut self.output),
+            1 => Some(&mut self.fuel),
+            2..=10 => self.input.get_mut(slot as usize - 2),
+            _ => None,
+        }
+    }
+
     fn access(&self) -> [Access; SLOTS] {
         let mut access = [CLOSED; SLOTS];
         for slot in GRID {
@@ -398,11 +434,31 @@ fn fuel_level(id: &str) -> Option<usize> {
     .find_map(|(level, tag)| tags.contains("item", tag, id).then_some(level))
 }
 
-fn state() -> Option<u32> {
-    BLOCK_STATE.get().copied().or_else(|| {
-        let state = CONTENT.get()?.state(ID)?;
-        Some(*BLOCK_STATE.get_or_init(|| state))
-    })
+const FACINGS: [&str; 4] = ["north", "east", "south", "west"];
+
+fn states() -> Option<&'static [u32; 4]> {
+    if let Some(states) = BLOCK_STATES.get() {
+        return Some(states);
+    }
+    let content = CONTENT.get()?;
+    let mut states = [0; 4];
+    for (index, facing) in FACINGS.iter().enumerate() {
+        states[index] = content.state(&format!("{ID}[facing={facing}]"))?;
+    }
+    Some(BLOCK_STATES.get_or_init(|| states))
+}
+
+fn is_crucible(state: u32) -> bool {
+    states().is_some_and(|states| states.contains(&state))
+}
+
+/// DraconicCrucibleBlock.getStateForPlacement faces opposite the player's yaw.
+fn facing_index(yaw: f32) -> usize {
+    (yaw / 90.0 + 0.5).floor() as i32 as usize & 3
+}
+
+fn place(args: Placement<'_>) -> Option<u32> {
+    Some(states()?[facing_index(args.yaw)])
 }
 
 fn recipes() -> &'static [Recipe] {
@@ -421,6 +477,17 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
     } else {
         "minecraft:block/blast_furnace"
     };
+    let properties = FACINGS.map(|facing| format!("facing={facing}"));
+    let states = std::array::from_fn::<_, 4, _>(|index| State {
+        properties: &properties[index],
+        physical: "minecraft:blast_furnace",
+        model,
+        rotating_model: "",
+        x: 0,
+        y: [0, 90, 180, 270][index],
+        orientation: [0.0, 0.0, 0.0, 1.0],
+        shape: &[],
+    });
     content.add_block(
         registry,
         &Block {
@@ -432,24 +499,20 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
             } else {
                 "minecraft:item/blast_furnace"
             },
-            states: &[State {
-                properties: "",
-                physical: "minecraft:blast_furnace",
-                model,
-                rotating_model: "",
-                x: 0,
-                y: 0,
-                orientation: [0.0, 0.0, 0.0, 1.0],
-                shape: &[],
-            }],
+            states: &states,
         },
-        None,
-    )
+        Some(place),
+    )?;
+    let automation = AUTOMATION
+        .get()
+        .ok_or(RegistrationError::InvalidDefinition)?;
+    automation.register(registry, &[ID], receive)?;
+    automation.register_output(registry, ID, 11, extract)
 }
 
 fn snapshot(world: World<'_>, pos: Pos) -> Option<(EntitySnapshot, Crucible)> {
     let snapshot = world.entity_snapshot(pos)?;
-    if state() != Some(snapshot.state) {
+    if !is_crucible(snapshot.state) {
         return None;
     }
     let machine = fastnbt::from_bytes(&snapshot.nbt).ok()?;
@@ -484,6 +547,58 @@ fn mutate(world: World<'_>, pos: Pos, snapshot: &EntitySnapshot, machine: &Cruci
     )
 }
 
+fn receive(offer: Offer<'_>) -> u32 {
+    let Some(offered) = decode_stack(Some(offer.stack)) else {
+        return 0;
+    };
+    let Some((before, mut machine)) = snapshot(offer.world, offer.position) else {
+        return 0;
+    };
+    if before.state != offer.state
+        || !machine.insert_one(
+            &offered,
+            max_count(&offered),
+            item_id(&offered).and_then(fuel_level).is_some(),
+        )
+    {
+        return 0;
+    }
+    if offer.simulate {
+        return 1;
+    }
+    let committed = mutate(offer.world, offer.position, &before, &machine);
+    if committed {
+        mark_screen_dirty(offer.world, offer.position);
+    }
+    u32::from(committed)
+}
+
+fn extract(take: Take<'_>) -> Option<Vec<u8>> {
+    let (before, mut machine) = snapshot(take.world, take.position)?;
+    if before.state != take.state {
+        return None;
+    }
+    let slot = machine.automation_slot(take.slot)?;
+    if count(slot) <= 0 {
+        return None;
+    }
+    let mut one = slot.clone();
+    one.insert("count".into(), Value::Int(1));
+    let bytes = fastnbt::to_bytes(&one).ok()?;
+    if let Some(expected) = take.expected {
+        let expected = decode_stack(Some(expected))?;
+        if count(&expected) != 1 || !same_item(&expected, &one) {
+            return None;
+        }
+        decrement(slot);
+        if !mutate(take.world, take.position, &before, &machine) {
+            return None;
+        }
+        mark_screen_dirty(take.world, take.position);
+    }
+    Some(bytes)
+}
+
 fn remember(world: World<'_>, pos: Pos) {
     ACTIVE
         .lock()
@@ -495,7 +610,9 @@ fn remember(world: World<'_>, pos: Pos) {
 }
 
 pub fn tick(world: World<'_>, events: &[ContentEvent]) {
-    let Some(state) = state() else { return };
+    if states().is_none() {
+        return;
+    }
     let positions = {
         let mut worlds = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
         if events.is_empty() && worlds.is_none() {
@@ -506,11 +623,11 @@ pub fn tick(world: World<'_>, events: &[ContentEvent]) {
             .entry(world.id())
             .or_default();
         for event in events {
-            if event.previous == state
-                && (event.state != state || event.reason == content::UNLOADED)
+            if is_crucible(event.previous)
+                && (!is_crucible(event.state) || event.reason == content::UNLOADED)
             {
                 positions.remove(&event.position);
-            } else if event.state == state {
+            } else if is_crucible(event.state) {
                 positions.insert(event.position);
             }
         }
@@ -693,7 +810,7 @@ fn action(event: Action<'_>) {
 }
 
 pub fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
-    if state() != Some(context.state) || !context.main_hand {
+    if !is_crucible(context.state) || !context.main_hand {
         return BlockUseResult::Pass;
     }
     let (Some(player), Some(menus), Some(kind), Some((before, machine))) = (
@@ -736,7 +853,7 @@ pub fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
 }
 
 pub fn break_block(context: &PlayerWillDestroy<'_>) {
-    if state() != Some(context.state) {
+    if !is_crucible(context.state) {
         return;
     }
     let Some(stacks) = STACKS.get() else { return };
@@ -774,6 +891,52 @@ mod tests {
 
     fn released_recipes() -> Vec<Recipe> {
         serde_json::from_str(include_str!("crucible_recipes.json")).unwrap()
+    }
+
+    #[test]
+    fn automation_follows_released_slot_order_and_processing_lock() {
+        let mut machine = Crucible::default();
+        let fuel = stack("minecraft:blaze_powder", 1);
+        let input = stack("minecraft:raw_iron", 1);
+        assert!(machine.insert_one(&fuel, 64, true));
+        assert!(machine.insert_one(&input, 1, false));
+        assert!(machine.insert_one(&input, 1, false));
+        assert_eq!(machine.fuel, fuel);
+        assert_eq!(machine.input[0], input);
+        assert_eq!(machine.input[1], input);
+        machine.output = stack("minecraft:iron_ingot", 2);
+        assert_eq!(count(machine.automation_slot(0).unwrap()), 2);
+        assert_eq!(
+            item_id(machine.automation_slot(1).unwrap()),
+            Some("minecraft:blaze_powder")
+        );
+        assert_eq!(
+            item_id(machine.automation_slot(2).unwrap()),
+            Some("minecraft:raw_iron")
+        );
+        assert!(machine.automation_slot(11).is_none());
+        machine.job = Some(Job {
+            result: stack("minecraft:iron_ingot", 1),
+            minimum_charge: 1,
+            cost: 1,
+            ticks: 200,
+            elapsed: 0,
+        });
+        assert!(!machine.insert_one(&fuel, 64, true));
+        assert!(!machine.insert_one(&input, 64, false));
+    }
+
+    #[test]
+    fn placement_faces_the_player() {
+        for (yaw, expected) in [
+            (0.0, "north"),
+            (90.0, "east"),
+            (180.0, "south"),
+            (-90.0, "west"),
+            (360.0, "north"),
+        ] {
+            assert_eq!(FACINGS[facing_index(yaw)], expected);
+        }
     }
 
     #[test]
