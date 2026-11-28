@@ -399,7 +399,7 @@ rules with the chunk.
 
 ## Worn and held equipment (`moddedmc:equipment` v1)
 
-Both hook calls stage a hook for an item this mod registered. Each item takes at
+The hook calls stage a hook for an item this mod registered. Each item takes at
 most one hook of each kind. The SDK passes one handler per mod for each kind,
 and the handler receives the item id. Require the table with
 `equipment::require()` in `Mod::start`.
@@ -421,6 +421,16 @@ and the handler receives the item id. Require the table with
   sink receives one newline-separated UTF-8 value at key 0; false for a
   non-player or invalid handle. This is an appended optional field; the SDK
   returns `None` on older hosts that do not provide it.
+- `on_successful_weapon_hit(reg, item, callback)` (offset 32 on 64-bit): once
+  after a successful direct player melee hit on a living target, including a
+  lethal hit, with the borrowed world, held item ID, attacker, target and
+  actual net health plus absorption lost. It is not called for rejected hits,
+  sweep targets, projectiles or damage invoked by another callback. Require
+  `Equipment::require_successful_weapon_hit` at startup.
+- `EntitiesV1::is_attackable(entity)` (offset 408 on 64-bit): whether the
+  entity is living, alive and can be hit (excludes spectators and marker armor
+  stands). Damage immunity is checked by
+  the damage operation itself. Require `EntitiesExtension::Attackable`.
 
 ## Fish buckets (`moddedmc:fish_buckets` v1)
 

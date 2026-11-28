@@ -337,19 +337,43 @@ fn scale(a: [f64; 3], n: f64) -> [f64; 3] {
 }
 
 fn sword_target(player: Entity<'_>, target: Entity<'_>) -> bool {
+    target.flags() & ENTITY_ALIVE != 0
+        && target.is_attackable() == Some(true)
+        && can_chain_from_hit(player, target)
+}
+
+/// SwordAbilityTargeting.canChainFromSuccessfulHit also accepts a dead primary.
+fn can_chain_from_hit(player: Entity<'_>, target: Entity<'_>) -> bool {
     let Some(mobs) = crate::MOBS.get() else {
         return false;
     };
     target.id() != player.id()
-        && target.flags() & ENTITY_ALIVE != 0
-        && !matches!(
-            crate::MOBS.get().and_then(|m| m.game_mode(target)),
-            Some(1 | 3)
-        )
         && !crate::taming::is_tamed(target)
         && target.view().is_some_and(|v| v.kind & ENTITY_LIVING != 0)
         && mobs.pet_owner(target).is_none()
         && !mobs.allied(player, target)
+        && !mobs.allied(target, player)
+}
+
+pub fn successful_katana_hit(
+    world: World<'_>,
+    _item: &str,
+    player: Entity<'_>,
+    target: Entity<'_>,
+    _damage: f32,
+) {
+    if can_chain_from_hit(player, target) {
+        chain(world, player, target);
+    }
+}
+
+fn chain_target(player: Entity<'_>, target: Entity<'_>) -> bool {
+    sword_target(player, target)
+        && !crate::TAGS.get().is_some_and(|tags| {
+            let kind = crate::MOBS.get().and_then(|mobs| mobs.kind(target));
+            let id = kind.unwrap_or_else(|| target.type_id());
+            tags.contains("entity_type", "saintsdragons:immune_to/electricity", id)
+        })
 }
 
 fn center(target: Entity<'_>) -> Option<[f64; 3]> {
@@ -608,6 +632,7 @@ fn tick_pillars(
 }
 
 fn chain(world: World<'_>, player: Entity<'_>, first: Entity<'_>) {
+    // The five-tick Blood Tempest arc needs a companion visual; emit vanilla sparks.
     let (Some(entities), Some(mut at)) = (crate::ENTITIES.get(), center(first)) else {
         return;
     };
@@ -621,12 +646,7 @@ fn chain(world: World<'_>, player: Entity<'_>, first: Entity<'_>) {
             .filter_map(|id| {
                 entities
                     .with_entity(world, id, |target| {
-                        if !sword_target(player, target)
-                            || crate::MOBS
-                                .get()
-                                .and_then(|m| m.kind(target))
-                                .is_some_and(|k| k == "saintsdragons:raevyx")
-                        {
+                        if !chain_target(player, target) {
                             return None;
                         }
                         let body = target.body()?;
@@ -640,15 +660,36 @@ fn chain(world: World<'_>, player: Entity<'_>, first: Entity<'_>) {
             .min_by(|a, b| a.1.total_cmp(&b.1));
         let Some((id, _)) = nearest else {
             if jump == 0 {
-                first.hurt_by(player.id(), "minecraft:player_attack", damage);
+                if chain_target(player, first) {
+                    first.hurt_by(player.id(), "minecraft:player_attack", damage);
+                }
+                if let Some(effects) = crate::EFFECTS.get() {
+                    effects.particles(
+                        world,
+                        "minecraft:electric_spark",
+                        add(at, [0.0, 0.175, 0.0]),
+                        [0.06; 3],
+                        0.0,
+                        2,
+                    );
+                }
             }
             break;
         };
         entities.with_entity(world, id, |target| {
+            let to = center(target);
             target.hurt_by(player.id(), "minecraft:player_attack", damage);
-            if let Some(to) = center(target) {
+            if let Some(to) = to {
                 if let Some(effects) = crate::EFFECTS.get() {
-                    effects.particles(world, "minecraft:electric_spark", to, [0.3; 3], 0.1, 16);
+                    let midpoint = scale(add(at, to), 0.5);
+                    effects.particles(
+                        world,
+                        "minecraft:electric_spark",
+                        midpoint,
+                        [0.06; 3],
+                        0.0,
+                        2,
+                    );
                 }
                 at = to;
             }

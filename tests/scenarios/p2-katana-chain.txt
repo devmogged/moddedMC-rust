@@ -1,0 +1,57 @@
+# Saint's Dragons 0.9.88 Blood Tempest successful-hit chain.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 105 1025.5
+cmd forceload add 1024 1024 1040 1040
+wait 3
+cmd fill 1024 104 1024 1040 1040 1040 minecraft:stone
+cmd fill 1024 105 1024 1040 110 1040 minecraft:air
+cmd gamemode survival tester
+cmd item replace entity tester hotbar.0 with saintsdragons:blood_tempest_katana
+cmd summon minecraft:iron_golem 1025.5 105 1028.5 {NoAI:1b,Invulnerable:1b,Tags:["blocked"]}
+cmd summon minecraft:iron_golem 1031.5 105 1028.5 {NoAI:1b,Tags:["chain_one"]}
+cmd summon minecraft:iron_golem 1038.5 105 1028.5 {NoAI:1b,Tags:["chain_two"]}
+wait 1
+bot look 0 0
+bot attack iron_golem 1025.5 105 1028.5
+wait 0.5
+cmd data get entity @e[tag=chain_one,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: 100(\.0)?f
+cmd kill @e[tag=blocked]
+cmd summon minecraft:iron_golem 1025.5 105 1028.5 {NoAI:1b,Tags:["primary"]}
+wait 1
+bot look 0 0
+bot attack iron_golem 1025.5 105 1028.5
+wait 0.5
+cmd data get entity @e[tag=chain_one,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: 90(\.0)?f
+cmd data get entity @e[tag=chain_two,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: 92\.5f
+# A lethal direct hit must still start the same chain exactly once.
+cmd kill @e[tag=primary]
+cmd tp @e[tag=chain_one,limit=1] 1031.5 105 1028.5
+cmd tp @e[tag=chain_two,limit=1] 1038.5 105 1028.5
+cmd data merge entity @e[tag=chain_one,limit=1] {Health:100f}
+cmd data merge entity @e[tag=chain_two,limit=1] {Health:100f}
+wait 2
+cmd summon minecraft:iron_golem 1025.5 105 1028.5 {NoAI:1b,Health:1f,Tags:["lethal"]}
+wait 1
+bot look 0 0
+bot attack iron_golem 1025.5 105 1028.5
+wait 0.5
+cmd data get entity @e[tag=chain_one,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: 90(\.0)?f
+cmd data get entity @e[tag=chain_two,limit=1] Health
+wait 0.5
+expect Iron Golem has the following entity data: 92\.5f
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

@@ -516,6 +516,16 @@ impl ItemBehaviour for ItemUse {
         crate::equipment::weapon_hit(item.registry_key, attacker, target, damage)
     }
 
+    fn on_successful_melee_hit(
+        &self,
+        item: &Item,
+        attacker: &Player,
+        target: &dyn EntityBase,
+        damage: f32,
+    ) {
+        crate::equipment::successful_weapon_hit(item.registry_key, attacker, target, damage);
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
