@@ -48,6 +48,7 @@ if ($AllDragons) {
     $copies["$assets/textures/gui/draconiccodex/icons/remove_icon.png"] = "$assets/textures/gui/draconiccodex/icons/remove_icon.png"
     $copies["$assets/textures/gui/draconiccodex/codex_edit_box.png"] = "$assets/textures/gui/draconiccodex/codex_edit_box.png"
     $copies["$assets/textures/gui/draconiccodex/brushing_available1.png"] = "$assets/textures/gui/draconiccodex/brushing_available1.png"
+    $copies["$assets/textures/gui/draconiccodex/brushing_available2.png"] = "$assets/textures/gui/draconiccodex/brushing_available2.png"
     $copies["$assets/textures/gui/draconiccodex/brushing_unavailable.png"] = "$assets/textures/gui/draconiccodex/brushing_unavailable.png"
     $copies["$assets/textures/gui/draconiccodex/draconic_codex.png"] = "$assets/textures/gui/draconiccodex/draconic_codex.png"
     $species += @('atroxiia','ignivorus','moop','mossback','nulljaw','raevyx','stegonaut','varasuchus','volitans')
@@ -80,6 +81,8 @@ foreach ($name in $species) {
         default { @{} }
     }
     if ($name -notin @('moop', 'mossback')) {
+        $copies["$assets/geo/${entity}_baked.geo.json"] = "$assets/geckolib/models/${entity}_baked.geo.json"
+        $rig.preview_geometry = "saintsdragons:${entity}_baked"
         # Released renderer locator offsets are in model pixels; Nulljaw hangs 1.65 blocks below.
         $seat = @{ bone = 'passengerBone'; y = -3 }
         if ($name -eq 'cindervane') {
@@ -111,11 +114,13 @@ foreach ($name in $species) {
     if ($name -notin @('moop', 'mossback')) {
         $baby = "entity/$name/baby_$name"
         $copies["$assets/geo/$baby.geo.json"] = "$assets/geckolib/models/$baby.geo.json"
+        $copies["$assets/geo/${baby}_baked.geo.json"] = "$assets/geckolib/models/${baby}_baked.geo.json"
         $copies["$assets/animations/$baby.animation.json"] = "$assets/geckolib/animations/$baby.animation.json"
         $copies["$assets/textures/$baby.png"] = "$assets/textures/$baby.png"
         $copies["$assets/textures/${baby}_female.png"] = "$assets/textures/${baby}_female.png"
         $files["$assets/moddedmc/rigs/baby_${name}_display.json"] = [ordered]@{
             geometry = "saintsdragons:$baby"
+            preview_geometry = "saintsdragons:${baby}_baked"
             animations = "saintsdragons:$baby"
             texture = "saintsdragons:textures/$baby.png"
             textures = @{ default_female = "saintsdragons:textures/${baby}_female.png" }

@@ -844,6 +844,9 @@ impl Pack {
             ),
             (definition.get("texture"), "", ""),
         ];
+        if let Some(geometry) = definition.get("preview_geometry") {
+            resources.push((Some(geometry), "geckolib/models/", ".geo.json"));
+        }
         if let Some(textures) = definition.get("textures") {
             let Some(textures) = textures.as_object() else {
                 self.missing = true;

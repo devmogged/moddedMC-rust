@@ -48,6 +48,8 @@ public final class DisplayRigs {
     private static final Logger LOGGER = LoggerFactory.getLogger("moddedmc-companion");
     private static final FileToIdConverter FILES = FileToIdConverter.json("moddedmc/rigs");
     private static final DataTicket<Identifier> TEXTURE = DataTicket.create("moddedmc_rig_texture", Identifier.class);
+    private static final DataTicket<Identifier> GEOMETRY = DataTicket.create("moddedmc_rig_geometry", Identifier.class);
+    private static final DataTicket<Boolean> PREVIEW = DataTicket.create("moddedmc_rig_preview", Boolean.class);
     private static final DataTicket<SeatFrame> SEATS = DataTicket.create("moddedmc_rig_seats", SeatFrame.class);
     private static final RigFrame HIDDEN = (pose, collector, camera) -> {};
     private static final Map<ItemDisplay, RigInstance> INSTANCES = new WeakHashMap<>();
@@ -65,6 +67,26 @@ public final class DisplayRigs {
         var itemModel = stack.get(DataComponents.ITEM_MODEL);
         if (itemModel == null) return null;
 
+        refresh();
+
+        RigRenderer renderer = rigs.get(itemModel);
+        if (renderer == null) return hiddenParts.contains(itemModel) ? HIDDEN : null;
+        RigInstance rig = INSTANCES.get(display);
+        if (rig == null || rig.owner.get() != display || rig.renderer != renderer) {
+            // Entity equality uses the network ID, which a server can reuse.
+            INSTANCES.remove(display);
+            rig = new RigInstance(display, renderer, false, false);
+            INSTANCES.put(display, rig);
+        }
+        rig.selectAppearance(stack.get(DataComponents.CUSTOM_DATA));
+
+        var state = renderer.createRenderState(rig, display);
+        state.addGeckolibData(DataTickets.PACKED_LIGHT, light);
+        renderer.fillRenderState(rig, display, state, delta);
+        return (pose, collector, camera) -> renderer.performRenderPass(state, pose, collector, camera);
+    }
+
+    private static void refresh() {
         var models = GeckoLibResources.getBakedModels();
         var animations = GeckoLibResources.getBakedAnimations();
         if (modelCache != models || animationCache != animations) {
@@ -75,21 +97,46 @@ public final class DisplayRigs {
             RiderSeats.clear();
         }
 
-        RigRenderer renderer = rigs.get(itemModel);
-        if (renderer == null) return hiddenParts.contains(itemModel) ? HIDDEN : null;
-        RigInstance rig = INSTANCES.get(display);
-        if (rig == null || rig.owner.get() != display || rig.renderer != renderer) {
-            // Entity equality uses the network ID, which a server can reuse.
-            INSTANCES.remove(display);
-            rig = new RigInstance(display, renderer);
-            INSTANCES.put(display, rig);
-        }
-        rig.selectAppearance(stack.get(DataComponents.CUSTOM_DATA));
+    }
 
-        var state = renderer.createRenderState(rig, display);
-        state.addGeckolibData(DataTickets.PACKED_LIGHT, light);
-        renderer.fillRenderState(rig, display, state, delta);
-        return (pose, collector, camera) -> renderer.performRenderPass(state, pose, collector, camera);
+    /** A screen owns its preview animation cache; never touches a world's animation instance or seats. */
+    public static final class Preview {
+        private RigInstance rig;
+        private String entityId;
+
+        public RigFrame extract(Identifier model, String texture, String id, float delta) {
+            refresh();
+            RigRenderer renderer = rigs.get(model);
+            if (renderer == null) return null;
+            ItemDisplay live = findDisplay(model, id);
+            boolean still = live == null;
+            if (rig == null || rig.renderer != renderer || rig.still != still || !id.equals(entityId)
+                    || rig.owner.get() != live) {
+                rig = new RigInstance(live, renderer, true, still);
+                entityId = id;
+            }
+            if (live != null) rig.selectAppearance(live.itemRenderState().itemStack().get(DataComponents.CUSTOM_DATA));
+            else rig.texture = renderer.textures.getOrDefault(texture, renderer.definition.texture());
+            var state = renderer.createRenderState(rig, live);
+            state.addGeckolibData(DataTickets.PACKED_LIGHT, 0xf000f0);
+            renderer.fillRenderState(rig, live, state, delta);
+            return (pose, collector, camera) -> renderer.performRenderPass(state, pose, collector, camera);
+        }
+
+        private static ItemDisplay findDisplay(Identifier model, String id) {
+            var level = Minecraft.getInstance().level;
+            if (level == null || id.isEmpty()) return null;
+            for (Entity entity : level.entitiesForRendering()) {
+                if (!(entity instanceof ItemDisplay display) || display.itemRenderState() == null) continue;
+                var stack = display.itemRenderState().itemStack();
+                if (!model.equals(stack.get(DataComponents.ITEM_MODEL))) continue;
+                var data = stack.get(DataComponents.CUSTOM_DATA);
+                if (data == null) continue;
+                var mount = level.getEntity(data.copyTag().getIntOr("moddedmc:rig_mount", -1));
+                if (mount != null && mount.getUUID().toString().replace("-", "").equals(id)) return display;
+            }
+            return null;
+        }
     }
 
     private static Map<Identifier, RigRenderer> load(
@@ -124,7 +171,7 @@ public final class DisplayRigs {
 
     private record Definition(Identifier geometry, Identifier animations, Identifier texture, String clip,
                               float scale, float yOffset, float yawOffset, List<Identifier> hideParts,
-                              Map<String, Identifier> textures, List<Seat> riderSeats) {
+                              Map<String, Identifier> textures, List<Seat> riderSeats, java.util.Optional<Identifier> previewGeometry) {
         private static final Codec<Definition> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Identifier.CODEC.fieldOf("geometry").forGetter(Definition::geometry),
                 Identifier.CODEC.fieldOf("animations").forGetter(Definition::animations),
@@ -135,7 +182,8 @@ public final class DisplayRigs {
                 Codec.floatRange(-180f, 180f).optionalFieldOf("yaw_offset", 0f).forGetter(Definition::yawOffset),
                 Identifier.CODEC.listOf().optionalFieldOf("hide_parts", List.of()).forGetter(Definition::hideParts),
                 Codec.unboundedMap(Codec.STRING, Identifier.CODEC).optionalFieldOf("textures", Map.of()).forGetter(Definition::textures),
-                Seat.CODEC.listOf().optionalFieldOf("rider_seats", List.of()).forGetter(Definition::riderSeats)
+                Seat.CODEC.listOf().optionalFieldOf("rider_seats", List.of()).forGetter(Definition::riderSeats),
+                Identifier.CODEC.optionalFieldOf("preview_geometry").forGetter(Definition::previewGeometry)
         ).apply(instance, Definition::new));
     }
 
@@ -156,14 +204,17 @@ public final class DisplayRigs {
         private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this, false);
         private final WeakReference<ItemDisplay> owner;
         private final RigRenderer renderer;
+        private final boolean preview, still;
         private RawAnimation clip;
         private Identifier texture;
         private CustomData appearanceData;
         private int mountId = -1;
 
-        private RigInstance(ItemDisplay display, RigRenderer renderer) {
+        private RigInstance(ItemDisplay display, RigRenderer renderer, boolean preview, boolean still) {
             this.owner = new WeakReference<>(display);
             this.renderer = renderer;
+            this.preview = preview;
+            this.still = still;
             this.clip = renderer.defaultClip;
             this.texture = renderer.definition.texture();
         }
@@ -181,7 +232,7 @@ public final class DisplayRigs {
 
         @Override
         public void registerControllers(AnimatableManager.ControllerRegistrar registrar) {
-            registrar.add(new AnimationController<RigInstance>("display", 3, test -> test.setAndContinue(clip)));
+            if (!still) registrar.add(new AnimationController<RigInstance>("display", 3, test -> test.setAndContinue(clip)));
         }
 
         @Override
@@ -200,7 +251,7 @@ public final class DisplayRigs {
             super(new GeoModel<>() {
                 @Override
                 public Identifier getModelResource(GeoRenderState state) {
-                    return definition.geometry();
+                    return state.getOrDefaultGeckolibData(GEOMETRY, definition.geometry());
                 }
 
                 @Override
@@ -221,9 +272,12 @@ public final class DisplayRigs {
 
         @Override
         public void addRenderData(RigInstance rig, ItemDisplay display, GeoRenderState state, float delta) {
-            state.addGeckolibData(DataTickets.TICK, display.tickCount + (double) delta);
+            state.addGeckolibData(DataTickets.TICK, display == null ? 0d : display.tickCount + (double) delta);
             state.addGeckolibData(TEXTURE, rig.texture);
-            if (!definition.riderSeats().isEmpty() && rig.mountId >= 0
+            state.addGeckolibData(PREVIEW, rig.preview);
+            if (rig.still) definition.previewGeometry().filter(modelCache.cache()::containsKey)
+                    .ifPresent(geometry -> state.addGeckolibData(GEOMETRY, geometry));
+            if (!rig.preview && !definition.riderSeats().isEmpty() && rig.mountId >= 0
                     && Minecraft.getInstance().level != null) {
                 Entity mount = Minecraft.getInstance().level.getEntity(rig.mountId);
                 if (mount != null && mount.isVehicle()) {
@@ -266,6 +320,7 @@ public final class DisplayRigs {
 
         @Override
         public void adjustRenderPose(RenderPassInfo<GeoRenderState> pass) {
+            if (Boolean.TRUE.equals(pass.getGeckolibData(PREVIEW))) return;
             var pose = pass.poseStack();
             pose.translate(0, definition.yOffset(), 0);
             if (definition.yawOffset() != 0) pose.rotate(Axis.YP.rotationDegrees(definition.yawOffset()));

@@ -53,7 +53,7 @@ final class CreativeCatalog {
         }
     }
 
-    private static List<ItemStack> decode(byte[] bytes, RegistryAccess registries) {
+    static List<ItemStack> decode(byte[] bytes, RegistryAccess registries) {
         var buffer = new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(bytes), registries);
         try {
             int count = buffer.readVarInt();
