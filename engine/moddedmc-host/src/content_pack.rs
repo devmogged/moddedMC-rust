@@ -658,27 +658,38 @@ impl Pack {
             let Some(texture) = layout.get("texture").and_then(Value::as_str) else {
                 return false;
             };
-            if !texture.starts_with("textures/")
-                || !texture.ends_with(".png")
-                || !texture.split('/').all(|part| {
-                    !part.is_empty()
-                        && part != "."
-                        && part != ".."
-                        && part.bytes().all(|b| {
-                            b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b)
-                        })
-                })
-            {
-                return false;
+            let mut textures = vec![texture];
+            if let Some(atlases) = layout.get("atlases").and_then(Value::as_object) {
+                for atlas in atlases.values() {
+                    let Some(texture) = atlas.get("texture").and_then(Value::as_str) else {
+                        return false;
+                    };
+                    textures.push(texture);
+                }
             }
-            let key = format!("assets/{namespace}/{texture}");
-            if let Some(bytes) = self.read_asset(namespace, &key) {
-                self.files.insert(key, bytes);
-                true
-            } else {
-                tracing::warn!("moddedmc: missing screen texture {key}");
-                false
-            }
+            textures.into_iter().all(|texture| {
+                if !texture.starts_with("textures/")
+                    || !texture.ends_with(".png")
+                    || !texture.split('/').all(|part| {
+                        !part.is_empty()
+                            && part != "."
+                            && part != ".."
+                            && part.bytes().all(|b| {
+                                b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b)
+                            })
+                    })
+                {
+                    return false;
+                }
+                let key = format!("assets/{namespace}/{texture}");
+                if let Some(bytes) = self.read_asset(namespace, &key) {
+                    self.files.insert(key, bytes);
+                    true
+                } else {
+                    tracing::warn!("moddedmc: missing screen texture {key}");
+                    false
+                }
+            })
         });
         self.files.insert(path, serde_json::to_vec(&layouts)?);
         Ok(())

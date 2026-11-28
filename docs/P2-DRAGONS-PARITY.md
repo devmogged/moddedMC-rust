@@ -28,7 +28,7 @@ six subscriptions.
 | Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, hurt and death cues including Moop's inherited generic sounds, adult dragon ambient and feeding profiles, swarm ambient calls, entity-bound one-shot dragon vocalizations, movement clip footstep and flap cues, and flight transition cues. A connected bot verified Cindervane, Raevyx and Mossback before the entity-bound changes. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Exact client animation keyframe playback and overlapping vocal animations, full per-ability cues on the remaining combat and Ivy controllers, exact flight state transitions, timed/looping sound instances, carrier sound suppression |
 | Presentation | Adult and eight dragon juvenile rigs in the Fabric companion, gender and skin changes, model/animation switches on growth, stock display fallbacks and food item particles | Overlays, custom particles, special renderers, equipment visuals, remaining screens and translations |
 | Integration | Versioned mod interfaces; the companion is required when loaded mods require it | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
-| Global dragon allies | Owner-scoped save-wide UUID list (ten players), Codex add/remove, shared dragon and Ivy combat trust, and ally buff eligibility |  server-wide player enumeration, typed command arguments and original ally text-input screen |
+| Global dragon allies | Owner-scoped save-wide UUID list (ten players), Codex typed-name add/remove through the companion, shared dragon and Ivy combat trust, and ally buff eligibility | server-wide player enumeration and typed command arguments |
 
 Volitans and Mossback reject poison before effects are applied, including external applications, matching their released canBeAffected overrides. Other effects retain vanilla admission rules. [Effect veto scenario](../tests/scenarios/p2-effect-veto.txt) (pending coordinator run).
 
@@ -542,17 +542,19 @@ of 16 blocks or less. The Dragonlord sword sets what it hits on fire for eight
 seconds. The server sees these through the generic `moddedmc:equipment` hooks.
 [Dragonlord scenario](../tests/scenarios/p2as-saints-dragons-dragonlord-set.txt)
 
-The Draconic Codex opens a stock-client dialog from either hand or when used
-on a dragon. It reads owner-specific records from the save, persists refreshed
+The Draconic Codex opens a standalone companion book from either hand or when used
+on a dragon, with a text dialog fallback. It reads owner-specific records from the save, persists refreshed
 loaded dragon stats, and tracks taming, death, and binder transfers. Selecting
 a record opens physiology and released ecology text; the owner can confirm
 removal of a record without destroying its dragon or binder. Gender and
 biome are included when available (the latter via the active generator's
 biome list and a loaded-block membership check). Binder capture snapshots
 the live dragon before discarding it, committing its bound record only after
-discard succeeds. The original companion renderer, ally tab text input, effective
-armor attribute, and cross-dimension discovery need client rendering, dialog
-text input, attribute reads, and loaded entity enumeration across worlds.
+discard succeeds. The companion draws the released background, tabs and stat
+icons, supports scrolling, ecology sections, typed ally controls and periodic
+refresh, and displays the effective armor attribute when available. Dragon
+portraits, item icons in ecology sections, exact animation and cross-dimension
+discovery remain outstanding; in-client visual parity has not been verified.
 Destroyed-binder handling needs an item-stack destruction callback with its
 NBT and removal cause, rather than guessing that a missing dropped item died.
 Owned adult Cindervane, Atroxiia and Stegonaut accept saddles and then
@@ -565,17 +567,19 @@ katana chain lightning needs a successful-hit callback, attributed damage
 and alliance/ownable target checks. Swarm pacification likewise needs an
 equipped-slot query on candidate targets.
 [Codex scenario](../tests/scenarios/p2ad-saints-dragons-codex.txt)
+[Standalone typed ally scenario](../tests/scenarios/p2-codex-screen.txt) (pending coordinator run)
 [Codex detail and binder removal scenario](../tests/scenarios/p2c-items.txt)
 
 The Codex Ally tab saves up to ten online players by UUID per owner, shared
 across all their dragons and dimensions and persisted through world saves.
 All eight dragon combat filters and recruited Ivy honor the owner's list and
 the ownership of mod companions; Cindervane's fire aura and Stegonaut's live
-and portable buffs also use the released owner/ally rules. The existing dialog
-uses a paged online-player selector and supports offline removal. Native pet
+and portable buffs also use the released owner/ally rules. The companion
+accepts typed names for add/remove; the fallback dialog uses a paged online-player
+selector and supports offline removal. Native pet
 ownership and scoreboard alliances are also checked. The host still needs
 server-wide online player lookup and typed string/entity-selector command
-arguments for /dragonally, and a text-input screen for the released Codex UI.
+arguments for /dragonally.
 [Global ally scenario](../tests/scenarios/p2-ally-list.txt) (pending coordinator run).
 
 Ivy's spawn egg creates the saved `saintsdragons:ivy_oleander` entity. The

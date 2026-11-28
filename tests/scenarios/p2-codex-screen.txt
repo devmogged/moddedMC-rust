@@ -1,0 +1,25 @@
+# Exercise the companion standalone protocol and typed ally controls with no dragons.
+mods target\mods\saints-dragons-codex\saints-dragons.mmc
+start
+botstart tester
+wait 3
+botstart visitor
+wait 3
+cmd gamemode creative tester
+cmd gamemode creative visitor
+botselect tester
+bot screen-enable
+cmd item replace entity tester hotbar.0 with saintsdragons:draconic_codex
+wait 1
+bot use-item main
+await 15 \[bot\] screen: (?=.*saintsdragons:draconic_codex)(?=.*Player Allies: 0/10)
+bot screen-click add_name visitor
+await 15 \[bot\] screen: (?=.*Player Allies: 1/10)(?=.*visitor)
+bot screen-click remove_name visitor
+await 15 \[bot\] screen: (?=.*Player Allies: 0/10)(?=.*"replyTo":"2")
+botselect visitor
+bot quit
+botselect tester
+bot quit
+reject (?i)panic|panicked|\[bot\] error
+stop

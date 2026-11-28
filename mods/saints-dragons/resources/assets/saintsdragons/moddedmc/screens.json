@@ -33,5 +33,404 @@
       {"slot": 15, "x": 145, "y": 99, "u": 232, "v": 0, "hoverV": 14, "pressedV": 28, "width": 24, "height": 14, "enabledWhen": "can_start", "label": "Crucible control"}
     ],
     "labels": []
+  },
+  "draconic_codex": {
+    "version": 2,
+    "title": "Draconic Codex",
+    "width": 393,
+    "height": 214,
+    "texture": "textures/gui/draconiccodex/draconic_codex.png",
+    "textureWidth": 393,
+    "textureHeight": 214,
+    "color": -10798574,
+    "atlases": {
+      "physiology": {
+        "texture": "textures/gui/draconiccodex/physiology_tab.png",
+        "width": 26,
+        "height": 22
+      },
+      "physiology_closed": {
+        "texture": "textures/gui/draconiccodex/physiology_tab_closed.png",
+        "width": 10,
+        "height": 22
+      },
+      "ecology": {
+        "texture": "textures/gui/draconiccodex/ecology_tab.png",
+        "width": 26,
+        "height": 22
+      },
+      "ecology_closed": {
+        "texture": "textures/gui/draconiccodex/ecology_tab_closed.png",
+        "width": 10,
+        "height": 22
+      },
+      "ally": {
+        "texture": "textures/gui/draconiccodex/ally_tab.png",
+        "width": 26,
+        "height": 22
+      },
+      "ally_closed": {
+        "texture": "textures/gui/draconiccodex/ally_tab_closed.png",
+        "width": 10,
+        "height": 22
+      },
+      "health": {
+        "texture": "textures/gui/draconiccodex/icons/health_icon.png",
+        "width": 8,
+        "height": 9
+      },
+      "armor": {
+        "texture": "textures/gui/draconiccodex/icons/armor_icon.png",
+        "width": 8,
+        "height": 9
+      },
+      "gender": {
+        "texture": "textures/gui/draconiccodex/icons/gender_icon.png",
+        "width": 8,
+        "height": 9
+      },
+      "hunger": {
+        "texture": "textures/gui/draconiccodex/icons/hunger_icon.png",
+        "width": 8,
+        "height": 9
+      },
+      "happiness": {
+        "texture": "textures/gui/draconiccodex/icons/happiness_icon.png",
+        "width": 8,
+        "height": 9
+      },
+      "variant": {
+        "texture": "textures/gui/draconiccodex/icons/variant_icon.png",
+        "width": 8,
+        "height": 9
+      },
+      "refresh": {
+        "texture": "textures/gui/draconiccodex/icons/refresh_icon.png",
+        "width": 8,
+        "height": 9
+      },
+      "remove_entries": {
+        "texture": "textures/gui/draconiccodex/icons/remove_entries_icon.png",
+        "width": 8,
+        "height": 9
+      },
+      "add": {
+        "texture": "textures/gui/draconiccodex/icons/add_icon.png",
+        "width": 16,
+        "height": 16
+      },
+      "remove": {
+        "texture": "textures/gui/draconiccodex/icons/remove_icon.png",
+        "width": 16,
+        "height": 16
+      },
+      "edit": {
+        "texture": "textures/gui/draconiccodex/codex_edit_box.png",
+        "width": 120,
+        "height": 16
+      },
+      "brush_ready": {
+        "texture": "textures/gui/draconiccodex/brushing_available1.png",
+        "width": 16,
+        "height": 16
+      },
+      "brush_wait": {
+        "texture": "textures/gui/draconiccodex/brushing_unavailable.png",
+        "width": 16,
+        "height": 16
+      }
+    },
+    "tabs": [
+      {
+        "key": "physiology",
+        "active": "physiology",
+        "inactive": "physiology_closed",
+        "x": 366,
+        "y": 24,
+        "width": 26,
+        "height": 22
+      },
+      {
+        "key": "ecology",
+        "active": "ecology",
+        "inactive": "ecology_closed",
+        "x": 366,
+        "y": 48,
+        "width": 26,
+        "height": 22
+      },
+      {
+        "key": "ally",
+        "active": "ally",
+        "inactive": "ally_closed",
+        "x": 366,
+        "y": 72,
+        "width": 26,
+        "height": 22
+      }
+    ],
+    "lists": [
+      {
+        "source": "entries",
+        "x": 7,
+        "y": 47,
+        "width": 120,
+        "count": 10,
+        "spacing": 13,
+        "field": "name",
+        "select": true,
+        "empty": "No tamed dragons found"
+      },
+      {
+        "source": "allies",
+        "tab": "ally",
+        "x": 231,
+        "y": 55,
+        "width": 132,
+        "count": 8,
+        "spacing": 12,
+        "empty": "No player allies added yet."
+      }
+    ],
+    "labels": [
+      {
+        "tab": "physiology",
+        "field": "name",
+        "selected": true,
+        "x": 110,
+        "y": 35,
+        "width": 88,
+        "lines": 1,
+        "center": true
+      },
+      {
+        "tab": "ecology",
+        "field": "name",
+        "selected": true,
+        "x": 110,
+        "y": 35,
+        "width": 88,
+        "lines": 1,
+        "center": true
+      },
+      {
+        "tab": "physiology",
+        "field": "health",
+        "selected": true,
+        "x": 106,
+        "y": 148,
+        "width": 55,
+        "lines": 1
+      },
+      {
+        "tab": "physiology",
+        "field": "armor",
+        "selected": true,
+        "x": 106,
+        "y": 162,
+        "width": 55,
+        "lines": 1
+      },
+      {
+        "tab": "physiology",
+        "field": "gender",
+        "selected": true,
+        "x": 106,
+        "y": 176,
+        "width": 55,
+        "lines": 1
+      },
+      {
+        "tab": "physiology",
+        "field": "hunger",
+        "selected": true,
+        "x": 173,
+        "y": 148,
+        "width": 54,
+        "lines": 1
+      },
+      {
+        "tab": "physiology",
+        "field": "happiness",
+        "selected": true,
+        "x": 173,
+        "y": 162,
+        "width": 54,
+        "lines": 1
+      },
+      {
+        "tab": "physiology",
+        "field": "variant",
+        "selected": true,
+        "x": 173,
+        "y": 176,
+        "width": 58,
+        "lines": 2
+      },
+      {
+        "tab": "physiology",
+        "field": "position",
+        "selected": true,
+        "x": 231,
+        "y": 15,
+        "width": 90,
+        "lines": 4
+      },
+      {
+        "tab": "physiology",
+        "field": "biome",
+        "selected": true,
+        "x": 231,
+        "y": 50,
+        "width": 140,
+        "lines": 2
+      },
+      {
+        "tab": "physiology",
+        "field": "brushing",
+        "selected": true,
+        "x": 249,
+        "y": 80,
+        "width": 100,
+        "lines": 1
+      },
+      {
+        "tab": "ally",
+        "field": "ally_count",
+        "x": 231,
+        "y": 39,
+        "width": 132,
+        "lines": 1
+      }
+    ],
+    "layers": [
+      {
+        "tab": "physiology",
+        "atlas": "health",
+        "x": 96,
+        "y": 147,
+        "selected": true
+      },
+      {
+        "tab": "physiology",
+        "atlas": "armor",
+        "x": 96,
+        "y": 161,
+        "selected": true
+      },
+      {
+        "tab": "physiology",
+        "atlas": "gender",
+        "x": 96,
+        "y": 175,
+        "selected": true
+      },
+      {
+        "tab": "physiology",
+        "atlas": "hunger",
+        "x": 163,
+        "y": 147,
+        "selected": true
+      },
+      {
+        "tab": "physiology",
+        "atlas": "happiness",
+        "x": 163,
+        "y": 161,
+        "selected": true
+      },
+      {
+        "tab": "physiology",
+        "atlas": "variant",
+        "x": 163,
+        "y": 175,
+        "selected": true
+      },
+      {
+        "tab": "physiology",
+        "atlas": "brush_ready",
+        "x": 231,
+        "y": 76,
+        "selected": true,
+        "field": "brushing_status",
+        "equals": "ready"
+      },
+      {
+        "tab": "physiology",
+        "atlas": "brush_wait",
+        "x": 231,
+        "y": 76,
+        "selected": true,
+        "field": "brushing_status",
+        "equals": "waiting"
+      },
+      {
+        "tab": "ally",
+        "atlas": "edit",
+        "x": 232,
+        "y": 15
+      }
+    ],
+    "controls": [
+      {
+        "atlas": "refresh",
+        "x": 72,
+        "y": 46,
+        "label": "Refresh entry",
+        "action": "refresh"
+      },
+      {
+        "atlas": "remove_entries",
+        "x": 72,
+        "y": 57,
+        "label": "Remove entry",
+        "action": "remove",
+        "selected": true,
+        "confirm": "This only removes the saved Codex entry. It will not remove the dragon, and a living dragon will return when refreshed."
+      },
+      {
+        "tab": "ally",
+        "atlas": "add",
+        "x": 327,
+        "y": 35,
+        "label": "Add Player",
+        "action": "add_name",
+        "input": true
+      },
+      {
+        "tab": "ally",
+        "atlas": "remove",
+        "x": 344,
+        "y": 35,
+        "label": "Remove Player",
+        "action": "remove_name",
+        "input": true
+      }
+    ],
+    "input": {
+      "tab": "ally",
+      "x": 233,
+      "y": 17,
+      "width": 122,
+      "height": 12,
+      "maxLength": 16
+    },
+    "pages": {
+      "tab": "ecology",
+      "field": "ecology",
+      "x": 232,
+      "y": 14,
+      "width": 131,
+      "lines": 17,
+      "spacing": 10,
+      "navX": 292,
+      "navY": 183,
+      "sections": "ecology_sections",
+      "sectionX": 97,
+      "sectionY": 148,
+      "sectionWidth": 122
+    },
+    "refreshAction": "refresh",
+    "refreshInterval": 40
   }
 }

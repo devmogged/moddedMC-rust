@@ -34,6 +34,7 @@ mod mob_ai;
 mod mobs;
 mod native;
 mod native_entity;
+mod pack_screen;
 mod player_actions;
 mod player_death;
 mod resources;
@@ -65,8 +66,7 @@ use pumpkin_core::{
         api::events::{
             entity::{
                 entity_damage::EntityDamageEvent, entity_damage_final::EntityDamageFinalEvent,
-                entity_death::EntityDeathEvent,
-                entity_potion_effect::EntityPotionEffectEvent,
+                entity_death::EntityDeathEvent, entity_potion_effect::EntityPotionEffectEvent,
             },
             player::player_interact_entity_event::PlayerInteractEntityEvent,
         },
@@ -232,6 +232,7 @@ pub fn attach(server: &Arc<Server>) {
     let _ = native::SERVER.set(server.clone());
     companion::attach(server, HAS_MODS.load(Ordering::Relaxed));
     player_actions::attach(server);
+    pack_screen::attach(server);
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
     pm.register::<WorldSaveEvent, _>(Arc::new(SavedDataSaveHandler), EventPriority::Normal, true);
