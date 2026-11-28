@@ -1385,6 +1385,13 @@ fn storm_timing(air: bool) -> (i32, i32) {
     if air { (47, 110) } else { (60, 125) }
 }
 
+pub(crate) fn storm_casting(mob: Entity<'_>) -> bool {
+    let state = State::load(mob);
+    state
+        .storm_age
+        .is_some_and(|age| age < storm_timing(state.storm_air).1)
+}
+
 fn tick_storm(world: World<'_>, mob: Entity<'_>, state: &mut State) -> Option<&'static str> {
     state.storm_cooldown = (state.storm_cooldown - 1).max(0);
     if state.supercharge > 0 {
@@ -1413,7 +1420,8 @@ fn tick_storm(world: World<'_>, mob: Entity<'_>, state: &mut State) -> Option<&'
         state.supercharge = state.supercharge.max(STORM_DURATION);
     }
     if age == cast {
-        // shortcut: the host cannot read remaining weather durations or restore previous weather.
+        // shortcut: the host cannot read the previous rain/thunder flags and independent timers,
+        // or set the two timers independently. Preserve their maxima when that interface exists.
         world.set_weather(2, STORM_DURATION);
         if let Some(effects) = EFFECTS.get() {
             effects.play_entity_sound(
