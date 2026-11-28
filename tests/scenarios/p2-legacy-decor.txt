@@ -2,37 +2,38 @@
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 start
 botstart tester
-wait 3
+await 10 \[bot\] joined as tester
 cmd gamemode creative tester
 cmd gamerule minecraft:spawn_mobs false
+cmd execute positioned 0 120 0 run locate structure saintsdragons:ivy_house
+await 10 The nearest saintsdragons:ivy_house is at \[-352, ~, 880\]
 cmd tp tester -352 95 880
-wait 8
+await 10 \[bot\] teleported to .*\-351\.5.*880\.5
+cmd forceload add -359 870 -351 878
+await 10 Marked .*force loaded
+await-cmd 30 following block data: "saintsdragons:chests/ivy_house_chest" && data get block -355 75 874 LootTable
 
 # Relative to the known loot chest, support all four template rotations.
 cmd execute if block -355 75 874 minecraft:chest[facing=south] run data get block -351 77 876 profile
 cmd execute if block -355 75 874 minecraft:chest[facing=west] run data get block -357 77 878 profile
 cmd execute if block -355 75 874 minecraft:chest[facing=north] run data get block -359 77 872 profile
 cmd execute if block -355 75 874 minecraft:chest[facing=east] run data get block -353 77 870 profile
-wait 0.5
-expect following block data: (?=.*textures)(?=.*eyJ0ZXh0dXJlc)
+await 5 following block data: (?=.*textures)(?=.*eyJ0ZXh0dXJlc)
 
 cmd execute if block -355 75 874 minecraft:chest[facing=south] run data get block -353 78 871 patterns
 cmd execute if block -355 75 874 minecraft:chest[facing=west] run data get block -352 78 876 patterns
 cmd execute if block -355 75 874 minecraft:chest[facing=north] run data get block -357 78 877 patterns
 cmd execute if block -355 75 874 minecraft:chest[facing=east] run data get block -358 78 872 patterns
-wait 0.5
-expect following block data: (?=.*stripe_middle)(?=.*rhombus)(?=.*flower)(?=.*triangle_top)(?=.*curly_border)(?=.*circle)
+await 5 following block data: (?=.*stripe_middle)(?=.*rhombus)(?=.*flower)(?=.*triangle_top)(?=.*curly_border)(?=.*circle)
 
 cmd execute if block -355 75 874 minecraft:chest[facing=south] run data get block -356 75 878 Items
 cmd execute if block -355 75 874 minecraft:chest[facing=west] run data get block -359 75 873 Items
 cmd execute if block -355 75 874 minecraft:chest[facing=north] run data get block -354 75 870 Items
 cmd execute if block -355 75 874 minecraft:chest[facing=east] run data get block -351 75 875 Items
-wait 0.5
-expect following block data: (?=.*minecraft:book)(?=.*Slot: 0b)(?=.*Slot: 5b)
+await 5 following block data: (?=.*minecraft:book)(?=.*Slot: 0b)(?=.*Slot: 5b)
 
 cmd execute positioned -352 75 880 run data get entity @e[type=minecraft:item_frame,distance=..30,limit=1] Item
-wait 0.5
-expect following entity data: (?=.*minecraft:player_head)(?=.*Armaralis Egg)(?=.*minecraft:profile)(?=.*minecraft:movement_speed)
+await 5 following entity data: (?=.*minecraft:player_head)(?=.*Armaralis Egg)(?=.*minecraft:profile)(?=.*minecraft:movement_speed)
 
 bot quit
 stop

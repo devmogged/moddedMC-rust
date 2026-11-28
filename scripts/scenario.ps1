@@ -11,6 +11,7 @@
 #   expect <regex>           fail unless a log line since the previous expect/start matches
 #   expect-all <regex> && <regex>  require each pattern in the same log window, in any order
 #   await [seconds] <regex>  wait for acknowledgement; default 5s when no timeout supplied
+#   await-cmd <seconds> <regex> && <query>  retry a read-only console query until acknowledged
 #   reject <regex>           fail if any log line since the previous expect/start matches
 #   stop                     send stop and wait for exit
 #   botstart <name>          join with moddedmc-bot (its output goes into the log)
@@ -162,15 +163,26 @@ foreach ($raw in Get-Content $Scenario) {
             Write-Host "  $line"
         }
         'wait' { Start-Sleep -Milliseconds ([int]([double]$arg * 1000)) }
-        { $_ -in 'expect', 'expect-all', 'await' } {
-            if ($_ -eq 'await') {
+        { $_ -in 'expect', 'expect-all', 'await', 'await-cmd' } {
+            if ($_ -in 'await', 'await-cmd') {
                 $seconds = 5
                 if ($arg -match '^([0-9]+(?:\.[0-9]+)?)\s+(.+)$') {
                     $seconds = [double]$Matches[1]
                     $arg = $Matches[2]
                 }
+                $probe = $null
+                if ($_ -eq 'await-cmd') {
+                    $parts = $arg -split ' && ', 2
+                    if ($parts.Count -ne 2) { throw 'await-cmd requires a pattern and query separated by &&' }
+                    $arg, $probe = $parts
+                }
                 $deadline = [Diagnostics.Stopwatch]::StartNew()
+                $nextProbe = 0
                 do {
+                    if ($probe -and $deadline.ElapsedMilliseconds -ge $nextProbe) {
+                        $script:p.StandardInput.WriteLine($probe)
+                        $nextProbe = $deadline.ElapsedMilliseconds + 250
+                    }
                     $new = @(Get-NewLines)
                     if ($new -match $arg) { break }
                     $script:p.Refresh()

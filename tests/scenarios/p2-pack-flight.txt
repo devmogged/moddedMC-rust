@@ -2,38 +2,61 @@ mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 # Cindervane wild airborne leader: two adult followers take off and then land.
 start
 botstart tester
-wait 3
+await 10 \[bot\] joined as tester
 cmd op tester
 cmd gamemode creative tester
 cmd gamerule minecraft:spawn_mobs false
-cmd time set day
-cmd tp tester 1025.5 121 1025.5
+cmd time set midnight
+cmd tp tester 1032.5 121 1032.5
+await 10 \[bot\] teleported to .*1032\.5.*1032\.5
 cmd forceload add 1000 1000 1050 1050
-wait 5
+await 10 Marked .*force loaded
+await-cmd 30 Test passed && execute if loaded 1000 119 1000 if loaded 1000 119 1008 if loaded 1000 119 1024 if loaded 1000 119 1040 if loaded 1008 119 1000 if loaded 1008 119 1008 if loaded 1008 119 1024 if loaded 1008 119 1040 if loaded 1024 119 1000 if loaded 1024 119 1008 if loaded 1024 119 1024 if loaded 1024 119 1040 if loaded 1040 119 1000 if loaded 1040 119 1008 if loaded 1040 119 1024 if loaded 1040 119 1040
 cmd fill 1000 119 1000 1050 119 1050 minecraft:stone
+await 60 Successfully filled|No blocks were filled
 cmd fill 1000 120 1000 1050 130 1050 minecraft:air
+await 60 Successfully filled|No blocks were filled
 cmd fill 1000 131 1000 1050 142 1050 minecraft:air
-cmd cindervane spawn 1025 120 1025
-cmd data merge entity @e[type=minecraft:ravager,x=1025,y=120,z=1025,distance=..3,limit=1] {Tags:["pack_leader"],NoAI:1b,NoGravity:1b,data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
-cmd cindervane spawn 1018 120 1015
-cmd data merge entity @e[type=minecraft:ravager,x=1018,y=120,z=1015,distance=..3,limit=1] {Tags:["pack_follower"],data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
-cmd cindervane spawn 1032 120 1015
-cmd data merge entity @e[type=minecraft:ravager,x=1032,y=120,z=1015,distance=..3,limit=1] {Tags:["pack_follower"],data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
-wait 4
-cmd tp @e[tag=pack_leader,limit=1] 1025.5 132 1025.5 0 0
-wait 7
+await 60 Successfully filled|No blocks were filled
+# Spawn all three in the already ticking player chunk; prevent independent daytime takeoff
+# until both followers have resolved the sole male leader.
+cmd cindervane spawn 1032 120 1032
+await 10 cindervane: spawned \d+, state set true
+cmd data merge entity @e[type=minecraft:ravager,x=1032,y=120,z=1032,distance=..3,limit=1] {Tags:["pack_leader"],NoAI:1b,NoGravity:1b,data:{"saintsdragons:appearance":{female:0b,variant:0b}}}
+await 10 Modified entity data of Ravager
+cmd cindervane spawn 1027 120 1027
+await 10 cindervane: spawned \d+, state set true
+cmd data merge entity @e[type=minecraft:ravager,x=1027,y=120,z=1027,distance=..3,limit=1] {Tags:["pack_follower"],data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+await 10 Modified entity data of Ravager
+cmd cindervane spawn 1037 120 1027
+await 10 cindervane: spawned \d+, state set true
+cmd data merge entity @e[type=minecraft:ravager,x=1037,y=120,z=1027,distance=..3,limit=1] {Tags:["pack_follower"],data:{"saintsdragons:appearance":{female:1b,variant:0b}}}
+await 10 Modified entity data of Ravager
+cmd tick sprint 100t
+await 15 \[bot\] chat: (?=.*commands\.tick\.sprint\.report)(?=.*with [0-9.]+ [0-9.]+)
+cmd execute if entity @e[tag=pack_follower,nbt={data:{"saintsdragons:pack":{}}}]
+await 5 Test passed\. Count: 2
+cmd time set day
+cmd tp @e[tag=pack_leader,limit=1] 1032.5 132 1032.5 0 0
+await 5 Teleported Ravager to 1032\.5, 132, 1032\.5
+cmd data merge entity @e[tag=pack_leader,limit=1] {OnGround:0b,NoGravity:1b,Motion:[0.0d,0.0d,0.0d]}
+await 5 Modified entity data of Ravager
+cmd data get entity @e[tag=pack_leader,limit=1] OnGround
+await 5 has the following entity data: 0b
+cmd tick sprint 140t
+await 15 \[bot\] chat: (?=.*commands\.tick\.sprint\.report)(?=.*with [0-9.]+ [0-9.]+)
 cmd execute if entity @e[tag=pack_follower,x=1005,y=125,z=1005,dx=40,dy=17,dz=40]
-wait 0.5
-expect Test passed
-cmd cindervane find 1025 132 1025
-wait 0.5
-expect flight=active
-cmd tp @e[tag=pack_leader,limit=1] 1025.5 120 1025.5
+await 5 Test passed\. Count: 2
+cmd cindervane find 1032 132 1032
+await 5 flight=active.*flight=active
+cmd tp @e[tag=pack_leader,limit=1] 1032.5 120 1032.5
+await 5 Teleported Ravager to 1032\.5, 120, 1032\.5
 cmd data merge entity @e[tag=pack_leader,limit=1] {NoGravity:0b}
-wait 8
+await 5 Modified entity data of Ravager
+cmd tick sprint 160t
+await 15 \[bot\] chat: (?=.*commands\.tick\.sprint\.report)(?=.*with [0-9.]+ [0-9.]+)
 cmd execute if entity @e[tag=pack_follower,x=1005,y=119,z=1005,dx=40,dy=3,dz=40]
-wait 0.5
-expect Test passed
+await 5 Test passed\. Count: 2
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop
