@@ -1358,8 +1358,23 @@ fn ridden_geometry(mob: Entity<'_>, rider: Entity<'_>) -> Option<([f64; 3], [f64
     ))
 }
 
-/// The release's ridden claw can destroy soft blocks in a forward sweep,
-/// subject to mob griefing. Waterlogged blocks are conservatively excluded.
+/// VarasuchusClawAbility.canBreakBlock: waterlogged solid blocks are eligible;
+/// only air, liquid blocks and hardness outside 0..=30 are excluded.
+fn claw_breakable(selector: &str, hardness: f32) -> bool {
+    let id = selector.split('[').next().unwrap_or(selector);
+    !matches!(
+        id,
+        "minecraft:air"
+            | "minecraft:cave_air"
+            | "minecraft:void_air"
+            | "minecraft:water"
+            | "minecraft:lava"
+    ) && (0.0..=30.0).contains(&hardness)
+}
+
+/// VarasuchusClawAbility.breakBlocksInPath.
+// shortcut: the vanilla mob griefing rule is exposed, but not the dragon config
+// or destroyBlock's causing-entity argument.
 fn claw_blocks(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
     if !MOBS
         .get()
@@ -1368,6 +1383,9 @@ fn claw_blocks(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
         return;
     }
     let Some((origin, direction)) = ridden_geometry(mob, rider) else {
+        return;
+    };
+    let Some(content) = crate::CONTENT.get() else {
         return;
     };
     let end: [f64; 3] = std::array::from_fn(|i| origin[i] + direction[i] * 6.0);
@@ -1397,10 +1415,12 @@ fn claw_blocks(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
                     continue;
                 }
                 let pos = Pos { x, y, z };
-                if world.fluid_id(pos).as_deref() == Some("minecraft:empty")
+                let mut state = [moddedmc_api::content::UNLOADED_STATE];
+                if world.read(&[pos], &mut state)
+                    && let Some(selector) = content.describe_state(state[0])
                     && world
                         .destroy_speed(pos)
-                        .is_some_and(|h| (0.0..=30.0).contains(&h))
+                        .is_some_and(|h| claw_breakable(&selector, h))
                 {
                     world.destroy(pos, true);
                 }
@@ -1579,5 +1599,15 @@ mod tests {
         assert_eq!(Attack::Shift.duration(true), 33);
         assert_eq!(Attack::Shift.duration(false), 21);
         assert_eq!(Attack::Horn.damage(true), 15.8);
+    }
+    #[test]
+    fn claw_breaks_waterlogged_solids_but_not_liquids_or_unbreakable_blocks() {
+        assert!(claw_breakable("minecraft:oak_fence[waterlogged=true]", 2.0));
+        assert!(claw_breakable("minecraft:stone", 30.0));
+        assert!(!claw_breakable("minecraft:water[level=2]", 0.0));
+        assert!(!claw_breakable("minecraft:lava[level=0]", 0.0));
+        assert!(!claw_breakable("minecraft:cave_air", 0.0));
+        assert!(!claw_breakable("minecraft:bedrock", -1.0));
+        assert!(!claw_breakable("minecraft:obsidian", 50.0));
     }
 }

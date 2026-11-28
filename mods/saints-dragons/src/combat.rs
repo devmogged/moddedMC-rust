@@ -86,6 +86,9 @@ pub fn hurt(world: World<'_>, mob: Entity<'_>, damage_type: &str, amount: f32) -
         }
         return false;
     }
+    if species_source_immune(world, mob) {
+        return false;
+    }
     if MOBS.get().and_then(|m| m.kind(mob)) == Some("saintsdragons:volitans")
         && !matches!(
             damage_type,
@@ -149,7 +152,45 @@ pub fn hurt_final(
                 amount
             }
         }
+        // Stegonaut.hurt scales all fall-tag damage by 0.3.
+        // shortcut: the final-damage callback cannot change the pre-mitigation amount.
+        Some("saintsdragons:stegonaut") if is_fall_damage(damage_type) => amount * 0.3,
         _ => amount,
+    }
+}
+
+fn is_fall_damage(damage_type: &str) -> bool {
+    damage_type == "minecraft:fall"
+        || crate::TAGS.get().is_some_and(|tags| {
+            tags.contains("minecraft:damage_type", "minecraft:is_fall", damage_type)
+        })
+}
+
+/// Nulljaw.hurt, Volitans.hurt and Stegonaut.isWildStegonautDamageAllowed.
+fn species_source_immune(world: World<'_>, mob: Entity<'_>) -> bool {
+    let (Some(mobs), Some(entities), Some(ai)) = (MOBS.get(), ENTITIES.get(), MOB_AI.get()) else {
+        return false;
+    };
+    let Some(kind) = mobs.kind(mob) else {
+        return false;
+    };
+    let Some((causing, direct)) = ai.damage_source() else {
+        return false;
+    };
+    let is_type = |id, name| {
+        id >= 0 && entities.with_entity(world, id, |e| e.type_id() == name) == Some(true)
+    };
+    match kind {
+        "saintsdragons:nulljaw" => is_type(direct, "minecraft:shulker_bullet"),
+        "saintsdragons:volitans" => {
+            is_type(causing, "minecraft:pufferfish") || is_type(direct, "minecraft:pufferfish")
+        }
+        "saintsdragons:stegonaut" if !crate::taming::is_tamed(mob) => {
+            entities.with_entity(world, causing, |e| {
+                mobs.kind(e) == Some(kind) && !crate::taming::is_tamed(e)
+            }) == Some(true)
+        }
+        _ => false,
     }
 }
 

@@ -1178,9 +1178,11 @@ fn frost(world: World<'_>, target: Entity<'_>, ticks: i32, particles: bool) {
     let ticks = ticks.max(1);
     target.add_effect("minecraft:slowness", ticks, 6, false, true);
     target.add_effect("minecraft:weakness", ticks, 1, false, true);
-    // shortcut: the host does not expose canFreeze and currently clamps the
-    // counter to 140; the release's excess freeze duration needs engine support.
-    if let Some(current) = target.ticks_frozen() {
+    // shortcut: Pumpkin still clamps the counter to its maximum; the release
+    // preserves excess duration until the host supports it.
+    if target.can_freeze() == Some(true)
+        && let Some(current) = target.ticks_frozen()
+    {
         target.set_ticks_frozen(frost_ticks(current, ticks));
     }
     if particles && let (Some(e), Some(v)) = (EFFECTS.get(), target.view()) {
