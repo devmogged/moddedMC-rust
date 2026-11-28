@@ -25,6 +25,24 @@ cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
 await 30 Successfully filled|No blocks were filled
 cmd fill 1013 100 1013 1037 110 1037 minecraft:air
 await 30 Successfully filled|No blocks were filled
+# Wild dragons already generated in surrounding chunks must not enter the mount fixture.
+cmd fill 1013 100 1013 1013 110 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1037 100 1013 1037 110 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1014 100 1013 1036 110 1013 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1014 100 1037 1036 110 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1014 109 1014 1036 109 1036 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd effect give tester minecraft:resistance 600 4 true
+await 10 Applied effect|Gave effect
+# Exclude any carriers already loaded before the fixture spawns.
+cmd tag @e[type=minecraft:ravager] add mount_existing
+cmd tag @e[type=minecraft:spider] add mount_existing
+cmd kill @e[tag=mount_existing,x=1025,y=100,z=1025,distance=..18]
+await-cmd 10 Test passed && execute unless entity @e[tag=mount_existing,x=1025,y=100,z=1025,distance=..18]
 cmd time set day
 
 # Stegonaut
@@ -32,8 +50,9 @@ cmd gamemode creative tester
 cmd tp tester 1025.5 100 1028.5
 cmd saintsdragons spawn stegonaut 1025 100 1025
 await 30 saintsdragons:stegonaut: spawned
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] {NoAI:1b}
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] 1025.5 100 1025.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},tag=!mount_existing,x=1025,y=100,z=1025,distance=..8,sort=nearest,limit=1] {NoAI:1b,Tags:["mount_fixture"]}
+await 10 Modified entity data of (Ravager|Spider)
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},tag=mount_fixture,limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
@@ -68,7 +87,7 @@ wait 0.5
 expect \[bot\] expect riding ok none
 bot input none
 cmd tp tester 1033.5 101 1025.5
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},tag=mount_fixture,limit=1] 1000 minecraft:generic
 wait 3
 cmd data get entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}},limit=1] Item.id
 wait 0.5
@@ -80,8 +99,9 @@ cmd gamemode creative tester
 cmd tp tester 1025.5 100 1028.5
 cmd saintsdragons spawn atroxiia 1025 100 1025
 await 30 saintsdragons:atroxiia: spawned
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] {NoAI:1b}
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] 1025.5 100 1025.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},tag=!mount_existing,x=1025,y=100,z=1025,distance=..8,sort=nearest,limit=1] {NoAI:1b,Tags:["mount_fixture"]}
+await 10 Modified entity data of (Ravager|Spider)
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},tag=mount_fixture,limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
@@ -116,7 +136,7 @@ wait 0.5
 expect \[bot\] expect riding ok none
 bot input none
 cmd tp tester 1033.5 101 1025.5
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:atroxiia"}}},tag=mount_fixture,limit=1] 1000 minecraft:generic
 wait 3
 cmd data get entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}},limit=1] Item.id
 wait 0.5
@@ -128,8 +148,9 @@ cmd gamemode creative tester
 cmd tp tester 1025.5 100 1028.5
 cmd saintsdragons spawn cindervane 1025 100 1025
 await 30 saintsdragons:cindervane: spawned
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] {NoAI:1b}
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1025.5 100 1025.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},tag=!mount_existing,x=1025,y=100,z=1025,distance=..8,sort=nearest,limit=1] {NoAI:1b,Tags:["mount_fixture"]}
+await 10 Modified entity data of (Ravager|Spider)
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},tag=mount_fixture,limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
@@ -164,7 +185,7 @@ wait 0.5
 expect \[bot\] expect riding ok none
 bot input none
 cmd tp tester 1033.5 101 1025.5
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},tag=mount_fixture,limit=1] 1000 minecraft:generic
 wait 3
 cmd data get entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}},limit=1] Item.id
 wait 0.5
@@ -176,8 +197,9 @@ cmd gamemode creative tester
 cmd tp tester 1025.5 100 1028.5
 cmd saintsdragons spawn varasuchus 1025 100 1025
 await 30 saintsdragons:varasuchus: spawned
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] {NoAI:1b}
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1025.5 100 1025.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},tag=!mount_existing,x=1025,y=100,z=1025,distance=..8,sort=nearest,limit=1] {NoAI:1b,Tags:["mount_fixture"]}
+await 10 Modified entity data of (Ravager|Spider)
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},tag=mount_fixture,limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
@@ -204,7 +226,7 @@ wait 0.5
 expect \[bot\] expect riding ok none
 bot input none
 cmd tp tester 1033.5 101 1025.5
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:varasuchus"}}},tag=mount_fixture,limit=1] 1000 minecraft:generic
 wait 3
 cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
 wait 0.5
@@ -215,8 +237,9 @@ cmd gamemode creative tester
 cmd tp tester 1025.5 100 1028.5
 cmd saintsdragons spawn ignivorus 1025 100 1025
 await 30 saintsdragons:ignivorus: spawned
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] {NoAI:1b}
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] 1025.5 100 1025.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},tag=!mount_existing,x=1025,y=100,z=1025,distance=..8,sort=nearest,limit=1] {NoAI:1b,Tags:["mount_fixture"]}
+await 10 Modified entity data of (Ravager|Spider)
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},tag=mount_fixture,limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
@@ -243,7 +266,7 @@ wait 0.5
 expect \[bot\] expect riding ok none
 bot input none
 cmd tp tester 1033.5 101 1025.5
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},tag=mount_fixture,limit=1] 1000 minecraft:generic
 wait 3
 cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
 wait 0.5
@@ -254,8 +277,9 @@ cmd gamemode creative tester
 cmd tp tester 1025.5 100 1028.5
 cmd saintsdragons spawn raevyx 1025 100 1025
 await 30 saintsdragons:raevyx: spawned
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] {NoAI:1b}
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1025.5 100 1025.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},tag=!mount_existing,x=1025,y=100,z=1025,distance=..8,sort=nearest,limit=1] {NoAI:1b,Tags:["mount_fixture"]}
+await 10 Modified entity data of (Ravager|Spider)
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},tag=mount_fixture,limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
@@ -282,7 +306,7 @@ wait 0.5
 expect \[bot\] expect riding ok none
 bot input none
 cmd tp tester 1033.5 101 1025.5
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},tag=mount_fixture,limit=1] 1000 minecraft:generic
 wait 3
 cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
 wait 0.5
@@ -293,8 +317,9 @@ cmd gamemode creative tester
 cmd tp tester 1025.5 100 1028.5
 cmd saintsdragons spawn volitans 1025 100 1025
 await 30 saintsdragons:volitans: spawned
-cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] {NoAI:1b}
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] 1025.5 100 1025.5
+cmd data merge entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},tag=!mount_existing,x=1025,y=100,z=1025,distance=..8,sort=nearest,limit=1] {NoAI:1b,Tags:["mount_fixture"]}
+await 10 Modified entity data of (Ravager|Spider)
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},tag=mount_fixture,limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity ravager 1025.5 100 1025.5 off
@@ -321,7 +346,7 @@ wait 0.5
 expect \[bot\] expect riding ok none
 bot input none
 cmd tp tester 1033.5 101 1025.5
-cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:volitans"}}},tag=mount_fixture,limit=1] 1000 minecraft:generic
 wait 3
 cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
 wait 0.5
@@ -332,8 +357,9 @@ cmd gamemode creative tester
 cmd tp tester 1025.5 100 1028.5
 cmd saintsdragons spawn nulljaw 1025 100 1025
 await 30 saintsdragons:nulljaw: spawned
-cmd data merge entity @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] {NoAI:1b}
-cmd tp @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] 1025.5 100 1025.5
+cmd data merge entity @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},tag=!mount_existing,x=1025,y=100,z=1025,distance=..8,sort=nearest,limit=1] {NoAI:1b,Tags:["mount_fixture"]}
+await 10 Modified entity data of (Ravager|Spider)
+cmd tp @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},tag=mount_fixture,limit=1] 1025.5 100 1025.5
 cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
 wait 0.5
 bot use-entity spider 1025.5 100 1025.5 off
@@ -360,8 +386,10 @@ wait 0.5
 expect \[bot\] expect riding ok none
 bot input none
 cmd tp tester 1033.5 101 1025.5
-cmd damage @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},limit=1] 1000 minecraft:generic
+cmd damage @e[type=minecraft:spider,nbt={data:{moddedmc:{mob:"saintsdragons:nulljaw"}}},tag=mount_fixture,limit=1] 1000 minecraft:generic
 wait 3
+bot expect slot 36 minecraft:saddle 1
+await 10 \[bot\] expect inventory ok slot 36 saddle 1
 cmd execute unless entity @e[type=minecraft:item,nbt={Item:{id:"minecraft:saddle"}}]
 wait 0.5
 expect Test passed
