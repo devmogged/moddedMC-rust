@@ -169,3 +169,7 @@ Use Java 26.3 with the matching Fabric companion, the Saints Dragons server mod 
 - Click the upper and lower frequency slots with an item. Expect a small copy of the item drawn in that slot, facing out of the plate, an item-frame sound, and the held item kept. Click with an empty hand to clear a slot. Use dyed leather armor in two colors and expect them to count as different frequencies.
 - Sneak-click a link with an empty hand and expect the mode to toggle. Hold a Linked Controller and expect a click on a slot not to set the frequency.
 - Break the block a link hangs on and expect the link to drop as an item. Rejoin after a restart and expect the frequency items, mode and output to look the same.
+
+## Create sneak-wrench pickup ([issue #65](https://github.com/devmogged/moddedMC-rust/issues/65))
+
+- In Survival, sneak-use a wrench on a Shaft, Gearbox, Mechanical Press, Redstone Link, White Sail and Fluid Pipe. Expect each block to vanish with the wrench removal sound and its item to go into your inventory, with no item entity on the ground. Repeat in Creative and expect the block removed and no item given. Sneak-use the wrench on stone and expect nothing to happen.

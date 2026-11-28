@@ -93,6 +93,7 @@ mod threshold_switch;
 mod train_trapdoor;
 mod trains;
 mod water_wheel;
+mod wrenchable;
 mod zinc;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 

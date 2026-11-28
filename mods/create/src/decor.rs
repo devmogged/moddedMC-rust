@@ -297,6 +297,7 @@ pub(crate) fn wrench_pickup(context: &UseOnBlock<'_>) -> Option<UseResult> {
     let description = CONTENT.get()?.describe_state(state[0])?;
     let block = description.split('[').next()?;
     if !crate::metal_ladder::is_metal_ladder(block)
+        && !crate::wrenchable::is_wrenchable(block)
         && !TAGS.get()?.contains("block", "create:wrench_pickup", block)
     {
         return None;
