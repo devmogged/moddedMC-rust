@@ -148,10 +148,15 @@ pub(crate) static DISPLAYS: OnceLock<Displays> = OnceLock::new();
 static RIGS: LazyLock<Mutex<HashMap<i32, Vec<Rig>>>> = LazyLock::new(Mutex::default);
 static HURT: LazyLock<Mutex<HashMap<i32, u64>>> = LazyLock::new(Mutex::default);
 
+/// The game clock advances with entity ticks, including /tick step, but not during a freeze.
+pub(crate) fn display_tick(world: World<'_>) -> u64 {
+    world.game_time().unwrap_or_default().max(0) as u64
+}
+
 /// HurtAbility's one-shot overlay, using the released adult animation lengths.
 // shortcut: the clip protocol can only select one animation, so hurt temporarily
 // replaces the movement/sleep clip instead of blending an overlay controller.
-pub fn hurt_reaction(mob: Entity<'_>, kind: &str) {
+pub fn hurt_reaction(world: World<'_>, mob: Entity<'_>, kind: &str) {
     if !cfg!(feature = "original-assets") {
         return;
     }
@@ -166,7 +171,7 @@ pub fn hurt_reaction(mob: Entity<'_>, kind: &str) {
     };
     HURT.lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .insert(mob.id(), tick_count() + ticks);
+        .insert(mob.id(), display_tick(world) + ticks);
 }
 
 fn hurt_clip(id: i32, now: u64) -> Option<&'static str> {
@@ -357,8 +362,8 @@ pub fn tick(world: World<'_>, mob: Entity<'_>) {
     }
     let Some(view) = mob.view() else { return };
     crate::particles::flight_dust(world, mob, view);
-    let now = tick_count();
-    crate::audio::tick(world, mob.id(), view, now);
+    let now = display_tick(world);
+    crate::audio::tick(world, mob.id(), view, tick_count());
     let attack = crate::combat::active_attack(mob);
     let landing = crate::flight::landing(mob.id());
     let descriptions = frames(view, now + (mob.id() as u64 % 47), attack.is_some());
@@ -400,7 +405,7 @@ pub fn tick_species(
         interpolation: 2,
     };
     draw(world, mob, species, view, &[description], |_| {
-        hurt_clip(mob.id(), tick_count()).unwrap_or(clip)
+        hurt_clip(mob.id(), display_tick(world)).unwrap_or(clip)
     });
 }
 
@@ -415,7 +420,7 @@ fn draw(
     let (Some(displays), Some(entities)) = (DISPLAYS.get(), ENTITIES.get()) else {
         return;
     };
-    let now = tick_count();
+    let now = display_tick(world);
     // Slash-grab uses a different server-side attachment, not a normal rider seat.
     let grabbed = species == "cindervane"
         && crate::MOBS.get().is_some_and(|mobs| {
@@ -440,7 +445,7 @@ fn draw(
                 rig.pose = Pose::new(view);
             }
             let clip = select(&mut rig.pose);
-            crate::audio::tick_clip(world, mob, species, view, clip, now);
+            crate::audio::tick_clip(world, mob, species, view, clip, tick_count());
             let appearance = rig.appearance.unwrap_or_else(|| Appearance::load(mob));
             if (clip != rig.clip
                 || species_changed
@@ -509,7 +514,7 @@ fn draw(
         } else {
             let mut pose = Pose::new(view);
             let clip = select(&mut pose);
-            crate::audio::tick_clip(world, mob, species, view, clip, now);
+            crate::audio::tick_clip(world, mob, species, view, clip, tick_count());
             let appearance = Appearance::load(mob);
             let body = body_stack(species, clip, appearance, mount_id, hidden);
             let mut ids = [0; PARTS];
@@ -552,8 +557,8 @@ pub fn sweep(world: World<'_>, time: u64, _events: &[ContentEvent]) {
     if !time.is_multiple_of(REFRESH) {
         return;
     }
-    let now = tick_count();
-    crate::audio::sweep(now);
+    crate::audio::sweep(tick_count());
+    let now = display_tick(world);
     HURT.lock()
         .unwrap_or_else(PoisonError::into_inner)
         .retain(|_, until| *until > now);

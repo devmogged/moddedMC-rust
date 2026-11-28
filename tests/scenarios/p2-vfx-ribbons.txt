@@ -23,8 +23,7 @@ await 5 Applied 1 damage to Ravager
 await-cmd 5 has the following entity data: [1-9][0-9]* && data get entity @e[tag=breath_dragon,limit=1] data."saintsdragons:ignivorus_combat".target
 cmd tick freeze
 await 5 The game is frozen
-# The world callback ages display leases even while entity ticks are frozen.
-# Slow the server clock so the five-tick ribbon can be queried before it expires.
+# Slow stepping makes the exact ribbon creation tick easy to observe.
 cmd tick rate 1
 await 5 Set the target tick rate to 1\.0
 cmd tp @e[tag=breath_dragon,limit=1] 1025.5 300 1025.5 0 0
@@ -40,13 +39,19 @@ await 5 Modified entity data of Ravager|Nothing changed\. The specified properti
 cmd tick step 2t
 await 5 Stepping 2 tick\(s\)
 await-cmd 6 ^Test passed && execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:lightning_arc_display",components:{"minecraft:custom_data":{"moddedmc:ribbon":{lifetime:5}}}}}]
-cmd kill @e[tag=breath_dragon]
-await 5 Killed Ravager
 cmd tick rate 20
 await 5 Set the target tick rate to 20\.0
+# Both the five-tick ribbon and the dragon rig survive more than 40 frozen host ticks.
+wait 3
+await-cmd 5 ^Test passed && execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:lightning_arc_display"}}]
+await-cmd 5 ^Test passed && execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:ignivorus_display"}}]
+cmd kill @e[tag=breath_dragon]
+await 5 Killed Ravager
+cmd tick step 5t
+await 5 Stepping 5 tick\(s\)
+await-cmd 5 ^Test passed && execute unless entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:lightning_arc_display"}}]
 cmd tick unfreeze
 await 5 The game is running normally
-await-cmd 5 ^Test passed && execute unless entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:lightning_arc_display"}}]
 # Real client: inspect Ignivorus and Volitans breath, red/gold Raevyx beam,
 # impact/dash textures, Cindervane volleys, Volitans orb/spines, and toggle
 # Nulljaw cloak while mounted, dismount, and observe the visible model return.

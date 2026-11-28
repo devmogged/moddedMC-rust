@@ -611,7 +611,7 @@ fn pluck(click: &mut UseMob<'_>) -> UseResult {
         effects.play_sound(click.world, view.position, sound, SOUND_NEUTRAL, 1.0, 1.0);
     }
     crate::roost::wake(mob, false, 100);
-    crate::visuals::hurt_reaction(mob, kind);
+    crate::visuals::hurt_reaction(click.world, mob, kind);
     crate::audio::hurt(click.world, mob, kind);
     crate::codex::remember(click.world, mob, None);
     mobs.message(

@@ -28,6 +28,7 @@ wait 4
 cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1009,y=99,z=1009,dx=32,dy=2,dz=32]
 wait 0.5
 expect Test passed
+await-cmd 5 has the following entity data: 1b && data get entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] OnGround
 cmd fill 1009 103 1009 1041 103 1041 minecraft:air
 await 30 Successfully filled|No blocks were filled
 await-cmd 12 Test passed && execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1009,y=104,z=1009,dx=32,dy=20,dz=32]
