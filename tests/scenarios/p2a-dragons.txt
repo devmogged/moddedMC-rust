@@ -19,6 +19,18 @@ cmd fill 1015 99 1015 1035 99 1035 minecraft:stone
 await 30 Successfully filled|No blocks were filled
 cmd fill 1015 100 1015 1035 110 1035 minecraft:air
 await 30 Successfully filled|No blocks were filled
+# Enclose the raised ground-combat arena: surrounding terrain can be dozens of
+# blocks lower, and autonomous flight must not take the dragon outside it on restart.
+cmd fill 1015 100 1015 1015 110 1035 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1035 100 1015 1035 110 1035 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1016 100 1015 1034 110 1015 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1016 100 1035 1034 110 1035 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1016 106 1016 1034 106 1034 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd time set midnight
 wait 1
 
@@ -65,6 +77,8 @@ wait 10
 # The magma volley may kill the villager far from the original arena. Verify its
 # death, then return the surviving dragon to the query radius before checking its target.
 await 5 \[bot\] sound: entity.villager.death
+# The death sound precedes removal of the dying entity from the world.
+wait 2
 cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1025.5 100 1025.5
 await 5 Teleported Ravager
 cmd cindervane find 1025 100 1025
