@@ -1,13 +1,16 @@
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 # Saint's Dragons 0.9.88: three saddle carriers, five saddle-free owner mounts.
 # Cindervane's second seat is covered by the policy test; the scenario uses one bot.
-# Manual companion acceptance (pending client locator support):
+# Manual companion acceptance (requires a real companion client):
 # For each of the eight dragons below, mount and move through idle, locomotion,
 # flight/swim where applicable and mounted attacks. The rider must follow the
 # animated passengerLocator, not the neutral server attachment. For Cindervane
-# also check passengerSeat0/1 with two riders and automountBoneRight on a slash grab.
+# also check passengerBone1/2 with two riders; slash-grab locator is out of scope.
 # Nulljaw hangs below its locator by 1.65 blocks. Ground dragons use a locator
-# only when sampled within the last two ticks. The headless bot checks logical
+# only when sampled within the last two ticks. Turn sharply, switch clips and
+# dismount/remount; check that first-person camera and third-person rider track
+# the seat, that two nearby dragons do not share anchors, and that a missing
+# rig or locator falls back to the ordinary seat. The headless bot checks logical
 # mounting/dismounting; it cannot observe these client render positions.
 start
 botstart tester

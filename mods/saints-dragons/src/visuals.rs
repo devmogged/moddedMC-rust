@@ -58,6 +58,7 @@ struct Rig {
     clip: &'static str,
     species: String,
     appearance: Option<Appearance>,
+    mount_id: i32,
 }
 
 struct Pose {
@@ -193,7 +194,7 @@ pub fn invalidate_appearance(mob_id: i32) {
     }
 }
 
-fn body_stack(species: &str, clip: &str, appearance: Appearance) -> Vec<u8> {
+fn body_stack(species: &str, clip: &str, appearance: Appearance, mount_id: i32) -> Vec<u8> {
     let name = species.strip_prefix("baby_").unwrap_or(species);
     let clip = if species == "baby_mossback" {
         format!("baby_mossback.animation.{clip}")
@@ -205,7 +206,10 @@ fn body_stack(species: &str, clip: &str, appearance: Appearance) -> Vec<u8> {
     } else {
         format!("animation.{name}.{clip}")
     };
-    let mut custom = HashMap::from([("moddedmc:rig_clip".to_owned(), Value::String(clip))]);
+    let mut custom = HashMap::from([
+        ("moddedmc:rig_clip".to_owned(), Value::String(clip)),
+        ("moddedmc:rig_mount".to_owned(), Value::Int(mount_id)),
+    ]);
     if let Some(texture) = appearance.texture(species) {
         custom.insert("moddedmc:rig_texture".to_owned(), Value::String(texture));
     }
@@ -401,6 +405,14 @@ fn draw(
         return;
     };
     let now = tick_count();
+    // Slash-grab uses a different server-side attachment, not a normal rider seat.
+    let grabbed = species == "cindervane"
+        && crate::MOBS.get().is_some_and(|mobs| {
+            mobs.passengers(mob)
+                .iter()
+                .any(|&id| crate::combat::holding(mob, id))
+        });
+    let mount_id = if grabbed { -1 } else { mob.id() };
     let refresh = {
         let mut all = RIGS.lock().unwrap_or_else(PoisonError::into_inner);
         let rigs = all.entry(mob.id()).or_default();
@@ -417,12 +429,20 @@ fn draw(
             let clip = select(&mut rig.pose);
             crate::audio::tick_clip(world, mob, species, view, clip, now);
             let appearance = rig.appearance.unwrap_or_else(|| Appearance::load(mob));
-            if (clip != rig.clip || species_changed || rig.appearance.is_none())
-                && displays.set_item(world, rig.ids[0], &body_stack(species, clip, appearance))
+            if (clip != rig.clip
+                || species_changed
+                || rig.appearance.is_none()
+                || rig.mount_id != mount_id)
+                && displays.set_item(
+                    world,
+                    rig.ids[0],
+                    &body_stack(species, clip, appearance, mount_id),
+                )
             {
                 rig.clip = clip;
                 species.clone_into(&mut rig.species);
                 rig.appearance = Some(appearance);
+                rig.mount_id = mount_id;
             }
             if species_changed {
                 // A juvenile Cindervane has one display; its adult has five.
@@ -444,7 +464,7 @@ fn draw(
                         if rig.ids[i] == 0 || !displays.update(world, rig.ids[i], &description) {
                             let body;
                             let stack = if i == 0 {
-                                body = body_stack(species, clip, appearance);
+                                body = body_stack(species, clip, appearance, mount_id);
                                 &body
                             } else {
                                 &STACKS[i]
@@ -457,6 +477,7 @@ fn draw(
                                 rig.clip = clip;
                                 species.clone_into(&mut rig.species);
                                 rig.appearance = Some(appearance);
+                                rig.mount_id = mount_id;
                             }
                         }
                         rig.frames[i] = description;
@@ -474,7 +495,7 @@ fn draw(
             let clip = select(&mut pose);
             crate::audio::tick_clip(world, mob, species, view, clip, now);
             let appearance = Appearance::load(mob);
-            let body = body_stack(species, clip, appearance);
+            let body = body_stack(species, clip, appearance, mount_id);
             let mut ids = [0; PARTS];
             for (i, description) in descriptions.iter().enumerate() {
                 if let Some(id) =
@@ -497,6 +518,7 @@ fn draw(
                 clip,
                 species: species.to_owned(),
                 appearance: Some(appearance),
+                mount_id,
             });
             true
         }
@@ -634,9 +656,13 @@ mod tests {
 
     #[test]
     fn display_stack_keeps_the_body_item_and_companion_clip() {
-        let stack: HashMap<String, Value> =
-            fastnbt::from_bytes(&body_stack("cindervane", "takeoff", Appearance::default()))
-                .unwrap();
+        let stack: HashMap<String, Value> = fastnbt::from_bytes(&body_stack(
+            "cindervane",
+            "takeoff",
+            Appearance::default(),
+            42,
+        ))
+        .unwrap();
         assert_eq!(stack["id"], Value::String(MODELS[0].0.to_owned()));
         let Value::Compound(components) = &stack["components"] else {
             panic!("display stack is missing its components");
@@ -648,6 +674,7 @@ mod tests {
             custom["moddedmc:rig_clip"],
             Value::String("animation.cindervane.takeoff".to_owned())
         );
+        assert_eq!(custom["moddedmc:rig_mount"], Value::Int(42));
     }
 
     #[test]

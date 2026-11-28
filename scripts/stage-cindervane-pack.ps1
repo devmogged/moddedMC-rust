@@ -59,6 +59,19 @@ foreach ($name in $species) {
         default { @{} }
     }
     if ($name -notin @('moop', 'mossback')) {
+        # Released renderer locator offsets are in model pixels; Nulljaw hangs 1.65 blocks below.
+        $seat = @{ bone = 'passengerBone'; y = -3 }
+        if ($name -eq 'cindervane') {
+            $rig.rider_seats = @(@{ bone = 'passengerBone1'; y = -3 }, @{ bone = 'passengerBone2'; y = -3 })
+        } else {
+            if ($name -eq 'nulljaw') {
+                $seat.x = -0.5
+                $seat.y = 1
+                $seat.height = -1.65
+            }
+            if ($name -in @('atroxiia','stegonaut','varasuchus')) { $seat.max_age = 2 }
+            $rig.rider_seats = @($seat)
+        }
         $rig.textures = [ordered]@{}
         $variantStems['default'] = $name
         foreach ($variant in ($variantStems.Keys | Sort-Object)) {

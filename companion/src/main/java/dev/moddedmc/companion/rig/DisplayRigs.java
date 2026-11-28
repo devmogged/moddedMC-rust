@@ -15,6 +15,7 @@ import com.geckolib.renderer.GeoObjectRenderer;
 import com.geckolib.renderer.base.GeoRenderState;
 import com.geckolib.renderer.base.RenderPassInfo;
 import com.geckolib.util.GeckoLibUtil;
+import com.geckolib.util.RenderUtil;
 import com.google.gson.JsonParser;
 import com.mojang.math.Axis;
 import com.mojang.serialization.Codec;
@@ -29,12 +30,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.OrderedSubmitNodeCollector;
+import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.FileToIdConverter;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.entity.Display.ItemDisplay;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +48,7 @@ public final class DisplayRigs {
     private static final Logger LOGGER = LoggerFactory.getLogger("moddedmc-companion");
     private static final FileToIdConverter FILES = FileToIdConverter.json("moddedmc/rigs");
     private static final DataTicket<Identifier> TEXTURE = DataTicket.create("moddedmc_rig_texture", Identifier.class);
+    private static final DataTicket<SeatFrame> SEATS = DataTicket.create("moddedmc_rig_seats", SeatFrame.class);
     private static final RigFrame HIDDEN = (pose, collector, camera) -> {};
     private static final Map<ItemDisplay, RigInstance> INSTANCES = new WeakHashMap<>();
     private static BakedModelCache modelCache;
@@ -65,6 +72,7 @@ public final class DisplayRigs {
             animationCache = animations;
             rigs = load(Minecraft.getInstance().getResourceManager(), models, animations);
             INSTANCES.clear();
+            RiderSeats.clear();
         }
 
         RigRenderer renderer = rigs.get(itemModel);
@@ -116,7 +124,7 @@ public final class DisplayRigs {
 
     private record Definition(Identifier geometry, Identifier animations, Identifier texture, String clip,
                               float scale, float yOffset, float yawOffset, List<Identifier> hideParts,
-                              Map<String, Identifier> textures) {
+                              Map<String, Identifier> textures, List<Seat> riderSeats) {
         private static final Codec<Definition> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Identifier.CODEC.fieldOf("geometry").forGetter(Definition::geometry),
                 Identifier.CODEC.fieldOf("animations").forGetter(Definition::animations),
@@ -126,9 +134,23 @@ public final class DisplayRigs {
                 Codec.floatRange(-8f, 8f).optionalFieldOf("y_offset", 0f).forGetter(Definition::yOffset),
                 Codec.floatRange(-180f, 180f).optionalFieldOf("yaw_offset", 0f).forGetter(Definition::yawOffset),
                 Identifier.CODEC.listOf().optionalFieldOf("hide_parts", List.of()).forGetter(Definition::hideParts),
-                Codec.unboundedMap(Codec.STRING, Identifier.CODEC).optionalFieldOf("textures", Map.of()).forGetter(Definition::textures)
+                Codec.unboundedMap(Codec.STRING, Identifier.CODEC).optionalFieldOf("textures", Map.of()).forGetter(Definition::textures),
+                Seat.CODEC.listOf().optionalFieldOf("rider_seats", List.of()).forGetter(Definition::riderSeats)
         ).apply(instance, Definition::new));
     }
+
+    private record Seat(String bone, float x, float y, float z, float height, int maxAge) {
+        private static final Codec<Seat> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                Codec.STRING.fieldOf("bone").forGetter(Seat::bone),
+                Codec.FLOAT.optionalFieldOf("x", 0f).forGetter(Seat::x),
+                Codec.FLOAT.optionalFieldOf("y", 0f).forGetter(Seat::y),
+                Codec.FLOAT.optionalFieldOf("z", 0f).forGetter(Seat::z),
+                Codec.FLOAT.optionalFieldOf("height", 0f).forGetter(Seat::height),
+                Codec.intRange(0, Integer.MAX_VALUE).optionalFieldOf("max_age", Integer.MAX_VALUE).forGetter(Seat::maxAge)
+        ).apply(instance, Seat::new));
+    }
+
+    private record SeatFrame(ItemDisplay display, Entity mount, float delta) {}
 
     private static final class RigInstance implements GeoAnimatable {
         private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this, false);
@@ -137,6 +159,7 @@ public final class DisplayRigs {
         private RawAnimation clip;
         private Identifier texture;
         private CustomData appearanceData;
+        private int mountId = -1;
 
         private RigInstance(ItemDisplay display, RigRenderer renderer) {
             this.owner = new WeakReference<>(display);
@@ -149,6 +172,7 @@ public final class DisplayRigs {
             if (appearanceData == data) return;
             appearanceData = data;
             var tag = data == null ? null : data.copyTag();
+            mountId = tag == null ? -1 : tag.getIntOr("moddedmc:rig_mount", -1);
             clip = tag == null ? renderer.defaultClip : renderer.clips.getOrDefault(
                     tag.getStringOr("moddedmc:rig_clip", ""), renderer.defaultClip);
             texture = tag == null ? renderer.definition.texture() : renderer.textures.getOrDefault(
@@ -199,6 +223,45 @@ public final class DisplayRigs {
         public void addRenderData(RigInstance rig, ItemDisplay display, GeoRenderState state, float delta) {
             state.addGeckolibData(DataTickets.TICK, display.tickCount + (double) delta);
             state.addGeckolibData(TEXTURE, rig.texture);
+            if (!definition.riderSeats().isEmpty() && rig.mountId >= 0
+                    && Minecraft.getInstance().level != null) {
+                Entity mount = Minecraft.getInstance().level.getEntity(rig.mountId);
+                if (mount != null && mount.isVehicle()) {
+                    state.addGeckolibData(SEATS, new SeatFrame(display, mount, delta));
+                }
+            }
+        }
+
+        @Override
+        public void submitRenderTasks(RenderPassInfo<GeoRenderState> pass,
+                                      OrderedSubmitNodeCollector collector, RenderType renderType) {
+            SeatFrame frame = pass.getGeckolibData(SEATS);
+            if (frame != null) {
+                // The pose already includes the interpolated item-display transform and rig
+                // adjustments. Evaluate the same GeckoLib snapshots as the geometry submission.
+                pass.renderPosed(() -> {
+                    var seats = definition.riderSeats();
+                    var positions = new RiderSeats.Anchor[seats.size()];
+                    for (int i = 0; i < seats.size(); i++) {
+                        Seat seat = seats.get(i);
+                        var bone = pass.model().getBone(seat.bone()).orElse(null);
+                        if (bone == null) continue;
+                        var pose = pass.poseStack();
+                        pose.pushPose();
+                        try {
+                            RenderUtil.transformToBone(pose, bone);
+                            var point = pose.last().pose().transformPosition(
+                                    new Vector3f(seat.x() / 16f, seat.y() / 16f, seat.z() / 16f));
+                            Vec3 world = pass.cameraState().pos.add(point.x, point.y + seat.height(), point.z);
+                            positions[i] = RiderSeats.anchor(frame.mount(), frame.delta(), world, seat.maxAge());
+                        } finally {
+                            pose.popPose();
+                        }
+                    }
+                    RiderSeats.sample(frame.display(), frame.mount(), positions);
+                });
+            }
+            super.submitRenderTasks(pass, collector, renderType);
         }
 
         @Override

@@ -57,6 +57,8 @@ Optional `scale`, `y_offset` and `yaw_offset` fields adjust the rig relative to 
 
 An optional `textures` object maps names to full texture resource IDs. The server can set `moddedmc:rig_texture` in the display stack's `minecraft:custom_data` to select one of those names. An unknown name or unavailable texture uses the descriptor's default `texture`.
 
+An optional `rider_seats` array describes passenger seats in passenger-list order. Each entry requires a `bone` name; optional `x`, `y`, `z` are bone-local offsets in model pixels, `height` is an additional world-space vertical offset in blocks, and `max_age` limits a sample's age in client ticks (default: unlimited). The server associates the body display with its living carrier by setting the integer `moddedmc:rig_mount` in the display stack's `minecraft:custom_data` to the carrier's network entity ID. Missing or negative IDs, missing bones, unloaded displays and expired samples leave normal passenger positioning intact. The companion samples the animated bone with the display's actual transform and updates both rider positioning and interpolated rendering; server mounting and collision remain authoritative.
+
 An `.mmc` can supply the descriptor and its referenced files under `assets/`. The host finds rigs for registered standalone item model IDs and adds the descriptor and its geometry, animations and texture to the generated server resource pack. This uses the same pack acceptance and hashed asset cache as stock models.
 
 To exercise the renderer, enable the [test resource pack](../companion/src/test/resources/rig-pack) on a 26.3 Fabric client with the companion and GeckoLib. Run the following in a world with commands enabled.
