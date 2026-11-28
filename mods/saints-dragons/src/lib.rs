@@ -139,6 +139,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::PlayerInventory)?;
         entities.require_extension(EntitiesExtension::PlayerFlight)?;
         entities.require_extension(EntitiesExtension::Attackable)?;
+        entities.require_extension(EntitiesExtension::EntityEvents)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }

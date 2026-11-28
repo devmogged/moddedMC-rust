@@ -462,7 +462,10 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, player_damage_held_item), 392);
         assert_eq!(offset_of!(EntitiesV1, player_reset_attack), 400);
         assert_eq!(offset_of!(EntitiesV1, is_attackable), 408);
-        assert_eq!(size_of::<EntitiesV1>(), 416);
+        assert_eq!(offset_of!(EntitiesV1, broadcast_event), 416);
+        assert_eq!(offset_of!(EntitiesV1, remove_all_effects), 424);
+        assert_eq!(offset_of!(EntitiesV1, set_custom_name), 432);
+        assert_eq!(size_of::<EntitiesV1>(), 440);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
         assert_eq!(offset_of!(InteractionV1, on_item_use), 120);
         assert_eq!(offset_of!(InteractionV1, action_bar), 136);
@@ -1122,6 +1125,12 @@ pub struct EntitiesV1 {
     pub player_reset_attack: unsafe extern "C" fn(entity: EntityRef) -> bool,
     /// Whether a living entity may be selected as an attack target.
     pub is_attackable: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// Broadcast a Java entity event byte to tracking clients and the entity itself.
+    pub broadcast_event: unsafe extern "C" fn(entity: EntityRef, event: u8) -> bool,
+    /// Remove every active effect from a living entity; false if none were removed.
+    pub remove_all_effects: unsafe extern "C" fn(entity: EntityRef) -> bool,
+    /// Set a custom name from a JSON text component; false for invalid input.
+    pub set_custom_name: unsafe extern "C" fn(entity: EntityRef, json: Str) -> bool,
 }
 
 /// A vanilla `minecraft:marker`: saved, never sent to clients.

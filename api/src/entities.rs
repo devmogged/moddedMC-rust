@@ -49,6 +49,8 @@ pub enum EntitiesExtension {
     /// Mod-controlled fall-flying, client boost and selected hotbar slot.
     PlayerFlight,
     Attackable,
+    /// Java entity events, clearing active effects, and styled entity names.
+    EntityEvents,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -169,6 +171,10 @@ impl Entities {
             EntitiesExtension::Attackable => (
                 std::mem::offset_of!(abi::EntitiesV1, is_attackable),
                 "moddedmc:entities.is_attackable",
+            ),
+            EntitiesExtension::EntityEvents => (
+                std::mem::offset_of!(abi::EntitiesV1, set_custom_name),
+                "moddedmc:entities.entity_events",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -594,6 +600,30 @@ impl<'a> Entity<'a> {
         Some(unsafe { ((&raw const (*api).remove_effect).read())(self.raw, crate::s(effect)) })
     }
 
+    pub fn broadcast_event(self, event: u8) -> Option<bool> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, broadcast_event))?;
+        // SAFETY: the field is size checked and the entity is borrowed.
+        Some(unsafe { ((&raw const (*api).broadcast_event).read())(self.raw, event) })
+    }
+
+    pub fn remove_all_effects(self) -> Option<bool> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, remove_all_effects))?;
+        // SAFETY: the field is size checked and the entity is borrowed.
+        Some(unsafe { ((&raw const (*api).remove_all_effects).read())(self.raw) })
+    }
+
+    pub fn set_custom_name(self, json: &str) -> Option<bool> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, set_custom_name))?;
+        // SAFETY: the field is size checked and the inputs are borrowed.
+        Some(unsafe { ((&raw const (*api).set_custom_name).read())(self.raw, crate::s(json)) })
+    }
+
     pub fn attribute_value(self, attribute: &str) -> Option<f64> {
         let api = self
             .api
@@ -896,6 +926,9 @@ mod tests {
         assert!(!entity.player_item_ready("minecraft:iron_sword", 50));
         assert!(!entity.player_damage_held_item(1));
         assert!(!entity.player_reset_attack());
+        assert_eq!(entity.broadcast_event(35), None);
+        assert_eq!(entity.remove_all_effects(), None);
+        assert_eq!(entity.set_custom_name(r#"{"text":"Ivy"}"#), None);
         assert!(
             Entities(api)
                 .require_extension(EntitiesExtension::PlayerFlight)

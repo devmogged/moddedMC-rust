@@ -33,7 +33,7 @@ cmd execute if block -355 75 874 minecraft:chest[facing=east] run data get block
 await 5 following block data: (?=.*minecraft:book)(?=.*Slot: 0b)(?=.*Slot: 5b)
 
 cmd execute positioned -352 75 880 run data get entity @e[type=minecraft:item_frame,distance=..30,limit=1] Item
-await 5 following entity data: (?=.*minecraft:player_head)(?=.*Armaralis Egg)(?=.*minecraft:profile)(?=.*minecraft:movement_speed)
+await 5 following entity data: (?=.*minecraft:player_head)(?=.*Armaralis Egg)(?=.*yellow)(?=.*italic"?\s*:\s*0b)(?=.*minecraft:profile)(?=.*minecraft:movement_speed)
 
 bot quit
 stop

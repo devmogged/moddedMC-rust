@@ -780,6 +780,15 @@ at startup when the corresponding group is mandatory.
   still passes through the engine's usual damage hooks and mitigation.
 - `Entity::remove_effect(id)` removes an active vanilla status effect and
   reports whether it was present. Players use the player-specific removal path.
+- `EntitiesExtension::EntityEvents` requires three appended fields:
+  `broadcast_event(EntityRef, u8) -> bool` (byte 416) broadcasts the Java
+  entity event to tracking players and the entity itself;
+  `remove_all_effects(EntityRef) -> bool` (424) removes all active effects
+  using native removal semantics, returning false if none were removed;
+  `set_custom_name(EntityRef, Str) -> bool` (432) accepts a UTF-8 JSON text
+  component (up to 64 KiB) and updates entity name metadata. Saved item stacks
+  also preserve styled `minecraft:custom_name` components as vanilla NBT.
+  Each SDK method returns `None` when the field is absent.
 - `Entity::attribute_value(id)` reads the computed living attribute, including
   modifiers. Invalid IDs and nonliving entities return `None`.
 - `Entity::ticks_frozen()` and `Entity::set_ticks_frozen(ticks)` read and write

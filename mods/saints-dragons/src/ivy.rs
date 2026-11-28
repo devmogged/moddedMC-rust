@@ -1096,54 +1096,11 @@ fn use_totem(world: World<'_>, ivy: Entity<'_>) -> Option<()> {
 
 /// IvyTheDragonMerchant.tryUseInventoryTotem: vanilla effects after the final hit commits.
 fn totem_effects(world: World<'_>, ivy: Entity<'_>) {
-    // shortcut: the host exposes individual vanilla effect removal, not removeAllEffects
-    // or enumeration of active effects. Remove every vanilla effect supported by this release.
-    for effect in [
-        "speed",
-        "slowness",
-        "haste",
-        "mining_fatigue",
-        "strength",
-        "instant_health",
-        "instant_damage",
-        "jump_boost",
-        "nausea",
-        "regeneration",
-        "resistance",
-        "fire_resistance",
-        "water_breathing",
-        "invisibility",
-        "blindness",
-        "night_vision",
-        "hunger",
-        "weakness",
-        "poison",
-        "wither",
-        "health_boost",
-        "absorption",
-        "saturation",
-        "glowing",
-        "levitation",
-        "luck",
-        "unluck",
-        "slow_falling",
-        "conduit_power",
-        "dolphins_grace",
-        "bad_omen",
-        "hero_of_the_village",
-        "darkness",
-        "trial_omen",
-        "raid_omen",
-        "wind_charged",
-        "weaving",
-        "oozing",
-        "infested",
-    ] {
-        ivy.remove_effect(&format!("minecraft:{effect}"));
-    }
+    ivy.remove_all_effects();
     ivy.add_effect("minecraft:regeneration", 900, 1, false, true);
     ivy.add_effect("minecraft:absorption", 100, 1, false, true);
     ivy.add_effect("minecraft:fire_resistance", 800, 0, false, true);
+    ivy.broadcast_event(35);
     if let (Some(effects), Some(view)) = (EFFECTS.get(), ivy.view()) {
         effects.play_sound(
             world,
@@ -1152,15 +1109,6 @@ fn totem_effects(world: World<'_>, ivy: Entity<'_>) {
             SOUND_NEUTRAL,
             1.0,
             1.0,
-        );
-        // shortcut: no entity-event 35 host call; send its totem particles directly.
-        effects.particles(
-            world,
-            "minecraft:totem_of_undying",
-            flight::add(view.position, [0.0, 1.0, 0.0]),
-            [0.5, 0.8, 0.5],
-            0.1,
-            30,
         );
     }
 }
