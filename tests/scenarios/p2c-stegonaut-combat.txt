@@ -56,26 +56,38 @@ bot input none
 bot expect riding none
 wait 0.5
 expect \[bot\] expect riding ok none
-# Long-duration copies ensure removal is not merely natural expiration.
-cmd effect give tester minecraft:resistance 60 0 true
-cmd effect give tester minecraft:absorption 60 0 true
-cmd tp tester 1036.5 100 1036.5
-wait 1.5
-cmd data get entity tester active_effects[0].id
-wait 0.5
-expect Found no elements matching active_effects
+# Freeze aura refresh while installing long-duration, higher-amplifier effects:
+# Pumpkin's effect command rejects equal amplifiers even with a longer duration.
+cmd tick freeze
+await 5 The game is frozen
+cmd effect give tester minecraft:resistance 60 1 true
+cmd effect give tester minecraft:absorption 60 1 true
+await-cmd 5 tester has the following entity data: (?=.*duration: 1[012][0-9]{2}, id: "minecraft:resistance")(?=.*duration: 1[012][0-9]{2}, id: "minecraft:absorption") && data get entity tester active_effects
+cmd tp tester 1050.5 100 1050.5
+await 5 Teleported tester to 1050\.5, 100, 1050\.5
+cmd tick step 20t
+await 5 Stepping 20 tick\(s\)
+await-cmd 5 Found no elements matching active_effects && data get entity tester active_effects[0].id
+cmd tick unfreeze
+await 5 The game is running normally
 cmd tp tester 1025.5 100 1029.5
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1] 1025.5 100 1025.5
 wait 1.5
 cmd data get entity tester active_effects
 wait 0.5
 expect tester has the following entity data: (?=.*minecraft:resistance)(?=.*minecraft:absorption)
-cmd effect give tester minecraft:resistance 60 0 true
-cmd effect give tester minecraft:absorption 60 0 true
+cmd tick freeze
+await 5 The game is frozen
+cmd effect give tester minecraft:resistance 60 1 true
+cmd effect give tester minecraft:absorption 60 1 true
+await-cmd 5 tester has the following entity data: (?=.*duration: 1[012][0-9]{2}, id: "minecraft:resistance")(?=.*duration: 1[012][0-9]{2}, id: "minecraft:absorption") && data get entity tester active_effects
 cmd kill @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},limit=1]
-wait 0.5
-cmd data get entity tester active_effects[0].id
-wait 0.5
-expect Found no elements matching active_effects
+await 5 Killed Ravager
+cmd tick step 1t
+await 5 Stepping 1 tick\(s\)
+await-cmd 5 Found no elements matching active_effects && data get entity tester active_effects[0].id
+cmd tick unfreeze
+await 5 The game is running normally
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop
