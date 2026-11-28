@@ -177,6 +177,12 @@ A mod can put an object mapping part paths to block or item models in `assets/<n
 
 The verified pack can include `assets/moddedmc/moddedmc/scaffolding.json`. Each wire state ID maps to a bottom flag, the placed block item's model identifier, and an optional map of base texture identifiers to connected texture sheet sizes. The connected texture is the base identifier with `_connected` appended. Sheets with two tiles per side apply to horizontal faces and eight-tile sheets apply to vertical faces. The host uses dedicated trapdoor states for this content. The companion uses the flag to select the standing collision and outline shapes, and the model identifier to show the full placement outline when the player holds the matching block. The mapping belongs to the current connection and is released at disconnect.
 
+## Trapdoor shapes and textures
+
+The verified pack can include `assets/moddedmc/moddedmc/trapdoors.json`, an array of trapdoor carrier state IDs. The companion uses these IDs to let the server handle hand toggles and to hide the shared faces of matching trapdoors. The carrier's `powered` value selects the trapdoor material. The server keeps redstone power separately.
+
+The optional `assets/moddedmc/moddedmc/trapdoor-textures.json` lists base texture identifiers with 8 by 8 connected sheets embedded in the pack. The companion uses the `_connected` version of the sprite on matching trapdoor quads. Closed trapdoors connect according to their placement half. Open trapdoors use their hinge axes and directions.
+
 ## Server Mods Creative tab
 
 A Creative player using the companion sees **Server Mods** when the connected server supplies a catalog. Entries carry the item names, models, and components sent by the server during normal play. Taking a stack uses the normal Creative inventory action. The server checks the player's game mode.

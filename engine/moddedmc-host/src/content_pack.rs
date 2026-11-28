@@ -970,6 +970,7 @@ impl Pack {
 
     fn trapdoor_catalog(&mut self, blocks: &[BlockAssets]) -> io::Result<()> {
         let mut carriers = BTreeSet::new();
+        let mut models = BTreeSet::new();
         for block in blocks {
             if block.states.first().is_none_or(|state| !state.trapdoor) {
                 continue;
@@ -981,15 +982,67 @@ impl Pack {
                         .iter()
                         .map(|state| state.id.vanilla_view().as_u16()),
                 );
+                models.extend(block.states.iter().map(|state| state.model.as_str()));
             }
         }
-        if !carriers.is_empty() {
+        if carriers.is_empty() {
+            return Ok(());
+        }
+        self.json(
+            "assets/moddedmc/moddedmc/trapdoors.json",
+            &serde_json::to_value(carriers)?,
+        )?;
+        let textures: BTreeSet<_> = models
+            .into_iter()
+            .flat_map(|id| {
+                let Some((namespace, path)) = id.split_once(':') else {
+                    return Vec::new();
+                };
+                let key = format!("assets/{namespace}/models/{path}.json");
+                let Some(model) = self
+                    .files
+                    .get(&key)
+                    .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+                else {
+                    return Vec::new();
+                };
+                model["textures"]
+                    .as_object()
+                    .into_iter()
+                    .flat_map(|textures| textures.values())
+                    .filter_map(Value::as_str)
+                    .filter(|id| valid_model(id) && !id.starts_with("minecraft:"))
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .collect();
+        let connected: Vec<_> = textures
+            .into_iter()
+            .filter(|id| {
+                id.split_once(':').is_some_and(|(namespace, path)| {
+                    self.include_connected_texture(namespace, path)
+                })
+            })
+            .collect();
+        if !connected.is_empty() {
             self.json(
-                "assets/moddedmc/moddedmc/trapdoors.json",
-                &serde_json::to_value(carriers)?,
+                "assets/moddedmc/moddedmc/trapdoor-textures.json",
+                &serde_json::to_value(connected)?,
             )?;
         }
         Ok(())
+    }
+
+    fn include_connected_texture(&mut self, namespace: &str, path: &str) -> bool {
+        let key = format!("assets/{namespace}/textures/{path}_connected.png");
+        if self.files.contains_key(&key) {
+            return true;
+        }
+        let Some(texture) = self.read_asset(namespace, &key) else {
+            return false;
+        };
+        self.files.insert(key, texture);
+        true
     }
 
     fn scaffolding_catalog(&mut self, blocks: &[BlockAssets]) -> io::Result<()> {
@@ -1049,12 +1102,8 @@ impl Pack {
                 continue;
             };
             let (source, path) = id.split_once(':').unwrap_or((namespace, id));
-            let key = format!("assets/{source}/textures/{path}_connected.png");
-            if !self.files.contains_key(&key) {
-                let Some(texture) = self.read_asset(source, &key) else {
-                    continue;
-                };
-                self.files.insert(key, texture);
+            if !self.include_connected_texture(source, path) {
+                continue;
             }
             shifts.insert(format!("{source}:{path}"), size);
         }

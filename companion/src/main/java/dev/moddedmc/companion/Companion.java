@@ -16,11 +16,13 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationNetworkin
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +36,7 @@ public final class Companion implements ClientModInitializer {
         private final Protocol.Offer offer;
         private volatile byte[] creativeCatalog;
         private volatile Map<BlockState, ScaffoldingCatalog.Entry> scaffolding = Map.of();
-        private volatile Set<BlockState> trapdoors = Set.of();
+        private volatile TrapdoorCatalog trapdoors = TrapdoorCatalog.EMPTY;
 
         private Session(Protocol.Offer offer) {
             this.offer = offer;
@@ -87,7 +89,19 @@ public final class Companion implements ClientModInitializer {
 
     public static boolean isServerTrapdoor(BlockState state) {
         var current = session;
-        return current != null && current.trapdoors.contains(state);
+        return current != null && current.trapdoors.states().contains(state);
+    }
+
+    public static Set<Identifier> trapdoorTextures(BlockState state) {
+        var current = session;
+        if (current == null || !(state.getBlock() instanceof TrapDoorBlock)) return Set.of();
+        var trapdoors = current.trapdoors;
+        return trapdoors.textures().isEmpty() || !trapdoors.states().contains(state)
+                ? Set.of() : trapdoors.textures();
+    }
+
+    public static boolean connectsTrapdoor(BlockState state, BlockState neighbor, Direction direction) {
+        return TrapdoorCatalog.connects(state, neighbor, direction);
     }
 
     public static Path materialize(URL url, String zipSha1, Proxy proxy) throws IOException {

@@ -124,7 +124,7 @@ Create 6.0.10. Use Java 26.3 with the updated Fabric companion and accept the se
 - Build a floating 3?3 platform of one metal and remove one corner. Expect connected top textures, the inner corner tile and hidden side seams. Place a second metal next to it and expect the colors to stay separate.
 - Place stock bamboo scaffolding and waxed copper trapdoors beside all three variants. Expect bamboo to collapse normally when unsupported and stock trapdoors to retain their original look and behavior.
 
-## Create stationary trapdoors ([issue #58](https://github.com/devmogged/moddedMC-rust/issues/58))
+## Create stationary trapdoors (`1b67ac3b`, [issue #58](https://github.com/devmogged/moddedMC-rust/issues/58))
 
 Use Java 26.3 with the Fabric companion and the server resource pack.
 
@@ -133,3 +133,9 @@ Use Java 26.3 with the Fabric companion and the server resource pack.
 - Put two matching trapdoors side by side in the same half. Expect the touching faces to be hidden. Open them together and check the side seam. Put one of each material next to the other and expect their borders to stay visible.
 - Place a Framed Glass Trapdoor in source water, open it, and restart the server. Expect the opening and water to persist. Sneak-use a wrench in Survival and expect the item back with the source water left behind.
 - Place a stock Waxed Oxidized Copper Trapdoor nearby and open it. Expect vanilla copper textures and the original collision and sound.
+
+## Framed Glass Trapdoor connected textures ([issue #58](https://github.com/devmogged/moddedMC-rust/issues/58))
+
+- Place a 3 by 3 floor of Framed Glass Trapdoors in the same closed half and leave one corner empty. Expect the frames to join on both sides of the floor, with an inner corner around the missing tile. Put one trapdoor in the other half and expect a frame along that edge.
+- Build a wall of open trapdoors with the same facing. Expect matching edges to join vertically and horizontally. Waterlog or power one without changing its open state and expect the frame to stay joined. Add a Train Trapdoor at the edge and expect the glass frame to end there.
+- Open or close a block at a chunk boundary. Expect its neighbor to update the border as soon as the block moves. Rejoin and expect the same connections.
