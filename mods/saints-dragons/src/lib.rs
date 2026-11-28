@@ -531,3 +531,12 @@ const fn number(parent: Option<u32>, name: &str, tag: Option<u64>) -> Node<'_> {
 }
 
 moddedmc_api::export_mod!(SaintsDragons);
+
+/// The SDK keeps one placement callback per mod, so every block that customizes placement routes through here.
+fn place_block(placement: content::Placement<'_>) -> Option<u32> {
+    if crucible::is_crucible(placement.state) {
+        crucible::place(placement)
+    } else {
+        eggs::place_volitans(placement)
+    }
+}

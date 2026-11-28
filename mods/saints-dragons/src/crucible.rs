@@ -448,7 +448,7 @@ fn states() -> Option<&'static [u32; 4]> {
     Some(BLOCK_STATES.get_or_init(|| states))
 }
 
-fn is_crucible(state: u32) -> bool {
+pub(crate) fn is_crucible(state: u32) -> bool {
     states().is_some_and(|states| states.contains(&state))
 }
 
@@ -457,7 +457,7 @@ fn facing_index(yaw: f32) -> usize {
     (yaw / 90.0 + 0.5).floor() as i32 as usize & 3
 }
 
-fn place(args: Placement<'_>) -> Option<u32> {
+pub(crate) fn place(args: Placement<'_>) -> Option<u32> {
     Some(states()?[facing_index(args.yaw)])
 }
 
@@ -501,7 +501,7 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
             },
             states: &states,
         },
-        Some(place),
+        Some(crate::place_block),
     )?;
     let automation = AUTOMATION
         .get()
