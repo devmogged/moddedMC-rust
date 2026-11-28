@@ -10,10 +10,10 @@ use crate::{CONTENT, MOBS, ai::random, flight::cell};
 const IMPRINT_RADIUS: i32 = 9;
 
 fn griefing(world: World<'_>) -> bool {
-    // shortcut: use the release's default enabled dragon-griefing and block-ignition config
-    // until the mod exposes those settings. The vanilla gamerule is always respected.
-    MOBS.get()
-        .is_some_and(|mobs| mobs.boolean_gamerule(world, "minecraft:mob_griefing") == Some(true))
+    crate::config::gameplay("dragonGriefingEnabled")
+        && MOBS.get().is_some_and(|mobs| {
+            mobs.boolean_gamerule(world, "minecraft:mob_griefing") == Some(true)
+        })
 }
 
 fn block(world: World<'_>, pos: Pos) -> Option<u32> {
@@ -38,6 +38,9 @@ fn offset(pos: Pos, x: i32, y: i32, z: i32) -> Pos {
 }
 
 fn ignite(world: World<'_>, pos: Pos, sturdy: bool) {
+    if !crate::config::gameplay("fireDragonBlockIgnitionEnabled") {
+        return;
+    }
     let Some(fire) = CONTENT.get().and_then(|c| c.state("minecraft:fire")) else {
         return;
     };

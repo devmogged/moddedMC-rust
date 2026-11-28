@@ -1373,12 +1373,12 @@ fn claw_breakable(selector: &str, hardness: f32) -> bool {
 }
 
 /// VarasuchusClawAbility.breakBlocksInPath.
-// shortcut: the vanilla mob griefing rule is exposed, but not the dragon config
-// or destroyBlock's causing-entity argument.
+// shortcut: destroyBlock's causing-entity argument is unavailable.
 fn claw_blocks(world: World<'_>, mob: Entity<'_>, rider: Entity<'_>) {
-    if !MOBS
-        .get()
-        .is_some_and(|m| m.boolean_gamerule(world, "minecraft:mob_griefing") == Some(true))
+    if !crate::config::gameplay("dragonGriefingEnabled")
+        || !MOBS
+            .get()
+            .is_some_and(|m| m.boolean_gamerule(world, "minecraft:mob_griefing") == Some(true))
     {
         return;
     }

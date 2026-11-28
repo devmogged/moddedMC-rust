@@ -24,6 +24,7 @@ mod combat_raevyx;
 mod combat_stegonaut;
 mod combat_varasuchus;
 mod combat_volitans;
+mod config;
 mod consumables;
 mod crucible;
 mod dance;
@@ -117,6 +118,7 @@ mod rider_actions;
 
 impl Mod for SaintsDragons {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
+        config::load();
         let containers = moddedmc_api::containers::require()?;
         containers.require_furnace_heat()?;
         let _ = CONTAINERS.set(containers);
