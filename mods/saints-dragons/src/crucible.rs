@@ -45,6 +45,10 @@ static DIRTY_SCREEN: Mutex<Option<HashMap<usize, HashSet<Pos>>>> = Mutex::new(No
 static MENUS: OnceLock<Managed> = OnceLock::new();
 static KIND: OnceLock<MenuKind> = OnceLock::new();
 
+pub(crate) fn managed_menu() -> Option<(Managed, MenuKind)> {
+    Some((*MENUS.get()?, *KIND.get()?))
+}
+
 pub fn require() -> Result<(), InterfaceUnavailable> {
     let _ = MENUS.set(inventory_menu::require_managed()?);
     Ok(())
@@ -577,6 +581,9 @@ fn reachable(player: &Player<'_>, pos: Pos) -> bool {
 }
 
 fn valid(view: Validity<'_>) -> bool {
+    if crate::taming::cargo::is_context(view.context) {
+        return crate::taming::cargo::valid(view);
+    }
     decode_pos(view.context).is_some_and(|pos| {
         reachable(&view.player, pos)
             && snapshot(view.world, pos)
@@ -591,7 +598,10 @@ fn decode_stack(bytes: Option<&[u8]>) -> Option<Stack> {
     )
 }
 
-fn accepts(_: &[u8], slot: u8, bytes: &[u8]) -> bool {
+fn accepts(context: &[u8], slot: u8, bytes: &[u8]) -> bool {
+    if crate::taming::cargo::is_context(context) {
+        return crate::taming::cargo::accepts(context, slot, bytes);
+    }
     let slot = usize::from(slot);
     if slot == FUEL {
         decode_stack(Some(bytes))
@@ -604,7 +614,10 @@ fn accepts(_: &[u8], slot: u8, bytes: &[u8]) -> bool {
     }
 }
 
-fn route(_: &[u8], bytes: &[u8]) -> u64 {
+fn route(context: &[u8], bytes: &[u8]) -> u64 {
+    if crate::taming::cargo::is_context(context) {
+        return crate::taming::cargo::route(context, bytes);
+    }
     if accepts(&[], FUEL as u8, bytes) {
         1 << FUEL
     } else {
@@ -616,6 +629,10 @@ fn route(_: &[u8], bytes: &[u8]) -> u64 {
 }
 
 fn changed(mut event: ManagedChange<'_>) {
+    if crate::taming::cargo::is_context(event.context) {
+        crate::taming::cargo::changed(event);
+        return;
+    }
     let Some(pos) = decode_pos(event.context) else {
         return;
     };

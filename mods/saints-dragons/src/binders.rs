@@ -125,10 +125,16 @@ impl Binder {
 
 pub fn start() -> Result<(), InterfaceUnavailable> {
     let _ = STORAGE.set(mobs::require_storage()?);
+    moddedmc_api::entities::require()?
+        .require_extension(moddedmc_api::entities::EntitiesExtension::ItemDestroyed)?;
     Ok(())
 }
 
 pub fn register(defaults: ItemDefaults, reg: &mut Registry<'_>) -> Result<(), RegistrationError> {
+    ENTITIES
+        .get()
+        .ok_or(RegistrationError::InvalidDefinition)?
+        .on_item_destroyed(reg, destroyed)?;
     for binder in BINDERS {
         let carrier = "minecraft:paper";
         let stack = fastnbt::to_bytes(&Compound::from([
@@ -192,6 +198,53 @@ fn uuid(value: [u8; 16]) -> Value {
     ))
 }
 
+fn read_uuid(value: &Value) -> Option<[u8; 16]> {
+    let Value::IntArray(words) = value else {
+        return None;
+    };
+    let words: &[i32; 4] = (&words[..]).try_into().ok()?;
+    let mut bytes = [0; 16];
+    for (chunk, word) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(words) {
+        chunk.copy_from_slice(&word.to_be_bytes());
+    }
+    Some(bytes)
+}
+
+fn destroyed_identity(bytes: &[u8]) -> Option<([u8; 16], [u8; 16])> {
+    let stack: Compound = fastnbt::from_bytes(bytes).ok()?;
+    let Value::String(item) = stack.get("id")? else {
+        return None;
+    };
+    let binder = find(item)?;
+    let Value::Compound(components) = stack.get("components")? else {
+        return None;
+    };
+    let Value::Compound(custom) = components.get("minecraft:custom_data")? else {
+        return None;
+    };
+    if custom.get("IsBound") != Some(&Value::Byte(1)) {
+        return None;
+    }
+    let dragon = custom.get("BoundDragonUUID")?;
+    let Value::Compound(saved) = custom.get(binder.field)? else {
+        return None;
+    };
+    if saved.get("UUID") != Some(dragon) {
+        return None;
+    }
+    Some((
+        read_uuid(custom.get("BoundOwnerUUID")?)?,
+        read_uuid(dragon)?,
+    ))
+}
+
+/// BinderComponentUtil.handleDestroyedBoundBinder.
+fn destroyed(world: World<'_>, bytes: &[u8], _cause: &str) {
+    if let Some((owner, dragon)) = destroyed_identity(bytes) {
+        crate::codex::remove_record(world, owner, dragon);
+    }
+}
+
 fn say(player: Entity<'_>, text: &str) {
     if let Some(mobs) = MOBS.get() {
         mobs.message(player, text, true);
@@ -218,10 +271,13 @@ pub fn capture(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         say(player, "This creature cannot be bound right now");
         return Some(UseResult::Fail);
     }
-    Some(
+    Some(taming::with_attachment_lock(|| {
+        if !mobs.passengers(mob).is_empty() || mob.vehicle().is_some() {
+            return UseResult::Fail;
+        }
         capture_stack(click.world, &mut click.stack, binder, player, mob, *storage)
-            .unwrap_or(UseResult::Fail),
-    )
+            .unwrap_or(UseResult::Fail)
+    }))
 }
 
 pub fn saved_name(mob: Entity<'_>) -> Option<String> {
@@ -440,4 +496,46 @@ fn release_stacks(
         saved: fastnbt::to_bytes(&saved).map_err(|_| CORRUPT)?,
         name,
     }))
+}
+
+#[cfg(test)]
+mod destruction_tests {
+    use super::*;
+
+    #[test]
+    fn only_real_filled_binder_with_matching_uuid_is_destroyed() {
+        let owner = [1; 16];
+        let dragon = [2; 16];
+        let mut stack = Compound::from([
+            (
+                "id".into(),
+                Value::String("saintsdragons:cindervane_binder".into()),
+            ),
+            ("count".into(), Value::Int(1)),
+            (
+                "components".into(),
+                Value::Compound(Compound::from([(
+                    "minecraft:custom_data".into(),
+                    Value::Compound(Compound::from([
+                        ("IsBound".into(), Value::Byte(1)),
+                        ("BoundOwnerUUID".into(), uuid(owner)),
+                        ("BoundDragonUUID".into(), uuid(dragon)),
+                        (
+                            "CindervaneData".into(),
+                            Value::Compound(Compound::from([("UUID".into(), uuid(dragon))])),
+                        ),
+                    ])),
+                )])),
+            ),
+        ]);
+        assert_eq!(
+            destroyed_identity(&fastnbt::to_bytes(&stack).unwrap()),
+            Some((owner, dragon))
+        );
+        stack.insert("id".into(), Value::String("minecraft:paper".into()));
+        assert_eq!(
+            destroyed_identity(&fastnbt::to_bytes(&stack).unwrap()),
+            None
+        );
+    }
 }

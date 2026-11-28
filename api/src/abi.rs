@@ -496,7 +496,8 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, set_custom_name), 432);
         assert_eq!(offset_of!(EntitiesV1, player_fall_state), 440);
         assert_eq!(offset_of!(EntitiesV1, game_events), 448);
-        assert_eq!(size_of::<EntitiesV1>(), 456);
+        assert_eq!(offset_of!(EntitiesV1, on_item_destroyed), 456);
+        assert_eq!(size_of::<EntitiesV1>(), 464);
         assert_eq!(offset_of!(PlayerFallState, movement), 8);
         assert_eq!(size_of::<PlayerFallState>(), 32);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
@@ -1203,7 +1204,12 @@ pub struct EntitiesV1 {
         context: *mut c_void,
         visit: GameEventVisit,
     ) -> u64,
+    /// Observe a permanently destroyed dropped stack; not pickup or chunk unload.
+    pub on_item_destroyed: unsafe extern "C" fn(reg: Reg, callback: ItemDestroyedFn) -> i32,
 }
+
+/// Saved stack NBT, and the damage-type registry key or "despawn".
+pub type ItemDestroyedFn = unsafe extern "C" fn(WorldRef, Str, Str);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

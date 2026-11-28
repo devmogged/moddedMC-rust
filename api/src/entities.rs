@@ -52,6 +52,7 @@ pub enum EntitiesExtension {
     /// Java entity events, clearing active effects, and styled entity names.
     EntityEvents,
     Senses,
+    ItemDestroyed,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -82,6 +83,17 @@ pub type Inside = fn(World<'_>, Pos, u32, Entity<'_>);
 
 static TABLE: OnceLock<InterfacePrefix<abi::EntitiesV1>> = OnceLock::new();
 static INSIDE: OnceLock<Inside> = OnceLock::new();
+type ItemDestroyed = fn(World<'_>, &[u8], &str);
+static ITEM_DESTROYED: OnceLock<ItemDestroyed> = OnceLock::new();
+
+unsafe extern "C" fn item_destroyed(world: abi::WorldRef, stack: abi::Str, cause: abi::Str) {
+    guard("item destroyed", (), || {
+        if let (Some(world), Some(callback)) = (World::borrowed(world), ITEM_DESTROYED.get()) {
+            // SAFETY: both strings are borrowed for this synchronous callback.
+            callback(world, unsafe { stack.bytes() }, unsafe { cause.str() });
+        }
+    });
+}
 
 pub fn require() -> Result<Entities, InterfaceUnavailable> {
     // SAFETY: this is the published table type for moddedmc:entities v1; appended fields are
@@ -114,6 +126,24 @@ unsafe extern "C" fn inside(world: abi::WorldRef, pos: Pos, state: u32, entity: 
 }
 
 impl Entities {
+    pub fn on_item_destroyed(
+        self,
+        reg: &mut Registry<'_>,
+        callback: ItemDestroyed,
+    ) -> Result<(), RegistrationError> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::EntitiesV1, on_item_destroyed))
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        ITEM_DESTROYED
+            .set(callback)
+            .map_err(|_| RegistrationError::DuplicateId)?;
+        // SAFETY: checked table and borrowed registration; the trampoline is static.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_item_destroyed).read())(reg.reg, item_destroyed)
+        })
+    }
+
     /// Read recent events in the listener's range. Save the returned cursor for the next poll.
     pub fn game_events(
         self,
@@ -216,6 +246,10 @@ impl Entities {
             EntitiesExtension::Senses => (
                 std::mem::offset_of!(abi::EntitiesV1, game_events),
                 "moddedmc:entities.senses",
+            ),
+            EntitiesExtension::ItemDestroyed => (
+                std::mem::offset_of!(abi::EntitiesV1, on_item_destroyed),
+                "moddedmc:entities.on_item_destroyed",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {

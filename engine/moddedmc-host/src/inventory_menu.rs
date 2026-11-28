@@ -200,6 +200,7 @@ mod registration_tests {
             services: Vec::new(),
             player_actions: Vec::new(),
             equipment: Vec::new(),
+            item_destroyed: None,
         };
         let reg = (&raw mut staging).cast();
         let mut legacy_id = 0;

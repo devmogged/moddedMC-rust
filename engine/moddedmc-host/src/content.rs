@@ -3218,6 +3218,7 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     set_custom_name: crate::entities::set_custom_name,
     player_fall_state: crate::entities::player_fall_state,
     game_events: crate::entities::game_events,
+    on_item_destroyed: crate::entities::on_item_destroyed,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
