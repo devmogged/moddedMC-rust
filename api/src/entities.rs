@@ -937,6 +937,32 @@ mod tests {
     }
 
     #[test]
+    fn entity_event_extension_is_unavailable_on_attackable_only_hosts() {
+        let api = InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: std::mem::offset_of!(abi::EntitiesV1, broadcast_event),
+        };
+        let entity = Entity {
+            raw: std::ptr::null(),
+            api,
+            scope: PhantomData,
+        };
+        assert!(
+            Entities(api)
+                .require_extension(EntitiesExtension::Attackable)
+                .is_ok()
+        );
+        assert!(
+            Entities(api)
+                .require_extension(EntitiesExtension::EntityEvents)
+                .is_err()
+        );
+        assert_eq!(entity.broadcast_event(35), None);
+        assert_eq!(entity.remove_all_effects(), None);
+        assert_eq!(entity.set_custom_name(r#"{"text":"Ivy"}"#), None);
+    }
+
+    #[test]
     fn combat_calls_are_unavailable_on_old_hosts() {
         let api = InterfacePrefix {
             ptr: std::ptr::null(),

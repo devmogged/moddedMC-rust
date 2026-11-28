@@ -92,8 +92,9 @@ motion-blocking-no-leaves heightmap, with 18/22/26 damage and 0.9/1.1/1.3
 knockback, player attack attribution, and native pet/team exclusion.
 [Sword scenario](../tests/scenarios/p2-dragonlord-sword-r.txt) covers the
 main-hand requirement, all three hits and cooldown (pending coordinator run).
-The release's default config values are used; configurable overrides, generic
-attackable predicate, unloaded-column height lookup, and persistent visual entities remain.
+Both pillar types use the native attackable predicate. The release's default
+config values are used; configurable overrides, unloaded-column height lookup,
+and persistent visual entities remain.
 [Pillar scenario](../tests/scenarios/p2-magma-pillars.txt)
 checks a victim entering after the roar's first wave spawns and expiration
 (pending coordinator run).
@@ -133,8 +134,8 @@ All eight dragon mounts now supply their released neutral rider anchors, with
 separate Cindervane owner/guest and slash-grab offsets. Dismounts search the
 species-specific candidate offsets using native floor and clearance validation.
 Ground dismounts approximate passenger width and hand preference; the engine
-falls back to its normal safe dismount search, and animated client seats and
-custom dragon global ally lists also apply. [Pet and seat scenario](../tests/scenarios/p2-pets-seats.txt)
+falls back to its normal safe dismount search. Global ally lists also apply;
+animated client seats remain pending. [Pet and seat scenario](../tests/scenarios/p2-pets-seats.txt)
 covers portable pet buffs and mount/dismount lifecycle (pending coordinator run).
 
 The released `DragonRiderSeat.positionAnimatedRider` uses a neutral yaw-relative
@@ -602,7 +603,8 @@ across all their dragons and dimensions and persisted through world saves.
 All eight dragon combat filters and recruited Ivy honor the owner's list and
 the ownership of mod companions; Cindervane's fire aura and Stegonaut's live
 and portable buffs also use the released owner/ally rules. The existing dialog
-uses a paged online-player selector and supports offline removal. Native pet ownership and scoreboard alliances are also checked. Operator
+uses a paged online-player selector and supports offline removal. Native pet
+ownership and scoreboard alliances are also checked. Operator
 level two /dragonally add, remove, list and clear use typed entity and string
 arguments and server-wide player lookup. A text-input screen for the released
 Codex UI remains pending.
