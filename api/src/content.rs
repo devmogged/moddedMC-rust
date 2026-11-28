@@ -121,6 +121,7 @@ pub enum WorldExtension {
     WeatherState,
     /// `signal` and `update_neighbors`.
     Signal,
+    CompareState,
 }
 
 impl WorldExtension {
@@ -229,6 +230,10 @@ impl WorldExtension {
             Self::Signal => (
                 std::mem::offset_of!(abi::BlockWorldV1, update_neighbors),
                 "moddedmc:block_world.update_neighbors",
+            ),
+            Self::CompareState => (
+                std::mem::offset_of!(abi::BlockWorldV1, compare_state),
+                "moddedmc:block_world.compare_state",
             ),
         }
     }
@@ -641,6 +646,14 @@ impl World<'_> {
         unsafe {
             ((&raw const (*self.api.ptr).write).read())(self.raw, updates.as_ptr(), updates.len())
         }
+    }
+
+    /// Change properties without replacing the block entity or overwriting a changed block.
+    pub fn compare_state(self, pos: Pos, expected: u32, next: u32) -> bool {
+        WorldExtension::CompareState.available(self.api)
+            && unsafe {
+                ((&raw const (*self.api.ptr).compare_state).read())(self.raw, pos, expected, next)
+            }
     }
 
     /// Apply an ordered batch, resolving neighbor shapes for entries that request it.

@@ -13,6 +13,36 @@ use crate::{CONTENT, ENTITIES, MOBS, TAGS, taming};
 
 const SPAWNS: &[Spawn<'static>] = &[
     Spawn {
+        kind: "saintsdragons:raevyx",
+        biomes: "#saintsdragons:has_raevyx",
+        category: SpawnCategory::Creature,
+        weight: 6,
+        min_count: 1,
+        max_count: 2,
+        location: SpawnLocation::OnGround,
+        carrier_rules: false,
+    },
+    Spawn {
+        kind: "saintsdragons:stegonaut",
+        biomes: "#saintsdragons:has_stegonaut",
+        category: SpawnCategory::Creature,
+        weight: 7,
+        min_count: 1,
+        max_count: 4,
+        location: SpawnLocation::OnGround,
+        carrier_rules: false,
+    },
+    Spawn {
+        kind: "saintsdragons:volitans",
+        biomes: "#saintsdragons:has_volitans_fallback",
+        category: SpawnCategory::Creature,
+        weight: 6,
+        min_count: 1,
+        max_count: 1,
+        location: SpawnLocation::OnGround,
+        carrier_rules: false,
+    },
+    Spawn {
         kind: "saintsdragons:cindervane",
         biomes: "#saintsdragons:has_cindervane",
         category: SpawnCategory::Creature,
@@ -95,6 +125,13 @@ const UP: u8 = 1;
 
 pub fn register(registry: &mut Registry<'_>, mobs: Mobs) -> Result<(), RegistrationError> {
     for spawn in SPAWNS {
+        if matches!(
+            spawn.kind,
+            "saintsdragons:raevyx" | "saintsdragons:stegonaut" | "saintsdragons:volitans"
+        ) && crate::config::custom_spawning(spawn.kind)
+        {
+            continue;
+        }
         if let Some((weight, min_count, max_count)) = crate::config::spawn_settings(
             spawn.kind,
             spawn.weight,
@@ -121,8 +158,12 @@ fn check(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
                 && dry_ground(world, spawn.position)
                 && natural_density(world, spawn)
         }
-        "saintsdragons:atroxiia" => {
+        "saintsdragons:atroxiia" | "saintsdragons:raevyx" | "saintsdragons:stegonaut" => {
             dry_ground(world, spawn.position) && natural_density(world, spawn)
+        }
+        "saintsdragons:volitans" => {
+            let below = down(spawn.position);
+            dry(world, spawn.position) && dry(world, below) && world.face_sturdy(below, UP)
         }
         "saintsdragons:nulljaw" => {
             let above = up(spawn.position);

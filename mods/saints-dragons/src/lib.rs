@@ -131,6 +131,7 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::Dimension)?;
         content.require_extension(WorldExtension::Surface)?;
         content.require_extension(WorldExtension::ContentEntityTransaction)?;
+        content.require_extension(WorldExtension::CompareState)?;
         content.require_extension(WorldExtension::RawBrightness)?;
         content.require_extension(WorldExtension::DescribeState)?;
         content.require_extension(WorldExtension::GameTime)?;

@@ -120,6 +120,9 @@ pub fn tick(world: World<'_>) {
 
 fn run(world: World<'_>, index: usize) {
     let spawner = SPAWNERS[index];
+    if !crate::config::custom_spawning(spawner.kind) {
+        return;
+    }
     let raevyx = index == 0;
     let Some((weight, _, _)) = crate::config::spawn_settings(
         spawner.kind,

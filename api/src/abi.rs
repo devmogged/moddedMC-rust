@@ -852,6 +852,10 @@ pub struct BlockWorldV1 {
     /// Vanilla `Level.updateNeighborsAt(pos, block)` with the block now at `pos`. False when
     /// unloaded.
     pub update_neighbors: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
+    /// Atomically compare and change a loaded block's state within the same block type.
+    /// Preserves the existing block entity and notifies listeners and neighbors.
+    pub compare_state:
+        unsafe extern "C" fn(world: WorldRef, pos: Pos, expected: u32, next: u32) -> bool,
 }
 
 #[repr(C)]
@@ -908,7 +912,8 @@ mod block_world_layout {
         assert_eq!(offset_of!(BlockWorldV1, set_weather_state), 312);
         assert_eq!(offset_of!(BlockWorldV1, signal), 320);
         assert_eq!(offset_of!(BlockWorldV1, update_neighbors), 328);
-        assert_eq!(size_of::<BlockWorldV1>(), 336);
+        assert_eq!(offset_of!(BlockWorldV1, compare_state), 336);
+        assert_eq!(size_of::<BlockWorldV1>(), 344);
         assert_eq!(size_of::<WeatherState>(), 16);
         assert_eq!(size_of::<DayTime>(), 16);
     }

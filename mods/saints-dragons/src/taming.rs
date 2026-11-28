@@ -197,6 +197,9 @@ pub fn brushing_progress(mob: Entity<'_>) -> Option<u16> {
 pub fn add_happiness(mob: Entity<'_>, delta: i32) -> Option<u8> {
     let _guard = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
     let mut state = tamed(mob)?;
+    if !crate::config::gameplay("happinessDecayEnabled") {
+        return Some(state.happiness);
+    }
     let next = (i32::from(state.happiness) + delta).clamp(0, 100) as u8;
     if next != state.happiness {
         state.happiness = next;
@@ -481,7 +484,9 @@ fn brush(click: &mut UseMob<'_>, golden: bool) -> UseResult {
         return UseResult::Fail;
     };
     let mut next = old;
-    next.happiness = (old.happiness + if golden { 20 } else { 10 }).min(100);
+    if crate::config::gameplay("happinessDecayEnabled") {
+        next.happiness = (old.happiness + if golden { 20 } else { 10 }).min(100);
+    }
     if count > 0 {
         next.regrowth = REGROWTH_TICKS;
         next.plucked = false;
@@ -584,7 +589,9 @@ fn pluck(click: &mut UseMob<'_>) -> UseResult {
     let mut next = old;
     next.regrowth = REGROWTH_TICKS;
     next.plucked = true;
-    next.happiness = old.happiness.saturating_sub(40);
+    if crate::config::gameplay("happinessDecayEnabled") {
+        next.happiness = old.happiness.saturating_sub(40);
+    }
     if !mobs.set_state(mob, &next.encode()) {
         return UseResult::Fail;
     }

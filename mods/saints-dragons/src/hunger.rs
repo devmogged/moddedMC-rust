@@ -131,7 +131,11 @@ pub fn tick(world: World<'_>, mob: Entity<'_>, speed: f64, flying: Option<f64>, 
         return;
     }
     let mut state = Hunger::load(mob);
-    state.decay += STEP * if ridden_by_player(world, mob) { 2 } else { 1 };
+    if !crate::config::gameplay("hungerDecayEnabled") {
+        state.decay = 0;
+    } else {
+        state.decay += STEP * if ridden_by_player(world, mob) { 2 } else { 1 };
+    }
     if state.hunger > 0 {
         while state.decay >= DECAY_INTERVAL && state.hunger > 0 {
             state.decay -= DECAY_INTERVAL;
@@ -144,12 +148,16 @@ pub fn tick(world: World<'_>, mob: Entity<'_>, speed: f64, flying: Option<f64>, 
         }
     }
     let happiness = if taming::is_tamed(mob) {
-        state.happiness_decay += STEP
-            * match state.hunger {
-                ..=30 => 4,
-                31..=60 => 2,
-                _ => 1,
-            };
+        if crate::config::gameplay("happinessDecayEnabled") {
+            state.happiness_decay += STEP
+                * match state.hunger {
+                    ..=30 => 4,
+                    31..=60 => 2,
+                    _ => 1,
+                };
+        } else {
+            state.happiness_decay = 0;
+        }
         let mut drop = 0;
         while state.happiness_decay >= HAPPINESS_INTERVAL {
             state.happiness_decay -= HAPPINESS_INTERVAL;
@@ -216,6 +224,9 @@ fn apply_speed(mob: Entity<'_>, happiness: u8, speed: f64, flying: Option<f64>) 
 
 /// `applyHitPenalty`: a tamed dragon that took damage loses 2 happiness and sulks at 60 or less.
 pub fn hit(world: World<'_>, mob: Entity<'_>) {
+    if !crate::config::gameplay("happinessDecayEnabled") {
+        return;
+    }
     let Some(happiness) = taming::add_happiness(mob, -HIT_PENALTY) else {
         return;
     };

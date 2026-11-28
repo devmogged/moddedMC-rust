@@ -13,6 +13,9 @@ cmd item replace entity tester hotbar.0 with saintsdragons:draconic_crucible
 wait 0.5
 bot place 1025 104 1027 up
 wait 0.5
+cmd execute if block 1025 105 1027 saintsdragons:draconic_crucible[lit=false]
+wait 0.5
+expect Test passed
 cmd item replace entity tester hotbar.0 with minecraft:raw_iron 2
 cmd item replace entity tester hotbar.1 with minecraft:blaze_powder
 wait 0.5
@@ -50,6 +53,9 @@ expect expect inventory ok slot 0 raw_iron 1
 bot expect slot 15 minecraft:clock 1
 wait 0.5
 expect expect inventory ok slot 15 clock 1
+cmd execute if block 1025 105 1027 saintsdragons:draconic_crucible[lit=true]
+wait 0.5
+expect Test passed
 botselect witness
 bot expect slot 0 minecraft:raw_iron 1
 wait 0.5
@@ -90,6 +96,9 @@ expect No items were found on player witness
 bot quit
 botselect tester
 wait 12
+cmd execute if block 1025 105 1027 saintsdragons:draconic_crucible[lit=false]
+wait 0.5
+expect Test passed
 bot expect slot 6 minecraft:iron_ingot 1
 wait 0.5
 expect expect inventory ok slot 6 iron_ingot 1

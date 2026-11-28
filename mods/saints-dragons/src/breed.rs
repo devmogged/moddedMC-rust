@@ -207,6 +207,10 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
     if !click.sneaking || !taming::is_tamed(mob) || !TAGS.get()?.contains("item", &foods, item) {
         return None;
     }
+    if !crate::config::gameplay("dragonBreedingEnabled") {
+        message(player, "Dragon breeding is disabled on this server", "");
+        return Some(UseResult::Success);
+    }
     if breeder.name == "varasuchus" && crate::MOBS.get()?.game_mode(player) == Some(3) {
         return None;
     }
@@ -255,7 +259,8 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
 
 /// `breedingAllowed` and the age half of `canMate`.
 fn ready(world: World<'_>, mob: Entity<'_>, breeder: &Breeder) -> bool {
-    taming::is_tamed(mob)
+    crate::config::gameplay("dragonBreedingEnabled")
+        && taming::is_tamed(mob)
         && !crate::eggs::is_juvenile(mob)
         && (breeder.name != "volitans"
             || (position(mob).is_some_and(|at| crate::eggs::water_at(world, block(at)))

@@ -59,6 +59,11 @@ fn spawning() -> Option<&'static Value> {
     SETTINGS.get()?.spawning.as_ref()?.get("spawning")
 }
 
+pub fn custom_spawning(kind: &str) -> bool {
+    let name = kind.strip_prefix("saintsdragons:").unwrap_or(kind);
+    boolean(spawning(), &format!("{name}CustomSpawningEnabled"), true)
+}
+
 pub fn gameplay(key: &str) -> bool {
     boolean(
         SETTINGS

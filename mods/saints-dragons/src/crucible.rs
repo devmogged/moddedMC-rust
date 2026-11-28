@@ -40,7 +40,7 @@ const COST: [i32; 4] = [0, 1, 2, 6];
 type Stack = HashMap<String, Value>;
 
 static RECIPES: OnceLock<Vec<Recipe>> = OnceLock::new();
-static BLOCK_STATES: OnceLock<[u32; 4]> = OnceLock::new();
+static BLOCK_STATES: OnceLock<[u32; 8]> = OnceLock::new();
 static AUTOMATION: OnceLock<ItemInput> = OnceLock::new();
 static ACTIVE: Mutex<Option<HashMap<usize, HashSet<Pos>>>> = Mutex::new(None);
 static DIRTY_SCREEN: Mutex<Option<HashMap<usize, HashSet<Pos>>>> = Mutex::new(None);
@@ -436,14 +436,17 @@ fn fuel_level(id: &str) -> Option<usize> {
 
 const FACINGS: [&str; 4] = ["north", "east", "south", "west"];
 
-fn states() -> Option<&'static [u32; 4]> {
+fn states() -> Option<&'static [u32; 8]> {
     if let Some(states) = BLOCK_STATES.get() {
         return Some(states);
     }
     let content = CONTENT.get()?;
-    let mut states = [0; 4];
+    let mut states = [0; 8];
     for (index, facing) in FACINGS.iter().enumerate() {
-        states[index] = content.state(&format!("{ID}[facing={facing}]"))?;
+        for lit in [false, true] {
+            states[index + usize::from(lit) * 4] =
+                content.state(&format!("{ID}[facing={facing},lit={lit}]"))?;
+        }
     }
     Some(BLOCK_STATES.get_or_init(|| states))
 }
@@ -477,14 +480,20 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
     } else {
         "minecraft:block/blast_furnace"
     };
-    let properties = FACINGS.map(|facing| format!("facing={facing}"));
-    let states = std::array::from_fn::<_, 4, _>(|index| State {
+    let properties = std::array::from_fn::<_, 8, _>(|index| {
+        format!("facing={},lit={}", FACINGS[index % 4], index >= 4)
+    });
+    let states = std::array::from_fn::<_, 8, _>(|index| State {
         properties: &properties[index],
-        physical: "minecraft:blast_furnace",
+        physical: if index >= 4 {
+            "minecraft:blast_furnace[lit=true]"
+        } else {
+            "minecraft:blast_furnace[lit=false]"
+        },
         model,
         rotating_model: "",
         x: 0,
-        y: [0, 90, 180, 270][index],
+        y: [0, 90, 180, 270][index % 4],
         orientation: [0.0, 0.0, 0.0, 1.0],
         shape: &[],
     });
@@ -647,13 +656,55 @@ pub fn tick(world: World<'_>, events: &[ContentEvent]) {
             && machine.job.is_none()
             && (machine.charge != 0 || machine.fuel.is_empty())
         {
+            sync_lit(world, pos, before.state, false);
             continue;
         }
         machine.advance(recipes(), max_count, smelting::find, fuel_level);
-        if !mutate(world, pos, &before, &machine) && dirty.contains(&pos) {
+        if mutate(world, pos, &before, &machine) {
+            sync_lit(world, pos, before.state, machine.job.is_some());
+        } else if dirty.contains(&pos) {
             mark_screen_dirty(world, pos);
         }
     }
+}
+
+/// Switch only the facing-preserving property; Pumpkin keeps the block entity
+/// and open menu incarnation when the block type does not change.
+fn sync_lit(world: World<'_>, pos: Pos, previous: u32, lit: bool) -> bool {
+    let Some(states) = states() else { return false };
+    let Some(index) = states.iter().position(|&state| state == previous) else {
+        return false;
+    };
+    let next = states[index % 4 + usize::from(lit) * 4];
+    if next == previous || !world.compare_state(pos, previous, next) {
+        return false;
+    }
+    if let Some(effects) = crate::EFFECTS.get() {
+        let sound = if cfg!(feature = "original-assets") {
+            if lit {
+                "saintsdragons:draconic_crucible_close"
+            } else {
+                "saintsdragons:draconic_crucible_open"
+            }
+        } else if lit {
+            "minecraft:block.iron_trapdoor.close"
+        } else {
+            "minecraft:block.iron_trapdoor.open"
+        };
+        effects.play_sound(
+            world,
+            [
+                f64::from(pos.x) + 0.5,
+                f64::from(pos.y) + 0.5,
+                f64::from(pos.z) + 0.5,
+            ],
+            sound,
+            moddedmc_api::effects::SOUND_BLOCKS,
+            0.5,
+            0.9 + crate::ai::random(1000) as f32 * 0.0001,
+        );
+    }
+    true
 }
 
 fn mark_screen_dirty(world: World<'_>, pos: Pos) {
@@ -802,8 +853,8 @@ fn action(event: Action<'_>) {
         }
         let charge = machine.charge;
         let started = machine.start(recipes(), max_count, smelting::find, fuel_level);
-        if started || machine.charge != charge {
-            mutate(event.world, pos, &before, &machine);
+        if (started || machine.charge != charge) && mutate(event.world, pos, &before, &machine) {
+            sync_lit(event.world, pos, before.state, machine.job.is_some());
         }
         return;
     }

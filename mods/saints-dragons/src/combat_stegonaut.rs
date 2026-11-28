@@ -1120,7 +1120,7 @@ fn has_bound_binder(player: Entity<'_>) -> bool {
 /// share one target set per dimension. Refresh every 20 ticks and remove lost targets.
 pub fn portable_aura(world: World<'_>, time: u64) {
     use moddedmc_api::entities::{ENTITY_ALIVE, ENTITY_LIVING, ENTITY_PLAYER};
-    if !time.is_multiple_of(20) {
+    if !crate::config::gameplay("stegonautBuffsEnabled") || !time.is_multiple_of(20) {
         return;
     }
     let (Some(dimension), Some(mobs), Some(entities)) =
@@ -1228,7 +1228,9 @@ pub fn aura(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         return matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE);
     }
     rider_tick(world, mob);
-    if !moddedmc_api::tick_count().is_multiple_of(20) {
+    if !crate::config::gameplay("stegonautBuffsEnabled")
+        || !moddedmc_api::tick_count().is_multiple_of(20)
+    {
         return false;
     }
     let (Some(owner), Some(mobs), Some(entities), Some(dimension)) = (

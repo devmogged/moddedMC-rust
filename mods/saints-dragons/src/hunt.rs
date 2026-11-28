@@ -44,7 +44,8 @@ pub(crate) fn prey_type(name: &str, kind: &str) -> bool {
 }
 
 fn eligible(mob: Entity<'_>) -> bool {
-    mob.flags() & ENTITY_ALIVE != 0
+    crate::config::gameplay("hungerDecayEnabled")
+        && mob.flags() & ENTITY_ALIVE != 0
         && !crate::eggs::is_juvenile(mob)
         && mob.vehicle().is_none()
         && MOBS.get().is_some_and(|m| m.passengers(mob).is_empty())

@@ -152,7 +152,36 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     set_weather_state,
     signal,
     update_neighbors,
+    compare_state,
 };
+
+unsafe extern "C" fn compare_state(raw: WorldRef, pos: Pos, expected: u32, next: u32) -> bool {
+    // SAFETY: the callback borrows the world for this call.
+    let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
+        return false;
+    };
+    let (Some(expected), Some(next)) = (
+        u16::try_from(expected)
+            .ok()
+            .and_then(BlockStateId::from_runtime_id),
+        u16::try_from(next)
+            .ok()
+            .and_then(BlockStateId::from_runtime_id),
+    ) else {
+        return false;
+    };
+    if expected == next || Block::from_state_id(expected).id != Block::from_state_id(next).id {
+        return false;
+    }
+    world
+        .set_block_state_if(
+            &block_pos(pos),
+            next,
+            BlockFlags::NOTIFY_LISTENERS | BlockFlags::NOTIFY_NEIGHBORS,
+            |current| current == expected,
+        )
+        .is_some()
+}
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
     // SAFETY: the world handle is borrowed for the synchronous callback.
