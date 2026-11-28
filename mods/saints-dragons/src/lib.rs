@@ -26,8 +26,10 @@ mod combat_varasuchus;
 mod combat_volitans;
 mod consumables;
 mod crucible;
+mod dance;
 mod discs;
 mod eggs;
+mod family;
 mod flight;
 mod flight_route;
 mod hunger;
@@ -128,6 +130,7 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::ContentEntityTransaction)?;
         content.require_extension(WorldExtension::RawBrightness)?;
         content.require_extension(WorldExtension::DescribeState)?;
+        content.require_extension(WorldExtension::BlockEntities)?;
         spawners::require()?;
         content.require_comparator_output()?;
         content.require_block_material()?;
@@ -483,6 +486,7 @@ fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) 
     spawners::tick(world);
     visuals::sweep(world, time, events);
     roost::sweep();
+    dance::sweep(moddedmc_api::tick_count());
     hunt::sweep(time);
     combat_stegonaut::sweep_aura(world);
     combat_stegonaut::portable_aura(world, time);

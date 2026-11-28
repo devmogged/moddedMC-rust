@@ -14,6 +14,7 @@ use moddedmc_api::{
     mob_ai::goal_phase,
     tick_count,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{ENTITIES, MOB_AI, MOBS, TAGS, ai::random, appearance::Appearance, taming};
 
@@ -102,15 +103,60 @@ struct Courtship {
 
 #[derive(Default)]
 struct State {
-    love: HashMap<i32, u64>,
-    love_cause: HashMap<i32, [u8; 16]>,
-    cooldown: HashMap<i32, u64>,
     fed: HashMap<i32, u64>,
     courting: HashMap<i32, Courtship>,
 }
 
-// shortcut: love and the post-laying cooldown live in memory, so a restart clears them.
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+const DATA: &str = "saintsdragons:breeding";
+
+/// Animal's InLove, LoveCause and positive Age are remaining loaded-entity ticks.
+#[derive(Default, Deserialize, Serialize)]
+struct Breeding {
+    love: i32,
+    cooldown: i32,
+    cause: Option<[i32; 4]>,
+}
+
+impl Breeding {
+    fn load(mob: Entity<'_>) -> Self {
+        mob.data(DATA)
+            .and_then(|bytes| fastnbt::from_bytes(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self, mob: Entity<'_>) {
+        if self.love == 0 && self.cooldown == 0 {
+            mob.set_data(DATA, &[]);
+        } else if let Ok(bytes) = fastnbt::to_bytes(self) {
+            mob.set_data(DATA, &bytes);
+        }
+    }
+
+    fn advance(&mut self) {
+        self.love = self.love.saturating_sub(1).max(0);
+        self.cooldown = self.cooldown.saturating_sub(1).max(0);
+        if self.love == 0 {
+            self.cause = None;
+        }
+    }
+
+    fn cause(&self) -> Option<[u8; 16]> {
+        let mut uuid = [0; 16];
+        for (chunk, word) in uuid.as_chunks_mut::<4>().0.iter_mut().zip(self.cause?) {
+            chunk.copy_from_slice(&word.to_be_bytes());
+        }
+        Some(uuid)
+    }
+}
+
+pub fn tick_age(mob: Entity<'_>) {
+    let mut state = Breeding::load(mob);
+    if state.love != 0 || state.cooldown != 0 {
+        state.advance();
+        state.save(mob);
+    }
+}
 
 fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
     f(STATE
@@ -130,9 +176,6 @@ pub fn breeds(species: &str) -> bool {
 
 pub fn forget(id: i32) {
     with(|state| {
-        state.love.remove(&id);
-        state.love_cause.remove(&id);
-        state.cooldown.remove(&id);
         state.fed.remove(&id);
         release(state, id);
     });
@@ -147,10 +190,6 @@ fn release(state: &mut State, id: i32) {
     {
         state.courting.remove(&court.partner);
     }
-}
-
-fn in_love(state: &State, id: i32, now: u64) -> bool {
-    state.love.get(&id).is_some_and(|until| *until > now)
 }
 
 fn message(player: Entity<'_>, template: &str, name: &str) {
@@ -186,11 +225,12 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         message(player, "%s is too young to breed", name);
         return Some(UseResult::Success);
     }
-    if with(|state| state.cooldown.get(&id).is_some_and(|until| *until > now)) {
+    let mut breeding = Breeding::load(mob);
+    if breeding.cooldown > 0 {
         message(player, "%s is not ready to breed yet", name);
         return Some(UseResult::Success);
     }
-    if with(|state| in_love(state, id, now)) {
+    if breeding.love > 0 {
         message(player, "%s is already ready to breed", name);
         return Some(UseResult::Success);
     }
@@ -202,20 +242,19 @@ pub fn feed(click: &mut UseMob<'_>, item: &str) -> Option<UseResult> {
         click.stack.shrink(1);
     }
     crate::audio::eat(click.world, mob, item);
-    with(|state| {
-        state.fed.insert(id, now + breeder.feed_ticks());
-        state.love.insert(id, now + LOVE_TICKS);
-        if let Some(uuid) = MOBS.get().and_then(|mobs| mobs.uuid(player)) {
-            state.love_cause.insert(id, uuid);
-        }
+    with(|state| state.fed.insert(id, now + breeder.feed_ticks()));
+    breeding.love = LOVE_TICKS as i32;
+    breeding.cause = MOBS.get().and_then(|mobs| mobs.uuid(player)).map(|uuid| {
+        std::array::from_fn(|i| i32::from_be_bytes(uuid[i * 4..i * 4 + 4].try_into().unwrap()))
     });
+    breeding.save(mob);
     taming::feed_particles(click.world, mob, true);
     message(player, "%s is ready to breed!", name);
     Some(UseResult::Success)
 }
 
 /// `breedingAllowed` and the age half of `canMate`.
-fn ready(world: World<'_>, mob: Entity<'_>, breeder: &Breeder, now: u64) -> bool {
+fn ready(world: World<'_>, mob: Entity<'_>, breeder: &Breeder) -> bool {
     taming::is_tamed(mob)
         && !crate::eggs::is_juvenile(mob)
         && (breeder.name != "volitans"
@@ -227,13 +266,10 @@ fn ready(world: World<'_>, mob: Entity<'_>, breeder: &Breeder, now: u64) -> bool
             .get()
             .and_then(|mobs| mobs.health(mob))
             .is_some_and(|(health, _)| health > 0.0)
-        && with(|state| {
-            in_love(state, mob.id(), now)
-                && !state
-                    .cooldown
-                    .get(&mob.id())
-                    .is_some_and(|until| *until > now)
-        })
+        && {
+            let state = Breeding::load(mob);
+            state.love > 0 && state.cooldown == 0
+        }
 }
 
 fn position(mob: Entity<'_>) -> Option<[f64; 3]> {
@@ -246,7 +282,7 @@ fn width(mob: Entity<'_>) -> f64 {
 
 /// `findMate`: the nearest ready dragon of the same species and the other sex that hasn't paired
 /// with someone else.
-fn find_mate(world: World<'_>, mob: Entity<'_>, breeder: &Breeder, now: u64) -> Option<i32> {
+fn find_mate(world: World<'_>, mob: Entity<'_>, breeder: &Breeder) -> Option<i32> {
     let (mobs, entities) = (MOBS.get()?, ENTITIES.get()?);
     let kind = mobs.kind(mob)?;
     let at = position(mob)?;
@@ -260,7 +296,7 @@ fn find_mate(world: World<'_>, mob: Entity<'_>, breeder: &Breeder, now: u64) -> 
         let candidate = entities.with_entity(world, id, |other| {
             let fits = mobs.kind(other) == Some(kind)
                 && Appearance::is_female(other) != female
-                && ready(world, other, breeder, now)
+                && ready(world, other, breeder)
                 && with(|state| {
                     state
                         .courting
@@ -285,13 +321,12 @@ fn distance_sqr(a: [f64; 3], b: [f64; 3]) -> f64 {
 
 /// Whether a ready dragon has a mate to court, so it gets up from sitting.
 pub fn wants_mate(world: World<'_>, mob: Entity<'_>) -> bool {
-    let now = tick_count();
-    if !with(|state| in_love(state, mob.id(), now)) {
+    if Breeding::load(mob).love == 0 {
         return false;
     }
     with(|state| state.courting.contains_key(&mob.id()))
         || breeder(mob).is_some_and(|breeder| {
-            ready(world, mob, breeder, now) && find_mate(world, mob, breeder, now).is_some()
+            ready(world, mob, breeder) && find_mate(world, mob, breeder).is_some()
         })
 }
 
@@ -309,13 +344,13 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     };
     match phase {
         goal_phase::CAN_START => {
-            if !ready(world, mob, breeder, now) {
+            if !ready(world, mob, breeder) {
                 return false;
             }
             if courtship(mob).is_some() {
                 return true;
             }
-            let Some(partner) = find_mate(world, mob, breeder, now) else {
+            let Some(partner) = find_mate(world, mob, breeder) else {
                 return false;
             };
             // `start`: the dragon with the lower id lays the egg after 60 to 109 ticks.
@@ -353,13 +388,12 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 return false;
             };
             now <= court.ends
-                && ready(world, mob, breeder, now)
+                && ready(world, mob, breeder)
                 && ENTITIES
                     .get()
                     .and_then(|entities| {
-                        entities.with_entity(world, court.partner, |other| {
-                            ready(world, other, breeder, now)
-                        })
+                        entities
+                            .with_entity(world, court.partner, |other| ready(world, other, breeder))
                     })
                     .unwrap_or(false)
         }
@@ -430,7 +464,7 @@ fn tick(world: World<'_>, mob: Entity<'_>, breeder: &Breeder, now: u64) {
     }
     if close && now >= court.egg_at {
         entities.with_entity(world, court.partner, |partner| {
-            lay(world, mob, partner, breeder, now)
+            lay(world, mob, partner, breeder)
         });
     }
 }
@@ -444,7 +478,7 @@ fn block(at: [f64; 3]) -> Pos {
 }
 
 /// `breed`: the egg goes between the pair, or near the mother.
-fn lay(world: World<'_>, mob: Entity<'_>, partner: Entity<'_>, breeder: &Breeder, now: u64) {
+fn lay(world: World<'_>, mob: Entity<'_>, partner: Entity<'_>, breeder: &Breeder) {
     let (Some(at), Some(other)) = (position(mob), position(partner)) else {
         return;
     };
@@ -492,8 +526,7 @@ fn lay(world: World<'_>, mob: Entity<'_>, partner: Entity<'_>, breeder: &Breeder
             };
             let _ = mobs.award_experience(world, at, (1 + random(7)) as u32);
         }
-        let causes =
-            with(|state| [mob.id(), partner.id()].map(|id| state.love_cause.get(&id).copied()));
+        let causes = [mob, partner].map(|dragon| Breeding::load(dragon).cause());
         if let Some(entities) = ENTITIES.get() {
             for uuid in causes.into_iter().flatten() {
                 if let Some(id) = mobs.by_uuid(world, &uuid)
@@ -507,14 +540,14 @@ fn lay(world: World<'_>, mob: Entity<'_>, partner: Entity<'_>, breeder: &Breeder
         }
     }
     // shortcut: the contextual BRED_ANIMALS advancement trigger still needs a host call.
-    with(|state| {
-        for id in [mob.id(), partner.id()] {
-            state.love.remove(&id);
-            state.love_cause.remove(&id);
-            state.cooldown.insert(id, now + COOLDOWN_TICKS);
-            release(state, id);
+    for dragon in [mob, partner] {
+        Breeding {
+            cooldown: COOLDOWN_TICKS as i32,
+            ..Breeding::default()
         }
-    });
+        .save(dragon);
+        with(|state| release(state, dragon.id()));
+    }
     if let Some(ai) = MOB_AI.get() {
         ai.stop(mob);
         ai.stop(partner);
@@ -524,6 +557,30 @@ fn lay(world: World<'_>, mob: Entity<'_>, partner: Entity<'_>, breeder: &Breeder
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn breeding_countdowns_and_cause_survive_nbt_roundtrip() {
+        let mut state = Breeding {
+            love: 2,
+            cooldown: 4,
+            cause: Some([-1; 4]),
+        };
+        state.advance();
+        let bytes = fastnbt::to_bytes(&state).unwrap();
+        let mut restored: Breeding = fastnbt::from_bytes(&bytes).unwrap();
+        assert_eq!(
+            (restored.love, restored.cooldown, restored.cause()),
+            (1, 3, Some([255; 16]))
+        );
+        restored.advance();
+        assert_eq!(
+            (restored.love, restored.cooldown, restored.cause()),
+            (0, 2, None)
+        );
+        let restored: Breeding =
+            fastnbt::from_bytes(&fastnbt::to_bytes(&restored).unwrap()).unwrap();
+        assert_eq!((restored.cooldown, restored.cause()), (2, None));
+    }
 
     #[test]
     fn breakup_releases_both_dragons() {

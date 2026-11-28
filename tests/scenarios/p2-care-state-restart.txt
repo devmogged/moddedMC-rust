@@ -1,0 +1,57 @@
+# Saints Dragons 0.9.88: preserve a live breeding window and stun hold on restart.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1028.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn raevyx 1022 100 1025
+cmd tag @e[type=minecraft:ravager,x=1022.5,y=100,z=1025.5,sort=nearest,limit=1] add love_probe
+cmd saintsdragons spawn raevyx 1028 100 1025
+cmd tag @e[type=minecraft:ravager,tag=!love_probe,x=1028.5,y=100,z=1025.5,sort=nearest,limit=1] add stun_probe
+wait 1
+cmd tp @e[tag=love_probe,limit=1] 1022.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1022.5 100 1025.5 off
+wait 0.5
+expect Dragon tamed
+cmd item replace entity tester weapon.offhand with minecraft:mutton
+bot input sneak
+wait 0.5
+bot use-entity ravager 1022.5 100 1025.5 off
+wait 0.5
+expect Raevyx is ready to breed!
+bot input none
+cmd tp @e[tag=stun_probe,limit=1] 1028.5 100 1025.5
+cmd damage @e[tag=stun_probe,limit=1] 150 minecraft:magic
+wait 0.5
+cmd data get entity @e[tag=stun_probe,limit=1] Health
+wait 0.5
+expect has the following entity data: 60f
+bot quit
+stop
+start
+cmd forceload add 1025 1025
+botstart tester
+wait 3
+cmd tp tester 1025.5 100 1028.5
+wait 1
+cmd data get entity @e[tag=love_probe,limit=1] data."saintsdragons:breeding".love
+wait 0.5
+expect has the following entity data: [1-5][0-9][0-9]
+cmd data get entity @e[tag=stun_probe,limit=1] data."saintsdragons:taming_stun".awaiting
+wait 0.5
+expect has the following entity data: 1b
+cmd data get entity @e[tag=stun_probe,limit=1] Health
+wait 0.5
+expect has the following entity data: 60f
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

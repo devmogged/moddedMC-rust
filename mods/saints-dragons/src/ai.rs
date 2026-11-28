@@ -123,6 +123,7 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::roster::AMBIENT => crate::roster::ambient(phase, world, mob),
         crate::stun::GOAL => crate::stun::goal(phase, world, mob),
         crate::breed::GOAL => crate::breed::goal(phase, world, mob),
+        crate::family::GOAL => crate::family::goal(phase, world, mob),
         crate::wild::GOAL => crate::wild::goal(phase, world, mob),
         crate::ivy::COMBAT => crate::ivy::combat_goal(phase, world, mob),
         crate::hunt::GOAL => crate::hunt::goal(phase, world, mob),
@@ -137,9 +138,11 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         AMBIENT => match phase {
             goal_phase::CAN_START | goal_phase::CONTINUE => true,
             goal_phase::TICK => {
+                crate::breed::tick_age(mob);
                 crate::hunger::tick(world, mob, 0.30, Some(0.60), "cindervane");
                 crate::taming::regrow(mob);
                 if crate::eggs::grow(mob, "cindervane") {
+                    let dancing = crate::dance::tick(world, mob, "cindervane");
                     if let Some(view) = mob.view() {
                         let moving = view.motion[0].hypot(view.motion[2]) > 0.035;
                         crate::visuals::tick_species(
@@ -147,7 +150,13 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
                             mob,
                             "baby_cindervane",
                             view,
-                            if moving { "walk" } else { "idle" },
+                            if dancing {
+                                "dance"
+                            } else if moving {
+                                "walk"
+                            } else {
+                                "idle"
+                            },
                         );
                     }
                     return false;

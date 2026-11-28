@@ -415,7 +415,7 @@ pub fn birth_nulljaw(world: World<'_>, at: [f64; 3], owner: Option<[u8; 16]>) ->
             taming::inherit_owner(mob, uuid);
             crate::codex::remember(world, mob, None);
         }
-        // shortcut: assigned mother following awaits the shared family AI.
+        // Wild juveniles resolve a nearby parent through the family goal.
         true
     }) == Some(true)
 }
