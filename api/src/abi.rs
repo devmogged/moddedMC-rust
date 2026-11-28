@@ -1506,6 +1506,31 @@ pub struct EffectsV1 {
     ) -> bool,
     /// Register a mod mob's effect admission callback. False from the callback vetoes the effect.
     pub on_effect: unsafe extern "C" fn(reg: Reg, kind: Str, callback: EffectCallback) -> i32,
+    /// Upsert a per-player boss bar. Title is a JSON text component, ttl is in ticks.
+    pub boss_bar: unsafe extern "C" fn(
+        world: WorldRef,
+        player: i32,
+        id: Str,
+        title: Str,
+        progress: f32,
+        color: u8,
+        style: u8,
+        ttl: u32,
+    ) -> bool,
+    pub remove_boss_bar: unsafe extern "C" fn(world: WorldRef, player: i32, id: Str) -> bool,
+    /// Refresh a per-player looping sound lease; fade rates are normalized gain per tick.
+    pub loop_music: unsafe extern "C" fn(
+        world: WorldRef,
+        player: i32,
+        key: Str,
+        volume: f32,
+        fade_in: f32,
+        fade_out: f32,
+        ttl: u32,
+    ) -> bool,
+    pub stop_music: unsafe extern "C" fn(world: WorldRef, player: i32, key: Str) -> bool,
+    /// Set a loaded block overlay's companion animation clip (empty selects its default).
+    pub block_animation: unsafe extern "C" fn(world: WorldRef, pos: Pos, clip: Str) -> bool,
 }
 
 /// A pending mob effect, before it is stored or applied.
@@ -1526,7 +1551,12 @@ fn effects_v1_layout() {
     assert_eq!(offset_of!(EffectsV1, play_entity_sound), 24);
     assert_eq!(offset_of!(EffectsV1, particles_with_options), 32);
     assert_eq!(offset_of!(EffectsV1, on_effect), 40);
-    assert_eq!(size_of::<EffectsV1>(), 48);
+    assert_eq!(offset_of!(EffectsV1, boss_bar), 48);
+    assert_eq!(offset_of!(EffectsV1, remove_boss_bar), 56);
+    assert_eq!(offset_of!(EffectsV1, loop_music), 64);
+    assert_eq!(offset_of!(EffectsV1, stop_music), 72);
+    assert_eq!(offset_of!(EffectsV1, block_animation), 80);
+    assert_eq!(size_of::<EffectsV1>(), 88);
     assert_eq!(offset_of!(ParticleOptions, item), 0);
     assert_eq!(offset_of!(ParticleOptions, kind), 16);
     assert_eq!(offset_of!(ParticleOptions, block_state), 20);

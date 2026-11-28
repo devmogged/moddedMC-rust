@@ -446,6 +446,7 @@ impl EventHandler<ServerTickStartEvent> for TickHandler {
             }
             tick_due(event.tick);
             content::tick(server, event.tick as u64);
+            effects::tick_display(event.tick as u64);
         })
     }
 }

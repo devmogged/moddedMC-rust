@@ -3,7 +3,7 @@
 use std::{mem::offset_of, sync::OnceLock};
 
 use crate::{
-    InterfacePrefix, InterfaceUnavailable, RegistrationError, Registry, abi, content::World,
+    InterfacePrefix, InterfaceUnavailable, Pos, RegistrationError, Registry, abi, content::World,
     entities::Entity, guard, s,
 };
 
@@ -60,6 +60,110 @@ pub fn require() -> Result<Effects, InterfaceUnavailable> {
 }
 
 impl Effects {
+    pub fn require_encounter_display(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(offset_of!(abi::EffectsV1, stop_music))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:effects.stop_music",
+                version: 1,
+            })
+    }
+
+    /// Colors and styles are vanilla boss-event ordinals.
+    #[allow(clippy::too_many_arguments)]
+    pub fn boss_bar(
+        self,
+        world: World<'_>,
+        player: i32,
+        id: &str,
+        title: &str,
+        progress: f32,
+        color: u8,
+        style: u8,
+        ttl: u32,
+    ) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, boss_bar)) else {
+            return false;
+        };
+        // SAFETY: table prefix checked; all data is borrowed for this call.
+        unsafe {
+            ((&raw const (*api).boss_bar).read())(
+                world.raw(),
+                player,
+                s(id),
+                s(title),
+                progress,
+                color,
+                style,
+                ttl,
+            )
+        }
+    }
+
+    pub fn remove_boss_bar(self, world: World<'_>, player: i32, id: &str) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, remove_boss_bar)) else {
+            return false;
+        };
+        // SAFETY: table prefix checked; all data is borrowed for this call.
+        unsafe { ((&raw const (*api).remove_boss_bar).read())(world.raw(), player, s(id)) }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn loop_music(
+        self,
+        world: World<'_>,
+        player: i32,
+        key: &str,
+        volume: f32,
+        fade_in: f32,
+        fade_out: f32,
+        ttl: u32,
+    ) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, loop_music)) else {
+            return false;
+        };
+        // SAFETY: table prefix checked; all data is borrowed for this call.
+        unsafe {
+            ((&raw const (*api).loop_music).read())(
+                world.raw(),
+                player,
+                s(key),
+                volume,
+                fade_in,
+                fade_out,
+                ttl,
+            )
+        }
+    }
+
+    pub fn stop_music(self, world: World<'_>, player: i32, key: &str) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, stop_music)) else {
+            return false;
+        };
+        // SAFETY: table prefix checked; all data is borrowed for this call.
+        unsafe { ((&raw const (*api).stop_music).read())(world.raw(), player, s(key)) }
+    }
+
+    pub fn require_block_animation(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(offset_of!(abi::EffectsV1, block_animation))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:effects.block_animation",
+                version: 1,
+            })
+    }
+
+    /// Select a clip from the block overlay's companion rig descriptor.
+    pub fn block_animation(self, world: World<'_>, pos: Pos, clip: &str) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, block_animation)) else {
+            return false;
+        };
+        // SAFETY: the table prefix was checked and the clip is borrowed for this call.
+        unsafe { ((&raw const (*api).block_animation).read())(world.raw(), pos, s(clip)) }
+    }
+
     /// Require the appended mob effect admission callback.
     pub fn require_effect_veto(self) -> Result<(), InterfaceUnavailable> {
         self.0
@@ -272,5 +376,15 @@ mod tests {
         });
         assert!(effects.require_particle_options().is_ok());
         assert!(effects.require_effect_veto().is_err());
+    }
+
+    #[test]
+    fn effect_veto_prefix_has_no_encounter_display() {
+        let effects = Effects(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: offset_of!(abi::EffectsV1, boss_bar),
+        });
+        assert!(effects.require_effect_veto().is_ok());
+        assert!(effects.require_encounter_display().is_err());
     }
 }

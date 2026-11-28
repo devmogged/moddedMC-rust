@@ -30,7 +30,9 @@ use pumpkin_data::{
     BlockDirection,
     packet::{
         CURRENT_MC_VERSION,
-        clientbound::play::{CHUNK_BATCH_FINISHED, CUSTOM_PAYLOAD, SOUND, SOUND_ENTITY},
+        clientbound::play::{
+            BOSS_EVENT, CHUNK_BATCH_FINISHED, CUSTOM_PAYLOAD, SOUND, SOUND_ENTITY, STOP_SOUND,
+        },
     },
     sound::Sound,
 };
@@ -460,6 +462,10 @@ async fn pump(
             if let Err(error) = log_sound(payload, packet.id == SOUND_ENTITY.0) {
                 println!("[bot] error: bad sound packet: {error}");
             }
+        } else if packet.id == BOSS_EVENT.0 {
+            log_boss_bar(payload);
+        } else if packet.id == STOP_SOUND.0 {
+            log_stop_sound(payload);
         } else if trace {
             println!(
                 "[bot] packet {:#x} ({} bytes)",
@@ -467,6 +473,39 @@ async fn pump(
                 packet.payload.len()
             );
         }
+    }
+}
+
+#[expect(clippy::print_stdout, reason = "scenario packet observation")]
+fn log_boss_bar(payload: &[u8]) {
+    use pumpkin_protocol::ser::NetworkReadExt as _;
+    let Some(mut payload) = payload.get(16..) else {
+        return;
+    };
+    match payload.get_var_int().map(|v| v.0) {
+        Ok(0) => println!("[bot] boss bar add: {}", printable_text(payload)),
+        Ok(1) => println!("[bot] boss bar remove"),
+        Ok(2) => {
+            if let Ok(progress) = payload.get_f32() {
+                println!("[bot] boss bar progress: {progress}");
+            }
+        }
+        Ok(3) => println!("[bot] boss bar title: {}", printable_text(payload)),
+        _ => {}
+    }
+}
+
+#[expect(clippy::print_stdout, reason = "scenario packet observation")]
+fn log_stop_sound(mut payload: &[u8]) {
+    use pumpkin_protocol::ser::NetworkReadExt as _;
+    let Ok(flags) = payload.get_u8() else { return };
+    if flags & 1 != 0 && payload.get_var_int().is_err() {
+        return;
+    }
+    if flags & 2 != 0
+        && let Ok(key) = payload.get_str()
+    {
+        println!("[bot] stop sound: {key}");
     }
 }
 
