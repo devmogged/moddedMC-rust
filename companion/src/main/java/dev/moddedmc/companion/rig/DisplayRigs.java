@@ -50,6 +50,7 @@ public final class DisplayRigs {
     private static final DataTicket<Identifier> TEXTURE = DataTicket.create("moddedmc_rig_texture", Identifier.class);
     private static final DataTicket<Identifier> GEOMETRY = DataTicket.create("moddedmc_rig_geometry", Identifier.class);
     private static final DataTicket<Boolean> PREVIEW = DataTicket.create("moddedmc_rig_preview", Boolean.class);
+    private static final DataTicket<Boolean> HIDE_GEOMETRY = DataTicket.create("moddedmc_rig_hidden", Boolean.class);
     private static final DataTicket<SeatFrame> SEATS = DataTicket.create("moddedmc_rig_seats", SeatFrame.class);
     private static final RigFrame HIDDEN = (pose, collector, camera) -> {};
     private static final Map<ItemDisplay, RigInstance> INSTANCES = new WeakHashMap<>();
@@ -210,6 +211,7 @@ public final class DisplayRigs {
         private Identifier texture;
         private CustomData appearanceData;
         private int mountId = -1;
+        private boolean hidden;
 
         private RigInstance(ItemDisplay display, RigRenderer renderer, boolean preview, boolean still) {
             this.owner = new WeakReference<>(display);
@@ -225,6 +227,7 @@ public final class DisplayRigs {
             appearanceData = data;
             var tag = data == null ? null : data.copyTag();
             mountId = tag == null ? -1 : tag.getIntOr("moddedmc:rig_mount", -1);
+            hidden = tag != null && tag.getIntOr("moddedmc:rig_hidden", 0) != 0;
             clip = tag == null ? renderer.defaultClip : renderer.clips.getOrDefault(
                     tag.getStringOr("moddedmc:rig_clip", ""), renderer.defaultClip);
             texture = tag == null ? renderer.definition.texture() : renderer.textures.getOrDefault(
@@ -278,6 +281,7 @@ public final class DisplayRigs {
             state.addGeckolibData(PREVIEW, rig.preview);
             if (rig.still) definition.previewGeometry().filter(modelCache.cache()::containsKey)
                     .ifPresent(geometry -> state.addGeckolibData(GEOMETRY, geometry));
+            state.addGeckolibData(HIDE_GEOMETRY, rig.hidden);
             if (!rig.preview && !definition.riderSeats().isEmpty() && rig.mountId >= 0
                     && Minecraft.getInstance().level != null) {
                 Entity mount = Minecraft.getInstance().level.getEntity(rig.mountId);
@@ -316,7 +320,9 @@ public final class DisplayRigs {
                     RiderSeats.sample(frame.display(), frame.mount(), positions);
                 });
             }
-            super.submitRenderTasks(pass, collector, renderType);
+            if (!Boolean.TRUE.equals(pass.getGeckolibData(HIDE_GEOMETRY))) {
+                super.submitRenderTasks(pass, collector, renderType);
+            }
         }
 
         @Override

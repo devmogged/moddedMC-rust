@@ -77,6 +77,7 @@ pub struct Shot {
     motion: [f64; 3],
     age: u16,
     rider: bool,
+    display: Option<i32>,
 }
 
 pub fn enemy(world: World<'_>, mob: Entity<'_>, target: Entity<'_>) -> bool {
@@ -577,6 +578,7 @@ fn rider_volley(world: World<'_>, mob: Entity<'_>, rider: i32) -> Vec<Shot> {
                 motion: add(d.map(|v| v * 0.55), [0.0, -0.15, 0.0]),
                 age: 0,
                 rider: true,
+                display: None,
             }
         })
         .collect()
@@ -879,6 +881,7 @@ fn volley(world: World<'_>, mob: Entity<'_>, id: i32) -> Vec<Shot> {
                 motion: [cos * 0.55, vertical, sin * 0.55],
                 age: 0,
                 rider: false,
+                display: None,
             }
         })
         .collect()
@@ -985,6 +988,14 @@ pub fn effects(world: World<'_>, mob: Entity<'_>, shots: &mut Vec<Shot>, fire: b
                 })
             {
                 visuals.particles(world, "minecraft:lava", point, [1.0, 0.45, 1.0], 0.0, 12);
+                crate::vfx::burst(
+                    world,
+                    point,
+                    3.0,
+                    "shared/explosions/fire_ground_impact/fire_ground_impact",
+                    6,
+                    false,
+                );
                 if shot.rider {
                     if let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) {
                         for id in entities.entities_in(
@@ -1009,6 +1020,14 @@ pub fn effects(world: World<'_>, mob: Entity<'_>, shots: &mut Vec<Shot>, fire: b
             }
         }
         visuals.particles(world, "minecraft:flame", next, [0.2; 3], 0.03, 4);
+        crate::vfx::projectile(
+            world,
+            &mut shot.display,
+            crate::vfx::FIREBALL,
+            next,
+            shot.motion,
+            1.0,
+        );
         shot.position = next;
         shot.motion = shot.motion.map(|v| v * 0.98);
         true

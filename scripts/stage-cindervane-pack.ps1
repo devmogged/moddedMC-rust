@@ -31,7 +31,10 @@ $species = @('cindervane')
 if ($AllDragons) {
     foreach ($effect in @(
         @{ name = 'ignivorus_magma_pillar'; path = 'objects/ignivorus/ignivorus_magma_pillar'; clip = 'animation.ignivorus_magma_pillar.emerge' },
-        @{ name = 'amethyst_pillar'; path = 'objects/stegonaut/amethyst_pillar'; clip = 'animation.amethyst_pillar_emerge' }
+        @{ name = 'amethyst_pillar'; path = 'objects/stegonaut/amethyst_pillar'; clip = 'animation.amethyst_pillar_emerge' },
+        @{ name = 'cindervane_fireball'; path = 'objects/shared/fireball/fireball_stage_1'; clip = '' },
+        @{ name = 'volitans_poison_orb'; path = 'objects/volitans/volitans_poison_orb'; clip = 'spin' },
+        @{ name = 'volitans_spine'; path = 'objects/volitans/volitans_spine'; clip = 'volitans_spine' }
     )) {
         $path = $effect.path
         $copies["$assets/geo/$path.geo.json"] = "$assets/geckolib/models/$path.geo.json"
@@ -47,6 +50,34 @@ if ($AllDragons) {
             author = 'Leon Saint'
         } | ConvertTo-Json -Compress
     }
+    # The ordinary registered effect item references each pack texture so the
+    # host's existing item-model dependency collector delivers them unchanged.
+    $vfxTextures = [ordered]@{ layer0 = 'minecraft:item/paper' }
+    foreach ($series in @(
+        @{ path = 'raevyx/beam/lightning_beam'; frames = 1 },
+        @{ path = 'raevyx/beam/lightning_beam_aura'; frames = 1 },
+        @{ path = 'raevyx/beam/lightning_beam_swirl'; frames = 1 },
+        @{ path = 'raevyx/beam/lightning_beam_second_swirl'; frames = 1 },
+        @{ path = 'shared/fire/fire/fire'; frames = 17 },
+        @{ path = 'volitans/poison/volitans_poison/volitans_poison'; frames = 5 },
+        @{ path = 'volitans/water/volitans_water/volitans_water'; frames = 5 },
+        @{ path = 'shared/ice/ice_burst/ice_burst'; frames = 14 },
+        @{ path = 'shared/rings/impact_ring/impact_ring'; frames = 4 },
+        @{ path = 'shared/lightning/slash_line/slash_line'; frames = 14 },
+        @{ path = 'shared/explosions/fire_ground_impact/fire_ground_impact'; frames = 6 },
+        @{ path = 'volitans/poison/poison_explosion/poison_explosion'; frames = 17 }
+    )) {
+        for ($i = 0; $i -lt $series.frames; $i++) {
+            $path = "particle/$($series.path)"
+            if ($series.frames -gt 1) { $path += $i }
+            $copies["$assets/textures/$path.png"] = "$assets/textures/$path.png"
+            $vfxTextures["effect$($vfxTextures.Count)"] = "saintsdragons:$path"
+        }
+    }
+    $files["$assets/models/item/vfx_textures.json"] = [ordered]@{
+        parent = 'minecraft:item/generated'
+        textures = $vfxTextures
+    } | ConvertTo-Json -Compress
     $copies["$assets/textures/gui/draconic_crucible_gui.png"] = "$assets/textures/gui/draconic_crucible_gui.png"
     $copies["$assets/textures/gui/draconiccodex/physiology_tab.png"] = "$assets/textures/gui/draconiccodex/physiology_tab.png"
     $copies["$assets/textures/gui/draconiccodex/physiology_tab_closed.png"] = "$assets/textures/gui/draconiccodex/physiology_tab_closed.png"

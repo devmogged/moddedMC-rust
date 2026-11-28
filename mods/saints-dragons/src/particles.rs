@@ -145,6 +145,14 @@ pub fn rend(world: World<'_>, mob: Entity<'_>, view: EntityView, age: i32, direc
 
 /// RaevyxDiveImpactAbility.spawnGroundDust: radial dust with released speed/count.
 pub fn dive_impact(world: World<'_>, at: [f64; 3], power: f64) {
+    crate::vfx::burst(
+        world,
+        [at[0], at[1] + 0.08, at[2]],
+        (2.0 + power * 2.0) as f32,
+        "shared/rings/impact_ring/impact_ring",
+        4,
+        true,
+    );
     let Some(effects) = EFFECTS.get() else { return };
     let count = dive_dust_count(power);
     let speed = 0.18 + power * 0.22;
@@ -185,6 +193,14 @@ pub fn quake(world: World<'_>, mob: Entity<'_>, age: i64) {
     }
     if let (Some(effects), Some(view)) = (EFFECTS.get(), mob.view()) {
         let [x, y, z] = view.position;
+        crate::vfx::burst(
+            world,
+            [x, y + 0.12, z],
+            3.0,
+            "shared/ice/ice_burst/ice_burst",
+            14,
+            false,
+        );
         effects.particles(
             world,
             "minecraft:snowflake",

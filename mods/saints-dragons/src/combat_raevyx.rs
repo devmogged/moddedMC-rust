@@ -878,7 +878,7 @@ fn tick_attack(
                     true,
                 );
                 if age % 3 == 0 {
-                    arc(world, from, to);
+                    crate::vfx::beam(world, mob, from, to);
                 }
             }
         }
@@ -907,6 +907,16 @@ fn tick_attack(
         }
         Attack::Dash => {
             let speed = 30.0 / 27.0;
+            if age % 4 == 0 {
+                crate::vfx::burst(
+                    world,
+                    view.position,
+                    1.5,
+                    "shared/lightning/slash_line/slash_line",
+                    14,
+                    false,
+                );
+            }
             turn(
                 mob,
                 dir,
@@ -1088,7 +1098,7 @@ fn rider_beam(world: World<'_>, mob: Entity<'_>, view: EntityView, state: &State
         });
     }
     if state.age % 3 == 0 {
-        arc(world, from, to);
+        crate::vfx::beam(world, mob, from, to);
     }
 }
 

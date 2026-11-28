@@ -163,6 +163,10 @@ fn deactivate_cloak(world: World<'_>, mob: Entity<'_>, cloak: &Cloak) {
 }
 
 /// Nulljaw.tickCloak: validate the recorded controlling owner and count loaded ticks.
+pub fn cloaked(mob: Entity<'_>) -> bool {
+    Cloak::load(mob).is_some()
+}
+
 pub fn cloak_tick(world: World<'_>, mob: Entity<'_>) {
     let (Some(mut cloak), Some(mobs), Some(entities)) =
         (Cloak::load(mob), MOBS.get(), ENTITIES.get())

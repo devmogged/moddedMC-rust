@@ -59,6 +59,7 @@ struct Rig {
     species: String,
     appearance: Option<Appearance>,
     mount_id: i32,
+    hidden: bool,
 }
 
 struct Pose {
@@ -194,7 +195,13 @@ pub fn invalidate_appearance(mob_id: i32) {
     }
 }
 
-fn body_stack(species: &str, clip: &str, appearance: Appearance, mount_id: i32) -> Vec<u8> {
+fn body_stack(
+    species: &str,
+    clip: &str,
+    appearance: Appearance,
+    mount_id: i32,
+    hidden: bool,
+) -> Vec<u8> {
     let name = species.strip_prefix("baby_").unwrap_or(species);
     let clip = if species == "baby_mossback" {
         format!("baby_mossback.animation.{clip}")
@@ -209,6 +216,10 @@ fn body_stack(species: &str, clip: &str, appearance: Appearance, mount_id: i32) 
     let mut custom = HashMap::from([
         ("moddedmc:rig_clip".to_owned(), Value::String(clip)),
         ("moddedmc:rig_mount".to_owned(), Value::Int(mount_id)),
+        (
+            "moddedmc:rig_hidden".to_owned(),
+            Value::Byte(i8::from(hidden)),
+        ),
     ]);
     if let Some(texture) = appearance.texture(species) {
         custom.insert("moddedmc:rig_texture".to_owned(), Value::String(texture));
@@ -413,6 +424,7 @@ fn draw(
                 .any(|&id| crate::combat::holding(mob, id))
         });
     let mount_id = if grabbed { -1 } else { mob.id() };
+    let hidden = species == "nulljaw" && crate::combat_nulljaw::cloaked(mob);
     let refresh = {
         let mut all = RIGS.lock().unwrap_or_else(PoisonError::into_inner);
         let rigs = all.entry(mob.id()).or_default();
@@ -423,6 +435,7 @@ fn draw(
         }) {
             rig.seen = now;
             let species_changed = species != rig.species;
+            let visibility_changed = rig.hidden != hidden;
             if species_changed {
                 rig.pose = Pose::new(view);
             }
@@ -432,17 +445,19 @@ fn draw(
             if (clip != rig.clip
                 || species_changed
                 || rig.appearance.is_none()
-                || rig.mount_id != mount_id)
+                || rig.mount_id != mount_id
+                || rig.hidden != hidden)
                 && displays.set_item(
                     world,
                     rig.ids[0],
-                    &body_stack(species, clip, appearance, mount_id),
+                    &body_stack(species, clip, appearance, mount_id, hidden),
                 )
             {
                 rig.clip = clip;
                 species.clone_into(&mut rig.species);
                 rig.appearance = Some(appearance);
                 rig.mount_id = mount_id;
+                rig.hidden = hidden;
             }
             if species_changed {
                 // A juvenile Cindervane has one display; its adult has five.
@@ -464,7 +479,7 @@ fn draw(
                         if rig.ids[i] == 0 || !displays.update(world, rig.ids[i], &description) {
                             let body;
                             let stack = if i == 0 {
-                                body = body_stack(species, clip, appearance, mount_id);
+                                body = body_stack(species, clip, appearance, mount_id, hidden);
                                 &body
                             } else {
                                 &STACKS[i]
@@ -478,13 +493,14 @@ fn draw(
                                 species.clone_into(&mut rig.species);
                                 rig.appearance = Some(appearance);
                                 rig.mount_id = mount_id;
+                                rig.hidden = hidden;
                             }
                         }
                         rig.frames[i] = description;
                     }
                 }
             }
-            if now.saturating_sub(rig.last_refresh) >= REFRESH {
+            if visibility_changed || now.saturating_sub(rig.last_refresh) >= REFRESH {
                 rig.last_refresh = now;
                 true
             } else {
@@ -495,7 +511,7 @@ fn draw(
             let clip = select(&mut pose);
             crate::audio::tick_clip(world, mob, species, view, clip, now);
             let appearance = Appearance::load(mob);
-            let body = body_stack(species, clip, appearance, mount_id);
+            let body = body_stack(species, clip, appearance, mount_id, hidden);
             let mut ids = [0; PARTS];
             for (i, description) in descriptions.iter().enumerate() {
                 if let Some(id) =
@@ -519,6 +535,7 @@ fn draw(
                 species: species.to_owned(),
                 appearance: Some(appearance),
                 mount_id,
+                hidden,
             });
             true
         }
@@ -661,6 +678,7 @@ mod tests {
             "takeoff",
             Appearance::default(),
             42,
+            false,
         ))
         .unwrap();
         assert_eq!(stack["id"], Value::String(MODELS[0].0.to_owned()));

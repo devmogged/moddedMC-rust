@@ -137,6 +137,7 @@ struct Shot {
     pos: [f64; 3],
     velocity: [f64; 3],
     age: u32,
+    display: Option<i32>,
 }
 #[derive(Default)]
 struct Runtime {
@@ -789,6 +790,7 @@ fn run_action(
                         pos: origin,
                         velocity: unit(offset(center, origin)).map(|x| x * 1.6),
                         age: 0,
+                        display: None,
                     });
                 }
             }
@@ -932,6 +934,7 @@ fn launch_orb(
             pos: origin,
             velocity,
             age: 0,
+            display: None,
         });
     }
 }
@@ -1262,6 +1265,7 @@ fn update_dash(world: World<'_>, mob: Entity<'_>, rt: &mut Runtime, v: EntityVie
                 pos: aim(mob, v),
                 velocity: look_dir(v.body_yaw + angle, 0.0).map(|x| x * 2.9),
                 age: 0,
+                display: None,
             });
         }
     }
@@ -1394,6 +1398,7 @@ fn run_rider_action(
                         pos: aim(mob, v),
                         velocity: direction.map(|x| x * 1.6),
                         age: 0,
+                        display: None,
                     });
                 }
             }
@@ -1635,11 +1640,20 @@ fn spine_ring(
             pos: add(p, [cos * r, 0.0, sin * r]),
             velocity: unit([cos, y, sin]).map(|x| x * speed),
             age: 0,
+            display: None,
         });
     }
 }
 fn impact_orb(world: World<'_>, mob: Entity<'_>, p: [f64; 3]) {
     particle(world, "minecraft:witch", p, 1.8, 80);
+    crate::vfx::burst(
+        world,
+        p,
+        2.5,
+        "volitans/poison/poison_explosion/poison_explosion",
+        17,
+        false,
+    );
     for_near(world, mob, p, 5.0, false, |t| {
         if poison_immune(t) {
             return;
@@ -1792,6 +1806,22 @@ fn step_shot(
         ShotKind::Spine | ShotKind::DashSpine => ("minecraft:crit", 40, 0.99),
     };
     particle(world, visual, next, if breath { 0.15 } else { 0.12 }, 2);
+    if breath {
+        if shot.age % 5 == 1 {
+            let element = if shot.kind == ShotKind::Poison {
+                crate::vfx::Element::Poison
+            } else {
+                crate::vfx::Element::Water
+            };
+            crate::vfx::breath(world, shot.pos, next, element, radius.min(3.0) as f32);
+        }
+    } else {
+        let (model, scale) = match shot.kind {
+            ShotKind::Orb(_) => (crate::vfx::POISON_ORB, 0.9),
+            _ => (crate::vfx::SPINE, 1.0),
+        };
+        crate::vfx::projectile(world, &mut shot.display, model, next, shot.velocity, scale);
+    }
     if let Some(id) = orb {
         // Keep the real projectile on the release trajectory. If the vanilla
         // carrier was removed before our sweep found a hit, stop tracking it.
