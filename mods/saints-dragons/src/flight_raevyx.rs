@@ -56,6 +56,47 @@ fn random_unit() -> f64 {
     random(1 << 24) as f64 / (1 << 24) as f64
 }
 
+/// A stationary carrier can report airborne while its feet are resting on a block:
+/// gravity is applied after collision and the landing controller may zero its velocity.
+/// Recognize actual supporting geometry so a blocked takeoff can retry from the ground.
+fn supports(body: EntityBody, min: [f64; 3], max: [f64; 3]) -> bool {
+    (body.min[1] - max[1]).abs() <= 1e-3
+        && [0, 2]
+            .into_iter()
+            .all(|i| max[i] > body.min[i] && min[i] < body.max[i])
+}
+
+fn grounded(world: World<'_>, mob: Entity<'_>, view: EntityView) -> bool {
+    if view.on_ground {
+        return true;
+    }
+    if view.motion[1] > 0.0 {
+        return false;
+    }
+    let Some(body) = mob.body() else { return false };
+    let lo = cell(body.min);
+    let hi = cell(body.max.map(|v| v - 1e-4));
+    let y = (body.min[1] - 1e-3).floor() as i32;
+    for x in lo.x..=hi.x {
+        for z in lo.z..=hi.z {
+            let Some(shapes) = world.collision_shape(Pos { x, y, z }) else {
+                continue;
+            };
+            let origin = [f64::from(x), f64::from(y), f64::from(z)];
+            if shapes.iter().any(|shape| {
+                supports(
+                    body,
+                    super::add(origin, shape.min),
+                    super::add(origin, shape.max),
+                )
+            }) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn clear(world: World<'_>, body: EntityBody, shift: [f64; 3], travel: [f64; 3]) -> bool {
     let min =
         std::array::from_fn::<_, 3, _>(|i| body.min[i] + shift[i] + travel[i].min(0.0) + 1e-4);
@@ -198,9 +239,7 @@ fn cruise_target(
         }
         let mut dive = false;
         if !view.on_ground
-            && world
-                .weather_state()
-                .is_some_and(|w| !w.raining)
+            && world.weather_state().is_some_and(|w| !w.raining)
             && !enclosed
             && local.floor.is_some_and(|floor| at[1] - floor >= 28.0)
             && there.ceiling.is_none()
@@ -325,7 +364,7 @@ pub(super) fn goal(
     phase: u32,
     world: World<'_>,
     mob: Entity<'_>,
-    view: EntityView,
+    mut view: EntityView,
     state: &mut FlightState,
     now: u64,
 ) -> bool {
@@ -335,6 +374,7 @@ pub(super) fn goal(
     let Some(weather) = world.weather_state() else {
         return false;
     };
+    view.on_ground = grounded(world, mob, view);
     let p = profile(weather.thundering && weather.raining, weather.raining);
     let free =
         mobs.passengers(mob).is_empty() && mob.vehicle().is_none() && ai.target(mob).is_none();
@@ -444,6 +484,19 @@ pub(super) fn goal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ground_support_requires_foot_contact_and_horizontal_overlap() {
+        let body = EntityBody {
+            min: [0.2, 1.0, 0.2],
+            max: [2.2, 3.2, 2.2],
+            input: [0.0; 3],
+        };
+        assert!(supports(body, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]));
+        assert!(!supports(body, [0.0, 0.0, 0.0], [1.0, 0.9, 1.0]));
+        assert!(!supports(body, [3.0, 0.0, 0.0], [4.0, 1.0, 1.0]));
+        assert!(!supports(body, [0.0, 3.2, 0.0], [1.0, 4.2, 1.0]));
+    }
 
     #[test]
     fn weather_profile_matches_release() {

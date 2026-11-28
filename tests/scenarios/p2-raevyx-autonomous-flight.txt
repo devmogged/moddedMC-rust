@@ -21,17 +21,16 @@ cmd fill 1009 125 1009 1041 125 1041 minecraft:stone
 cmd fill 1009 103 1009 1041 103 1041 minecraft:stone
 cmd time set day
 cmd weather thunder
+await 10 Set the weather to rain and thunder
 cmd saintsdragons spawn raevyx 1025 100 1025
+await 30 saintsdragons:raevyx: spawned
 wait 4
 cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1009,y=99,z=1009,dx=32,dy=2,dz=32]
 wait 0.5
 expect Test passed
 cmd fill 1009 103 1009 1041 103 1041 minecraft:air
 await 30 Successfully filled|No blocks were filled
-wait 8
-cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1009,y=104,z=1009,dx=32,dy=20,dz=32]
-wait 0.5
-expect Test passed
+await-cmd 12 Test passed && execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1009,y=104,z=1009,dx=32,dy=20,dz=32]
 # Independent rain/thunder timer preservation is covered by raevyx_weather unit tests.
 reject (?i)panic|panicked
 bot quit
