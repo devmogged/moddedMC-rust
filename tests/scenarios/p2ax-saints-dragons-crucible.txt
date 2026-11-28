@@ -60,15 +60,24 @@ bot expect slot 0 minecraft:raw_iron 1
 wait 0.5
 expect expect inventory ok slot 0 raw_iron 1
 botselect tester
-wait 10
+# Wait for the first result to exist; the next job starts automatically.
+await-cmd 20 following block data: 1$ && data get block 1025 105 1027 output.count
+wait 0.2
 bot expect slot 6 minecraft:iron_ingot 1
-wait 0.5
-expect expect inventory ok slot 6 iron_ingot 1
+await 5 expect inventory ok slot 6 iron_ingot 1
+# A changing progress marker can invalidate a native-menu snapshot between
+# display and click. Retry after the refresh, while the next result is cooking.
 bot inventory-click 6 shift-left
-wait 0.5
+await 5 \[bot\] did: inventory-click 6 shift-left
+wait 0.15
+bot inventory-click 6 shift-left
+await 5 \[bot\] did: inventory-click 6 shift-left
+wait 0.15
+bot inventory-click 6 shift-left
+await 5 \[bot\] did: inventory-click 6 shift-left
+wait 0.2
 bot expect slot 6 minecraft:air 0
-wait 0.5
-expect expect inventory ok slot 6 air 0
+await 5 expect inventory ok slot 6 air 0
 botselect witness
 bot expect slot 6 minecraft:air 0
 wait 0.5

@@ -449,12 +449,12 @@ wait 0.5
 expect following entity data: 0b
 cmd data get entity @e[tag=ivy_probe,limit=1] active_effects
 await 5 following entity data: (?!.*minecraft:night_vision)(?=.*minecraft:regeneration)(?=.*minecraft:absorption)(?=.*minecraft:fire_resistance)
-wait 1
+# Java Ivy.heal immediately revives a downed Ivy. Isolate the lethal-hit
+# assertion from the totem's already-verified periodic regeneration by waiting
+# for it to expire naturally (effect clear currently accepts only players).
+await-cmd 65 following entity data: \[(?!.*minecraft:regeneration).*\] && data get entity @e[tag=ivy_probe,limit=1] active_effects
 cmd damage @e[tag=ivy_probe,limit=1] 100 minecraft:generic
-wait 0.5
-cmd data get entity @e[tag=ivy_probe,limit=1] data."saintsdragons:ivy_downed".Downed
-wait 0.5
-expect following entity data: 1b
+await-cmd 5 following entity data: 1b && data get entity @e[tag=ivy_probe,limit=1] data."saintsdragons:ivy_downed".Downed
 reject (?i)panic|panicked
 bot quit
 stop
