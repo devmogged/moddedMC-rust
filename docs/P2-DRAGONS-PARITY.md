@@ -6,9 +6,9 @@ The JAR contains 3,781 files, including 1,712 compiled classes. The full member 
 
 ## Gameplay
 
-The companion now exposes the eight released rider keybinds through a generic
+The companion exposes the eight released rider keybinds through a generic
 versioned player-action interface, including held and released phases. The
-[stock-client smoke scenario](../tests/scenarios/p2-rider-actions.txt) checks
+[headless protocol smoke scenario](../tests/scenarios/p2-rider-actions.txt) checks
 registration and absence of rider callbacks for a stock client. The dragon
 callbacks route mounted input to species controllers. Mounted vanilla attack/use and the four
 movement double taps (300 ms) now reach those callbacks without extra keybinds;
@@ -19,14 +19,14 @@ six subscriptions.
 
 | Area | Current P2 coverage | Remaining parity work |
 | --- | --- | --- |
-| Adult creature roster | Fourteen creature types with carriers, saved identity, spawn eggs and released adult base attribute values. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm weighted 26-neighbor flight route search with Pellucida exclusion, target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table, has persistent companion inventory, recruited melee and dash attacks, inventory totem self-rescue, lethal-hit downed entry, dialogue resumption after trading and saved downed/revival counters | Ivy's original inventory UI, other recovery items and projectile combat, owner-initiated targeting, carrier-specific flight movement collision, and carrier-independent spawn predicates and attribute presence |
-| Movement and lifecycle | Shared ground AI, baseline flight and swimming, Cindervane wild ground and aerial pack following with formation slots, bounded asynchronous flight route search, and parent following, maternal and pack defense, ground drinking and companion drinking animation, and released Moop idle, swim, fast swim and on-land animation selection, Mossback passive goals, capture/throw, toxin, fall and poison immunity, pufferfish breeding and baby growth, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback, the custom Raevyx storm, Stegonaut lush cave and Volitans underwater spawners, and Raevyx autonomous clear/rain/thunder flight decisions, cruise and dive targets | Raevyx assigned-parent checks and exact flight/landing navigation; per-species brains, navigation, growth and breeding; Cindervane water escape and water chase; released flight tactic selection |
-| Combat | Cindervane autonomous and mounted bite, double bite, slash grab, magma volley and held fire body with live furnace cooking, with rider crash damage, griefing-gated fire ignition and nine-block crash imprint, and flex. Raevyx retaliation, bite with attributed chain lightning, armor-aware horn gore and ground rend, dash, collider-ray lightning beam, roar, storm with independent weather timers and natural-thunder provenance, and timed supercharge, and inferred rider dive impact, plus mounted abilities and control locks. Atroxiia mounted melee, frost abilities and slither, autonomous melee, underwater bite, major attacks, Frost Impact effects and native freeze requests, Frost Walker water freezing, block raycast attack gating and quake-to-Gungnir follow-up selection. Ignivorus rider fire breath, charged fireball, Skyfall and melee; partial ground combat with retaliation, fire immunity, melee and ranged attacks, cooldowns, Skyfall phase transition, owned fireball projectiles with attributed charge-scaled explosions on intercepted impacts, and timed magma pillars with independent damage, fire and knockback, released magma/amethyst animated pillar models and procedural Raevyx lightning arcs. Volitans mounted bite/gore, breath, orb, burrow, ultimate, dash/dodge and AI bite, claw, horn gore, water/poison breath, owned poison-ball projectile carrier, poison clearing, roar and burrow approach/exit attack. Stegonaut mounted melee, ground eating, chained ground slam with independently timed amethyst pillars and AI bite, attributed chin slam, retaliation, owner defense, nearby pack and baby protection, and tame owner and portable binder buff auras with effect removal. Varasuchus mounted melee, tailguard parry, dash, phase shift and AI bite, phase-two bite, horn gore, claw, tail sweep, slash barrage and phase transition, horn armor penetration, armor-compensated tail sweep, resistance-aware horn knockback and land attack visibility. Nulljaw mounted bite, teleport and cloak, autonomous bite, aerial pack attack runs, retaliation, shulker-owned bullet interception with shooter target sensing, and saved cloak cleanup. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Raevyx exact aerial combat tactics; remaining per-species combat, exact Ignivorus targeting and airborne abilities, projectile impact hooks and custom geometry, persistent nonliving pillar entities, boss phases, projectiles, status effects, damage types, AI targeting and terrain effects; Nulljaw exact shulker bullet immunity and flight pathfinding; Varasuchus exact eye-height sensing; Volitans custom projectile collision, damage-source hooks, exact rider physics and navigation; Atroxiia freeze eligibility use and excess frozen ticks, exact eye heights and body collision checks, owner offense targeting and exact rider behavior |
-| Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; mount profiles for all eight dragons with saddle, age, happiness, ownership checks, neutral seat anchors, animated companion rider locators and safe dismount candidates; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, roster melee attribute scaling, juvenile food taming, growth feeding and raw-moop stunting including Nulljaw; Codex hunger, gender, brushing and biome display, physiology/ecology companion screens and manual entry removal; direct saddle/chest attachment for Cindervane, Atroxiia and Stegonaut with binder persistence and death drops; grooming hurt clips and roost damage wake-up reactions; breeding XP and stats, credited hunting and fresh-drop eating, owner-bed sleep | contextual breeding advancement, sensory disturbances; rider inventory and attachment removal, Codex handling when a filled binder is destroyed, and additional recall behavior; special rider controls; Cindervane exact projectile physics, custom crash explosion and dragon-specific griefing settings |
-| Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips, and a companion Codex physiology/ecology reader with owner-scoped entry removal. The full Dragonlord set's fire, blast and short-fall immunity and the Dragonlord sword's fire on hit, and full Draconian armor swarm pacification with retaliation; Dragonlord double jump, fall-flying and companion acceleration, landing shockwave with native owner/ally filtering, Blood Tempest directional dodge and eight-tick invulnerability, Dragonlord sword R with native cooldown and independently ticking magma pillars and Blood Tempest katana collision-limited dash and successful melee-hit chain lightning with the released red procedural arc | Custom fissures, worn armor models, and remaining equipment components |
-| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with the released companion GUI, explicit start, processing locks, fuel routing, live shared slot refresh and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts with their sleep anchors, Cindervane and Raevyx egg trampling, Ivy?s house with renamed grass and chain decorations and migrated banner, skull, bookshelf and framed egg NBT with styled names, all 84 advancement definitions including recipe rewards, Tactical Nuke crash and cooking with a fire dragon triggers and engine recipe unlock support, Folded Horizon recipe predicates, potion-specific brewing take criteria, and Pellucida hardness, slime sounds and swarm path clearance | The advancements awarded by abilities that are not ported yet (Fire Hydrant, the Raevyx dive exit and hitting a baby), Crucible block animations, Ivy's rotated painting facing, and Pellucida swarm-specific native movement collision |
+| Adult creature roster | Fourteen creature types with carriers, saved identity, spawn eggs and released adult base attribute values. The Draconian Swarm egg spawns a Latcher, Winged and Whettled together. Swarm weighted 26-neighbor flight route search with Pellucida exclusion, target selection, retaliation and species-specific combat with bite, pull, dive, claw and horn charge. Ivy trades from the released table, has persistent companion inventory, recruited melee and dash attacks, inventory totem self-rescue, lethal-hit downed entry, dialogue resumption after trading and saved downed/revival counters | Ivy's original inventory UI, other recovery items and projectile combat, owner-initiated targeting, carrier-specific flight movement collision, carrier-independent spawn predicates and attribute presence; falling-owner rescue, juvenile/Ivy jukebox dancing and Ivy chatter (see ranked gaps below) |
+| Movement and lifecycle | Shared ground AI, baseline flight and swimming, Cindervane wild ground and aerial pack following with formation slots, bounded asynchronous flight route search, and parent following, maternal and pack defense, ground drinking and companion drinking animation, and released Moop idle, swim, fast swim and on-land animation selection, Mossback passive goals, capture/throw, toxin, fall and poison immunity, pufferfish breeding and baby growth, released gender and skin selection for adult spawn eggs and wild spawns, and natural spawning in the released biome pools for Cindervane, Atroxiia, Nulljaw, Moop and Mossback, the custom Raevyx storm, Stegonaut lush cave and Volitans underwater spawners, and Raevyx autonomous clear/rain/thunder flight decisions, cruise and dive targets | Raevyx assigned-parent checks and exact flight/landing navigation; per-species brains, navigation, growth and breeding; Cindervane water escape and water chase; released flight tactic selection, combat learning and sensory investigation |
+| Combat | Cindervane autonomous and mounted bite, double bite, slash grab, magma volley and held fire body with live furnace cooking, with rider crash damage, griefing-gated fire ignition and nine-block crash imprint, and flex. Raevyx retaliation, bite with attributed chain lightning, armor-aware horn gore and ground rend, dash, collider-ray lightning beam, roar, storm with independent weather timers and natural-thunder provenance, and timed supercharge, and inferred rider dive impact, plus mounted abilities and control locks. Atroxiia mounted melee, frost abilities and slither, autonomous melee, underwater bite, major attacks, Frost Impact effects and native freeze requests, Frost Walker water freezing, block raycast attack gating and quake-to-Gungnir follow-up selection. Ignivorus rider fire breath, charged fireball, Skyfall and melee; partial ground combat with retaliation, fire immunity, melee and ranged attacks, cooldowns, Skyfall phase transition, owned fireball projectiles with attributed charge-scaled explosions on intercepted impacts, and timed magma pillars with independent damage, fire and knockback, released magma/amethyst animated pillar models and procedural Raevyx lightning arcs. Volitans mounted bite/gore, breath, orb, burrow, ultimate, dash/dodge and AI bite, claw, horn gore, water/poison breath, owned poison-ball projectile carrier, poison clearing, roar and burrow approach/exit attack. Stegonaut mounted melee, ground eating, chained ground slam with independently timed amethyst pillars and AI bite, attributed chin slam, retaliation, owner defense, nearby pack and baby protection, and tame owner and portable binder buff auras with effect removal. Varasuchus mounted melee, tailguard parry, dash, phase shift and AI bite, phase-two bite, horn gore, claw, tail sweep, slash barrage and phase transition, horn armor penetration, armor-compensated tail sweep, resistance-aware horn knockback and land attack visibility. Nulljaw mounted bite, teleport and cloak, autonomous bite, aerial pack attack runs, retaliation, shulker-owned bullet interception with shooter target sensing, and saved cloak cleanup. Worldroot deals 1.5? direct melee damage to the eight dragon types, Blood Tempest deals 3? to Raevyx, and Dragonlord deals 5? to Ignivorus | Raevyx exact aerial combat tactics; remaining per-species combat, exact Ignivorus targeting and airborne abilities, cancellable projectile impact hooks and native custom collision, persistent nonliving pillar entities, exact ability/status/damage behavior, AI targeting and terrain effects; Nulljaw exact shulker bullet immunity and flight pathfinding; Varasuchus exact eye-height sensing; Volitans custom projectile collision, damage-source hooks, exact rider physics and navigation; Atroxiia freeze eligibility use and excess frozen ticks, exact eye heights and body collision checks, owner offense targeting and exact rider behavior |
+| Taming and riding | Cindervane feeding, ownership, orders, saddle, two seats and flight controls; mount profiles for all eight dragons with saddle, age, happiness, ownership checks, neutral seat anchors, animated companion rider locators and safe dismount candidates; stun taming and tame healing for Atroxiia, Ignivorus, Raevyx and Volitans; Stegonaut food taming and the Varasuchus rodeo; tamed Varasuchus food healing and wild roost sleep refusal; breeding and egg laying for Atroxiia, Cindervane, Ignivorus, Raevyx, Stegonaut and Varasuchus, underwater eggs for Volitans and live birth for Nulljaw; the Creative Dragon Taming Meal sets persistent ownership on the eight dragon species; hunger, happiness decay and slowdown, roster melee attribute scaling, juvenile food taming, growth feeding and raw-moop stunting including Nulljaw; Codex hunger, gender, brushing and biome display, physiology/ecology companion screens and manual entry removal; direct saddle/chest attachment for Cindervane, Atroxiia and Stegonaut with binder persistence and death drops; grooming hurt clips and roost damage wake-up reactions; breeding XP and stats, credited hunting and fresh-drop eating, owner-bed sleep | contextual breeding advancement, sensory disturbances; rider inventory and attachment removal, Codex handling when a filled binder is destroyed, and additional recall behavior; exact rider movement and timing; Cindervane exact projectile physics, custom crash explosion and dragon-specific griefing settings |
+| Items and creative menu | 101 registered player-facing items, including the Draconic Crucible, the Ignivorus Incubator, six ore and storage blocks, Draconian Pellucida, and two Creative appearance tools. The companion lists all 101 in the **Server Mods** Creative tab in release order. Normal and golden brush scale drops and happiness recovery, the shared ten-tick brush cooldown, Scale Plucker, recipes, wear and persistent regrowth. Bucket of Moop with capture, restart persistence and release, Moop and Mossback foods, Hearty Dragon Meal nutrition, the Tideguard and Searing potion effects, both music discs, seven hatchable dragon eggs, the Arrow of Venom, and eight dragon binders with the released recipes, models and tooltips, and a companion Codex physiology/ecology reader with owner-scoped entry removal. The full Dragonlord set's fire, blast and short-fall immunity and the Dragonlord sword's fire on hit, and full Draconian armor swarm pacification with retaliation; Dragonlord double jump, fall-flying and companion acceleration, landing shockwave with native owner/ally filtering, Blood Tempest directional dodge and eight-tick invulnerability, Dragonlord sword R with native cooldown and independently ticking magma pillars and Blood Tempest katana collision-limited dash and successful melee-hit chain lightning with the released red procedural arc | Custom fissures, worn armor models, and remaining equipment components (including Blood Tempest afterimages and camera impulses) |
+| Blocks and progression | Six ore and storage blocks, compaction recipes, partial food and loot, a persistent Draconic Crucible with the released companion GUI, explicit start, processing locks, fuel routing, live shared slot refresh and released recipes, including the Ignivorus Incubator, natural Deepslate Worldroot and Dragonheart ore, the End Nucleus structure, both dragon roosts with their sleep anchors, Cindervane and Raevyx egg trampling, Ivy?s house with renamed grass and chain decorations and migrated banner, skull, bookshelf and framed egg NBT with styled names, all 84 advancement definitions including recipe rewards, Tactical Nuke crash, Fire Hydrant ([combat_volitans.rs](../mods/saints-dragons/src/combat_volitans.rs)), approximate Raevyx dive exit ([combat_raevyx.rs](../mods/saints-dragons/src/combat_raevyx.rs)), post-hit baby advancement ([combat_varasuchus.rs](../mods/saints-dragons/src/combat_varasuchus.rs)) and cooking with a fire dragon triggers and engine recipe unlock support, Folded Horizon recipe predicates, potion-specific brewing take criteria, and Pellucida hardness, slime sounds and swarm path clearance | Exact trigger parity for Raevyx dive exit and hitting a baby; Crucible block animations, two-block shape, sounds and automation, Ivy's rotated painting facing, and Pellucida swarm-specific native movement collision |
 | Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, hurt and death cues including Moop's inherited generic sounds, adult dragon ambient and feeding profiles, swarm ambient calls, entity-bound one-shot dragon vocalizations, movement clip footstep and flap cues, and flight transition cues. A connected bot verified Cindervane, Raevyx and Mossback before the entity-bound changes. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Exact client animation keyframe playback and overlapping vocal animations, full per-ability cues on the remaining combat and Ivy controllers, exact flight state transitions, timed/looping sound instances, carrier sound suppression |
-| Presentation | Adult and eight dragon juvenile rigs in the Fabric companion, gender and skin changes, model/animation switches on growth, stock display fallbacks, food item particles, released fireball/orb/spine rigs, textured breath and lightning beam layers, frost/impact/dash sprites and Nulljaw cloak visibility | Overlays, remaining custom particles, exact camera-facing beam and projectile renderers, equipment visuals, remaining screens and translations |
+| Presentation | Adult and eight dragon juvenile rigs in the Fabric companion, gender and skin changes, model/animation switches on growth, food item particles, released fireball/orb/spine rigs, textured breath and lightning beam layers, frost/impact/dash sprites and Nulljaw cloak visibility | Overlays, remaining custom particles, exact camera-facing beam and projectile renderers, equipment visuals, remaining screens and translations |
 | Integration | Versioned mod interfaces; the companion is required when loaded mods require it | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
 | Global dragon allies | Owner-scoped save-wide UUID list (ten players), Codex typed-name add/remove through the companion, typed /dragonally commands with server-wide lookup, shared dragon and Ivy combat trust, and ally buff eligibility; Codex rig portraits, ecology item icons and brushing animation | cross-dimension Codex discovery; client visual verification |
 
@@ -59,7 +59,7 @@ Block raycasts gate ground and underwater attack selection; eye heights and
 body collision remain approximations. Pumpkin's setter clamps at 140 ticks and
 the ABI exposes freeze eligibility but the mod has not yet wired it into this ability, so exact sustained freezing and the
 normal quake-to-Gungnir execution still require host support. Global alliances
-and rider-only Slither also remain.
+are implemented via [allies.rs](../mods/saints-dragons/src/allies.rs); rider-only Slither is implemented in [combat_atroxiia.rs](../mods/saints-dragons/src/combat_atroxiia.rs).
 The [combat scenario](../tests/scenarios/p2c-atroxiia-combat.txt) exercises
 close-range retaliation, sweep damage, obstructed attack selection and native
 freeze application. The follow-up decision rules are unit tested.
@@ -86,9 +86,9 @@ Java's stage-scaled rectangular impact volume, per-target UUID hit history, 5-ti
 warmup, 34-tick lifetime, 9-tick subside, attributed damage, fire and horizontal
 push. Stegonaut's amethyst effects also tick independently of the caster, with
 the released 4/26/10 timing. Both are non-interactable world effects with
-particle rise/subside approximations. The host still needs a tickable saved
+released model clips (see below). The host still needs a tickable saved
 nonliving custom entity and companion animation sync for exact model and chunk
-persistence, plus generic team/pet ownership queries for complete ally filtering.
+persistence; native team/pet ownership queries are used by [pillars.rs](../mods/saints-dragons/src/pillars.rs).
 Dragonlord sword R now uses these same world-ticked effects: selected main-hand
 stack, living non-spectator caster, horizontal look threshold, and a native
 50-tick item cooldown. Three pillars spawn at 3/9/15 blocks on the
@@ -113,7 +113,7 @@ fire and knockback on intercepted impacts. The scenario includes an off-axis
 blast victim. The host lacks a cancellable projectile impact hook and custom
 projectile geometry; native impacts between mod ticks and unloads can bypass
 the custom explosion, and exact trajectory, terrain effects and visuals remain partial.
-Volitans has hunger-scaled melee, medium-specific AI selection, persisted cooldowns and breath energy, swept breath/orb damage, poison and roar stun, and water extinguishing fire/solidifying lava with Fire Hydrant credit for its owner. The poison orb now launches an owned vanilla snowball carrier with the released speed, ramped gravity, drag, lifetime and mod-managed area impact. Externally applied poison is cleared on the next ambient tick. The native carrier may collide before the custom sweep, and the custom orb entity/collision, persistent flight state, exact burrow collision, incoming attacker-specific reactions and full targeting/navigation remain pending. Breath and spines still use transient simulated trajectories. [Combat scenario](../tests/scenarios/p2c-volitans-combat.txt) covers melee damage, a live orb carrier, orb impact poison and poison removal (pending coordinator run).
+Volitans has hunger-scaled melee, medium-specific AI selection, persisted cooldowns and breath energy, swept breath/orb damage, poison and roar stun, and water extinguishing fire/solidifying lava with Fire Hydrant credit for its owner. The poison orb now launches an owned vanilla snowball carrier with the released speed, ramped gravity, drag, lifetime and mod-managed area impact. Externally applied poison is vetoed before admission (with existing poison cleanup) by the registered effect hook in [lib.rs](../mods/saints-dragons/src/lib.rs). The native carrier may collide before the custom sweep, and the custom orb entity/collision, persistent flight state, exact burrow collision, incoming attacker-specific reactions and full targeting/navigation remain pending. Breath and spines still use transient simulated trajectories. [Combat scenario](../tests/scenarios/p2c-volitans-combat.txt) covers melee damage, a live orb carrier, orb impact poison and poison removal (pending coordinator run).
 
 Stegonaut AI combat selects bite or chin slam with the released 26-tick cadence,
 individual cooldowns, tick-13 impact, hunger scaling and knockback. Chin slam
@@ -243,23 +243,21 @@ juvenile with 60 starting health.
 
 A Cindervane clutch can hold up to three eggs, advances through three
 crack stages in 12,000 loaded ticks, and produces one 40-health hatchling
-per egg. The original clutch and juvenile models are included. Piebald appearance is rolled at hatch and applied at maturity. Trampling remains pending.
+per egg. The original clutch and juvenile models are included. Piebald appearance is rolled at hatch and applied at maturity. Trampling is implemented in [eggs.rs](../mods/saints-dragons/src/eggs.rs).
 
 The Raevyx Egg incubates in 18,000 ticks normally and at the 9,600-tick
 rate during thunder. Lightning within the release's three-block expanded
 collision box hatches it immediately. The server scenario verified thunder
 and summoned lightning. All seven egg blocks report the hatch stage (0 to 2)
 to comparators. The Volitans scenario covers adjacent comparators and comparators
-reading through a solid block. Trampling and the hatch advancements remain
-pending.
+reading through a solid block. Trampling and hatch advancements are implemented in [eggs.rs](../mods/saints-dragons/src/eggs.rs).
 
 The Arrow of Venom uses the released recipe and item model. Bows and crossbows
 launch it at 1.35 times normal speed with no water drag. A damaging hit clears
 the target's hurt cooldown and applies Poison II for 30 seconds and Blindness
 for 5 seconds. The server scenario checks water motion, both weapons, and
 picking up the spent arrow after a restart. The flight and impact renderer,
-Ivy's friendly-hit rules, and Volitans venom suppression remain part of the
-projectile and creature parity work.
+Ivy's friendly-hit rules remain part of the projectile parity work. Volitans rejects poison via the effect veto; exact projectile-specific immunity remains to check.
 [Arrow of Venom scenario](../tests/scenarios/p2z-saints-dragons-venom-arrow.txt)
 
 The eight binders capture an owned dragon and release it with the same UUID,
@@ -268,9 +266,7 @@ eight species, blocked release, wild capture denial, and a restart with a
 filled binder. Raevyx, Cindervane, Ignivorus, and Volitans also have a five-block
 air release, also verified with a stock-protocol client. They descend using
 the port's shared flight goal. Capture requires the dragon to be free of
-passengers and vehicles. The original tamed flight AI,
-Pocket Dragon advancement, and Codex tracking when a binder is destroyed remain
-pending.
+passengers and vehicles. The original tamed flight AI and Codex tracking when a binder is destroyed remain pending. Pocket Dragon is awarded in [binders.rs](../mods/saints-dragons/src/binders.rs).
 [Binder scenario](../tests/scenarios/p2aa-saints-dragons-binders.txt)
 
 The three swarm spawn eggs use the released creature identities and starting
@@ -280,8 +276,7 @@ companion pack includes all three original rigs and animation sets. A stock
 client receives display fallbacks. The scenario verified the four eggs,
 persistence, spawning without gravity, and original hurt and death audio.
 Suspended wandering uses the released movement speeds and takes clear, straight
-routes. Pathfinding around obstacles, the encounter's
-spawn and death animations, and exact hitboxes remain pending. The stock
+routes. The weighted route planner in [flight_route.rs](../mods/saints-dragons/src/flight_route.rs) now paths around obstacles; the encounter's spawn and death animations and exact native hitboxes remain pending. The stock
 `/saintsdragons items` packet includes all eight binders and all four swarm
 eggs. In a local 24-creature smoke check, the final tick query read 4.72 ms
 with ground movement and 3.94 ms with suspended wandering on the same engine
@@ -309,7 +304,7 @@ encounter, and observes the 1,200-tick reactivation delay. An unowned Nucleus
 activates for a nearby survival player. The server scenario verified all three
 waves (6, 9 and 12 creatures), non-owner denial, persistence, both Controller
 use paths, and the summon cue. Release parity still needs encounter music, boss
-bars, advancement awards, exact spawn collision, and source combat. Controller summons keep an empty death loot
+bars, exact spawn collision, and exact source combat. Advancement awards are implemented in [nucleus.rs](../mods/saints-dragons/src/nucleus.rs); species combat is in [swarm.rs](../mods/saints-dragons/src/swarm.rs). Controller summons keep an empty death loot
 table after restart. The live scenario killed a reloaded summon and found no
 item drops, then confirmed that a naturally summoned Latcher retained its
 released loot table.
@@ -448,7 +443,7 @@ them. On a failure it throws the rider off, turns on them unless they're in
 Creative, and refuses another ride for five seconds.
 [Wild taming scenario](../tests/scenarios/p2ap-saints-dragons-wild-taming.txt)
 
-The server tracks the release's 41 advancements, now in the 26.3 layout, and
+The server tracks the release's gameplay advancements, now in the 26.3 layout, and
 shows them in their own tab. Criteria from vanilla triggers, such as picking
 up a Draconic Codex or a dragon egg, fire on their own. The mod awards the
 ones the release grants from code: clicking a dragon, meeting Ivy, taming each
@@ -464,10 +459,7 @@ binder recipe IDs and supplies the current Pumpkin predicate parser's `recipe`
 alias, since it does not read `recipe_id`. The 13 custom Crucible recipes
 already use the mod's own shaped and smelting implementation.
 Pellucida uses the release's zero hardness, purple map color and slime sounds,
-while its glass collision shape remains solid. Recipe unlocks are blocked:
-the engine's datapack advancement builder discards `rewards.recipes` and
-`PlayerAdvancement::grant_reward` grants experience only; it needs dynamic
-recipe IDs resolved into the player's saved recipe book and unlock packets.
+while its glass collision shape remains solid. Recipe rewards are supported by the integrated Pumpkin recipe hooks (engine pointer commits `2c128c8`, `321b49a`).
 The released brewing criteria are awarded when the player takes the corresponding custom potion from the bottle slot, including shift-click; the engine matches vanilla potion IDs and the mod maps its custom output IDs. [Brewing regression scenario](../tests/scenarios/p2-brew-trigger.txt) checks both custom outputs and excludes ordinary potions and brew completion. Pellucida
 is ignored by mod-side swarm path clearance, but physical movement still needs
 a generic entity-aware block collision filter (including native movement and
@@ -515,9 +507,7 @@ at 60 hunger or higher. Ignivorus keeps its juvenile zero damage and adult
 base of 50. Cindervane, Raevyx, Ignivorus, Varasuchus and Volitans acquire their
 released prey types at 60 hunger or less. After a credited kill, they look
 for fresh food drops (at most 100 ticks old) around the kill for 60 ticks and
-eat one every 20 ticks, restoring 10 hunger. The roster uses a generic melee
-goal until its species combat is ported; dedicated aerial landing, item
-particles and interaction animation blending are still pending.
+eat one every 20 ticks, restoring 10 hunger. Species combat controllers now exist in `combat_*.rs`; dedicated aerial hunting landing and interaction animation blending remain pending. Food item particles are implemented in [particles.rs](../mods/saints-dragons/src/particles.rs).
 [Hunting and melee scaling scenario](../tests/scenarios/p2ba-saints-dragons-hunting.txt)
 
 A tamed adult Varasuchus heals 10 health from its ordinary food or 35 from a
@@ -534,8 +524,7 @@ adult owner to ride without a saddle, subject to happiness. Varasuchus now
 handles rider ground/swim movement, double-tap dash, flex, phase shift,
 phase-dependent claw/tail sweep and barrage, and held tailguard. The final-hurt
 hook cancels qualifying close-range damage and applies the parry sweep.
-Melee mode is persisted and the bite/horn action handler is implemented,
-but the shared companion still needs to dispatch the vanilla attack key.
+Melee mode is persisted and bite/horn attack uses the shared mounted vanilla attack callback ([rider_actions.rs](../mods/saints-dragons/src/rider_actions.rs)).
 Claw terrain destruction follows the mob-griefing rule; the separate release
 config switch and waterlogged block handling are not reproduced.
 [Varasuchus rider scenario](../tests/scenarios/p2-rider-varasuchus.txt)
@@ -549,8 +538,7 @@ cannot mount; Cindervane alone permits a second player once its owner is
 aboard. The owner can reclaim the first seat. Ground dragons no longer use
 the existing Cindervane flight movement. The host supplies ordinary dismount
 and carrier seating with species-specific dismount candidates; the companion
-samples the animated rider offsets. Nulljaw's collision nudge remains pending. Per-species rider
-movement and abilities remain separate work.
+samples the animated rider offsets. Nulljaw's collision nudge remains pending. Per-species rider movement and abilities are implemented in the species combat controllers; exact physics and live checks remain.
 [Mounting scenario](../tests/scenarios/p2-mount.txt) (pending coordinator run).
 
 Nulljaw juveniles accept chorus fruit, with a one-in-five wild taming roll and
@@ -570,7 +558,7 @@ disturbance system requires sound-observation support, and the single-clip
 display cannot layer hurt over the sleep exit animation.
 [Grooming and sleep scenario](../tests/scenarios/p2ay-saints-dragons-grooming-sleep.txt)
 
-The [player movement scenario](../tests/scenarios/p2-dragonlord-moves.txt) checks the Dragonlord midair jump and Blood Tempest double-tap dodge. Movement uses the vanilla input packet (four server ticks approximate the 200 ms tap window); optional named actions are unbound by default to avoid shadowing vanilla bindings. Dodge uses a 30-tick cooldown and eight invulnerable ticks. Landing after a midair jump tracks the four-block peak drop and deals 20 damage with 0.75 upward impulse within 7.5 blocks, limited to untamed mod creatures and non-mount undead because team and generic ownership queries are absent. A second airborne jump starts native fall-flying and cancels the pending shockwave; subsequent jumps request a 40–51-tick companion boost on an 80-tick cooldown. The R action reads the selected hotbar slot on the server: Dragonlord sword produces three timed damage pillars (50-tick cooldown), while Blood Tempest katana dashes at most 20 blocks using native collision checks and applies 2.65x attack damage with a five-jump lightning chain (60-tick cooldown). Released pillar models and chain arcs render through the companion; other dash and impact visuals remain approximate. Exact movement contact checks and persistent pillar entities remain pending.
+The [player movement scenario](../tests/scenarios/p2-dragonlord-moves.txt) checks the Dragonlord midair jump and Blood Tempest double-tap dodge. Movement uses the vanilla input packet (four server ticks approximate the 200 ms tap window); optional named actions are unbound by default to avoid shadowing vanilla bindings. Dodge uses a 30-tick cooldown and eight invulnerable ticks. Landing after a midair jump tracks the four-block peak drop and deals 20 damage with 0.75 upward impulse within 7.5 blocks, with native owner/ally filtering (see [player_moves.rs](../mods/saints-dragons/src/player_moves.rs)). A second airborne jump starts native fall-flying and cancels the pending shockwave; subsequent jumps request a 40–51-tick companion boost on an 80-tick cooldown. The R action reads the selected hotbar slot on the server: Dragonlord sword produces three timed damage pillars (50-tick cooldown), while Blood Tempest katana dashes at most 20 blocks using native collision checks and applies 2.65x attack damage with a five-jump lightning chain (60-tick cooldown). Released pillar models and chain arcs render through the companion; other dash and impact visuals remain approximate. Exact movement contact checks and persistent pillar entities remain pending.
 
 A player wearing all four Dragonlord pieces ignores fire, explosions and falls
 of 16 blocks or less. The Dragonlord sword sets what it hits on fire for eight
@@ -597,11 +585,7 @@ Destroyed-binder handling needs an item-stack destruction callback with its
 NBT and removal cause, rather than guessing that a missing dropped item died.
 Owned adult Cindervane, Atroxiia and Stegonaut accept saddles and then
 chests, preserve both attachments in entity and binder data, and drop
-the attachments on death. The original rider inventory key requires a client action routed to the
-server; typed dynamic attachment slots and atomic entity-backed inventory
-transactions are needed for cargo and equipment removal. The armor and sword
-active abilities require custom key actions and equipped-slot reads, and
-katana chain lightning now uses a synchronous successful direct melee hit callback
+the attachments on death. The original rider inventory still needs typed dynamic attachment slots and atomic entity-backed inventory transactions for cargo and equipment removal. Armor and sword active abilities use companion actions and equipped-slot reads ([player_moves.rs](../mods/saints-dragons/src/player_moves.rs)); katana chain lightning uses a synchronous successful direct melee hit callback
 (once per attack, including lethal hits), and attackability, mutual alliance
 and generic tame/ownable target checks. Attributed damage is available.
 In 0.9.88, `DragonMeleeHitContext.observeResult` calls
@@ -615,8 +599,7 @@ the release's three red ribbon layers with grow/flash/retract; Raevyx uses
 three blue-white layers with seeded flicker/fade. The release's electric spark
 midpoint particles remain. [Chain regression scenario](../tests/scenarios/p2-katana-chain.txt).
 The rendered appearance and timing need a real-client check.
-Swarm pacification likewise needs an
-equipped-slot query on candidate targets.
+Swarm pacification reads all four equipped slots in [swarm.rs](../mods/saints-dragons/src/swarm.rs).
 [Codex scenario](../tests/scenarios/p2ad-saints-dragons-codex.txt)
 [Standalone typed ally scenario](../tests/scenarios/p2-codex-screen.txt) (pending coordinator run)
 [Codex portrait and ecology payload scenario](../tests/scenarios/p2-codex-portraits.txt) (pending coordinator run)
@@ -649,11 +632,7 @@ eight blocks. Inventory transactions persist by Ivy's UUID. Equipment affects
 melee damage and armor attributes. Recruited Ivy retaliates against attackers
 and protects her owner while following, with the released boxing and sword
 attack timings and melee animation clips. The stock menu does not provide the
-original equipment slot layout or automatic shift-click routing. Equipment
-wear, recovery items, venom projectiles, dodges, lethal-hit downed entry
-and outgoing owner attack detection remain pending. The SDK has no merchant
-menu close callback for automatic dialogue resumption, nor a transactional
-entity inventory API for equipment wear and consumption.
+original equipment slot layout or automatic shift-click routing. Equipment wear, recovery items other than totems, venom projectiles and outgoing owner attack detection remain pending. The released dash and lethal-hit downed entry, and merchant close dialogue resumption, are implemented in [ivy.rs](../mods/saints-dragons/src/ivy.rs). A transactional entity inventory API for equipment wear and consumption remains absent.
 Custom name input, cross-dimension recall and client dialogue animations
 remain pending.
 [Ivy recruitment scenario](../tests/scenarios/p2ae-saints-dragons-ivy.txt)
@@ -665,8 +644,7 @@ state supports a 90-second bleed-out, three finishing hits, owner revival
 interactions, healing and the 30-tick arise animation. The final damage hook
 allows recruited Ivy to enter downed at one health on a lethal hit after
 mitigation, except for damage that bypasses invulnerability. Varasuchus
-halves drowning damage using the same hook. Tailguard parry awaits rider
-ability input. Ivy consumes one stored Totem of Undying before entering
+halves drowning damage using the same hook. Tailguard parry is wired to rider ability input in [combat_varasuchus.rs](../mods/saints-dragons/src/combat_varasuchus.rs). Ivy consumes one stored Totem of Undying before entering
 downed on lethal damage that does not bypass invulnerability, restores one
 health, and receives the released regeneration, absorption and fire resistance
 effects after the damage commits. Inventory revision checks prevent stale
@@ -826,7 +804,7 @@ Checked entries have an item registration in P2. Each still needs its original b
 
 Bound Stegonaut binders refresh portable Resistance I and Absorption I every 20 ticks with cleanup when removed. [Portable aura scenario](../tests/scenarios/p2-stegonaut-portable-aura.txt).
 
-Dragon taming, hurt and combat particles, near-ground flight dust, Raevyx rend/dive dust and Atroxiia quake bursts are ported. [Particle scenario](../tests/scenarios/p2-particles.txt). Custom particle textures remain pending.
+Dragon taming, hurt and combat particles, near-ground flight dust, Raevyx rend/dive dust and Atroxiia quake bursts are ported. [Particle scenario](../tests/scenarios/p2-particles.txt). Additional original particle emissions and renderers remain pending; several release textures are already used by [vfx.rs](../mods/saints-dragons/src/vfx.rs).
 
 Moop swim and panic goals and water movement are ported. See the Moop scenario.
 
@@ -846,7 +824,7 @@ Atroxiia rider melee, movement and frost abilities are ported.
 
 Ignivorus rider movement and abilities are ported.
 
-Cindervane rider combat now dispatches the owner's first-seat left-click, X melee toggle, R double bite, H volley, G hold/release Fire Body and Ctrl+4 flex through the companion. The released timings, cooldowns, forward bite sweep, slash grab motion and animated grab locator, rider-aimed volleys, fire aura protection, landing/forward crash blast and flex movement lock are implemented. Remaining gaps: exact flight transitions, native projectile entity and physics, complete elemental/ally immunity, live furnace cooking acceleration, custom crash explosion and exact custom visuals. [Registration and manual companion scenario](../tests/scenarios/p2c-cindervane-rider.txt).
+Cindervane rider combat now dispatches the owner's first-seat left-click, X melee toggle, R double bite, H volley, G hold/release Fire Body and Ctrl+4 flex through the companion. The released timings, cooldowns, forward bite sweep, slash grab motion and animated grab locator, rider-aimed volleys, fire aura protection, landing/forward crash blast and flex movement lock are implemented. Remaining gaps: exact flight transitions, native projectile entity and physics, complete elemental immunity, custom crash explosion and exact custom visuals. [Registration and manual companion scenario](../tests/scenarios/p2c-cindervane-rider.txt).
 
 
 Fire Body samples terrain six times per tick with a 12% ignition chance. Magma Volley ignites eligible air in its 3-by-3 impact layer; a crash carves the released nine-block-radius parabolic imprint, preserves bedrock and obsidian and awards Tactical Nuke. Terrain honors mob griefing. [Terrain scenario](../tests/scenarios/p2-cindervane-terrain.txt).
@@ -854,3 +832,22 @@ Fire Body samples terrain six times per tick with a 12% ignition chance. Magma V
 Grounded, ridden Fire Body advances vanilla furnaces by 4 ticks and smokers and blast furnaces by 6 per tick within a 3.5-block sphere, refreshes lit time to 20 and awards cook_with_fire_dragon on reaching total minus one. The serial content tick applies the generic host operation; exact flight transition modes and support probes still depend on the rider controller. [Furnace scenario](../tests/scenarios/p2-cindervane-furnace.txt).
 
 Flight route search follows Java 0.9.88 AsyncDragonPathfinder: 128-block planning limit, 26 neighbors, weighted Euclidean costs, deferred shortcut validation and repair, 24-block shortcuts, four-block swept segments, 16-node goal sweep and 5000 confirmed node cap. The Rust content tick advances requests in round-robin slices (16 steps, 128 collision-cell reads, 350 microseconds), caching queried collision shapes rather than taking Java's whole-region snapshot. Swarm ignores Pellucida during planning; native movement remains carrier-dependent. Cindervane cruise/pack, Raevyx autonomous flight and swarm wander/pursuit consume the result, retaining immediate collision checks. [Flight route scenario](../tests/scenarios/p2-flight-route.txt) (pending coordinator run).
+
+## Ranked remaining parity work (source audit at `f07c64d`)
+
+This audit compares the 0.9.88 Java source with the Rust and companion implementation on main. "Implemented" means code exists, not that a scenario or live-client check passed. Historical scenario reports above are retained; the current manual acceptance list is in [CLIENT-CHECKS.md](CLIENT-CHECKS.md#saints-dragons-0988). Rank prioritizes player-visible correctness and shared dependencies.
+
+1. **[host]** Native dragon dimensions, multipart hit/interaction routing, push rules, entity-aware Pellucida collision, exact eyes, world-border/entity clearance and spawn predicates. Java: `DragonPartManager`, `DragonPartEntity`, `MessageDragonPartAttack`, `DragonSpawnRules`.
+2. **[host]** Cancellable projectile impact and custom projectile collision/ownership, precise freeze eligibility/counter, damage-source and pre/post-hit semantics, beam redstone, dragon-specific terrain/explosion hooks, persistent nonliving effects. Java: `IgnivorusFireballEntity`, `VolitansPoisonOrbEntity`, `GroundFissureEntity`, `DragonRedstonePowerManager`, `AtroxiiaFrostImpact`.
+3. **[mod-only]** Exact combat AI and movement: aerial tactics, water entry/escape/chase, landing and recovery, target and pack/mother assignment, adaptive attack learning, attack scoring and spacing. Java: `DragonCombatLearning`, `DragonTacticalPlannerBehaviour`, `IgnivorusAirCombatBehaviour`, `CindervaneAirCombatMovementBehaviour`, `VolitansWaterCombatMovement`; Rust: [flight_route.rs](../mods/saints-dragons/src/flight_route.rs), [combat_ignivorus.rs](../mods/saints-dragons/src/combat_ignivorus.rs), [combat_volitans.rs](../mods/saints-dragons/src/combat_volitans.rs).
+4. **[host]** Owner last-attacked entity, raid context, sound/hearing and scent/vision observation inputs, falling-owner state and safe catch. Java: `DragonRescueFallingOwnerBehaviour`, `DragonHearingListener`, `DragonScentSensor`, `DragonTargetMemory`; port has ordinary follow but no falling-owner rescue controller.
+5. **[host]** Rider cargo and saddle/chest removal, transactional entity-backed inventory, Ivy item wear/consumption and healing events, filled-binder destruction with stack identity and cause, cross-dimension entity lookup/recall. Java: `DragonChestCarrier`, `DragonSaddleCarrier`, `AbstractDragonBinderItem`, `IvyOctopusPlushieItem`.
+6. **[mod-only]** Ivy recovery items beyond totem, venom projectile combat, friendly-hit rules, owner offense, binder aura in her own inventory, nine chatter pools and rename refusal. Java: `IvyTheDragonMerchant`, `IvyChatterRegistry`, `IvyChatterReloadListener`; [ivy.rs](../mods/saints-dragons/src/ivy.rs) implements recruitment, melee, dashes and totem/downed behavior.
+7. **[mod-only]** Remaining species ability details, terrain and immunity rules: Ignivorus airborne attack selection and bulldoze, Raevyx beam/dive, Atroxiia freeze eligibility, Volitans burrow/attacker reactions, Varasuchus claw destruction, Stegonaut incoming damage and Nulljaw teleport/shulker damage. Some need #1–2 first.
+8. **[mod-only]** Persistence of breeding love/cooldown, stun and rodeo state across restart; exact family, sleep-depth and disturbance behavior, falling-owner rescue controller after #4, juvenile and Ivy jukebox dancing. Java: `DragonEntity`, `DancingEntity`, `DragonSleepBehaviour`; current [breed.rs](../mods/saints-dragons/src/breed.rs), [stun.rs](../mods/saints-dragons/src/stun.rs), [wild.rs](../mods/saints-dragons/src/wild.rs) document in-memory shortcuts.
+9. **[companion]** Real-client acceptance of seats, grab, keybinds, screens, visuals, sound and totem; exact animation blending, camera and screen impulses, multipart targeting, afterimages, equipment and held-item models, custom particle/beam/projectile renderers. Java: `MessageCameraImpulse`, `MessageBloodTempestAfterimage`, `DragonEquipmentLayer`, `DragonSeatAnchoredCamera`, `ArrowOfVenomModel`, `DraconicCrucibleRenderer`.
+10. **[host]** Crucible two-block shape and automation, painting facing rotation, exact natural spawn and Mossback juvenile group rules, contextual breeding and pre-hit advancement hooks. Java: `DraconicCrucibleBlock`, `DraconicCrucibleBlockEntity`, `DragonSpawnRegistry`, `DragonBreedingRules`.
+11. **[companion]** Nucleus wave bar and battle music, encounter and block animations, Ivy custom dialogue/name and inventory screens, remaining localization. Java: `MessageSwarmWaveBar`, `MessageSwarmBattleMusic`, `MessageDialogueNameInput`, `DraconianNucleusAnimations`.
+12. **[host]** Entity-bound looping/timed audio, independent effect icon/particle flags, carrier sound suppression and exact keyframe cues (companion clock). Java: `MessageDragonMovingSound`, species `SoundProfile` and animation handlers.
+13. **[mod-only]** Release config and datapack reload parity (attributes, ability overrides, spawn settings, loot/trades/chatter, griefing), chest-loot injection and Starcatcher Moop fishing integration where the dependency exists. Java: `SaintsDragonsConfig`, `DragonAttributeConfigLoader`, `DragonChestLootReloadListener`, `IvyTradeReloadListener`; data: `starcatcher/fish/moop_fish.json`. Confirm host loot injection support before implementing.
+14. **[companion]** Upstream diagnostic parity: optional brain/path/vision/ability-box debug messages; no corresponding release-specific UI in the port (`MessageDragonBrainDebug`, `MessageDragonPathDebug`, `MessageDragonVisionDebug`, `MessageDragonAbilityDebugBox`).
