@@ -1563,6 +1563,15 @@ pub struct EffectsV1 {
     pub stop_music: unsafe extern "C" fn(world: WorldRef, player: i32, key: Str) -> bool,
     /// Set a loaded block overlay's companion animation clip (empty selects its default).
     pub block_animation: unsafe extern "C" fn(world: WorldRef, pos: Pos, clip: Str) -> bool,
+    /// Enumerate active effect ids. Sink keys: 0 beneficial, 1 harmful, 2 neutral.
+    pub active_effects: unsafe extern "C" fn(entity: EntityRef, out: Sink) -> bool,
+    /// Current accumulated fall distance; NaN when the entity is not living.
+    pub fall_distance: unsafe extern "C" fn(entity: EntityRef) -> f32,
+    /// Refresh an overhead translated text and optional voice sound on tracking clients.
+    /// Empty key or zero ttl clears the display.
+    pub entity_chatter: unsafe extern "C" fn(
+        world: WorldRef, entity: i32, key: Str, name: Str, sound: Str, ttl: u32,
+    ) -> bool,
 }
 
 /// A pending mob effect, before it is stored or applied.
@@ -1588,7 +1597,10 @@ fn effects_v1_layout() {
     assert_eq!(offset_of!(EffectsV1, loop_music), 64);
     assert_eq!(offset_of!(EffectsV1, stop_music), 72);
     assert_eq!(offset_of!(EffectsV1, block_animation), 80);
-    assert_eq!(size_of::<EffectsV1>(), 88);
+    assert_eq!(offset_of!(EffectsV1, active_effects), 88);
+    assert_eq!(offset_of!(EffectsV1, fall_distance), 96);
+    assert_eq!(offset_of!(EffectsV1, entity_chatter), 104);
+    assert_eq!(size_of::<EffectsV1>(), 112);
     assert_eq!(offset_of!(ParticleOptions, item), 0);
     assert_eq!(offset_of!(ParticleOptions, kind), 16);
     assert_eq!(offset_of!(ParticleOptions, block_state), 20);

@@ -60,6 +60,47 @@ pub fn require() -> Result<Effects, InterfaceUnavailable> {
 }
 
 impl Effects {
+    pub fn require_active_effects(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(offset_of!(abi::EffectsV1, entity_chatter))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:effects.active_effects",
+                version: 1,
+            })
+    }
+
+    /// Return copied ids and category ordinals (0 beneficial, 1 harmful, 2 neutral).
+    pub fn active_effects(self, entity: Entity<'_>) -> Option<Vec<(u64, String)>> {
+        unsafe extern "C" fn collect(ctx: *mut std::ffi::c_void, key: u64, value: abi::Str) {
+            // SAFETY: the host calls this sink only while the local vector is live.
+            let effects = unsafe { &mut *ctx.cast::<Vec<(u64, String)>>() };
+            effects.push((key, unsafe { value.str() }.to_owned()));
+        }
+        let api = self.0.upto(offset_of!(abi::EffectsV1, active_effects))?;
+        let mut effects = Vec::new();
+        let out = abi::Sink {
+            ctx: (&raw mut effects).cast(),
+            put: collect,
+        };
+        // SAFETY: entity and sink are borrowed for this synchronous call.
+        unsafe { ((&raw const (*api).active_effects).read())(entity.raw(), out) }
+            .then_some(effects)
+    }
+
+    pub fn fall_distance(self, entity: Entity<'_>) -> Option<f32> {
+        let api = self.0.upto(offset_of!(abi::EffectsV1, fall_distance))?;
+        // SAFETY: entity is borrowed for this call.
+        let value = unsafe { ((&raw const (*api).fall_distance).read())(entity.raw()) };
+        value.is_finite().then_some(value)
+    }
+
+    pub fn entity_chatter(self, world: World<'_>, entity: i32, key: &str, name: &str, sound: &str, ttl: u32) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, entity_chatter)) else { return false };
+        // SAFETY: table prefix checked; all arguments are borrowed for this call.
+        unsafe { ((&raw const (*api).entity_chatter).read())(world.raw(), entity, s(key), s(name), s(sound), ttl) }
+    }
+
     pub fn require_encounter_display(self) -> Result<(), InterfaceUnavailable> {
         self.0
             .upto(offset_of!(abi::EffectsV1, stop_music))

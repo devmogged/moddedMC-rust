@@ -333,6 +333,7 @@ fn change_inventory(mut change: Change<'_>) {
 pub fn require() -> Result<(), InterfaceUnavailable> {
     let _ = SAVES.set(saved_data::require()?);
     let _ = INVENTORY_MENUS.set(inventory_menu::require_validity()?);
+    moddedmc_api::effects::require()?.require_active_effects()?;
     Ok(())
 }
 
@@ -909,6 +910,7 @@ pub fn use_on_mob(click: &UseMob<'_>) -> UseResult {
     };
     if click.stack.read().is_some_and(|stack| named_tag(&stack)) {
         // The original refuses a named tag before every other interaction.
+        chatter_speak(click.world, ivy, "rename_refusal", None, 90, 120);
         return UseResult::Consume;
     }
     let mut downed = downed_state(ivy);
@@ -934,9 +936,19 @@ pub fn use_on_mob(click: &UseMob<'_>) -> UseResult {
         }
         return UseResult::Consume;
     }
+    if underwater(click.world, ivy) {
+        chatter_speak(click.world, ivy, "underwater", Some(viewer), 90, 80);
+        return UseResult::Consume;
+    }
     if click.sneaking && taming::is_owner(ivy, viewer) {
         if click.main_hand {
             taming::cycle_ivy_order(ivy, viewer);
+            let pool = match taming::order_name(ivy) {
+                "follow" => "command_follow",
+                "stay" => "command_stay",
+                _ => "command_wander",
+            };
+            chatter_speak(click.world, ivy, pool, Some(viewer), 90, 80);
         }
         return UseResult::Consume;
     }
@@ -1290,26 +1302,129 @@ fn has_recovery_food(world: World<'_>, ivy: Entity<'_>) -> bool {
         })
 }
 
+fn has_storage_item(world: World<'_>, ivy: Entity<'_>, id: &str) -> bool {
+    MOBS.get()
+        .and_then(|mobs| inventory(world, mobs.uuid(ivy)?))
+        .is_some_and(|slots| {
+            slots.iter().skip(STORAGE_START).flatten().any(|bytes| {
+                fastnbt::from_bytes::<Compound>(bytes).is_ok_and(|stack|
+                    matches!(stack.get("id"), Some(Value::String(item)) if item == id))
+            })
+        })
+}
+
+fn harmful_effects(ivy: Entity<'_>) -> Vec<String> {
+    EFFECTS.get().and_then(|effects| effects.active_effects(ivy))
+        .unwrap_or_default().into_iter().filter_map(|(category, id)|
+            (category == 1).then_some(id)).collect()
+}
+
+fn bucket_stack() -> Option<Vec<u8>> {
+    fastnbt::to_bytes(&Compound::from([
+        ("id".into(), Value::String("minecraft:bucket".into())),
+        ("count".into(), Value::Int(1)),
+    ])).ok()
+}
+
+/// Replace the consumed milk with its empty bucket. When an externally stacked
+/// milk item leaves no storage space, drop the remainder after the save commits.
+fn consume_milk(slots: &mut [Option<Vec<u8>>], bucket: &[u8]) -> Option<bool> {
+    let index = slots.iter().enumerate().skip(STORAGE_START).find_map(|(i, slot)| {
+        let stack = fastnbt::from_bytes::<Compound>(slot.as_deref()?).ok()?;
+        matches!(stack.get("id"), Some(Value::String(id)) if id == "minecraft:milk_bucket")
+            .then_some(i)
+    })?;
+    let mut stack = fastnbt::from_bytes::<Compound>(slots[index].as_deref()?).ok()?;
+    match stack.get("count") {
+        Some(Value::Int(1)) => {
+            slots[index] = Some(bucket.to_vec());
+            return Some(false);
+        }
+        Some(Value::Int(count)) if *count > 1 => {
+            stack.insert("count".into(), Value::Int(count - 1));
+            slots[index] = Some(fastnbt::to_bytes(&stack).ok()?);
+        }
+        _ => return None,
+    }
+    for slot in slots.iter_mut().skip(STORAGE_START) {
+        if slot.is_none() {
+            *slot = Some(bucket.to_vec());
+            return Some(false);
+        }
+        let Some(bytes) = slot.as_deref() else { continue };
+        let Ok(mut stack) = fastnbt::from_bytes::<Compound>(bytes) else { continue };
+        if matches!(stack.get("id"), Some(Value::String(id)) if id == "minecraft:bucket")
+            && !matches!(stack.get("components"), Some(Value::Compound(c)) if !c.is_empty())
+            && let Some(Value::Int(count)) = stack.get("count")
+            && (1..16).contains(count)
+        {
+            stack.insert("count".into(), Value::Int(count + 1));
+            *slot = Some(fastnbt::to_bytes(&stack).ok()?);
+            return Some(false);
+        }
+    }
+    Some(true)
+}
+
+fn drink_milk(world: World<'_>, ivy: Entity<'_>) {
+    let Some(bucket) = bucket_stack() else { return };
+    let mut drop = false;
+    if consume_inventory(world, ivy, |slots| {
+        let Some(remainder) = consume_milk(slots, &bucket) else { return false };
+        drop = remainder;
+        true
+    }).is_none() {
+        return;
+    }
+    if drop && let (Some(stacks), Some(view)) = (STACKS.get(), ivy.view()) {
+        stacks.spawn(world, view.position, [0.0; 3], &bucket);
+    }
+    for effect in harmful_effects(ivy) {
+        ivy.remove_effect(&effect);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecoveryKind {
+    Food,
+    Milk,
+}
+
+fn recovery_kind(world: World<'_>, ivy: Entity<'_>, threshold: f32) -> Option<RecoveryKind> {
+    if has_storage_item(world, ivy, "minecraft:milk_bucket") && !harmful_effects(ivy).is_empty() {
+        return Some(RecoveryKind::Milk);
+    }
+    (MOBS.get()?.health(ivy).is_some_and(|(health, _)| health > 0.0 && health < threshold)
+        && has_recovery_food(world, ivy)).then_some(RecoveryKind::Food)
+}
+
+fn consume_recovery(world: World<'_>, ivy: Entity<'_>, kind: RecoveryKind) {
+    match kind {
+        RecoveryKind::Milk => drink_milk(world, ivy),
+        RecoveryKind::Food => {
+            if consume_inventory(world, ivy, |slots| consume_matching(slots, cooked_food)).is_some()
+                && let Some(mobs) = MOBS.get()
+            {
+                mobs.heal(ivy, 8.0);
+            }
+        }
+    }
+}
+
 /// IvyTheDragonMerchant.tickPassiveUse: 20 ticks, consume on tick 14, 100 tick cooldown.
 fn passive_recovery(world: World<'_>, ivy: Entity<'_>, blocked: bool) {
     let now = moddedmc_api::tick_count();
-    let (Some(mobs), Some(uuid)) = (MOBS.get(), MOBS.get().and_then(|mobs| mobs.uuid(ivy))) else {
+    let Some(uuid) = MOBS.get().and_then(|mobs| mobs.uuid(ivy)) else {
         return;
     };
-    let (start, ready) = {
+    let (start, ready, kind) = {
         let states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(state) = states.get(&ivy.id()) else {
             return;
         };
-        (state.recovery_start, state.recovery_ready)
+        (state.recovery_start, state.recovery_ready, state.recovery_kind)
     };
-    if start.is_none()
-        && (blocked
-            || now < ready
-            || !mobs
-                .health(ivy)
-                .is_some_and(|(health, _)| health > 0.0 && health < 20.0))
-    {
+    if start.is_none() && (blocked || now < ready) {
         return;
     }
     let busy = blocked
@@ -1333,20 +1448,20 @@ fn passive_recovery(world: World<'_>, ivy: Entity<'_>, blocked: bool) {
                 .get_mut(&ivy.id())
             {
                 state.recovery_start = None;
+                state.recovery_kind = None;
             }
-        } else if age == 14
-            && consume_inventory(world, ivy, |slots| consume_matching(slots, cooked_food)).is_some()
-        {
-            mobs.heal(ivy, 8.0);
+        } else if age == 14 && let Some(kind) = kind {
+            consume_recovery(world, ivy, kind);
         }
     } else if !busy
-        && has_recovery_food(world, ivy)
+        && let Some(kind) = recovery_kind(world, ivy, 20.0)
         && let Some(state) = FIGHTS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get_mut(&ivy.id())
     {
         state.recovery_start = Some(now);
+        state.recovery_kind = Some(kind);
         state.recovery_ready = now + 100;
     }
 }
@@ -1379,6 +1494,16 @@ pub fn hurt_final(
     lethal: bool,
     absorption: f32,
 ) -> f32 {
+    if amount > 0.0 && !downed_state(ivy).active()
+        && let Some((causing, _)) = MOB_AI.get().and_then(|ai| ai.damage_source())
+        && let Some(entities) = ENTITIES.get()
+    {
+        entities.with_entity(world, causing, |attacker| {
+            if taming::is_owner(ivy, attacker) {
+                chatter_speak(world, ivy, "owner_hurt", Some(attacker), 90, 120);
+            }
+        });
+    }
     if !lethal
         || matches!(
             damage_type,
@@ -1419,6 +1544,7 @@ pub fn hurt_final(
             ..DownedState::default()
         },
     );
+    chatter_speak(world, ivy, "downed", None, 1800, 80);
     if let Some(ai) = MOB_AI.get() {
         ai.stop(ivy);
         ai.set_target(world, ivy, None);
@@ -1761,12 +1887,21 @@ fn forward_impulse(
 
 #[derive(Default)]
 struct Fight {
+    chatter: Option<Chatter>,
+    chatter_cooldown: Option<u64>,
+    chatter_target: Option<i32>,
     armor_synced: bool,
     self_hurt: Option<(i32, i64)>,
     owner_hurt: Option<(i32, i64)>,
     owner_attack: Option<(i32, i64)>,
     recovery_start: Option<u64>,
+    recovery_kind: Option<RecoveryKind>,
     recovery_ready: u64,
+    clutch_ready: u64,
+    clutch_clip_until: u64,
+    clutch_water: Option<(moddedmc_api::Pos, u64)>,
+    retreat: Option<Retreat>,
+    retreat_ready: u64,
     owner_synced: bool,
     target: Option<i32>,
     start: u64,
@@ -1782,6 +1917,280 @@ struct Fight {
 }
 
 static FIGHTS: LazyLock<Mutex<HashMap<i32, Fight>>> = LazyLock::new(Mutex::default);
+
+struct Chatter {
+    key: String,
+    name: String,
+    until: u64,
+}
+
+fn chatter_name(world: World<'_>, ivy: Entity<'_>, viewer: Option<Entity<'_>>) -> String {
+    fn name(world: World<'_>, viewer: Entity<'_>) -> String {
+        let name = memory(world, viewer).name;
+        if name.is_empty() {
+            viewer.as_player().map_or_else(String::new, |player| player.name().to_owned())
+        } else {
+            name
+        }
+    }
+    if let Some(viewer) = viewer {
+        return name(world, viewer);
+    }
+    taming::owner(ivy)
+        .and_then(|owner| MOBS.get()?.by_uuid(world, &owner))
+        .and_then(|id| ENTITIES.get()?.with_entity(world, id, |owner| name(world, owner)))
+        .unwrap_or_default()
+}
+
+fn chatter_speak(world: World<'_>, ivy: Entity<'_>, pool: &str, viewer: Option<Entity<'_>>, duration: u32, cooldown: u64) {
+    let Some(bytes) = RESOURCES.get().and_then(|res| res.read(&format!("saintsdragons:ivy_chatter/{pool}.txt"))) else { return };
+    let Ok(text) = std::str::from_utf8(&bytes) else { return };
+    let lines: Vec<_> = text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).collect();
+    if lines.is_empty() { return }
+    let key = lines[crate::ai::random(lines.len() as u64) as usize].to_owned();
+    let name = chatter_name(world, ivy, viewer);
+    if let Some(effects) = EFFECTS.get() {
+        effects.entity_chatter(world, ivy.id(), &key, &name, "saintsdragons:ivy_voice_blip", duration);
+    }
+    let now = moddedmc_api::tick_count();
+    let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+    let state = states.entry(ivy.id()).or_default();
+    state.chatter = Some(Chatter { key, name, until: now + u64::from(duration) });
+    state.chatter_cooldown = Some(state.chatter_cooldown.unwrap_or(0).max(cooldown));
+}
+
+fn underwater(world: World<'_>, ivy: Entity<'_>) -> bool {
+    ivy.view().is_some_and(|view| {
+        let mut at = view.position;
+        at[1] += 1.0;
+        matches!(world.fluid_id(flight::cell(at)).as_deref(), Some("minecraft:water" | "minecraft:flowing_water"))
+    })
+}
+
+fn chatter_tick(world: World<'_>, ivy: Entity<'_>) {
+    let now = moddedmc_api::tick_count();
+    let target = MOB_AI.get().and_then(|ai| ai.target(ivy));
+    let downed = downed_state(ivy);
+    let owner_near = taming::owner(ivy)
+        .and_then(|owner| MOBS.get()?.by_uuid(world, &owner))
+        .and_then(|id| ENTITIES.get()?.with_entity(world, id, |owner| {
+            owner.view().zip(ivy.view()).is_some_and(|(a, b)| flight::length_squared(flight::offset(a.position, b.position)) <= 100.0)
+        })).unwrap_or(false);
+    let busy = MOBS.get().and_then(|mobs| mobs.uuid(ivy)).is_some_and(|uuid| {
+        SESSIONS.lock().unwrap_or_else(PoisonError::into_inner).values().any(|session| session.ivy == uuid && session.expires > now)
+            || TRADE_RESUMES.lock().unwrap_or_else(PoisonError::into_inner).values().any(|session| session.ivy == uuid)
+    });
+    let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+    let state = states.entry(ivy.id()).or_default();
+    let changed = state.chatter_target != target;
+    state.chatter_target = target;
+    if let Some(chatter) = &state.chatter {
+        if now >= chatter.until || downed.arise > 0 {
+            state.chatter = None;
+            if let Some(effects) = EFFECTS.get() {
+                effects.entity_chatter(world, ivy.id(), "", "", "", 0);
+            }
+        } else if now.is_multiple_of(10) {
+            if let Some(effects) = EFFECTS.get() {
+                effects.entity_chatter(world, ivy.id(), &chatter.key, &chatter.name, "saintsdragons:ivy_voice_blip", (chatter.until - now) as u32);
+            }
+        }
+    }
+    let mut pool = None;
+    if !busy && !downed.active() && target.is_some() && changed {
+        pool = Some(("combat", 0));
+    } else if state.chatter.is_none() {
+        let cooldown = state.chatter_cooldown.get_or_insert_with(|| 600 + crate::ai::random(801));
+        if !owner_near || busy || target.is_some() || downed.active() || state.stance || state.recovery_start.is_some() {
+            *cooldown = (*cooldown).max(80);
+        } else if *cooldown > 0 {
+            *cooldown -= 1;
+        } else {
+            pool = Some(("idle", 600 + crate::ai::random(801)));
+        }
+    }
+    drop(states);
+    if let Some((pool, cooldown)) = pool {
+        chatter_speak(world, ivy, pool, None, 90, cooldown);
+    }
+}
+
+fn block_name(world: World<'_>, pos: moddedmc_api::Pos) -> Option<String> {
+    let mut states = [moddedmc_api::content::UNLOADED_STATE];
+    if !world.read(&[pos], &mut states) {
+        return None;
+    }
+    crate::CONTENT.get()?.describe_state(states[0])
+}
+
+/// IvyTheDragonMerchant.findWaterClutchPlacement: stop at the first solid shape
+/// and only place a source in empty air directly above it.
+fn clutch_placement(world: World<'_>, feet: moddedmc_api::Pos) -> Option<moddedmc_api::Pos> {
+    for distance in 1..=5 {
+        let support = moddedmc_api::Pos { y: feet.y - distance, ..feet };
+        if world.collision_shape(support)?.is_empty() {
+            continue;
+        }
+        let placement = moddedmc_api::Pos { y: support.y + 1, ..support };
+        return (matches!(block_name(world, placement)?.as_str(),
+            "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air")
+            && world.fluid_id(placement).as_deref() == Some("minecraft:empty"))
+            .then_some(placement);
+    }
+    None
+}
+
+/// The ambient goal executes in server_ai_step before the living entity travels.
+fn water_clutch(world: World<'_>, ivy: Entity<'_>) {
+    let now = moddedmc_api::tick_count();
+    let (ready, clear) = {
+        let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = states.entry(ivy.id()).or_default();
+        let clear = state.clutch_water.filter(|(_, until)| now >= *until);
+        if clear.is_some() {
+            state.clutch_water = None;
+        }
+        (state.clutch_ready, clear)
+    };
+    let Some(content) = crate::CONTENT.get() else { return };
+    if let Some((pos, _)) = clear
+        && block_name(world, pos).is_some_and(|name| name.split('[').next() == Some("minecraft:water"))
+        && let Some(air) = content.state("minecraft:air")
+    {
+        world.write(&[moddedmc_api::content::BlockUpdate {
+            position: pos,
+            state: air,
+            flags: 11,
+        }]);
+    }
+    let Some(view) = ivy.view() else { return };
+    if now < ready || view.on_ground || view.motion[1] > -0.55
+        || ivy.flags() & ENTITY_ALIVE == 0
+        || !taming::is_tamed(ivy)
+        || !EFFECTS.get().and_then(|e| e.fall_distance(ivy)).is_some_and(|d| d >= 5.0)
+        || !has_storage_item(world, ivy, "minecraft:water_bucket")
+    {
+        return;
+    }
+    let mut feet = view.position;
+    if let Some(body) = ivy.body() {
+        feet[1] = body.min[1];
+    }
+    let feet = flight::cell(feet);
+    if world.fluid_id(feet).as_deref() != Some("minecraft:empty") {
+        return;
+    }
+    let (Some(pos), Some(water)) = (clutch_placement(world, feet), content.state("minecraft:water[level=0]")) else {
+        return;
+    };
+    if world.write(&[moddedmc_api::content::BlockUpdate {
+        position: pos,
+        state: water,
+        flags: 11,
+    }]) != 1 {
+        return;
+    }
+    ivy.reset_fall_distance();
+    if let Some(effects) = EFFECTS.get() {
+        effects.play_sound(world, [f64::from(pos.x) + 0.5, f64::from(pos.y) + 0.5, f64::from(pos.z) + 0.5],
+            "minecraft:item.bucket.empty", SOUND_NEUTRAL, 0.85, 0.95 + crate::ai::random(100) as f32 / 1000.0);
+    }
+    let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+    let state = states.entry(ivy.id()).or_default();
+    state.clutch_ready = now + 80;
+    state.clutch_clip_until = now + 14;
+    state.clutch_water = Some((pos, now + 22));
+    state.recovery_start = None;
+    state.recovery_kind = None;
+}
+
+/// IvyCombatBrain.tickRetreatRecovery: wait for safe space and landing before
+/// committing to the 47-tick recovery animation.
+struct Retreat {
+    kind: RecoveryKind,
+    ticks: u64,
+    backstep_ready: u64,
+    waiting_for_landing: bool,
+    start: Option<u64>,
+}
+
+fn retreat_has_space(distance: f64, ticks: u64) -> bool {
+    distance >= 5.25 || (ticks >= 28 && distance >= 4.0)
+}
+
+fn retreat_recovery_tick(
+    world: World<'_>,
+    ivy: Entity<'_>,
+    state: &mut Fight,
+    now: u64,
+    at: [f64; 3],
+    view: moddedmc_api::entities::EntityView,
+    distance: f64,
+) -> bool {
+    let Some(ai) = MOB_AI.get() else {
+        return false;
+    };
+    let urgent_food = MOBS.get().and_then(|mobs| mobs.health(ivy))
+        .is_some_and(|(health, _)| health > 0.0 && health < 12.0)
+        && has_recovery_food(world, ivy);
+    if state.retreat.is_none()
+        && (urgent_food || (now >= state.retreat_ready && state.move_.is_none() && now >= state.ready))
+        && let Some(kind) = recovery_kind(world, ivy, 12.0)
+    {
+        // Urgent food overrides an ongoing attack and the retreat cooldown.
+        state.move_ = None;
+        state.retreat = Some(Retreat {
+            kind,
+            ticks: 0,
+            backstep_ready: 0,
+            waiting_for_landing: false,
+            start: None,
+        });
+        state.retreat_ready = now + 120;
+    }
+    let Some(retreat) = state.retreat.as_mut() else {
+        return false;
+    };
+    ai.stop(ivy);
+    if let Some(start) = retreat.start {
+        let age = now.saturating_sub(start);
+        if age == 42 {
+            consume_recovery(world, ivy, retreat.kind);
+        }
+        if age >= 47 {
+            state.retreat = None;
+        }
+        return true;
+    }
+    // Each dodge occupies nine ticks; do not start eating in mid-dodge.
+    if now < retreat.backstep_ready.saturating_sub(1) {
+        return true;
+    }
+    if retreat.waiting_for_landing || retreat_has_space(distance, retreat.ticks) {
+        retreat.waiting_for_landing = !view.on_ground;
+        if view.on_ground {
+            retreat.start = Some(now);
+            ivy.change(&EntityChange {
+                mask: SET_MOTION,
+                motion: [0.0, view.motion[1], 0.0],
+                ..EntityChange::default()
+            });
+        }
+        return true;
+    }
+    retreat.ticks += 1;
+    if now >= retreat.backstep_ready {
+        let away = flight::offset(view.position, at);
+        let end = flight::add(view.position, away);
+        ivy.change(&EntityChange {
+            mask: SET_MOTION,
+            motion: forward_impulse(view.position, end, view.motion, 1.55, 0.08),
+            ..EntityChange::default()
+        });
+        retreat.backstep_ready = now + 10;
+    }
+    true
+}
 
 pub fn forget(id: i32) {
     FIGHTS
@@ -1826,6 +2235,8 @@ fn target_position(world: World<'_>, ivy: Entity<'_>, id: i32) -> Option<[f64; 3
 
 /// IvyCompanionController.OwnerDefenseGoal: react to a new attacker of Ivy or her owner.
 pub fn target_tick(world: World<'_>, ivy: Entity<'_>) {
+    water_clutch(world, ivy);
+    chatter_tick(world, ivy);
     let (Some(ai), Some(mobs), Some(entities), Some(owner)) =
         (MOB_AI.get(), MOBS.get(), ENTITIES.get(), taming::owner(ivy))
     else {
@@ -2047,6 +2458,7 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
             let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(state) = states.get_mut(&ivy.id()) {
                 state.move_ = None;
+                state.retreat = None;
                 state.stance = false;
                 state.target = None;
                 state.dash_read = DashRead::default();
@@ -2071,10 +2483,13 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
         state.sword_damage = equipped_weapon(world, ivy);
         state.stance = true;
         state.move_ = None;
+        state.retreat = None;
         state.dash_read = DashRead::default();
         state.ready = now + if state.sword_damage.is_some() { 17 } else { 10 };
     }
-    if let Some(action) = state.move_ {
+    if retreat_recovery_tick(world, ivy, &mut state, now, at, view, distance) {
+        // Recovery takes priority over attacks.
+    } else if let Some(action) = state.move_ {
         ai.stop(ivy);
         let elapsed = now.saturating_sub(state.start);
         let sword_dash = action.clip == DASH[1].clip;
@@ -2175,11 +2590,28 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
 pub fn combat_clip(id: i32, moving: bool) -> Option<&'static str> {
     let states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
     let state = states.get(&id)?;
+    if moddedmc_api::tick_count() < state.clutch_clip_until {
+        return Some("main_hand_interact");
+    }
     if state.recovery_start.is_some() {
-        return Some("main_hand_eat");
+        return Some(if state.recovery_kind == Some(RecoveryKind::Milk) {
+            "main_hand_drink"
+        } else {
+            "main_hand_eat"
+        });
     }
     if !state.stance {
         return None;
+    }
+    if let Some(retreat) = &state.retreat {
+        return Some(match (state.sword_damage.is_some(), retreat.start.is_some(), retreat.kind) {
+            (true, true, RecoveryKind::Food) => "sword_retreat_to_eat",
+            (false, true, RecoveryKind::Food) => "orthodox_retreat_to_eat",
+            (true, true, RecoveryKind::Milk) => "sword_retreat_to_drink",
+            (false, true, RecoveryKind::Milk) => "orthodox_retreat_to_drink",
+            (true, false, _) => "sword_dodge_backwards",
+            (false, false, _) => "dodge_backwards",
+        });
     }
     if let Some(action) = state.move_ {
         return Some(action.clip);
