@@ -1,5 +1,6 @@
 //! Ivy's released dialogue tree, recruited ownership, and plushie recall.
 use std::{
+    cell::Cell,
     collections::{HashMap, HashSet},
     sync::{
         LazyLock, Mutex, OnceLock, PoisonError,
@@ -12,11 +13,12 @@ use moddedmc_api::{
     InterfaceUnavailable, Menu, MenuButton, Player, RegistrationError, Registry,
     content::World,
     effects::SOUND_NEUTRAL,
-    entities::{ENTITY_ALIVE, Entity, EntityChange, SET_MOTION},
+    entities::{ENTITY_ALIVE, Entity, EntityBody, EntityChange, SET_MOTION},
     interaction::{UseItem, UseMob, UseResult},
     inventory_menu::{self, Access, Change, MenuKind, Validated, Validity, ValiditySlots},
     items::{Item, ItemDefaults},
     mob_ai::goal_phase,
+    mobs::ProjectileStep,
     saved_data::{self, Key, SavedData},
 };
 use serde::{Deserialize, Serialize};
@@ -1172,6 +1174,29 @@ fn revive(ivy: Entity<'_>, state: &mut DownedState) {
 /// IvyTheDragonMerchant.hurtDowned.
 pub fn hurt(world: World<'_>, ivy: Entity<'_>, damage_type: &str, amount: f32) -> bool {
     let mut state = downed_state(ivy);
+    if !state.active()
+        && let (Some(ai), Some(entities)) = (MOB_AI.get(), ENTITIES.get())
+        && let Some((causing, _)) = ai.damage_source()
+    {
+        entities.with_entity(world, causing, |attacker| {
+            if !enemy(world, ivy, attacker)
+                && attacker.view().is_some_and(|v| v.kind & moddedmc_api::entities::ENTITY_LIVING != 0)
+            {
+                if ai.target(ivy) == Some(causing) {
+                    ai.set_target(world, ivy, None);
+                }
+                if ai.target(ivy).is_none_or(|id| target_position(world, ivy, id).is_none()) {
+                    let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+                    if let Some(fight) = states.get_mut(&ivy.id()) {
+                        fight.move_ = None;
+                        fight.retreat = None;
+                        fight.stance = false;
+                        fight.target = None;
+                    }
+                }
+            }
+        });
+    }
     if !state.downed
         || matches!(
             damage_type,
@@ -1837,6 +1862,8 @@ const DASH: [Move; 2] = [
 struct DashRead {
     previous: Option<[f64; 3]>,
     moving: u32,
+    projectile_retreat: bool,
+    skirmishing: bool,
 }
 
 impl DashRead {
@@ -1848,16 +1875,24 @@ impl DashRead {
         };
         let delta = flight::offset(at, previous);
         let speed = delta[0].hypot(delta[2]);
+        self.previous = Some(at);
         if speed <= 0.05 {
             self.moving = 0;
+            self.projectile_retreat = false;
+            self.skirmishing = false;
             return false;
         }
-        self.previous = Some(at);
         self.moving = self.moving.saturating_add(1);
         let away = flight::offset(at, from);
         let old = flight::offset(previous, from);
         let distance_sq = flight::length_squared(away);
         let dot = (away[0] * delta[0] + away[2] * delta[2]) / (distance_sq.sqrt() * speed);
+        let previous_distance_sq = flight::length_squared(old);
+        self.projectile_retreat = dot >= 0.45 && distance_sq > previous_distance_sq + 0.015;
+        self.skirmishing = self.projectile_retreat
+            || (self.moving >= 10
+                && distance_sq.sqrt() >= 3.8
+                && distance_sq.sqrt() >= previous_distance_sq.sqrt() - 0.2);
         self.moving >= 10
             && distance_sq > 2.45_f64.powi(2)
             && distance_sq <= 4.65_f64.powi(2)
@@ -1902,6 +1937,9 @@ struct Fight {
     clutch_water: Option<(moddedmc_api::Pos, u64)>,
     retreat: Option<Retreat>,
     retreat_ready: u64,
+    projectile_ready: u64,
+    projectile_punish_until: u64,
+    projectiles: Vec<VenomShot>,
     owner_synced: bool,
     target: Option<i32>,
     start: u64,
@@ -1917,6 +1955,164 @@ struct Fight {
 }
 
 static FIGHTS: LazyLock<Mutex<HashMap<i32, Fight>>> = LazyLock::new(Mutex::default);
+
+const THROW: [Move; 2] = [
+    Move { clip: "orthodox_throw_projectiles", duration: 26, hits: &[], cooldown: 100 },
+    Move { clip: "sword_throw_projectiles", duration: 26, hits: &[], cooldown: 100 },
+];
+
+struct VenomShot {
+    id: i32,
+    velocity: [f64; 3],
+    age: u32,
+}
+
+fn visible_target(world: World<'_>, ivy: Entity<'_>, target: Entity<'_>) -> bool {
+    let eye = |entity: Entity<'_>| {
+        let mut p = entity.view()?.position;
+        let body = entity.body()?;
+        p[1] = body.min[1] + (body.max[1] - body.min[1]) * 0.85;
+        Some(p)
+    };
+    eye(ivy).zip(eye(target)).is_some_and(|(from, to)| {
+        world.raycast(from, to, Some(ivy.id())).is_some_and(|(block, _)| block.is_none())
+    })
+}
+
+fn can_throw(world: World<'_>, ivy: Entity<'_>, state: &Fight, id: i32, distance: f64, now: u64) -> bool {
+    now >= state.ready && now >= state.projectile_ready
+        && (5.0..=16.0).contains(&distance)
+        && has_storage_item(world, ivy, crate::venom_arrow::ID)
+        && ENTITIES.get().and_then(|entities| entities.with_entity(world, id, |target| {
+            let kind = target.type_id().trim_start_matches("minecraft:");
+            visible_target(world, ivy, target) && (matches!(kind, "pillager" | "evoker" | "witch" | "vex")
+                || if target.as_player().is_some() {
+                    state.dash_read.projectile_retreat
+                } else {
+                    now < state.projectile_punish_until || state.dash_read.skirmishing
+                })
+        })) == Some(true)
+}
+
+/// IvyCombatBrain.throwVenomArrowAtTarget: two arrows, predict four ticks of
+/// horizontal movement, use the arrow's released velocity multiplier.
+fn throw_venom(world: World<'_>, ivy: Entity<'_>, id: i32, state: &mut Fight) {
+    let (Some(entities), Some(mobs), Some(view), Some(body)) =
+        (ENTITIES.get(), MOBS.get(), ivy.view(), ivy.body()) else { return };
+    let Some((origin, velocity)) = entities.with_entity(world, id, |target| {
+        if !enemy(world, ivy, target) || !visible_target(world, ivy, target) {
+            return None;
+        }
+        let (target_view, target_body) = (target.view()?, target.body()?);
+        let yaw = f64::from(view.yaw).to_radians();
+        let pitch = f64::from(view.pitch).to_radians();
+        let look = [-yaw.sin() * pitch.cos(), -pitch.sin(), yaw.cos() * pitch.cos()];
+        let origin = flight::add(
+            flight::add(view.position, [0.0, (body.max[1] - body.min[1]) * 0.62, 0.0]),
+            look.map(|x| x * 0.55),
+        );
+        let aim = flight::add(target_view.position, [
+            target_view.motion[0] * 4.0,
+            (target_body.max[1] - target_body.min[1]) * 0.55,
+            target_view.motion[2] * 4.0,
+        ]);
+        let delta = flight::offset(aim, origin);
+        let length = flight::length_squared(delta).sqrt();
+        let direction = if length < 0.01 { look } else { delta.map(|x| x / length) };
+        // Vanilla's triangular uncertainty at inaccuracy 2.0.
+        let velocity = direction.map(|x| {
+            let jitter = (crate::ai::random(10001) as f64 - crate::ai::random(10001) as f64) / 10000.0;
+            (x + jitter * 0.0172275 * 2.0) * 1.55 * 1.35
+        });
+        Some((origin, velocity))
+    }).flatten() else { return };
+    let Some(projectile) = mobs.spawn_controlled_projectile(world, "minecraft:arrow", ivy.id(), origin, velocity) else { return };
+    if consume_inventory(world, ivy, |slots| consume_matching(slots, |stack, _|
+        matches!(stack.get("id"), Some(Value::String(id)) if id == crate::venom_arrow::ID)
+    )).is_none() {
+        entities.with_entity(world, projectile, |arrow| arrow.discard());
+        return;
+    }
+    state.projectiles.push(VenomShot { id: projectile, velocity, age: 0 });
+}
+
+// Same entry-plane test and 0.3 expansion used by the host trace. The v1
+// projectile result returns only position/kind, so remember the nearest
+// candidate during its synchronous filter call.
+fn projectile_entry(from: [f64; 3], delta: [f64; 3], body: EntityBody) -> Option<f64> {
+    let min = body.min.map(|x| x - 0.3);
+    let max = body.max.map(|x| x + 0.3);
+    let mut scale = 1.0;
+    let mut hit = false;
+    for axis in 0..3 {
+        if delta[axis].abs() <= 1.0e-7 { continue; }
+        let plane = if delta[axis] > 0.0 { min[axis] } else { max[axis] };
+        let s = (plane - from[axis]) / delta[axis];
+        if s <= 0.0 || s >= scale { continue; }
+        if (0..3).filter(|&i| i != axis).all(|i| {
+            let p = from[i] + s * delta[i];
+            min[i] - 1.0e-7 < p && p < max[i] + 1.0e-7
+        }) {
+            scale = s;
+            hit = true;
+        }
+    }
+    hit.then_some(scale)
+}
+
+fn tick_venom(world: World<'_>, ivy: Entity<'_>) {
+    let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else { return };
+    let mut shots = {
+        let mut states = FIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
+        std::mem::take(&mut states.entry(ivy.id()).or_default().projectiles)
+    };
+    shots.retain_mut(|shot| {
+        entities.with_entity(world, shot.id, |arrow| {
+            if arrow.projectile_owner() != Some(ivy.id()) || arrow.type_id().trim_start_matches("minecraft:") != "arrow" {
+                return false;
+            }
+            let Some(view) = arrow.view() else { return false };
+            let nearest = Cell::new(None::<(f64, i32)>);
+            let hit = mobs.step_controlled_projectile(arrow, shot.velocity, |candidate| {
+                if candidate.id() == ivy.id() { return false; }
+                if let Some(s) = candidate.body().and_then(|b| projectile_entry(view.position, shot.velocity, b))
+                    && nearest.get().is_none_or(|(old, _)| s < old) {
+                    nearest.set(Some((s, candidate.id())));
+                }
+                true
+            });
+            match hit {
+                Some(ProjectileStep::Entity(_)) => {
+                    if let Some((_, target)) = nearest.get() {
+                        entities.with_entity(world, target, |target| {
+                            // A friendly collision discards the arrow without damage or poison.
+                            if enemy(world, ivy, target) {
+                                let damage = (flight::length_squared(shot.velocity).sqrt() * 2.0).ceil() as f32;
+                                if mobs.hurt_from(target, arrow, ivy, "minecraft:arrow", damage) == Some(true) {
+                                    mobs.reset_hurt_cooldown(target);
+                                    target.add_effect("minecraft:poison", 600, 1, false, true);
+                                    target.add_effect("minecraft:blindness", 100, 0, false, true);
+                                }
+                            }
+                        });
+                    }
+                }
+                Some(ProjectileStep::Miss(position)) if shot.age < 200 => {
+                    shot.age += 1;
+                    let water = matches!(world.fluid_id(flight::cell(position)).as_deref(),
+                        Some("minecraft:water" | "minecraft:flowing_water"));
+                    if !water { shot.velocity = shot.velocity.map(|x| x * 0.99); }
+                    shot.velocity[1] -= 0.05;
+                    return true;
+                }
+                _ => {}
+            }
+            arrow.discard();
+            false
+        }).unwrap_or(false)
+    });
+    FIGHTS.lock().unwrap_or_else(PoisonError::into_inner).entry(ivy.id()).or_default().projectiles.extend(shots);
+}
 
 struct Chatter {
     key: String,
@@ -2134,7 +2330,7 @@ fn retreat_recovery_tick(
         .is_some_and(|(health, _)| health > 0.0 && health < 12.0)
         && has_recovery_food(world, ivy);
     if state.retreat.is_none()
-        && (urgent_food || (now >= state.retreat_ready && state.move_.is_none() && now >= state.ready))
+        && (urgent_food || (now >= state.retreat_ready && state.move_.is_none()))
         && let Some(kind) = recovery_kind(world, ivy, 12.0)
     {
         // Urgent food overrides an ongoing attack and the retreat cooldown.
@@ -2235,6 +2431,7 @@ fn target_position(world: World<'_>, ivy: Entity<'_>, id: i32) -> Option<[f64; 3
 
 /// IvyCompanionController.OwnerDefenseGoal: react to a new attacker of Ivy or her owner.
 pub fn target_tick(world: World<'_>, ivy: Entity<'_>) {
+    tick_venom(world, ivy);
     water_clutch(world, ivy);
     chatter_tick(world, ivy);
     let (Some(ai), Some(mobs), Some(entities), Some(owner)) =
@@ -2295,6 +2492,12 @@ pub fn target_tick(world: World<'_>, ivy: Entity<'_>) {
     {
         if target_position(world, ivy, id).is_some() {
             ai.set_target(world, ivy, Some(id));
+            if own.is_some_and(|hit| hit.0 == id)
+                && entities.with_entity(world, id, |attacker| attacker.as_player().is_none()) == Some(true)
+            {
+                FIGHTS.lock().unwrap_or_else(PoisonError::into_inner).entry(ivy.id()).or_default()
+                    .projectile_punish_until = moddedmc_api::tick_count() + 35;
+            }
             break;
         }
     }
@@ -2493,6 +2696,21 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
         ai.stop(ivy);
         let elapsed = now.saturating_sub(state.start);
         let sword_dash = action.clip == DASH[1].clip;
+        if THROW.iter().any(|throw| throw.clip == action.clip) {
+            if matches!(elapsed, 6 | 14) {
+                throw_venom(world, ivy, id, &mut state);
+            }
+            if elapsed == 19 {
+                ivy.change(&EntityChange {
+                    mask: SET_MOTION,
+                    motion: forward_impulse(view.position, at, view.motion, 0.82, 0.03),
+                    ..EntityChange::default()
+                });
+                state.move_ = Some(DASH[usize::from(state.sword_damage.is_some())]);
+                state.start = now;
+                state.ready = now + 30;
+            }
+        }
         if (action.clip == DASH[0].clip && elapsed == 3) || (sword_dash && elapsed == 4) {
             ivy.change(&EntityChange {
                 mask: SET_MOTION,
@@ -2521,7 +2739,14 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
         }
     } else if distance > 2.45 {
         let retreat = state.dash_read.retreating(view.position, at);
-        if state.dash_read.moving >= 10 && now >= state.commit_ready {
+        if can_throw(world, ivy, &state, id, distance, now) {
+            ai.stop(ivy);
+            state.sword_damage = equipped_weapon(world, ivy);
+            state.move_ = Some(THROW[usize::from(state.sword_damage.is_some())]);
+            state.start = now;
+            state.projectile_ready = now + 100;
+            state.combo_ready = now + 30;
+        } else if state.dash_read.moving >= 10 && now >= state.commit_ready {
             state.commit_ready = now + 18;
             if retreat
                 && now >= state.ready
@@ -2582,8 +2807,8 @@ pub fn combat_goal(phase: u32, world: World<'_>, ivy: Entity<'_>) -> bool {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .insert(ivy.id(), state);
-    // shortcut: no reactive attacker in the pre-hurt hook, equipment post-hit
-    // callbacks, or host projectile launch for Ivy's custom venom arrows yet.
+    // shortcut: equipment post-hit callbacks belong to the cargo task;
+    // controlled arrows currently use a vanilla carrier and discard on block impact.
     false
 }
 
@@ -2926,6 +3151,41 @@ mod tests {
             forward_impulse(from, [3.0, 0.0, 0.0], [0.0; 3], 0.85, 0.03),
             [0.85, 0.03, 0.0]
         );
+    }
+
+    #[test]
+    fn milk_recovery_keeps_container_remainder() {
+        let mut slots = vec![None; INVENTORY_SIZE];
+        slots[4] = Some(stack("minecraft:milk_bucket", 1));
+        slots[9] = Some(stack("minecraft:milk_bucket", 2));
+        let bucket = bucket_stack().unwrap();
+        let single_milk = fastnbt::from_bytes::<Compound>(&stack("minecraft:milk_bucket", 1)).unwrap();
+        assert_eq!(consume_milk(&mut slots, &bucket), Some(false));
+        assert_eq!(fastnbt::from_bytes::<Compound>(slots[9].as_deref().unwrap()).unwrap(), single_milk);
+        assert_eq!(slots[10], Some(bucket.clone()));
+        assert_eq!(consume_milk(&mut slots, &bucket), Some(false));
+        assert_eq!(slots[9], Some(bucket.clone()));
+        assert_eq!(consume_milk(&mut slots, &bucket), None);
+        assert_eq!(fastnbt::from_bytes::<Compound>(slots[4].as_deref().unwrap()).unwrap(), single_milk);
+        slots[9] = Some(stack("minecraft:milk_bucket", 2));
+        for slot in &mut slots[10..] {
+            *slot = Some(stack("minecraft:stone", 64));
+        }
+        assert_eq!(consume_milk(&mut slots, &bucket), Some(true));
+        assert_eq!(fastnbt::from_bytes::<Compound>(slots[9].as_deref().unwrap()).unwrap(), single_milk);
+    }
+
+    #[test]
+    fn controlled_arrow_identifies_first_expanded_body() {
+        let body = EntityBody {
+            min: [2.0, 0.0, -0.1],
+            max: [2.6, 2.0, 0.1],
+            ..EntityBody::default()
+        };
+        let entry = projectile_entry([0.0, 1.0, 0.0], [4.0, 0.0, 0.0], body).unwrap();
+        assert!((entry - 0.425).abs() < 1.0e-9);
+        assert_eq!(projectile_entry([0.0, 1.0, 1.0], [4.0, 0.0, 0.0], body), None);
+        assert_eq!(projectile_entry([0.0, 1.0, 0.0], [1.0, 0.0, 0.0], body), None);
     }
 
     #[test]
