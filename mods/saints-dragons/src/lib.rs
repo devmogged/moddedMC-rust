@@ -90,6 +90,7 @@ const FIND: u64 = 2;
 const FIND_RADIUS: f64 = 16.0;
 
 static CONTENT: OnceLock<Content> = OnceLock::new();
+static CONTAINERS: OnceLock<moddedmc_api::containers::Containers> = OnceLock::new();
 static EFFECTS: OnceLock<Effects> = OnceLock::new();
 static COMMANDS: OnceLock<Commands> = OnceLock::new();
 static ENTITIES: OnceLock<Entities> = OnceLock::new();
@@ -111,6 +112,9 @@ mod rider_actions;
 
 impl Mod for SaintsDragons {
     fn start(&self) -> Result<(), InterfaceUnavailable> {
+        let containers = moddedmc_api::containers::require()?;
+        containers.require_furnace_heat()?;
+        let _ = CONTAINERS.set(containers);
         let content = content::require()?;
         content.require_extension(WorldExtension::Survival)?;
         content.require_extension(WorldExtension::CollisionShape)?;
@@ -455,6 +459,7 @@ fn can_be_affected(
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
     pillars::tick(world, moddedmc_api::tick_count());
+    combat::heat_tick(world);
     ivy::trade_resume_tick(world);
     player_moves::tick(world, moddedmc_api::tick_count());
     crucible::tick(world, events);

@@ -1653,6 +1653,19 @@ pub const CONTAINERS: &str = "moddedmc:containers";
 /// The side for a container lookup without one, NeoForge's `null` side: every slot, no face rules.
 pub const NO_FACE: u8 = 6;
 
+/// Live furnace-like counters, after the requested operation.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FurnaceHeat {
+    /// 1 furnace, 2 smoker, 3 blast furnace.
+    pub kind: u8,
+    pub reached_end: bool,
+    pub progress: u16,
+    pub total: u16,
+    pub lit: u16,
+    pub lit_duration: u16,
+}
+
 /// Vanilla block containers (chests, barrels, hoppers, furnaces, shulker boxes, the composter and
 /// the rest a hopper sees) as NeoForge's `IItemHandler`, so ported mod code that moves items keeps
 /// its slot-by-slot semantics. `face` is the container's side being accessed, in vanilla order
@@ -1705,6 +1718,29 @@ pub struct ContainersV1 {
         simulate: bool,
         out: Sink,
     ) -> bool,
+    /// Read (both increments zero) or advance a loaded furnace on the world tick.
+    /// Progress never crosses total - 1; lit time is raised to at least min_lit.
+    pub furnace_heat: unsafe extern "C" fn(
+        world: WorldRef,
+        position: Pos,
+        boost: u16,
+        min_lit: u16,
+        out: *mut FurnaceHeat,
+    ) -> bool,
+}
+
+#[test]
+fn containers_v1_heat_layout() {
+    use std::mem::{offset_of, size_of};
+    assert_eq!(
+        offset_of!(ContainersV1, furnace_heat),
+        7 * size_of::<usize>()
+    );
+    assert_eq!(
+        size_of::<ContainersV1>(),
+        offset_of!(ContainersV1, furnace_heat) + size_of::<usize>()
+    );
+    assert_eq!(size_of::<FurnaceHeat>(), 10);
 }
 
 /// Active structure-set membership, independent of a dimension's enabled placements.

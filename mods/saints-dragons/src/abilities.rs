@@ -108,6 +108,10 @@ impl Abilities {
         tick_count() < self.fire_until
     }
 
+    pub fn fire_rider(&self) -> Option<i32> {
+        self.rider_fire.filter(|_| self.fire_active())
+    }
+
     pub fn suppress_fire(&mut self) {
         self.fire_until = 0;
         self.rider_fire = None;
@@ -385,6 +389,28 @@ impl Abilities {
 
     pub fn keep_shots(&mut self, shots: Vec<Shot>) {
         self.shots = shots;
+    }
+}
+
+/// Fire Body cooking runs in the serial content tick, outside parallel mob AI islands.
+pub fn cook(world: World<'_>, mob: Entity<'_>, rider: i32) {
+    let Some(view) = mob.view() else { return };
+    // shortcut: match the port's ridden ground mode (on ground and not ascending),
+    // until the controller tracks all of Java's flight transitions and support probe.
+    if !view.on_ground
+        || view.motion[1] > 0.0
+        || world
+            .fluid_id(crate::flight::cell(view.position))
+            .is_some_and(|fluid| fluid.ends_with("water") || fluid.ends_with("lava"))
+    {
+        return;
+    }
+    if terrain::cook(world, view.position)
+        && let Some(entities) = ENTITIES.get()
+    {
+        entities.with_entity(world, rider, |player| {
+            crate::advancements::award(player, "cook_with_fire_dragon", "cook_with_fire_dragon");
+        });
     }
 }
 

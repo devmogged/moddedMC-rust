@@ -79,6 +79,57 @@ pub(super) fn aura(world: World<'_>, position: [f64; 3]) {
     }
 }
 
+fn cooking_positions(position: [f64; 3]) -> impl Iterator<Item = Pos> {
+    let center = cell(position);
+    (-4..=4).flat_map(move |x| {
+        (-4..=4).flat_map(move |y| {
+            (-4..=4).filter_map(move |z| {
+                let p = offset(center, x, y, z);
+                let delta = [p.x, p.y, p.z].map(f64::from);
+                ((0..3)
+                    .map(|i| (delta[i] + 0.5 - position[i]).powi(2))
+                    .sum::<f64>()
+                    <= 3.5 * 3.5)
+                    .then_some(p)
+            })
+        })
+    })
+}
+
+/// DragonUtilities.accelerateCooking: each loaded block center in a 3.5 block sphere,
+/// independent of griefing. Vanilla finishes the recipe on its own next tick.
+pub(super) fn cook(world: World<'_>, position: [f64; 3]) -> bool {
+    let Some(containers) = crate::CONTAINERS.get() else {
+        return false;
+    };
+    let mut completed = false;
+    for pos in cooking_positions(position) {
+        let Some(state) = containers.furnace_heat(world, pos, 0, 0) else {
+            continue;
+        };
+        if state.total == 0 {
+            continue;
+        }
+        let boost = match state.kind {
+            1 => 4,
+            2 | 3 => 6,
+            _ => continue,
+        };
+        completed |= containers
+            .furnace_heat(world, pos, boost, 20)
+            .is_some_and(|result| result.reached_end);
+    }
+    completed
+}
+
+#[test]
+fn cooking_radius_uses_block_centers_in_three_dimensions() {
+    let positions: Vec<_> = cooking_positions([0.5, 0.5, 0.5]).collect();
+    assert!(positions.contains(&Pos { x: 3, y: 1, z: 1 }));
+    assert!(!positions.contains(&Pos { x: 3, y: 2, z: 0 }));
+    assert!(!positions.contains(&Pos { x: 0, y: 4, z: 0 }));
+}
+
 /// CindervaneFireballEntity.igniteArea: the 3 by 3 impact layer.
 pub(super) fn volley(world: World<'_>, position: [f64; 3]) {
     if !griefing(world) {
