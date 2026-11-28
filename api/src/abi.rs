@@ -1531,6 +1531,20 @@ pub struct EffectsV1 {
     pub stop_music: unsafe extern "C" fn(world: WorldRef, player: i32, key: Str) -> bool,
     /// Set a loaded block overlay's companion animation clip (empty selects its default).
     pub block_animation: unsafe extern "C" fn(world: WorldRef, pos: Pos, clip: Str) -> bool,
+    /// Start or replace a timed, optionally looping sound attached to an entity.
+    pub start_entity_audio: unsafe extern "C" fn(
+        world: WorldRef,
+        entity: i32,
+        key: Str,
+        source: u8,
+        volume: f32,
+        pitch: f32,
+        duration: u32,
+        looping: bool,
+    ) -> bool,
+    pub stop_entity_audio: unsafe extern "C" fn(world: WorldRef, entity: i32, key: Str) -> bool,
+    /// Set the vanilla carrier's silent flag, independently of explicit mod audio.
+    pub set_entity_silent: unsafe extern "C" fn(world: WorldRef, entity: i32, silent: bool) -> bool,
 }
 
 /// A pending mob effect, before it is stored or applied.
@@ -1556,7 +1570,10 @@ fn effects_v1_layout() {
     assert_eq!(offset_of!(EffectsV1, loop_music), 64);
     assert_eq!(offset_of!(EffectsV1, stop_music), 72);
     assert_eq!(offset_of!(EffectsV1, block_animation), 80);
-    assert_eq!(size_of::<EffectsV1>(), 88);
+    assert_eq!(offset_of!(EffectsV1, start_entity_audio), 88);
+    assert_eq!(offset_of!(EffectsV1, stop_entity_audio), 96);
+    assert_eq!(offset_of!(EffectsV1, set_entity_silent), 104);
+    assert_eq!(size_of::<EffectsV1>(), 112);
     assert_eq!(offset_of!(ParticleOptions, item), 0);
     assert_eq!(offset_of!(ParticleOptions, kind), 16);
     assert_eq!(offset_of!(ParticleOptions, block_state), 20);

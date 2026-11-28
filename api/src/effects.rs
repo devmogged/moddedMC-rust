@@ -164,6 +164,64 @@ impl Effects {
         unsafe { ((&raw const (*api).block_animation).read())(world.raw(), pos, s(clip)) }
     }
 
+    /// Require timed entity audio and carrier sound control.
+    pub fn require_entity_audio(self) -> Result<(), InterfaceUnavailable> {
+        self.0
+            .upto(offset_of!(abi::EffectsV1, set_entity_silent))
+            .map(|_| ())
+            .ok_or(InterfaceUnavailable {
+                name: "moddedmc:effects.set_entity_silent",
+                version: 1,
+            })
+    }
+
+    /// Start a sound following the entity, stopping after duration ticks or on removal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_entity_audio(
+        self,
+        world: World<'_>,
+        entity: i32,
+        key: &str,
+        source: u8,
+        volume: f32,
+        pitch: f32,
+        duration: u32,
+        looping: bool,
+    ) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, start_entity_audio)) else {
+            return false;
+        };
+        // SAFETY: the table prefix was checked and the key is borrowed for this call.
+        unsafe {
+            ((&raw const (*api).start_entity_audio).read())(
+                world.raw(),
+                entity,
+                s(key),
+                source,
+                volume,
+                pitch,
+                duration,
+                looping,
+            )
+        }
+    }
+
+    pub fn stop_entity_audio(self, world: World<'_>, entity: i32, key: &str) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, stop_entity_audio)) else {
+            return false;
+        };
+        // SAFETY: the table prefix was checked and the key is borrowed for this call.
+        unsafe { ((&raw const (*api).stop_entity_audio).read())(world.raw(), entity, s(key)) }
+    }
+
+    pub fn set_entity_silent(self, world: World<'_>, entity: i32, silent: bool) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, set_entity_silent)) else {
+            return false;
+        };
+        // SAFETY: the table prefix was checked.
+        unsafe { ((&raw const (*api).set_entity_silent).read())(world.raw(), entity, silent) }
+    }
+
     /// Require the appended mob effect admission callback.
     pub fn require_effect_veto(self) -> Result<(), InterfaceUnavailable> {
         self.0
@@ -386,5 +444,15 @@ mod tests {
         });
         assert!(effects.require_effect_veto().is_ok());
         assert!(effects.require_encounter_display().is_err());
+    }
+
+    #[test]
+    fn block_animation_prefix_has_no_entity_audio() {
+        let effects = Effects(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: offset_of!(abi::EffectsV1, start_entity_audio),
+        });
+        assert!(effects.require_block_animation().is_ok());
+        assert!(effects.require_entity_audio().is_err());
     }
 }

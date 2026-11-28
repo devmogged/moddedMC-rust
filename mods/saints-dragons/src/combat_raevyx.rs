@@ -330,11 +330,35 @@ fn arc(world: World<'_>, from: [f64; 3], to: [f64; 3]) {
 fn sound(world: World<'_>, mob: Entity<'_>, name: &str, volume: f32) {
     if let Some(effects) = EFFECTS.get() {
         let original = format!("saintsdragons:raevyx_{name}");
-        let event = if cfg!(feature = "original-assets") {
-            original.as_str()
-        } else {
-            "minecraft:entity.lightning_bolt.impact"
-        };
+        if cfg!(feature = "original-assets") {
+            match name {
+                "lightning_beaming" => {
+                    // RaevyxLightningBeamLoopSound: stop with the beam (bounded lifetime).
+                    effects.start_entity_audio(
+                        world,
+                        mob.id(),
+                        &original,
+                        SOUND_NEUTRAL,
+                        1.4,
+                        1.0,
+                        800,
+                        true,
+                    );
+                    return;
+                }
+                "lightning_beam_stop" => {
+                    effects.stop_entity_audio(
+                        world,
+                        mob.id(),
+                        "saintsdragons:raevyx_lightning_beaming",
+                    );
+                }
+                _ => {}
+            }
+            crate::audio::moving(world, mob, &original, volume, 1.0);
+            return;
+        }
+        let event = "minecraft:entity.lightning_bolt.impact";
         effects.play_entity_sound(world, mob.id(), event, SOUND_NEUTRAL, volume, 1.0);
     }
 }
@@ -667,6 +691,9 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         goal_phase::STOP => {
             let mut state = State::load(mob);
             if state.rider.is_none() {
+                if state.active == Some(Attack::Beam) {
+                    sound(world, mob, "lightning_beam_stop", 1.0);
+                }
                 clear_beam_retreat(mob, &mut state);
                 learning::finish(mob, learning::Outcome::Cancelled);
                 state.finish(!view.on_ground);

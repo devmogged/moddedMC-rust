@@ -380,6 +380,25 @@ fn sound(world: World<'_>, mob: Entity<'_>, event: &str, volume: f32) {
         } else {
             "minecraft:entity.ender_dragon.growl".into()
         };
+        if cfg!(feature = "original-assets") {
+            match event {
+                "breathing" => {
+                    // VolitansBreathLoopSound's 800-tick segment, stopped on ability end.
+                    e.start_entity_audio(world, mob.id(), &id, SOUND_NEUTRAL, 1.4, 1.0, 800, true);
+                    return;
+                }
+                "breath_end" => {
+                    e.stop_entity_audio(world, mob.id(), "saintsdragons:volitans_breathing");
+                    crate::audio::moving(world, mob, &id, volume, 1.0);
+                    return;
+                }
+                "breath_start" => {
+                    crate::audio::moving(world, mob, &id, volume, 1.0);
+                    return;
+                }
+                _ => {}
+            }
+        }
         e.play_sound(world, v.position, &id, SOUND_NEUTRAL, volume, 1.0);
     }
 }
@@ -646,7 +665,10 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             eligible(mob) && (target.is_some() || with_runtime(mob, |s| s.action.is_some()))
         }
         goal_phase::STOP => {
-            if with_runtime(mob, |s| s.action.take().is_some()) {
+            if let Some(action) = with_runtime(mob, |s| s.action.take()) {
+                if action.kind == Attack::Breath {
+                    sound(world, mob, "breath_end", 2.0);
+                }
                 ai.stop(mob);
             }
             learning::defer(mob, learning::Outcome::Cancelled, 30);
@@ -805,6 +827,7 @@ fn run_action(
             if !a.rider {
                 if target.is_none_or(|(id, _)| id != a.target) {
                     a.learning_outcome = learning::Outcome::Cancelled;
+                    sound(world, mob, "breath_end", 2.0);
                     return false;
                 }
                 if learning::predict(mob, 0.0, 2.0).is_none() {

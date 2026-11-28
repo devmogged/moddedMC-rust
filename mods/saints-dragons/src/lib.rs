@@ -142,6 +142,7 @@ impl Mod for SaintsDragons {
         effects.require_effect_veto()?;
         effects.require_encounter_display()?;
         effects.require_block_animation()?;
+        effects.require_entity_audio()?;
         let _ = EFFECTS.set(effects);
         let commands = commands::require()?;
         commands.require_selectors()?;
