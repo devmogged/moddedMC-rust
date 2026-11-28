@@ -13,18 +13,20 @@ record StandaloneLayout(int version, String title, int width, int height, String
                         int textureWidth, int textureHeight, int color, Map<String, Atlas> atlases,
                         List<Tab> tabs, List<Rows> lists, List<Label> labels, List<Layer> layers,
                         List<Control> controls, Input input, Pages pages, String refreshAction, int refreshInterval,
-                        List<RigPreview> previews) {
+                        List<RigPreview> previews, int backgroundY, int backgroundV,
+                        int backgroundHeight, boolean bottomAligned) {
     record Atlas(String texture, int width, int height) {}
     record Tab(String key, String active, String inactive, int x, int y, int width, int height) {}
     record Rows(String source, String tab, int x, int y, int width, int count, int spacing,
-                String field, boolean select, String empty) {}
+                String field, boolean select, String empty, String actionField,
+                String inputActionField, String closeField) {}
     record Label(String tab, String field, boolean selected, int x, int y, int width, int lines, boolean center) {}
     record Layer(String tab, String atlas, int x, int y, boolean selected, String field, String equals,
                  List<String> frames, int frameTicks) {}
     record RigPreview(String tab, String field, int x, int y, int width, int height) {}
     record Control(String tab, String atlas, int x, int y, String label, String action,
                    boolean selected, boolean input, String confirm) {}
-    record Input(String tab, int x, int y, int width, int height, int maxLength) {}
+    record Input(String tab, int x, int y, int width, int height, int maxLength, String visibleWhen) {}
     record Pages(String tab, String field, int x, int y, int width, int lines, int spacing, int navX, int navY,
                  String sections, int sectionX, int sectionY, int sectionWidth, String itemField) {}
 
@@ -55,14 +57,19 @@ record StandaloneLayout(int version, String title, int width, int height, String
     private boolean valid() {
         if (version != 2 || title == null || width < 1 || width > 512 || height < 1 || height > 512
                 || textureWidth < width || textureHeight < height || textureWidth > 4096 || textureHeight > 4096
-                || !texture(texture) || atlases == null || atlases.size() > 64 || tabs == null || tabs.isEmpty() || tabs.size() > 16
+                || !texture(texture) || atlases == null || atlases.size() > 64 || tabs == null || tabs.size() > 16
                 || lists == null || lists.size() > 16 || labels == null || labels.size() > 64
                 || layers == null || layers.size() > 64 || controls == null || controls.size() > 64) return false;
+        if (backgroundHeight < 0 || backgroundY < 0 || backgroundV < 0
+                || backgroundHeight > 0 && (backgroundHeight > height || backgroundY > height - backgroundHeight
+                || backgroundHeight > textureHeight || backgroundV > textureHeight - backgroundHeight)) return false;
         for (var atlas : atlases.values()) if (!texture(atlas.texture) || atlas.width < 1 || atlas.width > 512 || atlas.height < 1 || atlas.height > 512) return false;
         var keys = new java.util.HashSet<String>();
         for (var tab : tabs) if (!key(tab.key) || !keys.add(tab.key) || !atlases.containsKey(tab.active) || !atlases.containsKey(tab.inactive)
                 || !fits(tab.x, tab.y, tab.width, tab.height) || !atlasFits(tab.active, tab.x, tab.y) || !atlasFits(tab.inactive, tab.x, tab.y)) return false;
         for (var rows : lists) if (!key(rows.source) || !optionalKey(rows.field) || !tab(rows.tab)
+                || !optionalKey(rows.actionField) || !optionalKey(rows.inputActionField) || !optionalKey(rows.closeField)
+                || rows.actionField != null && rows.select || rows.inputActionField != null && (input == null || rows.actionField == null)
                 || rows.count < 1 || rows.count > 64 || rows.spacing < 1 || rows.spacing > 64 || !fits(rows.x, rows.y, rows.width, rows.count * rows.spacing)) return false;
         for (var label : labels) if (!key(label.field) || !tab(label.tab) || label.lines < 1 || label.lines > 32 || !fits(label.x, label.y, label.width, label.lines * 9)) return false;
         for (var layer : layers) {
@@ -79,7 +86,7 @@ record StandaloneLayout(int version, String title, int width, int height, String
         }
         for (var control : controls) if (!tab(control.tab) || !atlasFits(control.atlas, control.x, control.y) || !key(control.action)
                 || control.label == null || control.input && input == null) return false;
-        if (input != null && (!tab(input.tab) || input.maxLength < 1 || input.maxLength > 64 || !fits(input.x, input.y, input.width, input.height))) return false;
+        if (input != null && (!tab(input.tab) || !optionalKey(input.visibleWhen) || input.maxLength < 1 || input.maxLength > 64 || !fits(input.x, input.y, input.width, input.height))) return false;
         if (refreshAction != null && (!key(refreshAction) || refreshInterval < 10 || refreshInterval > 1200)) return false;
         return pages == null || tab(pages.tab) && key(pages.field) && pages.lines > 0 && pages.lines <= 32 && pages.spacing > 0 && pages.spacing <= 32
                 && fits(pages.x, pages.y, pages.width, pages.lines * pages.spacing) && fits(pages.navX - 25, pages.navY, 50, 10)

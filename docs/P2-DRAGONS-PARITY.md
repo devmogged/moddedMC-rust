@@ -618,22 +618,27 @@ arguments and server-wide player lookup.
 
 Ivy's spawn egg creates the saved `saintsdragons:ivy_oleander` entity. The
 asset pack includes her original rig. The server reads the 25 released
-dialogue definitions and presents their English text and choices in stock
-dialogs. The Cindervane quest can recruit Ivy, the owner can cycle her
+dialogue definitions and presents their English text and choices in a pack-defined
+companion dialogue screen. The Cindervane quest can recruit Ivy, the owner can cycle her
 follow, stay and wander orders, and the recruited dialogue offers a plushie
 bound to Ivy and her owner. The plushie recalls loaded Ivy in the same
 dimension and sends the teleport sound and particles. The stock-client
 scenario followed the recruitment dialogue, earned the plushie, verified
 its UUID after recall on a restarted server, and rejected a different player.
-Her companion inventory uses a stock chest screen with four armor slots, a
+Her companion inventory uses the released texture and positions with four armor slots, a
 weapon slot and 27 storage slots, restricted to her recruited owner within
 eight blocks. Inventory transactions persist by Ivy's UUID. Equipment affects
 melee damage and armor attributes. Recruited Ivy retaliates against attackers
 and protects her owner while following, with the released boxing and sword
-attack timings and melee animation clips. The stock menu does not provide the
-original equipment slot layout or automatic shift-click routing. The released dash and lethal-hit downed entry, and merchant close dialogue resumption, are implemented in [ivy.rs](../mods/saints-dragons/src/ivy.rs). While following, Ivy now responds to fresh owner attack history, prioritizing retaliation and owner defense, and can resume targeting after recovery. Named tags are refused without consumption. Passive cooked edible food recovery starts below 20 health, consumes a storage item at tick 14 of a 20-tick animation, heals eight health, and has a 100-tick cooldown. A bound Stegonaut binder in her inventory supplies the same portable aura as a player's binder when Ivy is within the owner's 16-block search area. [Named-tag refusal and merchant close scenario](../tests/scenarios/p2-ivy-merchant-close.txt) (pending coordinator run). Equipment wear, milk and combat retreat recovery, water clutch, exact friendly-hit reactions, venom projectiles and chatter remain pending.
-Custom name input, cross-dimension recall and client dialogue animations
-remain pending.
+attack timings and melee animation clips. The inventory does not yet provide
+automatic shift-click routing, live vitals or the Ivy preview. The released dash and lethal-hit downed entry, and merchant close dialogue resumption, are implemented in [ivy.rs](../mods/saints-dragons/src/ivy.rs). While following, Ivy now responds to fresh owner attack history, prioritizing retaliation and owner defense, and can resume targeting after recovery. Named tags are refused without consumption. Passive cooked edible food recovery starts below 20 health, consumes a storage item at tick 14 of a 20-tick animation, heals eight health, and has a 100-tick cooldown. A bound Stegonaut binder in her inventory supplies the same portable aura as a player's binder when Ivy is within the owner's 16-block search area. [Named-tag refusal and merchant close scenario](../tests/scenarios/p2-ivy-merchant-close.txt) (pending coordinator run). Equipment wear, milk and combat retreat recovery, water clutch, exact friendly-hit reactions, venom projectiles and chatter remain pending.
+The dialogue screen submits a custom name on the existing typed pack-screen
+action and persists it in player memory. It uses the released dialogue atlas,
+scrollable choices, and server-side nonce validation. The current host input
+transport restricts names to 64 ASCII characters; client camera, typewriter,
+voice timing, cross-dimension recall and complete localization remain pending.
+[Ivy dialogue screen scenario](../tests/scenarios/p2-ivy-dialogue-screen.txt)
+(pending coordinator run).
 [Ivy recruitment scenario](../tests/scenarios/p2ae-saints-dragons-ivy.txt)
 [Ivy companion scenario](../tests/scenarios/p2az-saints-dragons-ivy-companion.txt)
 
@@ -848,7 +853,7 @@ This audit compares the 0.9.88 Java source with the Rust and companion implement
 8. **[mod-only, with sensory dependency on #4]** Exact family spawning and defense, sleep pressure/depth and disturbance behavior, falling-owner rescue controller after #4, and exact Ivy dance eligibility (idle variants and climbing). Breeding love, cause and cooldown and stun hold/recovery use remaining loaded-entity ticks in saved entity NBT. Varasuchus rodeo counters are transient, as in Java; a loaded mounted wild ride starts a fresh attempt. Wild juvenile parent following now covers Cindervane, Raevyx, Ignivorus, Varasuchus, Stegonaut and Nulljaw. Juveniles and Ivy scan for actively playing jukeboxes (the saved playback counter distinguishes a stopped record), with the released 16-block cube and ten-tick cadence. A synthetic twenty-juvenile scan test measures the mod-side loop; actual host chunk-read cost remains unmeasured. A block-entity spatial query could reduce its cost. Java: `DragonEntity`, `DancingEntity`, `DragonSleepBehaviour`; see [family.rs](../mods/saints-dragons/src/family.rs), [dance.rs](../mods/saints-dragons/src/dance.rs), and the [restart scenario](../tests/scenarios/p2-care-state-restart.txt) (not yet run). Sensory disturbance still needs per-dragon observations with sound kind, position, confidence, source UUID and age.
 9. **[companion]** Real-client acceptance of seats, grab, keybinds, screens, visuals, sound and totem; exact animation blending, camera and screen impulses, multipart targeting, afterimages, equipment and held-item models, custom particle/beam/projectile renderers. Java: `MessageCameraImpulse`, `MessageBloodTempestAfterimage`, `DragonEquipmentLayer`, `DragonSeatAnchoredCamera`, `ArrowOfVenomModel`, `DraconicCrucibleRenderer`.
 10. **[host]** Crucible two-block shape and automation, painting facing rotation, exact natural spawn and Mossback juvenile group rules, contextual breeding and pre-hit advancement hooks. Java: `DraconicCrucibleBlock`, `DraconicCrucibleBlockEntity`, `DragonSpawnRegistry`, `DragonBreedingRules`.
-11. **[companion]** Nucleus wave bar and battle music, encounter and block animations, Ivy custom dialogue/name and inventory screens, remaining localization. Java: `MessageSwarmWaveBar`, `MessageSwarmBattleMusic`, `MessageDialogueNameInput`, `DraconianNucleusAnimations`.
+11. **[companion/host]** Nucleus wave bar and battle music (requires per-player encounter HUD and looping sound control), encounter and block animations, Ivy dialogue animation/camera/voice and inventory preview/vitals, remaining localization. Pack-defined Ivy dialogue, persistent typed names and equipment/storage layout are implemented; see the [dialogue scenario](../tests/scenarios/p2-ivy-dialogue-screen.txt). Java: `MessageSwarmWaveBar`, `MessageSwarmBattleMusic`, `MessageDialogueNameInput`, `DraconianNucleusAnimations`.
 12. **[host]** Entity-bound looping/timed audio, independent effect icon/particle flags, carrier sound suppression and exact keyframe cues (companion clock). Java: `MessageDragonMovingSound`, species `SoundProfile` and animation handlers.
 13. **[mod-only]** Release config and datapack reload parity (attributes, ability overrides, spawn settings, loot/trades/chatter, griefing), chest-loot injection and Starcatcher Moop fishing integration where the dependency exists. Java: `SaintsDragonsConfig`, `DragonAttributeConfigLoader`, `DragonChestLootReloadListener`, `IvyTradeReloadListener`; data: `starcatcher/fish/moop_fish.json`. Confirm host loot injection support before implementing.
 14. **[companion]** Upstream diagnostic parity: optional brain/path/vision/ability-box debug messages; no corresponding release-specific UI in the port (`MessageDragonBrainDebug`, `MessageDragonPathDebug`, `MessageDragonVisionDebug`, `MessageDragonAbilityDebugBox`).

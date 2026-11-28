@@ -6,6 +6,18 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ScreenLayoutTest {
+    @Test
+    void ivyEquipmentAndStorageRetainNativeSlots() throws Exception {
+        var layout = ScreenLayout.parse(crucible(), "ivy_inventory");
+        assertNotNull(layout);
+        assertEquals(36, layout.containerSlots());
+        assertEquals(32, layout.slots().size());
+        assertEquals(new ScreenLayout.Position(4, 77, 61, null), layout.slots().get(4));
+        assertEquals(new ScreenLayout.Position(9, 8, 83, null), layout.slots().get(5));
+        assertEquals(new ScreenLayout.Position(35, 152, 119, null), layout.slots().getLast());
+        assertEquals(210, layout.inventory().hotbarY());
+    }
+
     private static String crucible() throws Exception {
         return Files.readString(Path.of("../mods/saints-dragons/resources/assets/saintsdragons/moddedmc/screens.json"));
     }

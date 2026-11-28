@@ -43,7 +43,7 @@ final class StandalonePackScreen extends Screen {
         super(Component.literal(layout.title()));
         this.id = id;
         this.layout = layout;
-        this.tab = layout.tabs().getFirst().key();
+        this.tab = layout.tabs().isEmpty() ? "" : layout.tabs().getFirst().key();
         update(token, state);
     }
 
@@ -54,20 +54,22 @@ final class StandalonePackScreen extends Screen {
         this.state = state;
         waiting = false;
         ticks = 0;
+        for (var list : layout.lists()) if (list.actionField() != null) offsets.remove(list.source());
+        inputVisibility();
         if (selected.isEmpty()) selected = string(state, "selected");
         if (selectedEntry() == null) { selected = ""; page = 0; }
     }
 
     @Override protected void init() {
         left = Math.max(0, (width - layout.width()) / 2);
-        top = Math.max(0, (height - layout.height()) / 2);
+        top = Math.max(0, layout.bottomAligned() ? height - layout.height() - 1 : (height - layout.height()) / 2);
         var definition = layout.input();
         if (definition != null) {
             String value = input == null ? "" : input.getValue();
             input = addRenderableWidget(new EditBox(font, left + definition.x(), top + definition.y(),
                     definition.width(), definition.height(), Component.literal("Input")));
             input.setMaxLength(definition.maxLength());
-            input.setBordered(false);
+            input.setBordered(definition.visibleWhen() != null);
             input.setTextShadow(false);
             input.setTextColor(layout.color());
             input.setTextColorUneditable(layout.color());
@@ -78,7 +80,8 @@ final class StandalonePackScreen extends Screen {
 
     private void inputVisibility() {
         if (input == null) return;
-        boolean visible = visible(layout.input().tab());
+        boolean visible = visible(layout.input().tab()) && (layout.input().visibleWhen() == null
+                || "true".equals(string(state, layout.input().visibleWhen())));
         input.setVisible(visible);
         input.setEditable(visible);
         if (!visible) input.setFocused(false);
@@ -207,8 +210,14 @@ final class StandalonePackScreen extends Screen {
     }
 
     @Override public void extractRenderState(GuiGraphicsExtractor graphics, int mx, int my, float tick) {
-        extractBackground(graphics, mx, my, tick);
-        blit(graphics, layout.texture(), 0, 0, layout.width(), layout.height(), layout.textureWidth(), layout.textureHeight());
+        if (!layout.bottomAligned()) extractBackground(graphics, mx, my, tick);
+        if (layout.backgroundHeight() == 0) {
+            blit(graphics, layout.texture(), 0, 0, layout.width(), layout.height(), layout.textureWidth(), layout.textureHeight());
+        } else {
+            graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.fromNamespaceAndPath(id.getNamespace(), layout.texture()),
+                    left, top + layout.backgroundY(), 0, layout.backgroundV(), layout.width(), layout.backgroundHeight(),
+                    layout.textureWidth(), layout.textureHeight(), 0xffffffff);
+        }
         var entry = selectedEntry();
         int color = layout.color();
         for (var layer : layout.layers()) {
@@ -228,6 +237,16 @@ final class StandalonePackScreen extends Screen {
             }
             for (int i = 0; i < list.count() && start + i < rows.size(); i++) {
                 var row = rows.get(start + i);
+                if (list.actionField() != null) {
+                    int y = list.y() + i * list.spacing();
+                    boolean hover = hit(mx - left, my - top, list.x(), y, list.width(), list.spacing());
+                    graphics.fill(left + list.x(), top + y, left + list.x() + list.width(), top + y + list.spacing() - 2,
+                            hover ? 0xffe3c7a3 : 0xffd0b28c);
+                    var lines = wrap(rowText(row, list), list.width() - 8);
+                    for (int n = 0; n < Math.min(lines.size(), (list.spacing() - 2) / 9); n++)
+                        graphics.text(font, lines.get(n), left + list.x() + 4, top + y + 2 + n * 9, color, false);
+                    continue;
+                }
                 var value = font.plainSubstrByWidth(rowText(row, list), list.width());
                 int ink = list.select() && selected.equals(string(row, "id")) ? 0xff8b0000 : color;
                 text(graphics, value, list.x(), list.y() + i * list.spacing(), ink);
@@ -336,10 +355,23 @@ final class StandalonePackScreen extends Screen {
             if (x > p.navX() + 10) page = Math.min(totalPages(pageLines()) - 1, page + 1);
             return true;
         }
-        for (var list : layout.lists()) if (list.select() && visible(list.tab()) && hit(x, y, list.x(), list.y(), list.width(), list.count() * list.spacing())) {
+        for (var list : layout.lists()) if ((list.select() || list.actionField() != null) && visible(list.tab()) && hit(x, y, list.x(), list.y(), list.width(), list.count() * list.spacing())) {
             var rows = rows(list.source());
             int index = offset(list) + (int)(y - list.y()) / list.spacing();
-            if (index < rows.size()) { selected = string(rows.get(index), "id"); page = 0; return true; }
+            if (index < rows.size()) {
+                var row = rows.get(index);
+                if (list.actionField() != null) {
+                    String action = string(row, list.actionField());
+                    String typedAction = string(row, list.inputActionField());
+                    String value = input == null || typedAction.isEmpty() ? "" : input.getValue().trim();
+                    if (waiting || action.isEmpty() || !value.matches("[A-Za-z0-9_. -]{0,64}")) return true;
+                    waiting = true;
+                    PackScreens.click(token, value.isEmpty() ? action : typedAction, value);
+                    if (input != null) input.setValue("");
+                    if ("true".equals(string(row, list.closeField()))) minecraft.gui.setScreen(null);
+                } else { selected = string(row, "id"); page = 0; }
+                return true;
+            }
         }
         return super.mouseClicked(event, doubleClick);
     }
