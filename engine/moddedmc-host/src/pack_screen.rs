@@ -1,10 +1,7 @@
 //! Standalone pack screens reuse the menu callback ABI without inventory slots.
 use crate::{HOST, lock};
 use pumpkin_core::{
-    entity::{
-        EntityBase,
-        player::{JavaPlayer, Player},
-    },
+    entity::player::{JavaPlayer, Player},
     plugin::{
         BoxFuture, EventHandler, EventPriority,
         player::{player_custom_payload::PlayerCustomPayloadEvent, player_leave::PlayerLeaveEvent},

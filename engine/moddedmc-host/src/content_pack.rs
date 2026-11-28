@@ -669,7 +669,9 @@ impl Pack {
             }
             textures.into_iter().all(|texture| {
                 if !texture.starts_with("textures/")
-                    || !texture.ends_with(".png")
+                    || !std::path::Path::new(texture)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
                     || !texture.split('/').all(|part| {
                         !part.is_empty()
                             && part != "."
