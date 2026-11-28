@@ -179,7 +179,7 @@ fn properties(species: &Species) -> Vec<String> {
     }
 }
 
-fn place_volitans(placement: Placement<'_>) -> Option<u32> {
+pub(crate) fn place_volitans(placement: Placement<'_>) -> Option<u32> {
     if placement.world.fluid_id(placement.position).as_deref() == Some("minecraft:water") {
         CONTENT
             .get()?
@@ -259,7 +259,7 @@ pub fn register(
                     "minecraft:block/dragon_egg"
                 },
             },
-            (species.name == "volitans").then_some(place_volitans),
+            (species.name == "volitans").then_some(crate::place_block),
         )?;
         for (index, state) in properties.iter().enumerate() {
             let selector = format!("{id}[{state}]");
