@@ -124,7 +124,7 @@ public final class DisplayRigs {
 
     private record Definition(Identifier geometry, Identifier animations, Identifier texture, String clip,
                               float scale, float yOffset, float yawOffset, List<Identifier> hideParts,
-                              Map<String, Identifier> textures, List<Seat> riderSeats) {
+                              Map<String, Identifier> textures, List<Seat> riderSeats, int transitionTicks) {
         private static final Codec<Definition> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Identifier.CODEC.fieldOf("geometry").forGetter(Definition::geometry),
                 Identifier.CODEC.fieldOf("animations").forGetter(Definition::animations),
@@ -135,7 +135,8 @@ public final class DisplayRigs {
                 Codec.floatRange(-180f, 180f).optionalFieldOf("yaw_offset", 0f).forGetter(Definition::yawOffset),
                 Identifier.CODEC.listOf().optionalFieldOf("hide_parts", List.of()).forGetter(Definition::hideParts),
                 Codec.unboundedMap(Codec.STRING, Identifier.CODEC).optionalFieldOf("textures", Map.of()).forGetter(Definition::textures),
-                Seat.CODEC.listOf().optionalFieldOf("rider_seats", List.of()).forGetter(Definition::riderSeats)
+                Seat.CODEC.listOf().optionalFieldOf("rider_seats", List.of()).forGetter(Definition::riderSeats),
+                Codec.intRange(0, 20).optionalFieldOf("transition_ticks", 3).forGetter(Definition::transitionTicks)
         ).apply(instance, Definition::new));
     }
 
@@ -181,7 +182,7 @@ public final class DisplayRigs {
 
         @Override
         public void registerControllers(AnimatableManager.ControllerRegistrar registrar) {
-            registrar.add(new AnimationController<RigInstance>("display", 3, test -> test.setAndContinue(clip)));
+            registrar.add(new AnimationController<RigInstance>("display", renderer.definition.transitionTicks(), test -> test.setAndContinue(clip)));
         }
 
         @Override

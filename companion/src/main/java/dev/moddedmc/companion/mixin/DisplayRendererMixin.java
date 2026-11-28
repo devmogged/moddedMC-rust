@@ -2,6 +2,7 @@ package dev.moddedmc.companion.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import dev.moddedmc.companion.rig.DisplayRigs;
+import dev.moddedmc.companion.rig.ArcFrames;
 import dev.moddedmc.companion.rig.RigFrame;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -29,8 +30,12 @@ abstract class DisplayRendererMixin {
     @Inject(method = "extractRenderState(Lnet/minecraft/world/entity/Display;Lnet/minecraft/client/renderer/entity/state/DisplayEntityRenderState;F)V",
             at = @At("TAIL"))
     private void moddedmc$extractRig(Display entity, DisplayEntityRenderState state, float delta, CallbackInfo ci) {
-        if (moddedmc$hasGeckoLib && entity instanceof Display.ItemDisplay item) {
-            ((RigFrame.Holder) state).moddedmc$rigFrame(DisplayRigs.extract(item, state.lightCoords, delta));
+        if (entity instanceof Display.ItemDisplay item) {
+            RigFrame frame = ArcFrames.extract(item, delta);
+            if (frame == null && moddedmc$hasGeckoLib) {
+                frame = DisplayRigs.extract(item, state.lightCoords, delta);
+            }
+            ((RigFrame.Holder) state).moddedmc$rigFrame(frame);
         }
     }
 

@@ -142,7 +142,7 @@ impl Pose {
     }
 }
 
-static DISPLAYS: OnceLock<Displays> = OnceLock::new();
+pub(crate) static DISPLAYS: OnceLock<Displays> = OnceLock::new();
 // A mob changing dimension can briefly have an expiring rig in its previous world.
 static RIGS: LazyLock<Mutex<HashMap<i32, Vec<Rig>>>> = LazyLock::new(Mutex::default);
 static HURT: LazyLock<Mutex<HashMap<i32, u64>>> = LazyLock::new(Mutex::default);
@@ -242,7 +242,7 @@ pub fn register(items: Items, registry: &mut Registry<'_>) -> Result<(), Registr
             },
         )?;
     }
-    Ok(())
+    crate::vfx::register(items, registry)
 }
 
 #[derive(Clone, Copy)]

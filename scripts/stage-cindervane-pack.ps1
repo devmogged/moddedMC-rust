@@ -29,6 +29,24 @@ $files = [ordered]@{
 }
 $species = @('cindervane')
 if ($AllDragons) {
+    foreach ($effect in @(
+        @{ name = 'ignivorus_magma_pillar'; path = 'objects/ignivorus/ignivorus_magma_pillar'; clip = 'animation.ignivorus_magma_pillar.emerge' },
+        @{ name = 'amethyst_pillar'; path = 'objects/stegonaut/amethyst_pillar'; clip = 'animation.amethyst_pillar_emerge' }
+    )) {
+        $path = $effect.path
+        $copies["$assets/geo/$path.geo.json"] = "$assets/geckolib/models/$path.geo.json"
+        $copies["$assets/animations/$path.animation.json"] = "$assets/geckolib/animations/$path.animation.json"
+        $copies["$assets/textures/$path.png"] = "$assets/textures/$path.png"
+        $files["$assets/moddedmc/rigs/$($effect.name)_display.json"] = [ordered]@{
+            geometry = "saintsdragons:$path"
+            animations = "saintsdragons:$path"
+            texture = "saintsdragons:textures/$path.png"
+            clip = $effect.clip
+            yaw_offset = 180
+            transition_ticks = $(if ($effect.name -eq 'amethyst_pillar') { 1 } else { 0 })
+            author = 'Leon Saint'
+        } | ConvertTo-Json -Compress
+    }
     $copies["$assets/textures/gui/draconic_crucible_gui.png"] = "$assets/textures/gui/draconic_crucible_gui.png"
     $copies["$assets/textures/gui/draconiccodex/physiology_tab.png"] = "$assets/textures/gui/draconiccodex/physiology_tab.png"
     $copies["$assets/textures/gui/draconiccodex/physiology_tab_closed.png"] = "$assets/textures/gui/draconiccodex/physiology_tab_closed.png"

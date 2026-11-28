@@ -48,6 +48,7 @@ mod stun;
 mod swarm;
 mod taming;
 mod venom_arrow;
+mod vfx;
 mod visuals;
 mod wild;
 mod worldroot;
@@ -464,6 +465,7 @@ fn can_be_affected(
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
     pillars::tick(world, moddedmc_api::tick_count());
+    vfx::tick(world, moddedmc_api::tick_count());
     combat::heat_tick(world);
     ivy::trade_resume_tick(world);
     player_moves::tick(world, moddedmc_api::tick_count());
