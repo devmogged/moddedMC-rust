@@ -35,6 +35,12 @@ $RunDir = Join-Path $root $RunDir
 if ($Fresh -and (Test-Path $RunDir)) { Get-ChildItem $RunDir | Remove-Item -Recurse -Force }
 New-Item -ItemType Directory -Force (Join-Path $RunDir 'mods') | Out-Null
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+# A worktree's cache/ has no release jars, so point the host at the main checkout's (#59).
+if (-not $env:MODDEDMC_ASSET_JARS) {
+    $mainCache = Join-Path (Split-Path (git -C $root rev-parse --path-format=absolute --git-common-dir) -Parent) 'cache'
+    $jars = @(Get-ChildItem $mainCache -Filter '*.jar' -File -ErrorAction SilentlyContinue | ForEach-Object FullName)
+    if ($jars) { $env:MODDEDMC_ASSET_JARS = $jars -join [IO.Path]::PathSeparator }
+}
 
 $script:log = [Collections.Concurrent.ConcurrentQueue[string]]::new()
 $script:all = [Collections.Generic.List[string]]::new()
