@@ -41,6 +41,7 @@ struct Memory {
     flags: HashSet<String>,
     impression: String,
     known: bool,
+    name: String,
     recruited: Option<[u8; 16]>,
 }
 
@@ -151,7 +152,11 @@ fn open_inventory(world: World<'_>, viewer: Entity<'_>, ivy: Entity<'_>) -> bool
         &player,
         kind,
         inventory_id(ivy.id(), record.revision),
-        NAME,
+        if cfg!(feature = "original-assets") {
+            "moddedmc:screen/saintsdragons:ivy_inventory"
+        } else {
+            NAME
+        },
         ValiditySlots {
             world,
             access: &access,
@@ -359,6 +364,7 @@ enum NodeText {
 struct Text {
     translate: String,
     text: String,
+    with: Vec<Text>,
 }
 
 #[derive(Default, Deserialize)]
@@ -390,6 +396,7 @@ struct Session {
     /// An `open_trade` node: a choice opens Ivy's trades.
     trade: bool,
     inventory: bool,
+    name_input: bool,
 }
 
 static SESSIONS: LazyLock<Mutex<HashMap<[u8; 16], Session>>> = LazyLock::new(Mutex::default);
@@ -578,11 +585,40 @@ fn dialogue(path: &str) -> Option<Dialogue> {
 }
 
 fn text(content: &Text, lang: &HashMap<String, String>, name: &str) -> String {
-    lang.get(&content.translate)
+    let template = lang
+        .get(&content.translate)
         .map_or(content.text.as_str(), String::as_str)
-        .replace("{name}", name)
-        .replace("%1$s", name)
-        .replace("%s", name)
+        .replace("{name}", name);
+    let args: Vec<_> = content
+        .with
+        .iter()
+        .map(|arg| text(arg, lang, name))
+        .collect();
+    let mut next = 0;
+    let mut out = String::new();
+    let mut remaining = template.as_str();
+    while let Some((prefix, suffix)) = remaining.split_once('%') {
+        out.push_str(prefix);
+        if let Some(rest) = suffix.strip_prefix('%') {
+            out.push('%');
+            remaining = rest;
+        } else if let Some(rest) = suffix.strip_prefix('s') {
+            out.push_str(args.get(next).map_or(name, String::as_str));
+            next += 1;
+            remaining = rest;
+        } else if let Some((index, rest)) = suffix.split_once("$s")
+            && let Ok(index) = index.parse::<usize>()
+            && index > 0
+        {
+            out.push_str(args.get(index - 1).map_or(name, String::as_str));
+            remaining = rest;
+        } else {
+            out.push('%');
+            remaining = suffix;
+        }
+    }
+    out.push_str(remaining);
+    out
 }
 
 fn speak(player: Entity<'_>, key: &str, fallback: &str) {
@@ -684,7 +720,12 @@ fn effects(
     memory: &mut Memory,
 ) {
     match kind {
-        "use_player_name" | "name_input" => memory.known = true,
+        "use_player_name" => {
+            if let Some(player) = viewer.as_player() {
+                memory.name = player.name().to_owned();
+                memory.known = true;
+            }
+        }
         "recruit_ivy" if flags.contains("has_tamed_cindervane") && !taming::is_tamed(ivy) => {
             if let Some((owner, id)) = MOBS
                 .get()
@@ -702,6 +743,34 @@ fn effects(
             memory.flags.insert("ivy_plushie_received".into());
         }
         _ => {}
+    }
+}
+
+/// DialogueSessionRegistry.sanitizeName: normalize spaces, discard controls,
+/// and retain at most fifty non-whitespace characters.
+fn chosen_name(raw: &str, username: &str) -> String {
+    let mut result = String::new();
+    let mut count = 0;
+    let mut space = false;
+    for c in raw.chars().filter(|c| !c.is_control()) {
+        if c.is_whitespace() {
+            space = !result.is_empty();
+        } else {
+            if space {
+                result.push(' ');
+                space = false;
+            }
+            result.push(c);
+            count += 1;
+            if count == 50 {
+                break;
+            }
+        }
+    }
+    if result.is_empty() {
+        username.to_owned()
+    } else {
+        result
     }
 }
 
@@ -726,7 +795,11 @@ fn show(
     effects(world, viewer, ivy, &node.kind, &flags, &mut memory);
     save_memory(world, viewer, &memory);
     let lang = language();
-    let name = player.name();
+    let name = if memory.name.is_empty() {
+        player.name()
+    } else {
+        &memory.name
+    };
     let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
     let mut actions = Vec::new();
     let mut buttons = Vec::new();
@@ -749,8 +822,13 @@ fn show(
     if buttons.is_empty() {
         buttons.push(MenuButton {
             label: "Done".into(),
-            action: format!("{ACTION}done"),
+            action: format!("{ACTION}{nonce}/0"),
             tooltip: String::new(),
+        });
+        actions.push(Action {
+            next: String::new(),
+            flag: String::new(),
+            impression: String::new(),
         });
     }
     let body = match &node.text {
@@ -767,6 +845,38 @@ fn show(
         ),
         None => String::new(),
     };
+    let name_input = node.kind == "name_input";
+    if cfg!(feature = "original-assets") {
+        let mut state = serde_json::json!({
+            "speaker": "Ivy Oleander", "body": body, "name_input": name_input,
+        });
+        let mut allowed = HashMap::new();
+        let mut choices = Vec::new();
+        for (index, button) in buttons.iter().enumerate() {
+            allowed.insert(button.action.clone(), false);
+            state[format!("choice_{index}")] = serde_json::json!(button.action);
+            let mut row = serde_json::json!({
+                "label": button.label, "action": button.action,
+                "close": actions[index].next.is_empty() || node.kind == "open_trade" || node.kind == "open_inventory",
+            });
+            if name_input && index == 0 {
+                let action = format!("{}/name", button.action);
+                allowed.insert(action.clone(), true);
+                state["name_action"] = serde_json::json!(action);
+                row["typed_action"] = serde_json::json!(action);
+            }
+            choices.push(row);
+        }
+        state["choices"] = serde_json::json!(choices);
+        buttons.push(MenuButton {
+            label: String::new(),
+            action: "moddedmc:pack_screen".into(),
+            tooltip: serde_json::json!({
+                "id": "saintsdragons:ivy_dialogue", "state": state, "actions": allowed,
+            })
+            .to_string(),
+        });
+    }
     let tick = moddedmc_api::tick_count();
     let mut sessions = SESSIONS.lock().unwrap_or_else(PoisonError::into_inner);
     sessions.retain(|_, session| session.expires > tick);
@@ -781,6 +891,7 @@ fn show(
             expires: tick + 1200,
             trade: node.kind == "open_trade",
             inventory: node.kind == "open_inventory",
+            name_input,
         },
     );
     drop(sessions);
@@ -856,8 +967,23 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
     let Some(action) = action.strip_prefix(ACTION) else {
         return false;
     };
-    let Some((nonce, index)) = action.split_once('/') else {
+    let mut parts = action.splitn(3, '/');
+    let (Some(nonce), Some(index)) = (parts.next(), parts.next()) else {
         return true;
+    };
+    let typed = match parts.next() {
+        None => None,
+        Some(suffix) => match suffix.strip_prefix("name/") {
+            Some(value)
+                if value.len() <= 64
+                    && value
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_.- ".contains(&b)) =>
+            {
+                Some(value)
+            }
+            _ => return true,
+        },
     };
     let (Ok(nonce), Ok(index)) = (nonce.parse::<u64>(), index.parse::<usize>()) else {
         return true;
@@ -875,6 +1001,7 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
                 session.nonce != nonce
                     || session.expires <= moddedmc_api::tick_count()
                     || index >= session.actions.len()
+                    || typed.is_some() && (!session.name_input || index != 0)
                     || world.dimension_id() != Some(session.dimension.as_str())
             }) {
                 return;
@@ -898,6 +1025,10 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
                 return;
             }
             let mut memory = memory(world, viewer);
+            if session.name_input {
+                memory.name = chosen_name(typed.unwrap_or_default(), player.name());
+                memory.known = true;
+            }
             if !action.flag.is_empty() && action.flag != "ivy_plushie_received" {
                 memory.flags.insert(action.flag);
             }
@@ -909,6 +1040,10 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
                 .all(|flag| memory.flags.contains(flag))
             {
                 memory.flags.insert("known_work_done".into());
+            }
+            if action.next.is_empty() {
+                save_memory(world, viewer, &memory);
+                return;
             }
             let (path, node) = action
                 .next
@@ -2411,5 +2546,37 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 25);
+    }
+
+    #[test]
+    fn dialogue_names_normalize_and_survive_memory_roundtrip() {
+        assert_eq!(chosen_name("  River   Stone  ", "Steve"), "River Stone");
+        assert_eq!(chosen_name("  ", "Steve"), "Steve");
+        assert_eq!(chosen_name(&"x".repeat(80), "Steve").len(), 50);
+        let memory = Memory {
+            name: "River Stone".into(),
+            known: true,
+            ..Memory::default()
+        };
+        let restored: Memory =
+            serde_json::from_slice(&serde_json::to_vec(&memory).unwrap()).unwrap();
+        assert_eq!(restored.name, memory.name);
+        assert!(restored.known);
+    }
+
+    #[test]
+    fn dialogue_translation_resolves_explicit_arguments() {
+        let lang = HashMap::from([
+            ("line".into(), "Oh, %1$s. I mean %2$s!".into()),
+            ("aside".into(), "ahem".into()),
+        ]);
+        let content: Text = serde_json::from_str(
+            r#"{"translate":"line","with":[{"translate":"aside"},{"text":"{name}"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            text(&content, &lang, "River Stone"),
+            "Oh, ahem. I mean River Stone!"
+        );
     }
 }

@@ -7,6 +7,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class StandaloneLayoutTest {
     @Test
+    void dialogueUsesBoundedAtlasAndTypedRows() throws Exception {
+        String json = Files.readString(Path.of("../mods/saints-dragons/resources/assets/saintsdragons/moddedmc/screens.json"));
+        var layout = StandaloneLayout.parse(json, "ivy_dialogue");
+        assertNotNull(layout);
+        assertTrue(layout.tabs().isEmpty());
+        assertTrue(layout.bottomAligned());
+        assertEquals(80, layout.backgroundV());
+        assertEquals(96, layout.backgroundHeight());
+        assertEquals("name_input", layout.input().visibleWhen());
+        assertEquals("typed_action", layout.lists().getFirst().inputActionField());
+        assertNull(StandaloneLayout.parse(json.replace("\"backgroundV\": 80", "\"backgroundV\": 200"), "ivy_dialogue"));
+    }
+
+    @Test
     void codexUsesReleasedGeometryAndServerActions() throws Exception {
         String json = Files.readString(Path.of("../mods/saints-dragons/resources/assets/saintsdragons/moddedmc/screens.json"));
         var layout = StandaloneLayout.parse(json, "draconic_codex");
