@@ -123,3 +123,13 @@ Create 6.0.10. Use Java 26.3 with the updated Fabric companion and accept the se
 - Extend a row into source water. Restart and expect it to remain waterlogged. Sneak-use a wrench in Survival and expect the scaffold item back and the water to remain.
 - Build a floating 3?3 platform of one metal and remove one corner. Expect connected top textures, the inner corner tile and hidden side seams. Place a second metal next to it and expect the colors to stay separate.
 - Place stock bamboo scaffolding and waxed copper trapdoors beside all three variants. Expect bamboo to collapse normally when unsupported and stock trapdoors to retain their original look and behavior.
+
+## Create stationary trapdoors ([issue #58](https://github.com/devmogged/moddedMC-rust/issues/58))
+
+Use Java 26.3 with the Fabric companion and the server resource pack.
+
+- Craft a Train Trapdoor and a Framed Glass Trapdoor. Place each on the upper and lower halves of a wall and on the top and bottom faces of a block. Expect each hinge, hit outline and opening direction to match the placement. Expect the Train Trapdoor to show its metal texture and the Framed Glass Trapdoor to let you see through it.
+- Toggle each by hand, then power it and toggle it by hand again. Expect one movement and one iron trapdoor sound per toggle. Remove and restore power and expect the next redstone edge to set the corresponding open state. Throw a wind charge near an unpowered trapdoor and expect it to toggle. Repeat with a powered trapdoor and expect its state to stay put.
+- Put two matching trapdoors side by side in the same half. Expect the touching faces to be hidden. Open them together and check the side seam. Put one of each material next to the other and expect their borders to stay visible.
+- Place a Framed Glass Trapdoor in source water, open it, and restart the server. Expect the opening and water to persist. Sneak-use a wrench in Survival and expect the item back with the source water left behind.
+- Place a stock Waxed Oxidized Copper Trapdoor nearby and open it. Expect vanilla copper textures and the original collision and sound.

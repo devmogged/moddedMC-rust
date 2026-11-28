@@ -8,6 +8,7 @@ Where work stopped and how to carry on. Read [ROADMAP.md](ROADMAP.md) and [BACKL
 - Build the server and the test bot: `cargo build --profile pack -p pack-dev -p moddedmc-bot` in `engine/`.
 - Build the Create mod: `powershell -NoProfile -File scripts/pack-mod.ps1 -Crate create`.
 - Run a scenario: `powershell -NoProfile -File scripts/scenario.ps1 -Scenario tests/scenarios/<file>.txt -RunDir run/<name> -Fresh`. The verbs are listed at the top of `scripts/scenario.ps1`. A passing run deletes its run dir; add `-Keep` to look at the world or log.
+- For Create scenarios that check models or displays, give the server the local Create 6.0.10 release jar before running the script. For example, set `$env:MODDEDMC_ASSET_JARS = (Resolve-Path 'cache/create-1.21.1-6.0.10.jar').Path`. A worktree without the jar can still register blocks and pass state checks while missing the bar and pane display models.
 - Unit tests for Create's kinetics: `cargo test -p create` (seven tests).
 - Disk: build caches and worlds grew to about 170 GB before cleanup. `scripts/clean.ps1` frees run dirs, debug builds, incremental caches and cross builds (`-All` also drops pack and release). `.cargo/config.toml` files point every workspace at `target/` or `engine/target/`, so the submodule and the app no longer keep their own. Build with the `pack` profile and clean up what you leave behind.
 

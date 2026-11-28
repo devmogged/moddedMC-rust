@@ -75,6 +75,7 @@ pub struct StateAssets {
     pub straight_stair_display: bool,
     pub block_display_carrier: Option<BlockStateId>,
     pub scaffolding: Option<bool>,
+    pub trapdoor: bool,
     pub wall: Option<WallSelector>,
     pub pane: bool,
 }
@@ -279,6 +280,7 @@ fn build_pack(
         }
     }
     pack.scaffolding_catalog(blocks)?;
+    pack.trapdoor_catalog(blocks)?;
     for (name, variants) in carrier_variants {
         if let Some(block) = Block::from_name(name) {
             pack.carrier_variants(block, variants)?;
@@ -376,6 +378,28 @@ fn block_variant(block: &Block, state: pumpkin_data::BlockStateId) -> Option<Str
 }
 
 fn stock_carrier_model(block: &Block, state: pumpkin_data::BlockStateId, variant: &str) -> Value {
+    if block == crate::content_trapdoors::CARRIER {
+        use pumpkin_data::block_properties::{Half, HorizontalFacing, OakTrapdoorLikeProperties};
+        let props = OakTrapdoorLikeProperties::from_state_id(state);
+        let part = if props.open {
+            "open"
+        } else if props.half == Half::Top {
+            "top"
+        } else {
+            "bottom"
+        };
+        let y = if props.open {
+            match props.facing {
+                HorizontalFacing::North => 0,
+                HorizontalFacing::East => 90,
+                HorizontalFacing::South => 180,
+                HorizontalFacing::West => 270,
+            }
+        } else {
+            0
+        };
+        return json!({"model": format!("minecraft:block/oxidized_copper_trapdoor_{part}"), "y": y});
+    }
     if let Some(model) = crate::content_slab::carrier_model(block, variant) {
         return json!({"model": model});
     }
@@ -942,6 +966,30 @@ impl Pack {
             self.missing = true;
             PLACEHOLDER
         }
+    }
+
+    fn trapdoor_catalog(&mut self, blocks: &[BlockAssets]) -> io::Result<()> {
+        let mut carriers = BTreeSet::new();
+        for block in blocks {
+            if block.states.first().is_none_or(|state| !state.trapdoor) {
+                continue;
+            }
+            if let Some(registered) = Block::from_name(&block.id) {
+                carriers.extend(
+                    registered
+                        .states
+                        .iter()
+                        .map(|state| state.id.vanilla_view().as_u16()),
+                );
+            }
+        }
+        if !carriers.is_empty() {
+            self.json(
+                "assets/moddedmc/moddedmc/trapdoors.json",
+                &serde_json::to_value(carriers)?,
+            )?;
+        }
+        Ok(())
     }
 
     fn scaffolding_catalog(&mut self, blocks: &[BlockAssets]) -> io::Result<()> {

@@ -9,6 +9,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Set;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationNetworking;
@@ -33,6 +34,7 @@ public final class Companion implements ClientModInitializer {
         private final Protocol.Offer offer;
         private volatile byte[] creativeCatalog;
         private volatile Map<BlockState, ScaffoldingCatalog.Entry> scaffolding = Map.of();
+        private volatile Set<BlockState> trapdoors = Set.of();
 
         private Session(Protocol.Offer offer) {
             this.offer = offer;
@@ -83,6 +85,11 @@ public final class Companion implements ClientModInitializer {
         return current == null ? null : current.scaffolding.get(state);
     }
 
+    public static boolean isServerTrapdoor(BlockState state) {
+        var current = session;
+        return current != null && current.trapdoors.contains(state);
+    }
+
     public static Path materialize(URL url, String zipSha1, Proxy proxy) throws IOException {
         var current = session;
         if (current == null || !current.offer.zipSha1().equals(zipSha1)) return null;
@@ -96,6 +103,7 @@ public final class Companion implements ClientModInitializer {
         Path local = PackCache.materialize(cache, current.offer.manifest(), key -> open(base.resolve(key), proxy));
         current.creativeCatalog = CreativeCatalog.load(local);
         current.scaffolding = ScaffoldingCatalog.load(local);
+        current.trapdoors = TrapdoorCatalog.load(local);
         LOGGER.info("Loaded verified moddedMC asset pack {}", current.offer.manifest());
         return local;
     }

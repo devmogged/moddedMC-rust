@@ -188,6 +188,8 @@ pub fn register(content: Content, registry: &mut Registry<'_>) -> Result<(), Reg
         )?;
     }
     register_scaffolding(content, registry)?;
+    let physics = *PHYSICS.get().ok_or(RegistrationError::InvalidDefinition)?;
+    crate::train_trapdoor::register(content, physics, registry)?;
     let items = ITEMS.get().ok_or(RegistrationError::InvalidDefinition)?;
     for &(path, display_name, carrier) in data::ITEMS {
         items.add_item(
