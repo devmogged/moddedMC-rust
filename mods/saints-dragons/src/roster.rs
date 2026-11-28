@@ -809,6 +809,11 @@ pub fn finalize_spawn(world: World<'_>, mob: Entity<'_>) {
         && crate::spawns::DRAGONS.contains(&kind)
     {
         mobs.make_persistent(mob);
+        if cfg!(feature = "original-assets")
+            && let Some(effects) = crate::EFFECTS.get()
+        {
+            effects.set_entity_silent(world, mob.id(), true);
+        }
     }
     // `Volitans.canBreatheUnderwater`: its ravager carrier would drown.
     if matches!(

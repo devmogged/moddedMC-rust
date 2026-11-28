@@ -51,6 +51,7 @@ public final class Companion implements ClientModInitializer {
         BlockDisplayUse.register();
         PackScreens.register();
         LoopMusic.register();
+        EntityAudio.register();
         ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> clearSession());
         ClientConfigurationConnectionEvents.INIT.register((listener, client) -> clearSession());
         ClientConfigurationConnectionEvents.DISCONNECT.register((listener, client) -> clearSession());

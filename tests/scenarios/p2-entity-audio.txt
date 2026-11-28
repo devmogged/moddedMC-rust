@@ -1,0 +1,21 @@
+# Pack with original assets. The bot observes the vanilla trigger; a companion
+# client must also verify movement, looping, stopping and absence of carrier sounds.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1029.5
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+cmd saintsdragons spawn stegonaut 1025 100 1025
+wait 2
+cmd data get entity @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..8,limit=1] Silent
+expect has the following entity data: 1b
+cmd damage @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..8,limit=1] 1 minecraft:generic
+await 10 \[bot\] entity sound: saintsdragons:stegonaut_hurt
+stop

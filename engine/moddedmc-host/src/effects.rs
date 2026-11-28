@@ -463,6 +463,100 @@ unsafe extern "C" fn play_entity_sound(
     true
 }
 
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn start_entity_audio(
+    raw: WorldRef,
+    entity: i32,
+    key: Str,
+    source: u8,
+    volume: f32,
+    pitch: f32,
+    duration: u32,
+    looping: bool,
+) -> bool {
+    // SAFETY: the world and key are borrowed for this call.
+    let (Some(world), key) = (unsafe { world(raw) }, unsafe { key.str() }) else {
+        return false;
+    };
+    let Some(&category) = SOURCES.get(usize::from(source)) else {
+        return false;
+    };
+    if !valid_key(key)
+        || !volume.is_finite()
+        || volume < 0.0
+        || !pitch.is_finite()
+        || pitch <= 0.0
+        || duration == 0
+        || duration > i32::MAX as u32
+    {
+        return false;
+    }
+    let Some(entity) = world.get_entity_by_id(entity) else {
+        return false;
+    };
+    let emitter = entity.get_entity();
+    let Ok(payload) = serde_json::to_vec(&serde_json::json!({
+        "entity": emitter.entity_id, "uuid": emitter.entity_uuid.to_string(),
+        "key": key, "source": source, "volume": volume, "pitch": pitch,
+        "duration": duration, "loop": looping, "playback": Uuid::new_v4().to_string(),
+    })) else {
+        return false;
+    };
+    world.send_to_tracking_players_and_self(
+        emitter,
+        &CCustomPayload::new("moddedmc:entity_audio", &payload),
+    );
+    // The following entity sound is the start trigger, as with loop_music.
+    let packet = CEntitySoundEffect::new(
+        data_to_proto_sound(&sound_event(key)),
+        category,
+        VarInt(emitter.entity_id),
+        volume,
+        pitch,
+        get_seed() as i64,
+    );
+    world.send_to_tracking_players_and_self(emitter, &packet);
+    true
+}
+
+unsafe extern "C" fn stop_entity_audio(raw: WorldRef, entity: i32, key: Str) -> bool {
+    // SAFETY: the world and key are borrowed for this call.
+    let (Some(world), key) = (unsafe { world(raw) }, unsafe { key.str() }) else {
+        return false;
+    };
+    if !valid_key(key) {
+        return false;
+    }
+    let Some(entity) = world.get_entity_by_id(entity) else {
+        return false;
+    };
+    let emitter = entity.get_entity();
+    let Ok(payload) = serde_json::to_vec(&serde_json::json!({
+        "entity": emitter.entity_id, "uuid": emitter.entity_uuid.to_string(),
+        "key": key, "stop": true,
+    })) else {
+        return false;
+    };
+    world.send_to_tracking_players_and_self(
+        emitter,
+        &CCustomPayload::new("moddedmc:entity_audio", &payload),
+    );
+    true
+}
+
+unsafe extern "C" fn set_entity_silent(raw: WorldRef, entity: i32, silent: bool) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(entity) = (unsafe { world(raw) }).and_then(|world| world.get_entity_by_id(entity))
+    else {
+        return false;
+    };
+    let emitter = entity.get_entity();
+    if emitter.is_silent() != silent {
+        emitter.set_silent(silent);
+    }
+    true
+}
+
 unsafe extern "C" fn particles(
     raw: WorldRef,
     particle: Str,
@@ -622,6 +716,9 @@ pub static EFFECTS: abi::EffectsV1 = abi::EffectsV1 {
     loop_music,
     stop_music,
     block_animation: crate::content::block_animation,
+    start_entity_audio,
+    stop_entity_audio,
+    set_entity_silent,
 };
 
 #[cfg(test)]

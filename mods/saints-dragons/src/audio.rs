@@ -305,12 +305,85 @@ fn random_float() -> f32 {
     crate::ai::random(1 << 24) as f32 / (1 << 24) as f32
 }
 
-/// DragonSoundSpec.moving: the stock client tracks the emitter for the recording.
-fn moving(world: World<'_>, mob: Entity<'_>, sound: &str, volume: f32, pitch: f32) {
-    if let Some(effects) = EFFECTS.get()
-        && !effects.play_entity_sound(world, mob.id(), sound, SOUND_NEUTRAL, volume, pitch)
-    {
-        play(world, mob, sound, volume, pitch);
+/// Released SoundProfile and ability playback lifetimes, in ticks.
+fn moving_duration(sound: &str) -> Option<u32> {
+    let (species, cue) = sound.strip_prefix("saintsdragons:")?.split_once('_')?;
+    Some(match (species, cue) {
+        ("cindervane", "grumble1") => 37,
+        ("cindervane", "grumble2") => 27,
+        ("cindervane", "grumble3") => 39,
+        ("raevyx", "grumble_1") => 52,
+        ("raevyx", "grumble_2") => 72,
+        ("raevyx", "grumble_3") => 43,
+        ("stegonaut", "grumble1") => 54,
+        ("stegonaut", "grumble2") => 83,
+        ("stegonaut", "grumble3") => 60,
+        ("varasuchus", "grumble1") => 161,
+        ("varasuchus", "grumble2") => 136,
+        ("varasuchus", "grumble3") => 135,
+        ("ignivorus", "grumble1") => 56,
+        ("ignivorus", "grumble2") => 61,
+        ("ignivorus", "grumble3") => 55,
+        ("volitans", "grumble1") => 67,
+        ("volitans", "grumble2") => 29,
+        ("volitans", "grumble3") => 25,
+        ("nulljaw", "grumble1") => 81,
+        ("nulljaw", "grumble2") => 73,
+        ("nulljaw", "grumble3") => 35,
+        ("atroxiia", "grumble1" | "grumble2") => 40,
+        ("atroxiia", "grumble3") => 60,
+        ("cindervane", "hurt") => 52,
+        ("raevyx" | "ignivorus", "hurt") => 40,
+        ("varasuchus", "hurt") => 34,
+        ("stegonaut" | "volitans", "hurt") => 30,
+        ("nulljaw", "hurt") => 44,
+        ("atroxiia", "hurt") => 20,
+        ("cindervane", "eat") => 33,
+        ("raevyx", "eat") => 56,
+        ("stegonaut" | "nulljaw", "eat") => 22,
+        ("varasuchus", "eat") => 59,
+        ("ignivorus", "eat") => 75,
+        ("volitans", "eat") => 34,
+        ("atroxiia", "eat") => 60,
+        ("cindervane", "takeoff") => 55,
+        ("cindervane", "landed") => 59,
+        ("raevyx", "takeoff") => 56,
+        ("raevyx", "landed") => 72,
+        ("ignivorus", "takeoff") => 69,
+        ("ignivorus", "landed") => 42,
+        ("volitans", "takeoff") => 50,
+        ("volitans", "landed") => 32,
+        ("cindervane", "bite") => 25,
+        ("cindervane", "double_bite") => 20,
+        ("cindervane", "slash") => 40,
+        ("cindervane", "magma_volley") => 66,
+        ("cindervane", "fire_body_start") => 45,
+        ("cindervane", "flex") => 100,
+        ("raevyx", "lightning_beam_start") => 40,
+        ("raevyx", "lightning_beam_stop") => 50,
+        ("volitans", "breath_start") => 20,
+        ("volitans", "breath_end") => 50,
+        _ => return None,
+    })
+}
+
+/// DragonSoundSpec.moving: companion tracks the emitter for its released lifetime.
+pub(crate) fn moving(world: World<'_>, mob: Entity<'_>, sound: &str, volume: f32, pitch: f32) {
+    if let Some(effects) = EFFECTS.get() {
+        if let Some(duration) = moving_duration(sound) {
+            effects.start_entity_audio(
+                world,
+                mob.id(),
+                sound,
+                SOUND_NEUTRAL,
+                volume,
+                pitch,
+                duration,
+                false,
+            );
+        } else if !effects.play_entity_sound(world, mob.id(), sound, SOUND_NEUTRAL, volume, pitch) {
+            play(world, mob, sound, volume, pitch);
+        }
     }
 }
 
@@ -635,6 +708,20 @@ pub fn tick_clip(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn released_moving_durations() {
+        assert_eq!(
+            moving_duration("saintsdragons:varasuchus_grumble1"),
+            Some(161)
+        );
+        assert_eq!(moving_duration("saintsdragons:raevyx_grumble_2"), Some(72));
+        assert_eq!(
+            moving_duration("saintsdragons:cindervane_magma_volley"),
+            Some(66)
+        );
+        assert_eq!(moving_duration("saintsdragons:atroxiia_eat"), Some(60));
+        assert_eq!(moving_duration("saintsdragons:unknown"), None);
+    }
     #[test]
     fn ambient_delays_and_weight_boundaries() {
         let p = ambient_profile("cindervane").unwrap();
