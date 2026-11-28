@@ -281,7 +281,7 @@ public final class DisplayRigs {
             state.addGeckolibData(PREVIEW, rig.preview);
             if (rig.still) definition.previewGeometry().filter(modelCache.cache()::containsKey)
                     .ifPresent(geometry -> state.addGeckolibData(GEOMETRY, geometry));
-            state.addGeckolibData(HIDE_GEOMETRY, rig.hidden);
+            state.addGeckolibData(HIDE_GEOMETRY, !rig.preview && rig.hidden);
             if (!rig.preview && !definition.riderSeats().isEmpty() && rig.mountId >= 0
                     && Minecraft.getInstance().level != null) {
                 Entity mount = Minecraft.getInstance().level.getEntity(rig.mountId);

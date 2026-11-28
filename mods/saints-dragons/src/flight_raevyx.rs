@@ -234,7 +234,9 @@ fn cruise_target(
             continue;
         }
         target[1] = y;
-        if !corridor(world, body, at, target) {
+        if (view.on_ground && !corridor(world, body, at, target))
+            || (!view.on_ground && !clear(world, body, offset(target, at), [0.0; 3]))
+        {
             continue;
         }
         let mut dive = false;
@@ -295,13 +297,26 @@ fn steer(
     view: EntityView,
     target: [f64; 3],
     speed: f64,
+    route: bool,
 ) -> bool {
     let Some(body) = mob.body() else { return false };
+    let destination = target;
+    let target = if route {
+        crate::flight_route::waypoint(world, mob, view.position, destination, false)
+    } else {
+        destination
+    };
     let delta = offset(target, view.position);
     let length = length_squared(delta).sqrt();
     let motion = delta.map(|v| v * speed / length.max(speed));
     if !clear(world, body, [0.0; 3], motion) {
+        if route {
+            crate::flight_route::blocked(mob.id());
+        }
         return false;
+    }
+    if !route {
+        crate::flight_route::forget(mob.id());
     }
     let yaw = if delta[0].hypot(delta[2]) > 0.1 {
         (-delta[0]).atan2(delta[2]).to_degrees() as f32
@@ -337,7 +352,14 @@ fn land(world: World<'_>, mob: Entity<'_>, view: EntityView, home: [f64; 3]) {
         };
         if !shape.is_empty() {
             if world.face_sturdy(p, 1)
-                && steer(world, mob, view, [at[0], f64::from(p.y) + 1.0, at[2]], 0.42)
+                && steer(
+                    world,
+                    mob,
+                    view,
+                    [at[0], f64::from(p.y) + 1.0, at[2]],
+                    0.42,
+                    false,
+                )
             {
                 return;
             }
@@ -350,7 +372,7 @@ fn land(world: World<'_>, mob: Entity<'_>, view: EntityView, home: [f64; 3]) {
         if horizontal < 1.0 { home[1] } else { at[1] },
         home[2],
     ];
-    if !steer(world, mob, view, target, 0.7) {
+    if !steer(world, mob, view, target, 0.7, horizontal >= 1.0) {
         // Stop drifting into an obstacle while a safe descent is sought again.
         mob.change(&EntityChange {
             mask: SET_MOTION,
@@ -431,6 +453,7 @@ pub(super) fn goal(
             !flight.landing || !view.on_ground
         }
         goal_phase::STOP => {
+            crate::flight_route::forget(mob.id());
             state.active = None;
             state.pending = None;
             if view.on_ground {
@@ -453,11 +476,7 @@ pub(super) fn goal(
             };
             let distance = length_squared(offset(cruise.target, view.position));
             let retarget = distance < REACHED_SQ && !view.on_ground
-                || now.saturating_sub(cruise.since) > TARGET_AGE
-                || (now.is_multiple_of(20)
-                    && mob
-                        .body()
-                        .is_none_or(|body| !corridor(world, body, view.position, cruise.target)));
+                || now.saturating_sub(cruise.since) > TARGET_AGE;
             if retarget {
                 flight.cruise = cruise_target(world, mob, view, p, now, false);
             }
@@ -467,12 +486,21 @@ pub(super) fn goal(
                 } else {
                     CRUISE_SPEED
                 };
-                steer(world, mob, view, cruise.target, speed)
+                steer(world, mob, view, cruise.target, speed, true)
             });
             if !moved {
-                flight.cruise = cruise_target(world, mob, view, p, now, true);
-                if flight.cruise.is_none() {
-                    flight.landing = true;
+                mob.change(&EntityChange {
+                    mask: SET_MOTION,
+                    motion: [0.0; 3],
+                    ..Default::default()
+                });
+                // Keep an airborne destination while its planner searches for a detour.
+                if view.on_ground || flight.cruise.is_none() {
+                    crate::flight_route::forget(mob.id());
+                    flight.cruise = cruise_target(world, mob, view, p, now, true);
+                    if flight.cruise.is_none() {
+                        flight.landing = true;
+                    }
                 }
             }
             false

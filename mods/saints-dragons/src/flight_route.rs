@@ -20,9 +20,20 @@ const WEIGHT: f64 = 1.25;
 const GOAL_SWEEP_INTERVAL: usize = 16;
 const EPS: f64 = 1.0e-7;
 // One content tick advances at most this many search steps across all dimensions.
-const TICK_STEPS: usize = 32;
-const TICK_TIME: Duration = Duration::from_millis(2);
-const TICK_CELL_READS: usize = 512;
+const TICK_STEPS: usize = 16;
+const TICK_TIME: Duration = Duration::from_micros(350);
+const TICK_CELL_READS: usize = 128;
+#[derive(Clone, Copy)]
+struct TickLimits {
+    steps: usize,
+    time: Duration,
+    cell_reads: usize,
+}
+const TICK_LIMITS: TickLimits = TickLimits {
+    steps: TICK_STEPS,
+    time: TICK_TIME,
+    cell_reads: TICK_CELL_READS,
+};
 const MAX_REQUESTS: usize = 34; // Java's two workers + 32 waiting requests.
 const LEASE: u64 = 40;
 
@@ -562,6 +573,36 @@ pub fn tick(world: World<'_>, now: u64) {
         return;
     };
     let mut planner = PLANNER.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut pellucida = None;
+    advance(&mut planner, dimension, now, TICK_LIMITS, |pos, swarm| {
+        world.collision_shape(pos).map(|shapes| {
+            if !shapes.is_empty()
+                && swarm
+                && pellucida
+                    .get_or_insert_with(|| {
+                        crate::CONTENT
+                            .get()
+                            .and_then(|c| c.state("saintsdragons:draconian_pellucida"))
+                    })
+                    .is_some_and(|id| {
+                        let mut state = [moddedmc_api::content::UNLOADED_STATE];
+                        world.read(&[pos], &mut state) && state[0] == id
+                    })
+            {
+                return Box::<[CollisionBox]>::default();
+            }
+            shapes.into_boxed_slice()
+        })
+    });
+}
+
+fn advance(
+    planner: &mut Planner,
+    dimension: &str,
+    now: u64,
+    limits: TickLimits,
+    mut read_shapes: impl FnMut(Pos, bool) -> Option<Box<[CollisionBox]>>,
+) {
     if planner.tick != now {
         planner.tick = now;
         planner.steps = 0;
@@ -579,13 +620,10 @@ pub fn tick(world: World<'_>, now: u64) {
         return;
     }
     let started = Instant::now();
-    let deadline = started + TICK_TIME.saturating_sub(planner.elapsed);
-    let pellucida = crate::CONTENT
-        .get()
-        .and_then(|c| c.state("saintsdragons:draconian_pellucida"));
+    let deadline = started + limits.time.saturating_sub(planner.elapsed);
     let mut skipped = 0;
-    while planner.steps < TICK_STEPS
-        && planner.cell_reads < TICK_CELL_READS
+    while planner.steps < limits.steps
+        && planner.cell_reads < limits.cell_reads
         && Instant::now() < deadline
     {
         let Some(id) = planner.queue.pop_front() else {
@@ -623,22 +661,11 @@ pub fn tick(world: World<'_>, now: u64) {
             }
             let ok = sweep(b, movement, |pos, b, movement| {
                 if let std::collections::hash_map::Entry::Vacant(entry) = r.cells.entry(pos) {
-                    if reads >= TICK_CELL_READS || Instant::now() >= deadline {
+                    if reads >= limits.cell_reads || Instant::now() >= deadline {
                         return Err(());
                     }
                     reads += 1;
-                    let shapes = world.collision_shape(pos).map(|shapes| {
-                        if !shapes.is_empty()
-                            && r.swarm
-                            && pellucida.is_some_and(|id| {
-                                let mut state = [moddedmc_api::content::UNLOADED_STATE];
-                                world.read(&[pos], &mut state) && state[0] == id
-                            })
-                        {
-                            return Box::<[CollisionBox]>::default();
-                        }
-                        shapes.into_boxed_slice()
-                    });
+                    let shapes = read_shapes(pos, r.swarm);
                     entry.insert(shapes);
                 }
                 Ok(block_collision(pos, b, movement, r.cells[&pos].as_deref()))
@@ -667,6 +694,92 @@ pub fn tick(world: World<'_>, now: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eight_dragon_tick_cost() {
+        measure_eight_dragon_ticks(TickLimits {
+            steps: 32,
+            cell_reads: 512,
+            time: Duration::from_millis(2),
+        });
+        measure_eight_dragon_ticks(TICK_LIMITS);
+    }
+
+    fn measure_eight_dragon_ticks(limits: TickLimits) {
+        let mut planner = Planner::default();
+        let dimension = "minecraft:overworld";
+        let bounds = Bounds {
+            min: [-0.9, 0.0, -0.9],
+            max: [0.9, 2.0, 0.9],
+        };
+        for id in 0..8 {
+            let z = f64::from(id) * 12.0 + 0.5;
+            let origin = [0.5, 8.5, z];
+            let target = [40.5, 8.5, z];
+            planner.requests.insert(
+                id,
+                Request {
+                    dimension,
+                    target,
+                    touched: 0,
+                    submitted: 0,
+                    swarm: false,
+                    search: Some(Search::new(origin, target, bounds, (-64, 320))),
+                    route: None,
+                    cells: HashMap::new(),
+                    sweeps: HashMap::new(),
+                },
+            );
+            planner.queue.push_back(id);
+        }
+        let mut times = Vec::new();
+        for now in 1..=4000 {
+            for r in planner.requests.values_mut() {
+                r.touched = now;
+            }
+            let start = Instant::now();
+            advance(&mut planner, dimension, now, limits, |pos, _| {
+                let solid = pos.x == 18 && (5..=12).contains(&pos.y);
+                Some(if solid {
+                    vec![CollisionBox {
+                        min: [0.0; 3],
+                        max: [1.0; 3],
+                    }]
+                    .into_boxed_slice()
+                } else {
+                    Box::default()
+                })
+            });
+            times.push(start.elapsed());
+            assert!(planner.steps <= limits.steps);
+            assert!(planner.cell_reads <= limits.cell_reads);
+            if planner.queue.is_empty() {
+                break;
+            }
+        }
+        assert!(planner.queue.is_empty(), "eight requests must finish");
+        assert_eq!(
+            planner
+                .requests
+                .values()
+                .filter(|r| r.route.as_ref().is_some_and(|p| p.reached))
+                .count(),
+            8
+        );
+        times.sort_unstable();
+        let mean = times.iter().sum::<Duration>() / times.len() as u32;
+        eprintln!(
+            "8-dragon planner ({} steps / {} cells / {} us): {} active ticks, mean {:.3} ms, median {:.3} ms, p95 {:.3} ms, max {:.3} ms (synthetic cells, excludes ABI latency)",
+            limits.steps,
+            limits.cell_reads,
+            limits.time.as_micros(),
+            times.len(),
+            mean.as_secs_f64() * 1000.0,
+            times[times.len() / 2].as_secs_f64() * 1000.0,
+            times[(times.len() - 1) * 95 / 100].as_secs_f64() * 1000.0,
+            times.last().unwrap().as_secs_f64() * 1000.0
+        );
+    }
 
     #[test]
     fn routes_around_wall_with_bounded_expansions_and_confirmed_edges() {
