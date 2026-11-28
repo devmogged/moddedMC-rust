@@ -613,12 +613,15 @@ unsafe extern "C" fn particles_with_options(
 unsafe extern "C" fn active_effects(raw: abi::EntityRef, out: abi::Sink) -> bool {
     use pumpkin_data::effect::MobEffectCategory;
     // SAFETY: entity and sink are borrowed for this call.
-    let Some(living) = (unsafe { crate::content::entity(raw) })
-        .and_then(EntityBase::get_living_entity)
+    let Some(living) =
+        (unsafe { crate::content::entity(raw) }).and_then(EntityBase::get_living_entity)
     else {
         return false;
     };
-    let effects: Vec<_> = crate::lock(&living.active_effects).keys().copied().collect();
+    let effects: Vec<_> = crate::lock(&living.active_effects)
+        .keys()
+        .copied()
+        .collect();
     for effect in effects {
         let category = match effect.category {
             MobEffectCategory::Beneficial => 0,
@@ -626,7 +629,13 @@ unsafe extern "C" fn active_effects(raw: abi::EntityRef, out: abi::Sink) -> bool
             MobEffectCategory::Neutral => 2,
         };
         // SAFETY: the sink copies these bytes before returning.
-        unsafe { (out.put)(out.ctx, category, Str::new(effect.minecraft_name.as_bytes())) };
+        unsafe {
+            (out.put)(
+                out.ctx,
+                category,
+                Str::new(effect.minecraft_name.as_bytes()),
+            )
+        };
     }
     true
 }
@@ -638,17 +647,35 @@ unsafe extern "C" fn fall_distance(raw: abi::EntityRef) -> f32 {
         .map_or(f32::NAN, |living| living.fall_distance.load())
 }
 
-unsafe extern "C" fn entity_chatter(raw: WorldRef, entity: i32, key: Str, name: Str, sound: Str, ttl: u32) -> bool {
+unsafe extern "C" fn entity_chatter(
+    raw: WorldRef,
+    entity: i32,
+    key: Str,
+    name: Str,
+    sound: Str,
+    ttl: u32,
+) -> bool {
     // SAFETY: the world and strings are borrowed for this call.
-    let Some(world) = (unsafe { world(raw) }) else { return false };
-    let Some(entity) = world.get_entity_by_id(entity) else { return false };
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    let Some(entity) = world.get_entity_by_id(entity) else {
+        return false;
+    };
     let (key, name, sound) = unsafe { (key.str(), name.str(), sound.str()) };
-    if key.len() > 256 || name.len() > 256 || sound.len() > 256 || ttl > 1800 { return false }
+    if key.len() > 256 || name.len() > 256 || sound.len() > 256 || ttl > 1800 {
+        return false;
+    }
     let source = entity.get_entity();
     let Ok(metadata) = serde_json::to_vec(&serde_json::json!({
         "entity": source.entity_id, "key": key, "name": name, "sound": sound, "ttl": ttl
-    })) else { return false };
-    world.send_to_tracking_players_and_self(source, &CCustomPayload::new("moddedmc:entity_chatter", &metadata));
+    })) else {
+        return false;
+    };
+    world.send_to_tracking_players_and_self(
+        source,
+        &CCustomPayload::new("moddedmc:entity_chatter", &metadata),
+    );
     true
 }
 

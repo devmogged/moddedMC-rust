@@ -84,8 +84,7 @@ impl Effects {
             put: collect,
         };
         // SAFETY: entity and sink are borrowed for this synchronous call.
-        unsafe { ((&raw const (*api).active_effects).read())(entity.raw(), out) }
-            .then_some(effects)
+        unsafe { ((&raw const (*api).active_effects).read())(entity.raw(), out) }.then_some(effects)
     }
 
     pub fn fall_distance(self, entity: Entity<'_>) -> Option<f32> {
@@ -95,10 +94,29 @@ impl Effects {
         value.is_finite().then_some(value)
     }
 
-    pub fn entity_chatter(self, world: World<'_>, entity: i32, key: &str, name: &str, sound: &str, ttl: u32) -> bool {
-        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, entity_chatter)) else { return false };
+    pub fn entity_chatter(
+        self,
+        world: World<'_>,
+        entity: i32,
+        key: &str,
+        name: &str,
+        sound: &str,
+        ttl: u32,
+    ) -> bool {
+        let Some(api) = self.0.upto(offset_of!(abi::EffectsV1, entity_chatter)) else {
+            return false;
+        };
         // SAFETY: table prefix checked; all arguments are borrowed for this call.
-        unsafe { ((&raw const (*api).entity_chatter).read())(world.raw(), entity, s(key), s(name), s(sound), ttl) }
+        unsafe {
+            ((&raw const (*api).entity_chatter).read())(
+                world.raw(),
+                entity,
+                s(key),
+                s(name),
+                s(sound),
+                ttl,
+            )
+        }
     }
 
     pub fn require_encounter_display(self) -> Result<(), InterfaceUnavailable> {

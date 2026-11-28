@@ -1570,7 +1570,12 @@ pub struct EffectsV1 {
     /// Refresh an overhead translated text and optional voice sound on tracking clients.
     /// Empty key or zero ttl clears the display.
     pub entity_chatter: unsafe extern "C" fn(
-        world: WorldRef, entity: i32, key: Str, name: Str, sound: Str, ttl: u32,
+        world: WorldRef,
+        entity: i32,
+        key: Str,
+        name: Str,
+        sound: Str,
+        ttl: u32,
     ) -> bool,
 }
 
