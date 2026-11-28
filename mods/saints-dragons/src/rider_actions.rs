@@ -83,6 +83,28 @@ fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
         return;
     };
     let _ = entities.with_entity(world, vehicle, |dragon| {
+        // DragonRideInputHandler uses the sword binding whenever the player
+        // is not controlling a rideable dragon (including other mounts).
+        if action == "saintsdragons:ability_primary" && phase == ACTION_PRESSED {
+            let controlled = mobs
+                .kind(dragon)
+                .is_some_and(|kind| crate::spawns::DRAGONS.contains(&kind))
+                && if crate::taming::is_tamed(dragon) {
+                    crate::taming::is_owner(dragon, player)
+                } else {
+                    matches!(mobs.game_mode(player), Some(1 | 3))
+                };
+            if !controlled {
+                crate::player_moves::action(world, player, action);
+                // Preserve the wild Varasuchus rodeo controls and other existing mounted dispatch.
+                if !mobs
+                    .kind(dragon)
+                    .is_some_and(|kind| crate::spawns::DRAGONS.contains(&kind))
+                {
+                    return;
+                }
+            }
+        }
         if mobs.kind(dragon) == Some("saintsdragons:raevyx") {
             crate::combat_raevyx::rider_action(world, dragon, player, action, phase);
             return;

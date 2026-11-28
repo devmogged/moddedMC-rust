@@ -1,0 +1,54 @@
+# R requires the selected main-hand sword, starts a native cooldown, and leaves
+# independently ticking magma pillars at the three release distances.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 300 1025.5 0 0
+cmd forceload add 1007 1007 1047 1047
+wait 12
+cmd fill 1007 299 1007 1047 299 1047 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd item replace entity tester hotbar.0 with minecraft:stick
+cmd item replace entity tester weapon.offhand with saintsdragons:dragonlord_sword
+bot hotbar 0
+# Offset each probe laterally so its knockback does not carry it into the next pillar.
+cmd summon minecraft:ravager 1027 300 1028.5 {NoAI:1b,Tags:["sword_first"]}
+cmd summon minecraft:ravager 1027 300 1034.5 {NoAI:1b,Tags:["sword_second"]}
+cmd summon minecraft:ravager 1027 300 1040.5 {NoAI:1b,Tags:["sword_third"]}
+cmd summon minecraft:ravager 1027 300 1022.5 {NoAI:1b,Tags:["sword_cooldown"]}
+wait 0.25
+bot action saintsdragons:ability_primary pressed
+bot action saintsdragons:ability_primary released
+wait 0.5
+cmd data get entity @e[tag=sword_first,limit=1] Health
+await 5 Ravager has the following entity data: 100(?:\.0+)?f
+cmd item replace entity tester hotbar.0 with saintsdragons:dragonlord_sword
+wait 0.25
+bot action saintsdragons:ability_primary pressed
+bot action saintsdragons:ability_primary released
+# Try another direction before the 50-tick cooldown ends.
+cmd tp tester 1025.5 300 1025.5 180 0
+wait 0.2
+bot action saintsdragons:ability_primary pressed
+bot action saintsdragons:ability_primary released
+wait 0.6
+cmd data get entity @e[tag=sword_first,limit=1] Health
+await 5 Ravager has the following entity data: (?:7[89]|8[012])(?:\.0+)?f
+cmd data get entity @e[tag=sword_second,limit=1] Health
+await 5 Ravager has the following entity data: (?:7[4-8])(?:\.0+)?f
+cmd data get entity @e[tag=sword_third,limit=1] Health
+await 5 Ravager has the following entity data: (?:70|71|72|73|74)(?:\.0+)?f
+cmd data get entity @e[tag=sword_cooldown,limit=1] Health
+await 5 Ravager has the following entity data: 100(?:\.0+)?f
+wait 3
+bot action saintsdragons:ability_primary pressed
+bot action saintsdragons:ability_primary released
+wait 0.6
+cmd data get entity @e[tag=sword_cooldown,limit=1] Health
+await 5 Ravager has the following entity data: (?:7[89]|8[012])(?:\.0+)?f
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

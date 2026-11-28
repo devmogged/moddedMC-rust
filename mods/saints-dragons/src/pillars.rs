@@ -3,7 +3,8 @@ use crate::{EFFECTS, ENTITIES, MOBS};
 use moddedmc_api::{
     abi::heightmap,
     content::World,
-    entities::{ENTITY_ALIVE, ENTITY_LIVING, Entity, EntityChange, SET_MOTION},
+    effects::SOUND_PLAYERS,
+    entities::{ENTITY_ALIVE, ENTITY_LIVING, ENTITY_PLAYER, Entity, EntityChange, SET_MOTION},
     tick_count,
 };
 use std::{
@@ -51,6 +52,7 @@ struct Pillar {
     kind: Kind,
     position: [f64; 3],
     owner: [u8; 16],
+    player_owned: bool,
     born: u64,
     damage: f32,
     knockback: f64,
@@ -71,13 +73,14 @@ fn spawn(
     damage: f32,
     knockback: f64,
 ) {
+    let player_owned = owner.view().is_some_and(|v| v.kind & ENTITY_PLAYER != 0);
     let (Some(dimension), Some(owner)) =
         (world.dimension_id(), MOBS.get().and_then(|m| m.uuid(owner)))
     else {
         return;
     };
     if matches!(kind, Kind::Magma(_)) {
-        magma_sound(world, position, false);
+        magma_sound(world, position, false, player_owned);
     }
     ACTIVE
         .lock()
@@ -88,6 +91,7 @@ fn spawn(
             kind,
             position,
             owner,
+            player_owned,
             born: tick_count(),
             damage,
             knockback,
@@ -130,7 +134,40 @@ pub fn amethyst(world: World<'_>, dragon: Entity<'_>, position: [f64; 3], damage
     spawn(world, dragon, position, Kind::Amethyst, damage, 0.9);
 }
 
-fn magma_sound(world: World<'_>, position: [f64; 3], first_hit: bool) {
+fn sword_pillars(at: [f64; 3], forward: [f64; 3]) -> [[f64; 3]; 3] {
+    std::array::from_fn(|stage| {
+        let distance = 3.0 + stage as f64 * 6.0;
+        [
+            at[0] + forward[0] * distance,
+            at[1],
+            at[2] + forward[2] * distance,
+        ]
+    })
+}
+
+/// DragonlordSwordAbility.tryUse: three independently ticking pillars at 3, 9, 15 blocks.
+pub fn sword_wave(world: World<'_>, player: Entity<'_>, at: [f64; 3], forward: [f64; 3]) {
+    for (stage, mut position) in sword_pillars(at, forward).into_iter().enumerate() {
+        let Some(y) = world.surface_height(
+            position[0].floor() as i32,
+            position[2].floor() as i32,
+            heightmap::MOTION_BLOCKING_NO_LEAVES,
+        ) else {
+            continue;
+        };
+        position[1] = f64::from(y);
+        spawn(
+            world,
+            player,
+            position,
+            Kind::Magma(stage as u32),
+            18.0 + stage as f32 * 4.0,
+            0.9 + stage as f64 * 0.2,
+        );
+    }
+}
+
+fn magma_sound(world: World<'_>, position: [f64; 3], first_hit: bool, player_owned: bool) {
     if let Some(effects) = EFFECTS.get() {
         let sound = if cfg!(feature = "original-assets") {
             "saintsdragons:ignivorus_magma_pillar"
@@ -138,12 +175,16 @@ fn magma_sound(world: World<'_>, position: [f64; 3], first_hit: bool) {
             "minecraft:entity.ender_dragon.growl"
         };
         let (volume, base_pitch) = if first_hit { (1.4, 0.8) } else { (1.2, 0.9) };
-        // Vanilla SoundSource.HOSTILE has ordinal 5.
         effects.play_sound(
             world,
             position,
             sound,
-            5,
+            // Vanilla SoundSource.HOSTILE has ordinal 5.
+            if player_owned && !first_hit {
+                SOUND_PLAYERS
+            } else {
+                5
+            },
             volume,
             base_pitch + crate::ai::random(1000) as f32 * 0.0002,
         );
@@ -162,18 +203,34 @@ fn push(kind: Kind, origin: [f64; 3], target: [f64; 3], strength: f64) -> [f64; 
     [x * strength, kind.lift(), z * strength]
 }
 
-fn eligible(world: World<'_>, owner: Option<i32>, target: Entity<'_>) -> bool {
+fn eligible(world: World<'_>, owner: Option<i32>, player_owned: bool, target: Entity<'_>) -> bool {
     let (Some(mobs), Some(view)) = (MOBS.get(), target.view()) else {
         return false;
     };
     if view.kind & ENTITY_LIVING == 0
         || target.flags() & ENTITY_ALIVE == 0
-        || matches!(mobs.game_mode(target), Some(1 | 3))
+        || mobs.game_mode(target) == Some(3)
+        || (!player_owned && mobs.game_mode(target) == Some(1))
         || owner == Some(target.id())
     {
         return false;
     }
     let Some(owner) = owner else { return true };
+    if player_owned {
+        // SwordAbilityTargeting excludes all tamed/owned animals, not just the
+        // caster's pets, and checks the alliance in both directions.
+        // shortcut: no native LivingEntity.attackable query yet.
+        return !taming::is_tamed(target)
+            && mobs.pet_owner(target).is_none()
+            && ENTITIES
+                .get()
+                .and_then(|entities| {
+                    entities.with_entity(world, owner, |player| {
+                        !mobs.allied(player, target) && !mobs.allied(target, player)
+                    })
+                })
+                .unwrap_or(true);
+    }
     // DragonEntity.isAlly includes village defenders and trusted companions.
     if matches!(
         target.type_id().trim_start_matches("minecraft:"),
@@ -204,12 +261,17 @@ impl Pillar {
                 let Some(uuid) = mobs.uuid(target) else {
                     return;
                 };
-                if self.hits.contains(&uuid) || !eligible(world, owner, target) {
+                if self.hits.contains(&uuid) || !eligible(world, owner, self.player_owned, target) {
                     return;
                 }
                 self.hits.insert(uuid);
                 if let Some(owner) = owner {
-                    target.hurt_by(owner, "minecraft:mob_attack", self.damage);
+                    let source = if self.player_owned {
+                        "minecraft:player_attack"
+                    } else {
+                        "minecraft:mob_attack"
+                    };
+                    target.hurt_by(owner, source, self.damage);
                 } else {
                     let source = if matches!(self.kind, Kind::Magma(_)) {
                         "minecraft:hot_floor"
@@ -232,7 +294,7 @@ impl Pillar {
             });
         }
         if first && !self.hits.is_empty() && matches!(self.kind, Kind::Magma(_)) {
-            magma_sound(world, self.position, true);
+            magma_sound(world, self.position, true, self.player_owned);
         }
     }
 }
@@ -341,6 +403,18 @@ mod tests {
         assert_eq!(
             push(Kind::Amethyst, [0.0; 3], [3.0, 7.0, 4.0], 5.0),
             [3.0, 0.32, 4.0]
+        );
+    }
+
+    #[test]
+    fn sword_pillars_follow_the_horizontal_look_at_released_distances() {
+        assert_eq!(
+            sword_pillars([1.5, 80.0, -2.5], [0.0, 0.0, 1.0]),
+            [[1.5, 80.0, 0.5], [1.5, 80.0, 6.5], [1.5, 80.0, 12.5]]
+        );
+        assert_eq!(
+            sword_pillars([1.5, 80.0, -2.5], [-1.0, 0.0, 0.0])[2],
+            [-13.5, 80.0, -2.5]
         );
     }
 }

@@ -37,7 +37,6 @@ struct Movement {
     peak: Option<f64>,
     flight: bool,
     boost_until: u64,
-    pillars: Vec<Pillar>,
     taps: [Option<u64>; 4],
     dodge_until: u64,
     immune_until: u64,
@@ -206,12 +205,9 @@ pub fn tick(world: World<'_>, now: u64) {
             }
             if !dragonlord
                 && !tempest
-                && states.get(&id).is_some_and(|s| {
-                    !s.flight
-                        && s.pillars.is_empty()
-                        && now >= s.dodge_until
-                        && now >= s.boost_until
-                })
+                && states
+                    .get(&id)
+                    .is_some_and(|s| !s.flight && now >= s.dodge_until && now >= s.boost_until)
             {
                 states.remove(&id);
                 return;
@@ -263,17 +259,7 @@ pub fn tick(world: World<'_>, now: u64) {
             } else {
                 s.taps = [None; 4];
             }
-            let pillars = std::mem::take(&mut s.pillars);
             drop(states);
-            let pillars = tick_pillars(world, player, pillars, now);
-            if !pillars.is_empty()
-                && let Some(s) = MOVEMENT
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .get_mut(&id)
-            {
-                s.pillars.extend(pillars);
-            }
             if landing {
                 shockwave(world, player, view.position);
             }
@@ -318,14 +304,6 @@ pub fn action(world: World<'_>, player: Entity<'_>, id: &str) {
         };
         try_dodge(world, player, view, s, direction, now);
     }
-}
-
-struct Pillar {
-    at: [f64; 3],
-    stage: u32,
-    start: u64,
-    dimension: &'static str,
-    seen: Vec<i32>,
 }
 
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -393,12 +371,20 @@ fn dash_distance(mut clear: impl FnMut(f64) -> bool) -> f64 {
     distance
 }
 
+fn is_dragonlord_stack(bytes: &[u8]) -> bool {
+    use fastnbt::Value;
+    fastnbt::from_bytes::<HashMap<String, Value>>(bytes).is_ok_and(|stack| {
+        matches!(stack.get("id"), Some(Value::String(id)) if id == crate::worldroot::DRAGONLORD_SWORD)
+    })
+}
+
 fn sword_action(world: World<'_>, player: Entity<'_>) {
+    let Some(slot) = player.player_selected_slot() else {
+        return;
+    };
     let (Some(view), Some(item), Some(dimension), Some(entities)) = (
         player.view(),
-        player
-            .player_selected_slot()
-            .and_then(|slot| player.player_inventory_item(slot)),
+        player.player_inventory_item(slot),
         world.dimension_id(),
         crate::ENTITIES.get(),
     ) else {
@@ -414,43 +400,12 @@ fn sword_action(world: World<'_>, player: Entity<'_>) {
     let (sin, cos) = f64::from(view.yaw).to_radians().sin_cos();
     let forward = [-sin, 0.0, cos];
     if item == "saintsdragons:dragonlord_sword" {
-        if !player.player_item_ready(&item, 50) {
-            return;
+        // DragonlordSwordAbility uses the released config defaults (enabled, 50 ticks).
+        let stack = player.player_inventory_stack(slot);
+        if stack.as_deref().is_some_and(is_dragonlord_stack) && player.player_item_ready(&item, 50)
+        {
+            crate::pillars::sword_wave(world, player, view.position, forward);
         }
-        let now = tick_count();
-        let mut pillars = Vec::new();
-        for stage in 0..3 {
-            let mut at = add(view.position, scale(forward, 3.0 + 6.0 * f64::from(stage)));
-            let Some(y) = world.surface_height(
-                at[0].floor() as i32,
-                at[2].floor() as i32,
-                moddedmc_api::abi::heightmap::MOTION_BLOCKING_NO_LEAVES,
-            ) else {
-                continue;
-            };
-            at[1] = f64::from(y);
-            sound(
-                world,
-                at,
-                "saintsdragons:ignivorus_magma_pillar",
-                1.2,
-                0.9 + crate::ai::random(201) as f32 / 1000.0,
-            );
-            pillars.push(Pillar {
-                at,
-                stage,
-                start: now,
-                dimension,
-                seen: Vec::new(),
-            });
-        }
-        state(
-            &mut MOVEMENT.lock().unwrap_or_else(|e| e.into_inner()),
-            player.id(),
-            now,
-        )
-        .pillars
-        .extend(pillars);
     } else if item == "saintsdragons:blood_tempest_katana"
         && eligible(player)
         && player.player_fall_flying() == Some(false)
@@ -553,82 +508,6 @@ fn sword_action(world: World<'_>, player: Entity<'_>) {
             1.0,
         );
     }
-}
-
-fn tick_pillars(
-    world: World<'_>,
-    player: Entity<'_>,
-    mut pillars: Vec<Pillar>,
-    now: u64,
-) -> Vec<Pillar> {
-    let Some(entities) = crate::ENTITIES.get() else {
-        return Vec::new();
-    };
-    pillars.retain_mut(|p| {
-        let age = now.saturating_sub(p.start);
-        if age > 43 || world.dimension_id() != Some(p.dimension) {
-            return false;
-        }
-        if !(5..=34).contains(&age) {
-            return true;
-        }
-        let stage = f64::from(p.stage);
-        let size = 1.0 + stage * 0.2;
-        let radius = 2.25 + size * 0.65;
-        let min = add(p.at, [-radius, -0.75, -radius]);
-        let max = add(p.at, [radius, 5.5 + size * 2.4 - 0.75, radius]);
-        for id in entities.entities_in(world, min, max, player.id()) {
-            if p.seen.contains(&id) {
-                continue;
-            }
-            entities.with_entity(world, id, |target| {
-                let Some(v) = target.view() else { return };
-                if !sword_target(player, target) {
-                    return;
-                }
-                if p.seen.is_empty() {
-                    sound(
-                        world,
-                        p.at,
-                        "saintsdragons:ignivorus_magma_pillar",
-                        1.4,
-                        0.8 + crate::ai::random(201) as f32 / 1000.0,
-                    );
-                }
-                p.seen.push(id);
-                target.hurt_by(
-                    player.id(),
-                    "minecraft:player_attack",
-                    18.0 + p.stage as f32 * 4.0,
-                );
-                if let Some(mobs) = crate::MOBS.get() {
-                    mobs.set_on_fire(target, 80);
-                }
-                let (mut x, mut z) = (v.position[0] - p.at[0], v.position[2] - p.at[2]);
-                if x * x + z * z < 1e-4 {
-                    x = 0.0;
-                    z = 1.0;
-                }
-                let push = (0.9 + stage * 0.2) / x.hypot(z);
-                motion(
-                    target,
-                    add(v.motion, [x * push, 0.35 + stage * 0.05, z * push]),
-                );
-            });
-        }
-        if let Some(effects) = crate::EFFECTS.get() {
-            effects.particles(
-                world,
-                "minecraft:flame",
-                add(p.at, [0.0, 2.0, 0.0]),
-                [1.0, 2.0, 1.0],
-                0.05,
-                8,
-            );
-        }
-        true
-    });
-    pillars
 }
 
 fn chain(world: World<'_>, player: Entity<'_>, first: Entity<'_>) {
@@ -755,6 +634,17 @@ fn shockwave(world: World<'_>, player: Entity<'_>, at: [f64; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_dragonlord_main_hand_stack_activates_magma() {
+        let stack = |id: &str| fastnbt::to_bytes(&HashMap::from([("id", id)])).unwrap();
+        assert!(is_dragonlord_stack(&stack(
+            "saintsdragons:dragonlord_sword"
+        )));
+        assert!(!is_dragonlord_stack(&stack(
+            "saintsdragons:blood_tempest_katana"
+        )));
+        assert!(!is_dragonlord_stack(&[]));
+    }
     #[test]
     fn jump_preserves_horizontal_motion_and_adds_to_upward_velocity() {
         assert_eq!(jump_velocity([2.0, -1.0, -3.0]), [2.0, 0.85, -3.0]);

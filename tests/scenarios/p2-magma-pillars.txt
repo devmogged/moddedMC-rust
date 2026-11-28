@@ -44,7 +44,7 @@ wait 0.5
 expect Ravager has the following entity data: 100(?:\.0+)?f
 # Companion manual: chain Stegonaut H and enter an amethyst pillar after its
 # four-tick warmup; stay out of other pillars to see only one hit.
-# Dragonlord sword R is pending the main-hand and cooldown host interface.
+# Dragonlord sword R has its own p2-dragonlord-sword-r.txt scenario.
 reject (?i)panic|panicked|\[bot\] error
 bot quit
 stop
