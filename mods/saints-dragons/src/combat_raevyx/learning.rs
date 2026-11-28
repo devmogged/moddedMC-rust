@@ -1,9 +1,12 @@
-//! Raevyx's transient DragonCombatLearning (0.9.88), scoped to its beam.
+//! Transient DragonCombatLearning (0.9.88), shared by ranged combat controllers.
 use crate::{MOBS, flight::offset};
 use moddedmc_api::entities::Entity;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Mutex, PoisonError},
+    sync::{
+        Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 type Uuid = [u8; 16];
@@ -29,22 +32,37 @@ const RESPONSES: [Response; 5] = [
 ];
 
 #[derive(Clone, Copy, Default)]
-pub(super) struct Expectation {
+pub(crate) struct Expectation {
     response: Response,
     confidence: f64,
     weight: f64,
 }
 
 impl Expectation {
-    pub(super) fn spacing(self) -> f64 {
+    pub(crate) fn spacing(self) -> f64 {
         if self.response == Response::Close {
             8.0 * self.confidence
         } else {
             0.0
         }
     }
-    pub(super) fn weight(self) -> f64 {
+    pub(crate) fn weight(self) -> f64 {
         if self.weight == 0.0 { 1.0 } else { self.weight }
+    }
+    pub(crate) fn air_spacing(self) -> f64 {
+        28.0 + self.spacing()
+            - if self.response == Response::Retreat {
+                4.0 * self.confidence
+            } else {
+                0.0
+            }
+    }
+    pub(crate) fn air_side(self) -> f64 {
+        match self.response {
+            Response::Left => 4.0 * self.confidence,
+            Response::Right => -4.0 * self.confidence,
+            _ => 0.0,
+        }
     }
 }
 
@@ -104,7 +122,7 @@ impl Habits {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Observation {
+pub(crate) struct Observation {
     pub uuid: Uuid,
     pub anchor: Option<i32>,
     pub center: Vec3,
@@ -112,10 +130,24 @@ pub(super) struct Observation {
     pub hurt: Option<(i32, i64)>,
 }
 
+impl Observation {
+    pub(crate) fn from_entity(entity: Entity<'_>) -> Option<Self> {
+        let mobs = MOBS.get()?;
+        let body = entity.body()?;
+        Some(Self {
+            uuid: mobs.uuid(entity)?,
+            anchor: entity.vehicle(),
+            center: std::array::from_fn(|i| (body.min[i] + body.max[i]) * 0.5),
+            health: mobs.health(entity)?.0,
+            hurt: mobs.last_hurt_by_mob(entity),
+        })
+    }
+}
+
 struct Memory {
     uuid: Uuid,
     seen: u64,
-    habits: [Habits; 2],
+    habits: [Habits; 4],
 }
 
 #[derive(Clone, Copy)]
@@ -125,6 +157,8 @@ struct Sample {
 }
 
 struct Trial {
+    token: u64,
+    projectile: bool,
     target: Uuid,
     aerial: bool,
     start: Sample,
@@ -173,7 +207,7 @@ impl Trial {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum Outcome {
+pub(crate) enum Outcome {
     Completed,
     ResponseOnly,
     Blocked,
@@ -186,7 +220,9 @@ struct Learner {
     sample: Option<Sample>,
     velocity: Vec3,
     samples: u32,
+    motion_confidence: f64,
     trial: Option<Trial>,
+    pending: Vec<(Trial, Outcome, u64, Option<i32>)>,
     seen: u64,
 }
 
@@ -195,12 +231,21 @@ impl Learner {
         self.sample = None;
         self.velocity = [0.0; 3];
         self.samples = 0;
+        self.motion_confidence = 0.0;
     }
 
     fn observe(&mut self, now: u64, observation: Option<Observation>) {
         self.seen = now;
         self.memory
             .retain(|m| now.saturating_sub(m.seen) <= MEMORY_TICKS);
+        for (trial, _, _, _) in &mut self.pending {
+            if observation.is_none_or(|obs| {
+                obs.uuid != trial.target || obs.anchor != trial.start.observation.anchor
+            }) {
+                trial.obscured = true;
+            }
+        }
+        self.expire(now);
         let Some(obs) = observation.filter(|o| o.center.iter().all(|v| v.is_finite())) else {
             if let Some(t) = &mut self.trial {
                 t.obscured = true;
@@ -251,6 +296,15 @@ impl Learner {
                     self.finish(now, Outcome::Cancelled);
                     self.reset_motion();
                 } else {
+                    let error =
+                        crate::flight::length_squared(offset(measured, self.velocity)).sqrt();
+                    let speed = crate::flight::length_squared(measured).sqrt();
+                    let agreement = 1.0 - (error / (0.15 + speed)).clamp(0.0, 1.0);
+                    self.motion_confidence = if self.samples < 2 {
+                        0.0
+                    } else {
+                        self.motion_confidence * 0.6 + agreement * 0.4
+                    };
                     self.velocity = if self.samples < 2 {
                         measured
                     } else {
@@ -275,6 +329,10 @@ impl Learner {
     }
 
     fn expectation(&mut self, now: u64, aerial: bool) -> Expectation {
+        self.expectation_kind(now, aerial, false)
+    }
+
+    fn expectation_kind(&mut self, now: u64, aerial: bool, projectile: bool) -> Expectation {
         let Some(sample) = self.sample else {
             return Expectation::default();
         };
@@ -282,28 +340,47 @@ impl Learner {
             .iter_mut()
             .find(|m| m.uuid == sample.observation.uuid)
             .map_or_else(Expectation::default, |m| {
-                m.habits[usize::from(aerial)].expectation(now)
+                m.habits[usize::from(aerial) + 2 * usize::from(projectile)].expectation(now)
             })
     }
 
-    fn begin(&mut self, now: u64, position: Vec3, aerial: bool) {
+    fn predict(&self, now: u64, horizon: f64, max_lead: f64, max_horizon: f64) -> Option<Vec3> {
+        let sample = self
+            .sample
+            .filter(|s| now.saturating_sub(s.tick) <= SAMPLE_TICKS)?;
+        let confidence = self.motion_confidence * (f64::from(self.samples) / 4.0).min(1.0);
+        let ticks = now.saturating_sub(sample.tick) as f64 + horizon.clamp(0.0, max_horizon);
+        let mut lead = self.velocity.map(|v| v * ticks * confidence);
+        let len = crate::flight::length_squared(lead).sqrt();
+        let limit = max_lead.clamp(0.0, 12.0);
+        if len > limit {
+            lead = lead.map(|v| v * limit / len);
+        }
+        Some(crate::flight::add(sample.observation.center, lead))
+    }
+
+    fn begin(&mut self, now: u64, position: Vec3, aerial: bool, projectile: bool) -> u64 {
         self.trial = None;
         let Some(start) = self
             .sample
             .filter(|s| now.saturating_sub(s.tick) <= SAMPLE_TICKS)
         else {
-            return;
+            return 0;
         };
         if self.samples < 3 {
-            return;
+            return 0;
         }
         let d = offset(start.observation.center, position);
         let len = d[0].hypot(d[2]);
         if len < 1e-3 {
-            return;
+            return 0;
         }
-        let expected = self.expectation(now, aerial);
+        let expected = self.expectation_kind(now, aerial, projectile);
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let token = NEXT.fetch_add(1, Ordering::Relaxed);
         self.trial = Some(Trial {
+            token,
+            projectile,
             target: start.observation.uuid,
             aerial,
             start,
@@ -317,14 +394,42 @@ impl Learner {
             contact: false,
             hit: false,
         });
+        token
     }
 
     fn finish(&mut self, now: u64, outcome: Outcome) {
         let Some(t) = self.trial.take() else { return };
+        self.finish_trial(now, t, outcome);
+    }
+
+    fn defer(&mut self, now: u64, outcome: Outcome, lifetime: u64, projectile: Option<i32>) {
+        if let Some(t) = self.trial.take() {
+            if self.pending.len() >= 8 {
+                let (old, _, _, _) = self.pending.remove(0);
+                self.finish_trial(now, old, Outcome::Cancelled);
+            }
+            self.pending
+                .push((t, outcome, now.saturating_add(lifetime), projectile));
+        }
+    }
+
+    fn expire(&mut self, now: u64) {
+        let mut i = 0;
+        while i < self.pending.len() {
+            if self.pending[i].2 <= now {
+                let (trial, outcome, _, _) = self.pending.swap_remove(i);
+                self.finish_trial(now, trial, outcome);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    fn finish_trial(&mut self, now: u64, t: Trial, outcome: Outcome) {
         let Some(mem) = self.memory.iter_mut().find(|m| m.uuid == t.target) else {
             return;
         };
-        let habits = &mut mem.habits[usize::from(t.aerial)];
+        let habits = &mut mem.habits[usize::from(t.aerial) + 2 * usize::from(t.projectile)];
         habits.decay(now);
         if !matches!(outcome, Outcome::Cancelled)
             && let Some(response) = t.response()
@@ -373,16 +478,86 @@ fn with<T: Default>(mob: Entity<'_>, f: impl FnOnce(&mut Learner, u64) -> T) -> 
     f(reg.dragons.entry(uuid).or_default(), now)
 }
 
-pub(super) fn observe(mob: Entity<'_>, obs: Option<Observation>, aerial: bool) -> Expectation {
+pub(crate) fn observe(mob: Entity<'_>, obs: Option<Observation>, aerial: bool) -> Expectation {
     with(mob, |l, now| {
         l.observe(now, obs);
         l.expectation(now, aerial)
     })
 }
-pub(super) fn begin(mob: Entity<'_>, pos: Vec3, aerial: bool) {
-    with(mob, |l, now| l.begin(now, pos, aerial));
+pub(crate) fn begin(mob: Entity<'_>, pos: Vec3, aerial: bool) -> u64 {
+    with(mob, |l, now| l.begin(now, pos, aerial, false))
 }
-pub(super) fn contact(mob: Entity<'_>, target: Uuid, hit: bool) {
+pub(crate) fn begin_projectile(mob: Entity<'_>, pos: Vec3, aerial: bool) -> u64 {
+    with(mob, |l, now| l.begin(now, pos, aerial, true))
+}
+pub(crate) fn projectile_expectation(mob: Entity<'_>, aerial: bool) -> Expectation {
+    with(mob, |l, now| l.expectation_kind(now, aerial, true))
+}
+pub(crate) fn defer(mob: Entity<'_>, outcome: Outcome, lifetime: u64) {
+    with(mob, |l, now| l.defer(now, outcome, lifetime, None));
+}
+pub(crate) fn defer_projectile(mob: Entity<'_>, id: i32, lifetime: u64) {
+    with(mob, |l, now| {
+        l.defer(now, Outcome::Cancelled, lifetime, Some(id))
+    });
+}
+pub(crate) fn projectile_token(mob: Entity<'_>, id: i32) -> u64 {
+    with(mob, |l, _| {
+        l.pending
+            .iter()
+            .find(|(_, _, _, projectile)| *projectile == Some(id))
+            .map_or(0, |(t, _, _, _)| t.token)
+    })
+}
+pub(crate) fn expire(mob: Entity<'_>) {
+    with(mob, |l, now| l.expire(now));
+}
+pub(crate) fn token(mob: Entity<'_>) -> u64 {
+    with(mob, |l, _| l.trial.as_ref().map_or(0, |t| t.token))
+}
+pub(crate) fn contact_token(mob: Entity<'_>, token: u64, target: Uuid, hit: bool) {
+    if token == 0 {
+        return;
+    }
+    with(mob, |l, _| {
+        let trial = l
+            .trial
+            .iter_mut()
+            .chain(l.pending.iter_mut().map(|(t, _, _, _)| t))
+            .find(|t| t.token == token && t.target == target);
+        if let Some(t) = trial {
+            t.contact = true;
+            t.hit |= hit;
+        }
+    });
+}
+pub(crate) fn settle(mob: Entity<'_>, token: u64, outcome: Outcome) {
+    if token == 0 {
+        return;
+    }
+    with(mob, |l, now| {
+        if let Some(index) = l.pending.iter().position(|(t, _, _, _)| t.token == token) {
+            let (trial, _, _, _) = l.pending.swap_remove(index);
+            l.finish_trial(now, trial, outcome);
+        }
+    });
+}
+pub(crate) fn release(mob: Entity<'_>) {
+    with(mob, |l, _| {
+        if let Some(t) = &mut l.trial {
+            t.released = true;
+        }
+    });
+}
+pub(crate) fn predict(mob: Entity<'_>, horizon: f64, lead: f64) -> Option<Vec3> {
+    let max_horizon = if MOBS.get().and_then(|m| m.kind(mob)) == Some("saintsdragons:ignivorus") {
+        20.0
+    } else {
+        8.0
+    };
+    with(mob, |l, now| l.predict(now, horizon, lead, max_horizon))
+}
+pub(crate) fn contact(mob: Entity<'_>, target: Uuid, hit: bool) {
     with(mob, |l, _| {
         if let Some(t) = &mut l.trial
             && t.target == target
@@ -393,10 +568,10 @@ pub(super) fn contact(mob: Entity<'_>, target: Uuid, hit: bool) {
         }
     });
 }
-pub(super) fn finish(mob: Entity<'_>, outcome: Outcome) {
+pub(crate) fn finish(mob: Entity<'_>, outcome: Outcome) {
     with(mob, |l, now| l.finish(now, outcome));
 }
-pub(super) fn clear(mob: Entity<'_>) {
+pub(crate) fn clear(mob: Entity<'_>) {
     if let Some(uuid) = MOBS.get().and_then(|m| m.uuid(mob))
         && let Some(reg) = LEARNERS
             .lock()
@@ -412,6 +587,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn prediction_is_bounded_and_disappears_when_sight_is_lost() {
+        let mut l = Learner::default();
+        for tick in (0..=20).step_by(2) {
+            l.observe(
+                tick,
+                Some(Observation {
+                    uuid: [3; 16],
+                    anchor: None,
+                    center: [20.0 + tick as f64 * 0.2, 0.0, 0.0],
+                    health: 100.0,
+                    hurt: None,
+                }),
+            );
+        }
+        let predicted = l.predict(20, 8.0, 1.0, 8.0).unwrap();
+        assert!(predicted[0] > 24.0 && predicted[0] <= 25.0);
+        l.observe(21, None);
+        assert!(l.predict(21, 8.0, 1.0, 8.0).is_none());
+    }
+
+    #[test]
+    fn deferred_projectile_result_is_separate_from_current_breath() {
+        let mut l = Learner::default();
+        let obs = Observation {
+            uuid: [4; 16],
+            anchor: None,
+            center: [20.0, 0.0, 0.0],
+            health: 100.0,
+            hurt: None,
+        };
+        for tick in [0, 2, 4] {
+            l.observe(tick, Some(obs));
+        }
+        let projectile = l.begin(4, [0.0; 3], false, true);
+        l.trial.as_mut().unwrap().released = true;
+        l.defer(4, Outcome::Cancelled, 30, Some(12));
+        let breath = l.begin(4, [0.0; 3], false, false);
+        assert_ne!(projectile, breath);
+        assert_eq!(l.pending[0].3, Some(12));
+        l.pending[0].0.hit = true;
+        l.expire(34);
+        assert_eq!(l.memory[0].habits[2].outcomes, 1);
+        assert_eq!(l.memory[0].habits[0].outcomes, 0);
+        assert_eq!(l.trial.as_ref().unwrap().token, breath);
+    }
+
+    #[test]
     fn repeated_close_response_increases_spacing_and_hits_change_weight() {
         let mut l = Learner::default();
         let obs = |x| Observation {
@@ -425,7 +647,7 @@ mod tests {
             for dt in [0, 2, 4] {
                 l.observe(start + dt, Some(obs(20.0)));
             }
-            l.begin(start + 4, [0.0; 3], false);
+            l.begin(start + 4, [0.0; 3], false, false);
             for dt in [6, 8, 10, 12] {
                 l.observe(start + dt, Some(obs(20.0 - (dt - 4) as f64 * 0.5)));
             }
@@ -453,11 +675,11 @@ mod tests {
         for tick in [0, 2, 4] {
             l.observe(tick, Some(obs));
         }
-        l.begin(4, [0.0; 3], false);
+        l.begin(4, [0.0; 3], false, false);
         l.trial.as_mut().unwrap().contact = true;
         l.finish(10, Outcome::Blocked);
         assert_eq!(l.memory[0].habits[0].outcomes, 0);
-        l.begin(4, [0.0; 3], false);
+        l.begin(4, [0.0; 3], false, false);
         l.finish(10, Outcome::Cancelled);
         assert_eq!(l.memory[0].habits[0].outcomes, 0);
     }

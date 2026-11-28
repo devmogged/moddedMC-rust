@@ -2,6 +2,7 @@
 use crate::{
     CONTENT, EFFECTS, ENTITIES, MOB_AI, MOBS, TAGS,
     abilities::enemy,
+    combat_raevyx::learning,
     flight::{add, cell, length_squared, offset},
 };
 use moddedmc_api::{
@@ -123,6 +124,9 @@ struct Action {
     burrow_progress: u64,
     rider: bool,
     released: bool,
+    learning_firing: u32,
+    learning_blocked: u32,
+    learning_outcome: learning::Outcome,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ShotKind {
@@ -138,6 +142,7 @@ struct Shot {
     velocity: [f64; 3],
     age: u32,
     display: Option<i32>,
+    learning_token: u64,
 }
 #[derive(Default)]
 struct Runtime {
@@ -559,7 +564,13 @@ fn start(
         burrow_progress: tick_count(),
         rider: false,
         released: false,
+        learning_firing: 0,
+        learning_blocked: 0,
+        learning_outcome: learning::Outcome::Cancelled,
     });
+    if kind == Attack::Breath {
+        learning::begin(mob, v.position, m == Medium::Air);
+    }
     sound(world, mob, event, volume);
 }
 fn aim(mob: Entity<'_>, view: EntityView) -> [f64; 3] {
@@ -589,11 +600,12 @@ fn chase(
     m: Medium,
     gap: f64,
     burrow: bool,
+    stop_gap: f64,
 ) {
     let Some(ai) = MOB_AI.get() else {
         return;
     };
-    if gap <= 3.5 {
+    if gap <= stop_gap {
         ai.stop(mob);
         return;
     }
@@ -637,6 +649,12 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             if with_runtime(mob, |s| s.action.take().is_some()) {
                 ai.stop(mob);
             }
+            learning::defer(mob, learning::Outcome::Cancelled, 30);
+            if !eligible(mob) {
+                learning::clear(mob);
+            } else {
+                learning::observe(mob, None, false);
+            }
             false
         }
         goal_phase::TICK => {
@@ -660,6 +678,15 @@ fn tick_combat(
         return;
     };
     let m = medium(world, view);
+    let observation = target
+        .and_then(|(id, _)| {
+            ENTITIES
+                .get()?
+                .with_entity(world, id, learning::Observation::from_entity)
+                .flatten()
+        })
+        .filter(|o| clear_line(world, aim(mob, view), o.center));
+    let expectation = learning::observe(mob, observation, m == Medium::Air);
     let gap = target.map_or(f64::INFINITY, |(_, (v, w, _, _))| {
         let own = mob.body().map_or(2.0, |b| b.max[0] - b.min[0]);
         (distance(view.position, v.position) - (own + w) * 0.5).max(0.0)
@@ -676,6 +703,8 @@ fn tick_combat(
     if let Some(mut action) = rt.action.take() {
         if run_action(world, mob, rt, &mut action, view, target, gap, m) {
             rt.action = Some(action);
+        } else if action.kind == Attack::Breath {
+            learning::defer(mob, action.learning_outcome, 30);
         }
         return;
     }
@@ -694,7 +723,17 @@ fn tick_combat(
         start(world, mob, rt, a, id, m, view);
         ai.stop(mob);
     } else {
-        chase(world, mob, rt, view, v.position, m, gap, false);
+        let stop_gap = if m == Medium::Ground
+            && !prey
+            && visible
+            && now(world) >= s.ready[Attack::Breath as usize]
+            && energy(&s, now(world)) >= 0.25
+        {
+            18.0 + expectation.spacing() * 0.5
+        } else {
+            3.5
+        };
+        chase(world, mob, rt, view, v.position, m, gap, false, stop_gap);
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -763,10 +802,35 @@ fn run_action(
             }
         }
         Attack::Breath => {
+            if !a.rider {
+                if target.is_none_or(|(id, _)| id != a.target) {
+                    a.learning_outcome = learning::Outcome::Cancelled;
+                    return false;
+                }
+                if learning::predict(mob, 0.0, 2.0).is_none() {
+                    a.learning_blocked += 1;
+                } else {
+                    a.learning_blocked = 0;
+                }
+                if a.learning_blocked >= 12 {
+                    a.learning_outcome = learning::Outcome::Blocked;
+                    let mut s = saved(mob);
+                    s.ready[a.kind as usize] = now(world) + 40 + crate::ai::random(21) as i64;
+                    s.energy_tick = now(world);
+                    save(mob, &s);
+                    sound(world, mob, "breath_end", 2.0);
+                    return false;
+                }
+            }
             if age >= 17 {
                 let time = now(world);
                 let mut s = saved(mob);
                 if gap < 4.5 || s.energy < 1.0 / 240.0 || target.is_none() || age >= a.duration {
+                    a.learning_outcome = if a.learning_firing >= 10 {
+                        learning::Outcome::Completed
+                    } else {
+                        learning::Outcome::ResponseOnly
+                    };
                     s.ready[a.kind as usize] = time + 40 + crate::ai::random(21) as i64;
                     s.energy_tick = time;
                     save(mob, &s);
@@ -774,12 +838,14 @@ fn run_action(
                     return false;
                 }
                 if age == 17 {
+                    learning::release(mob);
                     sound(world, mob, "breathing", 2.0);
                 }
                 s.energy = (s.energy - 1.0 / 240.0).max(0.0);
                 s.energy_tick = time;
                 save(mob, &s);
-                if let Some((_, (_, _, center, _))) = target {
+                if let Some(center) = learning::predict(mob, 1.0, 2.0) {
+                    a.learning_firing += 1;
                     let origin = aim(mob, v);
                     rt.shots.push(Shot {
                         kind: if a.poison {
@@ -791,6 +857,7 @@ fn run_action(
                         velocity: unit(offset(center, origin)).map(|x| x * 1.6),
                         age: 0,
                         display: None,
+                        learning_token: learning::token(mob),
                     });
                 }
             }
@@ -873,7 +940,7 @@ fn run_action(
                         particle(world, "minecraft:cloud", v.position, 0.8, 8);
                     }
                 } else if let Some((_, (tv, _, _, _))) = target {
-                    chase(world, mob, rt, v, tv.position, m, gap, true);
+                    chase(world, mob, rt, v, tv.position, m, gap, true, 3.5);
                     if age.is_multiple_of(6) {
                         particle(world, "minecraft:cloud", v.position, 0.8, 8);
                     }
@@ -935,6 +1002,7 @@ fn launch_orb(
             velocity,
             age: 0,
             display: None,
+            learning_token: 0,
         });
     }
 }
@@ -1174,6 +1242,9 @@ fn start_rider(world: World<'_>, mob: Entity<'_>, rt: &mut Runtime, kind: Attack
         burrow_progress: tick_count(),
         rider: true,
         released: false,
+        learning_firing: 0,
+        learning_blocked: 0,
+        learning_outcome: learning::Outcome::Cancelled,
     });
     sound(world, mob, event, volume);
 }
@@ -1266,6 +1337,7 @@ fn update_dash(world: World<'_>, mob: Entity<'_>, rt: &mut Runtime, v: EntityVie
                 velocity: look_dir(v.body_yaw + angle, 0.0).map(|x| x * 2.9),
                 age: 0,
                 display: None,
+                learning_token: 0,
             });
         }
     }
@@ -1399,6 +1471,7 @@ fn run_rider_action(
                         velocity: direction.map(|x| x * 1.6),
                         age: 0,
                         display: None,
+                        learning_token: 0,
                     });
                 }
             }
@@ -1641,6 +1714,7 @@ fn spine_ring(
             velocity: unit([cos, y, sin]).map(|x| x * speed),
             age: 0,
             display: None,
+            learning_token: 0,
         });
     }
 }
@@ -1776,17 +1850,27 @@ fn step_shot(
                             .is_none_or(|last| tick_count().saturating_sub(*last) >= 2)
                     {
                         breath_hits.insert(id, tick_count());
+                        let mut damaged = false;
                         if shot.kind == ShotKind::Poison {
                             if !poison_immune(t) {
-                                hit(world, mob, t, 1.4);
+                                damaged = MOB_AI
+                                    .get()
+                                    .is_some_and(|ai| ai.attack(world, mob, t.id(), 1.4));
                                 t.add_effect("minecraft:poison", 80, 0, false, true);
                             }
                         } else {
-                            hit(world, mob, t, 1.8);
+                            damaged = MOB_AI
+                                .get()
+                                .is_some_and(|ai| ai.attack(world, mob, t.id(), 1.8));
                             if let Some(v) = t.view() {
                                 let d = unit(offset(v.position, p));
                                 motion(t, add(v.motion, [d[0] * 0.14, 0.04, d[2] * 0.14]));
                             }
+                        }
+                        if shot.learning_token != 0
+                            && let Some(uuid) = MOBS.get().and_then(|m| m.uuid(t))
+                        {
+                            learning::contact_token(mob, shot.learning_token, uuid, damaged);
                         }
                     }
                 });
@@ -1853,6 +1937,7 @@ fn step_shot(
     true
 }
 pub fn ambient(world: World<'_>, mob: Entity<'_>) -> Option<&'static str> {
+    learning::expire(mob);
     // Drop pressed keys and unfinished abilities when the controlling passenger leaves.
     let rider = MOBS.get().and_then(|m| m.passengers(mob).first().copied());
     let stale = with_runtime(mob, |rt| rt.rider.id.is_some() && rt.rider.id != rider);

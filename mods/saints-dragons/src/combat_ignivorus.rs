@@ -1,5 +1,6 @@
 //! Ignivorus ground combat and Skyfall phase transition from 0.9.88.
 
+use crate::combat_raevyx::learning;
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, abilities, taming};
 use moddedmc_api::{
     abi::{CollisionBox, SOUND_NEUTRAL},
@@ -222,6 +223,7 @@ fn choose(
     facing: f64,
     time: i64,
     breath_roll: bool,
+    weights: [f64; 2],
 ) -> Option<Attack> {
     let mut best = None;
     let mut high = f64::NEG_INFINITY;
@@ -229,13 +231,18 @@ fn choose(
         if !valid || score < 50.0 || s.ready[attack.index()] > time {
             return;
         }
-        let score = score
+        let score = (score
             - if s.last == Some(attack) {
                 28.0
             } else if s.previous == Some(attack) {
                 12.0
             } else {
                 0.0
+            })
+            * match attack {
+                Attack::Breath => weights[0],
+                Attack::Fireball => weights[1],
+                _ => 1.0,
             };
         if score > high {
             high = score;
@@ -325,6 +332,7 @@ struct Hit {
     push: f64,
     lift: f64,
     melee: bool,
+    learn: bool,
 }
 fn strike(world: World<'_>, mob: Entity<'_>, id: i32, center: [f64; 3], hit: Hit) -> bool {
     let (Some(ai), Some(entities), Some(mobs)) = (MOB_AI.get(), ENTITIES.get(), MOBS.get()) else {
@@ -353,7 +361,12 @@ fn strike(world: World<'_>, mob: Entity<'_>, id: i32, center: [f64; 3], hit: Hit
                 } else {
                     1.0
                 };
-            ai.attack(world, mob, id, amount);
+            let damaged = ai.attack(world, mob, id, amount);
+            if hit.learn
+                && let Some(uuid) = mobs.uuid(e)
+            {
+                learning::contact(mob, uuid, damaged);
+            }
             if hit.fire > 0 {
                 mobs.set_on_fire(e, hit.fire);
             }
@@ -458,17 +471,53 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 return false;
             }
             s.attack = None;
+            learning::finish(mob, learning::Outcome::Cancelled);
+            if !eligible(mob) {
+                learning::clear(mob);
+            } else {
+                learning::observe(mob, None, !view.on_ground);
+            }
             s.phase_two = false;
             s.ultimate_used = false;
             s.save(mob);
             ai.stop(mob);
         }
         goal_phase::TICK => {
+            let observation = target
+                .and_then(|(id, _)| {
+                    ENTITIES
+                        .get()?
+                        .with_entity(world, id, learning::Observation::from_entity)
+                        .flatten()
+                })
+                .filter(|o| {
+                    world
+                        .raycast(
+                            add(view.position, [0.0, 3.0, 0.0]),
+                            o.center,
+                            Some(mob.id()),
+                        )
+                        .is_some_and(|(block, _)| block.is_none())
+                });
+            let expectation = learning::observe(mob, observation, !view.on_ground);
             if let Some(attack) = s.attack {
+                if matches!(attack, Attack::Breath | Attack::Fireball)
+                    && target.is_none_or(|(id, _)| id != s.target)
+                {
+                    learning::finish(mob, learning::Outcome::Cancelled);
+                    s.attack = None;
+                    s.save(mob);
+                    return false;
+                }
                 ai.stop(mob);
                 s.age += 1;
                 tick_attack(world, mob, &mut s, attack, view.position, view.yaw);
                 if s.age >= attack.duration(s.charge) {
+                    if attack == Attack::Breath {
+                        learning::finish(mob, learning::Outcome::Completed);
+                    } else if attack == Attack::Fireball {
+                        learning::finish(mob, learning::Outcome::Cancelled);
+                    }
                     s.attack = None;
                     s.ready[attack.index()] = now() + i64::from(attack.cooldown());
                     s.hit.clear();
@@ -490,7 +539,19 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 body_yaw: yaw,
                 ..Default::default()
             });
-            if gap > 6.0 {
+            let breath_ready = observation.is_some() && s.ready[Attack::Breath.index()] <= now();
+            let fireball_ready =
+                observation.is_some() && s.phase_two && s.ready[Attack::Fireball.index()] <= now();
+            let stop_gap = if breath_ready || fireball_ready {
+                22.0 + if breath_ready {
+                    expectation.spacing() * 0.75
+                } else {
+                    0.0
+                }
+            } else {
+                6.0
+            };
+            if gap > stop_gap {
                 if now() % 5 == 0 || !ai.navigating(mob) {
                     ai.walk_to(mob, at, 1.75);
                 }
@@ -515,7 +576,20 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             if let Some(attack) = if ultimate {
                 Some(Attack::Skyfall)
             } else {
-                choose(&s, gap, speed, 1.0, now(), crate::ai::random(100) < 65)
+                observation.and_then(|_| {
+                    choose(
+                        &s,
+                        gap,
+                        speed,
+                        1.0,
+                        now(),
+                        crate::ai::random(100) < 65,
+                        [
+                            expectation.weight(),
+                            learning::projectile_expectation(mob, !view.on_ground).weight(),
+                        ],
+                    )
+                })
             } {
                 s.previous = s.last;
                 s.last = Some(attack);
@@ -523,6 +597,11 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 s.target = id;
                 s.age = 0;
                 s.hit.clear();
+                if attack == Attack::Breath {
+                    learning::begin(mob, view.position, !view.on_ground);
+                } else if attack == Attack::Fireball {
+                    learning::begin_projectile(mob, view.position, !view.on_ground);
+                }
                 s.right = !s.right;
                 s.charge = if gap >= 30.0 && speed < 0.22 {
                     50
@@ -568,6 +647,7 @@ fn tick_attack(
         push,
         lift,
         melee: true,
+        learn: false,
     };
     let ranged = |damage, fire, push, lift| Hit {
         damage,
@@ -575,6 +655,7 @@ fn tick_attack(
         push,
         lift,
         melee: false,
+        learn: a == Attack::Breath && s.rider.is_none(),
     };
     match a {
         Attack::Bite if age == 6 => {
@@ -638,10 +719,12 @@ fn tick_attack(
         }
         // shortcut: sampled breath ray rather than expanding swept sections; upgrade with a shared projectile/terrain interface.
         Attack::Breath if age >= 9 => {
+            if age == 9 && s.rider.is_none() {
+                learning::release(mob);
+            }
             let origin = add(add(at, [0.0, 3.0, 0.0]), scale(f, 3.0));
             let direction = rider_aim(world, s).or_else(|| {
-                target_at(world, mob, s.target)
-                    .map(|(target, _)| unit(sub(add(target, [0.0, 1.0, 0.0]), origin)))
+                learning::predict(mob, 1.0, 2.0).map(|target| unit(sub(target, origin)))
             });
             if let Some(dir) = direction {
                 let mut end = origin;
@@ -680,8 +763,10 @@ fn tick_attack(
         Attack::Fireball if age == s.charge + 15 => {
             let origin = add(add(at, [0.0, 3.0, 0.0]), scale(f, 4.0));
             let direction = rider_aim(world, s).or_else(|| {
-                target_at(world, mob, s.target)
-                    .map(|(target, _)| unit(sub(add(target, [0.0, 1.0, 0.0]), origin)))
+                let target = learning::predict(mob, 0.0, 12.0)?;
+                let ticks = length(sub(target, origin)) / 5.0;
+                let predicted = learning::predict(mob, ticks, 12.0)?;
+                Some(unit(sub(predicted, origin)))
             });
             if let Some(dir) = direction {
                 let velocity = scale(dir, 5.0);
@@ -695,6 +780,10 @@ fn tick_attack(
                         velocity,
                     )
                 }) {
+                    if s.rider.is_none() {
+                        learning::release(mob);
+                        learning::defer_projectile(mob, id, 202);
+                    }
                     s.shots.push(Shot {
                         id: Some(id),
                         position: origin,
@@ -1143,6 +1232,7 @@ fn tick_rider(world: World<'_>, mob: Entity<'_>, s: &mut State) -> bool {
                 push: 1.0,
                 lift: 0.2,
                 melee: false,
+                learn: false,
             },
             &mut seen,
         );
@@ -1183,7 +1273,7 @@ pub fn rider_movement(mob: Entity<'_>, sprint: bool) -> (bool, bool, bool, bool,
 }
 
 /// IgnivorusFireballEntity.explode: charge-scaled explosion in an AABB.
-fn fireball_impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], multiplier: f32) {
+fn fireball_impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], multiplier: f32, token: u64) {
     let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
         return;
     };
@@ -1203,7 +1293,14 @@ fn fireball_impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], multiplier: 
                 return;
             }
             // Java explosion(direct projectile, causing dragon) selects player_explosion.
-            target.hurt_by(mob.id(), "minecraft:player_explosion", 70.0 * multiplier);
+            let damaged = target
+                .hurt_by(mob.id(), "minecraft:player_explosion", 70.0 * multiplier)
+                .unwrap_or(false);
+            if token != 0
+                && let Some(uuid) = mobs.uuid(target)
+            {
+                learning::contact_token(mob, token, uuid, damaged);
+            }
             mobs.set_on_fire(target, (80.0 * visual_scale) as u32);
             if let Some(view) = target.view()
                 && visual_scale >= 6.0
@@ -1260,6 +1357,7 @@ fn point_in_collision_shape(point: [f64; 3], shape: &[CollisionBox]) -> bool {
 
 /// Fireball flight and impact continue independently of the ability's recovery.
 pub fn ambient(world: World<'_>, mob: Entity<'_>) {
+    learning::expire(mob);
     let mut s = State::load(mob);
     let changed = tick_rider(world, mob, &mut s);
     if s.shots.is_empty() {
@@ -1306,7 +1404,17 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>) {
             if collision || entity || (shot.age > 200 && step == 20) {
                 if entities.with_entity(world, id, |projectile| projectile.discard()) == Some(true)
                 {
-                    fireball_impact(world, mob, p, shot.multiplier);
+                    let token = learning::projectile_token(mob, id);
+                    fireball_impact(world, mob, p, shot.multiplier, token);
+                    learning::settle(
+                        mob,
+                        token,
+                        if collision {
+                            learning::Outcome::Blocked
+                        } else {
+                            learning::Outcome::Completed
+                        },
+                    );
                 }
                 return false;
             }
@@ -1329,10 +1437,19 @@ mod tests {
     #[test]
     fn phase_gates_melee_and_charge() {
         let mut s = State::default();
-        assert_eq!(choose(&s, 1.0, 0.0, 1.0, 0, false), Some(Attack::Slam));
-        assert_eq!(choose(&s, 5.0, 0.0, 1.0, 0, false), Some(Attack::Bite));
+        assert_eq!(
+            choose(&s, 1.0, 0.0, 1.0, 0, false, [1.0; 2]),
+            Some(Attack::Slam)
+        );
+        assert_eq!(
+            choose(&s, 5.0, 0.0, 1.0, 0, false, [1.0; 2]),
+            Some(Attack::Bite)
+        );
         s.phase_two = true;
-        assert_eq!(choose(&s, 1.0, 0.0, 1.0, 0, false), Some(Attack::Stomp));
+        assert_eq!(
+            choose(&s, 1.0, 0.0, 1.0, 0, false, [1.0; 2]),
+            Some(Attack::Stomp)
+        );
         assert_eq!(charge_multiplier(24), 1.0);
         assert_eq!(charge_multiplier(25), 1.5);
         assert_eq!(charge_multiplier(50), 2.0);
