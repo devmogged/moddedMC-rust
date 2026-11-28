@@ -1,4 +1,5 @@
 //! Raevyx combat from 0.9.88: ground and air attacks, chain lightning and rider dive impact.
+pub(crate) mod learning;
 use moddedmc_api::{
     content::World,
     effects::SOUND_NEUTRAL,
@@ -86,6 +87,13 @@ struct State {
     hit_ids: Vec<i32>,
     hit_ticks: Vec<i32>,
     direction: [f64; 3],
+    beam_lost: i32,
+    beam_aligning: i32,
+    beam_blocked: i32,
+    beam_retreat: i32,
+    beam_retreat_used: bool,
+    beam_firing: i32,
+    beam_aerial: bool,
     dive_ticks: i32,
     dive_drop: f64,
     dive_peak: f64,
@@ -132,6 +140,13 @@ impl Default for State {
             hit_ids: Vec::new(),
             hit_ticks: Vec::new(),
             direction: [0.0, 0.0, 1.0],
+            beam_lost: 0,
+            beam_aligning: 0,
+            beam_blocked: 0,
+            beam_retreat: 0,
+            beam_retreat_used: false,
+            beam_firing: 0,
+            beam_aerial: false,
             dive_ticks: 0,
             dive_drop: 0.0,
             dive_peak: 0.0,
@@ -219,6 +234,12 @@ impl State {
         if attack == Attack::Beam {
             self.burst = 40 + random(41) as i32;
             self.mobility = (self.mobility - 0.25).max(0.0);
+            self.beam_lost = 0;
+            self.beam_aligning = 0;
+            self.beam_blocked = 0;
+            self.beam_retreat = 0;
+            self.beam_retreat_used = false;
+            self.beam_firing = 0;
         }
         if attack == Attack::Dash {
             self.mobility = (self.mobility - 0.62).max(0.0);
@@ -320,24 +341,29 @@ fn sound(world: World<'_>, mob: Entity<'_>, name: &str, volume: f32) {
 
 /// Chain and beam use mobAttack against dragons, custom lightning against other targets.
 /// Roar always uses the custom source.
-fn lightning(world: World<'_>, mob: Entity<'_>, id: i32, amount: f32, dragon_melee: bool) {
+fn lightning(world: World<'_>, mob: Entity<'_>, id: i32, amount: f32, dragon_melee: bool) -> bool {
     if let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) {
-        entities.with_entity(world, id, |target| {
-            if !enemy(world, mob, target) || mobs.kind(target) == Some("saintsdragons:raevyx") {
-                return;
-            }
-            let damage_type = if dragon_melee
-                && mobs
-                    .kind(target)
-                    .is_some_and(|kind| kind.starts_with("saintsdragons:"))
-            {
-                "minecraft:mob_attack"
-            } else {
-                "saintsdragons:raevyx_lightning"
-            };
-            target.hurt_by(mob.id(), damage_type, amount);
-        });
+        return entities
+            .with_entity(world, id, |target| {
+                if !enemy(world, mob, target) || mobs.kind(target) == Some("saintsdragons:raevyx") {
+                    return false;
+                }
+                let damage_type = if dragon_melee
+                    && mobs
+                        .kind(target)
+                        .is_some_and(|kind| kind.starts_with("saintsdragons:"))
+                {
+                    "minecraft:mob_attack"
+                } else {
+                    "saintsdragons:raevyx_lightning"
+                };
+                target
+                    .hurt_by(mob.id(), damage_type, amount)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
     }
+    false
 }
 
 /// RaevyxChainLightningAbility: nearest box, no revisits, falloff, isolated discharge.
@@ -551,7 +577,26 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 }
 
 /// GroundCombatBehaviour melee order and AirCombatBehaviour's bite/ranged thresholds.
+#[cfg(test)]
 fn choose(state: &State, gap: f64, aerial: bool, beam_ok: bool, roll: u64) -> Option<Attack> {
+    choose_learned(
+        state,
+        gap,
+        aerial,
+        beam_ok,
+        roll,
+        learning::Expectation::default(),
+    )
+}
+
+fn choose_learned(
+    state: &State,
+    gap: f64,
+    aerial: bool,
+    beam_ok: bool,
+    roll: u64,
+    expected: learning::Expectation,
+) -> Option<Attack> {
     if !aerial && (3.4..=8.5).contains(&gap) && state.ready(Attack::Rend) {
         return Some(Attack::Rend);
     }
@@ -562,12 +607,17 @@ fn choose(state: &State, gap: f64, aerial: bool, beam_ok: bool, roll: u64) -> Op
         return Some(Attack::Gore);
     }
     if beam_ok
-        && gap >= if aerial { 16.0 } else { 12.0 }
+        && gap
+            >= if aerial {
+                16.0 + expected.spacing()
+            } else {
+                12.0 + expected.spacing()
+            }
         && gap <= 54.4
         && state.energy >= 0.6
         && state.mobility >= 0.25
         && state.ready(Attack::Beam)
-        && roll < 65
+        && (roll as f64) < 65.0 * expected.weight()
     {
         return Some(Attack::Beam);
     }
@@ -617,8 +667,15 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         goal_phase::STOP => {
             let mut state = State::load(mob);
             if state.rider.is_none() {
+                clear_beam_retreat(mob, &mut state);
+                learning::finish(mob, learning::Outcome::Cancelled);
                 state.finish(!view.on_ground);
                 state.save(mob);
+            }
+            if !can_fight(mob) {
+                learning::clear(mob);
+            } else {
+                learning::observe(mob, None, !view.on_ground);
             }
             ai.stop(mob);
             false
@@ -632,18 +689,37 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             let aerial = !view.on_ground;
             let delta = flight::offset(target.position, view.position);
             let dir = unit([delta[0], 0.0, delta[2]]);
+            let from = center(mob).unwrap_or(view.position);
+            let observation = ENTITIES.get().and_then(|entities| {
+                entities
+                    .with_entity(world, id, |t| {
+                        let mobs = MOBS.get()?;
+                        Some(learning::Observation {
+                            uuid: mobs.uuid(t)?,
+                            anchor: t.vehicle(),
+                            center: center(t)?,
+                            health: mobs.health(t)?.0,
+                            hurt: mobs.last_hurt_by_mob(t),
+                        })
+                    })
+                    .flatten()
+            });
+            let to = observation.map_or(target.position, |o| o.center);
+            let visible = clear_line(world, mob, from, to);
+            let expected = learning::observe(mob, observation.filter(|_| visible), aerial);
             if let Some(attack) = state.active {
+                if attack == Attack::Beam && state.target != id {
+                    clear_beam_retreat(mob, &mut state);
+                    learning::finish(mob, learning::Outcome::Cancelled);
+                    state.finish(aerial);
+                    state.save(mob);
+                    return false;
+                }
                 ai.stop(mob);
                 tick_attack(world, mob, &mut state, attack, view, target, gap);
                 state.save(mob);
                 return false;
             }
-            let from = center(mob).unwrap_or(view.position);
-            let to = ENTITIES
-                .get()
-                .and_then(|e| e.with_entity(world, id, center).flatten())
-                .unwrap_or(target.position);
-            let visible = clear_line(world, mob, from, to);
             let beam_ok = visible
                 && MOBS
                     .get()
@@ -656,8 +732,16 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                     .is_some_and(|(hp, max)| hp > max * 0.25);
             if state.decision <= 0 {
                 state.decision = 10;
-                if visible && let Some(attack) = choose(&state, gap, aerial, beam_ok, random(100)) {
+                if visible
+                    && let Some(attack) =
+                        choose_learned(&state, gap, aerial, beam_ok, random(100), expected)
+                {
                     state.start(attack, id, dir);
+                    if attack == Attack::Beam {
+                        learning::begin(mob, view.position, aerial);
+                        state.beam_aerial = aerial;
+                        state.direction = aim(view);
+                    }
                     if attack == Attack::Roar {
                         state.roar_targets = nearby(world, mob, view.position, 24.0)
                             .into_iter()
@@ -700,8 +784,37 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             }
             ai.look_at(mob, to);
             if aerial {
-                // shortcut: direct chase, rather than the Java orbit/commit/breakaway flight planner.
-                let motion = unit(delta).map(|x| x * 0.55);
+                // RaevyxAirCombatBehaviour.selectBeamPosition: keep the released
+                // 28-block radial spacing while a ranged attack is available.
+                let motion = if beam_ok && state.ready(Attack::Beam) && state.energy >= 0.6 {
+                    let predicted = learning::predict(mob, 3.0, 6.0).unwrap_or(to);
+                    let radial = unit([delta[0], 0.0, delta[2]]);
+                    let side = expected.air_side();
+                    let spacing = expected.air_spacing();
+                    let at = [
+                        predicted[0] - radial[0] * spacing + radial[2] * side,
+                        if target.on_ground {
+                            target.position[1] + 10.0
+                        } else {
+                            predicted[1]
+                        },
+                        predicted[2] - radial[2] * spacing - radial[0] * side,
+                    ];
+                    let d = flight::offset(at, view.position);
+                    unit(d).map(|x| x * 0.55f64.min(distance(at, view.position)))
+                } else {
+                    unit(delta).map(|x| x * 0.55)
+                };
+                // shortcut: local swept body checks until full tactical flight
+                // phases consume the asynchronous route planner.
+                let motion = if mob
+                    .body()
+                    .is_some_and(|b| flight::clear_body(world, b, motion))
+                {
+                    motion
+                } else {
+                    [0.0; 3]
+                };
                 turn(mob, dir, Some(motion));
                 mob.reset_fall_distance();
             } else if gap > 4.5 || !visible {
@@ -848,37 +961,166 @@ fn tick_attack(
                 })
                 .flatten()
             else {
+                clear_beam_retreat(mob, state);
+                learning::finish(mob, learning::Outcome::Cancelled);
                 state.finish(!view.on_ground);
                 return;
             };
             let from = center(mob).unwrap_or(view.position);
+            let aerial = !view.on_ground;
+            let horizontal_gap = (target.position[0] - view.position[0])
+                .hypot(target.position[2] - view.position[2])
+                - (mob.body().map_or(2.5, |b| b.max[0] - b.min[0])
+                    + entities
+                        .with_entity(world, id, |t| t.body())
+                        .flatten()
+                        .map_or(0.6, |b| b.max[0] - b.min[0]))
+                    * 0.5;
+            let wet = world
+                .fluid_id(flight::cell(view.position))
+                .as_deref()
+                .is_some_and(|fluid| fluid != "minecraft:empty");
             if hp <= max * 0.25
-                || gap <= 4.5
-                || distance(from, to) > 64.0
-                || !clear_line(world, mob, from, to)
+                || (!state.beam_aerial && (aerial || wet || gap <= 4.5 || horizontal_gap <= 1.0))
             {
+                let outcome = if hp <= max * 0.25 {
+                    learning::Outcome::ResponseOnly
+                } else if state.beam_firing >= 8 {
+                    learning::Outcome::Completed
+                } else {
+                    learning::Outcome::ResponseOnly
+                };
+                learning::finish(mob, outcome);
+                clear_beam_retreat(mob, state);
                 state.finish(!view.on_ground);
+                sound(world, mob, "lightning_beam_stop", 1.0);
+                return;
+            }
+            let visible = clear_line(world, mob, from, to);
+            if state.beam_retreat > 0 {
+                if state.beam_retreat > 2 {
+                    let back =
+                        unit([-state.direction[0], 0.0, -state.direction[2]]).map(|v| v * 0.6);
+                    if !retreat_clear(world, mob, back, 1) {
+                        clear_beam_retreat(mob, state);
+                        learning::finish(mob, learning::Outcome::Blocked);
+                        state.finish(aerial);
+                        sound(world, mob, "lightning_beam_stop", 1.0);
+                        return;
+                    }
+                    turn(mob, state.direction, Some(back));
+                } else {
+                    turn(mob, state.direction, Some([0.0, view.motion[1], 0.0]));
+                }
+                state.beam_retreat -= 1;
+            } else {
+                if visible && let Some(prediction) = learning::predict(mob, 0.0, 2.0) {
+                    state.direction =
+                        turn_aim(state.direction, unit(flight::offset(prediction, from)));
+                }
+                turn(mob, state.direction, None);
+                if !state.beam_aerial && age >= 32 && gap <= 8.0 {
+                    let horizontal = unit([state.direction[0], 0.0, state.direction[2]]);
+                    let toward = unit([
+                        target.position[0] - view.position[0],
+                        0.0,
+                        target.position[2] - view.position[2],
+                    ]);
+                    let back = horizontal.map(|v| -0.6 * v);
+                    let blocked = !retreat_clear(world, mob, back, 10);
+                    if state.beam_retreat_used || dot(horizontal, toward) < 0.5 || blocked {
+                        learning::finish(
+                            mob,
+                            if blocked {
+                                learning::Outcome::Blocked
+                            } else if state.beam_firing >= 8 {
+                                learning::Outcome::Completed
+                            } else {
+                                learning::Outcome::ResponseOnly
+                            },
+                        );
+                        state.finish(aerial);
+                        sound(world, mob, "lightning_beam_stop", 1.0);
+                        return;
+                    }
+                    state.beam_retreat_used = true;
+                    state.beam_retreat = 11;
+                    turn(mob, state.direction, Some(back));
+                }
+            }
+            let endpoint = flight::add(from, state.direction.map(|v| v * RANGE));
+            let aligned = visible
+                && distance(from, to) <= RANGE
+                && entities
+                    .with_entity(world, id, |t| {
+                        t.body().is_some_and(|b| {
+                            segment_hits(
+                                from,
+                                endpoint,
+                                b.min.map(|v| v - 0.55),
+                                b.max.map(|v| v + 0.55),
+                            )
+                        })
+                    })
+                    .unwrap_or(false);
+            let blocked = !visible || distance(from, to) > RANGE;
+            if state.beam_retreat == 0 && !shot_grace(state, aligned, blocked, aerial) {
+                let outcome = if !visible {
+                    learning::Outcome::Blocked
+                } else if state.beam_firing >= 8 {
+                    learning::Outcome::Completed
+                } else {
+                    learning::Outcome::ResponseOnly
+                };
+                learning::finish(mob, outcome);
+                state.finish(aerial);
                 sound(world, mob, "lightning_beam_stop", 1.0);
                 return;
             }
             if age >= 20 {
                 state.energy = (state.energy - 0.014).max(0.0);
                 if state.energy <= 0.0 {
+                    clear_beam_retreat(mob, state);
+                    learning::finish(mob, learning::Outcome::Cancelled);
                     state.finish(!view.on_ground);
                     return;
                 }
                 if age == 20 {
+                    learning::release(mob);
                     sound(world, mob, "lightning_beaming", 1.3);
                 }
-                lightning(
-                    world,
-                    mob,
-                    id,
-                    (35.0 * state.damage_multiplier()).min((hp - max * 0.25).max(0.0)),
-                    true,
-                );
+                state.beam_firing += 1;
+                let impact = clipped_beam(world, mob, from, state.direction);
+                if aligned
+                    && entities
+                        .with_entity(world, id, |t| {
+                            t.body().is_some_and(|b| {
+                                segment_hits(
+                                    from,
+                                    impact,
+                                    b.min.map(|v| v - 0.55),
+                                    b.max.map(|v| v + 0.55),
+                                )
+                            })
+                        })
+                        .unwrap_or(false)
+                {
+                    let hit = lightning(
+                        world,
+                        mob,
+                        id,
+                        (35.0 * state.damage_multiplier()).min((hp - max * 0.25).max(0.0)),
+                        true,
+                    );
+                    if let Some(uuid) = entities
+                        .with_entity(world, id, |t| MOBS.get()?.uuid(t))
+                        .flatten()
+                    {
+                        learning::contact(mob, uuid, hit);
+                    }
+                }
                 if age % 3 == 0 {
-                    crate::vfx::beam(world, mob, from, to);
+                    crate::vfx::beam(world, mob, from, impact);
                 }
             }
         }
@@ -934,6 +1176,10 @@ fn tick_attack(
     if age >= attack.duration(state.burst) {
         if attack == Attack::Beam {
             sound(world, mob, "lightning_beam_stop", 1.0);
+            if state.rider.is_none() {
+                clear_beam_retreat(mob, state);
+                learning::finish(mob, learning::Outcome::Completed);
+            }
         }
         if state.rider.is_some() {
             state.rider_cooldowns[attack.index()] = match attack {
@@ -1028,6 +1274,103 @@ fn aim(view: EntityView) -> [f64; 3] {
     ]
 }
 
+fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a.into_iter().zip(b).map(|(a, b)| a * b).sum()
+}
+
+fn clear_beam_retreat(mob: Entity<'_>, state: &mut State) {
+    if state.beam_retreat > 0 {
+        if let Some(view) = mob.view() {
+            turn(mob, state.direction, Some([0.0, view.motion[1], 0.0]));
+        }
+        state.beam_retreat = 0;
+    }
+}
+
+/// DragonCombatAim.BEAM turns at most nine degrees per tick.
+fn turn_aim(current: [f64; 3], wanted: [f64; 3]) -> [f64; 3] {
+    let angle = dot(current, wanted).clamp(-1.0, 1.0).acos();
+    let step = 9.0f64.to_radians();
+    if angle <= step {
+        return wanted;
+    }
+    let perpendicular = flight::offset(wanted, current.map(|v| v * angle.cos()));
+    let tangent = if flight::length_squared(perpendicular) < 1e-12 {
+        if current[1].abs() > 0.9 {
+            unit([0.0, current[2], -current[1]])
+        } else {
+            unit([current[2], 0.0, -current[0]])
+        }
+    } else {
+        unit(perpendicular)
+    };
+    unit(flight::add(
+        current.map(|v| v * step.cos()),
+        tangent.map(|v| v * step.sin()),
+    ))
+}
+
+/// DragonCombatAim.ShotGrace: consecutive alignment/obstruction and combined loss.
+fn shot_grace(state: &mut State, aligned: bool, blocked: bool, aerial: bool) -> bool {
+    let alignment = if aerial { 20 } else { 10 };
+    state.beam_lost = if aligned { 0 } else { state.beam_lost + 1 };
+    state.beam_aligning = if !aligned && !blocked {
+        state.beam_aligning + 1
+    } else {
+        0
+    };
+    state.beam_blocked = if blocked { state.beam_blocked + 1 } else { 0 };
+    state.beam_aligning < alignment && state.beam_blocked < 10 && state.beam_lost < alignment + 10
+}
+
+/// Raevyx.canRetreatWithAiBeam: test the body and all four feet for the entire retreat.
+fn retreat_clear(world: World<'_>, mob: Entity<'_>, step: [f64; 3], ticks: i32) -> bool {
+    let Some(body) = mob.body() else { return false };
+    (1..=ticks * 2).all(|n| {
+        let shift = step.map(|v| v * f64::from(n) * 0.5);
+        if !flight::clear_body(world, body, shift) {
+            return false;
+        }
+        [body.min[0] + 0.2, body.max[0] - 0.2].into_iter().all(|x| {
+            [body.min[2] + 0.2, body.max[2] - 0.2].into_iter().all(|z| {
+                let foot = [x + shift[0], body.min[1] - 0.15, z + shift[2]];
+                let cell = flight::cell(foot);
+                let local = foot.map(|v| v - v.floor());
+                world
+                    .fluid_id(cell)
+                    .is_some_and(|id| id == "minecraft:empty")
+                    && world.collision_shape(cell).is_some_and(|boxes| {
+                        boxes.iter().any(|b| {
+                            local[0] >= b.min[0]
+                                && local[0] <= b.max[0]
+                                && local[2] >= b.min[2]
+                                && local[2] <= b.max[2]
+                                && b.max[1] >= local[1] - 0.15
+                        })
+                    })
+            })
+        })
+    })
+}
+
+fn clipped_beam(world: World<'_>, mob: Entity<'_>, from: [f64; 3], dir: [f64; 3]) -> [f64; 3] {
+    let endpoint = |len: f64| std::array::from_fn(|i| from[i] + dir[i] * len);
+    let mut lo = 0.0;
+    let mut hi = RANGE;
+    if clear_line(world, mob, from, endpoint(hi)) {
+        return endpoint(hi);
+    }
+    for _ in 0..12 {
+        let mid = (lo + hi) * 0.5;
+        if clear_line(world, mob, from, endpoint(mid)) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    endpoint(lo)
+}
+
 fn rider_beam(world: World<'_>, mob: Entity<'_>, view: EntityView, state: &State) {
     let Some(entities) = ENTITIES.get() else {
         return;
@@ -1049,22 +1392,7 @@ fn rider_beam(world: World<'_>, mob: Entity<'_>, view: EntityView, state: &State
             r * yaw.sin() + forward * yaw.cos(),
         ],
     );
-    let endpoint = |len: f64| std::array::from_fn(|i| from[i] + dir[i] * len);
-    let mut lo = 0.0;
-    let mut hi = RANGE;
-    if clear_line(world, mob, from, endpoint(hi)) {
-        lo = hi;
-    } else {
-        for _ in 0..12 {
-            let mid = (lo + hi) * 0.5;
-            if clear_line(world, mob, from, endpoint(mid)) {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-        }
-    }
-    let to = endpoint(lo);
+    let to = clipped_beam(world, mob, from, dir);
     let radius = 1.2;
     let min = std::array::from_fn(|i| from[i].min(to[i]) - radius);
     let max = std::array::from_fn(|i| from[i].max(to[i]) + radius);
@@ -1480,6 +1808,7 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>, view: EntityView) -> Option<&'
             })
         });
     if state.rider != rider {
+        learning::clear(mob);
         if state.rider.is_some() {
             stop_rider_beam(world, mob, &mut state);
             state.active = None;
@@ -1589,6 +1918,28 @@ pub fn immune(mob: Entity<'_>, damage_type: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn beam_aim_turns_at_most_nine_degrees_and_grace_recovers() {
+        let initial = [0.0, 0.0, 1.0];
+        let wanted = [1.0, 0.0, 0.0];
+        let next = turn_aim(initial, wanted);
+        assert!((dot(initial, next).acos().to_degrees() - 9.0).abs() < 1e-8);
+        let mut state = State::default();
+        for _ in 0..9 {
+            assert!(shot_grace(&mut state, false, true, false));
+        }
+        assert!(shot_grace(&mut state, true, false, false));
+        for _ in 0..9 {
+            assert!(shot_grace(&mut state, false, true, false));
+        }
+        assert!(!shot_grace(&mut state, false, true, false));
+        assert!(shot_grace(&mut state, true, false, true));
+        for _ in 0..19 {
+            assert!(shot_grace(&mut state, false, false, true));
+        }
+        assert!(!shot_grace(&mut state, false, false, true));
+    }
 
     #[test]
     fn rider_hold_threshold_and_beam_geometry() {

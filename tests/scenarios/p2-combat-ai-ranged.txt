@@ -1,0 +1,42 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+# Raevyx cannot damage its retaliation target through a full-height wall.
+# Remove the obstruction and reestablish the target; observe live combat.
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1035.5
+cmd forceload add 1000 1000 1060 1060
+wait 12
+cmd fill 1000 99 1000 1060 99 1060 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1000 100 1000 1060 106 1060 minecraft:air
+await 30 Successfully filled|No blocks were filled
+cmd time set midnight
+cmd fill 1000 100 1034 1060 114 1034 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd saintsdragons spawn raevyx 1025 100 1025
+await 30 saintsdragons:raevyx: spawned
+cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] add ranged_dragon
+cmd summon minecraft:iron_golem 1025.5 100 1045.5 {NoAI:1b,Tags:["ranged_target"]}
+cmd tp @e[tag=ranged_dragon,limit=1] 1025.5 100 1025.5 0 0
+cmd damage @e[tag=ranged_dragon,limit=1] 1 minecraft:mob_attack by @e[tag=ranged_target,limit=1]
+wait 2
+cmd data get entity @e[tag=ranged_target,limit=1] Health
+await 10 Iron Golem has the following entity data: 100f
+cmd fill 1000 100 1034 1060 114 1034 minecraft:air
+await 30 Successfully filled
+cmd tp @e[tag=ranged_dragon,limit=1] 1025.5 100 1025.5 0 0
+cmd damage @e[tag=ranged_dragon,limit=1] 1 minecraft:mob_attack by @e[tag=ranged_target,limit=1]
+wait 8
+cmd data get entity @e[tag=ranged_target,limit=1] Health
+await 10 Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
+# Manual: at beam windup, move the target sideways or place a temporary wall.
+# Check bounded turn, reacquisition after brief obstruction, and cancellation
+# after sustained obstruction. On flat ground approach to 5–8 blocks to observe
+# one retreat; repeat with a ledge or solid block behind the dragon.
+reject (?i)panic|panicked
+bot quit
+stop

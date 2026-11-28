@@ -49,6 +49,44 @@ const ATTACKS: [Attack; 4] = [
     Attack::MagmaVolley,
 ];
 
+/// CindervaneGroundCombatBehaviour.CombatSnapshot.
+#[derive(Clone, Copy)]
+pub struct CombatSnapshot {
+    pub gap: f64,
+    pub facing: bool,
+    pub away_speed: f64,
+    pub target_speed: f64,
+    pub nearby_enemies: usize,
+    pub health_ratio: f64,
+}
+
+impl CombatSnapshot {
+    fn score(self, kind: Attack) -> Option<f64> {
+        let gap = self.gap;
+        if !self.facing {
+            return None;
+        }
+        Some(match kind {
+            Attack::Bite if gap <= 4.5 => 56.0 + (4.5 - gap) * 3.0,
+            Attack::DoubleBite if gap <= 4.75 => {
+                92.0 + (4.75 - gap) * 6.0
+                    + self.away_speed.max(0.0) * 18.0
+                    + self.health_ratio * 8.0
+            }
+            Attack::SlashGrab if (2.0..=6.25).contains(&gap) => {
+                84.0 + self.health_ratio * 12.0 + if gap >= 3.0 { 8.0 } else { -8.0 }
+                    - self.away_speed.max(0.0) * 10.0
+            }
+            Attack::MagmaVolley if (8.0..=32.0).contains(&gap) => {
+                68.0 + ((gap - 8.0) * 0.8).min(18.0)
+                    + self.nearby_enemies.saturating_sub(1) as f64 * 10.0
+                    + if self.target_speed < 0.25 { 10.0 } else { 0.0 }
+            }
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Default)]
 pub struct Abilities {
     running: Option<Running>,
@@ -60,6 +98,7 @@ pub struct Abilities {
     crash_height: Option<f64>,
     shots: Vec<Shot>,
     pub last: Option<Attack>,
+    previous: Option<Attack>,
 }
 
 struct Running {
@@ -120,36 +159,41 @@ impl Abilities {
         self.fire_cooldown = self.fire_cooldown.max(tick_count() + 100);
     }
 
-    pub fn choose(&mut self, now: u64, target: i32, gap: f64, facing: bool) -> bool {
-        if gap <= 3.25 && now >= self.fire_cooldown {
+    pub fn choose(&mut self, now: u64, target: i32, snapshot: CombatSnapshot) -> bool {
+        if (snapshot.gap <= 3.25 || (snapshot.nearby_enemies >= 2 && snapshot.gap <= 6.5))
+            && now >= self.fire_cooldown
+        {
             self.fire_until = now + 100;
             self.fire_cooldown = now + 240;
         }
-        if !facing || now < self.cadence {
+        if !snapshot.facing || now < self.cadence {
             return false;
         }
-        let index = ATTACKS
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, kind)| {
-                if now < self.cooldown[i] {
-                    return None;
-                }
-                let score = match kind {
-                    Attack::Bite if gap <= 4.5 => 56.0 + (4.5 - gap) * 3.0,
-                    Attack::DoubleBite if gap <= 4.75 => 92.0 + (4.75 - gap) * 6.0,
-                    Attack::SlashGrab if (2.0..=6.25).contains(&gap) => {
-                        84.0 + if gap >= 3.0 { 8.0 } else { -8.0 }
-                    }
-                    Attack::MagmaVolley if (8.0..=32.0).contains(&gap) => {
-                        68.0 + (gap - 8.0).mul_add(0.8, 0.0).min(18.0)
-                    }
-                    _ => return None,
-                };
-                Some((i, score - if self.last == Some(kind) { 26.0 } else { 0.0 }))
-            })
-            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-            .map(|(i, _)| i);
+        let index = [
+            Attack::DoubleBite,
+            Attack::SlashGrab,
+            Attack::MagmaVolley,
+            Attack::Bite,
+        ]
+        .into_iter()
+        .filter_map(|kind| ATTACKS.iter().position(|&a| a == kind).map(|i| (i, kind)))
+        .filter_map(|(i, kind)| {
+            if now < self.cooldown[i] {
+                return None;
+            }
+            let penalty = if self.last == Some(kind) {
+                26.0
+            } else if self.previous == Some(kind) {
+                10.0
+            } else {
+                0.0
+            };
+            let score = snapshot.score(kind)? - penalty
+                + (crate::ai::random(10_000) as f64 / 10_000.0 - 0.5) * 4.0;
+            Some((i, score))
+        })
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(i, _)| i);
         let Some(i) = index else { return false };
         let kind = ATTACKS[i];
         let (_, cadence, cooldown) = kind.timers();
@@ -164,6 +208,7 @@ impl Abilities {
         });
         self.cadence = now + cadence;
         self.cooldown[i] = now + cooldown;
+        self.previous = self.last;
         self.last = Some(kind);
         true
     }
@@ -1118,19 +1163,46 @@ mod tests {
 
     #[test]
     fn range_selects_all_primary_attacks_with_cooldown() {
+        let snapshot = |gap| CombatSnapshot {
+            gap,
+            facing: true,
+            away_speed: 0.0,
+            target_speed: 0.0,
+            nearby_enemies: 1,
+            health_ratio: 1.0,
+        };
         for (gap, expected) in [
             (1.0, Attack::DoubleBite),
             (5.0, Attack::SlashGrab),
             (12.0, Attack::MagmaVolley),
         ] {
             let mut state = Abilities::default();
-            assert!(state.choose(0, 1, gap, true));
+            assert!(state.choose(0, 1, snapshot(gap)));
             assert_eq!(state.last, Some(expected));
-            assert!(!state.choose(0, 1, gap, true));
+            assert!(!state.choose(0, 1, snapshot(gap)));
         }
         let mut state = Abilities::default();
-        assert!(state.choose(0, 1, 1.0, true));
-        assert!(state.choose(28, 1, 1.0, true));
+        assert!(state.choose(0, 1, snapshot(1.0)));
+        assert!(state.choose(28, 1, snapshot(1.0)));
         assert_eq!(state.last, Some(Attack::Bite));
+    }
+
+    #[test]
+    fn target_motion_and_group_change_attack_scores() {
+        let mut snapshot = CombatSnapshot {
+            gap: 4.5,
+            facing: true,
+            away_speed: 0.0,
+            target_speed: 0.0,
+            nearby_enemies: 1,
+            health_ratio: 1.0,
+        };
+        assert!(snapshot.score(Attack::SlashGrab) > snapshot.score(Attack::DoubleBite));
+        snapshot.away_speed = 0.4;
+        assert!(snapshot.score(Attack::DoubleBite) > snapshot.score(Attack::SlashGrab));
+        snapshot.gap = 12.0;
+        let baseline = snapshot.score(Attack::MagmaVolley).unwrap();
+        snapshot.nearby_enemies = 3;
+        assert!((snapshot.score(Attack::MagmaVolley).unwrap() - baseline - 20.0).abs() < 1e-9);
     }
 }
