@@ -89,6 +89,8 @@ const CINDERVANE_SAME_SPECIES_RADIUS: f64 = 64.0;
 const CINDERVANE_ANY_DRAGON_RADIUS: f64 = 128.0;
 const CINDERVANE_SAME_SPECIES_LIMIT: usize = 2;
 const CINDERVANE_TOTAL_DRAGON_LIMIT: usize = 4;
+const NATURAL_SPAWN_NULLJAW_RADIUS: f64 = 96.0;
+const MAX_NEARBY_WILD_NULLJAWS: usize = 4;
 const UP: u8 = 1;
 
 pub fn register(registry: &mut Registry<'_>, mobs: Mobs) -> Result<(), RegistrationError> {
@@ -129,10 +131,24 @@ fn check(world: World<'_>, spawn: &SpawnCheck<'_>) -> bool {
                 && dry(world, above)
                 && open(world, spawn.position)
                 && open(world, above)
+                && nulljaw_local_spawn_cap(&dragons_near(
+                    world,
+                    spawn.position,
+                    NATURAL_SPAWN_NULLJAW_RADIUS,
+                ))
         }
         "saintsdragons:mossback" => mossback_ground(world, spawn.position),
         _ => true,
     }
+}
+
+/// Nulljaw's release allows a candidate when at most four wild Nulljaws are nearby.
+fn nulljaw_local_spawn_cap(nearby: &[(&str, bool)]) -> bool {
+    nearby
+        .iter()
+        .filter(|(kind, tamed)| *kind == "saintsdragons:nulljaw" && !tamed)
+        .count()
+        <= MAX_NEARBY_WILD_NULLJAWS
 }
 
 fn up(pos: Pos) -> Pos {
@@ -249,4 +265,20 @@ pub fn dragons_near(world: World<'_>, pos: Pos, radius: f64) -> Vec<(&'static st
             })?
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nulljaw_cap_counts_only_wild_nulljaws_and_is_inclusive() {
+        let wild = ("saintsdragons:nulljaw", false);
+        let mut nearby = vec![wild; 4];
+        nearby.push(("saintsdragons:nulljaw", true));
+        nearby.push(("saintsdragons:atroxiia", false));
+        assert!(nulljaw_local_spawn_cap(&nearby));
+        nearby.push(wild);
+        assert!(!nulljaw_local_spawn_cap(&nearby));
+    }
 }

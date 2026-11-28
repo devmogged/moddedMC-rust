@@ -1911,11 +1911,25 @@ pub type ItemInputFn = unsafe extern "C" fn(
     simulate: bool,
 ) -> u32;
 
+/// Peek at one item in a slot (empty expected), or atomically take that exact item.
+/// The sink receives one saved stack on success; a peek must not change the inventory.
+pub type ItemOutputFn = unsafe extern "C" fn(
+    world: WorldRef,
+    position: Pos,
+    state: u32,
+    face: u8,
+    slot: u32,
+    expected: Str,
+    out: Sink,
+) -> bool;
+
 #[repr(C)]
 pub struct ItemInputV1 {
     pub size: usize,
     /// Attach to a previously staged content block of the registering mod.
     pub add: unsafe extern "C" fn(reg: Reg, block: Str, receive: ItemInputFn) -> i32,
+    pub add_output:
+        unsafe extern "C" fn(reg: Reg, block: Str, slots: u32, take: ItemOutputFn) -> i32,
 }
 
 pub const TAGS: &str = "moddedmc:tags";

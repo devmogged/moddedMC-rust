@@ -1,0 +1,38 @@
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+expect registered content block saintsdragons:draconic_crucible
+botstart tester
+wait 2
+cmd tp tester 1025.5 105 1025.5
+wait 3
+cmd fill 1024 104 1024 1028 104 1028 minecraft:stone
+cmd fill 1024 105 1024 1028 108 1028 minecraft:air
+cmd setblock 1025 105 1027 saintsdragons:draconic_crucible[facing=east]
+cmd setblock 1025 106 1027 minecraft:hopper[facing=down]
+cmd item replace block 1025 106 1027 container.0 with minecraft:raw_iron
+wait 2
+cmd item replace block 1025 106 1027 container.0 with minecraft:blaze_powder
+await-cmd 5 following block data: 11$ && data get block 1025 105 1027 charge
+cmd gamemode survival tester
+bot use 1025 105 1027 north
+wait 1
+bot expect slot 0 minecraft:raw_iron 1
+await 5 expect inventory ok slot 0 raw_iron 1
+bot inventory-click 15 left
+await 5 \[bot\] did: inventory-click 15 left
+await-cmd 20 following block data: 1$ && data get block 1025 105 1027 output.count
+bot expect slot 6 minecraft:iron_ingot 1
+await 5 expect inventory ok slot 6 iron_ingot 1
+cmd setblock 1025 104 1027 minecraft:hopper[facing=down]
+wait 2
+bot expect slot 6 minecraft:air 0
+await 5 expect inventory ok slot 6 air 0
+await-cmd 5 following block data: 1$ && data get block 1025 104 1027 Items[0].count
+await-cmd 5 following block data: "minecraft:iron_ingot"$ && data get block 1025 104 1027 Items[0].id
+wait 2
+cmd data get block 1025 104 1027 Items[0].count
+wait 0.5
+expect following block data: 1$
+reject (?i)panic|panicked
+bot quit
+stop
