@@ -644,6 +644,7 @@ fn tick_attack(
                     .map(|(target, _)| unit(sub(add(target, [0.0, 1.0, 0.0]), origin)))
             });
             if let Some(dir) = direction {
+                let mut end = origin;
                 for step in 1..=96 {
                     let p = add(origin, scale(dir, f64::from(step)));
                     if world
@@ -652,6 +653,7 @@ fn tick_attack(
                     {
                         break;
                     }
+                    end = p;
                     if age % 5 == 0 {
                         particles(world, p, 0.5, "minecraft:flame");
                     }
@@ -666,6 +668,9 @@ fn tick_attack(
                             &mut seen,
                         );
                     }
+                }
+                if age % 5 == 0 {
+                    crate::vfx::breath(world, origin, end, crate::vfx::Element::Fire, 1.0);
                 }
             }
         }

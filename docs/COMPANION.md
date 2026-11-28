@@ -143,6 +143,18 @@ green, blue, alpha. The companion renders seven seeded segments per layer as
 crossed lightning ribbons. The normal item is hidden and the server removes
 the transient display at expiration. This path does not require GeckoLib.
 
+The same display path accepts `moddedmc:ribbon`, with float segment offsets
+`x`, `y`, `z`, integer `lifetime` (1–200), numeric `flat` (one plane
+instead of two crossed planes), and up to four layer compounds. Each layer
+specifies a full resource texture prefix without `.png`, integer `frames`
+(1–64; numbered from zero when greater than one), float half-width `width`
+in blocks (0–32), float `alpha`, optional float RGB tint `r`, `g`, `b`
+in [0,1], and integer `repeats` (1–64). Textures are distributed through
+the registered item's model dependencies. The server owns the display lease.
+
+For a GeckoLib body rig, numeric `moddedmc:rig_hidden` in custom data
+suppresses the body geometry while retaining animated rider-seat sampling.
+
 ## Item display parts
 
 A mod can put an object mapping part paths to block or item models in `assets/<namespace>/moddedmc/display_parts.json`. For example, `{"hinge/arm": "example:block/hinge_arm"}` supplies the item model `example:moddedmc/parts/hinge/arm`. Put that ID in a vanilla item's `minecraft:item_model` component and show it with the existing item display interface. The generated resource pack includes the referenced model and textures. This works in stock clients and requires no additional registry entries.

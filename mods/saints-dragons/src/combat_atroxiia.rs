@@ -1184,6 +1184,14 @@ fn frost(world: World<'_>, target: Entity<'_>, ticks: i32, particles: bool) {
         target.set_ticks_frozen(frost_ticks(current, ticks));
     }
     if particles && let (Some(e), Some(v)) = (EFFECTS.get(), target.view()) {
+        crate::vfx::burst(
+            world,
+            inflate(v.position, [0.0, 1.0, 0.0]),
+            1.0,
+            "shared/ice/ice_burst/ice_burst",
+            14,
+            false,
+        );
         e.particles(
             world,
             "minecraft:snowflake",

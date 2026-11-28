@@ -6,6 +6,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ArcFramesTest {
     @Test
+    void animatedFramesSpanLifetimeAndClampAtBothEnds() {
+        assertEquals(0, ArcFrames.textureIndex(-1, 5, 17));
+        assertEquals(0, ArcFrames.textureIndex(0, 5, 17));
+        assertEquals(8, ArcFrames.textureIndex(2.5f, 5, 17));
+        assertEquals(16, ArcFrames.textureIndex(5, 5, 17));
+        assertEquals(0, ArcFrames.textureIndex(2.5f, 5, 1));
+    }
+
+    @Test
     void growingArcFlashesThenRetracts() {
         var initial = ArcFrames.window(0, 5, true);
         assertEquals(initial.start(), initial.end());
