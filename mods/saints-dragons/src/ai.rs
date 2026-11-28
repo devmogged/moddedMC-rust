@@ -117,6 +117,7 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::taming::FOLLOW => crate::taming::follow(phase, world, mob),
         crate::flight::GOAL => crate::flight::goal(phase, world, mob),
         crate::roost::GOAL => crate::roost::goal(phase, world, mob),
+        crate::roost::DEPTH => crate::roost::depth_goal(phase, world, mob),
         crate::swarm::WANDER => crate::swarm::wander(phase, world, mob),
         crate::swarm::TARGETING => crate::swarm::targeting(phase, world, mob),
         crate::swarm::COMBAT => crate::swarm::combat(phase, world, mob),

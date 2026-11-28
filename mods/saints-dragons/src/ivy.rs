@@ -1539,6 +1539,9 @@ pub fn can_dance(world: World<'_>, ivy: Entity<'_>) -> bool {
     };
     !downed_state(ivy).active()
         && ivy.vehicle().is_none()
+        && ivy.flags()
+            & (moddedmc_api::abi::ENTITY_IN_WATER | moddedmc_api::abi::ENTITY_ON_CLIMBABLE)
+            == 0
         && combat_clip(ivy.id(), false).is_none()
         && ivy
             .view()

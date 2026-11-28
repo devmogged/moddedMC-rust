@@ -15,6 +15,107 @@ use crate::{ENTITIES, MOB_AI, MOBS, cindervane_wild, eggs, flight, flight_route,
 
 pub const GOAL: u64 = 350;
 
+pub(crate) fn assigned_parent(baby: Entity<'_>) -> Option<[u8; 16]> {
+    cindervane_wild::link(baby, cindervane_wild::PARENT)
+}
+
+/// Assign an unclaimed juvenile to the nearest living female within the released
+/// 12 x 6 x 12 inflated body search. Keep the same persisted link as parent following.
+pub(crate) fn mother(world: World<'_>, baby: Entity<'_>) -> Option<[u8; 16]> {
+    use cindervane_wild::{PARENT, save_link};
+    if let Some(uuid) = assigned_parent(baby) {
+        return Some(uuid);
+    }
+    let (entities, mobs, body, view) = (ENTITIES.get()?, MOBS.get()?, baby.body()?, baby.view()?);
+    let kind = mobs.kind(baby)?;
+    let extent = [12.0, 6.0, 12.0];
+    let nearest = entities
+        .entities_in(
+            world,
+            std::array::from_fn(|i| body.min[i] - extent[i]),
+            std::array::from_fn(|i| body.max[i] + extent[i]),
+            baby.id(),
+        )
+        .into_iter()
+        .filter_map(|id| {
+            entities
+                .with_entity(world, id, |adult| {
+                    if mobs.kind(adult) != Some(kind)
+                        || eggs::is_juvenile(adult)
+                        || adult.flags() & ENTITY_ALIVE == 0
+                        || !crate::appearance::Appearance::is_female(adult)
+                    {
+                        return None;
+                    }
+                    Some((
+                        flight::length_squared(flight::offset(
+                            adult.view()?.position,
+                            view.position,
+                        )),
+                        mobs.uuid(adult)?,
+                    ))
+                })
+                .flatten()
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, uuid)| uuid)?;
+    save_link(baby, PARENT, Some(nearest));
+    Some(nearest)
+}
+
+/// Mothers prioritize the newest valid attacker of an assigned juvenile.
+/// Return Some(None) when protecting but no valid attacker exists.
+pub(crate) fn defend(world: World<'_>, mob: Entity<'_>) -> Option<Option<i32>> {
+    if eggs::is_juvenile(mob) || !crate::appearance::Appearance::is_female(mob) {
+        return None;
+    }
+    let (entities, mobs, body, view) = (ENTITIES.get()?, MOBS.get()?, mob.body()?, mob.view()?);
+    let kind = mobs.kind(mob)?;
+    let uuid = mobs.uuid(mob)?;
+    let mut protecting = false;
+    let mut newest = None;
+    for id in entities.entities_in(
+        world,
+        body.min.map(|v| v - 16.0),
+        body.max.map(|v| v + 16.0),
+        mob.id(),
+    ) {
+        let Some(threat) = entities
+            .with_entity(world, id, |baby| {
+                if mobs.kind(baby) != Some(kind)
+                    || !eggs::is_juvenile(baby)
+                    || baby.flags() & ENTITY_ALIVE == 0
+                    || mother(world, baby) != Some(uuid)
+                {
+                    return None;
+                }
+                Some(mobs.last_hurt_by_mob(baby))
+            })
+            .flatten()
+        else {
+            continue;
+        };
+        protecting = true;
+        let Some((attacker, stamp)) = threat else {
+            continue;
+        };
+        if newest.is_some_and(|(_, old)| old >= stamp) {
+            continue;
+        }
+        if entities.with_entity(world, attacker, |enemy| {
+            mobs.kind(enemy) != Some(kind)
+                && crate::abilities::enemy(world, mob, enemy)
+                && enemy.view().is_some_and(|v| {
+                    flight::length_squared(flight::offset(v.position, view.position)) <= 256.0
+                })
+        }) == Some(true)
+        {
+            newest = Some((attacker, stamp));
+        }
+    }
+    protecting.then(|| newest.map(|(id, _)| id))
+}
+
 pub fn speed(name: &str) -> Option<f64> {
     Some(match name {
         "raevyx" => 1.15,

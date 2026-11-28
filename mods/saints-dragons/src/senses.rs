@@ -37,6 +37,51 @@ struct Memory {
     owner_hurt: Option<([u8; 16], i64, i32)>,
     owner_attack: Option<([u8; 16], i64, i32)>,
     rescue: Option<[u8; 16]>,
+    intercept: Option<([f64; 3], u64)>,
+    familiarity: HashMap<[u8; 16], (u64, u8)>,
+}
+
+impl Memory {
+    fn familiarity(
+        &mut self,
+        source: Option<[u8; 16]>,
+        now: u64,
+        passive: bool,
+        threatening: bool,
+    ) -> f64 {
+        self.familiarity
+            .retain(|_, (seen, _)| now.saturating_sub(*seen) < 2400);
+        let Some(uuid) = source else { return 1.0 };
+        if !self.familiarity.contains_key(&uuid)
+            && self.familiarity.len() >= 24
+            && let Some(old) = self
+                .familiarity
+                .iter()
+                .min_by_key(|(_, (seen, _))| *seen)
+                .map(|(id, _)| *id)
+        {
+            self.familiarity.remove(&old);
+        }
+        let (seen, count) = self.familiarity.entry(uuid).or_insert((now, 0));
+        if now.saturating_sub(*seen) >= 600 {
+            *count = count.saturating_sub(3);
+        }
+        *seen = now;
+        if threatening {
+            *count = 0;
+        } else if passive {
+            *count = count.saturating_add(1).min(12);
+        }
+        if !passive {
+            return 1.0;
+        }
+        match *count {
+            0..=1 => 1.0,
+            2 => 0.65,
+            3 => 0.35,
+            _ => 0.12,
+        }
+    }
 }
 
 static MEMORIES: Mutex<Option<HashMap<i32, Memory>>> = Mutex::new(None);
@@ -342,23 +387,42 @@ pub fn tick(world: World<'_>, mob: Entity<'_>, name: &str) {
                         _ => 0.10,
                     }
             };
+            let source_uuid = source
+                .filter(|_| sound != Sound::Projectile || recognized)
+                .map(|(_, uuid)| uuid);
+            let threatening = source.is_some_and(|(id, _)| {
+                ai_api.target(mob) == Some(id)
+                    || mobs
+                        .last_hurt_by_mob(mob)
+                        .is_some_and(|(attacker, _)| attacker == id)
+            });
+            let multiplier = memory(mob.id(), |m| {
+                m.familiarity(
+                    source_uuid,
+                    now,
+                    matches!(sound, Sound::Step | Sound::Splash | Sound::Impact),
+                    threatening,
+                )
+            });
             let disturbed = sleeping
+                && !alert
                 && memory(mob.id(), |m| {
+                    let amount = sound.disturbance(c, wet) * multiplier;
+                    if amount <= 0.0 {
+                        return false;
+                    }
                     if m.last_disturbance
                         .is_some_and(|at| now.saturating_sub(at) < 10)
                     {
                         return false;
                     }
                     m.last_disturbance = Some(now);
-                    m.disturbance = (m.disturbance + sound.disturbance(c, wet)).min(100.0);
+                    m.disturbance = (m.disturbance + amount).min(100.0);
                     m.disturbance >= 40.0
                 });
             if alert || disturbed {
                 roost::wake(mob, false, 400);
             }
-            let source_uuid = source
-                .filter(|_| sound != Sound::Projectile || recognized)
-                .map(|(_, uuid)| uuid);
             let at = uncertain(event.position, (1.0 - c) * 5.0);
             let hostile = source.is_some_and(|(id, _)| ai_api.target(mob) == Some(id))
                 || (player && aggressive(name, mob));
@@ -651,7 +715,10 @@ pub fn rescue(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         return false;
     };
     if phase == goal_phase::STOP {
-        memory(mob.id(), |m| m.rescue = None);
+        memory(mob.id(), |m| {
+            m.rescue = None;
+            m.intercept = None;
+        });
         if mobs.passengers(mob).is_empty() {
             mobs.set_no_gravity(mob, false);
         }
@@ -694,9 +761,10 @@ pub fn rescue(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                                     return false;
                                 }
                                 e.view().is_some_and(|v| {
-                                    let gap = distance(v.position, p.position);
-                                    gap < d - 0.0001
-                                        || ((gap - d).abs() <= 0.0001 && e.id() < mob.id())
+                                    let gap = distance(v.position, p.position).powi(2);
+                                    let own = d.powi(2);
+                                    gap + 0.0001 < own
+                                        || ((gap - own).abs() <= 0.0001 && e.id() < mob.id())
                                 })
                             })
                             .unwrap_or(false)
@@ -710,7 +778,10 @@ pub fn rescue(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                     && memory(mob.id(), |m| m.rescue == Some(owner));
             }
             if phase == goal_phase::START {
-                memory(mob.id(), |m| m.rescue = Some(owner));
+                memory(mob.id(), |m| {
+                    m.rescue = Some(owner);
+                    m.intercept = None;
+                });
                 roost::wake(mob, true, 400);
                 ai.stop(mob);
                 mobs.set_no_gravity(mob, true);
@@ -741,13 +812,25 @@ pub fn rescue(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                         motion: [0.0; 3],
                         ..Default::default()
                     });
-                    memory(mob.id(), |m| m.rescue = None);
+                    memory(mob.id(), |m| {
+                        m.rescue = None;
+                        m.intercept = None;
+                    });
                     return false;
                 }
-                let lead = (d / 2.0).clamp(1.5, 12.0);
-                let mut intercept =
-                    std::array::from_fn(|i| p.position[i] + state.movement[i] * lead);
-                intercept[1] -= 0.04 * lead * lead + (body.max[1] - body.min[1]) * 0.65;
+                let now = tick_count();
+                let intercept = memory(mob.id(), |m| {
+                    if let Some((at, until)) = m.intercept
+                        && now < until
+                    {
+                        return at;
+                    }
+                    let lead = (d / 2.0).clamp(1.5, 12.0);
+                    let mut at = std::array::from_fn(|i| p.position[i] + state.movement[i] * lead);
+                    at[1] -= 0.04 * lead * lead + (body.max[1] - body.min[1]) * 0.65;
+                    m.intercept = Some((at, now + 3));
+                    at
+                });
                 let waypoint =
                     crate::flight_route::waypoint(world, mob, view.position, intercept, false);
                 let delta = flight::offset(waypoint, view.position);
@@ -781,6 +864,17 @@ pub fn rescue(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn familiar_passive_sources_reduce_disturbance_and_forget() {
+        let mut m = Memory::default();
+        let id = Some([1; 16]);
+        assert_eq!(m.familiarity(id, 1, true, false), 1.0);
+        assert_eq!(m.familiarity(id, 2, true, false), 0.65);
+        assert_eq!(m.familiarity(id, 3, true, false), 0.35);
+        assert_eq!(m.familiarity(id, 4, true, false), 0.12);
+        assert_eq!(m.familiarity(id, 5, true, true), 1.0);
+        assert_eq!(m.familiarity(id, 2405, true, false), 1.0);
+    }
     #[test]
     fn hearing_attenuates_with_distance_and_cover() {
         let clear = confidence(0.3, 24.0, 3.0, false, false);

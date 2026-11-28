@@ -932,6 +932,16 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         found = crate::senses::owner_attack(world, mob, |id| target_at(world, mob, id).is_some());
     }
     if found.is_none()
+        && !taming::is_tamed(mob)
+        && let Some(threat) = crate::family::defend(world, mob)
+    {
+        if let Some(id) = threat.filter(|id| target_at(world, mob, *id).is_some()) {
+            ai.set_target(world, mob, Some(id));
+            state(mob, |s| s.committed = true);
+        }
+        return false;
+    }
+    if found.is_none()
         && let Some((id, stamp)) = ai.last_hurt_by(mob)
         && s.last_hurt != Some(stamp)
     {
@@ -945,24 +955,6 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         state(mob, |s| s.committed = true);
     } else if ai.target(mob).is_none() && (tick_count() + mob.id() as u64).is_multiple_of(10) {
         let at = view.position;
-        if !taming::is_tamed(mob) {
-            // shortcut: nearby wild babies approximate the original assigned-mother and vision checks.
-            let baby = entities
-                .entities_in(world, at.map(|x| x - 16.0), at.map(|x| x + 16.0), mob.id())
-                .into_iter()
-                .any(|id| {
-                    entities.with_entity(world, id, |e| {
-                        mobs.kind(e) == Some(KIND)
-                            && crate::eggs::is_juvenile(e)
-                            && !taming::is_tamed(e)
-                    }) == Some(true)
-                });
-            if baby {
-                found = nearest(world, mob, at, 32.0, |e| {
-                    matches!(e.type_id(), "player" | "minecraft:player")
-                });
-            }
-        }
         if found.is_none() && hunger::level(mob) <= 60 && (tick_count() / 10).is_multiple_of(8) {
             found = nearest(world, mob, at, 32.0, is_prey);
         }

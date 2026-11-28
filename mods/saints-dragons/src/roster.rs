@@ -373,6 +373,11 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 0,
                 goal_control::MOVE | goal_control::LOOK,
             )))
+            .chain((species.name == "volitans").then_some((
+                crate::roost::DEPTH,
+                1,
+                goal_control::MOVE | goal_control::LOOK,
+            )))
             .chain(crate::hunger::DRAGONS.contains(&species.name).then_some((
                 crate::senses::INVESTIGATE,
                 2,

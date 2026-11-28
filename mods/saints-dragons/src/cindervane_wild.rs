@@ -18,7 +18,7 @@ use crate::{
 
 pub const SOCIAL: u64 = 40;
 pub const DRINK: u64 = 41;
-const PARENT: &str = "saintsdragons:parent";
+pub(crate) const PARENT: &str = "saintsdragons:parent";
 const PACK: &str = "saintsdragons:pack";
 const PACK_RADIUS: f64 = 48.0;
 const PACK_CAPACITY: usize = 4;
@@ -43,7 +43,7 @@ pub fn forget(id: i32) {
         .remove(&id);
 }
 
-fn link(mob: Entity<'_>, key: &str) -> Option<[u8; 16]> {
+pub(crate) fn link(mob: Entity<'_>, key: &str) -> Option<[u8; 16]> {
     let data = fastnbt::from_bytes::<HashMap<String, IntArray>>(&mob.data(key)?).ok()?;
     let uuid = data.get("uuid")?;
     if uuid.len() != 4 {
@@ -56,7 +56,7 @@ fn link(mob: Entity<'_>, key: &str) -> Option<[u8; 16]> {
     Some(bytes)
 }
 
-fn save_link(mob: Entity<'_>, key: &str, uuid: Option<[u8; 16]>) {
+pub(crate) fn save_link(mob: Entity<'_>, key: &str, uuid: Option<[u8; 16]>) {
     if link(mob, key) == uuid {
         return;
     }
@@ -119,9 +119,16 @@ fn width(mob: Entity<'_>) -> f64 {
 pub(crate) fn find_parent(world: World<'_>, mob: Entity<'_>) -> Option<i32> {
     let (entities, mobs, view) = (ENTITIES.get()?, MOBS.get()?, mob.view()?);
     let kind = mobs.kind(mob)?;
-    let assigned = link(mob, PARENT);
+    let assigned = crate::family::assigned_parent(mob);
     let mut best: Option<(f64, i32, [u8; 16])> = None;
-    for id in nearby(world, mob, 20.0, 8.0) {
+    let body = mob.body()?;
+    let extent = [20.0, 8.0, 20.0];
+    for id in entities.entities_in(
+        world,
+        std::array::from_fn(|i| body.min[i] - extent[i]),
+        std::array::from_fn(|i| body.max[i] + extent[i]),
+        mob.id(),
+    ) {
         let Some(Some((uuid, female, at))) = entities.with_entity(world, id, |other| {
             (mobs.kind(other) == Some(kind)
                 && other.flags() & ENTITY_ALIVE != 0
@@ -398,7 +405,6 @@ pub fn defend(world: World<'_>, mob: Entity<'_>) -> Option<(bool, Option<i32>)> 
     if !(tick_count() + mob.id() as u64).is_multiple_of(10) {
         return None;
     }
-    let uuid = mobs.uuid(mob)?;
     let usable = |id, range: f64| {
         entities
             .with_entity(world, id, |other| {
@@ -410,41 +416,15 @@ pub fn defend(world: World<'_>, mob: Entity<'_>) -> Option<(bool, Option<i32>)> 
             })
             .unwrap_or(false)
     };
-    let mut babies = false;
-    let mut threat: Option<(i32, i32)> = None;
-    if Appearance::is_female(mob) {
-        for id in nearby(world, mob, 16.0, 16.0) {
-            if let Some(candidate) = entities
-                .with_entity(world, id, |baby| {
-                    if mobs.kind(baby) != Some(CINDERVANE)
-                        || !eggs::is_juvenile(baby)
-                        || baby.flags() & ENTITY_ALIVE == 0
-                    {
-                        return None;
-                    }
-                    if link(baby, PARENT) == Some(uuid) {
-                        babies = true;
-                        ai.last_hurt_by(baby)
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-                && usable(candidate.0, 16.0)
-                && threat.is_none_or(|old| candidate.1 > old.1)
-            {
-                threat = Some(candidate);
-            }
-        }
-    }
+    let threat = crate::family::defend(world, mob);
     FOLLOW
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .entry(mob.id())
         .or_default()
-        .protecting = babies;
-    if babies {
-        return Some((true, threat.map(|(id, _)| id)));
+        .protecting = threat.is_some();
+    if let Some(threat) = threat {
+        return Some((true, threat));
     }
     let mut pack = nearby(world, mob, PACK_RADIUS, PACK_RADIUS);
     if let Some(leader) = link(mob, PACK).and_then(|uuid| mobs.by_uuid(world, &uuid))
