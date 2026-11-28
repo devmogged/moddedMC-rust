@@ -197,9 +197,10 @@ fn cruise_target(
             continue;
         }
         let mut dive = false;
-        // shortcut: only thunder can be observed by the host; rain is treated as clear.
         if !view.on_ground
-            && !world.is_thundering()
+            && world
+                .weather_state()
+                .is_some_and(|w| !w.raining)
             && !enclosed
             && local.floor.is_some_and(|floor| at[1] - floor >= 28.0)
             && there.ceiling.is_none()
@@ -331,8 +332,10 @@ pub(super) fn goal(
     let (Some(ai), Some(mobs)) = (MOB_AI.get(), MOBS.get()) else {
         return false;
     };
-    let thunder = world.is_thundering();
-    let p = profile(thunder, false);
+    let Some(weather) = world.weather_state() else {
+        return false;
+    };
+    let p = profile(weather.thundering && weather.raining, weather.raining);
     let free =
         mobs.passengers(mob).is_empty() && mob.vehicle().is_none() && ai.target(mob).is_none();
     match phase {

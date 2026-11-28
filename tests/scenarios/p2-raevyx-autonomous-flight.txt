@@ -32,7 +32,7 @@ wait 8
 cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1009,y=104,z=1009,dx=32,dy=20,dz=32]
 wait 0.5
 expect Test passed
-# Rain and thunder timer preservation cannot be asserted until the host exposes both timers.
+# Independent rain/thunder timer preservation is covered by raevyx_weather unit tests.
 reject (?i)panic|panicked
 bot quit
 stop

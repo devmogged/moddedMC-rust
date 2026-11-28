@@ -122,7 +122,10 @@ fn run(world: World<'_>, index: usize) {
     let spawner = SPAWNERS[index];
     let raevyx = index == 0;
     let players = players(world);
-    if players.is_empty() || (raevyx && !world.is_thundering()) || random(100) >= spawner.chance {
+    if players.is_empty()
+        || (raevyx && !crate::raevyx_weather::allows_wild_spawns(world))
+        || random(100) >= spawner.chance
+    {
         return;
     }
     let eligible: Vec<Pos> = players

@@ -22,7 +22,7 @@ pub fn require(
     entities: moddedmc_api::entities::Entities,
 ) -> Result<(), moddedmc_api::InterfaceUnavailable> {
     use moddedmc_api::{content::WorldExtension, entities::EntitiesExtension};
-    content.require_extension(WorldExtension::WeatherControl)?;
+    content.require_extension(WorldExtension::WeatherState)?;
     content.require_extension(WorldExtension::Raycast)?;
     entities.require_extension(EntitiesExtension::CombatEffects)
 }
@@ -1420,9 +1420,7 @@ fn tick_storm(world: World<'_>, mob: Entity<'_>, state: &mut State) -> Option<&'
         state.supercharge = state.supercharge.max(STORM_DURATION);
     }
     if age == cast {
-        // shortcut: the host cannot read the previous rain/thunder flags and independent timers,
-        // or set the two timers independently. Preserve their maxima when that interface exists.
-        world.set_weather(2, STORM_DURATION);
+        crate::raevyx_weather::summon(world, STORM_DURATION);
         if let Some(effects) = EFFECTS.get() {
             effects.play_entity_sound(
                 world,

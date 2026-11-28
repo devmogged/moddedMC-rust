@@ -108,6 +108,7 @@ static STACKS: OnceLock<ItemStacks> = OnceLock::new();
 static TAGS: OnceLock<Tags> = OnceLock::new();
 
 struct SaintsDragons;
+mod raevyx_weather;
 mod rider_actions;
 
 impl Mod for SaintsDragons {
@@ -137,6 +138,7 @@ impl Mod for SaintsDragons {
         let _ = COMMANDS.set(commands);
         let entities = entities::require()?;
         combat_raevyx::require(content, entities)?;
+        raevyx_weather::require()?;
         entities.require_extension(EntitiesExtension::Carriers)?;
         entities.require_extension(EntitiesExtension::Data)?;
         entities.require_extension(EntitiesExtension::Player)?;
@@ -203,6 +205,7 @@ impl Mod for SaintsDragons {
     fn register(&self, registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         let missing = RegistrationError::InvalidDefinition;
         rider_actions::register(registry)?;
+        raevyx_weather::register(registry)?;
         CONTENT.get().ok_or(missing)?.on_tick(registry, tick)?;
         let interaction = INTERACTION.get().ok_or(missing)?;
         interaction.on_use_block(registry, |click| {
@@ -471,6 +474,7 @@ fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) 
     nucleus::tick(world, time, events);
     eggs::tick(world, events);
     eggs::trample(world);
+    raevyx_weather::tick(world);
     spawners::tick(world);
     visuals::sweep(world, time, events);
     roost::sweep();

@@ -838,6 +838,22 @@ pub struct BlockWorldV1 {
         block: *mut Pos,
         entity: *mut i32,
     ) -> i32,
+    /// Read the raw weather flags, remaining timers and cycle gamerule.
+    pub weather_state: unsafe extern "C" fn(world: WorldRef, out: *mut WeatherState) -> bool,
+    /// Set raw weather flags and independent nonnegative timers.
+    pub set_weather_state: unsafe extern "C" fn(world: WorldRef, state: WeatherState) -> bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WeatherState {
+    pub clear_time: i32,
+    pub rain_time: i32,
+    pub thunder_time: i32,
+    pub raining: bool,
+    pub thundering: bool,
+    /// Read-only; setting weather does not change the gamerule.
+    pub cycle_enabled: bool,
 }
 
 /// `BlockWorldV1::surface_height` types: the vanilla `Heightmap.Types` the server keeps live.
@@ -878,7 +894,10 @@ mod block_world_layout {
         );
         assert_eq!(offset_of!(BlockWorldV1, set_weather), 288);
         assert_eq!(offset_of!(BlockWorldV1, raycast), 296);
-        assert_eq!(size_of::<BlockWorldV1>(), 304);
+        assert_eq!(offset_of!(BlockWorldV1, weather_state), 304);
+        assert_eq!(offset_of!(BlockWorldV1, set_weather_state), 312);
+        assert_eq!(size_of::<BlockWorldV1>(), 320);
+        assert_eq!(size_of::<WeatherState>(), 16);
         assert_eq!(size_of::<DayTime>(), 16);
     }
 }

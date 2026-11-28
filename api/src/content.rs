@@ -8,7 +8,7 @@ use crate::{
 pub use abi::{
     BlockUpdate, CollisionBox, ContentEvent, LOADED, MOVED_STATE_CHANGED, NEIGHBOR_CHANGED,
     STATE_CHANGED, ShapeBox, UNLOADED, UNLOADED_STATE, UPDATE_ALL, UPDATE_CLIENTS,
-    UPDATE_FROM_NEIGHBOR_SHAPES, UPDATE_KNOWN_SHAPE, UPDATE_MOVED, UPDATE_NEIGHBORS,
+    UPDATE_FROM_NEIGHBOR_SHAPES, UPDATE_KNOWN_SHAPE, UPDATE_MOVED, UPDATE_NEIGHBORS, WeatherState,
 };
 
 #[derive(Clone, Copy)]
@@ -43,6 +43,9 @@ mod extension_tests {
         assert!(world.raycast([0.0; 3], [1.0; 3], None).is_none());
         assert!(!WorldExtension::WeatherControl.available(api));
         assert!(!WorldExtension::Raycast.available(api));
+        assert_eq!(world.weather_state(), None);
+        assert_eq!(world.set_weather_state(WeatherState::default()), None);
+        assert!(!WorldExtension::WeatherState.available(api));
     }
 }
 
@@ -112,6 +115,7 @@ pub enum WorldExtension {
     Surface,
     WeatherControl,
     Raycast,
+    WeatherState,
 }
 
 impl WorldExtension {
@@ -212,6 +216,10 @@ impl WorldExtension {
             Self::Raycast => (
                 std::mem::offset_of!(abi::BlockWorldV1, raycast),
                 "moddedmc:block_world.raycast",
+            ),
+            Self::WeatherState => (
+                std::mem::offset_of!(abi::BlockWorldV1, set_weather_state),
+                "moddedmc:block_world.set_weather_state",
             ),
         }
     }
@@ -982,6 +990,25 @@ impl World<'_> {
             .upto(std::mem::offset_of!(abi::BlockWorldV1, set_weather))?;
         // SAFETY: the field is size checked and the world is borrowed.
         Some(unsafe { ((&raw const (*api).set_weather).read())(self.raw, mode, ticks) })
+    }
+
+    /// Raw weather flags and independent timers, including the weather-cycle gamerule.
+    pub fn weather_state(self) -> Option<WeatherState> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::BlockWorldV1, weather_state))?;
+        let mut out = WeatherState::default();
+        // SAFETY: the field is size checked and the output and world live for this call.
+        unsafe { ((&raw const (*api).weather_state).read())(self.raw, &raw mut out) }.then_some(out)
+    }
+
+    /// Replace weather flags and timers without changing the gamerule.
+    pub fn set_weather_state(self, state: WeatherState) -> Option<bool> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::BlockWorldV1, set_weather_state))?;
+        // SAFETY: the field is size checked and the world is borrowed.
+        Some(unsafe { ((&raw const (*api).set_weather_state).read())(self.raw, state) })
     }
 
     /// First collider block and nearest entity before it, excluding an optional entity id.

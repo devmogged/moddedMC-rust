@@ -850,6 +850,14 @@ and rays longer than 256 blocks. A successful miss is `Some((None, None))`;
 invalid input or a missing host field is `None`.
 The engine treats unloaded blocks as air; the ray does not load chunks.
 
+`moddedmc:block_world` v1 appends `weather_state(world, out)` and
+`set_weather_state(world, state)` at byte offsets 304 and 312 on 64-bit hosts.
+Both return bool. `WeatherState` is a 16-byte C struct: clear, rain and thunder
+timers (i32 ticks), then raining, thundering and cycle-enabled flags (bool).
+The setter changes the two timers independently, rejects negative durations,
+and leaves the weather-cycle gamerule unchanged. Require
+`WorldExtension::WeatherState` to use both fields; SDK calls are size-checked.
+
 Current Pumpkin does not expose damage-event causing/direct entities or
 outgoing last-hurt history. These require engine changes before
 they can be exposed accurately. `MobAi::last_hurt_by` remains available

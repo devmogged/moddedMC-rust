@@ -148,6 +148,8 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     can_see_sky,
     set_weather,
     raycast,
+    weather_state,
+    set_weather_state,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -176,6 +178,55 @@ unsafe extern "C" fn set_weather(raw: WorldRef, mode: u8, ticks: i32) -> bool {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .set_weather_parameters(world, clear, rain, mode != 0, mode == 2);
+    true
+}
+
+unsafe extern "C" fn weather_state(raw: WorldRef, out: *mut abi::WeatherState) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    if out.is_null() {
+        return false;
+    }
+    let weather = world
+        .weather
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // SAFETY: caller supplies a writable output for this call.
+    unsafe {
+        out.write(abi::WeatherState {
+            clear_time: weather.clear_weather_time,
+            rain_time: weather.rain_time,
+            thunder_time: weather.thunder_time,
+            raining: weather.raining,
+            thundering: weather.thundering,
+            cycle_enabled: world.level_info.load().game_rules.advance_weather,
+        });
+    }
+    true
+}
+
+unsafe extern "C" fn set_weather_state(raw: WorldRef, state: abi::WeatherState) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    if state.clear_time < 0 || state.rain_time < 0 || state.thunder_time < 0 {
+        return false;
+    }
+    let mut weather = world
+        .weather
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    weather.set_weather_parameters(
+        world,
+        state.clear_time,
+        state.rain_time,
+        state.raining,
+        state.thundering,
+    );
+    weather.thunder_time = state.thunder_time;
     true
 }
 
