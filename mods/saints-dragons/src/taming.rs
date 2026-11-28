@@ -264,6 +264,9 @@ pub fn companion_ally(mob: Entity<'_>, other: Entity<'_>) -> bool {
 }
 
 /// Neutral server anchors from DragonRiderSeatOffsets and Nulljaw.positionRider.
+/// shortcut: ordinary Java seats use animated GeckoLib locators only on the client.
+/// The companion needs a rig locator-to-passenger attachment hook for that layer;
+/// the server deliberately retains the released neutral coordinates.
 pub fn configure_seats(mob: Entity<'_>, kind: &str, grabbed: bool) {
     let Some(mobs) = MOBS.get() else { return };
     let seat = match kind {

@@ -137,6 +137,18 @@ falls back to its normal safe dismount search, and animated client seats and
 custom dragon global ally lists also apply. [Pet and seat scenario](../tests/scenarios/p2-pets-seats.txt)
 covers portable pet buffs and mount/dismount lifecycle (pending coordinator run).
 
+The released `DragonRiderSeat.positionAnimatedRider` uses a neutral yaw-relative
+server attachment for ordinary riders and samples the actual animated bone
+locator on the client. All eight neutral offsets are already ported; Cindervane's
+slash-grab fallback now restores the ordinary seat when mounting fails or the
+held passenger leaves. Exact animated seats remain blocked: the companion
+needs a generic rig-to-mount association, GeckoLib locator sampling with the
+released freshness/height corrections, and a client passenger-position hook.
+Cindervane's grabbed passenger also uses a client-reported server bone cache
+in Java, which the existing host API cannot read. The
+[mount scenario](../tests/scenarios/p2-mount.txt) records manual companion
+acceptance checks; the bot verifies the logical riding lifecycle only.
+
 Varasuchus AI uses the released half-health phase threshold, 21/33-tick
 phase transition, 30-tick attack cadence and 14-hit slash barrage. Its
 phase persists in NBT and AI melee scales with hunger. Owner retaliation,
