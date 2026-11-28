@@ -1,7 +1,7 @@
 # P2a: Cindervane as a mod mob carried by a vanilla ravager, its state saved with it, running its
 # own goals instead of the ravager's, fighting back and dying with its own loot.
 # Run scripts/scenario.ps1 -Scenario tests/scenarios/p2a-dragons.txt -RunDir run/p2a-dragons -Fresh
-mods target\mods\saints-dragons.mmc
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 start
 expect registered mob saintsdragons:cindervane \(carrier minecraft:ravager\)
 botstart tester
@@ -10,6 +10,8 @@ expect \[bot\] joined as tester
 cmd op tester
 cmd gamemode creative tester
 cmd gamerule minecraft:spawn_mobs false
+# Prevent unrelated saplings from decaying leaves contaminating the death-loot probe.
+cmd gamerule minecraft:random_tick_speed 0
 cmd tp tester 1025.5 101 1025.5
 cmd forceload add 1015 1015 1035 1035
 wait 12
@@ -69,6 +71,7 @@ cmd cindervane find 1025 100 1025
 wait 1
 expect cindervane: found 1: .* target=none; around: player$
 # It dies with its own empty loot table, not the ravager's saddle.
+cmd kill @e[type=minecraft:item,x=1009,y=84,z=1009,dx=32,dy=32,dz=32]
 cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1000 minecraft:generic
 await 5 Applied 1000 damage to Ravager
 wait 3

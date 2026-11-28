@@ -18,6 +18,7 @@ await 30 Successfully filled|No blocks were filled
 cmd time set midnight
 cmd fill 1007 120 1027 1051 129 1027 minecraft:stone
 await 30 Successfully filled|No blocks were filled
+cmd kill @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},x=1025,y=120,z=1025,distance=..45]
 cmd cindervane spawn 1025 120 1025
 cmd summon minecraft:iron_golem 1025.5 120 1029.5 {NoAI:1b,Tags:["combat_target"]}
 wait 3
@@ -25,7 +26,7 @@ cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cinderv
 cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1 minecraft:mob_attack by @e[tag=combat_target,limit=1]
 wait 0.8
 cmd cindervane find 1025 120 1025
-await 10 attack=none.*target=minecraft:iron_golem
+await 10 cindervane: found 1: [^;]*attack=none[^;]*target=iron_golem;
 cmd data get entity @e[tag=combat_target,limit=1] Health
 await 10 Iron Golem has the following entity data: 100f
 cmd fill 1007 120 1027 1051 129 1027 minecraft:air

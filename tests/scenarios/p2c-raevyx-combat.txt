@@ -13,6 +13,9 @@ cmd fill 1015 99 1015 1040 99 1040 minecraft:stone
 await 30 Successfully filled|No blocks were filled
 cmd fill 1015 100 1015 1040 110 1040 minecraft:air
 await 30 Successfully filled|No blocks were filled
+# Keep the bite/chain probe grounded; aerial combat deliberately opens distance for beams.
+cmd fill 1015 104 1015 1040 104 1040 minecraft:stone
+await 30 Successfully filled|No blocks were filled
 cmd time set midnight
 cmd saintsdragons spawn raevyx 1025 100 1025
 await 30 saintsdragons:raevyx: spawned
@@ -27,10 +30,10 @@ cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:rae
 cmd data get entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] Health
 wait 0.5
 expect has the following entity data: 180f
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1025.5 100 1025.5 0 0
+wait 1
 cmd summon minecraft:iron_golem 1025.5 100 1028.25 {NoAI:1b,Tags:["primary"]}
 cmd summon minecraft:iron_golem 1031.5 100 1028.25 {NoAI:1b,Tags:["chain"]}
-cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1025.5 100 1025.5 0 0
-wait 0.25
 cmd damage @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1 minecraft:mob_attack by @e[tag=primary,limit=1]
 wait 1.5
 cmd data get entity @e[tag=primary,limit=1] Health
@@ -41,6 +44,8 @@ wait 0.5
 expect Iron Golem has the following entity data: (?:[0-9]{1,2})(?:\.[0-9]+)?f
 cmd kill @e[tag=primary]
 cmd kill @e[tag=chain]
+cmd fill 1015 104 1015 1040 104 1040 minecraft:air
+await 30 Successfully filled
 wait 2
 cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},limit=1] 1025.5 100 1025.5
 cmd weather clear
