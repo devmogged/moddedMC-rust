@@ -46,6 +46,9 @@ mod extension_tests {
         assert_eq!(world.weather_state(), None);
         assert_eq!(world.set_weather_state(WeatherState::default()), None);
         assert!(!WorldExtension::WeatherState.available(api));
+        assert_eq!(world.signal(Pos::default(), 0), 0);
+        assert!(!world.update_neighbors(Pos::default()));
+        assert!(!WorldExtension::Signal.available(api));
     }
 }
 
@@ -116,6 +119,8 @@ pub enum WorldExtension {
     WeatherControl,
     Raycast,
     WeatherState,
+    /// `signal` and `update_neighbors`.
+    Signal,
 }
 
 impl WorldExtension {
@@ -220,6 +225,10 @@ impl WorldExtension {
             Self::WeatherState => (
                 std::mem::offset_of!(abi::BlockWorldV1, set_weather_state),
                 "moddedmc:block_world.set_weather_state",
+            ),
+            Self::Signal => (
+                std::mem::offset_of!(abi::BlockWorldV1, update_neighbors),
+                "moddedmc:block_world.update_neighbors",
             ),
         }
     }
@@ -1000,6 +1009,24 @@ impl World<'_> {
         let mut out = WeatherState::default();
         // SAFETY: the field is size checked and the output and world live for this call.
         unsafe { ((&raw const (*api).weather_state).read())(self.raw, &raw mut out) }.then_some(out)
+    }
+
+    /// Vanilla `Level.getSignal(pos, direction)`, from 0 to 15, direction in down, up, north,
+    /// south, west, east order. Gives 0 when unloaded or unavailable.
+    pub fn signal(self, pos: Pos, direction: u8) -> u8 {
+        if !WorldExtension::Signal.available(self.api) {
+            return 0;
+        }
+        // SAFETY: the size check covers the appended field; world is borrowed for this call.
+        unsafe { ((&raw const (*self.api.ptr).signal).read())(self.raw, pos, direction) }
+    }
+
+    /// Vanilla `Level.updateNeighborsAt(pos, block)` with the block now at `pos`. False when
+    /// unloaded or unavailable.
+    pub fn update_neighbors(self, pos: Pos) -> bool {
+        // SAFETY: the size check covers the appended field; world is borrowed for this call.
+        WorldExtension::Signal.available(self.api)
+            && unsafe { ((&raw const (*self.api.ptr).update_neighbors).read())(self.raw, pos) }
     }
 
     /// Replace weather flags and timers without changing the gamerule.

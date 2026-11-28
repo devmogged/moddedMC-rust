@@ -150,6 +150,8 @@ pub static WORLD: abi::BlockWorldV1 = abi::BlockWorldV1 {
     raycast,
     weather_state,
     set_weather_state,
+    signal,
+    update_neighbors,
 };
 
 unsafe extern "C" fn dimension_id(raw: WorldRef) -> Str {
@@ -2839,6 +2841,35 @@ unsafe extern "C" fn best_neighbor_signal(raw: WorldRef, pos: Pos) -> u8 {
         }
     }
     best
+}
+
+unsafe extern "C" fn signal(raw: WorldRef, pos: Pos, direction: u8) -> u8 {
+    // SAFETY: the world is borrowed for this call.
+    let (Some(world), Some(direction)) = (
+        unsafe { world(raw) },
+        BlockDirection::all().get(usize::from(direction)).copied(),
+    ) else {
+        return 0;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return 0;
+    }
+    let (block, state) = world.get_block_and_state(&pos);
+    get_redstone_power(block, state, world, &pos, direction)
+}
+
+unsafe extern "C" fn update_neighbors(raw: WorldRef, pos: Pos) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }).and_then(shared) else {
+        return false;
+    };
+    let pos = block_pos(pos);
+    if world.get_block_state_id_if_loaded(&pos).is_none() {
+        return false;
+    }
+    world.update_neighbors(&pos, None);
+    true
 }
 
 unsafe extern "C" fn destroy(raw: WorldRef, pos: Pos, drop: bool) -> bool {
