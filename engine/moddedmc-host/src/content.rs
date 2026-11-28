@@ -665,11 +665,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
     staging.content.push(Registration {
         id: id.into(),
         name: name.into(),
-        entity: if entity.is_empty() {
-            id.into()
-        } else {
-            entity.into()
-        },
+        entity: if entity.is_empty() { id } else { entity }.into(),
         default_entity: entity.is_empty(),
         item_model: item_model.into(),
         states: registered,
@@ -1945,7 +1941,7 @@ impl BlockBehaviour for Behaviour {
         }
         let expected = match args.expected {
             Some(stack) => Nbt::from(stack.to_nbt()?).write(),
-            None => Vec::new(),
+            None => bytes::Bytes::new(),
         };
         if expected.len() > abi::MAX_STACK_BYTES {
             return None;
