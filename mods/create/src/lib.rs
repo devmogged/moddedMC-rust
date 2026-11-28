@@ -60,6 +60,7 @@ mod elevator;
 mod fan;
 mod filtering;
 mod funnel;
+mod redstone_link;
 // WS-2 Create fluids
 pub mod fluids;
 mod gantry;
@@ -195,6 +196,7 @@ impl Mod for Create {
         water_wheel::require()?;
         content.require_extension(WorldExtension::NeighborSignal)?;
         content.require_extension(WorldExtension::BestNeighborSignal)?;
+        content.require_extension(WorldExtension::Signal)?;
         content.require_extension(WorldExtension::Destroy)?;
         content.require_extension(WorldExtension::FaceSturdy)?;
         content.require_extension(WorldExtension::CollisionShape)?;
@@ -327,6 +329,7 @@ impl Mod for Create {
         arm::register(*content, registry)?;
         threshold_switch::register(*content, registry)?;
         content_observer::register(*content, registry)?;
+        redstone_link::register(*content, registry)?;
         ITEM_INPUT
             .get()
             .ok_or(RegistrationError::InvalidDefinition)?
@@ -969,6 +972,7 @@ struct StateIds {
     contacts: HashMap<u32, elevator::Contact>,
     switches: HashMap<u32, threshold_switch::SwitchState>,
     observers: HashMap<u32, content_observer::ObserverState>,
+    links: HashMap<u32, redstone_link::LinkState>,
     crusher_controllers: HashMap<u32, (u8, bool)>,
     by_id: HashMap<u32, KnownState>,
     by_selector: HashMap<String, u32>,
@@ -1128,6 +1132,7 @@ fn states() -> Option<&'static StateIds> {
         arm::add_states(content, &mut ids);
         threshold_switch::add_states(content, &mut ids);
         content_observer::add_states(content, &mut ids);
+        redstone_link::add_states(content, &mut ids);
         ids.add(content, fluids::item_drain::ID, "", None);
         chute::add_states(content, &mut ids);
         funnel::add_states(content, &mut ids);
@@ -1226,6 +1231,9 @@ fn placed_state(args: Placement<'_>) -> Option<u32> {
         return Some(track);
     }
     let states = states()?;
+    if states.links.contains_key(&args.state) {
+        return redstone_link::place(&args, states);
+    }
     if states.observers.contains_key(&args.state) {
         return content_observer::place(&args, states);
     }
@@ -1919,6 +1927,10 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             {
                 content_observer::event(world, states, &mut kinetics.content_observers, event);
             }
+            if states.links.contains_key(&event.state) || states.links.contains_key(&event.previous)
+            {
+                redstone_link::event(world, states, &mut kinetics.redstone_links, event);
+            }
             if states.switches.contains_key(&event.state)
                 || states.switches.contains_key(&event.previous)
             {
@@ -2162,6 +2174,7 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
         chute::tick(world, states, kinetics);
         funnel::tick(world, kinetics);
         content_observer::tick(world, states, kinetics);
+        redstone_link::tick(world, states, &mut kinetics.redstone_links);
         funnel::pull_from_depots(world, kinetics);
         depot::tick(world, kinetics);
         fan::tick(world, kinetics);
@@ -2173,6 +2186,8 @@ fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
 fn redstone_signal(query: &interaction::RedstoneQuery<'_>) -> u8 {
     if let Some(state) = states().and_then(|states| states.observers.get(&query.state)) {
         content_observer::signal(*state, query)
+    } else if let Some(state) = states().and_then(|states| states.links.get(&query.state)) {
+        redstone_link::signal(*state, query)
     } else if states().is_some_and(|states| states.switches.contains_key(&query.state)) {
         threshold_switch::signal(query)
     } else {
@@ -2183,6 +2198,8 @@ fn redstone_signal(query: &interaction::RedstoneQuery<'_>) -> u8 {
 fn redstone_connects(state: u32, direction: u8) -> bool {
     if let Some(observer) = states().and_then(|states| states.observers.get(&state)) {
         content_observer::connects(*observer, direction)
+    } else if let Some(link) = states().and_then(|states| states.links.get(&state)) {
+        redstone_link::connects(*link)
     } else {
         threshold_switch::connects(state, direction) || elevator::connects(state, direction)
     }
@@ -2361,6 +2378,11 @@ fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         }
         if let Some(result) = arm::select_custom(context, states) {
             return result;
+        }
+        if let Some(&state) = states.links.get(&context.state) {
+            return with_world(context.world, |kinetics| {
+                redstone_link::use_block(context, states, state, &mut kinetics.redstone_links)
+            });
         }
         if let Some(&state) = states.observers.get(&context.state) {
             return with_world(context.world, |kinetics| {
