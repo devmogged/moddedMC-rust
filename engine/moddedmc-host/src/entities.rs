@@ -239,13 +239,13 @@ pub unsafe extern "C" fn set_custom_name(raw: abi::EntityRef, json: Str) -> bool
     if json.len == 0 || json.len > 64 * 1024 {
         return false;
     }
-    // SAFETY: the entity and text bytes are borrowed for the current call.
+    // SAFETY: the entity is borrowed for the current call.
     let Some(base) = (unsafe { entity(raw) }) else {
         return false;
     };
-    let Ok(name) =
-        serde_json::from_slice::<pumpkin_util::text::TextComponent>(unsafe { json.bytes() })
-    else {
+    // SAFETY: the text bytes are borrowed for the current call.
+    let bytes = unsafe { json.bytes() };
+    let Ok(name) = serde_json::from_slice::<pumpkin_util::text::TextComponent>(bytes) else {
         return false;
     };
     base.get_entity().set_custom_name(name);
