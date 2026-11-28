@@ -1,4 +1,7 @@
-//! Autonomous flight for an adult wild Cindervane.
+//! Autonomous flight for adult wild dragons.
+
+#[path = "flight_raevyx.rs"]
+mod raevyx;
 
 use std::{
     collections::HashMap,
@@ -28,12 +31,15 @@ struct Flight {
     start: u64,
     landing: bool,
     released: bool,
+    cruise: Option<raevyx::Cruise>,
 }
 
 #[derive(Default)]
 struct FlightState {
     active: Option<Flight>,
     retry: u64,
+    last_landing: u64,
+    pending: Option<raevyx::Cruise>,
 }
 
 static FLIGHTS: Mutex<Option<HashMap<i32, FlightState>>> = Mutex::new(None);
@@ -82,6 +88,7 @@ pub fn released(mob: Entity<'_>) {
             start: tick_count(),
             landing: false,
             released: true,
+            cruise: None,
         });
     }
 }
@@ -150,6 +157,9 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let mut flights = FLIGHTS.lock().unwrap_or_else(PoisonError::into_inner);
     let state = flights.get_or_insert_default().entry(mob.id()).or_default();
     let released = state.active.as_ref().is_some_and(|flight| flight.released);
+    if !released && mobs.kind(mob) == Some("saintsdragons:raevyx") {
+        return raevyx::goal(phase, world, mob, view, state, now);
+    }
     match phase {
         goal_phase::CAN_START if released => true,
         goal_phase::CAN_START => {
@@ -184,6 +194,7 @@ pub fn goal(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
                 start: now,
                 landing: false,
                 released: false,
+                cruise: None,
             });
             ai.stop(mob);
             false

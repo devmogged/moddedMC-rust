@@ -1,0 +1,38 @@
+# Raevyx waits for takeoff clearance and flies autonomously in thunder.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 140 1025.5
+cmd forceload add 1008 1008 1042 1042
+wait 12
+cmd fill 1008 99 1008 1042 99 1042 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1008 100 1008 1042 125 1042 minecraft:air
+await 30 Successfully filled|No blocks were filled
+cmd fill 1008 100 1008 1008 125 1042 minecraft:stone
+cmd fill 1042 100 1008 1042 125 1042 minecraft:stone
+cmd fill 1008 100 1008 1042 125 1008 minecraft:stone
+cmd fill 1008 100 1042 1042 125 1042 minecraft:stone
+cmd fill 1009 125 1009 1041 125 1041 minecraft:stone
+cmd fill 1009 103 1009 1041 103 1041 minecraft:stone
+cmd time set day
+cmd weather thunder
+cmd saintsdragons spawn raevyx 1025 100 1025
+wait 4
+cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1009,y=99,z=1009,dx=32,dy=2,dz=32]
+wait 0.5
+expect Test passed
+cmd fill 1009 103 1009 1041 103 1041 minecraft:air
+await 30 Successfully filled|No blocks were filled
+wait 8
+cmd execute if entity @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:raevyx"}}},x=1009,y=104,z=1009,dx=32,dy=20,dz=32]
+wait 0.5
+expect Test passed
+# Rain and thunder timer preservation cannot be asserted until the host exposes both timers.
+reject (?i)panic|panicked
+bot quit
+stop
