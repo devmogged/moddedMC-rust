@@ -5,7 +5,7 @@ mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 # For each of the eight dragons below, mount and move through idle, locomotion,
 # flight/swim where applicable and mounted attacks. The rider must follow the
 # animated passengerLocator, not the neutral server attachment. For Cindervane
-# also check passengerBone1/2 with two riders; slash-grab locator is out of scope.
+# also check passengerBone1/2 with two riders; slash-grab has a separate scenario.
 # Nulljaw hangs below its locator by 1.65 blocks. Ground dragons use a locator
 # only when sampled within the last two ticks. Turn sharply, switch clips and
 # dismount/remount; check that first-person camera and third-person rider track

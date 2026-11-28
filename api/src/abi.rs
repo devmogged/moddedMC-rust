@@ -1993,6 +1993,13 @@ pub struct MobsV1 {
     /// Ordered local dismount candidates, checked for safety at dismount time.
     pub set_dismount_offsets:
         unsafe extern "C" fn(mob: EntityRef, offsets: *const Vec3, count: usize) -> bool,
+    /// Fresh client-reported rig bone world position; optionally require a reporter UUID.
+    pub rig_bone_position: unsafe extern "C" fn(
+        mob: EntityRef,
+        bone: Str,
+        reporter: *const [u8; 16],
+        out: *mut Vec3,
+    ) -> bool,
 }
 
 pub type MerchantCloseFn =
@@ -2157,7 +2164,8 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, allied), 264);
         assert_eq!(offset_of!(MobsV1, set_seat_offset), 272);
         assert_eq!(offset_of!(MobsV1, set_dismount_offsets), 280);
-        assert_eq!(size_of::<MobsV1>(), 288);
+        assert_eq!(offset_of!(MobsV1, rig_bone_position), 288);
+        assert_eq!(size_of::<MobsV1>(), 296);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

@@ -84,6 +84,7 @@ foreach ($name in $species) {
         $seat = @{ bone = 'passengerBone'; y = -3 }
         if ($name -eq 'cindervane') {
             $rig.rider_seats = @(@{ bone = 'passengerBone1'; y = -3 }, @{ bone = 'passengerBone2'; y = -3 })
+            $rig.report_bone = 'automountBoneRight'
         } else {
             if ($name -eq 'nulljaw') {
                 $seat.x = -0.5

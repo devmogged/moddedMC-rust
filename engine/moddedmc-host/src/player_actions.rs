@@ -27,6 +27,132 @@ const MAX_ACTIONS: usize = 128;
 const PHASES: u8 = abi::ACTION_PRESSED | abi::ACTION_HELD | abi::ACTION_RELEASED;
 const BUILTIN_KEY: &str = "moddedmc:mounted";
 const QUERY_RATE_KEY: &str = "\0mount";
+const BONE_RATE_KEY: &str = "\0bone";
+const BONE_MAX_AGE: Duration = Duration::from_millis(250);
+const BONE_MAX_DISTANCE: f64 = 16.0;
+const BONE_CACHE_LIMIT: usize = 4096;
+type BoneKey = (uuid::Uuid, i32, String);
+struct BoneSample {
+    reporter: uuid::Uuid,
+    position: [f64; 3],
+    at: Instant,
+}
+impl BoneSample {
+    fn valid(&self, now: Instant, origin: [f64; 3], reporter: Option<&[u8; 16]>) -> bool {
+        now.saturating_duration_since(self.at) <= BONE_MAX_AGE
+            && reporter.is_none_or(|uuid| uuid == self.reporter.as_bytes())
+            && in_bone_range(self.position, origin)
+    }
+}
+static BONES: LazyLock<Mutex<HashMap<BoneKey, BoneSample>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn bone_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b':'))
+}
+
+fn parse_bone(data: &[u8]) -> Option<(i32, &str, [f64; 3])> {
+    let [VERSION, 6, a, b, c, d, len, rest @ ..] = data else {
+        return None;
+    };
+    let len = usize::from(*len);
+    if rest.len() != len + 24 {
+        return None;
+    }
+    let (name, coordinates) = rest.split_at(len);
+    let name = std::str::from_utf8(name).ok()?;
+    if !bone_name(name) {
+        return None;
+    }
+    let mut position = [0.0; 3];
+    for (value, bytes) in position.iter_mut().zip(coordinates.chunks_exact(8)) {
+        *value = f64::from_be_bytes(bytes.try_into().ok()?);
+    }
+    position.iter().all(|v| v.is_finite()).then_some((
+        i32::from_be_bytes([*a, *b, *c, *d]),
+        name,
+        position,
+    ))
+}
+
+fn in_bone_range(position: [f64; 3], origin: [f64; 3]) -> bool {
+    position
+        .into_iter()
+        .zip(origin)
+        .map(|(a, b)| (a - b).powi(2))
+        .sum::<f64>()
+        <= BONE_MAX_DISTANCE * BONE_MAX_DISTANCE
+}
+
+fn record_bone(player: &Player, id: i32, name: &str, position: [f64; 3]) {
+    let world = player.world();
+    let Some(mob) = world.get_entity_by_id(id) else {
+        return;
+    };
+    let base = mob.get_entity();
+    let reporter = player.gameprofile.id;
+    if crate::mobs::registered_kind(mob.as_ref()).is_none()
+        || !world
+            .entity_tracker
+            .get_tracked_entity(id)
+            .is_some_and(|t| t.is_seen_by(&reporter))
+        || mob
+            .get_mob()
+            .and_then(pumpkin_core::entity::mob::Mob::get_owner_uuid)
+            .is_some_and(|owner| owner != reporter)
+    {
+        return;
+    }
+    // The first rider is the only report source. Native tameables additionally
+    // require their owner above; mods can restrict lookup to their own owner.
+    if lock(&base.passengers)
+        .first()
+        .is_none_or(|p| p.get_entity().entity_uuid != reporter)
+    {
+        return;
+    }
+    let origin = base.pos.load();
+    if !in_bone_range(position, [origin.x, origin.y, origin.z]) {
+        return;
+    }
+    let now = Instant::now();
+    let mut cache = lock(&BONES);
+    if cache.len() >= BONE_CACHE_LIMIT {
+        cache.retain(|_, sample| now.saturating_duration_since(sample.at) <= BONE_MAX_AGE);
+    }
+    let key = (base.entity_uuid, id, name.to_owned());
+    if cache.len() < BONE_CACHE_LIMIT || cache.contains_key(&key) {
+        cache.insert(
+            key,
+            BoneSample {
+                reporter,
+                position,
+                at: now,
+            },
+        );
+    }
+}
+
+pub fn rig_bone_position(
+    mob: &dyn EntityBase,
+    name: &str,
+    reporter: Option<&[u8; 16]>,
+) -> Option<[f64; 3]> {
+    if !bone_name(name) || crate::mobs::registered_kind(mob).is_none() {
+        return None;
+    }
+    let base = mob.get_entity();
+    let cache = lock(&BONES);
+    let sample = cache.get(&(base.entity_uuid, base.entity_id, name.to_owned()))?;
+    let origin = base.pos.load();
+    sample
+        .valid(Instant::now(), [origin.x, origin.y, origin.z], reporter)
+        .then_some(sample.position)
+}
 static MOD_GLIDE: LazyLock<Mutex<HashMap<i32, Instant>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -342,6 +468,15 @@ impl EventHandler<PlayerCustomPayloadEvent> for Payload {
                 return;
             }
             let entity: &dyn EntityBase = player.as_ref();
+            if let Some((id, bone, position)) = parse_bone(&event.data) {
+                if lock(&CLIENTS)
+                    .get_mut(&player_id)
+                    .is_some_and(|c| c.permit(BONE_RATE_KEY, abi::ACTION_PRESSED, Instant::now()))
+                {
+                    record_bone(player, id, bone, position);
+                }
+                return;
+            }
             if let Some(requested) = mount_query(&event.data) {
                 if !lock(&CLIENTS)
                     .get_mut(&player_id)
@@ -409,6 +544,7 @@ impl EventHandler<PlayerLeaveEvent> for Leave {
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             lock(&CLIENTS).remove(&event.player.entity_id());
+            lock(&BONES).retain(|_, sample| sample.reporter != event.player.gameprofile.id);
             set_glide(event.player.entity_id(), false);
         })
     }
@@ -417,6 +553,41 @@ impl EventHandler<PlayerLeaveEvent> for Leave {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bone_wire_and_range() {
+        let mut packet = vec![1, 6, 0, 0, 0, 42, 4];
+        packet.extend_from_slice(b"hand");
+        for coordinate in [1.0_f64, 2.0, 3.0] {
+            packet.extend_from_slice(&coordinate.to_be_bytes());
+        }
+        assert_eq!(parse_bone(&packet), Some((42, "hand", [1.0, 2.0, 3.0])));
+        assert!(parse_bone(&packet[..packet.len() - 1]).is_none());
+        packet[11..19].copy_from_slice(&f64::NAN.to_be_bytes());
+        assert!(parse_bone(&packet).is_none());
+        assert!(in_bone_range([16.0, 0.0, 0.0], [0.0; 3]));
+        assert!(!in_bone_range([16.01, 0.0, 0.0], [0.0; 3]));
+        assert!(!in_bone_range([f64::INFINITY, 0.0, 0.0], [0.0; 3]));
+    }
+
+    #[test]
+    fn bone_sample_rejects_stale_wrong_reporter_or_displaced_mob() {
+        let at = Instant::now();
+        let owner = uuid::Uuid::from_bytes([7; 16]);
+        let sample = BoneSample {
+            reporter: owner,
+            position: [1.0, 2.0, 3.0],
+            at,
+        };
+        assert!(sample.valid(at + BONE_MAX_AGE, [0.0; 3], Some(owner.as_bytes())));
+        assert!(!sample.valid(
+            at + BONE_MAX_AGE + Duration::from_millis(1),
+            [0.0; 3],
+            Some(owner.as_bytes())
+        ));
+        assert!(!sample.valid(at, [0.0; 3], Some(&[8; 16])));
+        assert!(!sample.valid(at, [100.0; 3], None));
+    }
 
     #[test]
     fn catalog_combines_multiple_subscribers_without_duplicate_bindings() {

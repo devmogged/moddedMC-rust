@@ -6,6 +6,7 @@
 //!   click <action-id>      press a dialog button whose action is a custom click
 //!   click-match <prefix> <suffix>  press the unique matching action in the latest dialog
 //!   action <id> <pressed|held|released>  send a companion semantic action
+//!   rig-bone <name> <x> <y> <z> [count]  report a mounted rig's world-space bone
 //!   quit
 //! Usage: moddedmc-bot <host:port> <name>
 
@@ -107,6 +108,10 @@ async fn main() -> Result<(), String> {
         let result = match verb {
             "cmd" => send(&writer, &SChatCommand { command: rest }).await,
             "action" => companion_action(&writer, rest).await,
+            "rig-bone" => {
+                let mount = player.lock().await.vehicle;
+                rig_bone(&writer, mount, rest).await
+            }
             "screen-enable" => {
                 send(
                     &writer,
@@ -256,6 +261,61 @@ async fn companion_action(writer: &Writer, args: &str) -> Result<(), String> {
         },
     )
     .await
+}
+
+async fn rig_bone(writer: &Writer, mount: Option<i32>, args: &str) -> Result<(), String> {
+    let id = mount.ok_or("not riding a vehicle")?;
+    let fields: Vec<_> = args.split_whitespace().collect();
+    if !(4..=5).contains(&fields.len()) {
+        return Err("expected bone name, x y z, optional repeat count".into());
+    }
+    let name = fields[0];
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b':'))
+    {
+        return Err("invalid bone name".into());
+    }
+    let count = fields
+        .get(4)
+        .map_or(Ok(1), |n| n.parse::<u8>())
+        .map_err(|_| "invalid repeat count")?;
+    if !(1..=60).contains(&count) {
+        return Err("repeat count must be 1–60".into());
+    }
+    let mut data = vec![1, 6];
+    data.extend_from_slice(&id.to_be_bytes());
+    data.push(u8::try_from(name.len()).map_err(|_| "invalid bone name length")?);
+    data.extend_from_slice(name.as_bytes());
+    for field in &fields[1..4] {
+        let coordinate = field.parse::<f64>().map_err(|_| "invalid coordinate")?;
+        data.extend_from_slice(&coordinate.to_be_bytes());
+    }
+    let channel = "moddedmc:player_actions";
+    send(
+        writer,
+        &SCustomPayload {
+            channel,
+            data: &[1, 0],
+        },
+    )
+    .await?;
+    for i in 0..count {
+        if i > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        send(
+            writer,
+            &SCustomPayload {
+                channel,
+                data: &data,
+            },
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 async fn screen_click(

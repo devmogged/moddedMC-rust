@@ -366,6 +366,19 @@ impl Abilities {
                 slash(world, mob, excluded, 7.0, true);
                 action.held = false;
             }
+            (Attack::SlashGrab, 17..=25) if action.held => {
+                // Autonomous grabs retain the neutral passenger attachment unless a
+                // controlling owner supplied a fresh locator.
+                if let (Some(mobs), Some(view)) = (MOBS.get(), mob.view()) {
+                    if let Some(position) = grab_bone(mob) {
+                        let [x, y, z] = offset(position, view.position);
+                        let (sin, cos) = f64::from(view.yaw).to_radians().sin_cos();
+                        mobs.set_seat_offset(mob, 0, [x * cos + z * sin, y, -x * sin + z * cos]);
+                    } else {
+                        taming::configure_seats(mob, crate::CINDERVANE, true);
+                    }
+                }
+            }
             (Attack::MagmaVolley, 3 | 13 | 23) => {
                 let shots = volley(world, mob, action.target);
                 if !shots.is_empty() {
@@ -517,7 +530,10 @@ fn hold_rider_grab(world: World<'_>, mob: Entity<'_>, id: i32) {
         return;
     };
     let (sin, cos) = f64::from(view.yaw).to_radians().sin_cos();
-    let hold = add(view.position, [-cos * 1.2 - sin, 1.0, -sin * 1.2 + cos]);
+    // Java holdGrabbedTarget uses the controlling owner's animated locator, with this
+    // neutral anchor when a fresh sample is unavailable.
+    let fallback = add(view.position, [-cos * 1.2 - sin, 1.0, -sin * 1.2 + cos]);
+    let hold = grab_bone(mob).unwrap_or(fallback);
     entities.with_entity(world, id, |target| {
         if let Some(at) = target.view() {
             target.change(&EntityChange {
@@ -528,6 +544,25 @@ fn hold_rider_grab(world: World<'_>, mob: Entity<'_>, id: i32) {
             target.reset_fall_distance();
         }
     });
+}
+
+fn grab_bone(mob: Entity<'_>) -> Option<[f64; 3]> {
+    let mobs = MOBS.get()?;
+    let owner = taming::owner(mob)?;
+    let view = mob.view()?;
+    let reported = mobs.rig_bone_position(mob, "automountBoneRight", Some(&owner))?;
+    // Keep a valid sample within the dragon's grab reach even if a client lies.
+    Some(clamp_grab_bone(view.position, reported))
+}
+
+fn clamp_grab_bone(origin: [f64; 3], position: [f64; 3]) -> [f64; 3] {
+    let delta = offset(position, origin);
+    let distance = length_squared(delta).sqrt();
+    if distance > 8.0 {
+        add(origin, delta.map(|v| v * (8.0 / distance)))
+    } else {
+        position
+    }
 }
 
 fn rider_slash(world: World<'_>, mob: Entity<'_>, primary: i32, damage: f32) {
@@ -1018,6 +1053,19 @@ pub fn effects(world: World<'_>, mob: Entity<'_>, shots: &mut Vec<Shot>, fire: b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grab_locator_is_clamped_relative_to_the_dragon() {
+        let origin = [10.0, 20.0, 30.0];
+        assert_eq!(
+            clamp_grab_bone(origin, [11.0, 22.0, 33.0]),
+            [11.0, 22.0, 33.0]
+        );
+        assert_eq!(
+            clamp_grab_bone(origin, [26.0, 20.0, 30.0]),
+            [18.0, 20.0, 30.0]
+        );
+    }
 
     #[test]
     fn rider_cooldowns_begin_at_ability_end() {

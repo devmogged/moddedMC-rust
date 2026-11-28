@@ -196,6 +196,8 @@ pub enum MobsExtension {
     MerchantClose,
     /// Ownership, alliances and custom rider attachment/dismount positions.
     PetsSeats,
+    /// Validated, transient companion rig bone positions.
+    RigBones,
 }
 
 #[cfg(test)]
@@ -250,6 +252,12 @@ mod combat_history_tests {
             size: 288,
         });
         assert!(mobs.require_extension(MobsExtension::PetsSeats).is_ok());
+        assert!(mobs.require_extension(MobsExtension::RigBones).is_err());
+        let new = Mobs(InterfacePrefix {
+            ptr: std::ptr::null(),
+            size: 296,
+        });
+        assert!(new.require_extension(MobsExtension::RigBones).is_ok());
     }
 }
 
@@ -437,6 +445,10 @@ impl Mobs {
             MobsExtension::PetsSeats => (
                 std::mem::offset_of!(abi::MobsV1, set_dismount_offsets),
                 "moddedmc:mobs.pets_seats",
+            ),
+            MobsExtension::RigBones => (
+                std::mem::offset_of!(abi::MobsV1, rig_bone_position),
+                "moddedmc:mobs.rig_bones",
             ),
         };
         if self.0.size >= end + size_of::<usize>() {
@@ -739,6 +751,29 @@ impl Mobs {
                 offsets.len(),
             )
         }
+    }
+
+    /// A recent world-space bone sample, optionally restricted to a reporter UUID.
+    pub fn rig_bone_position(
+        self,
+        mob: Entity<'_>,
+        bone: &str,
+        reporter: Option<&[u8; 16]>,
+    ) -> Option<[f64; 3]> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::MobsV1, rig_bone_position))?;
+        let mut out = abi::Vec3([0.0; 3]);
+        // SAFETY: the mob, bone, optional UUID and output are borrowed for this call.
+        unsafe {
+            ((&raw const (*api).rig_bone_position).read())(
+                mob.raw(),
+                abi::Str::from(bone),
+                reporter.map_or(std::ptr::null(), std::ptr::from_ref),
+                &raw mut out,
+            )
+        }
+        .then_some(out.0)
     }
 
     pub fn uuid(self, entity: Entity<'_>) -> Option<[u8; 16]> {
