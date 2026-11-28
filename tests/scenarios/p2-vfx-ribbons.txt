@@ -13,12 +13,13 @@ await 30 Successfully filled|No blocks were filled
 cmd saintsdragons spawn ignivorus 1025 300 1025
 wait 2
 cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},x=1025,y=300,z=1025,distance=..8,limit=1] add breath_dragon
-cmd summon minecraft:iron_golem 1025.5 300 1040.5 {NoAI:1b,Tags:["breath_target"]}
+cmd summon minecraft:iron_golem 1025.5 300 1030.5 {NoAI:1b,Tags:["breath_target"]}
 wait 0.25
 cmd damage @e[tag=breath_dragon,limit=1] 1 minecraft:mob_attack by @e[tag=breath_target,limit=1]
-wait 0.25
+wait 1
 cmd tick freeze
 cmd tp @e[tag=breath_dragon,limit=1] 1025.5 300 1025.5 0 0
+cmd tp @e[tag=breath_target,limit=1] 1025.5 300 1040.5
 cmd data modify entity @e[tag=breath_dragon,limit=1] data."saintsdragons:ignivorus_combat".next_decision set value 2147483647L
 cmd data modify entity @e[tag=breath_dragon,limit=1] data."saintsdragons:ignivorus_combat".age set value 9
 cmd data modify entity @e[tag=breath_dragon,limit=1] data."saintsdragons:ignivorus_combat".attack set value "Breath"
