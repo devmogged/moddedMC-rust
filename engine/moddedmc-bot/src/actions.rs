@@ -6,7 +6,7 @@ use pumpkin_protocol::{
     codec::item_stack_seralizer::OptionalItemStackHash,
     java::server::play::{
         ActionType, SAttack, SClickSlot, SClientCommand, SClientTickEnd, SCloseContainer,
-        SInteract, SPlayerPosition, SPlayerRotation, SSetHeldItem, SlotActionType,
+        SCustomPayload, SInteract, SPlayerPosition, SPlayerRotation, SSetHeldItem, SlotActionType,
     },
     ser::NetworkReadExt as _,
 };
@@ -176,6 +176,7 @@ pub async fn perform(
             )
             .await
         }
+        ("use-display", coords) => use_display(player, writer, coords).await,
         ("inventory-click", [slot, button]) => {
             let slot = slot
                 .parse::<i16>()
@@ -209,6 +210,39 @@ pub async fn perform(
         }
         _ => Err(format!("invalid {verb} arguments")),
     }
+}
+
+async fn use_display(
+    player: &Mutex<Player>,
+    writer: &Writer,
+    parts: &[&str],
+) -> Result<(), String> {
+    let (coords, state) = match parts {
+        [coords @ .., state] if parts.len() == 4 => (coords, Some(*state)),
+        _ => (parts, None),
+    };
+    let anchor = vector(coords)?;
+    let id = player
+        .lock()
+        .await
+        .entities
+        .target_state("minecraft:block_display", anchor, state)?;
+    send(
+        writer,
+        &SCustomPayload {
+            channel: "moddedmc:player_actions",
+            data: &[1, 0],
+        },
+    )
+    .await?;
+    send(
+        writer,
+        &SCustomPayload {
+            channel: "moddedmc:block_display_use",
+            data: &id.0.to_be_bytes(),
+        },
+    )
+    .await
 }
 
 async fn use_entity(

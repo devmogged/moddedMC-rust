@@ -31,6 +31,7 @@ public final class Companion implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("moddedmc-companion");
     private static volatile Session session;
     private static volatile boolean negotiated;
+    private static volatile int capabilities;
 
     private static final class Session {
         private final Protocol.Offer offer;
@@ -47,6 +48,7 @@ public final class Companion implements ClientModInitializer {
     public void onInitializeClient() {
         CreativeCatalog.register();
         PlayerActions.register();
+        BlockDisplayUse.register();
         PackScreens.register();
         ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> clearSession());
         ClientConfigurationConnectionEvents.INIT.register((listener, client) -> clearSession());
@@ -60,6 +62,7 @@ public final class Companion implements ClientModInitializer {
             }
             var answer = Protocol.answer(packet.bytes());
             if (answer != null) {
+                capabilities = answer.flags();
                 negotiated = true;
                 session = answer.offer() == null ? null : new Session(answer.offer());
                 PlayerActions.negotiated((answer.flags() & Protocol.PLAYER_ACTIONS) != 0);
@@ -71,10 +74,17 @@ public final class Companion implements ClientModInitializer {
     private static void clearSession() {
         session = null;
         negotiated = false;
+        capabilities = 0;
     }
 
     public static boolean negotiated() {
         return negotiated;
+    }
+
+    static boolean canUseBlockDisplays() {
+        var current = session;
+        return current != null && !current.trapdoors.states().isEmpty()
+                && (capabilities & Protocol.BLOCK_DISPLAY_USE) != 0;
     }
 
     static byte[] creativeCatalog() {

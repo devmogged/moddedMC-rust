@@ -229,6 +229,20 @@ impl TrainRuntime {
         let mut moved = Vec::new();
         let mut dirty = Vec::new();
         let mut occupancy_changed = reload;
+        let mut changed_blocks = Vec::new();
+        for train in trains.iter_mut() {
+            let Some(shown) = self.shown.get_mut(&train.id) else {
+                continue;
+            };
+            let mut used = false;
+            for (carriage, display) in train.carriages.iter_mut().zip(shown) {
+                used |= display.apply_clicks(world, carriage);
+            }
+            if used {
+                changed_blocks.push(train.id);
+                dirty.push(train.id);
+            }
+        }
         let scheduled = trains.iter().any(|train| {
             train
                 .schedule
@@ -316,12 +330,20 @@ impl TrainRuntime {
             }
         }
         if !dirty.is_empty()
-            && !station::save_positions(
+            && !station::save_running_trains(
                 world,
                 trains.iter().filter(|train| dirty.contains(&train.id)),
+                &changed_blocks,
             )
         {
-            moddedmc_api::warn("Could not save train wheel positions");
+            moddedmc_api::warn("Could not save running trains");
+            for id in changed_blocks {
+                if let Some(shown) = self.shown.remove(&id) {
+                    for mut carriage in shown {
+                        carriage.clear(world);
+                    }
+                }
+            }
             self.trains = None;
             for driver in self.drivers.values_mut() {
                 driver.speed = 0.0;

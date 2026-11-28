@@ -7,6 +7,7 @@ const CHANNEL: &str = "moddedmc:negotiate";
 const VERSION: u16 = 1;
 const ASSETS: u32 = 1;
 const PLAYER_ACTIONS: u32 = 2;
+const BLOCK_DISPLAY_USE: u32 = 4;
 
 const REQUIRED: &str = "This server requires the moddedMC companion mod for Fabric 26.3. Get it from https://github.com/devmogged/moddedMC-rust (companion/), or ask the server owner for the JAR.";
 
@@ -39,7 +40,7 @@ fn answer(hello: &[u8], catalog: Option<&Catalog>) -> Option<Vec<u8>> {
     }
     let mut reply = VERSION.to_be_bytes().to_vec();
     let supported = u32::from_be_bytes([a, b, c, d])
-        & (PLAYER_ACTIONS | if catalog.is_some() { ASSETS } else { 0 });
+        & (PLAYER_ACTIONS | if catalog.is_some() { ASSETS | BLOCK_DISPLAY_USE } else { 0 });
     reply.extend_from_slice(&supported.to_be_bytes());
     if supported & ASSETS != 0
         && let Some(catalog) = catalog
@@ -70,7 +71,7 @@ mod tests {
         assert_eq!(answer(&[0, 1, 0, 0, 0, 0], Some(&catalog)), baseline);
         assert_eq!(answer(&[0, 2, 255, 255, 255, 255], Some(&catalog)), None);
         assert_eq!(answer(&[0, 1], Some(&catalog)), None);
-        let mut expected = vec![0, 1, 0, 0, 0, 3];
+        let mut expected = vec![0, 1, 0, 0, 0, 7];
         expected.extend_from_slice(&[11; 32]);
         expected.extend_from_slice(&[22; 20]);
         assert_eq!(

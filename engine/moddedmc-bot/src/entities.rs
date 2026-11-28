@@ -310,6 +310,16 @@ impl Entities {
     }
 
     pub fn target(&self, name: &str, anchor: Vector3<f64>) -> Result<VarInt, String> {
+        self.target_state(name, anchor, None)
+    }
+
+    pub fn target_state(
+        &self,
+        name: &str,
+        anchor: Vector3<f64>,
+        state: Option<&str>,
+    ) -> Result<VarInt, String> {
+        let state = state.map(WireState::parse).transpose()?;
         let kind =
             EntityType::from_name(name).ok_or_else(|| format!("unknown entity type {name}"))?;
         let mut targets = self.tracked.iter().filter(|(_, entity)| {
@@ -317,6 +327,11 @@ impl Entities {
                 && (entity.anchor.x - anchor.x).abs() <= 1e-6
                 && (entity.anchor.y - anchor.y).abs() <= 1e-6
                 && (entity.anchor.z - anchor.z).abs() <= 1e-6
+                && state.as_ref().is_none_or(|state| {
+                    entity
+                        .block_display_state
+                        .is_some_and(|actual| state.matches(actual))
+                })
         });
         let (&id, _) = targets
             .next()

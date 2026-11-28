@@ -771,6 +771,11 @@ impl MechanicalPiston {
         rpm: f32,
         kinetics: &mut Kinetics,
     ) -> bool {
+        let used = self
+            .data
+            .contraption
+            .as_mut()
+            .is_some_and(|body| self.displays.apply_clicks(world, &mut body.blocks));
         let previous = std::mem::replace(&mut self.previous_speed, rpm);
         let speed = piston.movement_speed(rpm);
         let extending = speed > 0.0;
@@ -846,7 +851,7 @@ impl MechanicalPiston {
                 FACES[usize::from(piston.facing)].map(|axis| axis as f32 * self.data.offset),
             );
         }
-        speed != 0.0
+        speed != 0.0 || used
     }
 }
 

@@ -671,6 +671,7 @@ pub fn tick(world: World<'_>, checks: &BlockMovementChecks, kinetics: &mut Kinet
         let mut dirty = false;
         gantries.retain_mut(|gantry| {
             let offset = gantry.offset;
+            dirty |= gantry.displays.apply_clicks(world, &mut gantry.blocks);
             let finished = gantry.tick(world, checks, kinetics);
             dirty |= finished || offset != gantry.offset;
             !finished

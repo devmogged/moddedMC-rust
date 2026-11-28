@@ -1,21 +1,38 @@
 //! `moddedmc:block_displays` v1: transient block displays for blocks that aren't in the world.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{Arc, LazyLock, Mutex, PoisonError, atomic::Ordering},
 };
 
 use moddedmc_api::abi::{self, WorldRef};
-use pumpkin_core::entity::{Entity, EntityBase, decoration::display::BlockDisplayEntity};
+use pumpkin_core::{
+    entity::{Entity, EntityBase, decoration::display::BlockDisplayEntity, player::Player},
+    plugin::{
+        BoxFuture, EventHandler,
+        api::events::player::player_custom_payload::PlayerCustomPayloadEvent,
+    },
+    server::Server,
+};
 use pumpkin_data::{BlockStateId, entity::EntityType};
 use pumpkin_util::math::vector3::Vector3;
+use pumpkin_world::clip::{ClipBlock, ClipContext, ClipFluid};
 
-use crate::content::{shared, world};
+use crate::{
+    content::{shared, world},
+    lock,
+};
 
 /// Vanilla `Display.TELEPORT_DURATION` is clamped to this.
 const MAX_TELEPORT_DURATION: i32 = 59;
 /// Vanilla `Brightness.pack`: block light in bits 4 to 7, sky light in bits 20 to 23.
 const BRIGHTNESS_BITS: i32 = 0xF << 4 | 0xF << 20;
+
+const USE_CHANNEL: &str = "moddedmc:block_display_use";
+const MAX_PENDING_CLICKS: usize = 16;
+
+static CLICKABLE: LazyLock<Mutex<HashMap<i32, VecDeque<abi::BlockDisplayClick>>>> =
+    LazyLock::new(Mutex::default);
 
 static DISPLAYS: LazyLock<Mutex<HashMap<i32, Arc<BlockDisplayEntity>>>> =
     LazyLock::new(Mutex::default);
@@ -70,6 +87,7 @@ fn live(id: i32) -> Option<Arc<BlockDisplayEntity>> {
     let entity = displays.get(&id)?.clone();
     if entity.display.entity.removed.load(Ordering::Relaxed) {
         displays.remove(&id);
+        lock(&CLICKABLE).remove(&id);
         return None;
     }
     Some(entity)
@@ -121,6 +139,101 @@ unsafe extern "C" fn set_state(raw: WorldRef, id: i32, block: u32) -> bool {
     true
 }
 
+unsafe extern "C" fn enable_use(raw: WorldRef, id: i32) -> bool {
+    // SAFETY: the world is borrowed for this call.
+    let Some(world) = (unsafe { world(raw) }) else {
+        return false;
+    };
+    let Some(display) = live(id) else {
+        return false;
+    };
+    if !std::ptr::eq(display.get_entity().world.load().as_ref(), world) {
+        return false;
+    }
+    lock(&CLICKABLE).entry(id).or_default();
+    true
+}
+
+unsafe extern "C" fn next_click(raw: WorldRef, id: i32, out: *mut abi::BlockDisplayClick) -> bool {
+    // SAFETY: the world and output are borrowed for this call.
+    let (Some(world), Some(out)) = (unsafe { world(raw) }, unsafe { out.as_mut() }) else {
+        return false;
+    };
+    let Some(display) = live(id) else {
+        return false;
+    };
+    if !std::ptr::eq(display.get_entity().world.load().as_ref(), world) {
+        return false;
+    }
+    let Some(click) = lock(&CLICKABLE).get_mut(&id).and_then(VecDeque::pop_front) else {
+        return false;
+    };
+    *out = click;
+    true
+}
+
+fn use_click(player: &Player, id: i32) {
+    if !player.has_client_loaded()
+        || player.is_spectator()
+        || !player.living_entity.is_alive()
+        || !lock(&CLICKABLE).contains_key(&id)
+        || !crate::player_actions::permit_display_use(player.entity_id())
+    {
+        return;
+    }
+    let Some(display) = live(id) else {
+        return;
+    };
+    let world = player.world();
+    if !Arc::ptr_eq(&display.get_entity().world.load(), &world) {
+        return;
+    }
+    let from = player.get_entity().get_eye_pos();
+    let to = from + player.get_looking_vector() * player.block_interaction_range();
+    let hit = world.clip(&ClipContext::new(
+        from,
+        to,
+        ClipBlock::Outline,
+        ClipFluid::None,
+    ));
+    let end = if hit.is_miss { to } else { hit.location };
+    let to = world
+        .ray_trace_entities(from, end)
+        .into_iter()
+        .find(|(target, _, _)| {
+            target.get_entity().entity_id != player.entity_id() && target.can_be_hit_by_projectile()
+        })
+        .map_or(end, |(_, hit, _)| hit);
+    let pos = player.position();
+    if let Some(queue) = lock(&CLICKABLE).get_mut(&id)
+        && queue.len() < MAX_PENDING_CLICKS
+    {
+        queue.push_back(abi::BlockDisplayClick {
+            from: [from.x, from.y, from.z],
+            to: [to.x, to.y, to.z],
+            player_position: [pos.x, pos.y, pos.z],
+        });
+    }
+}
+
+pub struct UseDisplay;
+
+impl EventHandler<PlayerCustomPayloadEvent> for UseDisplay {
+    fn handle_blocking<'a>(
+        &'a self,
+        _: &'a Arc<Server>,
+        event: &'a mut PlayerCustomPayloadEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if event.channel == USE_CHANNEL
+                && let Ok(bytes) = <[u8; 4]>::try_from(event.data.as_ref())
+            {
+                use_click(&event.player, i32::from_be_bytes(bytes));
+            }
+        })
+    }
+}
+
 unsafe extern "C" fn remove(raw: WorldRef, id: i32) {
     // SAFETY: the world is borrowed for this call.
     let Some(world) = (unsafe { world(raw) }) else {
@@ -130,15 +243,20 @@ unsafe extern "C" fn remove(raw: WorldRef, id: i32) {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .remove(&id);
+    lock(&CLICKABLE).remove(&id);
     if let Some(entity) = entity {
         world.remove_entity(entity.as_ref());
     }
 }
 
-pub static BLOCK_DISPLAYS: abi::BlockDisplaysV1 = abi::BlockDisplaysV1 {
-    size: size_of::<abi::BlockDisplaysV1>(),
-    spawn,
-    update,
-    set_state,
-    remove,
+pub static BLOCK_DISPLAYS: abi::BlockDisplaysV1Use = abi::BlockDisplaysV1Use {
+    base: abi::BlockDisplaysV1 {
+        size: size_of::<abi::BlockDisplaysV1Use>(),
+        spawn,
+        update,
+        set_state,
+        remove,
+    },
+    enable_use,
+    next_click,
 };

@@ -126,9 +126,10 @@ pub(super) fn stops(world: World<'_>, dimension: &str) -> Vec<Selection> {
         .collect()
 }
 
-pub(super) fn save_positions<'a>(
+pub(super) fn save_running_trains<'a>(
     world: World<'_>,
     trains: impl Iterator<Item = &'a Train>,
+    changed_blocks: &[i32],
 ) -> bool {
     let Some(mut data) = read(world) else {
         return false;
@@ -138,6 +139,11 @@ pub(super) fn save_positions<'a>(
             return false;
         };
         saved.copy_position(train);
+        if changed_blocks.contains(&train.id) {
+            for (destination, source) in saved.carriages.iter_mut().zip(&train.carriages) {
+                destination.blocks.clone_from(&source.blocks);
+            }
+        }
     }
     write(world, &data)
 }

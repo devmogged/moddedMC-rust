@@ -8,7 +8,8 @@ final class Protocol {
     static final short VERSION = 1;
     static final int HASHED_ASSETS = 1;
     static final int PLAYER_ACTIONS = 2;
-    static final int FLAGS = HASHED_ASSETS | PLAYER_ACTIONS;
+    static final int BLOCK_DISPLAY_USE = 4;
+    static final int FLAGS = HASHED_ASSETS | PLAYER_ACTIONS | BLOCK_DISPLAY_USE;
     static final int HEADER_SIZE = Short.BYTES + Integer.BYTES;
 
     static byte[] hello() {

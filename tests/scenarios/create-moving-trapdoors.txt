@@ -1,9 +1,9 @@
-# Capturing a waterlogged trapdoor leaves water, and disassembly restores the open trapdoor.
+# Click a waterlogged trapdoor on a bearing, including hit shape and restart.
 mods target/mods/create.mmc
 start
 botstart tester
 await 10 \[bot\] joined as tester
-cmd tp tester 2300.5 101 2303.5
+cmd tp tester 2300.5 100 2303.5 180 10
 await 10 \[bot\] teleported to .*2300\.5.*2303\.5
 wait 2
 cmd fill 2296 100 2296 2305 106 2305 minecraft:air
@@ -14,12 +14,24 @@ wait 0.5
 cmd kinetics 2300 99 2300 0
 await 5 create:creative_motor.*Speed=0
 cmd setblock 2300 100 2300 create:mechanical_bearing[facing=up]
-cmd setblock 2300 101 2300 create:framed_glass_trapdoor[facing=north,half=top,open=true,waterlogged=true]
+cmd setblock 2300 101 2300 create:framed_glass_trapdoor[facing=north,half=bottom,open=false,waterlogged=true]
 await 5 Changed the block at 2300, 101, 2300
 cmd kinetics 2300 99 2300 1
 await 5 create:creative_motor.*Speed=1
 await-cmd 5 Test passed && execute if block 2300 101 2300 minecraft:water[level=0]
 bot expect entity minecraft:block_display near 2300.5 101.5 2300.5 within 0.05 count 1
+await 5 \[bot\] expect entity ok minecraft:block_display
+cmd setblock 2300 101 2302 minecraft:stone
+await 5 Changed the block at 2300, 101, 2302
+bot use-display 2300.5 101.5 2300.5
+wait 0.4
+reject block.wooden_trapdoor.open
+cmd setblock 2300 101 2302 minecraft:air
+await 5 Changed the block at 2300, 101, 2302
+bot use-display 2300.5 101.5 2300.5
+await 5 \[bot\] sound: block.wooden_trapdoor.open
+wait 0.3
+bot expect entity minecraft:block_display near 2300.5 101.5 2300.5 within 0.05 state minecraft:waxed_oxidized_copper_trapdoor[open=true,powered=false] count 1
 await 5 \[bot\] expect entity ok minecraft:block_display
 cmd save-all flush
 await 10 Saved the game
@@ -33,9 +45,21 @@ cmd execute if block 2300 101 2300 minecraft:water[level=0]
 await 5 Test passed
 bot expect entity minecraft:block_display near 2300.5 101.5 2300.5 within 0.05 count 1
 await 5 \[bot\] expect entity ok minecraft:block_display
+bot look 180 0
+wait 0.1
+bot use-display 2300.5 101.5 2300.5
+await 5 \[bot\] sound: block.wooden_trapdoor.close
+wait 0.4
+bot use-display 2300.5 101.5 2300.5
+wait 0.4
+reject block.wooden_trapdoor.open
+cmd tp tester 2300.5 103 2300.5 0 90
+await 5 \[bot\] teleported to .*2300\.5.*2300\.5
+bot use-display 2300.5 101.5 2300.5
+await 5 \[bot\] sound: block.wooden_trapdoor.open
 cmd kinetics 2300 99 2300 0
 await 5 create:creative_motor.*Speed=0
-await-cmd 5 Test passed && execute if block 2300 101 2300 create:framed_glass_trapdoor[half=top,open=true,waterlogged=true]
+await-cmd 5 Test passed && execute if block 2300 101 2300 create:framed_glass_trapdoor[half=bottom,open=true,waterlogged=true]
 bot expect entity minecraft:block_display near 2300.5 101.5 2300.5 within 0.05 count 0
 await 5 \[bot\] expect entity ok minecraft:block_display
 reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error

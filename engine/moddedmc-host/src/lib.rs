@@ -261,6 +261,11 @@ pub fn attach(server: &Arc<Server>) {
         EventPriority::Normal,
         true,
     );
+    pm.register::<pumpkin_core::plugin::api::events::player::player_custom_payload::PlayerCustomPayloadEvent, _>(
+        Arc::new(block_displays::UseDisplay),
+        EventPriority::Normal,
+        true,
+    );
     pm.register::<PlayerInteractEntityEvent, _>(
         Arc::new(actor_visual::UseVisual),
         EventPriority::Normal,

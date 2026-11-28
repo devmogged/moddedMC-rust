@@ -2,14 +2,51 @@
 use moddedmc_api::{
     RegistrationError, Registry,
     block_physics::BlockPhysics,
-    content::{Block, BlockMaterial, Content, State},
+    content::{Block, BlockMaterial, CollisionBox, Content, State},
 };
+
+use crate::{
+    DIRECTIONS,
+    collider::Collider,
+    contraption::PaletteEntry,
+    kinetics::{face_axis, positive},
+};
+
+const THICKNESS: f64 = 3.0 / 16.0;
 
 pub const TRAIN: &str = "create:train_trapdoor";
 pub const GLASS: &str = "create:framed_glass_trapdoor";
 
 pub fn is_trapdoor(id: &str) -> bool {
     matches!(id, TRAIN | GLASS)
+}
+
+pub fn toggle(entry: &PaletteEntry) -> Option<(PaletteEntry, Collider, bool)> {
+    if !is_trapdoor(&entry.name) {
+        return None;
+    }
+    let open = entry.properties.get("open")? == "false";
+    let mut shape = CollisionBox {
+        min: [0.0; 3],
+        max: [1.0; 3],
+    };
+    if open {
+        let facing = entry.properties.get("facing")?;
+        let face = DIRECTIONS.iter().position(|name| *name == facing)? as u8;
+        let axis = usize::from(face_axis(face));
+        if positive(face) {
+            shape.max[axis] = THICKNESS;
+        } else {
+            shape.min[axis] = 1.0 - THICKNESS;
+        }
+    } else if entry.properties.get("half")? == "top" {
+        shape.min[1] = 1.0 - THICKNESS;
+    } else {
+        shape.max[1] = THICKNESS;
+    }
+    let mut toggled = entry.clone();
+    toggled.properties.insert("open".into(), open.to_string());
+    Some((toggled, Collider::from_shape(shape), open))
 }
 
 pub fn register(

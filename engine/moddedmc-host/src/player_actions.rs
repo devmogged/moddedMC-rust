@@ -432,6 +432,12 @@ pub fn attach(server: &Server) {
     );
 }
 
+pub fn permit_display_use(player: i32) -> bool {
+    lock(&CLIENTS)
+        .get_mut(&player)
+        .is_some_and(|client| client.permit("\0display_use", abi::ACTION_PRESSED, Instant::now()))
+}
+
 struct Payload;
 impl EventHandler<PlayerCustomPayloadEvent> for Payload {
     fn handle_blocking<'a>(

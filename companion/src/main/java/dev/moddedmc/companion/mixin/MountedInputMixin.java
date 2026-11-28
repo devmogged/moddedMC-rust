@@ -1,5 +1,6 @@
 package dev.moddedmc.companion.mixin;
 
+import dev.moddedmc.companion.BlockDisplayUse;
 import dev.moddedmc.companion.PlayerActions;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
@@ -24,5 +25,12 @@ abstract class MountedInputMixin {
     @Inject(method = "startUseItem", at = @At("HEAD"), cancellable = true)
     private void moddedmc$use(CallbackInfo ci) {
         if (PlayerActions.suppressUse((Minecraft) (Object) this)) ci.cancel();
+    }
+
+    @Inject(method = "startUseItem", at = @At(value = "FIELD", ordinal = 0,
+            target = "Lnet/minecraft/client/Minecraft;hitResult:Lnet/minecraft/world/phys/HitResult;"),
+            cancellable = true)
+    private void moddedmc$useBlockDisplay(CallbackInfo ci) {
+        if (BlockDisplayUse.use((Minecraft) (Object) this)) ci.cancel();
     }
 }

@@ -401,26 +401,38 @@ impl MechanicalBearing {
         speed: f32,
         kinetics: &mut Kinetics,
     ) -> bool {
+        let used = self
+            .data
+            .contraption
+            .as_mut()
+            .is_some_and(|body| self.displays.apply_clicks(world, &mut body.blocks));
         let (facing, windmill) = match kind {
             Kind::Bearing(facing) => (facing, false),
             Kind::Windmill(facing) => (facing, true),
             Kind::Clockwork(facing) => {
+                let minute_used = self
+                    .data
+                    .clockwork
+                    .as_mut()
+                    .and_then(|clock| clock.minute_hand.as_mut())
+                    .is_some_and(|body| self.minute_displays.apply_clicks(world, &mut body.blocks));
                 let previous = std::mem::replace(&mut self.previous_speed, speed);
                 if std::mem::take(&mut self.assemble_next_tick) || previous != speed {
                     if !self.data.running {
                         return self.assemble(world, blocks, pos, facing, kind, kinetics);
                     }
-                    if speed == 0.0 {
-                        return self.disassemble(world, blocks, face_axis(facing));
+                    if speed == 0.0 && self.disassemble(world, blocks, face_axis(facing)) {
+                        return true;
                     }
-                    return false;
+                    return used || minute_used;
                 }
-                return self.data.running && self.tick_clockwork(world, facing, speed);
+                let moved = self.data.running && self.tick_clockwork(world, facing, speed);
+                return moved || used || minute_used;
             }
             _ => return false,
         };
         let previous_speed = std::mem::replace(&mut self.previous_speed, speed);
-        let mut dirty = false;
+        let mut dirty = used;
         if previous_speed != speed {
             self.assemble_next_tick |= !windmill;
             if previous_speed != 0.0

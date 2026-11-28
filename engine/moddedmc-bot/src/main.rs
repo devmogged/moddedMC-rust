@@ -5,6 +5,7 @@
 //!   break <x> <y> <z>      start digging the block (instant in Creative)
 //!   click <action-id>      press a dialog button whose action is a custom click
 //!   click-match <prefix> <suffix>  press the unique matching action in the latest dialog
+//!   use-display <x> <y> <z> [block state]  use a block display via the companion channel
 //!   action <id> <pressed|held|released>  send a companion semantic action
 //!   rig-bone <name> <x> <y> <z> [count]  report a mounted rig's world-space bone
 //!   quit
@@ -175,7 +176,7 @@ async fn main() -> Result<(), String> {
                 }
             }
             "look" | "hotbar" | "attack" | "interact" | "use-entity" | "inventory-click"
-            | "inventory-close" | "respawn" => {
+            | "inventory-close" | "respawn" | "use-display" => {
                 actions::perform(&actions, &player, &writer, verb, rest).await
             }
             "move" if harness => actions::perform(&actions, &player, &writer, verb, rest).await,

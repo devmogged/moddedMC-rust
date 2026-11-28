@@ -538,6 +538,10 @@ struct BogeyDisplay {
 }
 
 impl CarriageDisplays {
+    pub(super) fn apply_clicks(&mut self, world: World<'_>, carriage: &mut Carriage) -> bool {
+        self.blocks.apply_clicks(world, &mut carriage.blocks)
+    }
+
     pub(super) fn show(&mut self, world: World<'_>, carriage: &Carriage) {
         let (frame, translation) = carriage.transform();
         self.blocks

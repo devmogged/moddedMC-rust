@@ -26,7 +26,7 @@ class ProtocolTest {
 
     @Test
     void advertisesBigEndianVersionAndFlags() {
-        assertArrayEquals(new byte[] {0, 1, 0, 0, 0, 3}, Protocol.hello());
+        assertArrayEquals(new byte[] {0, 1, 0, 0, 0, 7}, Protocol.hello());
     }
 
     @Test

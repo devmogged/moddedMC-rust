@@ -525,6 +525,7 @@ impl RopePulley {
         rpm: f32,
         kinetics: &mut Kinetics,
     ) -> bool {
+        let used = self.displays.apply_clicks(world, &mut self.data.blocks);
         if matches!(kinetics.kind(pos), Some(Kind::Elevator(_))) {
             if let Some([x, y, z]) = self.data.mirror_parent {
                 let parent = Pos { x, y, z };
@@ -551,7 +552,7 @@ impl RopePulley {
                 self.previous_elevator_speed = 0.0;
                 return true;
             }
-            return self.tick_elevator(world, states, pos, rpm);
+            return self.tick_elevator(world, states, pos, rpm) || used;
         }
         let previous = std::mem::replace(&mut self.previous_speed, rpm);
         let speed = actuator_speed(rpm);
@@ -565,7 +566,7 @@ impl RopePulley {
                 return true;
             }
             self.show(world, pos);
-            return false;
+            return used;
         }
         let next = self.data.offset + speed;
         let direction = if speed < 0.0 { UP } else { DOWN };

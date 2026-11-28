@@ -1,18 +1,22 @@
 //! Create 6.0.10's Contraption.searchMovedStructure and StructureTransform.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    hash::{BuildHasher, RandomState},
+};
 
 use fastnbt::{IntArray, Value};
 use moddedmc_api::{
     Pos,
     content::{self, BlockUpdate, Content, UNLOADED_STATE, World},
+    effects::SOUND_BLOCKS,
     stacks::ItemDisplay,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AXES, BLOCK_DISPLAYS, BRASS_ENCASED_SHAFT, CONTENT, DIRECTIONS, DISPLAYS, ENCASED_SHAFT, SHAFT,
-    STACKS, TAGS, WorldLevel,
+    AXES, BLOCK_DISPLAYS, BRASS_ENCASED_SHAFT, CONTENT, DIRECTIONS, DISPLAYS, EFFECTS,
+    ENCASED_SHAFT, SHAFT, STACKS, TAGS, WorldLevel,
     belt::BELT,
     belt_inventory::{self, BeltInventory, Chain},
     belt_movement::can_transport_objects,
@@ -473,6 +477,42 @@ impl Blocks {
         })
     }
 
+    fn first_hit(&self, from: [f64; 3], to: [f64; 3]) -> Option<usize> {
+        self.block_list
+            .iter()
+            .enumerate()
+            .flat_map(|(index, block)| {
+                let local = block.local_pos().map(f64::from);
+                block
+                    .shapes
+                    .as_deref()
+                    .unwrap_or(&[Collider::BLOCK])
+                    .iter()
+                    .filter_map(move |shape| Some((index, shape.translate(local).clip(from, to)?)))
+            })
+            .min_by(|(_, left), (_, right)| left.total_cmp(right))
+            .map(|(index, _)| index)
+    }
+
+    fn toggle_trapdoor(&mut self, index: usize) -> Option<(u32, bool)> {
+        let block = self.block_list.get_mut(index)?;
+        let previous = block.palette_index();
+        let (toggled, shape, open) = train_trapdoor::toggle(self.palette.get(previous)?)?;
+        let state = toggled.state()?;
+        let state_index = self
+            .palette
+            .iter()
+            .position(|entry| *entry == toggled)
+            .unwrap_or_else(|| {
+                let next = self.palette.len();
+                self.palette.push(toggled);
+                next
+            });
+        block.state = state_index as i32;
+        block.shapes = Some(vec![shape]);
+        Some((state, open))
+    }
+
     pub fn positions(&self, anchor: Pos) -> impl Iterator<Item = Pos> + Clone {
         self.block_list
             .iter()
@@ -898,6 +938,8 @@ pub fn detach_moved_belts(world: World<'_>, remove: &[BlockUpdate], kinetics: &m
 #[derive(Clone, Debug, Default)]
 pub struct ContraptionDisplays {
     blocks: Vec<i32>,
+    clickable: HashSet<usize>,
+    frame: Option<Frame>,
     shaped: Option<HashMap<usize, ShapedBlockDisplay>>,
     belts: Option<Vec<(Chain, BeltInventory)>>,
     saw_blades: Option<Vec<(usize, saw::SawBlock, ModelDisplay)>>,
@@ -963,7 +1005,49 @@ impl ShapedBlockDisplay {
 }
 
 impl ContraptionDisplays {
+    pub fn apply_clicks(&mut self, world: World<'_>, blocks: &mut Blocks) -> bool {
+        let (Some(frame), Some(displays)) = (self.frame, BLOCK_DISPLAYS.get()) else {
+            return false;
+        };
+        let mut changed = false;
+        for &index in &self.clickable {
+            let id = self.blocks[index];
+            while let Some(click) = displays.next_click(world, id) {
+                if blocks.first_hit(frame.to_local(click.from), frame.to_local(click.to))
+                    != Some(index)
+                {
+                    continue;
+                }
+                let Some((state, open)) = blocks.toggle_trapdoor(index) else {
+                    continue;
+                };
+                displays.set_state(world, id, state);
+                if let Some(effects) = EFFECTS.get() {
+                    let sound = if open {
+                        "minecraft:block.wooden_trapdoor.open"
+                    } else {
+                        "minecraft:block.wooden_trapdoor.close"
+                    };
+                    let random = RandomState::new().hash_one(id) >> 40;
+                    let pitch = 0.9 + random as f32 * (0.1 / 16_777_216.0);
+                    effects.play_sound(
+                        world,
+                        click.player_position.map(|value| value.floor() + 0.5),
+                        sound,
+                        SOUND_BLOCKS,
+                        0.3,
+                        pitch,
+                    );
+                }
+                changed = true;
+            }
+        }
+        changed
+    }
+
     pub fn clear(&mut self, world: World<'_>) {
+        self.clickable.clear();
+        self.frame = None;
         if let Some(displays) = BLOCK_DISPLAYS.get() {
             for id in self.blocks.drain(..).filter(|&id| id != 0) {
                 displays.remove(world, id);
@@ -1029,6 +1113,7 @@ impl ContraptionDisplays {
                 .collect()
         });
         self.blocks.resize(blocks.block_list.len(), 0);
+        self.clickable.retain(|&index| index < self.blocks.len());
         for (i, (block, id)) in blocks.block_list.iter().zip(&mut self.blocks).enumerate() {
             if let Some(part) = shaped.get_mut(&i) {
                 let shown = ItemDisplay {
@@ -1057,14 +1142,23 @@ impl ContraptionDisplays {
                     *offset += shift;
                 }
             }
-            if (*id == 0 || !displays.update(world, *id, &shown))
-                && let Some(state) = blocks
-                    .palette
-                    .get(block.palette_index())
-                    .and_then(PaletteEntry::state)
-            {
-                *id = displays.spawn(world, state, &shown).unwrap_or(0);
+            if *id == 0 || !displays.update(world, *id, &shown) {
+                self.clickable.remove(&i);
+                if let Some(entry) = blocks.palette.get(block.palette_index())
+                    && let Some(state) = entry.state()
+                {
+                    *id = displays.spawn(world, state, &shown).unwrap_or(0);
+                    if train_trapdoor::is_trapdoor(&entry.name) && displays.enable_use(world, *id) {
+                        self.clickable.insert(i);
+                    }
+                }
             }
+        }
+        if !self.clickable.is_empty() {
+            self.frame = Some(
+                Frame::rotating(transform.anchor, transform.axis, transform.angle)
+                    .with_offset(translation.map(f64::from)),
+            );
         }
         let (Some(&stacks), Some(&displays)) = (STACKS.get(), DISPLAYS.get()) else {
             return;

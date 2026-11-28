@@ -18,6 +18,7 @@ The Java configuration custom payload channel is `moddedmc:negotiate`. Integers 
 | --- | --- |
 | `0x00000001` | Hashed assets. Follow the six-byte header with 32 raw SHA-256 bytes for the manifest and 20 raw SHA-1 bytes tying the manifest to the vanilla ZIP offer. |
 | `0x00000002` | Player actions. No extra configuration bytes; the companion requests the versioned key catalog in play. See [the ABI and wire format](MOD-ABI.md#player-actions-moddedmcplayer_actions-v1). |
+| `0x00000004` | Moving block use. No extra configuration bytes. The companion uses the verified trapdoor catalog and the player-action session in play. |
 
 The ping orders the exchange before the pack offer or known packs. When any mod is loaded, a client that has not supplied a valid hello by the ping's reply is disconnected with installation instructions. Bedrock clients cannot complete the Java exchange and are also disconnected. Servers with no loaded mods still permit vanilla clients. On servers without a challenge the companion sends nothing. Every connection currently uses the stock block, item and display representation. The headless scenario bot responds to the same challenge by default; set `MODDEDMC_BOT_COMPANION=0` to test a vanilla client, or set a nonzero protocol version to require a negotiation response.
 
@@ -184,6 +185,8 @@ The verified pack can include `assets/moddedmc/moddedmc/scaffolding.json`. Each 
 The verified pack can include `assets/moddedmc/moddedmc/trapdoors.json`, an array of trapdoor carrier state IDs. The companion uses these IDs to let the server handle hand toggles and to hide the shared faces of matching trapdoors. The carrier's `powered` value selects the trapdoor material. The server keeps redstone power separately.
 
 The optional `assets/moddedmc/moddedmc/trapdoor-textures.json` lists base texture identifiers with 8 by 8 connected sheets embedded in the pack. The companion uses the `_connected` version of the sprite on matching trapdoor quads. Closed trapdoors connect according to their placement half. Open trapdoors use their hinge axes and directions.
+
+When moving block use was negotiated, a use click on a trapdoor display sends the display entity ID as one signed big-endian 32-bit integer on the play channel `moddedmc:block_display_use`. The companion uses the interpolated block transform and clips against the vanilla crosshair hit. The server reconstructs the ray from the player's current eye position, look direction and block reach. The owning mod checks the same contraption's block shapes and applies the state change.
 
 ## Server Mods Creative tab
 

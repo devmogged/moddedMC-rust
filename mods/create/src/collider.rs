@@ -98,6 +98,13 @@ impl Frame {
         Self::new(anchor, [0.0; 3], Rotation::new(axis, angle))
     }
 
+    pub fn with_offset(mut self, offset: [f64; 3]) -> Self {
+        for (origin, shift) in self.origin.iter_mut().zip(offset) {
+            *origin += shift;
+        }
+        self
+    }
+
     pub fn to_local(self, point: [f64; 3]) -> [f64; 3] {
         let from_pivot = std::array::from_fn(|i| point[i] - self.origin[i] - 0.5);
         self.rotation
@@ -150,6 +157,27 @@ impl Collider {
             min: std::array::from_fn(|i| self.min[i] + delta[i]),
             max: std::array::from_fn(|i| self.max[i] + delta[i]),
         }
+    }
+
+    pub fn clip(self, from: [f64; 3], to: [f64; 3]) -> Option<f64> {
+        let (mut entry, mut exit) = (0.0f64, 1.0f64);
+        for i in 0..3 {
+            let delta = to[i] - from[i];
+            if delta == 0.0 {
+                if from[i] < self.min[i] || from[i] > self.max[i] {
+                    return None;
+                }
+                continue;
+            }
+            let a = (self.min[i] - from[i]) / delta;
+            let b = (self.max[i] - from[i]) / delta;
+            entry = entry.max(a.min(b));
+            exit = exit.min(a.max(b));
+            if entry > exit {
+                return None;
+            }
+        }
+        Some(entry)
     }
 
     fn center(self) -> [f64; 3] {

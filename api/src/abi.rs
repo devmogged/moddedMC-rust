@@ -1893,6 +1893,25 @@ pub struct BlockDisplaysV1 {
     pub remove: unsafe extern "C" fn(world: WorldRef, id: i32),
 }
 
+/// A player's server-side use ray, clipped to normal reach and the first world hit.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BlockDisplayClick {
+    pub from: [f64; 3],
+    pub to: [f64; 3],
+    pub player_position: [f64; 3],
+}
+
+#[repr(C)]
+pub struct BlockDisplaysV1Use {
+    pub base: BlockDisplaysV1,
+    /// Start accepting use packets for this transient display.
+    pub enable_use: unsafe extern "C" fn(world: WorldRef, id: i32) -> bool,
+    /// Read the oldest pending click. The mod checks the ray against its current local shapes.
+    pub next_click:
+        unsafe extern "C" fn(world: WorldRef, id: i32, click: *mut BlockDisplayClick) -> bool,
+}
+
 pub const MOBS: &str = "moddedmc:mobs";
 
 /// A base attribute value for a mod mob, such as `minecraft:max_health` 40.

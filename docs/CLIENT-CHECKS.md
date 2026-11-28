@@ -134,15 +134,17 @@ Use Java 26.3 with the Fabric companion and the server resource pack.
 - Place a Framed Glass Trapdoor in source water, open it, and restart the server. Expect the opening and water to persist. Sneak-use a wrench in Survival and expect the item back with the source water left behind.
 - Place a stock Waxed Oxidized Copper Trapdoor nearby and open it. Expect vanilla copper textures and the original collision and sound.
 
-## Framed Glass Trapdoor connected textures ([issue #58](https://github.com/devmogged/moddedMC-rust/issues/58))
+## Framed Glass Trapdoor connected textures (`d9024929`, [issue #58](https://github.com/devmogged/moddedMC-rust/issues/58))
 
 - Place a 3 by 3 floor of Framed Glass Trapdoors in the same closed half and leave one corner empty. Expect the frames to join on both sides of the floor, with an inner corner around the missing tile. Put one trapdoor in the other half and expect a frame along that edge.
 - Build a wall of open trapdoors with the same facing. Expect matching edges to join vertically and horizontally. Waterlog or power one without changing its open state and expect the frame to stay joined. Add a Train Trapdoor at the edge and expect the glass frame to end there.
 - Open or close a block at a chunk boundary. Expect its neighbor to update the border as soon as the block moves. Rejoin and expect the same connections.
 
-## Create trapdoors on contraptions ([issue #58](https://github.com/devmogged/moddedMC-rust/issues/58))
+## Create trapdoors on contraptions (`f8cd2dc9` assembly, [issue #58](https://github.com/devmogged/moddedMC-rust/issues/58))
 
 - Open a waterlogged Framed Glass Trapdoor on an upward Mechanical Bearing and start it. Expect the open trapdoor to rotate while the water stays at its source. Rejoin after a restart and expect the same shape in motion. Stop the bearing and expect the trapdoor to return open and waterlogged.
+- Aim at the closed panel as it rotates and use it. Expect it to open in place with a wooden trapdoor sound and leave the new opening clear. Try clicking through a stone block and expect no toggle. Check again on a fast bearing and from a seat.
+- Open a Train Trapdoor on an assembled train while it is docked, then restart and disassemble the train. Expect the opening to persist. Try the same click with the train in motion and check that the click follows the displayed panel.
 
 ## Saints Dragons 0.9.88
 
