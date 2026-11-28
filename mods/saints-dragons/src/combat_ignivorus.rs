@@ -3,10 +3,11 @@
 use crate::combat_raevyx::learning;
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, abilities, taming};
 use moddedmc_api::{
-    abi::{CollisionBox, SOUND_NEUTRAL},
+    abi::SOUND_NEUTRAL,
     content::World,
     entities::{Entity, EntityChange, SET_BODY_YAW, SET_MOTION, SET_YAW},
     mob_ai::goal_phase,
+    mobs::ProjectileStep,
     tick_count,
 };
 use serde::{Deserialize, Serialize};
@@ -779,12 +780,11 @@ fn tick_attack(
             });
             if let Some(dir) = direction {
                 let velocity = scale(dir, 5.0);
-                if let Some(id) = ENTITIES.get().and_then(|entities| {
-                    entities.spawn_projectile(
+                if let Some(id) = MOBS.get().and_then(|mobs| {
+                    mobs.spawn_controlled_projectile(
                         world,
                         "minecraft:fireball",
                         mob.id(),
-                        None,
                         origin,
                         velocity,
                     )
@@ -1282,7 +1282,14 @@ pub fn rider_movement(mob: Entity<'_>, sprint: bool) -> (bool, bool, bool, bool,
 }
 
 /// IgnivorusFireballEntity.explode: charge-scaled explosion in an AABB.
-fn fireball_impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], multiplier: f32, token: u64) {
+fn fireball_impact(
+    world: World<'_>,
+    mob: Entity<'_>,
+    projectile: Entity<'_>,
+    at: [f64; 3],
+    multiplier: f32,
+    token: u64,
+) {
     let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
         return;
     };
@@ -1302,8 +1309,14 @@ fn fireball_impact(world: World<'_>, mob: Entity<'_>, at: [f64; 3], multiplier: 
                 return;
             }
             // Java explosion(direct projectile, causing dragon) selects player_explosion.
-            let damaged = target
-                .hurt_by(mob.id(), "minecraft:player_explosion", 70.0 * multiplier)
+            let damaged = mobs
+                .hurt_from(
+                    target,
+                    projectile,
+                    mob,
+                    "minecraft:player_explosion",
+                    70.0 * multiplier,
+                )
                 .unwrap_or(false);
             if token != 0
                 && let Some(uuid) = mobs.uuid(target)
@@ -1357,13 +1370,6 @@ fn shot_motion(velocity: [f64; 3], travelled: f64, multiplier: f32) -> [f64; 3] 
     }
 }
 
-fn point_in_collision_shape(point: [f64; 3], shape: &[CollisionBox]) -> bool {
-    let local = point.map(|v| v - v.floor());
-    shape
-        .iter()
-        .any(|b| (0..3).all(|i| local[i] >= b.min[i] && local[i] <= b.max[i]))
-}
-
 /// Fireball flight and impact continue independently of the ability's recovery.
 pub fn ambient(world: World<'_>, mob: Entity<'_>) {
     learning::expire(mob);
@@ -1375,67 +1381,53 @@ pub fn ambient(world: World<'_>, mob: Entity<'_>) {
         }
         return;
     }
-    let Some(entities) = ENTITIES.get() else {
+    let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
         return;
     };
     s.shots.retain_mut(|shot| {
         let Some(id) = shot.id else {
             return false;
         };
-        let Some(view) = entities
+        entities
             .with_entity(world, id, |projectile| {
-                (projectile.projectile_owner() == Some(mob.id())
-                    && projectile.type_id().trim_start_matches("minecraft:") == "fireball")
-                    .then(|| projectile.view())
-                    .flatten()
-            })
-            .flatten()
-        else {
-            // An unloaded/removed projectile cannot safely be treated as an impact.
-            return false;
-        };
-        shot.age += 1;
-        shot.travelled += length(sub(view.position, shot.position));
-        shot.position = view.position;
-        shot.velocity = shot_motion(shot.velocity, shot.travelled, shot.multiplier);
-        // shortcut: the host has no cancellable projectile impact event or custom projectile
-        // dimensions. Sweep ahead of vanilla motion and replace the impact when observed;
-        // native collisions that occur between mod ticks still use vanilla behavior.
-        for step in 1..=20 {
-            let p = add(shot.position, scale(shot.velocity, f64::from(step) / 20.0));
-            let collision = world
-                .collision_shape(crate::flight::cell(p))
-                .is_some_and(|shape| point_in_collision_shape(p, &shape));
-            let entity = entities
-                .entities_in(world, add(p, [-0.5; 3]), add(p, [0.5; 3]), mob.id())
-                .into_iter()
-                .any(|id| target_at(world, mob, id).is_some());
-            if collision || entity || (shot.age > 200 && step == 20) {
-                if entities.with_entity(world, id, |projectile| projectile.discard()) == Some(true)
+                if projectile.projectile_owner() != Some(mob.id())
+                    || projectile.type_id().trim_start_matches("minecraft:") != "fireball"
                 {
+                    return false;
+                }
+                shot.age += 1;
+                shot.velocity = shot_motion(shot.velocity, shot.travelled, shot.multiplier);
+                let Some(hit) =
+                    mobs.step_controlled_projectile(projectile, shot.velocity, |target| {
+                        abilities::enemy(world, mob, target)
+                    })
+                else {
+                    return false;
+                };
+                let (p, impact, blocked) = match hit {
+                    ProjectileStep::Miss(p) => (p, shot.age > 200, false),
+                    ProjectileStep::Block(p) => (p, true, true),
+                    ProjectileStep::Entity(p) => (p, true, false),
+                };
+                shot.travelled += length(sub(p, shot.position));
+                shot.position = p;
+                if impact {
                     let token = learning::projectile_token(mob, id);
-                    fireball_impact(world, mob, p, shot.multiplier, token);
+                    fireball_impact(world, mob, projectile, p, shot.multiplier, token);
+                    projectile.discard();
                     learning::settle(
                         mob,
                         token,
-                        if collision {
+                        if blocked {
                             learning::Outcome::Blocked
                         } else {
                             learning::Outcome::Completed
                         },
                     );
                 }
-                return false;
-            }
-        }
-        entities.with_entity(world, id, |projectile| {
-            projectile.change(&EntityChange {
-                mask: SET_MOTION,
-                motion: shot.velocity,
-                ..Default::default()
+                !impact
             })
-        });
-        true
+            .unwrap_or(false)
     });
     s.save(mob);
 }
@@ -1525,16 +1517,5 @@ mod tests {
                 [5.0, -0.01, 0.0]
             );
         }
-    }
-
-    #[test]
-    fn fireball_sweep_respects_partial_block_shapes() {
-        let slab = [CollisionBox {
-            min: [0.0; 3],
-            max: [1.0, 0.5, 1.0],
-        }];
-        assert!(point_in_collision_shape([-1.25, 10.25, 5.5], &slab));
-        assert!(!point_in_collision_shape([-1.25, 10.75, 5.5], &slab));
-        assert!(!point_in_collision_shape([-1.25, 10.25, 5.5], &[]));
     }
 }

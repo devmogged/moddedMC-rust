@@ -290,6 +290,30 @@ pub unsafe extern "C" fn spawn_projectile(
     position: abi::Vec3,
     velocity: abi::Vec3,
 ) -> i32 {
+    // SAFETY: same borrowed inputs as this entry point.
+    unsafe { spawn_projectile_inner(raw, kind, owner, target, position, velocity, false) }
+}
+
+pub unsafe extern "C" fn spawn_controlled_projectile(
+    raw: WorldRef,
+    kind: Str,
+    owner: i32,
+    position: abi::Vec3,
+    velocity: abi::Vec3,
+) -> i32 {
+    // SAFETY: same borrowed inputs as this entry point.
+    unsafe { spawn_projectile_inner(raw, kind, owner, -1, position, velocity, true) }
+}
+
+unsafe fn spawn_projectile_inner(
+    raw: WorldRef,
+    kind: Str,
+    owner: i32,
+    target: i32,
+    position: abi::Vec3,
+    velocity: abi::Vec3,
+    controlled: bool,
+) -> i32 {
     use pumpkin_core::entity::{
         mob::shulker::Axis, projectile::shulker_bullet::ShulkerBulletEntity,
     };
@@ -304,6 +328,9 @@ pub unsafe extern "C" fn spawn_projectile(
     // SAFETY: the projectile kind is borrowed for this call.
     let name = unsafe { kind.str() };
     let name = name.strip_prefix("minecraft:").unwrap_or(name);
+    if controlled && !matches!(name, "fireball" | "snowball") {
+        return -1;
+    }
     if !matches!(
         name,
         "arrow"
@@ -354,12 +381,105 @@ pub unsafe extern "C" fn spawn_projectile(
         projectile
     };
     projectile.get_entity().set_velocity(velocity);
+    if controlled {
+        let base = projectile.get_entity();
+        base.controlled_projectile_lease.store(3, Ordering::Relaxed);
+        base.set_has_no_gravity(true);
+    }
     let id = projectile.get_entity().entity_id;
     if world.spawn_entity(projectile) {
         id
     } else {
         -1
     }
+}
+
+pub unsafe extern "C" fn step_controlled_projectile(
+    raw: abi::EntityRef,
+    velocity: abi::Vec3,
+    context: *const c_void,
+    filter: abi::ProjectileFilter,
+    out: *mut abi::Vec3,
+) -> i32 {
+    use pumpkin_core::entity::projectile::{ProjectileHit, trace_projectile};
+    use pumpkin_world::clip::ClipBlock;
+    // SAFETY: projectile and output are borrowed for the call.
+    let (Some(projectile), Some(velocity), false) =
+        (unsafe { entity(raw) }, finite(velocity), out.is_null())
+    else {
+        return -1;
+    };
+    let base = projectile.get_entity();
+    if base.is_removed()
+        || base.controlled_projectile_lease.load(Ordering::Relaxed) < 0
+        || velocity.length_squared() > 64.0 * 64.0
+    {
+        return -1;
+    }
+    base.controlled_projectile_lease.store(3, Ordering::Relaxed);
+    base.set_velocity(velocity);
+    let hit = trace_projectile(
+        projectile,
+        |candidate| {
+            candidate.get_living_entity().is_some_and(LivingEntity::is_alive)
+            // SAFETY: context is supplied by the mod, candidate is borrowed for this synchronous call.
+            && unsafe { filter(context, (&raw const candidate).cast()) }
+        },
+        ClipBlock::Collider,
+        0.3,
+    );
+    let position = hit
+        .as_ref()
+        .map_or_else(|| base.pos.load() + velocity, ProjectileHit::hit_pos);
+    base.set_pos(position);
+    // SAFETY: output checked above and borrowed for the call.
+    unsafe { out.write(abi::Vec3([position.x, position.y, position.z])) };
+    match hit {
+        None => 0,
+        Some(ProjectileHit::Block { .. }) => 1,
+        Some(ProjectileHit::Entity { .. }) => 2,
+    }
+}
+
+pub unsafe extern "C" fn hurt_from(
+    raw: abi::EntityRef,
+    direct: abi::EntityRef,
+    causing: abi::EntityRef,
+    damage_type: Str,
+    amount: f32,
+) -> bool {
+    if !amount.is_finite() || amount < 0.0 || damage_type.len == 0 || damage_type.len > 256 {
+        return false;
+    }
+    // SAFETY: all entities and the damage key are borrowed.
+    let (Some(target), Some(direct), Some(causing), Ok(key)) = (
+        unsafe { entity(raw) },
+        unsafe { entity(direct) },
+        unsafe { entity(causing) },
+        std::str::from_utf8(unsafe { damage_type.bytes() }),
+    ) else {
+        return false;
+    };
+    let world = target.get_entity().world.load();
+    if !Arc::ptr_eq(&world, &direct.get_entity().world.load())
+        || !Arc::ptr_eq(&world, &causing.get_entity().world.load())
+    {
+        return false;
+    }
+    let Some(server) = world.server.upgrade() else {
+        return false;
+    };
+    server
+        .datapack_manager
+        .get_damage_type(key)
+        .or_else(|| {
+            pumpkin_data::damage::DamageType::from_name(
+                key.strip_prefix("minecraft:").unwrap_or(key),
+            )
+        })
+        .is_some_and(|damage| {
+            target.damage_with_context(target, amount, damage, None, Some(direct), Some(causing))
+        })
 }
 
 pub unsafe extern "C" fn projectile_owner(raw: abi::EntityRef) -> i32 {

@@ -184,6 +184,7 @@ impl Mod for SaintsDragons {
         mobs.require_extension(MobsExtension::PetsSeats)?;
         mobs.require_extension(MobsExtension::RigBones)?;
         mobs.require_extension(MobsExtension::RaidContext)?;
+        mobs.require_extension(MobsExtension::ControlledProjectiles)?;
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;

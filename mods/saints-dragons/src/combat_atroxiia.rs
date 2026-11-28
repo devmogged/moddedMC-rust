@@ -1179,8 +1179,6 @@ fn frost(world: World<'_>, target: Entity<'_>, ticks: i32, particles: bool) {
     let ticks = ticks.max(1);
     target.add_effect("minecraft:slowness", ticks, 6, false, true);
     target.add_effect("minecraft:weakness", ticks, 1, false, true);
-    // shortcut: Pumpkin still clamps the counter to its maximum; the release
-    // preserves excess duration until the host supports it.
     if target.can_freeze() == Some(true)
         && let Some(current) = target.ticks_frozen()
     {

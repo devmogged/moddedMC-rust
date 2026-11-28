@@ -199,11 +199,35 @@ pub enum MobsExtension {
     /// Validated, transient companion rig bone positions.
     RigBones,
     RaidContext,
+    /// Native swept custom projectile movement and direct/causing damage sources.
+    ControlledProjectiles,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ProjectileStep {
+    Miss([f64; 3]),
+    Block([f64; 3]),
+    Entity([f64; 3]),
 }
 
 #[cfg(test)]
 mod combat_history_tests {
     use super::*;
+
+    #[test]
+    fn controlled_projectiles_require_complete_prefix() {
+        for size in [312, 320, 328, 336] {
+            let mobs = Mobs(InterfacePrefix {
+                ptr: std::ptr::null(),
+                size,
+            });
+            assert_eq!(
+                mobs.require_extension(MobsExtension::ControlledProjectiles)
+                    .is_ok(),
+                size == 336
+            );
+        }
+    }
 
     #[test]
     fn combat_history_requires_both_appended_fields() {
@@ -455,6 +479,10 @@ impl Mobs {
                 std::mem::offset_of!(abi::MobsV1, raid_member),
                 "moddedmc:mobs.raid_context",
             ),
+            MobsExtension::ControlledProjectiles => (
+                std::mem::offset_of!(abi::MobsV1, hurt_from),
+                "moddedmc:mobs.controlled_projectiles",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -562,6 +590,96 @@ impl Mobs {
             .upto(std::mem::offset_of!(abi::MobsV1, raid_member))?;
         // SAFETY: field is size checked; both handles are borrowed.
         Some(unsafe { ((&raw const (*api).raid_member).read())(world.raw(), entity.raw()) })
+    }
+
+    /// Spawn a leased carrier that never applies native projectile effects.
+    pub fn spawn_controlled_projectile(
+        self,
+        world: World<'_>,
+        kind: &str,
+        owner: i32,
+        position: [f64; 3],
+        velocity: [f64; 3],
+    ) -> Option<i32> {
+        let api = self.0.upto(std::mem::offset_of!(
+            abi::MobsV1,
+            spawn_controlled_projectile
+        ))?;
+        // SAFETY: size checked, borrowed world and string.
+        let id = unsafe {
+            ((&raw const (*api).spawn_controlled_projectile).read())(
+                world.raw(),
+                s(kind),
+                owner,
+                abi::Vec3(position),
+                abi::Vec3(velocity),
+            )
+        };
+        (id >= 0).then_some(id)
+    }
+
+    /// Sweep the carrier against collider blocks and eligible entities. The
+    /// mod owns the impact decision; no native damage or block effects run.
+    pub fn step_controlled_projectile<F: Fn(Entity<'_>) -> bool>(
+        self,
+        projectile: Entity<'_>,
+        velocity: [f64; 3],
+        filter: F,
+    ) -> Option<ProjectileStep> {
+        use std::ffi::c_void;
+        unsafe extern "C" fn accept<F: Fn(Entity<'_>) -> bool>(
+            context: *const c_void,
+            raw: abi::EntityRef,
+        ) -> bool {
+            // SAFETY: the host calls synchronously, within the filter's lifetime.
+            let filter = unsafe { &*context.cast::<F>() };
+            guard("projectile collision filter", false, || {
+                Entity::borrowed(raw).is_some_and(filter)
+            })
+        }
+        let api = self.0.upto(std::mem::offset_of!(
+            abi::MobsV1,
+            step_controlled_projectile
+        ))?;
+        let mut out = abi::Vec3([0.0; 3]);
+        // SAFETY: size checked; carrier, filter and output live for this call.
+        let result = unsafe {
+            ((&raw const (*api).step_controlled_projectile).read())(
+                projectile.raw(),
+                abi::Vec3(velocity),
+                (&raw const filter).cast(),
+                accept::<F>,
+                &raw mut out,
+            )
+        };
+        match result {
+            0 => Some(ProjectileStep::Miss(out.0)),
+            1 => Some(ProjectileStep::Block(out.0)),
+            2 => Some(ProjectileStep::Entity(out.0)),
+            _ => None,
+        }
+    }
+
+    /// Apply damage using separate direct and causing source entities.
+    pub fn hurt_from(
+        self,
+        target: Entity<'_>,
+        direct: Entity<'_>,
+        causing: Entity<'_>,
+        damage_type: &str,
+        amount: f32,
+    ) -> Option<bool> {
+        let api = self.0.upto(std::mem::offset_of!(abi::MobsV1, hurt_from))?;
+        // SAFETY: all handles and the string are borrowed for this call.
+        Some(unsafe {
+            ((&raw const (*api).hurt_from).read())(
+                target.raw(),
+                direct.raw(),
+                causing.raw(),
+                s(damage_type),
+                amount,
+            )
+        })
     }
 
     /// Remembered living attacker, as (entity id, game time).
