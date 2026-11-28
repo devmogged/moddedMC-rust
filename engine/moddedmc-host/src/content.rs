@@ -193,17 +193,16 @@ unsafe extern "C" fn weather_state(raw: WorldRef, out: *mut abi::WeatherState) -
         .weather
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // SAFETY: caller supplies a writable output for this call.
-    unsafe {
-        out.write(abi::WeatherState {
-            clear_time: weather.clear_weather_time,
-            rain_time: weather.rain_time,
-            thunder_time: weather.thunder_time,
-            raining: weather.raining,
-            thundering: weather.thundering,
-            cycle_enabled: world.level_info.load().game_rules.advance_weather,
-        })
+    let state = abi::WeatherState {
+        clear_time: weather.clear_weather_time,
+        rain_time: weather.rain_time,
+        thunder_time: weather.thunder_time,
+        raining: weather.raining,
+        thundering: weather.thundering,
+        cycle_enabled: world.level_info.load().game_rules.advance_weather,
     };
+    // SAFETY: caller supplies a writable output for this call.
+    unsafe { out.write(state) };
     true
 }
 
