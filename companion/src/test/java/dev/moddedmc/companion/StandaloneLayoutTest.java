@@ -16,6 +16,17 @@ class StandaloneLayoutTest {
         assertEquals(3, layout.tabs().size());
         assertEquals(16, layout.input().maxLength());
         assertEquals(17, layout.pages().lines());
+        assertEquals("items", layout.pages().itemField());
+        var preview = layout.previews().getFirst();
+        assertEquals(113, preview.x());
+        assertEquals(51, preview.y());
+        assertEquals(85, preview.width());
+        assertEquals(85, preview.height());
+        var animated = layout.layers().stream().filter(l -> l.frames() != null).findFirst().orElseThrow();
+        assertEquals(3, animated.frameTicks());
+        assertEquals(2, animated.frames().size());
+        assertNull(StandaloneLayout.parse(json.replace("\"frameTicks\": 3", "\"frameTicks\": 0"), "draconic_codex"));
+        assertNull(StandaloneLayout.parse(json.replace("\"width\": 85", "\"width\": 500"), "draconic_codex"));
         assertTrue(layout.controls().stream().anyMatch(c -> c.input() && c.action().equals("add_name")));
         assertNull(StandaloneLayout.parse(json, "draconic_crucible"));
         assertNull(StandaloneLayout.parse(json.replace("textures/gui/", "textures/../"), "draconic_codex"));

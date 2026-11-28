@@ -134,6 +134,11 @@
         "width": 16,
         "height": 16
       },
+      "brush_ready_alt": {
+        "texture": "textures/gui/draconiccodex/brushing_available2.png",
+        "width": 16,
+        "height": 16
+      },
       "brush_wait": {
         "texture": "textures/gui/draconiccodex/brushing_unavailable.png",
         "width": 16,
@@ -353,7 +358,9 @@
         "y": 76,
         "selected": true,
         "field": "brushing_status",
-        "equals": "ready"
+        "equals": "ready",
+        "frames": ["brush_ready", "brush_ready_alt"],
+        "frameTicks": 3
       },
       {
         "tab": "physiology",
@@ -428,8 +435,12 @@
       "sections": "ecology_sections",
       "sectionX": 97,
       "sectionY": 148,
-      "sectionWidth": 122
+      "sectionWidth": 122,
+      "itemField": "items"
     },
+    "previews": [
+      {"field": "portrait", "x": 113, "y": 51, "width": 85, "height": 85}
+    ],
     "refreshAction": "refresh",
     "refreshInterval": 40
   }

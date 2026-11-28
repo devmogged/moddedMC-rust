@@ -6,15 +6,23 @@ import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import dev.moddedmc.companion.rig.DisplayRigs;
+import dev.moddedmc.companion.rig.GuiRigState;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.item.ItemStack;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 /** Pack-defined book/dialog with local selection, tabs, scrolling and server-bound controls. */
 final class StandalonePackScreen extends Screen {
@@ -26,6 +34,10 @@ final class StandalonePackScreen extends Screen {
     private int left, top, page, ticks;
     private boolean waiting;
     private EditBox input;
+    private int animationTicks;
+    private final HashMap<StandaloneLayout.RigPreview, DisplayRigs.Preview> previews = new HashMap<>();
+    private final HashMap<Identifier, ItemStack> catalogItems = new HashMap<>();
+    private byte[] catalogBytes;
 
     StandalonePackScreen(Identifier id, StandaloneLayout layout, String token, JsonObject state) {
         super(Component.literal(layout.title()));
@@ -74,6 +86,7 @@ final class StandalonePackScreen extends Screen {
 
     @Override public boolean isPauseScreen() { return false; }
     @Override public void tick() {
+        animationTicks++;
         if (waiting || layout.refreshAction() == null || ++ticks < layout.refreshInterval()) return;
         String action = string(state, layout.refreshAction());
         if (!action.isEmpty()) {
@@ -86,6 +99,55 @@ final class StandalonePackScreen extends Screen {
         if (object == null || field == null || !object.isJsonObject()) return "";
         var value = object.getAsJsonObject().get(field);
         return value != null && value.isJsonPrimitive() ? value.getAsString() : "";
+    }
+    private static int number(JsonElement object, String field, int fallback) {
+        try { return Integer.parseInt(string(object, field)); }
+        catch (NumberFormatException ignored) { return fallback; }
+    }
+
+    private void preview(GuiGraphicsExtractor graphics, StandaloneLayout.RigPreview definition,
+                         JsonElement entry, int mx, int my, float delta) {
+        if (!FabricLoader.getInstance().isModLoaded("geckolib") || entry == null || !entry.isJsonObject()) return;
+        var data = entry.getAsJsonObject().get(definition.field());
+        var model = Identifier.tryParse(string(data, "rig"));
+        int scale = number(data, "scale", 0);
+        int dx = number(data, "offsetX", 0), dy = number(data, "offsetY", 0);
+        if (model == null || scale < 1 || scale > 128 || Math.abs((long) dx) > definition.width()
+                || Math.abs((long) dy) > definition.height()) return;
+        var frame = previews.computeIfAbsent(definition, unused -> new DisplayRigs.Preview()).extract(
+                model, string(data, "texture"), string(entry, "id"), delta);
+        if (frame == null) return;
+        int x = left + definition.x(), y = top + definition.y();
+        int centerX = x + definition.width() / 2 + dx, centerY = y + definition.height() + dy;
+        float yaw = (float) Math.atan((centerX - mx) / 40f);
+        float pitch = (float) Math.atan((centerY - definition.height() - my) / 40f);
+        var rotation = new Quaternionf().rotateZ((float) Math.PI)
+                .rotateX(pitch * (float) Math.toRadians(20)).rotateY(-yaw * (float) Math.toRadians(20));
+        var translation = new Vector3f(dx / (float) scale, (definition.height() / 2f + dy) / scale, 0);
+        graphics.enableScissor(x, y, x + definition.width(), y + definition.height());
+        try {
+            graphics.entity(new GuiRigState(frame), scale, translation, rotation, new Quaternionf(),
+                    x, y, x + definition.width(), y + definition.height());
+        } finally { graphics.disableScissor(); }
+    }
+
+    private ItemStack icon(String value) {
+        var id = Identifier.tryParse(value);
+        if (id == null) return ItemStack.EMPTY;
+        var bytes = Companion.creativeCatalog();
+        if (bytes != catalogBytes) {
+            catalogBytes = bytes;
+            catalogItems.clear();
+            if (bytes != null && minecraft.level != null) {
+                for (var stack : CreativeCatalog.decode(bytes, minecraft.level.registryAccess())) {
+                    var model = stack.get(DataComponents.ITEM_MODEL);
+                    if (model != null) catalogItems.put(model, stack);
+                }
+            }
+        }
+        var custom = catalogItems.get(id);
+        if (custom != null) return custom;
+        return BuiltInRegistries.ITEM.getOptional(id).map(ItemStack::new).orElse(ItemStack.EMPTY);
     }
     private JsonArray rows(String source) {
         var value = state.get(source);
@@ -152,7 +214,9 @@ final class StandalonePackScreen extends Screen {
         for (var layer : layout.layers()) {
             if (!visible(layer.tab()) || layer.selected() && entry == null) continue;
             if (layer.field() != null && !string(layer.selected() ? entry : state, layer.field()).equals(layer.equals())) continue;
-            atlas(graphics, layer.atlas(), layer.x(), layer.y());
+            var frames = layer.frames();
+            String frame = frames == null ? layer.atlas() : frames.get((animationTicks / layer.frameTicks()) % frames.size());
+            atlas(graphics, frame, layer.x(), layer.y());
         }
         for (var t : layout.tabs()) atlas(graphics, visible(t.key()) ? t.active() : t.inactive(), t.x(), t.y());
         for (var list : layout.lists()) if (visible(list.tab())) {
@@ -192,9 +256,23 @@ final class StandalonePackScreen extends Screen {
             } else {
                 var section = sections.get(page - overview);
                 text(graphics, string(section, "label"), p.x(), p.y(), color);
-                var body = wrap(string(section, "body"), p.width());
-                for (int i = 0; i < Math.min(p.lines() - 1, body.size()); i++)
-                    graphics.text(font, body.get(i), left + p.x(), top + p.y() + (i + 1) * p.spacing(), color, false);
+                var items = p.itemField() == null || !section.isJsonObject() ? null : section.getAsJsonObject().get(p.itemField());
+                if (items != null && items.isJsonArray()) {
+                    int count = Math.min(items.getAsJsonArray().size(), (p.lines() * p.spacing() - 10) / 18);
+                    for (int i = 0; i < count; i++) {
+                        var item = items.getAsJsonArray().get(i);
+                        if (!item.isJsonPrimitive() || !item.getAsJsonPrimitive().isString()) continue;
+                        var stack = icon(item.getAsString());
+                        if (stack.isEmpty()) continue;
+                        int x = p.x() + 2, y = p.y() + 10 + i * 18;
+                        graphics.item(stack, left + x, top + y);
+                        text(graphics, stack.getHoverName().getString(), x + 18, y + 4, color);
+                    }
+                } else {
+                    var body = wrap(string(section, "body"), p.width());
+                    for (int i = 0; i < Math.min(p.lines() - 1, body.size()); i++)
+                        graphics.text(font, body.get(i), left + p.x(), top + p.y() + (i + 1) * p.spacing(), color, false);
+                }
             }
             if (!sections.isEmpty()) {
                 text(graphics, "1. Overview", p.sectionX(), p.sectionY(), page < overview ? 0xff8b0000 : color);
@@ -215,6 +293,8 @@ final class StandalonePackScreen extends Screen {
                 graphics.setTooltipForNextFrame(Component.literal(control.label()), mx, my);
         }
         super.extractRenderState(graphics, mx, my, tick);
+        if (layout.previews() != null) for (var definition : layout.previews())
+            if (visible(definition.tab())) preview(graphics, definition, entry, mx, my, tick);
     }
 
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {

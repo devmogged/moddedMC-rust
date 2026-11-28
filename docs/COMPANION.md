@@ -74,7 +74,17 @@ atlases, tab hitboxes, scrollable lists, state-bound labels/layers, paged
 text with section links, optional text input, and server-action controls.
 The Codex uses the released 393×214 book and tab/icon textures; its ally
 controls accept a player name, and refresh and removal use server-owned records.
-The existing version 1 inventory screen format is unchanged.
+The existing version 1 inventory screen format is unchanged. Optional `previews`
+entries declare a selected-row field and a clipped rectangle (`x`, `y`,
+`width`, `height`, optional `tab`). The field contains a rig item-model ID
+(`rig`), a named rig `texture`, pixel `scale`, and `offsetX`/`offsetY`.
+The selected row ID may be a UUID without hyphens: a loaded matching carrier
+uses its display clip, otherwise the preview uses a static pose. Preview
+animation and rider-seat sampling are isolated from world rendering.
+Layers can supply `frames` (atlas names) and `frameTicks` to cycle their
+textures. Paged section objects can expose item IDs under the optional pages
+`itemField`; the client draws vanilla or server Creative catalog stacks and
+their display names.
 
 The optional play channel `moddedmc:pack_screen` uses a two-byte version/opcode
 prefix: `[1,0]` advertises support; `[1,1]` opens a screen with UTF-8 JSON
@@ -117,6 +127,10 @@ The geometry and animation IDs resolve to `assets/example/geckolib/models/hinge.
 Optional `scale`, `y_offset` and `yaw_offset` fields adjust the rig relative to the item display. `hide_parts` lists item model IDs used only by the multipart stock model. The companion suppresses those IDs while the replacement rig's resources are available.
 
 An optional `textures` object maps names to full texture resource IDs. The server can set `moddedmc:rig_texture` in the display stack's `minecraft:custom_data` to select one of those names. An unknown name or unavailable texture uses the descriptor's default `texture`.
+
+Optional `preview_geometry` references a separate posed GeckoLib geometry for
+an unloaded or stored rig in a standalone screen. The pack includes this
+geometry with the ordinary rig resources.
 
 An optional `rider_seats` array describes passenger seats in passenger-list order. Each entry requires a `bone` name; optional `x`, `y`, `z` are bone-local offsets in model pixels, `height` is an additional world-space vertical offset in blocks, and `max_age` limits a sample's age in client ticks (default: unlimited). The server associates the body display with its living carrier by setting the integer `moddedmc:rig_mount` in the display stack's `minecraft:custom_data` to the carrier's network entity ID. Missing or negative IDs, missing bones, unloaded displays and expired samples leave normal passenger positioning intact. The companion samples the animated bone with the display's actual transform and updates both rider positioning and interpolated rendering; server mounting and collision remain authoritative.
 

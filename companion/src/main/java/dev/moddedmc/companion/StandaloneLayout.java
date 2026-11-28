@@ -12,18 +12,21 @@ import net.minecraft.resources.Identifier;
 record StandaloneLayout(int version, String title, int width, int height, String texture,
                         int textureWidth, int textureHeight, int color, Map<String, Atlas> atlases,
                         List<Tab> tabs, List<Rows> lists, List<Label> labels, List<Layer> layers,
-                        List<Control> controls, Input input, Pages pages, String refreshAction, int refreshInterval) {
+                        List<Control> controls, Input input, Pages pages, String refreshAction, int refreshInterval,
+                        List<RigPreview> previews) {
     record Atlas(String texture, int width, int height) {}
     record Tab(String key, String active, String inactive, int x, int y, int width, int height) {}
     record Rows(String source, String tab, int x, int y, int width, int count, int spacing,
                 String field, boolean select, String empty) {}
     record Label(String tab, String field, boolean selected, int x, int y, int width, int lines, boolean center) {}
-    record Layer(String tab, String atlas, int x, int y, boolean selected, String field, String equals) {}
+    record Layer(String tab, String atlas, int x, int y, boolean selected, String field, String equals,
+                 List<String> frames, int frameTicks) {}
+    record RigPreview(String tab, String field, int x, int y, int width, int height) {}
     record Control(String tab, String atlas, int x, int y, String label, String action,
                    boolean selected, boolean input, String confirm) {}
     record Input(String tab, int x, int y, int width, int height, int maxLength) {}
     record Pages(String tab, String field, int x, int y, int width, int lines, int spacing, int navX, int navY,
-                 String sections, int sectionX, int sectionY, int sectionWidth) {}
+                 String sections, int sectionX, int sectionY, int sectionWidth, String itemField) {}
 
     static StandaloneLayout parse(String json, String id) {
         try {
@@ -62,13 +65,25 @@ record StandaloneLayout(int version, String title, int width, int height, String
         for (var rows : lists) if (!key(rows.source) || !optionalKey(rows.field) || !tab(rows.tab)
                 || rows.count < 1 || rows.count > 64 || rows.spacing < 1 || rows.spacing > 64 || !fits(rows.x, rows.y, rows.width, rows.count * rows.spacing)) return false;
         for (var label : labels) if (!key(label.field) || !tab(label.tab) || label.lines < 1 || label.lines > 32 || !fits(label.x, label.y, label.width, label.lines * 9)) return false;
-        for (var layer : layers) if (!tab(layer.tab) || !atlasFits(layer.atlas, layer.x, layer.y) || !optionalKey(layer.field)) return false;
+        for (var layer : layers) {
+            if (!tab(layer.tab) || !atlasFits(layer.atlas, layer.x, layer.y) || !optionalKey(layer.field)) return false;
+            if (layer.frames != null) {
+                if (layer.frames.isEmpty() || layer.frames.size() > 16 || layer.frameTicks < 1 || layer.frameTicks > 1200) return false;
+                for (String frame : layer.frames) if (!atlasFits(frame, layer.x, layer.y)) return false;
+            }
+        }
+        if (previews != null) {
+            if (previews.size() > 8) return false;
+            for (var preview : previews) if (!tab(preview.tab) || !key(preview.field)
+                    || !fits(preview.x, preview.y, preview.width, preview.height)) return false;
+        }
         for (var control : controls) if (!tab(control.tab) || !atlasFits(control.atlas, control.x, control.y) || !key(control.action)
                 || control.label == null || control.input && input == null) return false;
         if (input != null && (!tab(input.tab) || input.maxLength < 1 || input.maxLength > 64 || !fits(input.x, input.y, input.width, input.height))) return false;
         if (refreshAction != null && (!key(refreshAction) || refreshInterval < 10 || refreshInterval > 1200)) return false;
         return pages == null || tab(pages.tab) && key(pages.field) && pages.lines > 0 && pages.lines <= 32 && pages.spacing > 0 && pages.spacing <= 32
                 && fits(pages.x, pages.y, pages.width, pages.lines * pages.spacing) && fits(pages.navX - 25, pages.navY, 50, 10)
+                && optionalKey(pages.itemField)
                 && (pages.sections == null || key(pages.sections) && fits(pages.sectionX, pages.sectionY, pages.sectionWidth, 30));
     }
     private boolean tab(String key) { return key == null || tabs.stream().anyMatch(t -> t.key.equals(key)); }

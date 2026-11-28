@@ -28,7 +28,7 @@ six subscriptions.
 | Audio | 259 released recordings and event definitions in the asset build, Cindervane action cues, hurt and death cues including Moop's inherited generic sounds, adult dragon ambient and feeding profiles, swarm ambient calls, entity-bound one-shot dragon vocalizations, movement clip footstep and flap cues, and flight transition cues. A connected bot verified Cindervane, Raevyx and Mossback before the entity-bound changes. A Java 26.3 client with no companion verified Bleeding Bolt and Mossback Music playback and ejection | Exact client animation keyframe playback and overlapping vocal animations, full per-ability cues on the remaining combat and Ivy controllers, exact flight state transitions, timed/looping sound instances, carrier sound suppression |
 | Presentation | Adult and eight dragon juvenile rigs in the Fabric companion, gender and skin changes, model/animation switches on growth, stock display fallbacks and food item particles | Overlays, custom particles, special renderers, equipment visuals, remaining screens and translations |
 | Integration | Versioned mod interfaces; the companion is required when loaded mods require it | Separate work for third-party integrations, configs, networking, and an upstream oracle for every mechanic |
-| Global dragon allies | Owner-scoped save-wide UUID list (ten players), Codex typed-name add/remove through the companion, typed /dragonally commands with server-wide lookup, shared dragon and Ivy combat trust, and ally buff eligibility | remaining Codex presentation parity |
+| Global dragon allies | Owner-scoped save-wide UUID list (ten players), Codex typed-name add/remove through the companion, typed /dragonally commands with server-wide lookup, shared dragon and Ivy combat trust, and ally buff eligibility; Codex rig portraits, ecology item icons and brushing animation | cross-dimension Codex discovery; client visual verification |
 
 Volitans and Mossback reject poison before effects are applied, including external applications, matching their released canBeAffected overrides. Other effects retain vanilla admission rules. [Effect veto scenario](../tests/scenarios/p2-effect-veto.txt) (pending coordinator run).
 
@@ -574,9 +574,12 @@ biome list and a loaded-block membership check). Binder capture snapshots
 the live dragon before discarding it, committing its bound record only after
 discard succeeds. The companion draws the released background, tabs and stat
 icons, supports scrolling, ecology sections, typed ally controls and periodic
-refresh, and displays the effective armor attribute when available. Dragon
-portraits, item icons in ecology sections, exact animation and cross-dimension
-discovery remain outstanding; in-client visual parity has not been verified.
+refresh, and displays the effective armor attribute when available. Portraits
+use the released species/age framing and mouse rotations, live display clips
+or the released static baked poses with saved textures. Ecology pages draw
+item stacks and the ready brushing indicator cycles every three ticks.
+Cross-dimension discovery remains outstanding; in-client visual parity has
+not been verified.
 Destroyed-binder handling needs an item-stack destruction callback with its
 NBT and removal cause, rather than guessing that a missing dropped item died.
 Owned adult Cindervane, Atroxiia and Stegonaut accept saddles and then
@@ -601,6 +604,7 @@ Swarm pacification likewise needs an
 equipped-slot query on candidate targets.
 [Codex scenario](../tests/scenarios/p2ad-saints-dragons-codex.txt)
 [Standalone typed ally scenario](../tests/scenarios/p2-codex-screen.txt) (pending coordinator run)
+[Codex portrait and ecology payload scenario](../tests/scenarios/p2-codex-portraits.txt) (pending coordinator run)
 [Codex detail and binder removal scenario](../tests/scenarios/p2c-items.txt)
 
 The Codex Ally tab saves up to ten online players by UUID per owner, shared

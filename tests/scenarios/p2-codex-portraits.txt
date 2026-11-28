@@ -1,0 +1,34 @@
+# Exercise the companion's portrait and ecology item payload for live and bound dragons.
+mods target\mods\saints-dragons-codex\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 200 1027.5 0 0
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 199 1024 1032 199 1034 minecraft:stone
+cmd fill 1024 200 1024 1032 207 1034 minecraft:air
+cmd cindervane spawn 1025 200 1025
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=200,z=1025,distance=..2,limit=1] {Tags:["codex_probe"],CustomName:"Ember",NoAI:1b}
+cmd item replace entity tester hotbar.0 with saintsdragons:creative_dragon_tame_meal
+wait 2
+bot use-entity ravager 1025.5 200 1025.5 main
+await 10 Dragon tamed
+bot screen-enable
+cmd item replace entity tester hotbar.0 with saintsdragons:draconic_codex
+wait 1
+bot use-item main
+await 15 \[bot\] screen: (?=.*Ember)(?=.*"rig":"saintsdragons:cindervane_display")(?=.*"scale":12)(?=.*"offsetY":-15)(?=.*saintsdragons:cindervane_scale)(?=.*saintsdragons:cindervane_egg)
+cmd item replace entity tester hotbar.0 with saintsdragons:cindervane_binder
+wait 1
+bot use-entity ravager 1025.5 200 1025.5 main
+await 10 Bound Ember in the binder
+cmd item replace entity tester weapon.offhand with saintsdragons:draconic_codex
+wait 1
+bot use-item off
+await 15 \[bot\] screen: (?=.*Ember)(?=.*"rig":"saintsdragons:cindervane_display")(?=.*"scale":12)(?=.*"offsetY":-15)
+bot quit
+reject (?i)panic|panicked|\[bot\] error
+stop

@@ -393,6 +393,7 @@ fn pack_screen(
             "brushing_status": record.brushing.map_or("none", |value| if value >= 100 { "ready" } else { "waiting" }),
             "ecology": ecology_text(&record.species),
             "ecology_sections": ecology_sections(&record.species),
+            "portrait": portrait(record),
             "remove": remove
         })
     }).collect();
@@ -410,6 +411,49 @@ fn pack_screen(
         action: "moddedmc:pack_screen".into(),
         tooltip: serde_json::json!({"id": "saintsdragons:draconic_codex", "state": state, "actions": actions}).to_string(),
     }
+}
+
+/// CodexDragonRenderer.PORTRAIT_DEFINITIONS, including its juvenile offsets.
+fn portrait_frame(species: &str, young: bool) -> Option<(i32, i32)> {
+    let (scale, adult_y, baby_y) = match species {
+        "Ignivorus" => (8, 0, -20),
+        "Raevyx" => (13, -5, -20),
+        "Atroxiia" => (13, 0, -30),
+        "Volitans" => (13, -5, -5),
+        "Varasuchus" => (15, -10, -10),
+        "Cindervane" => (12, -15, 0),
+        "Stegonaut" => (23, -15, -10),
+        "Nulljaw" => (30, 0, -30),
+        _ => return None,
+    };
+    Some(if young {
+        (scale + 30, adult_y + baby_y)
+    } else {
+        (scale, adult_y)
+    })
+}
+
+fn portrait(record: &Record) -> Option<serde_json::Value> {
+    let (scale, offset_y) = portrait_frame(&record.species, record.young)?;
+    let species = record.species.to_lowercase();
+    let age = if record.young { "baby_" } else { "" };
+    let texture = if record.young {
+        if record
+            .female
+            .unwrap_or_else(|| record.coating.ends_with("_female"))
+        {
+            "default_female"
+        } else {
+            "default"
+        }
+    } else {
+        &record.coating
+    };
+    Some(serde_json::json!({
+        "rig": format!("saintsdragons:{age}{species}_display"),
+        "texture": texture,
+        "scale": scale, "offsetX": 0, "offsetY": offset_y
+    }))
 }
 
 fn ecology_sections(species: &str) -> Vec<serde_json::Value> {
@@ -435,10 +479,10 @@ fn ecology_sections(species: &str) -> Vec<serde_json::Value> {
             "volitans_scale",
             "volitans_spine",
             "volitans_egg",
-            "salmon",
-            "cod",
-            "tropical_fish",
-            "pufferfish",
+            "minecraft:salmon",
+            "minecraft:cod",
+            "minecraft:tropical_fish",
+            "minecraft:pufferfish",
         ],
         _ => return Vec::new(),
     };
@@ -457,9 +501,19 @@ fn ecology_sections(species: &str) -> Vec<serde_json::Value> {
             )
         })
         .unwrap_or_default();
+    let drop_ids = drops
+        .iter()
+        .map(|id| {
+            if id.contains(':') {
+                (*id).to_owned()
+            } else {
+                format!("saintsdragons:{id}")
+            }
+        })
+        .collect::<Vec<_>>();
     vec![
-        serde_json::json!({"label": "Favorite Food", "body": names(&foods.iter().map(String::as_str).collect::<Vec<_>>())}),
-        serde_json::json!({"label": "Drops", "body": names(drops)}),
+        serde_json::json!({"label": "Favorite Food", "body": names(&foods.iter().map(String::as_str).collect::<Vec<_>>()), "items": foods}),
+        serde_json::json!({"label": "Drops", "body": names(drops), "items": drop_ids}),
     ]
 }
 
@@ -790,7 +844,42 @@ pub fn use_on_mob(click: &UseMob<'_>) -> UseResult {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn portrait_frames_match_released_adult_and_baby_values() {
+        for (species, adult, baby) in [
+            ("Ignivorus", (8, 0), (38, -20)),
+            ("Raevyx", (13, -5), (43, -25)),
+            ("Atroxiia", (13, 0), (43, -30)),
+            ("Volitans", (13, -5), (43, -10)),
+            ("Varasuchus", (15, -10), (45, -20)),
+            ("Cindervane", (12, -15), (42, -15)),
+            ("Stegonaut", (23, -15), (53, -25)),
+            ("Nulljaw", (30, 0), (60, -30)),
+        ] {
+            assert_eq!(super::portrait_frame(species, false), Some(adult));
+            assert_eq!(super::portrait_frame(species, true), Some(baby));
+        }
+        assert_eq!(super::portrait_frame("Moop", false), None);
+    }
     use super::*;
+
+    #[test]
+    fn volitans_ecology_preserves_vanilla_and_custom_item_ids() {
+        let sections = ecology_sections("Volitans");
+        assert_eq!(
+            sections[1]["items"],
+            serde_json::json!([
+                "saintsdragons:volitans_scale",
+                "saintsdragons:volitans_spine",
+                "saintsdragons:volitans_egg",
+                "minecraft:salmon",
+                "minecraft:cod",
+                "minecraft:tropical_fish",
+                "minecraft:pufferfish"
+            ])
+        );
+        assert!(ecology_sections("Nulljaw").is_empty());
+    }
 
     #[test]
     fn old_codex_records_default_to_full_hunger_and_new_records_keep_hunger() {
@@ -808,6 +897,11 @@ mod tests {
             "bound": true
         });
         let mut record: Record = serde_json::from_value(legacy).unwrap();
+        record.female = Some(true);
+        record.coating = "albino_female".into();
+        let preview = portrait(&record).unwrap();
+        assert_eq!(preview["rig"], "saintsdragons:baby_nulljaw_display");
+        assert_eq!(preview["texture"], "default_female");
         assert_eq!(record.hunger, crate::hunger::MAX);
         record.hunger = 37;
         let bytes = serde_json::to_vec(&record).unwrap();
