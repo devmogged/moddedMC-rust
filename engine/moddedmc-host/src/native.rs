@@ -572,6 +572,16 @@ unsafe extern "C" fn show_menu(
         } else {
             std::slice::from_raw_parts(buttons, count)
         };
+        if let Some(marker) = buttons
+            .iter()
+            .find(|b| text(b.action) == crate::pack_screen::MARKER)
+        {
+            if crate::pack_screen::show(p, &text(marker.tooltip)) {
+                return;
+            }
+        } else {
+            crate::pack_screen::invalidate(p);
+        }
         let dialog = Dialog {
             r#type: "minecraft:multi_action".into(),
             title: TextComponent::text(text(title)),
@@ -581,6 +591,7 @@ unsafe extern "C" fn show_menu(
             inputs: vec![],
             buttons: buttons
                 .iter()
+                .filter(|b| text(b.action) != crate::pack_screen::MARKER)
                 .map(|b| ActionButton {
                     text: TextComponent::text(text(b.label)),
                     tooltip: (b.tooltip.len > 0).then(|| TextComponent::text(text(b.tooltip))),

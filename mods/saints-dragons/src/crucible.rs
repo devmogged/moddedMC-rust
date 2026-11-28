@@ -41,6 +41,7 @@ type Stack = HashMap<String, Value>;
 static RECIPES: OnceLock<Vec<Recipe>> = OnceLock::new();
 static BLOCK_STATE: OnceLock<u32> = OnceLock::new();
 static ACTIVE: Mutex<Option<HashMap<usize, HashSet<Pos>>>> = Mutex::new(None);
+static DIRTY_SCREEN: Mutex<Option<HashMap<usize, HashSet<Pos>>>> = Mutex::new(None);
 static MENUS: OnceLock<Managed> = OnceLock::new();
 static KIND: OnceLock<MenuKind> = OnceLock::new();
 
@@ -115,7 +116,7 @@ impl Recipe {
     }
 }
 
-#[derive(Default, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 struct Crucible {
     input: [Stack; GRID_SIZE],
@@ -125,7 +126,7 @@ struct Crucible {
     job: Option<Job>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
 struct Job {
     result: Stack,
     minimum_charge: i32,
@@ -164,8 +165,48 @@ impl Crucible {
         } else {
             "minecraft:lever"
         };
-        slots[START] = Some(fastnbt::to_bytes(&stack(marker, 1)).ok()?);
+        let mut marker = stack(marker, 1);
+        marker.insert(
+            "components".into(),
+            Value::Compound(HashMap::from([(
+                "minecraft:custom_data".into(),
+                Value::Compound(HashMap::from([(
+                    "moddedmc:screen_state".into(),
+                    Value::Compound(self.screen_state()),
+                )])),
+            )])),
+        );
+        slots[START] = Some(fastnbt::to_bytes(&marker).ok()?);
         Some(slots)
+    }
+
+    /// The released DraconicCrucibleScreen fills each strip from its bottom edge.
+    fn screen_state(&self) -> Stack {
+        let progress = |height: i32| {
+            self.job.as_ref().map_or(0, |job| {
+                if job.ticks <= 0 {
+                    0
+                } else {
+                    ((i64::from(height) * i64::from(job.elapsed) + i64::from(job.ticks) - 1)
+                        / i64::from(job.ticks))
+                    .clamp(0, i64::from(height)) as i32
+                }
+            })
+        };
+        let can_start = self.job.is_none()
+            && self
+                .clone()
+                .start(recipes(), max_count, smelting::find, fuel_level);
+        HashMap::from([
+            (
+                "processing".into(),
+                Value::Int(i32::from(self.job.is_some())),
+            ),
+            ("can_start".into(), Value::Int(i32::from(can_start))),
+            ("gauge".into(), Value::Int(gauge_height(self.charge))),
+            ("arrow".into(), Value::Int(progress(9))),
+            ("bar".into(), Value::Int(progress(40))),
+        ])
     }
 
     fn store_fuel(&mut self, fuel_level: impl Fn(&str) -> Option<usize>) {
@@ -296,6 +337,15 @@ fn stack(id: &str, count: i32) -> Stack {
         ("id".into(), Value::String(id.into())),
         ("count".into(), Value::Int(count)),
     ])
+}
+
+fn gauge_height(charge: i32) -> i32 {
+    let heights = [0, 21, 42, 56];
+    let charge = charge.clamp(0, CAPACITY[3]);
+    let tier = (1..=3).find(|&tier| charge <= CAPACITY[tier]).unwrap_or(3);
+    let range = CAPACITY[tier] - CAPACITY[tier - 1];
+    let progress = charge - CAPACITY[tier - 1];
+    heights[tier - 1] + ((heights[tier] - heights[tier - 1]) * progress + range - 1) / range
 }
 
 fn item_id(stack: &Stack) -> Option<&str> {
@@ -466,16 +516,37 @@ pub fn tick(world: World<'_>, events: &[ContentEvent]) {
         }
         positions.clone()
     };
+    let dirty = DIRTY_SCREEN
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+        .and_then(|worlds| worlds.remove(&world.id()))
+        .unwrap_or_default();
     for pos in positions {
         let Some((before, mut machine)) = snapshot(world, pos) else {
             continue;
         };
-        if machine.job.is_none() && (machine.charge != 0 || machine.fuel.is_empty()) {
+        if !dirty.contains(&pos)
+            && machine.job.is_none()
+            && (machine.charge != 0 || machine.fuel.is_empty())
+        {
             continue;
         }
         machine.advance(recipes(), max_count, smelting::find, fuel_level);
-        mutate(world, pos, &before, &machine);
+        if !mutate(world, pos, &before, &machine) && dirty.contains(&pos) {
+            mark_screen_dirty(world, pos);
+        }
     }
+}
+
+fn mark_screen_dirty(world: World<'_>, pos: Pos) {
+    DIRTY_SCREEN
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(HashMap::new)
+        .entry(world.id())
+        .or_default()
+        .insert(pos);
 }
 
 fn position_context(pos: Pos) -> [u8; 12] {
@@ -586,7 +657,9 @@ fn changed(mut event: ManagedChange<'_>) {
     let Some(bytes) = replacement(&before, &machine) else {
         return;
     };
-    event.commit_external(|| world.compare_entity(pos, &before, &bytes));
+    if event.commit_external(|| world.compare_entity(pos, &before, &bytes)) {
+        mark_screen_dirty(world, pos);
+    }
 }
 
 fn action(event: Action<'_>) {
@@ -638,7 +711,7 @@ pub fn use_block(context: &mut UseBlock<'_>) -> BlockUseResult {
         &player,
         *kind,
         before.incarnation,
-        NAME,
+        "moddedmc:screen/saintsdragons:draconic_crucible",
         ManagedSlots {
             world,
             access: &machine.access(),
@@ -730,6 +803,15 @@ mod tests {
             item_id(&decode_stack(slots[START].as_deref()).unwrap()),
             Some("minecraft:clock")
         );
+        let state = machine.screen_state();
+        assert_eq!(state["processing"], Value::Int(1));
+        assert_eq!(state["can_start"], Value::Int(0));
+        assert_eq!(state["gauge"], Value::Int(21));
+        assert_eq!(state["arrow"], Value::Int(0));
+        machine.job.as_mut().unwrap().elapsed = 1;
+        let state = machine.screen_state();
+        assert_eq!(state["arrow"], Value::Int(5));
+        assert_eq!(state["bar"], Value::Int(20));
         let pos = Pos {
             x: -320,
             y: -64,
@@ -740,6 +822,18 @@ mod tests {
         let mut host_encoded = bare.clone();
         host_encoded.insert("components".into(), Value::Compound(HashMap::new()));
         assert!(same_item(&bare, &host_encoded));
+    }
+
+    #[test]
+    fn screen_gauge_matches_released_tier_segments() {
+        assert_eq!(gauge_height(-1), 0);
+        assert_eq!(gauge_height(1), 5);
+        assert_eq!(gauge_height(5), 21);
+        assert_eq!(gauge_height(6), 25);
+        assert_eq!(gauge_height(11), 42);
+        assert_eq!(gauge_height(12), 45);
+        assert_eq!(gauge_height(17), 56);
+        assert_eq!(gauge_height(99), 56);
     }
 
     #[test]

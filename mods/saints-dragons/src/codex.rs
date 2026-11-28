@@ -52,6 +52,8 @@ pub(crate) struct Record {
     name: String,
     species: String,
     health: [f32; 2],
+    #[serde(default)]
+    armor: Option<f64>,
     #[serde(default = "full_hunger")]
     hunger: i32,
     happiness: u8,
@@ -144,6 +146,7 @@ pub(crate) fn snapshot(
         name,
         species: species.to_owned(),
         health: [current, max],
+        armor: dragon.attribute_value("minecraft:armor"),
         hunger: crate::hunger::level(dragon),
         happiness,
         coating: Appearance::load(dragon)
@@ -288,9 +291,8 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
             *record = current;
         }
     }
-    owned.sort_by(|a, b| {
-        (Some(a.dragon) != selected_id, &a.name).cmp(&(Some(b.dragon) != selected_id, &b.name))
-    });
+    owned.sort_by_key(|record| record.name.to_lowercase());
+    owned.truncate(128);
     let mut lines = Vec::new();
     for record in owned.iter().take(24) {
         let [x, y, z] = record.position;
@@ -325,7 +327,6 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
         owner,
         owned
             .iter()
-            .take(24)
             .map(|record| record.dragon)
             .chain([owner])
             .collect(),
@@ -336,7 +337,8 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
         .enumerate()
         .map(|(index, record)| button(record.name.clone(), nonce, "select", index))
         .collect();
-    buttons.push(button("Ally".into(), nonce, "ally", owned.len().min(24)));
+    buttons.push(button("Ally".into(), nonce, "ally", owned.len()));
+    buttons.push(pack_screen(world, owner, &owned, selected_id, nonce));
     buttons.push(MenuButton {
         label: "Done".to_owned(),
         action: "saintsdragons:codex/done".to_owned(),
@@ -352,6 +354,113 @@ fn show(world: World<'_>, viewer: Entity<'_>, selected: Option<Entity<'_>>) -> U
         buttons,
     });
     UseResult::Success
+}
+
+fn pack_screen(
+    world: World<'_>,
+    owner: [u8; 16],
+    owned: &[Record],
+    selected: Option<[u8; 16]>,
+    nonce: u64,
+) -> MenuButton {
+    let action = |operation: &str, index| format!("{ACTION}{nonce}/{operation}/{index}");
+    let owner_index = owned.len();
+    let mut actions = HashMap::from([
+        (action("refresh", owner_index), false),
+        (action("add_name", owner_index), true),
+        (action("remove_name", owner_index), true),
+    ]);
+    let id = |uuid: [u8; 16]| {
+        uuid.iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let entries: Vec<_> = owned.iter().enumerate().map(|(index, record)| {
+        let remove = action("remove", index);
+        actions.insert(remove.clone(), false);
+        let [x, y, z] = record.position;
+        let gender = match record.female { Some(true) => "Female", Some(false) => "Male", None => "Unknown" };
+        serde_json::json!({
+            "id": id(record.dragon), "name": record.name, "species": record.species,
+            "health": format!("{:.0}/{:.0}", record.health[0], record.health[1]),
+            "armor": record.armor.map_or_else(|| "?".into(), |armor| format!("{armor:.0}")),
+            "gender": gender, "hunger": format!("{}/100", record.hunger),
+            "happiness": format!("{}/100", record.happiness),
+            "variant": record.coating.replace('_', " "),
+            "position": format!("Current Position: X: {x}, Y: {y}, Z: {z}"),
+            "biome": format!("Current Biome: {}", record.biome.as_deref().unwrap_or("Unknown")),
+            "brushing": record.brushing.map_or_else(String::new, |value| format!("{value}%")),
+            "brushing_status": record.brushing.map_or("none", |value| if value >= 100 { "ready" } else { "waiting" }),
+            "ecology": ecology_text(&record.species),
+            "ecology_sections": ecology_sections(&record.species),
+            "remove": remove
+        })
+    }).collect();
+    let allies = allies::list(world, owner);
+    let state = serde_json::json!({
+        "entries": entries, "selected": selected.map(id).unwrap_or_default(),
+        "allies": allies.iter().map(|ally| &ally.name).collect::<Vec<_>>(),
+        "ally_count": format!("Player Allies: {}/{}", allies.len(), allies::MAX),
+        "refresh": action("refresh", owner_index),
+        "add_name": action("add_name", owner_index),
+        "remove_name": action("remove_name", owner_index),
+    });
+    MenuButton {
+        label: String::new(),
+        action: "moddedmc:pack_screen".into(),
+        tooltip: serde_json::json!({"id": "saintsdragons:draconic_codex", "state": state, "actions": actions}).to_string(),
+    }
+}
+
+fn ecology_sections(species: &str) -> Vec<serde_json::Value> {
+    let drops: &[&str] = match species {
+        "Ignivorus" => &[
+            "ignivorus_scale",
+            "ignivorus_tooth",
+            "ignivorus_heart",
+            "ignivorus_egg",
+            "ignivorus_wing_hide",
+        ],
+        "Atroxiia" => &["atroxiia_scale", "atroxiia_egg"],
+        "Raevyx" => &[
+            "raevyx_scale",
+            "raevyx_egg",
+            "raevyx_wing_hide",
+            "raevyx_wingtalon",
+        ],
+        "Varasuchus" => &["varasuchus_scale", "varasuchus_egg"],
+        "Cindervane" => &["cindervane_scale", "cindervane_egg"],
+        "Stegonaut" => &["stegonaut_scale", "stegonaut_egg"],
+        "Volitans" => &[
+            "volitans_scale",
+            "volitans_spine",
+            "volitans_egg",
+            "salmon",
+            "cod",
+            "tropical_fish",
+            "pufferfish",
+        ],
+        _ => return Vec::new(),
+    };
+    let names = |ids: &[&str]| {
+        ids.iter()
+            .map(|id| id.rsplit(':').next().unwrap_or(id).replace('_', " "))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let foods = crate::TAGS
+        .get()
+        .and_then(|tags| {
+            tags.values(
+                "item",
+                &format!("saintsdragons:foods/{}", species.to_lowercase()),
+            )
+        })
+        .unwrap_or_default();
+    vec![
+        serde_json::json!({"label": "Favorite Food", "body": names(&foods.iter().map(String::as_str).collect::<Vec<_>>())}),
+        serde_json::json!({"label": "Drops", "body": names(drops)}),
+    ]
 }
 
 /// The released ally tab manages the owner's global list, including before taming a dragon.
@@ -540,7 +649,9 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
     let (Ok(nonce), Ok(index)) = (nonce.parse::<u64>(), index.parse::<usize>()) else {
         return true;
     };
-    if parts.next().is_some() {
+    let name = parts.next();
+    if parts.next().is_some() || (matches!(operation, "add_name" | "remove_name") != name.is_some())
+    {
         return true;
     }
     player.with_entity_context(|world, viewer| {
@@ -577,6 +688,34 @@ pub fn click(player: &Player<'_>, action: &str) -> bool {
             }
         };
         match operation {
+            "refresh" if dragon == owner => {
+                show(world, viewer, None);
+            }
+            "add_name" | "remove_name" if dragon == owner => {
+                let name = name.unwrap_or_default();
+                let candidates = if operation == "add_name" {
+                    allies::online(world)
+                } else {
+                    allies::list(world, owner)
+                };
+                if let Some(ally) = candidates
+                    .into_iter()
+                    .find(|ally| ally.name.eq_ignore_ascii_case(name))
+                {
+                    let changed = if operation == "add_name" {
+                        allies::add_online(world, owner, ally.uuid)
+                    } else {
+                        allies::remove_saved(world, owner, ally.uuid)
+                    };
+                    if changed {
+                        player.send_message(&format!(
+                            "Successfully updated player ally {}",
+                            ally.name
+                        ));
+                    }
+                }
+                show(world, viewer, None);
+            }
             "ally" if dragon == owner => show_allies(world, viewer, owner, 0, ""),
             "select" | "ecology" => detail(world, viewer, owner, dragon, operation == "ecology"),
             "confirm" => {
@@ -684,6 +823,7 @@ mod tests {
             name: "Ember".into(),
             species: "Cindervane".into(),
             health: [80.0, 80.0],
+            armor: None,
             hunger: 100,
             happiness: 100,
             coating: "default".into(),

@@ -28,7 +28,7 @@ use pumpkin_data::{
     BlockDirection,
     packet::{
         CURRENT_MC_VERSION,
-        clientbound::play::{CHUNK_BATCH_FINISHED, SOUND, SOUND_ENTITY},
+        clientbound::play::{CHUNK_BATCH_FINISHED, CUSTOM_PAYLOAD, SOUND, SOUND_ENTITY},
     },
     sound::Sound,
 };
@@ -55,6 +55,12 @@ use tokio::{
 };
 
 type Writer = Arc<Mutex<TCPNetworkEncoder<BufWriter<pumpkin_core::net::java::JavaWriteHalf>>>>;
+const SCREEN_CHANNEL: &str = "moddedmc:pack_screen";
+#[derive(Default)]
+struct MenuState {
+    dialog: Vec<DialogButton>,
+    screen: Option<serde_json::Value>,
+}
 
 #[expect(
     clippy::print_stdout,
@@ -71,7 +77,7 @@ async fn main() -> Result<(), String> {
     let writer: Writer = Arc::new(Mutex::new(bot.writer));
     let player = Arc::new(Mutex::new(bot.player));
     let actions = Arc::new(Mutex::new(bot.actions));
-    let dialog_actions = Arc::new(Mutex::new(Vec::<DialogButton>::new()));
+    let menus = Arc::new(Mutex::new(MenuState::default()));
     let mut last_action: Option<String> = None;
 
     let harness = std::env::var_os("MODDEDMC_BOT_HARNESS").is_some();
@@ -90,7 +96,7 @@ async fn main() -> Result<(), String> {
         harness,
         bot.capture,
         Arc::clone(&actions),
-        Arc::clone(&dialog_actions),
+        Arc::clone(&menus),
     ));
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
@@ -101,6 +107,20 @@ async fn main() -> Result<(), String> {
         let result = match verb {
             "cmd" => send(&writer, &SChatCommand { command: rest }).await,
             "action" => companion_action(&writer, rest).await,
+            "screen-enable" => {
+                send(
+                    &writer,
+                    &SCustomPayload {
+                        channel: SCREEN_CHANNEL,
+                        data: &[1, 0],
+                    },
+                )
+                .await
+            }
+            "screen-click" => {
+                let screen = menus.lock().await.screen.clone();
+                screen_click(&writer, screen.as_ref(), rest).await
+            }
             "use" | "place" | "use-item" | "release-item" | "break" | "dig" | "swap-hands"
             | "drop-item" => world_actions.perform(&player, &writer, verb, rest).await,
             "click" => {
@@ -119,13 +139,14 @@ async fn main() -> Result<(), String> {
                         .clone()
                         .ok_or_else(|| "no previous dialog action".into())
                 } else {
-                    let buttons = dialog_actions.lock().await;
+                    let menus = menus.lock().await;
+                    let buttons = &menus.dialog;
                     if verb == "click-match" {
-                        match_dialog_action(&buttons, rest)
+                        match_dialog_action(buttons, rest)
                     } else {
-                        match_dialog_label(&buttons, rest).or_else(|error| {
+                        match_dialog_label(buttons, rest).or_else(|error| {
                             if verb == "click-find" && error == "no matching dialog label" {
-                                match_dialog_label(&buttons, "Next page")
+                                match_dialog_label(buttons, "Next page")
                             } else {
                                 Err(error)
                             }
@@ -237,6 +258,32 @@ async fn companion_action(writer: &Writer, args: &str) -> Result<(), String> {
     .await
 }
 
+async fn screen_click(
+    writer: &Writer,
+    screen: Option<&serde_json::Value>,
+    args: &str,
+) -> Result<(), String> {
+    let screen = screen.ok_or("no standalone screen")?;
+    let (field, text) = args.split_once(' ').unwrap_or((args, ""));
+    let action = screen["state"][field]
+        .as_str()
+        .ok_or("no matching screen action field")?;
+    let token = screen["token"].as_str().ok_or("missing screen token")?;
+    let mut data = vec![1, 2];
+    data.extend_from_slice(
+        &serde_json::to_vec(&serde_json::json!({"token": token, "action": action, "text": text}))
+            .map_err(|e| e.to_string())?,
+    );
+    send(
+        writer,
+        &SCustomPayload {
+            channel: SCREEN_CHANNEL,
+            data: &data,
+        },
+    )
+    .await
+}
+
 /// Answers keep-alives and teleports and prints what scenarios check (chat, dialogs).
 #[expect(
     clippy::print_stdout,
@@ -251,7 +298,7 @@ async fn pump(
     harness: bool,
     mut capture: Option<capture::Capture>,
     actions: Arc<Mutex<actions::State>>,
-    dialog_actions: Arc<Mutex<Vec<DialogButton>>>,
+    menus: Arc<Mutex<MenuState>>,
 ) {
     let keep_alive_id = CKeepAlive::to_id(CURRENT_MC_VERSION);
     let position_id = CPlayerPosition::to_id(CURRENT_MC_VERSION);
@@ -327,14 +374,27 @@ async fn pump(
                     for button in &buttons {
                         println!("[bot] dialog button: {} -> {}", button.label, button.id);
                     }
-                    *dialog_actions.lock().await = buttons;
+                    let mut menus = menus.lock().await;
+                    menus.dialog = buttons;
+                    menus.screen = None;
                 }
                 Err(error) => {
-                    dialog_actions.lock().await.clear();
+                    menus.lock().await.dialog.clear();
                     println!("[bot] error: bad dialog packet: {error}");
                 }
             }
             println!("[bot] dialog: {}", printable_text(&packet.payload));
+        } else if packet.id == CUSTOM_PAYLOAD.0 {
+            use pumpkin_protocol::ser::NetworkReadSliceExt as _;
+            if payload.get_str_borrowed().ok() == Some(SCREEN_CHANNEL)
+                && let Some(body) = payload.strip_prefix(&[1, 1])
+                && let Ok(screen) = serde_json::from_slice::<serde_json::Value>(body)
+            {
+                println!("[bot] screen: {screen}");
+                let mut menus = menus.lock().await;
+                menus.dialog.clear();
+                menus.screen = Some(screen);
+            }
         } else if packet.id == SOUND.0 || packet.id == SOUND_ENTITY.0 {
             if let Err(error) = log_sound(payload, packet.id == SOUND_ENTITY.0) {
                 println!("[bot] error: bad sound packet: {error}");

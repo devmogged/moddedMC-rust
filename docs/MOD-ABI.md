@@ -69,6 +69,12 @@ What the SDK offers:
 | `Player` | `name`, `dimension`, `position`, `send_message`, `action_bar`, `give_block`, `teleport`, `show_menu`. Valid only during the call that handed it to you; store the name, not the player. |
 | free functions | `info`, `warn`, `error` (server log), `data_dir()` (`config/<id>/`), `tick_count()`, `dimensions()`. |
 
+The companion's standalone pack screens also use `Player::show_menu` and
+`Mod::menu_click` without changing their ABI. The reserved
+`moddedmc:pack_screen` marker and its JSON tooltip are documented in
+[Companion standalone screens](COMPANION.md#standalone-pack-screens-version-2).
+Treat all callbacks as untrusted input and validate ownership and live state.
+
 Rules:
 
 - The mod id is the package name (or `export_mod!(M, id = "...")`): lowercase letters, digits, `_`, `-`, `.`. It names the data folder. Block ids are `namespace:path` and may use any namespace except `minecraft`.

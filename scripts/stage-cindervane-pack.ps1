@@ -29,6 +29,27 @@ $files = [ordered]@{
 }
 $species = @('cindervane')
 if ($AllDragons) {
+    $copies["$assets/textures/gui/draconic_crucible_gui.png"] = "$assets/textures/gui/draconic_crucible_gui.png"
+    $copies["$assets/textures/gui/draconiccodex/physiology_tab.png"] = "$assets/textures/gui/draconiccodex/physiology_tab.png"
+    $copies["$assets/textures/gui/draconiccodex/physiology_tab_closed.png"] = "$assets/textures/gui/draconiccodex/physiology_tab_closed.png"
+    $copies["$assets/textures/gui/draconiccodex/ecology_tab.png"] = "$assets/textures/gui/draconiccodex/ecology_tab.png"
+    $copies["$assets/textures/gui/draconiccodex/ecology_tab_closed.png"] = "$assets/textures/gui/draconiccodex/ecology_tab_closed.png"
+    $copies["$assets/textures/gui/draconiccodex/ally_tab.png"] = "$assets/textures/gui/draconiccodex/ally_tab.png"
+    $copies["$assets/textures/gui/draconiccodex/ally_tab_closed.png"] = "$assets/textures/gui/draconiccodex/ally_tab_closed.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/health_icon.png"] = "$assets/textures/gui/draconiccodex/icons/health_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/armor_icon.png"] = "$assets/textures/gui/draconiccodex/icons/armor_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/gender_icon.png"] = "$assets/textures/gui/draconiccodex/icons/gender_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/hunger_icon.png"] = "$assets/textures/gui/draconiccodex/icons/hunger_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/happiness_icon.png"] = "$assets/textures/gui/draconiccodex/icons/happiness_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/variant_icon.png"] = "$assets/textures/gui/draconiccodex/icons/variant_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/refresh_icon.png"] = "$assets/textures/gui/draconiccodex/icons/refresh_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/remove_entries_icon.png"] = "$assets/textures/gui/draconiccodex/icons/remove_entries_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/add_icon.png"] = "$assets/textures/gui/draconiccodex/icons/add_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/icons/remove_icon.png"] = "$assets/textures/gui/draconiccodex/icons/remove_icon.png"
+    $copies["$assets/textures/gui/draconiccodex/codex_edit_box.png"] = "$assets/textures/gui/draconiccodex/codex_edit_box.png"
+    $copies["$assets/textures/gui/draconiccodex/brushing_available1.png"] = "$assets/textures/gui/draconiccodex/brushing_available1.png"
+    $copies["$assets/textures/gui/draconiccodex/brushing_unavailable.png"] = "$assets/textures/gui/draconiccodex/brushing_unavailable.png"
+    $copies["$assets/textures/gui/draconiccodex/draconic_codex.png"] = "$assets/textures/gui/draconiccodex/draconic_codex.png"
     $species += @('atroxiia','ignivorus','moop','mossback','nulljaw','raevyx','stegonaut','varasuchus','volitans')
 }
 foreach ($name in $species) {

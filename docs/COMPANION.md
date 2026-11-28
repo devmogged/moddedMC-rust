@@ -29,6 +29,67 @@ The game status JSON advertises `moddedmc: {"protocol": 1, "pack_url": "...", "m
 
 The companion caches `<gameDir>/moddedmc/manifest-<sha256>.json` and `<gameDir>/moddedmc/assets/<sha256>`. It verifies hashes and lengths before using cache entries or publishing replacements. The manifest is limited to 2 MiB and 10,000 paths. Each asset is limited to 8 MiB and the total to 256 MiB. The companion uses verified blobs to assemble the pack locally on vanilla's pack download worker, after vanilla's pack consent. An invalid or missing blob that cannot be repaired fails the required pack load.
 
+## Pack inventory screens (version 1)
+
+A mod opens an existing managed inventory menu with the title
+`moddedmc:screen/<namespace>:<id>`. The companion recognizes this only on a negotiated
+connection and loads `assets/<namespace>/moddedmc/screens.json` from the accepted pack.
+The host includes this catalog for registered content namespaces and copies the
+referenced PNG from the mod assets (or the owner's local release JAR). Missing
+or invalid layouts close the marked menu with a client message.
+
+Each catalog entry is keyed by the screen path and declares:
+
+- `version` (1), `title`, `width`, `height`, `texture` (namespace-relative PNG path),
+  `textureWidth`, `textureHeight`; the panel is centered and the atlas starts at (0, 0).
+- `containerSlots` (9–54, multiple of nine), `stateSlot` (a reserved,
+  non-transferable slot), `slots` (objects with native `index`, `x`, `y`, optional
+  `hideWhen` state key). Unlisted container slots are hidden. The existing 36
+  player slots follow the declared `inventory` origin (`x`, `y`, `hotbarY`),
+  with 18-pixel spacing.
+- `layers` (atlas source `u`, `v`, destination `x`, `y`, `width`, `height`).
+  Optional `visibleWhen` gates a layer; optional `fill` clips it from the bottom
+  to a state value measured in pixels.
+- `buttons` (same rectangles, plus `hoverV`, `pressedV`, `slot`, `label` and
+  optional `enabledWhen`). Each is backed by a reserved native menu control slot.
+  Left-click goes through the existing pickup action; the server remains authoritative.
+- `labels` (literal `text`, `x`, `y`, ARGB integer `color`). All coordinates
+  are relative to the panel.
+
+State is an integer-valued NBT compound named `moddedmc:screen_state` in the
+reserved stack's `minecraft:custom_data`. Missing keys read as zero. A managed
+menu can refresh that stack using its existing shared inventory mutation API.
+No ABI fields, extra packets, custom client item registries or mod-specific Java
+code are needed. The client retains native slot IDs and inventory handling.
+The server must deny ordinary transfer of all unlisted slots and control stacks,
+and validate every action independently of presentation state.
+
+The Saint's Dragons Crucible uses the 0.9.88 GUI atlas and coordinates, including
+the charge gauge, processing panel, progress strips, locked grid and control
+button. Package using `scripts/pack-saints-dragons.ps1` with the released JAR.
+## Standalone pack screens (version 2)
+
+Version 2 entries in the same screen catalog declare a background, named
+atlases, tab hitboxes, scrollable lists, state-bound labels/layers, paged
+text with section links, optional text input, and server-action controls.
+The Codex uses the released 393×214 book and tab/icon textures; its ally
+controls accept a player name, and refresh and removal use server-owned records.
+The existing version 1 inventory screen format is unchanged.
+
+The optional play channel `moddedmc:pack_screen` uses a two-byte version/opcode
+prefix: `[1,0]` advertises support; `[1,1]` opens a screen with UTF-8 JSON
+`{id,state,token,replyTo}`; `[1,2]` submits `{token,action,text}`.
+The host accepts at most 256 KiB of open state and 1 KiB per click. A click
+must match the connection's current one-use token and server-provided action
+allowlist; text is restricted to 64 slash-free ASCII characters. Replies identify
+the preceding token so a closed or replaced screen is not reopened.
+The mod uses the existing menu callback ABI: a reserved
+`moddedmc:pack_screen` button carries JSON `{id,state,actions}` in its
+tooltip, where action IDs map to booleans indicating whether text is accepted.
+The host removes this marker from fallback dialogs. Validated text is appended
+to the action ID after a slash; the receiving mod must still check ownership,
+input semantics, and live state. No ABI fields or inventory slots are added.
+
 ## Owner play test
 
 1. Start a scratch pack server with `create.mmc` and your local Create JAR. Install the companion JAR into a Fabric 26.3 instance named **moddedMC** in your launcher.

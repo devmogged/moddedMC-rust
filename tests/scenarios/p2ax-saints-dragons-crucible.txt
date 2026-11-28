@@ -1,4 +1,4 @@
-# Stock menu: route fuel, consume input on start, lock grid, take output, no duplication.
+# Native menu backing the companion layout: route fuel, consume input on start, lock grid, take output, no duplication.
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 start
 expect registered content block saintsdragons:draconic_crucible

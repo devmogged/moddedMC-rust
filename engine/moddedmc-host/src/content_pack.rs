@@ -617,6 +617,7 @@ impl Pack {
         for namespace in namespaces {
             self.sounds(namespace);
             self.display_parts(namespace)?;
+            self.screen_layouts(namespace)?;
             let path = format!("assets/{namespace}/moddedmc/creative.json");
             let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file))
             else {
@@ -640,6 +641,57 @@ impl Pack {
         if let Some(catalog) = catalog {
             self.files.insert(CREATIVE_CATALOG.to_owned(), catalog);
         }
+        Ok(())
+    }
+
+    /// Companion screen definitions are data, alongside the textures they reference.
+    fn screen_layouts(&mut self, namespace: &str) -> io::Result<()> {
+        let path = format!("assets/{namespace}/moddedmc/screens.json");
+        let Some(bytes) = shipped_asset(&path).and_then(|file| read_shipped_asset(&file)) else {
+            return Ok(());
+        };
+        let Ok(mut layouts) = serde_json::from_slice::<BTreeMap<String, Value>>(&bytes) else {
+            tracing::warn!("moddedmc: invalid screen catalog {path}");
+            return Ok(());
+        };
+        layouts.retain(|_, layout| {
+            let Some(texture) = layout.get("texture").and_then(Value::as_str) else {
+                return false;
+            };
+            let mut textures = vec![texture];
+            if let Some(atlases) = layout.get("atlases").and_then(Value::as_object) {
+                for atlas in atlases.values() {
+                    let Some(texture) = atlas.get("texture").and_then(Value::as_str) else {
+                        return false;
+                    };
+                    textures.push(texture);
+                }
+            }
+            textures.into_iter().all(|texture| {
+                if !texture.starts_with("textures/")
+                    || !texture.ends_with(".png")
+                    || !texture.split('/').all(|part| {
+                        !part.is_empty()
+                            && part != "."
+                            && part != ".."
+                            && part.bytes().all(|b| {
+                                b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b)
+                            })
+                    })
+                {
+                    return false;
+                }
+                let key = format!("assets/{namespace}/{texture}");
+                if let Some(bytes) = self.read_asset(namespace, &key) {
+                    self.files.insert(key, bytes);
+                    true
+                } else {
+                    tracing::warn!("moddedmc: missing screen texture {key}");
+                    false
+                }
+            })
+        });
+        self.files.insert(path, serde_json::to_vec(&layouts)?);
         Ok(())
     }
 
