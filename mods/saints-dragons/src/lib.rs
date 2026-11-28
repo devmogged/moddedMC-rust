@@ -161,6 +161,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::CanFreeze)?;
         entities.require_extension(EntitiesExtension::EntityEvents)?;
         entities.require_extension(EntitiesExtension::Senses)?;
+        entities.require_extension(EntitiesExtension::GlobalLookup)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -189,6 +190,7 @@ impl Mod for SaintsDragons {
         ai.require_extension(MobAiExtension::Combat)?;
         ai.require_extension(MobAiExtension::DamageSource)?;
         ai.require_extension(MobAiExtension::HurtFinal)?;
+        ai.require_extension(MobAiExtension::Heal)?;
         let _ = MOB_AI.set(ai);
         let interaction = interaction::require()?;
         interaction.require_extension(InteractionExtension::MobUse)?;
@@ -209,6 +211,7 @@ impl Mod for SaintsDragons {
         let _ = RESOURCES.set(resources::require()?);
         let stacks = stacks::require()?;
         stacks.require_extension(stacks::StacksExtension::Component)?;
+        stacks.require_damage()?;
         let _ = STACKS.set(stacks);
         let _ = TAGS.set(tags::require()?);
         visuals::start()?;
@@ -488,6 +491,7 @@ fn can_be_affected(
 }
 
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
+    taming::cargo::tick_reopen(world);
     flight_route::tick(world, moddedmc_api::tick_count());
     pillars::tick(world, moddedmc_api::tick_count());
     vfx::tick(world);

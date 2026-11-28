@@ -101,6 +101,23 @@ public final class DisplayRigs {
 
     }
 
+    /** A mounted inventory is declared by the rig associated with the actual vehicle. */
+    public static boolean hasMountedInventory(Entity vehicle) {
+        var level = Minecraft.getInstance().level;
+        if (level == null || vehicle == null) return false;
+        refresh();
+        for (Entity entity : level.entitiesForRendering()) {
+            if (!(entity instanceof ItemDisplay display) || display.itemRenderState() == null) continue;
+            var stack = display.itemRenderState().itemStack();
+            var model = stack.get(DataComponents.ITEM_MODEL);
+            var renderer = model == null ? null : rigs.get(model);
+            if (renderer == null || !renderer.definition.mountedInventory()) continue;
+            var data = stack.get(DataComponents.CUSTOM_DATA);
+            if (data != null && data.copyTag().getIntOr("moddedmc:rig_mount", -1) == vehicle.getId()) return true;
+        }
+        return false;
+    }
+
     /** A screen owns its preview animation cache; never touches a world's animation instance or seats. */
     public static final class Preview {
         private RigInstance rig;
@@ -174,7 +191,7 @@ public final class DisplayRigs {
     private record Definition(Identifier geometry, Identifier animations, Identifier texture, String clip,
                               float scale, float yOffset, float yawOffset, List<Identifier> hideParts,
                               Map<String, Identifier> textures, List<Seat> riderSeats, java.util.Optional<Identifier> previewGeometry, int transitionTicks,
-                              String reportBone) {
+                              String reportBone, boolean mountedInventory) {
         private static final Codec<Definition> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Identifier.CODEC.fieldOf("geometry").forGetter(Definition::geometry),
                 Identifier.CODEC.fieldOf("animations").forGetter(Definition::animations),
@@ -188,7 +205,8 @@ public final class DisplayRigs {
                 Seat.CODEC.listOf().optionalFieldOf("rider_seats", List.of()).forGetter(Definition::riderSeats),
                 Identifier.CODEC.optionalFieldOf("preview_geometry").forGetter(Definition::previewGeometry),
                 Codec.intRange(0, 20).optionalFieldOf("transition_ticks", 3).forGetter(Definition::transitionTicks),
-                Codec.STRING.optionalFieldOf("report_bone", "").forGetter(Definition::reportBone)
+                Codec.STRING.optionalFieldOf("report_bone", "").forGetter(Definition::reportBone),
+                Codec.BOOL.optionalFieldOf("mounted_inventory", false).forGetter(Definition::mountedInventory)
         ).apply(instance, Definition::new));
     }
 

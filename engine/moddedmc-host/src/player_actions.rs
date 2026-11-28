@@ -207,13 +207,12 @@ impl EventHandler<EntityToggleGlideEvent> for Glide {
 fn builtin_phases(id: &str) -> Option<u8> {
     use moddedmc_api::player_actions::{
         DOUBLE_TAP_BACK, DOUBLE_TAP_FORWARD, DOUBLE_TAP_LEFT, DOUBLE_TAP_RIGHT, MOUNTED_ATTACK,
-        MOUNTED_USE,
+        MOUNTED_INVENTORY, MOUNTED_USE,
     };
     match id {
         MOUNTED_ATTACK | MOUNTED_USE => Some(PHASES),
-        DOUBLE_TAP_FORWARD | DOUBLE_TAP_BACK | DOUBLE_TAP_LEFT | DOUBLE_TAP_RIGHT => {
-            Some(abi::ACTION_PRESSED)
-        }
+        MOUNTED_INVENTORY | DOUBLE_TAP_FORWARD | DOUBLE_TAP_BACK | DOUBLE_TAP_LEFT
+        | DOUBLE_TAP_RIGHT => Some(abi::ACTION_PRESSED),
         _ => None,
     }
 }

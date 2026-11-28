@@ -84,6 +84,27 @@ pub fn require_storage() -> Result<MobStorage, InterfaceUnavailable> {
     unsafe { crate::require_interface(abi::MOB_STORAGE, 1) }.map(MobStorage)
 }
 
+#[derive(Clone, Copy)]
+pub struct MobTransfer(&'static abi::MobStorageV1Transfer);
+
+pub fn require_transfer() -> Result<MobTransfer, InterfaceUnavailable> {
+    // SAFETY: this is the published extended mob storage table.
+    unsafe { crate::require_interface(abi::MOB_STORAGE, 1) }.map(MobTransfer)
+}
+
+impl MobTransfer {
+    pub fn transfer(
+        self,
+        mob: Entity<'_>,
+        destination: World<'_>,
+        position: [f64; 3],
+    ) -> Option<i32> {
+        // SAFETY: both handles are borrowed for this synchronous call.
+        let id = unsafe { (self.0.transfer)(mob.raw(), destination.raw(), abi::Vec3(position)) };
+        (id >= 0).then_some(id)
+    }
+}
+
 impl MobStorage {
     pub fn save(self, mob: Entity<'_>) -> Option<Vec<u8>> {
         let mut bytes = Vec::new();

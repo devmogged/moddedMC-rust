@@ -53,6 +53,7 @@ pub enum EntitiesExtension {
     EntityEvents,
     Senses,
     ItemDestroyed,
+    GlobalLookup,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -251,12 +252,61 @@ impl Entities {
                 std::mem::offset_of!(abi::EntitiesV1, on_item_destroyed),
                 "moddedmc:entities.on_item_destroyed",
             ),
+            EntitiesExtension::GlobalLookup => (
+                std::mem::offset_of!(abi::EntitiesV1, with_entity_uuid),
+                "moddedmc:entities.with_entity_uuid",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
         } else {
             Err(InterfaceUnavailable { name, version: 1 })
         }
+    }
+
+    /// Visit a loaded entity by UUID in any server dimension. Neither handle escapes the callback.
+    pub fn with_entity_uuid<F: FnOnce(World<'_>, Entity<'_>) -> T, T>(
+        self,
+        world: World<'_>,
+        uuid: [u8; 16],
+        f: F,
+    ) -> Option<T> {
+        struct Visit<F, T> {
+            f: Option<F>,
+            out: Option<T>,
+        }
+        unsafe extern "C" fn visit<F: FnOnce(World<'_>, Entity<'_>) -> T, T>(
+            ctx: *mut c_void,
+            world: abi::WorldRef,
+            raw: abi::EntityRef,
+        ) {
+            // SAFETY: ctx is the matching Visit for this synchronous call.
+            let ctx = unsafe { &mut *ctx.cast::<Visit<F, T>>() };
+            guard("entity uuid visit", (), || {
+                if let (Some(f), Some(world), Some(entity)) =
+                    (ctx.f.take(), World::borrowed(world), Entity::borrowed(raw))
+                {
+                    ctx.out = Some(f(world, entity));
+                }
+            });
+        }
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::EntitiesV1, with_entity_uuid))?;
+        let mut ctx = Visit {
+            f: Some(f),
+            out: None,
+        };
+        // SAFETY: uuid and ctx are valid throughout the synchronous host call.
+        unsafe {
+            ((&raw const (*api).with_entity_uuid).read())(
+                world.raw(),
+                &uuid,
+                (&raw mut ctx).cast(),
+                visit::<F, T>,
+            );
+        }
+        ctx.out
     }
 
     /// Run `f` with the loaded entity `id`; `None` when it isn't there. Needs

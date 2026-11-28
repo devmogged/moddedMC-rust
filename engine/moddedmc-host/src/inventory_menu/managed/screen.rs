@@ -43,6 +43,7 @@ struct MenuSlot {
     index: u8,
     access: Arc<Mutex<Vec<SlotAccess>>>,
     accepts: Arc<Rule>,
+    limit: u8,
 }
 
 impl Slot for MenuSlot {
@@ -60,6 +61,14 @@ impl Slot for MenuSlot {
     }
     fn can_insert(&self, stack: &ItemStack) -> bool {
         lock(&self.access)[usize::from(self.index)].insert && (self.accepts)(self.index, stack)
+    }
+    fn get_max_item_count(&self) -> u8 {
+        let native = self.slot.get_max_item_count();
+        if self.limit == 0 {
+            native
+        } else {
+            native.min(self.limit)
+        }
     }
     fn can_take_items(&self, _: &dyn InventoryPlayer) -> bool {
         lock(&self.access)[usize::from(self.index)].take
@@ -298,6 +307,7 @@ impl ManagedScreen {
         actions: Vec<(usize, MenuAction)>,
         accepts: &Arc<Rule>,
         route: Arc<Route>,
+        limits: &[u8],
         persist: Arc<Persist>,
     ) -> Option<Self> {
         let count = lock(&view).as_ref()?.stacks.len();
@@ -329,6 +339,7 @@ impl ManagedScreen {
                 index: u8::try_from(index).ok()?,
                 access: Arc::clone(&access),
                 accepts: Arc::clone(accepts),
+                limit: *limits.get(index)?,
             }));
         }
         let player_slots: Arc<dyn Inventory> = trial_player.clone();

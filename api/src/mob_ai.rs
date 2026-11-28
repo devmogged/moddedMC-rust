@@ -38,6 +38,7 @@ pub enum MobAiExtension {
     DamageSource,
     /// `on_hurt_final`.
     HurtFinal,
+    Heal,
 }
 
 #[derive(Clone, Copy)]
@@ -56,6 +57,17 @@ pub struct Goal<'a> {
 static HANDLER: OnceLock<GoalHandler> = OnceLock::new();
 static HURT: OnceLock<HurtHandler> = OnceLock::new();
 static HURT_FINAL: OnceLock<HurtFinalHandler> = OnceLock::new();
+type HealHandler = fn(World<'_>, Entity<'_>, f32) -> bool;
+static HEAL: OnceLock<HealHandler> = OnceLock::new();
+
+unsafe extern "C" fn heal(world: abi::WorldRef, mob: abi::EntityRef, amount: f32) -> bool {
+    guard("mob heal", true, || {
+        match (HEAL.get(), World::borrowed(world), Entity::borrowed(mob)) {
+            (Some(handler), Some(world), Some(mob)) => handler(world, mob, amount),
+            _ => true,
+        }
+    })
+}
 
 pub fn require() -> Result<MobAi, InterfaceUnavailable> {
     // SAFETY: this is the published table type for moddedmc:mob_ai v1; appended fields are read
@@ -134,6 +146,10 @@ impl MobAi {
                 std::mem::offset_of!(abi::MobAiV1, on_hurt_final),
                 "moddedmc:mob_ai.hurt_final",
             ),
+            MobAiExtension::Heal => (
+                std::mem::offset_of!(abi::MobAiV1, on_heal),
+                "moddedmc:mob_ai.on_heal",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
@@ -177,6 +193,24 @@ impl MobAi {
         // SAFETY: registration is live and the table prefix includes this field.
         RegistrationError::from_code(unsafe {
             ((&raw const (*api).on_hurt_final).read())(reg.reg, s(kind), hurt_final)
+        })
+    }
+
+    pub fn on_heal(
+        self,
+        reg: &mut Registry<'_>,
+        kind: &str,
+        handler: HealHandler,
+    ) -> Result<(), RegistrationError> {
+        let Some(api) = self.0.upto(std::mem::offset_of!(abi::MobAiV1, on_heal)) else {
+            return Err(RegistrationError::InvalidDefinition);
+        };
+        if !std::ptr::fn_addr_eq(*HEAL.get_or_init(|| handler), handler) {
+            return Err(RegistrationError::InvalidDefinition);
+        }
+        // SAFETY: registration and kind are live; the callback is static.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).on_heal).read())(reg.reg, s(kind), heal)
         })
     }
 

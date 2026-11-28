@@ -326,6 +326,7 @@ To use the vanilla wall placement and neighbor rules, register the complete wall
 | | `attack(world, mob, target, amount)` | Appended. The mob hits a loaded entity with vanilla's mob attack damage source. True when it took the hit. |
 | | `damage_source(causing, direct)` | Appended; require `MobAiExtension::DamageSource`. In a mob hurt or worn hurt callback, write the causing entity (e.g. shooter) and direct entity (e.g. arrow) ids to the output slots, -1 for either absent. Returns false outside these callbacks. |
 | | `on_hurt_final(reg, kind, callback)` | Appended; require `MobAiExtension::HurtFinal`. Receives the post-armor and magic amount, whether it would exhaust absorption and health, and the current absorption. Returns an adjusted nonnegative amount before absorption and health loss. Non-finite results leave damage unchanged. The damage source is available for this callback too. One callback per type. |
+| | `on_heal(reg, kind, callback)` | Appended at offset 112; require `MobAiExtension::Heal`. Receives the proposed healing amount before ordinary healing, returns false to consume/cancel it. |
 
 Require the tables from `Mod::start` and register definitions in `Mod::register`. Requesting `moddedmc:content` or `moddedmc:items` during startup moves that mod's registration before world load. Legacy mods continue to register on the first tick. State numbers are runtime handles. Store names and properties in mod-owned data. Mods with a placement hook can choose one of the placing block's states from the clicked face, look direction, sneak state and loaded neighbors.
 
@@ -603,6 +604,20 @@ with `inventory_menu::require_managed()`. On 64-bit hosts the table extends
 the 56-byte validity prefix with `register_managed` (56),
 `open_managed` (64), and `mutate` (72), for a total of 80 bytes.
 Older hosts return interface unavailable.
+
+The managed table appends `open_limited` at offset 80 (88 bytes total).
+`Managed::require_limits` checks this extension. `open_limited` takes the
+same request as `open_managed` plus one borrowed byte per container slot:
+zero keeps the native stack limit, otherwise the smaller of the native
+limit and the supplied maximum applies to all native slot operations.
+
+The entities table appends `with_entity_uuid` at offset 464. Require
+`EntitiesExtension::GlobalLookup` to visit a loaded entity by UUID in any
+dimension, with its actual world. The mob storage table appends `transfer`:
+prepare and spawn a registered mob from its NBT in a loaded, collision-free
+destination, then discard the source; a rejected destination leaves the source
+intact. `ItemStacksV1Damage` appends native durability wear, which returns
+an updated saved stack or an empty result when it breaks.
 
 A mod may register one legacy menu kind and one managed menu kind together.
 Their callbacks are independent. The v1 action registration attaches to the

@@ -169,6 +169,33 @@ pub unsafe extern "C" fn with_entity(
     true
 }
 
+pub unsafe extern "C" fn with_entity_uuid(
+    raw: WorldRef,
+    uuid: *const [u8; 16],
+    ctx: *mut c_void,
+    visit: unsafe extern "C" fn(*mut c_void, WorldRef, abi::EntityRef),
+) -> bool {
+    // SAFETY: the world and UUID are borrowed for this call.
+    let (Some(world), Some(uuid)) = (unsafe { world(raw) }, unsafe { uuid.as_ref() }) else {
+        return false;
+    };
+    let Some(server) = world.server.upgrade() else {
+        return false;
+    };
+    let uuid = Uuid::from_bytes(*uuid);
+    for level in server.worlds.load().iter() {
+        if let Some(found) = level.get_entity_by_uuid(uuid)
+            && !found.get_entity().removed.load(Ordering::Acquire)
+        {
+            let base: &dyn EntityBase = found.as_ref();
+            // SAFETY: level and found outlive the synchronous callback.
+            unsafe { visit(ctx, Arc::as_ptr(level).cast(), (&raw const base).cast()) };
+            return true;
+        }
+    }
+    false
+}
+
 pub unsafe extern "C" fn hurt(raw: abi::EntityRef, damage_type: Str, amount: f32) -> bool {
     if !amount.is_finite() || amount < 0.0 || damage_type.len == 0 || damage_type.len > 256 {
         return false;

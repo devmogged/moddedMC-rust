@@ -325,6 +325,9 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         ) {
             ai.on_hurt_final(registry, &kind, crate::combat::hurt_final)?;
         }
+        if species.name == crate::ivy::SPECIES {
+            ai.on_heal(registry, &kind, crate::ivy::heal)?;
+        }
         if stun {
             ai.add_goal(
                 registry,

@@ -34,7 +34,7 @@ wait 0.5
 expect \[bot\] expect riding ok ravager
 cmd item replace entity tester hotbar.0 with minecraft:diamond 7
 wait 0.5
-bot action saintsdragons:open_inventory pressed
+bot action moddedmc:mounted_inventory pressed
 wait 1
 bot expect slot 0 minecraft:saddle 1
 bot expect slot 1 minecraft:chest 1
@@ -59,8 +59,6 @@ wait 0.5
 expect inventory ok slot 2 diamond 7
 bot inventory-click 1 shift-left
 wait 1
-bot action saintsdragons:open_inventory pressed
-wait 0.75
 bot expect slot 1 minecraft:air 0
 bot expect slot 2 minecraft:air 0
 wait 0.5
@@ -68,6 +66,19 @@ expect-all inventory ok slot 1 air 0 && inventory ok slot 2 air 0
 cmd clear tester minecraft:chest 0
 wait 0.5
 expect Found 1 matching item
+cmd item replace entity tester hotbar.0 with minecraft:chest 7
+wait 0.5
+bot inventory-click 45 shift-left
+wait 1
+bot expect slot 1 minecraft:chest 1
+bot expect slot 45 minecraft:chest 6
+wait 0.5
+expect-all inventory ok slot 1 chest 1 && inventory ok slot 45 chest 6
+bot inventory-click 1 shift-left
+wait 1
+bot expect slot 1 minecraft:air 0
+wait 0.5
+expect inventory ok slot 1 air 0
 bot inventory-click 0 shift-left
 wait 0.5
 cmd clear tester minecraft:saddle 0

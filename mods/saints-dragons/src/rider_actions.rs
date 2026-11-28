@@ -60,6 +60,7 @@ pub fn register(reg: &mut Registry<'_>) -> Result<(), RegistrationError> {
         actions.subscribe(reg, id, ALL, rider_action)?;
     }
     for id in [
+        player_actions::MOUNTED_INVENTORY,
         player_actions::DOUBLE_TAP_FORWARD,
         player_actions::DOUBLE_TAP_BACK,
         player_actions::DOUBLE_TAP_LEFT,
@@ -84,7 +85,10 @@ fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
         return;
     };
     let _ = entities.with_entity(world, vehicle, |dragon| {
-        if action == "saintsdragons:open_inventory" {
+        if matches!(
+            action,
+            "saintsdragons:open_inventory" | player_actions::MOUNTED_INVENTORY
+        ) {
             if phase == ACTION_PRESSED {
                 crate::taming::cargo::open(world, player, dragon);
             }
