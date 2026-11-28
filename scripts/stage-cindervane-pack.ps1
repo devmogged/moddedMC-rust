@@ -84,6 +84,7 @@ if ($AllDragons) {
     $copies["$assets/textures/gui/draconic_crucible_gui.png"] = "$assets/textures/gui/draconic_crucible_gui.png"
     $copies["$assets/textures/gui/dialogue/dialogue_box.png"] = "$assets/textures/gui/dialogue/dialogue_box.png"
     $copies["$assets/textures/gui/ivy/ivy_inventory.png"] = "$assets/textures/gui/ivy/ivy_inventory.png"
+    $copies["$assets/textures/gui/draconian_swarm/draconian_swarm_wave_bar.png"] = "$assets/textures/gui/draconian_swarm/draconian_swarm_wave_bar.png"
     $copies["$assets/textures/gui/draconiccodex/physiology_tab.png"] = "$assets/textures/gui/draconiccodex/physiology_tab.png"
     $copies["$assets/textures/gui/draconiccodex/physiology_tab_closed.png"] = "$assets/textures/gui/draconiccodex/physiology_tab_closed.png"
     $copies["$assets/textures/gui/draconiccodex/ecology_tab.png"] = "$assets/textures/gui/draconiccodex/ecology_tab.png"

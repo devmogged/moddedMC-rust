@@ -17,6 +17,11 @@ class StandaloneLayoutTest {
         assertEquals(96, layout.backgroundHeight());
         assertEquals("name_input", layout.input().visibleWhen());
         assertEquals("typed_action", layout.lists().getFirst().inputActionField());
+        assertEquals(120, layout.dialogue().delayMs());
+        assertEquals(36, layout.dialogue().intervalMs());
+        assertEquals(72, layout.dialogue().voiceIntervalMs());
+        assertEquals("speaker_id", layout.dialogue().speakerField());
+        assertNull(StandaloneLayout.parse(json.replace("\"intervalMs\": 36", "\"intervalMs\": 0"), "ivy_dialogue"));
         assertNull(StandaloneLayout.parse(json.replace("\"backgroundV\": 80", "\"backgroundV\": 200"), "ivy_dialogue"));
     }
 

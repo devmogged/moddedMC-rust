@@ -135,9 +135,34 @@ fn open_inventory(world: World<'_>, viewer: Entity<'_>, ivy: Entity<'_>) -> bool
     if !can_access(ivy, viewer) {
         return false;
     }
-    let Some(record) = inventory_record(world, uuid) else {
+    let Some(mut record) = inventory_record(world, uuid) else {
         return false;
     };
+    if cfg!(feature = "original-assets") {
+        // Slot five is reserved, never transferred or persisted. The live carrier
+        // identifies the preview and exposes synchronized health to the client.
+        let marker = HashMap::from([
+            ("id", Value::String("minecraft:paper".into())),
+            ("count", Value::Int(1)),
+            (
+                "components",
+                Value::Compound(HashMap::from([(
+                    "minecraft:custom_data".into(),
+                    Value::Compound(HashMap::from([(
+                        "moddedmc:screen_state".into(),
+                        Value::Compound(HashMap::from([
+                            ("entity".into(), Value::Int(ivy.id())),
+                            (
+                                "uuid".into(),
+                                Value::String(format!("{:032x}", u128::from_be_bytes(uuid))),
+                            ),
+                        ])),
+                    )])),
+                )])),
+            ),
+        ]);
+        record.slots[5] = fastnbt::to_bytes(&marker).ok();
+    }
     let mut access = [Access {
         take: true,
         insert: true,
@@ -287,10 +312,12 @@ fn change_inventory(mut change: Change<'_>) {
     else {
         return;
     };
-    let slots: Vec<_> = change
+    let mut slots: Vec<_> = change
         .slots()
         .map(|slot| slot.map(<[u8]>::to_vec))
         .collect();
+    // The inaccessible presentation slot is not part of the saved inventory.
+    slots[5] = None;
     if !slots
         .iter()
         .enumerate()
@@ -819,7 +846,8 @@ fn show(
             impression: choice.impression.clone(),
         });
     }
-    if buttons.is_empty() {
+    let terminal = buttons.is_empty();
+    if terminal {
         buttons.push(MenuButton {
             label: "Done".into(),
             action: format!("{ACTION}{nonce}/0"),
@@ -849,6 +877,7 @@ fn show(
     if cfg!(feature = "original-assets") {
         let mut state = serde_json::json!({
             "speaker": "Ivy Oleander", "body": body, "name_input": name_input,
+            "speaker_id": ivy.id(), "terminal": terminal,
         });
         let mut allowed = HashMap::new();
         let mut choices = Vec::new();

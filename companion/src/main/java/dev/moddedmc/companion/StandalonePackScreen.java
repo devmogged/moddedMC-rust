@@ -13,16 +13,21 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.util.Mth;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.ItemStack;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.lwjgl.glfw.GLFW;
 
 /** Pack-defined book/dialog with local selection, tabs, scrolling and server-bound controls. */
 final class StandalonePackScreen extends Screen {
@@ -35,6 +40,12 @@ final class StandalonePackScreen extends Screen {
     private boolean waiting;
     private EditBox input;
     private int animationTicks;
+    private final long openedAt = now();
+    private long textAt, lastBlipAt, cameraAt;
+    private long choicesAt = -1;
+    private int lastBlip;
+    private boolean skipped, cameraStarted;
+    private float startYaw, startPitch, targetYaw, targetPitch;
     private final HashMap<StandaloneLayout.RigPreview, DisplayRigs.Preview> previews = new HashMap<>();
     private final HashMap<Identifier, ItemStack> catalogItems = new HashMap<>();
     private byte[] catalogBytes;
@@ -54,6 +65,11 @@ final class StandalonePackScreen extends Screen {
         this.state = state;
         waiting = false;
         ticks = 0;
+        textAt = now();
+        choicesAt = -1;
+        skipped = false;
+        lastBlip = 0;
+        lastBlipAt = 0;
         for (var list : layout.lists()) if (list.actionField() != null) offsets.remove(list.source());
         inputVisibility();
         if (selected.isEmpty()) selected = string(state, "selected");
@@ -62,7 +78,7 @@ final class StandalonePackScreen extends Screen {
 
     @Override protected void init() {
         left = Math.max(0, (width - layout.width()) / 2);
-        top = Math.max(0, layout.bottomAligned() ? height - layout.height() - 1 : (height - layout.height()) / 2);
+        top = panelTop();
         var definition = layout.input();
         if (definition != null) {
             String value = input == null ? "" : input.getValue();
@@ -80,7 +96,7 @@ final class StandalonePackScreen extends Screen {
 
     private void inputVisibility() {
         if (input == null) return;
-        boolean visible = visible(layout.input().tab()) && (layout.input().visibleWhen() == null
+        boolean visible = dialogueComplete() && visible(layout.input().tab()) && (layout.input().visibleWhen() == null
                 || "true".equals(string(state, layout.input().visibleWhen())));
         input.setVisible(visible);
         input.setEditable(visible);
@@ -90,6 +106,7 @@ final class StandalonePackScreen extends Screen {
     @Override public boolean isPauseScreen() { return false; }
     @Override public void tick() {
         animationTicks++;
+        inputVisibility();
         if (waiting || layout.refreshAction() == null || ++ticks < layout.refreshInterval()) return;
         String action = string(state, layout.refreshAction());
         if (!action.isEmpty()) {
@@ -106,6 +123,121 @@ final class StandalonePackScreen extends Screen {
     private static int number(JsonElement object, String field, int fallback) {
         try { return Integer.parseInt(string(object, field)); }
         catch (NumberFormatException ignored) { return fallback; }
+    }
+
+    private static long now() { return System.nanoTime() / 1_000_000L; }
+
+    private String dialogueText() {
+        return layout.dialogue() == null ? "" : string(state, layout.dialogue().field());
+    }
+
+    private int visibleCount(String value) {
+        var d = layout.dialogue();
+        return skipped || d == null ? value.codePointCount(0, value.length())
+                : DialogueAnimation.visibleCount(value, now() - textAt, d.delayMs(), d.intervalMs());
+    }
+
+    private boolean dialogueComplete() {
+        if (layout.dialogue() == null || skipped) return true;
+        String value = dialogueText();
+        return visibleCount(value) == value.codePointCount(0, value.length());
+    }
+
+    private StandaloneLayout.Rows arrowList() {
+        if (layout.dialogue() == null || layout.dialogue().arrow() == null
+                || "true".equals(string(state, "name_input"))) return null;
+        for (var list : layout.lists()) {
+            if (list.actionField() == null) continue;
+            var rows = rows(list.source());
+            if (rows.size() == 1 && ("...".equals(rowText(rows.get(0), list).trim())
+                    || "true".equals(string(state, "terminal")))) return list;
+        }
+        return null;
+    }
+
+    private long arrowDelay() {
+        var arrow = layout.dialogue().arrow();
+        return "...".equals(dialogueText().trim()) ? arrow.ellipsisDelayMs() : arrow.delayMs();
+    }
+
+    private boolean advanceDialogue() {
+        if (layout.dialogue() == null) return false;
+        if (!dialogueComplete()) {
+            skipped = true;
+            choicesAt = now();
+            inputVisibility();
+            return true;
+        }
+        var list = arrowList();
+        if (list == null) return false;
+        if (choicesAt < 0) choicesAt = now();
+        if (now() - choicesAt >= arrowDelay() || "true".equals(string(state, "terminal"))) {
+            sendRow(list, rows(list.source()).get(0));
+        }
+        return true;
+    }
+
+    private void sendRow(StandaloneLayout.Rows list, JsonElement row) {
+        String action = string(row, list.actionField());
+        String typedAction = string(row, list.inputActionField());
+        String value = input == null || typedAction.isEmpty() ? "" : input.getValue().trim();
+        if (waiting || action.isEmpty() || !value.matches("[A-Za-z0-9_. -]{0,64}")) return;
+        waiting = true;
+        PackScreens.click(token, value.isEmpty() ? action : typedAction, value);
+        if (input != null) input.setValue("");
+        if ("true".equals(string(row, list.closeField()))) minecraft.gui.setScreen(null);
+    }
+
+    private int panelTop() {
+        int target = Math.max(0, layout.bottomAligned() ? height - layout.height() - 1 : (height - layout.height()) / 2);
+        var d = layout.dialogue();
+        if (d == null) return target;
+        float t = Math.clamp((now() - openedAt) / (float)d.slideMs(), 0, 1);
+        int start = height + 8 - layout.backgroundY();
+        return Math.round(Mth.lerp(DialogueAnimation.easeOut(t), start, target));
+    }
+
+    private void dialogueFrame() {
+        var d = layout.dialogue();
+        if (d == null) return;
+        top = panelTop();
+        if (input != null) input.setY(top + layout.input().y());
+        inputVisibility();
+        String value = dialogueText();
+        int count = visibleCount(value);
+        long time = now();
+        if (dialogueComplete() && choicesAt < 0) choicesAt = time;
+        if (!skipped && d.voice() != null && time - lastBlipAt >= d.voiceIntervalMs()) {
+            while (lastBlip < count) {
+                int index = lastBlip++;
+                if (!DialogueAnimation.voiced(value.codePointAt(value.offsetByCodePoints(0, index)), index)) continue;
+                float pitch = (float)java.util.concurrent.ThreadLocalRandom.current().nextDouble(.94, 1.07);
+                minecraft.getSoundManager().play(SimpleSoundInstance.forUI(
+                        SoundEvent.createVariableRangeEvent(Identifier.parse(d.voice())), pitch, .42f));
+                lastBlipAt = time;
+                break;
+            }
+        }
+        if (minecraft.player == null || minecraft.level == null || d.speakerField() == null) return;
+        if (!cameraStarted) {
+            var speaker = minecraft.level.getEntity(number(state, d.speakerField(), -1));
+            if (speaker == null) return;
+            var offset = speaker.getEyePosition().add(0, -.25, 0).subtract(minecraft.player.getEyePosition());
+            startYaw = minecraft.player.getYRot();
+            startPitch = minecraft.player.getXRot();
+            targetYaw = (float)Math.toDegrees(Math.atan2(offset.z, offset.x)) - 90;
+            targetPitch = (float)-Math.toDegrees(Math.atan2(offset.y, Math.hypot(offset.x, offset.z)));
+            cameraAt = time;
+            cameraStarted = true;
+        }
+        if (cameraAt == 0) return;
+        float t = Math.clamp((time - cameraAt) / (float)d.cameraMs(), 0, 1);
+        float eased = DialogueAnimation.easeInOut(t);
+        float yaw = startYaw + Mth.wrapDegrees(targetYaw - startYaw) * eased;
+        minecraft.player.setYRot(yaw);
+        minecraft.player.setYHeadRot(yaw);
+        minecraft.player.setXRot(Mth.lerp(eased, startPitch, targetPitch));
+        if (t == 1) cameraAt = 0;
     }
 
     private void preview(GuiGraphicsExtractor graphics, StandaloneLayout.RigPreview definition,
@@ -210,6 +342,7 @@ final class StandalonePackScreen extends Screen {
     }
 
     @Override public void extractRenderState(GuiGraphicsExtractor graphics, int mx, int my, float tick) {
+        dialogueFrame();
         if (!layout.bottomAligned()) extractBackground(graphics, mx, my, tick);
         if (layout.backgroundHeight() == 0) {
             blit(graphics, layout.texture(), 0, 0, layout.width(), layout.height(), layout.textureWidth(), layout.textureHeight());
@@ -229,6 +362,7 @@ final class StandalonePackScreen extends Screen {
         }
         for (var t : layout.tabs()) atlas(graphics, visible(t.key()) ? t.active() : t.inactive(), t.x(), t.y());
         for (var list : layout.lists()) if (visible(list.tab())) {
+            if (list.actionField() != null && (!dialogueComplete() || list == arrowList())) continue;
             var rows = rows(list.source());
             int start = offset(list);
             if (rows.isEmpty() && list.empty() != null) {
@@ -254,8 +388,20 @@ final class StandalonePackScreen extends Screen {
             if (start > 0) text(graphics, "â†‘", list.x() + list.width() - 9, list.y(), color);
             if (start + list.count() < rows.size()) text(graphics, "â†“", list.x() + list.width() - 9, list.y() + (list.count() - 1) * list.spacing(), color);
         }
+        if (choicesAt >= 0 && arrowList() != null) {
+            var arrow = layout.dialogue().arrow();
+            int fade = "...".equals(dialogueText().trim()) ? arrow.ellipsisFadeMs() : arrow.fadeMs();
+            int alpha = Math.round(255 * Math.clamp((now() - choicesAt - arrowDelay()) / (float)fade, 0, 1));
+            if (alpha > 0) graphics.blit(RenderPipelines.GUI_TEXTURED,
+                    Identifier.fromNamespaceAndPath(id.getNamespace(), layout.texture()),
+                    left + arrow.x(), top + arrow.y(), arrow.u(), arrow.v(), arrow.width(), arrow.height(),
+                    layout.textureWidth(), layout.textureHeight(), (alpha << 24) | 0xffffff);
+        }
         for (var label : layout.labels()) if (visible(label.tab()) && (!label.selected() || entry != null)) {
-            var lines = wrap(string(label.selected() ? entry : state, label.field()), label.width());
+            String value = string(label.selected() ? entry : state, label.field());
+            if (layout.dialogue() != null && label.field().equals(layout.dialogue().field()))
+                value = DialogueAnimation.prefix(value, visibleCount(value));
+            var lines = wrap(value, label.width());
             for (int i = 0; i < Math.min(lines.size(), label.lines()); i++) {
                 var line = lines.get(i);
                 int x = label.x() + (label.center() ? Math.max(0, (label.width() - font.width(line)) / 2) : 0);
@@ -318,6 +464,7 @@ final class StandalonePackScreen extends Screen {
 
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (event.button() != 0) return super.mouseClicked(event, doubleClick);
+        if (advanceDialogue()) return true;
         double x = event.x() - left, y = event.y() - top;
         for (var t : layout.tabs()) if (hit(x, y, t.x(), t.y(), t.width(), t.height())) {
             tab = t.key();
@@ -361,14 +508,7 @@ final class StandalonePackScreen extends Screen {
             if (index < rows.size()) {
                 var row = rows.get(index);
                 if (list.actionField() != null) {
-                    String action = string(row, list.actionField());
-                    String typedAction = string(row, list.inputActionField());
-                    String value = input == null || typedAction.isEmpty() ? "" : input.getValue().trim();
-                    if (waiting || action.isEmpty() || !value.matches("[A-Za-z0-9_. -]{0,64}")) return true;
-                    waiting = true;
-                    PackScreens.click(token, value.isEmpty() ? action : typedAction, value);
-                    if (input != null) input.setValue("");
-                    if ("true".equals(string(row, list.closeField()))) minecraft.gui.setScreen(null);
+                    sendRow(list, row);
                 } else { selected = string(row, "id"); page = 0; }
                 return true;
             }
@@ -376,7 +516,22 @@ final class StandalonePackScreen extends Screen {
         return super.mouseClicked(event, doubleClick);
     }
 
+    @Override public boolean keyPressed(KeyEvent event) {
+        boolean enter = event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER;
+        if ((enter || event.key() == GLFW.GLFW_KEY_SPACE) && advanceDialogue()) return true;
+        if (enter && layout.dialogue() != null && dialogueComplete() && "true".equals(string(state, "name_input"))) {
+            for (var list : layout.lists()) if (list.inputActionField() != null) {
+                for (var row : rows(list.source())) if (!string(row, list.inputActionField()).isEmpty()) {
+                    sendRow(list, row);
+                    return true;
+                }
+            }
+        }
+        return super.keyPressed(event);
+    }
+
     @Override public boolean mouseScrolled(double mx, double my, double horizontal, double vertical) {
+        if (!dialogueComplete()) return true;
         if (vertical != 0) {
             for (var list : layout.lists()) if (visible(list.tab()) && hit(mx-left, my-top, list.x(), list.y(), list.width(), list.count()*list.spacing())) {
                 offsets.put(list.source(), Math.clamp(offset(list) + (vertical < 0 ? 1 : -1), 0, Math.max(0, rows(list.source()).size()-list.count())));

@@ -57,13 +57,20 @@ Each catalog entry is keyed by the screen path and declares:
 - `labels` (literal `text`, `x`, `y`, ARGB integer `color`). All coordinates
   are relative to the panel.
 
-State is an integer-valued NBT compound named `moddedmc:screen_state` in the
+State is an NBT compound named `moddedmc:screen_state` in the
 reserved stack's `minecraft:custom_data`. Missing keys read as zero. A managed
 menu can refresh that stack using its existing shared inventory mutation API.
 No ABI fields, extra packets, custom client item registries or mod-specific Java
 code are needed. The client retains native slot IDs and inventory handling.
 The server must deny ordinary transfer of all unlisted slots and control stacks,
 and validate every action independently of presentation state.
+
+An optional `preview` declares a rig item model, clipped rectangle and pixel
+scale. Its state supplies the live carrier's integer `entity` ID and hex
+`uuid` (without hyphens); both must match the loaded entity. Optional
+`vitals` entries define health and armor atlas rectangles and value positions.
+Health follows the carrier and armor follows the first four equipment slots.
+The reserved preview marker must not be transferable or persisted as equipment.
 
 The Saint's Dragons Crucible uses the 0.9.88 GUI atlas and coordinates, including
 the charge gauge, processing panel, progress strips, locked grid and control
@@ -75,7 +82,7 @@ atlases, tab hitboxes, scrollable lists, state-bound labels/layers, paged
 text with section links, optional text input, and server-action controls.
 The Codex uses the released 393×214 book and tab/icon textures; its ally
 controls accept a player name, and refresh and removal use server-owned records.
-The existing version 1 inventory screen format is unchanged. Optional `previews`
+Optional `previews`
 entries declare a selected-row field and a clipped rectangle (`x`, `y`,
 `width`, `height`, optional `tab`). The field contains a rig item-model ID
 (`rig`), a named rig `texture`, pixel `scale`, and `offsetX`/`offsetY`.
@@ -86,6 +93,25 @@ Layers can supply `frames` (atlas names) and `frameTicks` to cycle their
 textures. Paged section objects can expose item IDs under the optional pages
 `itemField`; the client draws vanilla or server Creative catalog stacks and
 their display names.
+
+An optional `dialogue` descriptor defines a text field, delay and character
+interval in milliseconds, slide duration, optional voice sound ID and interval,
+and speaker entity field and camera duration. The client reveals Unicode code
+points on its monotonic clock, gates choices and input until the line is shown,
+and lets a click or advance key skip the reveal. The optional arrow atlas
+rectangle and normal/ellipsis fade timings replace single continuation choices.
+The server's token and action checks are
+unchanged.
+
+## Pack wave overlays (version 3)
+
+A version 3 entry in the screen catalog declares `titlePrefix`, optional
+`titleKey` for a translated title with the remaining suffix as its argument, a namespace
+relative `texture`, `width`, `height`, `textureHeight`, `fillV`, and a
+per-game-tick `smoothing` coefficient. On negotiated connections a matching
+leased vanilla boss bar is drawn using the pack atlas and interpolated progress.
+Removing the lease decays its progress to zero; other boss bars retain their
+vanilla rendering. The Saint's Dragons pack stages the released swarm bar.
 
 The optional play channel `moddedmc:pack_screen` uses a two-byte version/opcode
 prefix: `[1,0]` advertises support; `[1,1]` opens a screen with UTF-8 JSON

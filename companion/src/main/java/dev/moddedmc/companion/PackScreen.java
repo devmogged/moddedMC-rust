@@ -3,6 +3,9 @@ package dev.moddedmc.companion;
 import java.nio.charset.StandardCharsets;
 import java.io.IOException;
 import java.util.HashMap;
+import dev.moddedmc.companion.rig.DisplayRigs;
+import dev.moddedmc.companion.rig.GuiRigState;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -15,17 +18,24 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 /** Repositions a vanilla chest menu; packet slot ids and normal inventory prediction remain intact. */
 public final class PackScreen extends AbstractContainerScreen<ChestMenu> {
     public static final String PREFIX = "moddedmc:screen/";
     private final ScreenLayout layout;
     private final Identifier texture;
+    private DisplayRigs.Preview preview;
 
     public static ScreenLayout load(Minecraft client, Identifier id) {
         var manager = client.getResourceManager();
@@ -101,6 +111,55 @@ public final class PackScreen extends AbstractContainerScreen<ChestMenu> {
             if (fill != 0) blit(graphics, leftPos + layer.x(), topPos + layer.y() + offset,
                     layer.u(), layer.v() + offset, layer.width(), fill, 0xffffffff);
         }
+        if (layout.preview() != null) extractPreview(graphics, state, mx, my, partialTick);
+    }
+
+    private void extractPreview(GuiGraphicsExtractor graphics, CompoundTag state, int mx, int my, float delta) {
+        var definition = layout.preview();
+        String uuid = state.getStringOr("uuid", "");
+        if (uuid.isEmpty() || minecraft.level == null) return;
+        var entity = minecraft.level.getEntity(state.getIntOr("entity", -1));
+        if (!(entity instanceof LivingEntity living) || !living.getUUID().toString().replace("-", "").equals(uuid)) return;
+        if (FabricLoader.getInstance().isModLoaded("geckolib")) {
+            if (preview == null) preview = new DisplayRigs.Preview();
+            var frame = preview.extract(Identifier.parse(definition.model()), "", uuid, delta);
+            if (frame != null) {
+                int x = leftPos + definition.x(), y = topPos + definition.y();
+                float yaw = (float)Math.atan((x + definition.width() / 2f - mx) / 40f);
+                float pitch = (float)Math.atan((y + definition.height() / 2f - my) / 40f);
+                var rotation = new Quaternionf().rotateZ((float)Math.PI)
+                        .rotateX(pitch * (float)Math.toRadians(20)).rotateY(-yaw * (float)Math.toRadians(20));
+                graphics.enableScissor(x, y, x + definition.width(), y + definition.height());
+                try {
+                    graphics.entity(new GuiRigState(frame), definition.scale(),
+                            new Vector3f(0, definition.height() / (2f * definition.scale()), 0),
+                            rotation, new Quaternionf(), x, y, x + definition.width(), y + definition.height());
+                } finally { graphics.disableScissor(); }
+            }
+        }
+        if (layout.vitals() == null) return;
+        for (var vital : layout.vitals()) {
+            boolean health = vital.kind().equals("health");
+            float value = health ? living.getHealth() : armor();
+            float maximum = health ? living.getMaxHealth() : 20;
+            int fill = Math.round(44 * Math.clamp(value / Math.max(maximum, 1), 0, 1));
+            int x = leftPos + vital.x(), y = topPos + vital.y();
+            blit(graphics, x, y, vital.iconU(), vital.iconV(), 9, 9, 0xffffffff);
+            blit(graphics, x + 12, y, vital.barU(), vital.barV(), 62, 8, 0xffffffff);
+            if (fill > 0) blit(graphics, x + 15, y + 3, vital.fillU(), vital.fillV(), fill, 2, 0xffffffff);
+            String label = Integer.toString(Math.round(value));
+            graphics.text(font, label, leftPos + vital.valueX() - font.width(label), y, 0xff000000, false);
+        }
+    }
+
+    private float armor() {
+        EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+        double[] total = {0};
+        for (int i = 0; i < slots.length; i++) menu.getSlot(i).getItem().forEachModifier(slots[i], (attribute, modifier) -> {
+            if (attribute.equals(Attributes.ARMOR) && modifier.operation() == AttributeModifier.Operation.ADD_VALUE)
+                total[0] += modifier.amount();
+        });
+        return (float)total[0];
     }
 
     @Override protected void extractLabels(GuiGraphicsExtractor graphics, int mx, int my) {

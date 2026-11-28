@@ -16,6 +16,11 @@ class ScreenLayoutTest {
         assertEquals(new ScreenLayout.Position(9, 8, 83, null), layout.slots().get(5));
         assertEquals(new ScreenLayout.Position(35, 152, 119, null), layout.slots().getLast());
         assertEquals(210, layout.inventory().hotbarY());
+        assertEquals(5, layout.stateSlot());
+        assertEquals(28, layout.preview().scale());
+        assertEquals("health", layout.vitals().getFirst().kind());
+        assertEquals("armor", layout.vitals().getLast().kind());
+        assertNull(ScreenLayout.parse(crucible().replace("\"scale\": 28", "\"scale\": 0"), "ivy_inventory"));
     }
 
     private static String crucible() throws Exception {

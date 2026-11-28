@@ -14,7 +14,11 @@ record StandaloneLayout(int version, String title, int width, int height, String
                         List<Tab> tabs, List<Rows> lists, List<Label> labels, List<Layer> layers,
                         List<Control> controls, Input input, Pages pages, String refreshAction, int refreshInterval,
                         List<RigPreview> previews, int backgroundY, int backgroundV,
-                        int backgroundHeight, boolean bottomAligned) {
+                        int backgroundHeight, boolean bottomAligned, Dialogue dialogue) {
+    record Dialogue(String field, int delayMs, int intervalMs, int slideMs, String voice,
+                    int voiceIntervalMs, String speakerField, int cameraMs, Arrow arrow) {}
+    record Arrow(int x, int y, int u, int v, int width, int height, int delayMs, int fadeMs,
+                 int ellipsisDelayMs, int ellipsisFadeMs) {}
     record Atlas(String texture, int width, int height) {}
     record Tab(String key, String active, String inactive, int x, int y, int width, int height) {}
     record Rows(String source, String tab, int x, int y, int width, int count, int spacing,
@@ -63,6 +67,22 @@ record StandaloneLayout(int version, String title, int width, int height, String
         if (backgroundHeight < 0 || backgroundY < 0 || backgroundV < 0
                 || backgroundHeight > 0 && (backgroundHeight > height || backgroundY > height - backgroundHeight
                 || backgroundHeight > textureHeight || backgroundV > textureHeight - backgroundHeight)) return false;
+        if (dialogue != null && (!bottomAligned || !key(dialogue.field)
+                || dialogue.delayMs < 0 || dialogue.delayMs > 2000
+                || dialogue.intervalMs < 1 || dialogue.intervalMs > 500
+                || dialogue.slideMs < 1 || dialogue.slideMs > 2000
+                || dialogue.voice != null && (Identifier.tryParse(dialogue.voice) == null
+                || dialogue.voiceIntervalMs < 20 || dialogue.voiceIntervalMs > 2000)
+                || !optionalKey(dialogue.speakerField)
+                || dialogue.cameraMs < 1 || dialogue.cameraMs > 2000)) return false;
+        if (dialogue != null && dialogue.arrow != null) {
+            var a = dialogue.arrow;
+            if (!fits(a.x, a.y, a.width, a.height) || a.u < 0 || a.v < 0
+                    || a.u > textureWidth - a.width || a.v > textureHeight - a.height
+                    || a.delayMs < 0 || a.delayMs > 5000 || a.fadeMs < 1 || a.fadeMs > 5000
+                    || a.ellipsisDelayMs < 0 || a.ellipsisDelayMs > 5000
+                    || a.ellipsisFadeMs < 1 || a.ellipsisFadeMs > 5000) return false;
+        }
         for (var atlas : atlases.values()) if (!texture(atlas.texture) || atlas.width < 1 || atlas.width > 512 || atlas.height < 1 || atlas.height > 512) return false;
         var keys = new java.util.HashSet<String>();
         for (var tab : tabs) if (!key(tab.key) || !keys.add(tab.key) || !atlases.containsKey(tab.active) || !atlases.containsKey(tab.inactive)

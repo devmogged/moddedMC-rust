@@ -10,7 +10,7 @@ import java.util.Set;
 public record ScreenLayout(int version, String title, int width, int height, String texture,
                            int textureWidth, int textureHeight, int containerSlots, int stateSlot,
                            List<Position> slots, Inventory inventory, List<Layer> layers,
-                           List<Button> buttons, List<Label> labels) {
+                           List<Button> buttons, List<Label> labels, RigPreview preview, List<Vital> vitals) {
     public record Position(int index, int x, int y, String hideWhen) {}
     public record Inventory(int x, int y, int hotbarY) {}
     public record Layer(int x, int y, int u, int v, int width, int height,
@@ -18,6 +18,9 @@ public record ScreenLayout(int version, String title, int width, int height, Str
     public record Button(int slot, int x, int y, int u, int v, int hoverV, int pressedV,
                          int width, int height, String enabledWhen, String label) {}
     public record Label(int x, int y, int color, String text) {}
+    public record RigPreview(String model, int x, int y, int width, int height, int scale) {}
+    public record Vital(String kind, int x, int y, int iconU, int iconV, int barU, int barV,
+                        int fillU, int fillV, int valueX) {}
 
     public static ScreenLayout parse(String json, String id) {
         try {
@@ -63,6 +66,21 @@ public record ScreenLayout(int version, String title, int width, int height, Str
         for (var label : labels) {
             if (!fits(label.x, label.y, 1, 1, width, height)
                     || label.text == null || label.text.length() > 256) return false;
+        }
+        if (preview != null && (preview.model == null
+                || !preview.model.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")
+                || preview.scale < 1 || preview.scale > 128
+                || !fits(preview.x, preview.y, preview.width, preview.height, width, height))) return false;
+        if (vitals != null) {
+            if (preview == null || vitals.size() > 2) return false;
+            for (var vital : vitals) {
+                if (!Set.of("health", "armor").contains(vital.kind)
+                        || !fits(vital.x, vital.y, 74, 9, width, height)
+                        || !fits(vital.iconU, vital.iconV, 9, 9, textureWidth, textureHeight)
+                        || !fits(vital.barU, vital.barV, 62, 8, textureWidth, textureHeight)
+                        || !fits(vital.fillU, vital.fillV, 44, 2, textureWidth, textureHeight)
+                        || !fits(vital.valueX, vital.y, 1, 9, width, height)) return false;
+            }
         }
         return true;
     }

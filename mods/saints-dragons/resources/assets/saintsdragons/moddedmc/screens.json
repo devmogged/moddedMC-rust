@@ -1,4 +1,15 @@
 {
+  "swarm_wave": {
+    "version": 3,
+    "titlePrefix": "Draconian Swarm - Wave ",
+    "titleKey": "gui.saintsdragons.draconian_swarm.wave",
+    "texture": "textures/gui/draconian_swarm/draconian_swarm_wave_bar.png",
+    "width": 182,
+    "height": 5,
+    "textureHeight": 11,
+    "fillV": 6,
+    "smoothing": 0.12
+  },
   "ivy_inventory": {
     "version": 1,
     "title": "Ivy the Merchant",
@@ -9,6 +20,18 @@
     "textureHeight": 256,
     "containerSlots": 36,
     "stateSlot": 5,
+    "preview": {
+      "model": "saintsdragons:ivy_oleander_display",
+      "x": 25,
+      "y": 7,
+      "width": 52,
+      "height": 67,
+      "scale": 28
+    },
+    "vitals": [
+      {"kind":"health","x":84,"y":11,"iconU":177,"iconV":0,"barU":187,"barV":0,"fillU":190,"fillV":9,"valueX":162},
+      {"kind":"armor","x":84,"y":23,"iconU":177,"iconV":12,"barU":187,"barV":12,"fillU":190,"fillV":21,"valueX":162}
+    ],
     "slots": [
       {
         "index": 0,
@@ -193,6 +216,20 @@
     "backgroundV": 80,
     "backgroundHeight": 96,
     "bottomAligned": true,
+    "dialogue": {
+      "field": "body",
+      "delayMs": 120,
+      "intervalMs": 36,
+      "slideMs": 270,
+      "voice": "saintsdragons:ivy_voice_blip",
+      "voiceIntervalMs": 72,
+      "speakerField": "speaker_id",
+      "cameraMs": 260,
+      "arrow": {
+        "x": 122, "y": 201, "u": 2, "v": 180, "width": 12, "height": 8,
+        "delayMs": 180, "fadeMs": 360, "ellipsisDelayMs": 2200, "ellipsisFadeMs": 650
+      }
+    },
     "atlases": {},
     "tabs": [],
     "lists": [
