@@ -24,7 +24,7 @@ use crate::{
     glue::{self, GlueBox, GlueScan},
     harvester,
     kinetics::{FACES, Kind, Kinetics, Part, face_axis, offset, packed, positive},
-    plough, saw, seat, states, sticker,
+    plough, saw, seat, states, sticker, train_trapdoor,
     trains::{bogey, controls},
 };
 
@@ -173,6 +173,7 @@ impl BlockMovementChecks {
             || decor::is_palette_partial(&entry.name)
             || entry.is_vanilla_wall()
             || entry.is_pane_or_bars()
+            || train_trapdoor::is_trapdoor(&entry.name)
             || matches!(
                 entry.name.as_str(),
                 BELT | sticker::ID
@@ -1168,6 +1169,7 @@ impl PaletteEntry {
             || decor::is_palette_partial(&self.name)
             || self.is_vanilla_wall()
             || self.is_pane_or_bars()
+            || train_trapdoor::is_trapdoor(&self.name)
     }
 
     fn bogey_axis(&self) -> Option<u8> {
