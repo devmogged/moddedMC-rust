@@ -1,5 +1,5 @@
 //! IgnivorusMagmaPillarEntity and StegonautAmethystPillarEntity, 0.9.88.
-use crate::{EFFECTS, ENTITIES, MOBS, taming};
+use crate::{EFFECTS, ENTITIES, MOBS, taming, vfx};
 use moddedmc_api::{
     abi::heightmap,
     content::World,
@@ -19,6 +19,15 @@ enum Kind {
 }
 
 impl Kind {
+    fn rig(self, subsiding: bool) -> (&'static str, &'static str, f32) {
+        match (self, subsiding) {
+            (Self::Magma(_), false) => (vfx::MAGMA, "animation.ignivorus_magma_pillar.emerge", 1.0),
+            (Self::Magma(_), true) => (vfx::MAGMA, "animation.ignivorus_magma_pillar.subside", 1.0),
+            (Self::Amethyst, false) => (vfx::AMETHYST, "animation.amethyst_pillar_emerge", 2.0),
+            (Self::Amethyst, true) => (vfx::AMETHYST, "animation.amethyst_pillar_subside", 2.0),
+        }
+    }
+
     fn timing(self) -> (u64, u64, u64) {
         match self {
             Self::Magma(_) => (5, 34, 9),
@@ -57,6 +66,8 @@ struct Pillar {
     damage: f32,
     knockback: f64,
     hits: HashSet<[u8; 16]>,
+    display: Option<i32>,
+    subsiding: bool,
 }
 
 // shortcut: the host lacks a tickable custom nonliving effect entity and its
@@ -69,6 +80,7 @@ fn spawn(
     world: World<'_>,
     owner: Entity<'_>,
     position: [f64; 3],
+    yaw: f32,
     kind: Kind,
     damage: f32,
     knockback: f64,
@@ -82,6 +94,8 @@ fn spawn(
     if matches!(kind, Kind::Magma(_)) {
         magma_sound(world, position, false, player_owned);
     }
+    let (model, clip, scale) = kind.rig(false);
+    let display = vfx::pillar(world, model, clip, position, yaw, scale);
     ACTIVE
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -96,6 +110,8 @@ fn spawn(
             damage,
             knockback,
             hits: HashSet::new(),
+            display,
+            subsiding: false,
         });
 }
 
@@ -123,6 +139,7 @@ pub fn magma_wave(
             world,
             dragon,
             [x, f64::from(y), z],
+            yaw(forward),
             Kind::Magma(stage),
             18.0 + stage as f32 * 4.0,
             0.9 + f64::from(stage) * 0.2,
@@ -130,8 +147,26 @@ pub fn magma_wave(
     }
 }
 
-pub fn amethyst(world: World<'_>, dragon: Entity<'_>, position: [f64; 3], damage: f32) {
-    spawn(world, dragon, position, Kind::Amethyst, damage, 0.9);
+fn yaw([x, _, z]: [f64; 3]) -> f32 {
+    (z.atan2(x).to_degrees() - 90.0) as f32
+}
+
+pub fn amethyst(
+    world: World<'_>,
+    dragon: Entity<'_>,
+    position: [f64; 3],
+    direction: [f64; 3],
+    damage: f32,
+) {
+    spawn(
+        world,
+        dragon,
+        position,
+        yaw(direction),
+        Kind::Amethyst,
+        damage,
+        0.9,
+    );
 }
 
 fn sword_pillars(at: [f64; 3], forward: [f64; 3]) -> [[f64; 3]; 3] {
@@ -160,6 +195,7 @@ pub fn sword_wave(world: World<'_>, player: Entity<'_>, at: [f64; 3], forward: [
             world,
             player,
             position,
+            yaw(forward),
             Kind::Magma(stage as u32),
             18.0 + stage as f32 * 4.0,
             0.9 + stage as f64 * 0.2,
@@ -316,6 +352,9 @@ pub fn tick(world: World<'_>, now: u64) {
         let age = now.saturating_sub(pillar.born);
         let (warmup, lifetime, subside) = pillar.kind.timing();
         if age >= lifetime + subside {
+            if let Some(id) = pillar.display {
+                vfx::remove(world, id);
+            }
             return false;
         }
         if age == 0 {
@@ -324,14 +363,16 @@ pub fn tick(world: World<'_>, now: u64) {
         if (warmup..=lifetime).contains(&age) {
             pillar.impact(world);
         }
-        // shortcut: particle silhouettes approximate the rise/subside until the
-        // companion can render nonliving effect entities and synced animation state.
+        if age >= lifetime && !pillar.subsiding {
+            pillar.subsiding = true;
+            if let Some(id) = pillar.display {
+                let (model, clip, _) = pillar.kind.rig(true);
+                vfx::pillar_clip(world, id, model, clip);
+            }
+        }
+        // Supplement the model with the release's sparse amethyst particles
+        // and an approximation of the magma impact emitter.
         if let Some(effects) = EFFECTS.get() {
-            let fraction = rise(age, warmup, lifetime, subside);
-            let (particle, height) = match pillar.kind {
-                Kind::Magma(stage) => ("minecraft:flame", 5.5 * (1.0 + f64::from(stage) * 0.2)),
-                Kind::Amethyst => ("minecraft:end_rod", 8.0),
-            };
             let [x, y, z] = pillar.position;
             if age == 1 && matches!(pillar.kind, Kind::Magma(_)) {
                 effects.particles(
@@ -343,15 +384,16 @@ pub fn tick(world: World<'_>, now: u64) {
                     64,
                 );
             }
-            let height = height * fraction;
-            effects.particles(
-                world,
-                particle,
-                [x, y + height * 0.5, z],
-                [0.3, height * 0.5, 0.3],
-                0.02,
-                4,
-            );
+            if matches!(pillar.kind, Kind::Amethyst) && crate::ai::random(100) < 35 {
+                effects.particles(
+                    world,
+                    "minecraft:end_rod",
+                    [x, y + 1.5, z],
+                    [0.325, 1.5, 0.325],
+                    0.02,
+                    1,
+                );
+            }
         }
         true
     });
@@ -362,14 +404,6 @@ pub fn tick(world: World<'_>, now: u64) {
             .entry(dimension)
             .or_default()
             .append(&mut pillars);
-    }
-}
-
-fn rise(age: u64, warmup: u64, lifetime: u64, subside: u64) -> f64 {
-    if age > lifetime {
-        (lifetime + subside).saturating_sub(age) as f64 / subside as f64
-    } else {
-        (age as f64 / warmup as f64).min(1.0)
     }
 }
 
@@ -389,9 +423,19 @@ mod tests {
             ([-4.5, -0.5, -4.5], [4.5, 7.5, 4.5])
         );
         assert!(Kind::Magma(2).bounds([0.0; 3]).1[1] > max[1]);
-        assert_eq!(rise(0, 5, 34, 9), 0.0);
-        assert_eq!(rise(34, 5, 34, 9), 1.0);
-        assert_eq!(rise(43, 5, 34, 9), 0.0);
+        assert_eq!(
+            Kind::Magma(0).rig(false).1,
+            "animation.ignivorus_magma_pillar.emerge"
+        );
+        assert_eq!(
+            Kind::Magma(0).rig(true).1,
+            "animation.ignivorus_magma_pillar.subside"
+        );
+        assert_eq!(Kind::Amethyst.rig(false).2, 2.0);
+        assert_eq!(
+            Kind::Amethyst.rig(true).1,
+            "animation.amethyst_pillar_subside"
+        );
     }
 
     #[test]

@@ -890,6 +890,7 @@ fn slam(world: World<'_>, mob: Entity<'_>, second: bool) {
                     world,
                     mob,
                     position,
+                    dir,
                     10.0 * hunger::melee_multiplier(mob),
                 );
             }

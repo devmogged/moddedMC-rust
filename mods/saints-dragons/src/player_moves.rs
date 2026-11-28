@@ -511,7 +511,6 @@ fn sword_action(world: World<'_>, player: Entity<'_>) {
 }
 
 fn chain(world: World<'_>, player: Entity<'_>, first: Entity<'_>) {
-    // The five-tick Blood Tempest arc needs a companion visual; emit vanilla sparks.
     let (Some(entities), Some(mut at)) = (crate::ENTITIES.get(), center(first)) else {
         return;
     };
@@ -542,6 +541,7 @@ fn chain(world: World<'_>, player: Entity<'_>, first: Entity<'_>) {
                 if chain_target(player, first) {
                     first.hurt_by(player.id(), "minecraft:player_attack", damage);
                 }
+                crate::vfx::arc(world, add(at, [0.0, 0.35, 0.0]), at, true, 5, 1.0);
                 if let Some(effects) = crate::EFFECTS.get() {
                     effects.particles(
                         world,
@@ -559,6 +559,7 @@ fn chain(world: World<'_>, player: Entity<'_>, first: Entity<'_>) {
             let to = center(target);
             target.hurt_by(player.id(), "minecraft:player_attack", damage);
             if let Some(to) = to {
+                crate::vfx::arc(world, at, to, true, 5, 1.0);
                 if let Some(effects) = crate::EFFECTS.get() {
                     let midpoint = scale(add(at, to), 0.5);
                     effects.particles(

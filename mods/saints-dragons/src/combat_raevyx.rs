@@ -302,14 +302,8 @@ fn spark(world: World<'_>, at: [f64; 3], count: u32) {
 
 /// Vanilla sparks stand in for the custom LightningVisualEntity mesh.
 fn arc(world: World<'_>, from: [f64; 3], to: [f64; 3]) {
-    let count = (distance(from, to) * 3.0).ceil().clamp(1.0, 192.0) as i32;
-    for i in 0..=count {
-        spark(
-            world,
-            std::array::from_fn(|j| from[j] + (to[j] - from[j]) * f64::from(i) / f64::from(count)),
-            1,
-        );
-    }
+    crate::vfx::arc(world, from, to, false, 5, 1.0);
+    spark(world, std::array::from_fn(|i| (from[i] + to[i]) * 0.5), 2);
 }
 
 fn sound(world: World<'_>, mob: Entity<'_>, name: &str, volume: f32) {
@@ -379,7 +373,7 @@ fn chain(
         let Some((id, next_at, _)) = next else {
             if index == 0 {
                 lightning(world, mob, start, amount, true);
-                spark(world, at, 10);
+                arc(world, [at[0], at[1] + 0.35, at[2]], at);
             }
             break;
         };

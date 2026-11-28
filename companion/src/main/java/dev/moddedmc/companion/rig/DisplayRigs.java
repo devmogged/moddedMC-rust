@@ -171,7 +171,7 @@ public final class DisplayRigs {
 
     private record Definition(Identifier geometry, Identifier animations, Identifier texture, String clip,
                               float scale, float yOffset, float yawOffset, List<Identifier> hideParts,
-                              Map<String, Identifier> textures, List<Seat> riderSeats, java.util.Optional<Identifier> previewGeometry) {
+                              Map<String, Identifier> textures, List<Seat> riderSeats, java.util.Optional<Identifier> previewGeometry, int transitionTicks) {
         private static final Codec<Definition> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Identifier.CODEC.fieldOf("geometry").forGetter(Definition::geometry),
                 Identifier.CODEC.fieldOf("animations").forGetter(Definition::animations),
@@ -183,7 +183,8 @@ public final class DisplayRigs {
                 Identifier.CODEC.listOf().optionalFieldOf("hide_parts", List.of()).forGetter(Definition::hideParts),
                 Codec.unboundedMap(Codec.STRING, Identifier.CODEC).optionalFieldOf("textures", Map.of()).forGetter(Definition::textures),
                 Seat.CODEC.listOf().optionalFieldOf("rider_seats", List.of()).forGetter(Definition::riderSeats),
-                Identifier.CODEC.optionalFieldOf("preview_geometry").forGetter(Definition::previewGeometry)
+                Identifier.CODEC.optionalFieldOf("preview_geometry").forGetter(Definition::previewGeometry),
+                Codec.intRange(0, 20).optionalFieldOf("transition_ticks", 3).forGetter(Definition::transitionTicks)
         ).apply(instance, Definition::new));
     }
 
@@ -232,7 +233,7 @@ public final class DisplayRigs {
 
         @Override
         public void registerControllers(AnimatableManager.ControllerRegistrar registrar) {
-            if (!still) registrar.add(new AnimationController<RigInstance>("display", 3, test -> test.setAndContinue(clip)));
+            if (!still) registrar.add(new AnimationController<RigInstance>("display", renderer.definition.transitionTicks(), test -> test.setAndContinue(clip)));
         }
 
         @Override

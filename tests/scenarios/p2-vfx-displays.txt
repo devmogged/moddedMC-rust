@@ -1,0 +1,46 @@
+# Released magma pillar clip selection and cleanup; inspect textures/pose in a real client.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1038.5 301 1040.5
+cmd forceload add 1007 1007 1051 1063
+wait 12
+cmd fill 1007 299 1007 1051 299 1063 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd saintsdragons spawn ignivorus 1025 300 1025
+wait 2
+cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},x=1025,y=300,z=1025,distance=..8,limit=1] add roar_dragon
+cmd summon minecraft:ravager 1025.5 300 1030.5 {NoAI:1b,Tags:["roar_target"]}
+wait 0.25
+cmd damage @e[tag=roar_dragon,limit=1] 1 minecraft:mob_attack by @e[tag=roar_target,limit=1]
+wait 0.25
+cmd tick freeze
+cmd tp @e[tag=roar_dragon,limit=1] 1025.5 300 1025.5 0 0
+cmd data modify entity @e[tag=roar_dragon,limit=1] data."saintsdragons:ignivorus_combat".next_decision set value 2147483647L
+cmd data modify entity @e[tag=roar_dragon,limit=1] data."saintsdragons:ignivorus_combat".age set value 9
+cmd data modify entity @e[tag=roar_dragon,limit=1] data."saintsdragons:ignivorus_combat".attack set value "Roar"
+cmd tick step 2t
+wait 1
+cmd execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:ignivorus_magma_pillar_display",components:{"minecraft:custom_data":{"moddedmc:rig_clip":"animation.ignivorus_magma_pillar.emerge"}}}}]
+wait 0.5
+expect Test passed
+cmd tick step 33t
+wait 2.5
+cmd execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:ignivorus_magma_pillar_display",components:{"minecraft:custom_data":{"moddedmc:rig_clip":"animation.ignivorus_magma_pillar.subside"}}}}]
+wait 0.5
+expect Test passed
+cmd tick unfreeze
+wait 4
+cmd execute unless entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:ignivorus_magma_pillar_display"}}]
+wait 0.5
+expect Test passed
+# Real client: watch magma and the second Stegonaut slam, and chain with Raevyx
+# and Blood Tempest. Check blue-white flicker/fade and red grow/flash/retract,
+# both release pillar meshes, emergence/subside, rotation, and disappearance.
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

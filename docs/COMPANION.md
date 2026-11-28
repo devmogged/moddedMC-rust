@@ -124,7 +124,7 @@ For an item model ID `example:hinge`, add `assets/example/moddedmc/rigs/hinge.js
 
 The geometry and animation IDs resolve to `assets/example/geckolib/models/hinge.geo.json` and `assets/example/geckolib/animations/hinge.animation.json`. The texture uses its full resource path. The default clip comes from the descriptor. A server can select another clip in the same animation file by setting the string `moddedmc:rig_clip` in the display item's `minecraft:custom_data`. An unknown clip uses the default. Without GeckoLib or a valid rig, the client renders the regular item model.
 
-Optional `scale`, `y_offset` and `yaw_offset` fields adjust the rig relative to the item display. `hide_parts` lists item model IDs used only by the multipart stock model. The companion suppresses those IDs while the replacement rig's resources are available.
+Optional `scale`, `y_offset` and `yaw_offset` fields adjust the rig relative to the item display. `transition_ticks` (0–20, default 3) controls the animation controller's blending duration. `hide_parts` lists item model IDs used only by the multipart stock model. The companion suppresses those IDs while the replacement rig's resources are available.
 
 An optional `textures` object maps names to full texture resource IDs. The server can set `moddedmc:rig_texture` in the display stack's `minecraft:custom_data` to select one of those names. An unknown name or unavailable texture uses the descriptor's default `texture`.
 
@@ -144,6 +144,18 @@ data merge entity @e[type=minecraft:item_display,tag=rig_test,limit=1] {item:{id
 ```
 
 The first command shows a swinging arm and the second parks it upright. The item model is a gold block on a stock client with the test pack enabled.
+
+### Procedural arc displays
+
+An item display can also supply `moddedmc:arc` in its item's `minecraft:custom_data`.
+This is a compound with float `x`, `y`, `z` (end minus start in blocks; the display
+is placed at the midpoint), integer `lifetime` (1–200 client ticks), integer
+`seed`, float `scale` (0.1–2), and numeric `grow` (zero for flicker/fade,
+nonzero for grow/flash/retract). The `layers` list contains up to four lists
+of seven floats in [0,1]: scale multiplier, width factor, jitter factor, red,
+green, blue, alpha. The companion renders seven seeded segments per layer as
+crossed lightning ribbons. The normal item is hidden and the server removes
+the transient display at expiration. This path does not require GeckoLib.
 
 ## Item display parts
 
