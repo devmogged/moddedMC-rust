@@ -9,8 +9,7 @@ Unfinished work from the November 27 agents is saved as one untested snapshot: b
 `wip/noncreate-engine-20261128` in `devmogged/Pumpkin`. Take code from it one job at a time,
 verify it, and land it in that job's own PR. Never merge the snapshot as a whole.
 
-0. **Companion build (#60).** `gradlew test` in `companion/` can't resolve fabric-loom. Pin a
-   loom release that resolves, check the companion builds and its tests pass, and land it.
+~~0. **Companion build (#60).** `gradlew test` failed to resolve the floating Loom marker; pinned to 1.19.6, with the companion build and all 13 tests passing.~~
 1. **Shared host APIs.** The container transfer API (#50) and atomic player-stack replacement
    with an XP debit (#51). Take the `api/` and `engine/moddedmc-host/` parts from the snapshot,
    keep them additive, test them and land them.
