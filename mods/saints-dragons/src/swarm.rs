@@ -93,6 +93,7 @@ pub fn forget(id: i32) {
 }
 
 fn forget_course(id: i32) {
+    crate::flight_route::forget(id);
     if let Some(courses) = COURSES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -426,6 +427,15 @@ fn unit(v: [f64; 3]) -> [f64; 3] {
 }
 
 fn move_toward(world: World<'_>, mob: Entity<'_>, view: EntityView, at: [f64; 3], speed: f64) {
+    let at = if speed > 0.0 {
+        crate::flight_route::waypoint(world, mob, view.position, at, true)
+    } else {
+        at
+    };
+    move_direct(world, mob, view, at, speed);
+}
+
+fn move_direct(world: World<'_>, mob: Entity<'_>, view: EntityView, at: [f64; 3], speed: f64) {
     let delta = offset(at, view.position);
     let distance = length_squared(delta).sqrt();
     let desired = unit(delta).map(|v| v * speed.min(distance));
@@ -435,6 +445,7 @@ fn move_toward(world: World<'_>, mob: Entity<'_>, view: EntityView, at: [f64; 3]
     {
         desired
     } else {
+        crate::flight_route::blocked(mob.id());
         [0.0; 3]
     };
     mob.change(&EntityChange {
@@ -579,6 +590,7 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         .target(mob)
         .and_then(|id| victim(world, mob, id).map(|v| (id, v)));
     if phase == goal_phase::STOP {
+        crate::flight_route::forget(mob.id());
         with_fight(mob.id(), |f| {
             f.target = None;
             f.action = None;
@@ -596,6 +608,7 @@ pub fn combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let now = tick_count();
     let mut f = with_fight(mob.id(), std::mem::take);
     if f.target != Some(id) {
+        crate::flight_route::forget(mob.id());
         release(mob.id());
         f.target = Some(id);
         f.action = None;
@@ -744,7 +757,7 @@ fn tick_fight(
                 release(mob.id());
                 return;
             }
-            move_toward(world, mob, view, add(view.position, remaining), 1.5);
+            move_direct(world, mob, view, add(view.position, remaining), 1.5);
             let hits = nearby(world, mob, member, 0.85);
             let hit = hits
                 .iter()
@@ -824,7 +837,7 @@ fn tick_fight(
                 vertical = 0.45;
             }
             let velocity = add(direction.map(|v| v * forward), [0.0, vertical, 0.0]);
-            move_toward(
+            move_direct(
                 world,
                 mob,
                 view,
@@ -924,12 +937,22 @@ pub fn wander(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     let Some(course) = course else {
         return false;
     };
-    let delta = offset(course.at, view.position);
-    let distance = length_squared(delta).sqrt();
+    let distance = length_squared(offset(course.at, view.position)).sqrt();
     if phase == goal_phase::CONTINUE {
         return course.until > now && distance > ARRIVAL;
     }
     if phase != goal_phase::TICK || distance <= ARRIVAL {
+        return false;
+    }
+    let waypoint = crate::flight_route::waypoint(world, mob, view.position, course.at, true);
+    let delta = offset(waypoint, view.position);
+    let distance = length_squared(delta).sqrt();
+    if distance < 1.0e-5 {
+        mob.change(&EntityChange {
+            mask: SET_MOTION,
+            motion: [0.0; 3],
+            ..EntityChange::default()
+        });
         return false;
     }
     let speed = match MOBS.get().and_then(|mobs| mobs.kind(mob)) {
@@ -946,7 +969,12 @@ pub fn wander(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         .body()
         .is_some_and(|body| clear_body(world, body, motion))
     {
-        forget_course(mob.id());
+        crate::flight_route::blocked(mob.id());
+        mob.change(&EntityChange {
+            mask: SET_MOTION,
+            motion: [0.0; 3],
+            ..EntityChange::default()
+        });
         return false;
     }
     let heading = -motion[0].atan2(motion[2]).to_degrees() as f32;
@@ -963,7 +991,6 @@ pub fn wander(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     true
 }
 
-// shortcut: routes are straight, use waypoint search when combat needs turns around obstacles.
 fn destination(world: World<'_>, mob: Entity<'_>, from: [f64; 3], yaw: f32) -> Option<[f64; 3]> {
     let body = mob.body()?;
     for _ in 0..4 {
@@ -978,14 +1005,7 @@ fn destination(world: World<'_>, mob: Entity<'_>, from: [f64; 3], yaw: f32) -> O
         if world.fluid_id(cell(at)).as_deref() != Some("minecraft:empty") {
             continue;
         }
-        let steps = length_squared(delta).sqrt().ceil() as u32;
-        if (1..=steps).all(|step| {
-            clear_body(
-                world,
-                body,
-                delta.map(|v| v * f64::from(step) / f64::from(steps)),
-            )
-        }) {
+        if clear_body(world, body, delta) {
             return Some(at);
         }
     }

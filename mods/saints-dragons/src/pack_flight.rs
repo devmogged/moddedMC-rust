@@ -67,6 +67,7 @@ pub fn landing(id: i32) -> Option<bool> {
 }
 
 pub fn stop(id: i32) {
+    crate::flight_route::forget(id);
     with(|state| {
         state.active.remove(&id);
     });
@@ -236,8 +237,7 @@ fn separation(world: World<'_>, mob: Entity<'_>, at: [f64; 3], body: EntityBody)
     scale(limit(sum, 1.0), SPEED * 0.5)
 }
 
-/// The host has block collision queries but no asynchronous flight navigator.
-/// Try direct motion, side steps and a climb, then brake rather than enter a solid/unloaded cell.
+/// Guard immediate motion while a route is pending, or if the world changed after planning.
 fn steer(world: World<'_>, body: EntityBody, desired: [f64; 3]) -> [f64; 3] {
     let clear = |v| (1..=4).all(|i| flight::clear_body(world, body, scale(v, f64::from(i) / 4.0)));
     if clear(desired) {
@@ -298,7 +298,7 @@ pub fn follow(world: World<'_>, mob: Entity<'_>, view: EntityView, leader: Leade
     } else {
         [0.0; 3]
     };
-    let desired = with(|state| {
+    let (desired, destination) = with(|state| {
         let formation = state.formations.get_mut(&leader.id).unwrap();
         let (heading, velocity, moving) = (formation.heading, formation.velocity, formation.moving);
         let slot = formation.slot(mob.id(), now);
@@ -311,10 +311,19 @@ pub fn follow(world: World<'_>, mob: Entity<'_>, view: EntityView, leader: Leade
             slot.velocity = formation_velocity(error, velocity, moving, repel);
             slot.updated = now;
         }
-        slot.velocity
+        (
+            slot.velocity,
+            slot_position(leader.view.position, leader.height, heading, slot.index),
+        )
     });
     // The carrier is subject to ordinary gravity. A small upward correction supports
     // hover; takeoff climbs before lateral travel, as the Java takeoff controller does.
+    let waypoint = crate::flight_route::waypoint(world, mob, view.position, destination, false);
+    let desired = if waypoint != destination {
+        limit(offset(waypoint, view.position), SPEED)
+    } else {
+        desired
+    };
     let desired = if view.on_ground {
         [0.0, 0.45, 0.0]
     } else {
@@ -324,7 +333,11 @@ pub fn follow(world: World<'_>, mob: Entity<'_>, view: EntityView, leader: Leade
             desired[2],
         ]
     };
-    move_dragon(mob, view, steer(world, body, desired));
+    let motion = steer(world, body, desired);
+    if motion == [0.0; 3] && desired != [0.0; 3] {
+        crate::flight_route::blocked(mob.id());
+    }
+    move_dragon(mob, view, motion);
 }
 
 /// Transition back to ground when the leader lands or disappears.
@@ -341,10 +354,21 @@ pub fn land(world: World<'_>, mob: Entity<'_>, view: EntityView, leader: Option<
     if let Some(leader) = leader {
         let [x, _, z] = offset(leader.view.position, view.position);
         if x.hypot(z) > 10.0 {
-            let horizontal = limit([x, 0.0, z], 0.75);
+            let goal = [
+                leader.view.position[0],
+                view.position[1],
+                leader.view.position[2],
+            ];
+            let waypoint = crate::flight_route::waypoint(world, mob, view.position, goal, false);
+            let horizontal = limit(offset(waypoint, view.position), 0.75);
             if flight::clear_body(world, body, horizontal) {
                 motion[0] = horizontal[0];
                 motion[2] = horizontal[2];
+                if waypoint != goal {
+                    motion[1] = horizontal[1].clamp(-0.42, 0.45);
+                }
+            } else {
+                crate::flight_route::blocked(mob.id());
             }
         }
     }
