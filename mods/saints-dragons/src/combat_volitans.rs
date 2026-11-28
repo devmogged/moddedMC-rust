@@ -13,7 +13,7 @@ use moddedmc_api::{
         SET_YAW,
     },
     mob_ai::goal_phase,
-    mobs::{PLAYER_INPUT_JUMP, PLAYER_INPUT_SPRINT},
+    mobs::{PLAYER_INPUT_JUMP, PLAYER_INPUT_SPRINT, ProjectileStep},
     player_actions::{ACTION_PRESSED, ACTION_RELEASED},
     tick_count,
 };
@@ -1011,17 +1011,8 @@ fn launch_orb(
     origin: [f64; 3],
     velocity: [f64; 3],
 ) {
-    // shortcut: the ABI spawns vanilla projectiles; a snowball carries the
-    // orb until custom projectile types and collision hooks are available.
-    if let Some(id) = ENTITIES.get().and_then(|e| {
-        e.spawn_projectile(
-            world,
-            "minecraft:snowball",
-            mob.id(),
-            None,
-            origin,
-            velocity,
-        )
+    if let Some(id) = MOBS.get().and_then(|m| {
+        m.spawn_controlled_projectile(world, "minecraft:snowball", mob.id(), origin, velocity)
     }) {
         rt.shots.push(Shot {
             kind: ShotKind::Orb(id),
@@ -1759,7 +1750,7 @@ fn impact_orb(world: World<'_>, mob: Entity<'_>, p: [f64; 3]) {
         if poison_immune(t) {
             return;
         }
-        hit(world, mob, t, 12.0);
+        t.hurt_by(mob.id(), "minecraft:mob_attack", 12.0);
         t.add_effect("minecraft:poison", 120, 0, false, true);
         if let Some(v) = t.view() {
             let d = unit(offset(v.position, p));
@@ -1772,15 +1763,46 @@ fn orb_motion(mut velocity: [f64; 3], age: u32) -> [f64; 3] {
     velocity[1] -= 0.05 * (f64::from(age) / 20.0).min(1.0);
     velocity
 }
-fn finish_orb(world: World<'_>, mob: Entity<'_>, id: i32, p: [f64; 3]) {
-    if let Some(e) = ENTITIES.get() {
-        e.with_entity(world, id, |orb| {
-            if orb.projectile_owner() == Some(mob.id()) {
-                orb.discard();
+fn step_orb(world: World<'_>, mob: Entity<'_>, shot: &mut Shot, id: i32) -> bool {
+    let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
+        return false;
+    };
+    shot.velocity = orb_motion(shot.velocity, shot.age);
+    entities
+        .with_entity(world, id, |orb| {
+            if orb.projectile_owner() != Some(mob.id())
+                || orb.type_id().trim_start_matches("minecraft:") != "snowball"
+            {
+                return false;
             }
-        });
-    }
-    impact_orb(world, mob, p);
+            let Some(hit) = mobs
+                .step_controlled_projectile(orb, shot.velocity, |target| enemy(world, mob, target))
+            else {
+                return false;
+            };
+            let (p, impact) = match hit {
+                ProjectileStep::Miss(p) => (p, shot.age > 200),
+                ProjectileStep::Block(p) | ProjectileStep::Entity(p) => (p, true),
+            };
+            if impact {
+                impact_orb(world, mob, p);
+                orb.discard();
+                return false;
+            }
+            particle(world, "minecraft:witch", p, 0.12, 2);
+            crate::vfx::projectile(
+                world,
+                &mut shot.display,
+                crate::vfx::POISON_ORB,
+                p,
+                shot.velocity,
+                0.9,
+            );
+            shot.pos = p;
+            shot.velocity = shot.velocity.map(|x| x * 0.99);
+            true
+        })
+        .unwrap_or(false)
 }
 fn water_contact(world: World<'_>, mob: Entity<'_>, p: [f64; 3]) {
     let pos = cell(p);
@@ -1817,12 +1839,9 @@ fn step_shot(
     breath_hits: &mut HashMap<i32, u64>,
 ) -> bool {
     shot.age += 1;
-    let orb = if let ShotKind::Orb(id) = shot.kind {
-        shot.velocity = orb_motion(shot.velocity, shot.age);
-        Some(id)
-    } else {
-        None
-    };
+    if let ShotKind::Orb(id) = shot.kind {
+        return step_orb(world, mob, shot, id);
+    }
     let next = add(shot.pos, shot.velocity);
     let breath = matches!(shot.kind, ShotKind::Water | ShotKind::Poison);
     let radius = if breath {
@@ -1848,9 +1867,6 @@ fn step_shot(
             water_contact(world, mob, p);
         }
         if !block_clear(world, p) {
-            if let Some(id) = orb {
-                finish_orb(world, mob, id, p);
-            }
             return false;
         }
         let mut touched = false;
@@ -1904,16 +1920,13 @@ fn step_shot(
             }
         }
         if touched && !breath {
-            if let Some(id) = orb {
-                finish_orb(world, mob, id, p);
-            }
             return false;
         }
     }
     let (visual, lifetime, drag) = match shot.kind {
         ShotKind::Water => ("minecraft:splash", 28, 0.997),
         ShotKind::Poison => ("minecraft:witch", 28, 0.997),
-        ShotKind::Orb(_) => ("minecraft:witch", 201, 0.99),
+        ShotKind::Orb(_) => unreachable!("orbs use the controlled projectile path"),
         ShotKind::Spine | ShotKind::DashSpine => ("minecraft:crit", 40, 0.99),
     };
     particle(world, visual, next, if breath { 0.15 } else { 0.12 }, 2);
@@ -1927,41 +1940,21 @@ fn step_shot(
             crate::vfx::breath(world, shot.pos, next, element, radius.min(3.0) as f32);
         }
     } else {
-        let (model, scale) = match shot.kind {
-            ShotKind::Orb(_) => (crate::vfx::POISON_ORB, 0.9),
-            _ => (crate::vfx::SPINE, 1.0),
-        };
-        crate::vfx::projectile(world, &mut shot.display, model, next, shot.velocity, scale);
-    }
-    if let Some(id) = orb {
-        // Keep the real projectile on the release trajectory. If the vanilla
-        // carrier was removed before our sweep found a hit, stop tracking it.
-        let live = ENTITIES.get().and_then(|e| {
-            e.with_entity(world, id, |entity| {
-                if entity.projectile_owner() != Some(mob.id()) {
-                    return false;
-                }
-                entity.set_position(shot.pos);
-                motion(entity, shot.velocity);
-                true
-            })
-        });
-        if live != Some(true) {
-            return false;
-        }
+        crate::vfx::projectile(
+            world,
+            &mut shot.display,
+            crate::vfx::SPINE,
+            next,
+            shot.velocity,
+            1.0,
+        );
     }
     shot.pos = next;
     shot.velocity = shot.velocity.map(|x| x * drag);
     if matches!(shot.kind, ShotKind::Spine | ShotKind::DashSpine) {
         shot.velocity[1] -= 0.05;
     }
-    if shot.age >= lifetime {
-        if let Some(id) = orb {
-            finish_orb(world, mob, id, next);
-        }
-        return false;
-    }
-    true
+    shot.age < lifetime
 }
 pub fn ambient(world: World<'_>, mob: Entity<'_>) -> Option<&'static str> {
     learning::expire(mob);

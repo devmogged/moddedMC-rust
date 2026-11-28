@@ -318,6 +318,9 @@ To use the vanilla wall placement and neighbor rules, register the complete wall
 | | `rig_bone_position(mob, bone, reporter, out)` | Byte 288. Copy a fresh client-reported world-space position into `Vec3`. `reporter` is a borrowed optional UUID pointer (null accepts any permitted reporter); false on absent, expired, out-of-range or mismatched reports. Requires `MobsExtension::RigBones`. The cache is transient, rate limited, limited to tracked mod mobs and 16 blocks from the mob, with native-owner and first-rider checks. Samples expire after 250 ms. |
 | | `active_raid(WorldRef, EntityRef) -> bool` | Byte 296. A native active, non-stopped raid exists at the entity position. |
 | | `raid_member(WorldRef, EntityRef) -> bool` | Byte 304. A native raider belongs to an active, non-stopped raid in this world. Both require `MobsExtension::RaidContext`; SDK returns `None` on an older host. |
+| | `spawn_controlled_projectile(WorldRef, Str, i32, Vec3, Vec3) -> i32` | Byte 312. Spawn an owned fireball or snowball in a loaded chunk with native movement and impact disabled; returns ID or -1. |
+| | `step_controlled_projectile(EntityRef, Vec3, *const c_void, ProjectileFilter, *mut Vec3) -> i32` | Byte 320. Sweep velocity against collider blocks and living entities accepted by the synchronous borrowed filter `unsafe extern "C" fn(*const c_void, EntityRef) -> bool`. Writes nearest impact/end position; -1 failure, 0 miss, 1 block, 2 entity. No native impact effects. Renew every tick; abandoned carriers expire after three native ticks, including after load. |
+| | `hurt_from(EntityRef, EntityRef, EntityRef, Str, f32) -> bool` | Byte 328. Damage a target with independent direct and causing entities in the same world. These three calls require `MobsExtension::ControlledProjectiles`; total table size 336 bytes. |
 | | `open_trades(mob, player, offers)` | Appended. Require `MobsExtension::Trading`. Open a villager carrier's vanilla trading screen for a player. Non-empty `offers`, vanilla's saved `Offers` compound as NBT, first replace the carrier's offers; the carrier then counts uses and saves them. False when the mob isn't a villager. |
 | `moddedmc:mob_ai` v1 | `add_goal(reg, definition)` | Stage a goal for a registered mod mob type: a key, a vanilla priority, `goal_control` bits (`MOVE`, `LOOK`, `JUMP`, `TARGET`) and a callback. Every mob of the type gets it as it joins a world, spawned or loaded. The callback is asked each tick with a `goal_phase` (`CAN_START`, `CONTINUE`, `START`, `STOP`, `TICK`), the world and the mob; only the answer to `CAN_START` and `CONTINUE` counts. Goals with `TARGET` run in the target selector. |
 | | `replace_goals(reg, kind)` | Mobs of the type drop their carrier's own goals and targets before getting the mod's. |
@@ -832,8 +835,8 @@ at startup when the corresponding group is mandatory.
 - `Entity::attribute_value(id)` reads the computed living attribute, including
   modifiers. Invalid IDs and nonliving entities return `None`.
 - `Entity::ticks_frozen()` and `Entity::set_ticks_frozen(ticks)` read and write
-  the vanilla frozen counter. The engine clamps it to its supported maximum
-  and updates client metadata. Negative inputs are rejected.
+  the vanilla frozen counter, including values above the 140-tick full-freeze
+  threshold, and update client metadata. Negative inputs are rejected.
 - `Entities::spawn_projectile(world, kind, owner, target, position, velocity)`
   creates a supported vanilla projectile in a loaded chunk. A shulker bullet
   requires a loaded target; other projectile types ignore it. The return is

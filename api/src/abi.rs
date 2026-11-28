@@ -2149,7 +2149,34 @@ pub struct MobsV1 {
     pub active_raid: unsafe extern "C" fn(world: WorldRef, mob: EntityRef) -> bool,
     /// Whether this entity belongs to a live active raid.
     pub raid_member: unsafe extern "C" fn(world: WorldRef, entity: EntityRef) -> bool,
+    /// Spawn a projectile whose motion and impacts are controlled by the mod.
+    pub spawn_controlled_projectile: unsafe extern "C" fn(
+        world: WorldRef,
+        kind: Str,
+        owner: i32,
+        position: Vec3,
+        velocity: Vec3,
+    ) -> i32,
+    /// Move along the exact swept collision ray, without vanilla impact effects.
+    /// Returns -1 on failure, 0 on miss, 1 on block, 2 on entity hit.
+    pub step_controlled_projectile: unsafe extern "C" fn(
+        projectile: EntityRef,
+        velocity: Vec3,
+        context: *const c_void,
+        filter: ProjectileFilter,
+        out: *mut Vec3,
+    ) -> i32,
+    /// Damage with independent direct and causing entities.
+    pub hurt_from: unsafe extern "C" fn(
+        target: EntityRef,
+        direct: EntityRef,
+        causing: EntityRef,
+        damage_type: Str,
+        amount: f32,
+    ) -> bool,
 }
+
+pub type ProjectileFilter = unsafe extern "C" fn(*const c_void, EntityRef) -> bool;
 
 pub type MerchantCloseFn =
     unsafe extern "C" fn(world: WorldRef, player: EntityRef, merchant: EntityRef);
@@ -2316,7 +2343,10 @@ mod mobs_layout {
         assert_eq!(offset_of!(MobsV1, rig_bone_position), 288);
         assert_eq!(offset_of!(MobsV1, active_raid), 296);
         assert_eq!(offset_of!(MobsV1, raid_member), 304);
-        assert_eq!(size_of::<MobsV1>(), 312);
+        assert_eq!(offset_of!(MobsV1, spawn_controlled_projectile), 312);
+        assert_eq!(offset_of!(MobsV1, step_controlled_projectile), 320);
+        assert_eq!(offset_of!(MobsV1, hurt_from), 328);
+        assert_eq!(size_of::<MobsV1>(), 336);
         assert_eq!(offset_of!(SpawnDefinition, weight), 48);
         assert_eq!(size_of::<SpawnDefinition>(), 64);
         assert_eq!(offset_of!(SpawnCheck, biome), 32);

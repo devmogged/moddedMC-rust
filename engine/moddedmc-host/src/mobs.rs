@@ -77,6 +77,9 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     rig_bone_position,
     active_raid,
     raid_member,
+    spawn_controlled_projectile: crate::entities::spawn_controlled_projectile,
+    step_controlled_projectile: crate::entities::step_controlled_projectile,
+    hurt_from: crate::entities::hurt_from,
 };
 
 unsafe extern "C" fn active_raid(raw_world: WorldRef, raw_mob: EntityRef) -> bool {
