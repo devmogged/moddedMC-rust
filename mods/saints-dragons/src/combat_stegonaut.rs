@@ -1085,7 +1085,7 @@ fn remove_buffs(world: World<'_>, missing: impl IntoIterator<Item = Uuid>) {
 
 const BINDER: &str = "saintsdragons:stegonaut_binder";
 
-fn bound_binder(nbt: &[u8]) -> bool {
+pub(crate) fn bound_binder(nbt: &[u8]) -> bool {
     use fastnbt::Value;
     let Ok(stack) = fastnbt::from_bytes::<HashMap<String, Value>>(nbt) else {
         return false;
@@ -1113,7 +1113,7 @@ fn has_bound_binder(player: Entity<'_>) -> bool {
     })
 }
 
-/// StegonautBuffAbility.updateAllPortableBuffs: all players with a bound binder
+/// StegonautBuffAbility.updateAllPortableBuffs: players and recruited Ivy with a bound binder
 /// share one target set per dimension. Refresh every 20 ticks and remove lost targets.
 pub fn portable_aura(world: World<'_>, time: u64) {
     use moddedmc_api::entities::{ENTITY_ALIVE, ENTITY_LIVING, ENTITY_PLAYER};
@@ -1128,9 +1128,6 @@ pub fn portable_aura(world: World<'_>, time: u64) {
     let mut current = HashSet::new();
     for id in entities.players(world) {
         entities.with_entity(world, id, |player| {
-            if player.flags() & ENTITY_ALIVE == 0 || !has_bound_binder(player) {
-                return;
-            }
             let Some(owner) = mobs.uuid(player) else {
                 return;
             };
@@ -1154,13 +1151,28 @@ pub fn portable_aura(world: World<'_>, time: u64) {
                     current.insert(uuid);
                 }
             };
-            apply(player);
-            for target in nearby(world, player, 8.0) {
-                entities.with_entity(world, target, &mut apply);
+            if player.flags() & ENTITY_ALIVE != 0 && has_bound_binder(player) {
+                apply(player);
+                for target in nearby(world, player, 8.0) {
+                    entities.with_entity(world, target, &mut apply);
+                }
+            }
+            for id in nearby(world, player, 16.0) {
+                entities.with_entity(world, id, |ivy| {
+                    if ivy.flags() & ENTITY_ALIVE != 0
+                        && mobs.kind(ivy) == Some(crate::ivy::KIND)
+                        && taming::owner(ivy) == Some(owner)
+                        && crate::ivy::has_bound_binder(world, ivy)
+                    {
+                        apply(ivy);
+                        for target in nearby(world, ivy, 8.0) {
+                            entities.with_entity(world, target, &mut apply);
+                        }
+                    }
+                });
             }
         });
     }
-    // shortcut: Ivy's own binder inventory is not exposed by the player inventory hook.
     let previous = {
         let mut tracked = PORTABLE_TARGETS
             .lock()

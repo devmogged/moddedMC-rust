@@ -166,6 +166,7 @@ impl Mod for SaintsDragons {
         let _ = MOB_HEALTH.set(health);
         let mobs = mobs::require()?;
         mobs.require_extension(MobsExtension::Taming)?;
+        mobs.require_extension(MobsExtension::CombatHistory)?;
         mobs.require_extension(MobsExtension::NaturalSpawns)?;
         mobs.require_extension(MobsExtension::Trading)?;
         mobs.require_extension(MobsExtension::MerchantClose)?;
