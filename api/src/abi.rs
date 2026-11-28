@@ -842,6 +842,12 @@ pub struct BlockWorldV1 {
     pub weather_state: unsafe extern "C" fn(world: WorldRef, out: *mut WeatherState) -> bool,
     /// Set raw weather flags and independent nonnegative timers.
     pub set_weather_state: unsafe extern "C" fn(world: WorldRef, state: WeatherState) -> bool,
+    /// Vanilla `Level.getSignal(pos, direction)`, direction in down, up, north, south, west, east
+    /// order. Gives 0 for unloaded positions or an invalid direction.
+    pub signal: unsafe extern "C" fn(world: WorldRef, pos: Pos, direction: u8) -> u8,
+    /// Vanilla `Level.updateNeighborsAt(pos, block)` with the block now at `pos`. False when
+    /// unloaded.
+    pub update_neighbors: unsafe extern "C" fn(world: WorldRef, pos: Pos) -> bool,
 }
 
 #[repr(C)]
@@ -896,7 +902,9 @@ mod block_world_layout {
         assert_eq!(offset_of!(BlockWorldV1, raycast), 296);
         assert_eq!(offset_of!(BlockWorldV1, weather_state), 304);
         assert_eq!(offset_of!(BlockWorldV1, set_weather_state), 312);
-        assert_eq!(size_of::<BlockWorldV1>(), 320);
+        assert_eq!(offset_of!(BlockWorldV1, signal), 320);
+        assert_eq!(offset_of!(BlockWorldV1, update_neighbors), 328);
+        assert_eq!(size_of::<BlockWorldV1>(), 336);
         assert_eq!(size_of::<WeatherState>(), 16);
         assert_eq!(size_of::<DayTime>(), 16);
     }

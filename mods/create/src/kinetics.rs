@@ -725,6 +725,7 @@ pub struct Kinetics {
     pub depots: HashMap<Pos, crate::depot::DepotBehaviour>,
     pub(crate) threshold_switches: HashMap<Pos, crate::threshold_switch::Switch>,
     pub(crate) content_observers: HashMap<Pos, crate::content_observer::Observer>,
+    pub(crate) redstone_links: HashMap<Pos, crate::redstone_link::Link>,
     pub item_drains: HashMap<Pos, crate::fluids::item_drain::ItemDrain>,
     pub hose_pulleys: crate::fluids::hose_pulley::HosePulleys,
     pub spouts: HashMap<Pos, crate::fluids::spout::Spout>,

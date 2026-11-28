@@ -860,6 +860,14 @@ The setter changes the two timers independently, rejects negative durations,
 and leaves the weather-cycle gamerule unchanged. Require
 `WorldExtension::WeatherState` to use both fields; SDK calls are size-checked.
 
+`moddedmc:block_world` v1 appends `signal(world, position, direction) -> u8` and
+`update_neighbors(world, position) -> bool` at byte offsets 320 and 328 on 64-bit hosts.
+`signal` is vanilla `Level.getSignal`, with the direction in down, up, north, south, west, east
+order; it gives 0 when unloaded. `update_neighbors` is vanilla
+`Level.updateNeighborsAt(position, block)` with the block now at the position, for blocks whose
+output changes without a state change; it returns false when unloaded. Require
+`WorldExtension::Signal`.
+
 Current Pumpkin does not expose damage-event causing/direct entities or
 outgoing last-hurt history. These require engine changes before
 they can be exposed accurately. `MobAi::last_hurt_by` remains available

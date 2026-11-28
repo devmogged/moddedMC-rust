@@ -1,0 +1,155 @@
+# Redstone Links: craft, place, toggle to receiver, carry lever and passing-dust strength,
+# separate frequencies, strong power into the attached block, restart, and support loss.
+mods target\mods\create.mmc
+start
+expect registered content block create:redstone_link \(24 states\)
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 3002.5 105 3005.5
+wait 3
+cmd fill 2994 97 2994 3008 110 3016 minecraft:air
+cmd fill 2994 97 2994 3008 99 3016 minecraft:stone
+cmd tp tester 3002.5 100 3005.5
+cmd gamemode survival tester
+
+# Shaped recipe: a Transmitter over Andesite Casing makes two links.
+cmd setblock 3003 100 3005 minecraft:crafting_table
+cmd item replace entity tester hotbar.0 with create:transmitter
+cmd item replace entity tester hotbar.1 with create:andesite_casing
+wait 0.5
+bot use 3003 100 3005 west
+wait 0.5
+bot inventory-click 37 left
+wait 0.25
+bot inventory-click 1 left
+wait 0.25
+bot inventory-click 38 left
+wait 0.25
+bot inventory-click 4 left
+wait 0.5
+bot inventory-click 0 left
+wait 0.25
+bot inventory-click 37 left
+wait 0.25
+bot inventory-close
+wait 0.5
+cmd clear tester create:redstone_link 0
+wait 0.5
+expect Found 2 matching item
+cmd setblock 3003 100 3005 minecraft:air
+
+# Place both on the floor; a Wrench turns the second into a receiver.
+bot use 3000 99 3002 up
+wait 0.5
+bot use 3000 99 3008 up
+wait 0.5
+cmd execute if block 3000 100 3002 create:redstone_link[facing=up,powered=false,receiver=false] if block 3000 100 3008 create:redstone_link[facing=up,receiver=false]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+bot use 3000 100 3008 north
+wait 1
+cmd execute if block 3000 100 3008 create:redstone_link[receiver=true,powered=false]
+wait 0.5
+expect Test passed
+
+# Outputs: a lamp beside the receiver, dust on its other side, and a lamp under the
+# attached stone that only strong power reaches.
+cmd setblock 3001 100 3008 minecraft:redstone_lamp
+cmd setblock 2999 100 3008 minecraft:redstone_wire
+cmd setblock 3000 98 3008 minecraft:redstone_lamp
+cmd setblock 3001 100 3002 minecraft:lever[face=floor,facing=east]
+wait 1
+cmd execute if block 3001 100 3008 minecraft:redstone_lamp[lit=false] if block 3000 98 3008 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+bot use 3001 100 3002 up
+wait 1
+cmd execute if block 3000 100 3002 create:redstone_link[powered=true] if block 3000 100 3008 create:redstone_link[powered=true] if block 3001 100 3008 minecraft:redstone_lamp[lit=true] if block 2999 100 3008 minecraft:redstone_wire[power=15] if block 3000 98 3008 minecraft:redstone_lamp[lit=true]
+wait 0.5
+expect Test passed
+bot use 3001 100 3002 up
+wait 1
+cmd execute if block 3000 100 3008 create:redstone_link[powered=false] if block 3001 100 3008 minecraft:redstone_lamp[lit=false] if block 2999 100 3008 minecraft:redstone_wire[power=0]
+wait 0.5
+expect Test passed
+
+# Dust running past the transmitter powers it at its own strength without pointing into it.
+cmd setblock 3001 100 3002 minecraft:air
+cmd setblock 2999 100 2998 minecraft:redstone_block
+cmd fill 2999 100 2999 2999 100 3002 minecraft:redstone_wire
+wait 1
+cmd execute if block 2999 100 3002 minecraft:redstone_wire[power=12,east=none] if block 3000 100 3002 create:redstone_link[powered=true] if block 2999 100 3008 minecraft:redstone_wire[power=12]
+wait 0.5
+expect Test passed
+
+# Frequencies: an iron ingot in the transmitter's upper slot splits the network until the
+# receiver uses the same pair. Setting a frequency doesn't use up the item.
+cmd item replace entity tester hotbar.1 with minecraft:iron_ingot
+bot hotbar 1
+wait 0.5
+bot use 3000 100 3002 up main 0.5 1 0.656
+wait 1
+cmd execute if block 3001 100 3008 minecraft:redstone_lamp[lit=false] if block 2999 100 3008 minecraft:redstone_wire[power=0]
+cmd data get block 3000 100 3002 FrequencyFirst.id
+wait 0.5
+expect-all Test passed && block data: "minecraft:iron_ingot"
+cmd clear tester minecraft:iron_ingot 0
+wait 0.5
+expect Found 1 matching item
+bot use 3000 100 3008 up main 0.5 1 0.656
+wait 1
+cmd execute if block 3001 100 3008 minecraft:redstone_lamp[lit=true] if block 2999 100 3008 minecraft:redstone_wire[power=12]
+wait 0.5
+expect Test passed
+stop
+
+start
+botstart tester
+wait 4
+expect \[bot\] joined as tester
+cmd execute if block 3001 100 3008 minecraft:redstone_lamp[lit=true] if block 2999 100 3008 minecraft:redstone_wire[power=12] if block 3000 98 3008 minecraft:redstone_lamp[lit=true]
+cmd data get block 3000 100 3008 FrequencyFirst.id
+wait 0.5
+expect-all Test passed && block data: "minecraft:iron_ingot"
+cmd data get block 3000 100 3002 Transmit
+wait 0.5
+expect block data: 12
+
+# Sneaking with an empty hand turns the receiver back into a transmitter; a Wrench
+# turns it into a receiver again.
+bot hotbar 2
+bot input sneak
+wait 0.5
+bot use 3000 100 3008 north
+wait 0.5
+bot input none
+wait 1
+cmd execute if block 3000 100 3008 create:redstone_link[receiver=false] if block 3001 100 3008 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+cmd item replace entity tester hotbar.0 with create:wrench
+bot hotbar 0
+wait 0.5
+bot use 3000 100 3008 north
+wait 1
+cmd execute if block 3000 100 3008 create:redstone_link[receiver=true,powered=true] if block 3001 100 3008 minecraft:redstone_lamp[lit=true]
+wait 0.5
+expect Test passed
+
+# Losing its support drops the transmitter and switches the receiver off.
+cmd setblock 3000 99 3002 minecraft:air
+wait 1
+cmd execute if block 3000 100 3002 minecraft:air if block 3001 100 3008 minecraft:redstone_lamp[lit=false]
+wait 0.5
+expect Test passed
+cmd kill @e[type=item,nbt={Item:{id:"create:redstone_link"}}]
+wait 0.5
+expect Killed
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop
