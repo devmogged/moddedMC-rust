@@ -1,6 +1,6 @@
 {
   "required": true,
   "package": "dev.moddedmc.companion.mixin",
-  "client": ["DisplayRendererMixin", "DisplayRenderStateMixin", "GuiEntityRendererMixin", "RiderPositionMixin", "RiderRenderMixin", "DownloadQueueMixin", "OptionsAccessor", "MountedInputMixin", "ScaffoldingShapeMixin", "ScaffoldingMovementMixin", "ConnectedTexturesMixin", "TrapdoorMixin", "MenuScreensMixin"],
+  "client": ["DisplayRendererMixin", "DisplayRenderStateMixin", "GuiEntityRendererMixin", "RiderPositionMixin", "RiderRenderMixin", "DownloadQueueMixin", "OptionsAccessor", "MountedInputMixin", "ScaffoldingShapeMixin", "ScaffoldingMovementMixin", "ConnectedTexturesMixin", "TrapdoorMixin", "MenuScreensMixin", "LoopMusicPacketMixin"],
   "injectors": { "defaultRequire": 1 }
 }

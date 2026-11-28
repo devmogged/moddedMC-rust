@@ -257,8 +257,7 @@ fn build_pack(
                     );
                 }
                 let model_id = format!("{namespace}:moddedmc/display/{path}/{index}");
-                let item_path =
-                    format!("assets/{namespace}/items/moddedmc/display/{path}/{index}.json");
+                let item_path = overlay_item_path(&mut pack, namespace, path, index);
                 let orientation = if assets.straight_stair_display
                     && pack.oriented_stair_item(&item_path, &model_id, assets)?
                 {
@@ -290,6 +289,12 @@ fn build_pack(
         tracing::warn!("moddedmc: some content pack assets are missing; using a placeholder");
     }
     Ok((pack, display_models))
+}
+
+fn overlay_item_path(pack: &mut Pack, namespace: &str, path: &str, index: usize) -> String {
+    let id = format!("moddedmc/display/{path}/{index}");
+    pack.rig(namespace, &id);
+    format!("assets/{namespace}/items/{id}.json")
 }
 
 fn extend_pane_overlays(

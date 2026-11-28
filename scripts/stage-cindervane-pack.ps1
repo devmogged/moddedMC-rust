@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 . "$PSScriptRoot/ivy-house-legacy.ps1"
+. "$PSScriptRoot/nucleus-rig.ps1"
 
 $source = (Resolve-Path -LiteralPath $Jar).Path
 $releaseHash = '1093be9e314248646162bf8362e30cee63f6c6ed57d1f6590ce784cc69aee532'
@@ -29,6 +30,8 @@ $files = [ordered]@{
 }
 $species = @('cindervane')
 if ($AllDragons) {
+    $nucleusSource = Join-Path (Split-Path $source -Parent) 'saints-dragons-src/common/src/main/java/com/leon/saintsdragons/client/model/block/DraconianNucleusAnimations.java'
+    Add-NucleusRig $files $assets $nucleusSource
     foreach ($effect in @(
         @{ name = 'ignivorus_magma_pillar'; path = 'objects/ignivorus/ignivorus_magma_pillar'; clip = 'animation.ignivorus_magma_pillar.emerge' },
         @{ name = 'amethyst_pillar'; path = 'objects/stegonaut/amethyst_pillar'; clip = 'animation.amethyst_pillar_emerge' },

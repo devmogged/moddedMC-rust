@@ -50,8 +50,8 @@ use pumpkin_data::{
     content::{self, BlockDefinition, BlockMaterial, ItemDefinition, StateDefinition},
     data_component::DataComponent,
     data_component_impl::{
-        ConsumableImpl, ConsumeAnimation, DamageImpl, DataComponentImpl, EquipmentSlot, IdOr,
-        ItemModelImpl, MaxDamageImpl, MaxStackSizeImpl,
+        ConsumableImpl, ConsumeAnimation, CustomDataImpl, DamageImpl, DataComponentImpl,
+        EquipmentSlot, IdOr, ItemModelImpl, MaxDamageImpl, MaxStackSizeImpl,
     },
     dimension::Dimension,
     entity::EntityType,
@@ -481,6 +481,7 @@ struct WorldState {
     blocks: HashMap<BlockPos, BlockStateId>,
     displays: HashMap<BlockPos, Overlay>,
     rotation: HashMap<BlockPos, (u8, f32)>,
+    animations: HashMap<BlockPos, String>,
 }
 
 struct Overlay {
@@ -488,6 +489,7 @@ struct Overlay {
     phase: f32,
     state: BlockStateId,
     moving: bool,
+    clip: String,
 }
 
 pub const fn block_pos(pos: Pos) -> BlockPos {
@@ -2162,6 +2164,7 @@ fn observe(world: &World, pos: BlockPos, change: Change) {
                 && let Some(old) = w.blocks.remove(&pos)
             {
                 w.rotation.remove(&pos);
+                w.animations.remove(&pos);
                 if let Some(owner) = owner(old) {
                     w.events
                         .push((owner, event(pos, old, BlockStateId::AIR, abi::UNLOADED)));
@@ -2205,9 +2208,13 @@ fn queue(world: &World, pos: BlockPos, old: BlockStateId, state: BlockStateId, r
     let w = worlds.entry(world.uuid).or_default();
     if after.is_some() {
         w.blocks.insert(pos, state);
+        if Block::from_state_id(old) != Block::from_state_id(state) {
+            w.animations.remove(&pos);
+        }
     } else {
         w.blocks.remove(&pos);
         w.rotation.remove(&pos);
+        w.animations.remove(&pos);
     }
     if let Some(before) = before.filter(|before| Some(*before) != after) {
         w.events.push((before, event));
@@ -2246,17 +2253,34 @@ pub fn tick(server: &Arc<Server>, time: u64) {
             TICK_WORLD.with(|current| current.set(raw));
             // SAFETY: the world and event array are live for this synchronous callback.
             unsafe {
-                callback(
-                    raw,
-                    time,
-                    events.as_ptr(),
-                    events.len(),
-                );
+                callback(raw, time, events.as_ptr(), events.len());
             };
             TICK_WORLD.with(|current| current.set(ptr::null()));
         }
         render(world, runtime, time);
     }
+}
+
+fn update_overlay_clip(overlay: &mut Overlay, clip: &str) {
+    if overlay.clip == clip {
+        return;
+    }
+    let mut stack = overlay.entity.get_item();
+    let mut custom = stack
+        .get_data_component::<CustomDataImpl>()
+        .map_or_else(NbtCompound::new, |data| data.data.clone());
+    if clip.is_empty() {
+        custom.child_tags.remove("moddedmc:rig_clip");
+    } else {
+        custom.put_string("moddedmc:rig_clip", clip.to_owned());
+    }
+    if custom.is_empty() {
+        stack.remove_data_component(DataComponent::CustomData);
+    } else {
+        stack.set_data_component(CustomDataImpl::new(custom));
+    }
+    overlay.entity.set_item(stack);
+    clip.clone_into(&mut overlay.clip);
 }
 
 fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
@@ -2269,11 +2293,12 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
         }
         return;
     }
-    let Some((blocks, rotation, mut displays)) = ({
+    let Some((blocks, rotation, animations, mut displays)) = ({
         lock(&WORLDS).get_mut(&world.uuid).map(|w| {
             (
                 w.blocks.clone(),
                 w.rotation.clone(),
+                w.animations.clone(),
                 std::mem::take(&mut w.displays),
             )
         })
@@ -2332,8 +2357,10 @@ fn render(world: &Arc<World>, runtime: &Runtime, tick: u64) {
                 phase: 0.0,
                 state,
                 moving: true,
+                clip: String::new(),
             }
         });
+        update_overlay_clip(overlay, animations.get(&pos).map_or("", String::as_str));
         if model.bounded {
             continue;
         }
@@ -2808,6 +2835,34 @@ unsafe extern "C" fn rotate(raw: WorldRef, pos: Pos, axis: u8, rpm: f32) -> bool
         return false;
     }
     w.rotation.insert(pos, (axis, rpm));
+    true
+}
+
+pub unsafe extern "C" fn block_animation(raw: WorldRef, pos: Pos, clip: Str) -> bool {
+    // SAFETY: the world and clip are borrowed for this call.
+    let (Some(world), clip) = (unsafe { world(raw) }, unsafe { clip.str() }) else {
+        return false;
+    };
+    if clip.len() > 256 || clip.chars().any(char::is_control) {
+        return false;
+    }
+    let pos = block_pos(pos);
+    let mut worlds = lock(&WORLDS);
+    let Some(w) = worlds.get_mut(&world.uuid) else {
+        return false;
+    };
+    if !w.blocks.get(&pos).is_some_and(|state| {
+        RUNTIME
+            .get()
+            .is_some_and(|runtime| runtime.overlays.contains_key(&state.as_u16()))
+    }) {
+        return false;
+    }
+    if clip.is_empty() {
+        w.animations.remove(&pos);
+    } else if w.animations.get(&pos).is_none_or(|old| old != clip) {
+        w.animations.insert(pos, clip.to_owned());
+    }
     true
 }
 

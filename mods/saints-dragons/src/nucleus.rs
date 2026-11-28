@@ -12,7 +12,7 @@ use moddedmc_api::{
         UPDATE_ALL, World,
     },
     effects::SOUND_BLOCKS,
-    entities::{ENTITY_PLAYER, ENTITY_SNEAKING, Entity},
+    entities::{ENTITY_ALIVE, ENTITY_PLAYER, ENTITY_SNEAKING, Entity},
     interaction::{UseItem, UseMob, UseOnBlock, UseResult},
     items::{Item, ItemDefaults},
     mobs::{self, MobLoot},
@@ -28,6 +28,8 @@ pub const CONTROLLER: &str = "saintsdragons:draconian_controller";
 pub const CONTROLLER_NAME: &str = "Draconian Controller";
 const ENCOUNTER: &str = "saintsdragons:nucleus_encounter";
 const WAVE_SIZES: [u8; 3] = [6, 9, 12];
+const BAR: &str = "saintsdragons:swarm_wave";
+const MUSIC: &str = "saintsdragons:swarm_battle_loop";
 const SPAWN_OFFSETS: [[i32; 3]; 8] = [
     [0, 3, 0],
     [2, 3, 0],
@@ -53,6 +55,8 @@ struct Encounter {
     delay: u16,
     cooldown: u16,
     complete: bool,
+    music_start: i64,
+    last_signal: i64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -87,8 +91,8 @@ pub fn register(
     let state = |properties, physical| State {
         properties,
         physical,
-        model,
-        rotating_model: "",
+        model: if original { "" } else { model },
+        rotating_model: if original { model } else { "" },
         x: 0,
         y: 0,
         orientation: [0.0, 0.0, 0.0, 1.0],
@@ -232,6 +236,8 @@ fn begin(world: World<'_>, pos: Pos, data: &mut Encounter) {
     data.wave = 1;
     data.spawned = 0;
     data.delay = 219;
+    data.music_start = game_time(world).saturating_add(250);
+    data.last_signal = 0;
     sound(
         world,
         pos,
@@ -242,6 +248,81 @@ fn begin(world: World<'_>, pos: Pos, data: &mut Encounter) {
         },
     );
     set_harvestable(world, pos, false);
+    animate(world, pos, true);
+}
+
+fn animate(world: World<'_>, pos: Pos, active: bool) {
+    if cfg!(feature = "original-assets")
+        && let Some(effects) = EFFECTS.get()
+    {
+        effects.block_animation(world, pos, if active { "spawn" } else { "idle" });
+    }
+}
+
+fn game_time(world: World<'_>) -> i64 {
+    world
+        .game_time()
+        .unwrap_or_else(|| i64::try_from(tick_count()).unwrap_or(i64::MAX))
+}
+
+fn nearby_players(world: World<'_>, pos: Pos) -> Vec<i32> {
+    let Some(entities) = ENTITIES.get() else {
+        return Vec::new();
+    };
+    let at = center(pos);
+    entities
+        .entities_matching(world, at.map(|v| v - 64.5), at.map(|v| v + 64.5), -1, 0)
+        .into_iter()
+        .filter(|&id| {
+            entities.with_entity(world, id, |e| {
+                e.flags() & ENTITY_ALIVE != 0
+                    && e.view().is_some_and(|v| v.kind & ENTITY_PLAYER != 0)
+            }) == Some(true)
+        })
+        .collect()
+}
+
+fn wave_progress(data: &Encounter) -> f32 {
+    let size = WAVE_SIZES
+        .get(usize::from(data.wave.saturating_sub(1)))
+        .copied()
+        .unwrap_or(1);
+    f32::from(
+        u8::try_from(data.members.len())
+            .unwrap_or(u8::MAX)
+            .min(size),
+    ) / f32::from(size)
+}
+
+fn signal(world: World<'_>, pos: Pos, data: &mut Encounter, now: i64) -> bool {
+    if !signal_due(data, now) {
+        return false;
+    }
+    data.last_signal = now;
+    let Some(effects) = EFFECTS.get() else {
+        return true;
+    };
+    let title =
+        serde_json::json!({"text": format!("Draconian Swarm - Wave {}", data.wave)}).to_string();
+    for player in nearby_players(world, pos) {
+        effects.boss_bar(world, player, BAR, &title, wave_progress(data), 2, 0, 40);
+        if cfg!(feature = "original-assets") && now >= data.music_start {
+            effects.loop_music(world, player, MUSIC, 0.8, 0.035, 0.025, 60);
+        }
+    }
+    true
+}
+
+fn signal_due(data: &Encounter, now: i64) -> bool {
+    data.spawned > 0 && (now < data.last_signal || now.saturating_sub(data.last_signal) >= 20)
+}
+
+fn stop_display(world: World<'_>, pos: Pos) {
+    let Some(effects) = EFFECTS.get() else { return };
+    for player in nearby_players(world, pos) {
+        effects.remove_boss_bar(world, player, BAR);
+        effects.stop_music(world, player, MUSIC);
+    }
 }
 
 fn survival_near(world: World<'_>, pos: Pos) -> bool {
@@ -285,9 +366,12 @@ pub fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
     for pos in positions {
         let _mutation = MUTATIONS.lock().unwrap_or_else(PoisonError::into_inner);
         let mut data = load(world, pos);
+        animate(world, pos, data.wave > 0 && !data.complete);
         if data.complete {
             continue;
         }
+        let now = game_time(world);
+        let signalled = data.wave > 0 && signal(world, pos, &mut data, now);
         if data.wave == 0 {
             if data.cooldown > 0 {
                 data.cooldown -= 1;
@@ -318,14 +402,23 @@ pub fn tick(world: World<'_>, time: u64, events: &[ContentEvent]) {
             } else if data.members.is_empty() {
                 if data.wave == 3 {
                     data.complete = true;
+                    data.music_start = 0;
+                    stop_display(world, pos);
+                    animate(world, pos, false);
                     set_harvestable(world, pos, true);
                     award_near(world, pos, "vanquish_draconian_swarm");
                 } else {
                     data.wave += 1;
                     data.spawned = 0;
                     data.delay = 39;
+                    if data.music_start == 0 {
+                        data.music_start = now.saturating_add(30);
+                    }
                 }
             } else {
+                if signalled {
+                    save(world, pos, &data);
+                }
                 continue;
             }
         } else {
@@ -475,6 +568,8 @@ fn change_encounters(world: World<'_>, player: Entity<'_>, sneaking: bool) -> bo
                 entities.with_entity(world, id, |mob| mob.discard());
             }
         }
+        stop_display(world, *pos);
+        animate(world, *pos, false);
         data = Encounter {
             owner: Some(owner),
             cooldown: 1200,
@@ -578,5 +673,27 @@ mod tests {
         assert_eq!(restored.owner, Some(owner));
         assert_eq!(restored.members, state.members);
         assert_eq!(restored.delay, 220);
+    }
+
+    #[test]
+    fn wave_display_uses_live_members_and_twenty_tick_refreshes() {
+        let mut data = Encounter {
+            wave: 2,
+            spawned: 6,
+            members: vec![[1; 16]; 3],
+            last_signal: 240,
+            music_start: 250,
+            ..Encounter::default()
+        };
+        assert_eq!(wave_progress(&data), 3.0 / 9.0);
+        assert!(!signal_due(&data, 259));
+        assert!(signal_due(&data, 260));
+        assert!(signal_due(&data, 100));
+        data.members.clear();
+        assert_eq!(wave_progress(&data), 0.0);
+        data.spawned = 0;
+        assert!(!signal_due(&data, 280));
+        let restored: Encounter = fastnbt::from_bytes(&fastnbt::to_bytes(&data).unwrap()).unwrap();
+        assert_eq!(restored.music_start, 250);
     }
 }

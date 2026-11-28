@@ -1,0 +1,38 @@
+# Controller encounter: packet observation, range expiry, reentry and explicit stop.
+mods target\mods\saints-dragons-nucleus-wave\saints-dragons.mmc
+start
+botstart tester
+wait 3
+expect \[bot\] fetched content resource pack
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1026.5 200 1025.5
+cmd forceload add 1025 1025
+wait 2
+cmd fill 1024 199 1024 1032 199 1033 minecraft:stone
+cmd fill 1024 200 1024 1032 211 1033 minecraft:air
+cmd item replace entity tester hotbar.0 with saintsdragons:draconian_nucleus
+wait 0.5
+bot use 1026 199 1027 up
+wait 0.5
+cmd item replace entity tester hotbar.0 with saintsdragons:draconian_controller
+wait 0.5
+bot use-item main
+wait 0.5
+expect \[bot\] sound: saintsdragons:draconian_nucleus_summon
+cmd tick sprint 300t
+wait 5
+expect-all \[bot\] boss bar add: .*Draconian Swarm - Wave 1 && \[bot\] sound: saintsdragons:swarm_battle_loop
+cmd tp tester 1100.5 200 1025.5
+wait 1
+cmd tick sprint 80t
+wait 4
+expect-all \[bot\] boss bar remove && \[bot\] stop sound: saintsdragons:swarm_battle_loop
+cmd tp tester 1026.5 200 1025.5
+wait 3
+expect-all \[bot\] boss bar add: .*Draconian Swarm - Wave 1 && \[bot\] sound: saintsdragons:swarm_battle_loop
+bot use-item main
+wait 1
+expect-all \[bot\] boss bar remove && \[bot\] stop sound: saintsdragons:swarm_battle_loop
+bot quit
+stop
