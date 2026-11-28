@@ -203,6 +203,15 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     }) {
         ai.set_target(world, mob, None);
     }
+    let valid = |id| {
+        target_at(world, mob, id).is_some_and(|(at, _)| length(sub(at, view.position)) <= 128.0)
+    };
+    if let Some(id) = crate::senses::owner_target(world, mob, true, valid)
+        .or_else(|| crate::senses::owner_attack(world, mob, valid))
+    {
+        ai.set_target(world, mob, Some(id));
+        return false;
+    }
     if let Some((attacker, stamp)) = ai.last_hurt_by(mob)
         && s.last_hurt != Some(stamp)
     {

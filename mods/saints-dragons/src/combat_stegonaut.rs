@@ -251,6 +251,9 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         state.owner_hurt = Some(stamp);
         chosen = Some(id);
     }
+    if chosen.is_none() {
+        chosen = crate::senses::owner_attack(world, mob, |id| usable(world, mob, id, FOLLOW));
+    }
     if chosen.is_none() && state.poll <= 0 {
         state.poll = 20 + crate::ai::random(20) as i32;
         if !taming::is_tamed(mob) {

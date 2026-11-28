@@ -313,6 +313,8 @@ To use the vanilla wall placement and neighbor rules, register the complete wall
 | | `set_seat_offset(entity, index, offset)` | Byte 272. Override a registered mod mob's passenger attachment, relative to its yaw. Indices 0–15; finite offsets within 64 blocks per axis. |
 | | `set_dismount_offsets(entity, offsets, count)` | Byte 280. Copy up to 512 ordered local candidate offsets. At dismount, rotate by current yaw and test native safe floor/clearance; fall back to native dismount search if none qualify. An empty slice clears the candidates. Require `MobsExtension::PetsSeats` for all five hooks. |
 | | `rig_bone_position(mob, bone, reporter, out)` | Byte 288. Copy a fresh client-reported world-space position into `Vec3`. `reporter` is a borrowed optional UUID pointer (null accepts any permitted reporter); false on absent, expired, out-of-range or mismatched reports. Requires `MobsExtension::RigBones`. The cache is transient, rate limited, limited to tracked mod mobs and 16 blocks from the mob, with native-owner and first-rider checks. Samples expire after 250 ms. |
+| | `active_raid(WorldRef, EntityRef) -> bool` | Byte 296. A native active, non-stopped raid exists at the entity position. |
+| | `raid_member(WorldRef, EntityRef) -> bool` | Byte 304. A native raider belongs to an active, non-stopped raid in this world. Both require `MobsExtension::RaidContext`; SDK returns `None` on an older host. |
 | | `open_trades(mob, player, offers)` | Appended. Require `MobsExtension::Trading`. Open a villager carrier's vanilla trading screen for a player. Non-empty `offers`, vanilla's saved `Offers` compound as NBT, first replace the carrier's offers; the carrier then counts uses and saves them. False when the mob isn't a villager. |
 | `moddedmc:mob_ai` v1 | `add_goal(reg, definition)` | Stage a goal for a registered mod mob type: a key, a vanilla priority, `goal_control` bits (`MOVE`, `LOOK`, `JUMP`, `TARGET`) and a callback. Every mob of the type gets it as it joins a world, spawned or loaded. The callback is asked each tick with a `goal_phase` (`CAN_START`, `CONTINUE`, `START`, `STOP`, `TICK`), the world and the mob; only the answer to `CAN_START` and `CONTINUE` counts. Goals with `TARGET` run in the target selector. |
 | | `replace_goals(reg, kind)` | Mobs of the type drop their carrier's own goals and targets before getting the mod's. |
@@ -805,6 +807,20 @@ at startup when the corresponding group is mandatory.
   component (up to 64 KiB) and updates entity name metadata. Saved item stacks
   also preserve styled `minecraft:custom_name` components as vanilla NBT.
   Each SDK method returns `None` when the field is absent.
+- `EntitiesExtension::Senses` requires `player_fall_state(EntityRef, *mut PlayerFallState) -> bool`
+  (byte 440), copying native fall distance (f32), last reported movement
+  ([f64; 3]) and whether a player is currently
+  falling normally (bool), excluding grounded, mounted, water, gliding, creative,
+  spectator, flying and slow-falling players; and
+  `game_events(WorldRef, EntityRef, f64, u64, *mut c_void, GameEventVisit) -> u64`
+  (byte 448). The latter polls a registered mod mob's recent native dispatched
+  game events, within its radius and the event's vanilla notified sections.
+  The returned cursor is supplied on the next poll (initially zero). Callback
+  arguments are borrowed for the synchronous call: context, event name, Vec3,
+  source entity ID (-1 absent), source UUID pointer (null absent), source flags
+  (1 sneaking, 2 silent, 4 spectator), and world tick (i64). The SDK copies them.
+  Observations are transient, retained for two ticks and capped at 4096 per world.
+  Both SDK methods return `None` on an older host.
 - `Entity::attribute_value(id)` reads the computed living attribute, including
   modifiers. Invalid IDs and nonliving entities return `None`.
 - `Entity::ticks_frozen()` and `Entity::set_ticks_frozen(ticks)` read and write

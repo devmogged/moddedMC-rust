@@ -1,0 +1,64 @@
+# Owner offense must use the owner's actual successful attack, rather than
+# requiring the owner or dragon to take damage. Target memory then follows
+# the last sighted location when a wall occludes a previously visible target.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 100 1027.5
+cmd forceload add 1013 1013 1037 1037
+wait 12
+cmd fill 1013 99 1013 1037 99 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1013 100 1013 1037 110 1037 minecraft:air
+await 30 Successfully filled|No blocks were filled
+cmd time set noon
+cmd cindervane spawn 1025 100 1025
+wait 0.5
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1025.5 100 1025.5
+cmd item replace entity tester weapon.offhand with saintsdragons:creative_dragon_tame_meal
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 off
+await 10 Dragon tamed
+cmd item replace entity tester weapon.offhand with minecraft:air
+cmd item replace entity tester weapon.mainhand with minecraft:air
+bot input sneak
+wait 0.5
+bot use-entity ravager 1025.5 100 1025.5 main
+await 10 Cindervane is wandering
+bot input none
+cmd summon minecraft:iron_golem 1025.5 100 1030.5 {NoAI:1b,Tags:["sense_target"]}
+wait 1
+cmd cindervane find 1025 100 1025
+await 10 state=tamed ai=on .*target=none
+bot attack iron_golem 1025.5 100 1030.5
+await-cmd 10 state=tamed ai=on .*target=iron_golem && cindervane find 1025 100 1025
+cmd fill 1013 100 1029 1037 110 1029 minecraft:stone
+await 30 Successfully filled
+cmd tp @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1] 1025.5 100 1025.5
+await-cmd 10 state=tamed ai=on .*target=none && cindervane find 1025 100 1025
+cmd fill 1013 100 1029 1037 110 1029 minecraft:air
+await 30 Successfully filled
+await-cmd 10 state=tamed ai=on .*target=iron_golem && cindervane find 1025 100 1025
+# A real vanilla explosion outside damage range must still wake a sleeping
+# dragon. Keep the blast 12 blocks away so health remains unchanged.
+cmd kill @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:cindervane"}}},limit=1]
+cmd kill @e[tag=sense_target,limit=1]
+cmd time set midnight
+cmd saintsdragons spawn varasuchus 1025 100 1025
+wait 0.5
+cmd data merge entity @e[type=minecraft:ravager,x=1025,y=100,z=1025,distance=..6,limit=1] {Tags:["sense_sleeper"],data:{"saintsdragons:roost":{home:[1025,100,1025],anchor:[1025,100,1025]}}}
+cmd tp @e[tag=sense_sleeper,limit=1] 1025.5 100 1025.5
+wait 8
+cmd execute positioned 1025 100 1025 as @e[type=minecraft:item_display,distance=..8] run data get entity @s item.components."minecraft:custom_data"."moddedmc:rig_clip"
+await 10 has the following entity data: "animation.varasuchus.sleep"
+cmd summon minecraft:tnt 1037.5 100 1025.5 {fuse:2s}
+wait 1
+cmd execute positioned 1025 100 1025 as @e[type=minecraft:item_display,distance=..8] run data get entity @s item.components."minecraft:custom_data"."moddedmc:rig_clip"
+await 10 has the following entity data: "animation.varasuchus.wake_up"
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop

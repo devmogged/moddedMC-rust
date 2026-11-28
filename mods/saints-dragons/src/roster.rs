@@ -368,6 +368,16 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
                 1,
                 goal_control::MOVE | goal_control::LOOK,
             )))
+            .chain(crate::senses::rescue_supported(species.name).then_some((
+                crate::senses::RESCUE,
+                0,
+                goal_control::MOVE | goal_control::LOOK,
+            )))
+            .chain(crate::hunger::DRAGONS.contains(&species.name).then_some((
+                crate::senses::INVESTIGATE,
+                2,
+                goal_control::MOVE | goal_control::LOOK,
+            )))
             .chain((species.name == "varasuchus").then_some((
                 crate::wild::GOAL,
                 0,
@@ -880,6 +890,7 @@ pub fn ambient(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         return false;
     }
     crate::hunt::tick(world, mob, name);
+    crate::senses::tick(world, mob, name);
     crate::roost::owner_tick(world, mob, name);
     let wet = species.swim.is_some()
         && matches!(

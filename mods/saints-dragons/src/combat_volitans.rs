@@ -310,6 +310,10 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         ai.set_target(world, mob, Some(hurt.0));
         return false;
     }
+    if let Some(id) = crate::senses::owner_attack(world, mob, valid) {
+        ai.set_target(world, mob, Some(id));
+        return false;
+    }
     if let Some(hurt) = ai.last_hurt_by(mob)
         && valid(hurt.0)
         && with_runtime(mob, |s| s.last_hurt.replace(hurt) != Some(hurt))

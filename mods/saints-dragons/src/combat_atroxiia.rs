@@ -340,6 +340,8 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         state.owner_hurt = stamp;
         state.save(mob);
         ai.set_target(world, mob, Some(id));
+    } else if let Some(id) = crate::senses::owner_attack(world, mob, usable) {
+        ai.set_target(world, mob, Some(id));
     } else if let Some((id, stamp)) = ai.last_hurt_by(mob)
         && stamp != state.last_hurt
         && usable(id)
@@ -348,7 +350,6 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
         state.save(mob);
         ai.set_target(world, mob, Some(id));
     }
-    // shortcut: host has no last-attacked-entity query for owner offense.
     false
 }
 

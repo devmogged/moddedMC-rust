@@ -2,9 +2,10 @@
 //! step height, box queries and mod data saved with the entity.
 
 use std::{
+    collections::{HashMap, VecDeque},
     ffi::c_void,
     io::Cursor,
-    sync::{Arc, PoisonError, atomic::Ordering},
+    sync::{Arc, Mutex, PoisonError, atomic::Ordering},
 };
 
 use moddedmc_api::abi::{self, Str, WorldRef};
@@ -642,6 +643,169 @@ pub unsafe extern "C" fn reset_fall_distance(raw: abi::EntityRef) {
     if let Some(living) = unsafe { entity(raw) }.and_then(EntityBase::get_living_entity) {
         living.fall_distance.store(0.0);
     }
+}
+
+pub unsafe extern "C" fn player_fall_state(
+    raw: abi::EntityRef,
+    out: *mut abi::PlayerFallState,
+) -> bool {
+    // SAFETY: the player and output are borrowed for the call.
+    let (Some(player), Some(out)) = (
+        unsafe { entity(raw) }.and_then(EntityBase::get_player),
+        unsafe { out.as_mut() },
+    ) else {
+        return false;
+    };
+    let e = player.get_entity();
+    let movement = e.movement.load();
+    *out = abi::PlayerFallState {
+        distance: player.living_entity.fall_distance.load(),
+        movement: [movement.x, movement.y, movement.z],
+        falling: player.living_entity.is_alive()
+            && !e.on_ground.load(Ordering::Relaxed)
+            && e.get_vehicle().is_none()
+            && !e.is_in_water()
+            && !e.is_fall_flying()
+            && !player.is_creative()
+            && !player.is_spectator()
+            && !player.is_flying()
+            && !player.has_effect(&StatusEffect::SLOW_FALLING)
+            && movement.y < 0.0,
+    };
+    true
+}
+
+#[derive(Clone, Copy)]
+struct HeardEvent {
+    cursor: u64,
+    name: &'static str,
+    position: Vector3<f64>,
+    notification_radius: i32,
+    source: Option<(i32, [u8; 16])>,
+    flags: u32,
+    tick: i64,
+}
+
+#[derive(Default)]
+struct EventJournal {
+    cursor: u64,
+    worlds: HashMap<Uuid, VecDeque<HeardEvent>>,
+}
+
+static EVENTS: Mutex<Option<EventJournal>> = Mutex::new(None);
+
+/// Record only short-lived observations; no entity handles survive event dispatch.
+pub fn observe_game_event(
+    world: &pumpkin_core::world::World,
+    event: pumpkin_data::game_event::GameEvent,
+    position: Vector3<f64>,
+    context: &pumpkin_core::world::game_event::GameEventContext<'_>,
+) {
+    let (source, flags) = context.source_entity.map_or((None, 0), |base| {
+        let entity = base.get_entity();
+        let mut flags = 0;
+        if entity.sneaking.load(Ordering::Relaxed) {
+            flags |= abi::GAME_EVENT_SOURCE_SNEAKING;
+        }
+        if entity.is_silent() {
+            flags |= abi::GAME_EVENT_SOURCE_SILENT;
+        }
+        if base.get_player().is_some_and(Player::is_spectator) {
+            flags |= abi::GAME_EVENT_SOURCE_SPECTATOR;
+        }
+        (
+            Some((entity.entity_id, *entity.entity_uuid.as_bytes())),
+            flags,
+        )
+    });
+    let mut lock = EVENTS.lock().unwrap_or_else(PoisonError::into_inner);
+    let journal = lock.get_or_insert_default();
+    journal.cursor = journal.cursor.saturating_add(1);
+    let cursor = journal.cursor;
+    let events = journal.worlds.entry(world.uuid).or_default();
+    let tick = world.get_world_age();
+    // shortcut: bound the recent-event journal to 4096 events per world; a direct
+    // per-listener dispatch would preserve every event in exceptionally dense worlds.
+    while events
+        .front()
+        .is_some_and(|e| tick.saturating_sub(e.tick) > 2)
+        || events.len() >= 4096
+    {
+        events.pop_front();
+    }
+    events.push_back(HeardEvent {
+        cursor,
+        name: event.name(),
+        position,
+        notification_radius: event.notification_radius(),
+        source,
+        flags,
+        tick,
+    });
+}
+
+pub unsafe extern "C" fn game_events(
+    raw_world: WorldRef,
+    raw_mob: abi::EntityRef,
+    radius: f64,
+    after: u64,
+    context: *mut c_void,
+    visit: abi::GameEventVisit,
+) -> u64 {
+    // SAFETY: both handles and the callback context are borrowed for this call.
+    let (Some(world), Some(mob)) = (unsafe { world(raw_world) }, unsafe { entity(raw_mob) }) else {
+        return after;
+    };
+    if !radius.is_finite() || radius < 0.0 || crate::mobs::registered_kind(mob).is_none() {
+        return after;
+    }
+    let position = mob.get_entity().pos.load();
+    let listener = BlockPos::floored_v(position);
+    let tick = world.get_world_age();
+    let (cursor, matches) = {
+        let lock = EVENTS.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(journal) = lock.as_ref() else {
+            return after;
+        };
+        let matches: Vec<_> = journal
+            .worlds
+            .get(&world.uuid)
+            .into_iter()
+            .flatten()
+            .filter(|e| {
+                e.cursor > after
+                    && tick.saturating_sub(e.tick) <= 2
+                    && position.squared_distance_to_vec(&e.position) <= radius * radius
+                    && pumpkin_core::world::game_event::notified_area(
+                        e.position,
+                        e.notification_radius,
+                    )
+                    .contains(listener.to_f64())
+            })
+            .copied()
+            .collect();
+        (journal.cursor, matches)
+    };
+    for event in matches {
+        let id = event.source.map_or(-1, |(id, _)| id);
+        let uuid = event
+            .source
+            .as_ref()
+            .map_or(std::ptr::null(), |(_, uuid)| std::ptr::from_ref(uuid));
+        // SAFETY: event and its optional UUID live through the synchronous call; no lock is held.
+        unsafe {
+            visit(
+                context,
+                Str::new(event.name.as_bytes()),
+                abi::Vec3([event.position.x, event.position.y, event.position.z]),
+                id,
+                uuid,
+                event.flags,
+                event.tick,
+            );
+        };
+    }
+    cursor
 }
 
 pub unsafe extern "C" fn add_effect(

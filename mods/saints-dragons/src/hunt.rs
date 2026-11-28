@@ -31,7 +31,7 @@ pub fn supported(name: &str) -> bool {
     )
 }
 
-fn prey_type(name: &str, kind: &str) -> bool {
+pub(crate) fn prey_type(name: &str, kind: &str) -> bool {
     let kind = kind.trim_start_matches("minecraft:");
     match name {
         "cindervane" => matches!(kind, "chicken" | "cod" | "salmon"),
@@ -168,6 +168,7 @@ pub fn tick(world: World<'_>, mob: Entity<'_>, name: &str) {
                     if target.flags() & ENTITY_ALIVE == 0
                         || mobs.kind(target).is_some()
                         || !prey_type(name, target.type_id())
+                        || !crate::senses::visible(world, mob, target)
                     {
                         return None;
                     }
