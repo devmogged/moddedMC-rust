@@ -62,8 +62,7 @@ fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
 
 fn eye(entity: Entity<'_>) -> Option<[f64; 3]> {
     let mut at = entity.view()?.position;
-    let body = entity.body()?;
-    at[1] = body.min[1] + (body.max[1] - body.min[1]) * 0.85;
+    at[1] += entity.eye_height()?;
     Some(at)
 }
 

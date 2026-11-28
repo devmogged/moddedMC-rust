@@ -463,6 +463,7 @@ pub fn attach(entity: &Arc<dyn EntityBase>) {
         return;
     };
     let me = mob.get_mob_entity();
+    mobs::restore_geometry(entity.get_entity(), kind);
     mobs::default_loot(me, kind);
     let (replace, goals) = match types().get(kind) {
         Some(ai) => (ai.replace, ai.goals.clone()),

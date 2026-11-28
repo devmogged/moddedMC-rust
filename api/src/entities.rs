@@ -53,6 +53,7 @@ pub enum EntitiesExtension {
     EntityEvents,
     Senses,
     ItemDestroyed,
+    MobGeometry,
 }
 
 /// Most entity ids `Entities::entities_in` returns.
@@ -144,6 +145,33 @@ impl Entities {
         })
     }
 
+    /// Set the unscaled native dimensions and optional pass-through block for a staged mob.
+    pub fn mob_geometry(
+        self,
+        registry: &mut Registry<'_>,
+        kind: &str,
+        dimensions: [f32; 3],
+        immovable: bool,
+        pass_through: &str,
+    ) -> Result<(), RegistrationError> {
+        let api = self
+            .0
+            .upto(std::mem::offset_of!(abi::EntitiesV1, mob_geometry))
+            .ok_or(RegistrationError::InvalidDefinition)?;
+        let [width, height, eyes] = dimensions;
+        // SAFETY: the field is size checked and strings and registration are borrowed.
+        RegistrationError::from_code(unsafe {
+            ((&raw const (*api).mob_geometry).read())(
+                registry.reg,
+                abi::Str::new(kind.as_bytes()),
+                width,
+                height,
+                eyes,
+                immovable,
+                abi::Str::new(pass_through.as_bytes()),
+            )
+        })
+    }
     /// Read recent events in the listener's range. Save the returned cursor for the next poll.
     pub fn game_events(
         self,
@@ -251,11 +279,33 @@ impl Entities {
                 std::mem::offset_of!(abi::EntitiesV1, on_item_destroyed),
                 "moddedmc:entities.on_item_destroyed",
             ),
+            EntitiesExtension::MobGeometry => (
+                std::mem::offset_of!(abi::EntitiesV1, eye_height),
+                "moddedmc:entities.mob_geometry",
+            ),
         };
         if self.0.size >= end + size_of::<usize>() {
             Ok(())
         } else {
             Err(InterfaceUnavailable { name, version: 1 })
+        }
+    }
+
+    /// Check the proposed adult spawn box against loaded blocks, entities and the border.
+    pub fn mob_spawn_clear(self, world: World<'_>, kind: &str, position: [f64; 3]) -> bool {
+        let Some(api) = self
+            .0
+            .upto(std::mem::offset_of!(abi::EntitiesV1, mob_spawn_clear))
+        else {
+            return false;
+        };
+        // SAFETY: field is size checked, world and kind are borrowed during the call.
+        unsafe {
+            ((&raw const (*api).mob_spawn_clear).read())(
+                world.raw(),
+                abi::Str::new(kind.as_bytes()),
+                abi::Vec3(position),
+            )
         }
     }
 
@@ -450,6 +500,16 @@ impl Entity<'_> {
         // SAFETY: the entity is live for this callback and the output is a local.
         unsafe { ((&raw const (*self.api.ptr).view).read())(self.raw, &raw mut view) }
             .then_some(view)
+    }
+
+    /// Native eye height relative to the entity's feet.
+    pub fn eye_height(self) -> Option<f64> {
+        let api = self
+            .api
+            .upto(std::mem::offset_of!(abi::EntitiesV1, eye_height))?;
+        // SAFETY: the checked prefix contains this function; the entity is borrowed.
+        let height = unsafe { ((&raw const (*api).eye_height).read())(self.raw) };
+        height.is_finite().then_some(height)
     }
 
     /// Checks a vanilla scoreboard tag. Returns false on hosts missing this extension.

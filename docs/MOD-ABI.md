@@ -826,6 +826,16 @@ at startup when the corresponding group is mandatory.
   source entity ID (-1 absent), source UUID pointer (null absent), source flags
   (1 sneaking, 2 silent, 4 spectator), and world tick (i64). The SDK copies them.
   Observations are transient, retained for two ticks and capped at 4096 per world.
+- `EntitiesExtension::MobGeometry` requires
+  `mob_geometry(Reg, Str, f32, f32, f32, bool, Str) -> i32` (byte 464),
+  which registers a staged mob's unscaled width, height, eye height, push/knockback
+  immunity and optional pass-through block ID (empty means none). The native
+  dimensions follow the entity scale and are restored on load.
+  `mob_spawn_clear(WorldRef, Str, Vec3) -> bool` (byte 472) checks the adult
+  native box at a candidate feet position against loaded terrain, collidable
+  entities and the world border.
+  `eye_height(EntityRef) -> f64` (byte 480) reads the native pose/scale-dependent
+  eye height for any entity (NaN for an invalid reference).
   Both SDK methods return `None` on an older host.
 - `EntitiesExtension::ItemDestroyed` requires `on_item_destroyed(Reg, ItemDestroyedFn) -> i32`
   (byte 456). Registers a synchronous observer of permanent dropped-stack loss, after

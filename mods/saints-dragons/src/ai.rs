@@ -31,8 +31,6 @@ const WANDER_INTERVAL: u64 = 160;
 /// `DefaultRandomPos.getPos(dragon, 20, 8)`.
 const WANDER_HORIZONTAL: i64 = 20;
 const WANDER_VERTICAL: i64 = 8;
-/// Vanilla's default eye height, as a share of the box height.
-const EYE: f64 = 0.85;
 
 #[derive(Default)]
 struct Look {
@@ -189,7 +187,7 @@ fn idle_look(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     if phase != goal_phase::TICK {
         return matches!(phase, goal_phase::CAN_START | goal_phase::CONTINUE);
     }
-    let (Some(view), Some(body)) = (mob.view(), mob.body()) else {
+    let (Some(view), Some(eye_height)) = (mob.view(), mob.eye_height()) else {
         return false;
     };
     if ai.target(mob).is_some() {
@@ -197,7 +195,7 @@ fn idle_look(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     }
     let eye = [
         view.position[0],
-        view.position[1] + (body.max[1] - body.min[1]) * EYE,
+        view.position[1] + eye_height,
         view.position[2],
     ];
     let near = |p: [f64; 3]| {
