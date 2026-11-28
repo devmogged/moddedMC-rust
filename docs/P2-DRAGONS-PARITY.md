@@ -472,21 +472,19 @@ already use the mod's own shaped and smelting implementation.
 Pellucida uses the release's zero hardness, purple map color and slime sounds,
 while its glass collision shape remains solid. Recipe rewards are supported by the integrated Pumpkin recipe hooks (engine pointer commits `2c128c8`, `321b49a`).
 The released brewing criteria are awarded when the player takes the corresponding custom potion from the bottle slot, including shift-click; the engine matches vanilla potion IDs and the mod maps its custom output IDs. [Brewing regression scenario](../tests/scenarios/p2-brew-trigger.txt) checks both custom outputs and excludes ordinary potions and brew completion. Pellucida
-is ignored by mod-side swarm path clearance, but physical movement still needs
-a generic entity-aware block collision filter (including native movement and
-collision queries) in the engine. Ordinary entities must retain the solid shape.
-Swarm entities inherit vanilla push behavior; their exact body dimensions need
-carrier-independent width and height. Fabric dragon parts are noncollidable
-and nonpushable, and adult dragon parents ignore push/knockback; exact part
-and parent collision behavior requires native hitbox and push controls.
-These engine changes are not part
-of the drop-in mod. The progression scenario checks a newly included inventory
+is ignored by mod-side swarm path clearance and by the native movement collision
+query for the three registered swarm species. Ordinary entities retain the
+solid shape. The host applies registered adult width, height and default eyes
+independently of the carrier, and the eight dragon parents ignore native
+push/knockback. Fabric dragon parts are noncollidable and nonpushable; the
+Ignivorus multipart hit and interaction routing is still pending.
+The progression scenario checks a newly included inventory
 criterion and an immediate survival break and drop of Pellucida.
 [Progression scenario](../tests/scenarios/p2bb-saints-dragons-progression.txt)
 
 [Pellucida collision scenario](../tests/scenarios/p2bc-saints-dragons-part-collision.txt)
-checks that an ordinary falling item still lands on Pellucida; actual swarm
-pass-through remains blocked on the host filter. The mod unit test covers
+checks that an ordinary falling item still lands on Pellucida. The native
+swarm corridor scenario checks traversal (pending coordinator run). The mod unit test covers
 swarm clearance through Pellucida and rejection of stone and unloaded cells.
 
 Every dragon has 100 hunger saved with it. Hunger drops by one for each 4800
@@ -855,7 +853,7 @@ Flight route search follows Java 0.9.88 AsyncDragonPathfinder: 128-block plannin
 
 This audit compares the 0.9.88 Java source with the Rust and companion implementation on main. "Implemented" means code exists, not that a scenario or live-client check passed. Historical scenario reports above are retained; the current manual acceptance list is in [CLIENT-CHECKS.md](CLIENT-CHECKS.md#saints-dragons-0988). Rank prioritizes player-visible correctness and shared dependencies.
 
-1. **[host]** Native dragon dimensions, multipart hit/interaction routing, push rules, entity-aware Pellucida collision, exact eyes, world-border/entity clearance and spawn predicates. Java: `DragonPartManager`, `DragonPartEntity`, `MessageDragonPartAttack`, `DragonSpawnRules`.
+1. **[host/companion]** Remaining multipart Ignivorus animated region bounds, damage multipliers, authoritative nearest-part ray targeting and interaction routing. Native adult dimensions/default eyes, dragon push immunity, swarm Pellucida movement and spawn box clearance are implemented; juvenile eye/scale fidelity and live-client geometry checks remain unverified. Remaining natural spawn predicates are tracked under item 10. Java: `DragonPartManager`, `DragonPartEntity`, `MessageDragonPartAttack`.
 2. **[host]** Cancellable projectile impact and custom projectile collision/ownership, precise freeze eligibility/counter, damage-source and pre/post-hit semantics, beam redstone, dragon-specific terrain/explosion hooks, persistent nonliving effects. Java: `IgnivorusFireballEntity`, `VolitansPoisonOrbEntity`, `GroundFissureEntity`, `DragonRedstonePowerManager`, `AtroxiiaFrostImpact`.
 3. **[mod-only]** Exact combat AI and movement: aerial tactics, water entry/escape/chase, landing and recovery, target and pack/mother assignment, remaining attack scoring and spacing. Cindervane ground attacks score target motion, health, engaged enemies and the last two moves, respect sight and chase commitment. Raevyx, Ignivorus and Volitans share bounded transient target learning and visible-motion prediction, with separate ground/air habits and separate Ignivorus fireball results. Ignivorus and Volitans use learned ranged spacing and predictive attacks; delayed projectile/breath results are attributed to their original trials. Raevyx AI beam uses bounded aim turning, shot grace, clipped target hit geometry, one checked ground retreat and learned aerial spacing. Exact aerial tactical phases, per-species movement/aim state machines and recovery remain incomplete. Retreat uses conservative block clearance rather than full native entity/border collision; beam origin approximates the animated mouth; native projectile impact interception and exact hurtTime still require host support. See [combat.rs](../mods/saints-dragons/src/combat.rs), [learning.rs](../mods/saints-dragons/src/combat_raevyx/learning.rs), [combat sight scenario](../tests/scenarios/p2-combat-ai.txt) and [ranged combat scenario](../tests/scenarios/p2-combat-ai-ranged.txt) (not yet run). Java: `DragonCombatLearning`, `DragonTacticalPlannerBehaviour`, `IgnivorusAirCombatBehaviour`, `CindervaneAirCombatMovementBehaviour`, `VolitansWaterCombatMovement`; Rust: [flight_route.rs](../mods/saints-dragons/src/flight_route.rs), [combat_ignivorus.rs](../mods/saints-dragons/src/combat_ignivorus.rs), [combat_volitans.rs](../mods/saints-dragons/src/combat_volitans.rs).
 4. **[host/mod, implemented with remaining fidelity gaps]** Owner offense uses native last-attacked history, raid targeting checks native raid membership, hearing polls dispatched game events with distance, cover and sneak attenuation, scent assesses uncertain hidden candidate positions, and transient target memory searches the last observed location rather than the hidden target's live position. Flying dragons in wander order can intercept an eligible falling owner and reset fall state after a collision-checked mount; nearby rescuers prefer the closest. Java: `DragonRescueFallingOwnerBehaviour`, `DragonHearingListener`, `DragonScentSensor`, `DragonTargetMemory`. Rust: [senses.rs](../mods/saints-dragons/src/senses.rs), [scenario](../tests/scenarios/p2-senses.txt). Remaining fidelity gaps: native eye height and exact visual recognition, awareness-specific threat/decay and projectile-origin tracking, per-species scent animations and flight controller, precise swept intercept and rescue landing. The host's bounded event journal may drop events in exceptionally dense worlds.

@@ -242,8 +242,7 @@ fn overlaps(min: [f64; 3], max: [f64; 3], other_min: [f64; 3], other_max: [f64; 
     (0..3).all(|i| min[i] < other_max[i] && max[i] > other_min[i])
 }
 
-/// Block portion of `Level.noCollision` for the species' box at the block's center.
-// shortcut: world-border and entity collision require a generic host no_collision query.
+/// `Level.noCollision` for the registered species' box at the block's center.
 fn fits(world: World<'_>, spawner: &Spawner, pos: Pos) -> bool {
     let (width, height) = spawner.size;
     let half = width / 2.0;
@@ -268,7 +267,9 @@ fn fits(world: World<'_>, spawner: &Spawner, pos: Pos) -> bool {
                 })
             })
         })
-    })
+    }) && ENTITIES
+        .get()
+        .is_some_and(|entities| entities.mob_spawn_clear(world, spawner.kind, [cx, y, cz]))
 }
 
 fn find(world: World<'_>, index: usize, center: Pos, players: &[Player]) -> Option<Pos> {

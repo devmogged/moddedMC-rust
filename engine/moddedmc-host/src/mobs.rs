@@ -497,6 +497,107 @@ pub struct Registration {
     structure_init: Option<abi::StructureMobInitFn>,
     effect_veto: Option<abi::EffectCallback>,
     spawns: Vec<NaturalSpawn>,
+    geometry: Option<Geometry>,
+}
+
+struct Geometry {
+    dimensions: pumpkin_util::math::boundingbox::EntityDimensions,
+    immovable: bool,
+    pass_through: String,
+}
+
+pub unsafe extern "C" fn mob_geometry(
+    reg: Reg,
+    kind: Str,
+    width: f32,
+    height: f32,
+    eyes: f32,
+    immovable: bool,
+    pass_through: Str,
+) -> i32 {
+    // SAFETY: the staging handle and strings are borrowed for registration.
+    let (staging, kind, pass_through) =
+        unsafe { (native::staging(reg), kind.str(), pass_through.str()) };
+    if !(0.01..=32.0).contains(&width)
+        || !(0.01..=32.0).contains(&height)
+        || !(0.0..=height).contains(&eyes)
+        || (!pass_through.is_empty() && !crate::valid_id(pass_through))
+    {
+        return code::INVALID_DEFINITION;
+    }
+    let Some(mob) = staging.mobs.iter_mut().find(|mob| mob.id == kind) else {
+        return code::INVALID_DEFINITION;
+    };
+    if mob.geometry.is_some() {
+        return code::DUPLICATE_ID;
+    }
+    mob.geometry = Some(Geometry {
+        dimensions: pumpkin_util::math::boundingbox::EntityDimensions::new(width, height, eyes),
+        immovable,
+        pass_through: pass_through.to_owned(),
+    });
+    code::OK
+}
+
+fn apply_geometry(entity: &pumpkin_core::entity::Entity, geometry: &Geometry) {
+    entity
+        .immovable
+        .store(geometry.immovable, Ordering::Relaxed);
+    entity.pass_through_block.store(
+        pumpkin_data::Block::from_registry_key(&geometry.pass_through)
+            .or_else(|| pumpkin_data::content::block(&geometry.pass_through))
+            .map(|block| block.id.as_u16()),
+    );
+    entity.native_dimensions.store(Some(geometry.dimensions));
+    entity.refresh_dimensions();
+}
+
+pub fn restore_geometry(entity: &pumpkin_core::entity::Entity, kind: &str) {
+    if let Some(geometry) = types().get(kind).and_then(|mob| mob.geometry.as_ref()) {
+        apply_geometry(entity, geometry);
+    }
+}
+
+pub unsafe extern "C" fn mob_spawn_clear(raw: WorldRef, kind: Str, position: Vec3) -> bool {
+    // SAFETY: world and kind are borrowed for this call.
+    let (Some(world), kind) = (unsafe { world(raw) }.and_then(shared), unsafe {
+        kind.str()
+    }) else {
+        return false;
+    };
+    let [x, y, z] = position.0;
+    if ![x, y, z]
+        .iter()
+        .all(|v| v.is_finite() && v.abs() <= 30_000_000.0)
+    {
+        return false;
+    }
+    let Some(mob) = create(kind, &world, Vector3::new(x, y, z)) else {
+        return false;
+    };
+    spawn_clear(&world, mob.as_ref())
+}
+
+fn spawn_clear(world: &World, mob: &dyn EntityBase) -> bool {
+    let bounds = mob.get_entity().bounding_box.load();
+    let min = bounds.min_block_pos().chunk_position();
+    let max = bounds.max_block_pos().chunk_position();
+    for x in min.x..=max.x {
+        for z in min.y..=max.y {
+            if !world
+                .level
+                .is_chunk_loaded(&pumpkin_util::math::vector2::Vector2::new(x, z))
+            {
+                return false;
+            }
+        }
+    }
+    world.no_collision(mob, bounds)
+        && world
+            .worldborder
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .collision_shape_contains(&bounds)
 }
 
 /// A biome spawn pool entry from `add_spawn`.
@@ -582,6 +683,7 @@ unsafe extern "C" fn add_mob(reg: Reg, def: *const abi::MobDefinition) -> i32 {
         structure_init: None,
         effect_veto: None,
         spawns: Vec::new(),
+        geometry: None,
     });
     code::OK
 }
@@ -633,6 +735,9 @@ pub fn create(
     if let Some(registered) = registered {
         let entity = mob.get_entity();
         entity.set_custom_data(NAMESPACE, TYPE_KEY, NbtTag::String(registered.id.into()));
+        if let Some(geometry) = &registered.geometry {
+            apply_geometry(entity, geometry);
+        }
         if let Some(living) = mob.get_living_entity() {
             for (attribute, value) in &registered.attributes {
                 living.set_attribute_base(attribute, *value);
@@ -722,6 +827,7 @@ fn spawn_entries(
             .map(|(mob, spawn)| EmbedderSpawn {
                 id: mob.id,
                 carrier: mob.carrier,
+                dimensions: mob.geometry.as_ref().map(|geometry| geometry.dimensions),
                 category,
                 location: spawn.location.clone(),
                 weight: spawn.weight,
@@ -773,7 +879,18 @@ fn spawn_check(
         chunk_generation: matches!(reason, EntitySpawnReason::ChunkGeneration),
     };
     // SAFETY: the world and the check outlive this synchronous callback.
-    unsafe { check(ptr::from_ref::<World>(world).cast(), &raw const check_data) }
+    (unsafe { check(ptr::from_ref::<World>(world).cast(), &raw const check_data) })
+        && (spawn.dimensions.is_none()
+            || create(
+                spawn.id,
+                world,
+                Vector3::new(
+                    f64::from(pos.0.x) + 0.5,
+                    f64::from(pos.0.y),
+                    f64::from(pos.0.z) + 0.5,
+                ),
+            )
+            .is_some_and(|mob| spawn_clear(world, mob.as_ref())))
 }
 
 pub static STRUCTURE_MOBS: abi::StructureMobsV1 = abi::StructureMobsV1 {

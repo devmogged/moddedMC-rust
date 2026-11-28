@@ -496,7 +496,10 @@ mod layout {
         assert_eq!(offset_of!(EntitiesV1, set_custom_name), 432);
         assert_eq!(offset_of!(EntitiesV1, player_fall_state), 440);
         assert_eq!(offset_of!(EntitiesV1, game_events), 448);
-        assert_eq!(size_of::<EntitiesV1>(), 456);
+        assert_eq!(offset_of!(EntitiesV1, mob_geometry), 456);
+        assert_eq!(offset_of!(EntitiesV1, mob_spawn_clear), 464);
+        assert_eq!(offset_of!(EntitiesV1, eye_height), 472);
+        assert_eq!(size_of::<EntitiesV1>(), 480);
         assert_eq!(offset_of!(PlayerFallState, movement), 8);
         assert_eq!(size_of::<PlayerFallState>(), 32);
         assert_eq!(offset_of!(InteractionV1, on_vanilla_use_on_block), 104);
@@ -1203,6 +1206,20 @@ pub struct EntitiesV1 {
         context: *mut c_void,
         visit: GameEventVisit,
     ) -> u64,
+    /// Register native dimensions and collision policy for an already staged mob type.
+    pub mob_geometry: unsafe extern "C" fn(
+        reg: Reg,
+        kind: Str,
+        width: f32,
+        height: f32,
+        eyes: f32,
+        immovable: bool,
+        pass_through: Str,
+    ) -> i32,
+    /// Check a registered mob's adult bounding box at a proposed feet position.
+    pub mob_spawn_clear: unsafe extern "C" fn(world: WorldRef, kind: Str, position: Vec3) -> bool,
+    /// Current native eye height, or NaN for an invalid entity.
+    pub eye_height: unsafe extern "C" fn(entity: EntityRef) -> f64,
 }
 
 #[repr(C)]

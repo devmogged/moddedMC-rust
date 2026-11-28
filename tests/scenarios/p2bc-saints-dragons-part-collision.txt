@@ -1,6 +1,6 @@
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 # Pellucida remains solid for ordinary entities.
-# Native swarm pass-through is pending an entity-aware host collision filter.
+# Ordinary entities must remain solid after enabling swarm-specific native collision.
 start
 botstart tester
 wait 3

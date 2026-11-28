@@ -3286,6 +3286,9 @@ pub static ENTITIES: abi::EntitiesV1 = abi::EntitiesV1 {
     set_custom_name: crate::entities::set_custom_name,
     player_fall_state: crate::entities::player_fall_state,
     game_events: crate::entities::game_events,
+    mob_geometry: crate::mobs::mob_geometry,
+    mob_spawn_clear: crate::mobs::mob_spawn_clear,
+    eye_height: entity_eye_height,
 };
 
 unsafe extern "C" fn on_entity_inside(reg: Reg, callback: abi::EntityInside) -> i32 {
@@ -3341,6 +3344,11 @@ unsafe extern "C" fn entity_view(raw: abi::EntityRef, out: *mut abi::EntityView)
     // SAFETY: out is a live, aligned EntityView owned by the caller.
     unsafe { out.write(view) };
     true
+}
+
+unsafe extern "C" fn entity_eye_height(raw: abi::EntityRef) -> f64 {
+    // SAFETY: the entity is borrowed for the duration of the call.
+    unsafe { entity(raw) }.map_or(f64::NAN, |base| base.get_entity().get_eye_height())
 }
 
 unsafe extern "C" fn entity_type_id(raw: abi::EntityRef) -> Str {

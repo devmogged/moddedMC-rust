@@ -33,6 +33,7 @@ mod eggs;
 mod family;
 mod flight;
 mod flight_route;
+mod hitboxes;
 mod hunger;
 mod hunt;
 mod ivy;
@@ -162,6 +163,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::CanFreeze)?;
         entities.require_extension(EntitiesExtension::EntityEvents)?;
         entities.require_extension(EntitiesExtension::Senses)?;
+        entities.require_extension(EntitiesExtension::MobGeometry)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -355,6 +357,7 @@ impl Mod for SaintsDragons {
             &nodes,
         )?;
         roster::register(registry)?;
+        hitboxes::register(registry)?;
         for kind in ["saintsdragons:volitans", mossback::KIND] {
             EFFECTS
                 .get()

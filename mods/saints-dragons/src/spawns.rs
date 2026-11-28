@@ -240,7 +240,6 @@ pub fn density(world: World<'_>, kind: &str, pos: Pos) -> bool {
 }
 
 /// (kind, tamed) of every live dragon intersecting the cube around the block's center.
-// shortcut: the host queries carrier boxes; use registered species dimensions once available.
 pub fn dragons_near(world: World<'_>, pos: Pos, radius: f64) -> Vec<(&'static str, bool)> {
     let (Some(entities), Some(mobs)) = (ENTITIES.get(), MOBS.get()) else {
         return Vec::new();
