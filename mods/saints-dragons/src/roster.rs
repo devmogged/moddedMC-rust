@@ -310,6 +310,8 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         if swarm_damage.is_some()
             || stun
             || species.name == "stegonaut"
+            || species.name == "volitans"
+            || species.name == "nulljaw"
             || species.name == "varasuchus"
             || species.name == crate::ivy::SPECIES
             || species.name == "mossback"
@@ -317,7 +319,10 @@ pub fn register(registry: &mut Registry<'_>) -> Result<(), RegistrationError> {
         {
             ai.on_hurt(registry, &kind, crate::combat::hurt)?;
         }
-        if matches!(species.name, crate::ivy::SPECIES | "varasuchus") {
+        if matches!(
+            species.name,
+            crate::ivy::SPECIES | "varasuchus" | "stegonaut"
+        ) {
             ai.on_hurt_final(registry, &kind, crate::combat::hurt_final)?;
         }
         if stun {

@@ -1,0 +1,36 @@
+# Wild Stegonauts ignore one another's attacks and receive 30% fall damage.
+mods target\mods\saints-dragons-roosts\saints-dragons.mmc
+start
+botstart tester
+wait 3
+cmd op tester
+cmd gamemode creative tester
+cmd gamerule minecraft:spawn_mobs false
+cmd tp tester 1025.5 105 1025.5 0 0
+cmd forceload add 1025 1025
+wait 3
+cmd fill 1013 104 1013 1037 104 1037 minecraft:stone
+await 30 Successfully filled|No blocks were filled
+cmd fill 1013 105 1013 1037 110 1037 minecraft:air
+await 30 Successfully filled|No blocks were filled
+cmd saintsdragons spawn stegonaut 1025 105 1027
+await 30 saintsdragons:stegonaut: spawned
+cmd tag @e[nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},sort=nearest,limit=1] add stego_a
+await 5 Added tag
+cmd saintsdragons spawn stegonaut 1033 105 1027
+await 30 saintsdragons:stegonaut: spawned
+cmd tag @e[nbt={data:{moddedmc:{mob:"saintsdragons:stegonaut"}}},tag=!stego_a,limit=1] add stego_b
+await 5 Added tag
+cmd data get entity @e[tag=stego_a,limit=1] Health
+await 5 has the following entity data: 100(\.0)?f
+cmd damage @e[tag=stego_a,limit=1] 10 minecraft:mob_attack by @e[tag=stego_b,limit=1]
+wait 1
+cmd data get entity @e[tag=stego_a,limit=1] Health
+await 5 has the following entity data: 100(\.0)?f
+cmd damage @e[tag=stego_a,limit=1] 10 minecraft:fall
+wait 1
+cmd data get entity @e[tag=stego_a,limit=1] Health
+await 5 has the following entity data: 97(\.0)?f
+reject (?i)panic|panicked|\[bot\] error
+bot quit
+stop
