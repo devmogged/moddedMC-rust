@@ -258,7 +258,12 @@ impl MechanicalBearing {
         true
     }
 
-    fn disassemble(&mut self, world: World<'_>, blocks: &BlockMovementChecks, axis: u8) -> bool {
+    pub(crate) fn disassemble(
+        &mut self,
+        world: World<'_>,
+        blocks: &BlockMovementChecks,
+        axis: u8,
+    ) -> bool {
         let Some(contraption) = &self.data.contraption else {
             return false;
         };

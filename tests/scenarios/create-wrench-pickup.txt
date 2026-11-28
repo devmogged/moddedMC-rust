@@ -1,0 +1,101 @@
+# A sneaking Wrench use picks up Create's IWrenchable blocks into the inventory in survival,
+# and removes them without drops in creative. Stone stays put.
+mods target\mods\create.mmc
+start
+expect registered content block create:redstone_link
+cmd difficulty peaceful
+botstart tester
+wait 3
+expect \[bot\] joined as tester
+cmd gamemode creative tester
+cmd tp tester 3102.5 105 3102.5
+wait 3
+cmd fill 3096 97 3096 3108 110 3108 minecraft:air
+cmd fill 3096 97 3096 3108 99 3108 minecraft:stone
+cmd tp tester 3102.5 100 3102.5
+cmd gamemode survival tester
+cmd clear tester
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.5
+cmd setblock 3100 100 3100 create:shaft
+cmd setblock 3101 100 3100 create:cogwheel
+cmd setblock 3102 100 3100 create:gearbox
+cmd setblock 3103 100 3100 create:andesite_casing
+cmd setblock 3104 100 3100 create:depot
+cmd setblock 3100 100 3104 create:mechanical_press
+cmd setblock 3101 100 3104 create:content_observer
+cmd setblock 3102 100 3104 create:redstone_link[facing=up]
+cmd setblock 3103 100 3104 create:white_sail
+cmd setblock 3104 100 3104 create:fluid_pipe
+cmd setblock 3105 100 3102 minecraft:stone
+wait 1
+bot input sneak
+wait 0.5
+bot use 3100 100 3100 south
+wait 0.3
+bot use 3101 100 3100 south
+wait 0.3
+bot use 3102 100 3100 south
+wait 0.3
+bot use 3103 100 3100 south
+wait 0.3
+bot use 3104 100 3100 south
+wait 0.3
+bot use 3100 100 3104 north
+wait 0.3
+bot use 3101 100 3104 north
+wait 0.3
+bot use 3102 100 3104 north
+wait 0.3
+bot use 3103 100 3104 north
+wait 0.3
+bot use 3104 100 3104 north
+wait 0.3
+bot use 3105 100 3102 west
+wait 0.5
+bot input none
+wait 1
+cmd execute if block 3105 100 3102 minecraft:stone
+wait 0.5
+expect Test passed
+cmd execute if block 3100 100 3100 minecraft:air if block 3101 100 3100 minecraft:air if block 3102 100 3100 minecraft:air if block 3103 100 3100 minecraft:air if block 3104 100 3100 minecraft:air if block 3100 100 3104 minecraft:air if block 3101 100 3104 minecraft:air if block 3102 100 3104 minecraft:air if block 3103 100 3104 minecraft:air if block 3104 100 3104 minecraft:air
+wait 0.5
+expect Test passed
+cmd clear tester create:shaft 0
+wait 0.3
+expect Found 1 matching item
+cmd clear tester create:gearbox 0
+wait 0.3
+expect Found 1 matching item
+cmd clear tester create:mechanical_press 0
+wait 0.3
+expect Found 1 matching item
+cmd clear tester create:redstone_link 0
+wait 0.3
+expect Found 1 matching item
+cmd clear tester create:fluid_pipe 0
+wait 0.3
+expect Found 1 matching item
+cmd execute unless entity @e[type=item,distance=..20]
+wait 0.5
+expect Test passed
+
+# Creative removes the block and gives nothing.
+cmd clear tester
+cmd item replace entity tester hotbar.0 with create:wrench
+cmd gamemode creative tester
+cmd setblock 3100 100 3100 create:gearbox
+wait 0.5
+bot input sneak
+wait 0.5
+bot use 3100 100 3100 south
+wait 0.5
+bot input none
+wait 1
+cmd execute if block 3100 100 3100 minecraft:air
+cmd clear tester create:gearbox 0
+wait 0.5
+expect-all Test passed && (?i)no items
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+bot quit
+stop

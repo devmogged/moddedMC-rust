@@ -93,6 +93,8 @@ mod threshold_switch;
 mod train_trapdoor;
 mod trains;
 mod water_wheel;
+mod wrench_rotate;
+mod wrenchable;
 mod zinc;
 use kinetics::{Be, FACES, Kind, Kinetics, Level, face_axis, offset};
 
@@ -2301,6 +2303,12 @@ fn use_on_block(context: &mut UseOnBlock<'_>) -> UseResult {
     if context.item == WRENCH
         && let Some(result) =
             metal_ladder::rotate(context).or_else(|| decor::wrench_pickup(context))
+    {
+        return result;
+    }
+    if context.item == WRENCH
+        && let Some(states) = states()
+        && let Some(result) = wrench_rotate::use_on_block(context, states)
     {
         return result;
     }
