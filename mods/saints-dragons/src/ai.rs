@@ -127,6 +127,8 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
         crate::wild::GOAL => crate::wild::goal(phase, world, mob),
         crate::ivy::COMBAT => crate::ivy::combat_goal(phase, world, mob),
         crate::hunt::GOAL => crate::hunt::goal(phase, world, mob),
+        crate::senses::INVESTIGATE => crate::senses::investigate(phase, world, mob),
+        crate::senses::RESCUE => crate::senses::rescue(phase, world, mob),
         crate::cindervane_wild::SOCIAL => crate::cindervane_wild::social(phase, world, mob),
         crate::cindervane_wild::DRINK => crate::cindervane_wild::drink(phase, world, mob),
 
@@ -162,6 +164,7 @@ fn goal(phase: u32, key: u64, world: World<'_>, mob: Entity<'_>) -> bool {
                     return false;
                 }
                 crate::hunt::tick(world, mob, "cindervane");
+                crate::senses::tick(world, mob, "cindervane");
                 crate::roost::owner_tick(world, mob, "cindervane");
                 crate::combat::ambient(world, mob);
                 crate::visuals::tick(world, mob);

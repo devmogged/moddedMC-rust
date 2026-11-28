@@ -565,6 +565,8 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
     {
         state.last_owner_hurt = Some(stamp);
         ai.set_target(world, mob, Some(id));
+    } else if let Some(id) = crate::senses::owner_attack(world, mob, valid) {
+        ai.set_target(world, mob, Some(id));
     } else if let Some((id, stamp)) = ai.last_hurt_by(mob)
         && state.last_hurt != Some(stamp)
         && valid(id)

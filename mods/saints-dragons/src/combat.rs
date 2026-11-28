@@ -239,6 +239,13 @@ pub fn targeting(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             ai.set_target(world, mob, None);
         }
     }
+    if crate::taming::order_name(mob) != "stay"
+        && let Some(id) = crate::senses::owner_target(world, mob, true, usable)
+            .or_else(|| crate::senses::owner_attack(world, mob, usable))
+    {
+        ai.set_target(world, mob, Some(id));
+        return false;
+    }
     if let Some((protecting, threat)) = crate::cindervane_wild::defend(world, mob) {
         if let Some(threat) = threat {
             ai.set_target(world, mob, Some(threat));

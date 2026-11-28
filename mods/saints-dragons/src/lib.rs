@@ -46,6 +46,7 @@ mod pillars;
 mod player_moves;
 mod roost;
 mod roster;
+mod senses;
 mod spawners;
 mod spawns;
 mod stun;
@@ -157,6 +158,7 @@ impl Mod for SaintsDragons {
         entities.require_extension(EntitiesExtension::Attackable)?;
         entities.require_extension(EntitiesExtension::CanFreeze)?;
         entities.require_extension(EntitiesExtension::EntityEvents)?;
+        entities.require_extension(EntitiesExtension::Senses)?;
         if cfg!(feature = "original-assets") {
             entities.require_extension(EntitiesExtension::ScoreboardTags)?;
         }
@@ -179,6 +181,7 @@ impl Mod for SaintsDragons {
         mobs.require_extension(MobsExtension::MerchantClose)?;
         mobs.require_extension(MobsExtension::PetsSeats)?;
         mobs.require_extension(MobsExtension::RigBones)?;
+        mobs.require_extension(MobsExtension::RaidContext)?;
         let _ = MOBS.set(mobs);
         let ai = mob_ai::require()?;
         ai.require_extension(MobAiExtension::Combat)?;
@@ -298,6 +301,12 @@ impl Mod for SaintsDragons {
             (taming::FOLLOW, 2, goal_control::MOVE),
             (breed::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
             (hunt::GOAL, 1, goal_control::MOVE | goal_control::LOOK),
+            (senses::RESCUE, 0, goal_control::MOVE | goal_control::LOOK),
+            (
+                senses::INVESTIGATE,
+                2,
+                goal_control::MOVE | goal_control::LOOK,
+            ),
             (
                 cindervane_wild::SOCIAL,
                 2,

@@ -162,6 +162,16 @@ fn tamed(mob: Entity<'_>) -> Option<Tamed> {
     Tamed::decode(&MOBS.get()?.state(mob)?)
 }
 
+pub fn rescue_eligible(mob: Entity<'_>) -> bool {
+    let Some(state) = tamed(mob) else {
+        return false;
+    };
+    let Some(kind) = MOBS.get().and_then(|m| m.kind(mob)) else {
+        return false;
+    };
+    state.order == Order::Wander && (kind != "saintsdragons:cindervane" || state.saddle)
+}
+
 pub fn codex_stats(mob: Entity<'_>) -> Option<([u8; 16], u8)> {
     if MOBS.get()?.kind(mob) == Some(crate::ivy::KIND) {
         return None;
@@ -1047,6 +1057,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::dance::forget(mob.id());
     crate::cindervane_wild::forget(mob.id());
     crate::roost::forget(mob.id());
+    crate::senses::forget(mob.id());
     crate::hunger::forget(mob.id());
     crate::hunt::forget(mob.id());
     crate::baby::forget(mob.id());
