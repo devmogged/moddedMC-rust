@@ -1,39 +1,52 @@
 mods target\mods\saints-dragons-roosts\saints-dragons.mmc
 start
 botstart tester
-wait 3
+await 10 \[bot\] joined as tester
 cmd op tester
 cmd gamemode creative tester
 cmd gamerule minecraft:spawn_mobs false
 cmd tp tester 1038.5 301 1040.5
+await 10 \[bot\] teleported to .*1038\.5.*1040\.5
 cmd forceload add 1007 1007 1051 1063
-wait 12
+await 10 Marked .*force loaded
+await-cmd 60 ^Test passed && execute if loaded 1007 299 1007 if loaded 1007 299 1008 if loaded 1007 299 1024 if loaded 1007 299 1040 if loaded 1007 299 1056 if loaded 1008 299 1007 if loaded 1008 299 1008 if loaded 1008 299 1024 if loaded 1008 299 1040 if loaded 1008 299 1056 if loaded 1024 299 1007 if loaded 1024 299 1008 if loaded 1024 299 1024 if loaded 1024 299 1040 if loaded 1024 299 1056 if loaded 1040 299 1007 if loaded 1040 299 1008 if loaded 1040 299 1024 if loaded 1040 299 1040 if loaded 1040 299 1056
 cmd fill 1007 299 1007 1051 299 1063 minecraft:stone
-await 30 Successfully filled|No blocks were filled
+await 60 Successfully filled|No blocks were filled
 cmd saintsdragons spawn ignivorus 1025 300 1025
-wait 2
+await 10 saintsdragons:ignivorus: spawned \d+
 cmd tag @e[type=minecraft:ravager,nbt={data:{moddedmc:{mob:"saintsdragons:ignivorus"}}},x=1025,y=300,z=1025,distance=..8,limit=1] add breath_dragon
+await 5 Added tag 'breath_dragon' to Ravager
 cmd summon minecraft:iron_golem 1025.5 300 1030.5 {NoAI:1b,Tags:["breath_target"]}
-wait 0.25
+await 5 Summoned new Iron Golem
 cmd damage @e[tag=breath_dragon,limit=1] 1 minecraft:mob_attack by @e[tag=breath_target,limit=1]
-wait 1
+await 5 Applied 1 damage to Ravager
+await-cmd 5 has the following entity data: [1-9][0-9]* && data get entity @e[tag=breath_dragon,limit=1] data."saintsdragons:ignivorus_combat".target
 cmd tick freeze
+await 5 The game is frozen
+# The world callback ages display leases even while entity ticks are frozen.
+# Slow the server clock so the five-tick ribbon can be queried before it expires.
+cmd tick rate 1
+await 5 Set the target tick rate to 1\.0
 cmd tp @e[tag=breath_dragon,limit=1] 1025.5 300 1025.5 0 0
+await 5 Teleported Ravager to 1025\.5, 300, 1025\.5
 cmd tp @e[tag=breath_target,limit=1] 1025.5 300 1040.5
+await 5 Teleported Iron Golem to 1025\.5, 300, 1040\.5
 cmd data modify entity @e[tag=breath_dragon,limit=1] data."saintsdragons:ignivorus_combat".next_decision set value 2147483647L
+await 5 Modified entity data of Ravager
 cmd data modify entity @e[tag=breath_dragon,limit=1] data."saintsdragons:ignivorus_combat".age set value 9
+await 5 Modified entity data of Ravager|Nothing changed\. The specified properties already have these values
 cmd data modify entity @e[tag=breath_dragon,limit=1] data."saintsdragons:ignivorus_combat".attack set value "Breath"
+await 5 Modified entity data of Ravager|Nothing changed\. The specified properties already have these values
 cmd tick step 2t
-wait 1
-cmd execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:lightning_arc_display",components:{"minecraft:custom_data":{"moddedmc:ribbon":{lifetime:5}}}}}]
-wait 0.5
-expect Test passed
+await 5 Stepping 2 tick\(s\)
+await-cmd 6 ^Test passed && execute if entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:lightning_arc_display",components:{"minecraft:custom_data":{"moddedmc:ribbon":{lifetime:5}}}}}]
 cmd kill @e[tag=breath_dragon]
+await 5 Killed Ravager
+cmd tick rate 20
+await 5 Set the target tick rate to 20\.0
 cmd tick unfreeze
-wait 2
-cmd execute unless entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:lightning_arc_display"}}]
-wait 0.5
-expect Test passed
+await 5 The game is running normally
+await-cmd 5 ^Test passed && execute unless entity @e[type=minecraft:item_display,nbt={item:{id:"saintsdragons:lightning_arc_display"}}]
 # Real client: inspect Ignivorus and Volitans breath, red/gold Raevyx beam,
 # impact/dash textures, Cindervane volleys, Volitans orb/spines, and toggle
 # Nulljaw cloak while mounted, dismount, and observe the visible model return.

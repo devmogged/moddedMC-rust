@@ -40,9 +40,12 @@ cmd time set day
 cmd tp @e[tag=pack_leader,limit=1] 1032.5 132 1032.5 0 0
 await 5 Teleported Ravager to 1032\.5, 132, 1032\.5
 cmd data merge entity @e[tag=pack_leader,limit=1] {OnGround:0b,NoGravity:1b,Motion:[0.0d,0.0d,0.0d]}
-await 5 Modified entity data of Ravager
+# Teleport can already have set OnGround to false; an identical merge is valid.
+await 5 Modified entity data of Ravager|Nothing changed\. The specified properties already have these values
 cmd data get entity @e[tag=pack_leader,limit=1] OnGround
 await 5 has the following entity data: 0b
+cmd execute if entity @e[tag=pack_leader,nbt={OnGround:0b,NoGravity:1b,Motion:[0.0d,0.0d,0.0d]},limit=1]
+await 5 ^Test passed
 cmd tick sprint 140t
 await 15 \[bot\] chat: (?=.*commands\.tick\.sprint\.report)(?=.*with [0-9.]+ [0-9.]+)
 cmd execute if entity @e[tag=pack_follower,x=1005,y=125,z=1005,dx=40,dy=17,dz=40]
