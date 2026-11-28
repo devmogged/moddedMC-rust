@@ -161,6 +161,7 @@ pub struct Staging<'a> {
     services: Vec<services::Registration>,
     player_actions: Vec<player_actions::Registration>,
     equipment: Vec<(String, equipment::Hook)>,
+    item_destroyed: Option<abi::ItemDestroyedFn>,
 }
 
 /// Loaded custom blocks of one world.
@@ -233,6 +234,7 @@ pub fn attach(server: &Arc<Server>) {
     let _ = native::SERVER.set(server.clone());
     companion::attach(server, HAS_MODS.load(Ordering::Relaxed));
     player_actions::attach(server);
+    let _ = pumpkin_core::entity::item::install_item_destroyed_hook(entities::item_destroyed);
     pack_screen::attach(server);
     let pm = &server.plugin_manager;
     pm.register::<ServerTickStartEvent, _>(Arc::new(TickHandler), EventPriority::Normal, true);
@@ -495,6 +497,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
         services,
         player_actions,
         equipment_hooks,
+        item_destroyed,
     ) = {
         let registry = read(&HOST.registry);
         let mut staging = Staging {
@@ -518,6 +521,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             services: Vec::new(),
             player_actions: Vec::new(),
             equipment: Vec::new(),
+            item_destroyed: None,
         };
         let result = module.register(&mut staging);
         (
@@ -540,6 +544,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
             staging.services,
             staging.player_actions,
             staging.equipment,
+            staging.item_destroyed,
         )
     };
     let result = match result {
@@ -581,6 +586,7 @@ fn register_mod(mod_idx: usize, module: Native) -> bool {
     services::commit(services);
     player_actions::commit(player_actions);
     equipment::register(equipment_hooks);
+    entities::register_item_destroyed(item_destroyed);
     lock(&HOST.commands).push(PendingCommands {
         module,
         legacy: commands,

@@ -824,6 +824,11 @@ at startup when the corresponding group is mandatory.
   (1 sneaking, 2 silent, 4 spectator), and world tick (i64). The SDK copies them.
   Observations are transient, retained for two ticks and capped at 4096 per world.
   Both SDK methods return `None` on an older host.
+- `EntitiesExtension::ItemDestroyed` requires `on_item_destroyed(Reg, ItemDestroyedFn) -> i32`
+  (byte 456). Registers a synchronous observer of permanent dropped-stack loss, after
+  the engine claims the stack. It receives the borrowed world, complete saved stack NBT
+  including item identity and components, and the damage-type registry key or `despawn`.
+  Pickup, merging, explicit discard and chunk unload do not invoke it.
 - `Entity::attribute_value(id)` reads the computed living attribute, including
   modifiers. Invalid IDs and nonliving entities return `None`.
 - `Entity::ticks_frozen()` and `Entity::set_ticks_frozen(ticks)` read and write

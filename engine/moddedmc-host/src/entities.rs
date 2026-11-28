@@ -22,6 +22,62 @@ use uuid::Uuid;
 
 use crate::content::{entity, shared, world};
 
+static ITEM_DESTROYED: Mutex<Vec<abi::ItemDestroyedFn>> = Mutex::new(Vec::new());
+
+pub unsafe extern "C" fn on_item_destroyed(reg: abi::Reg, callback: abi::ItemDestroyedFn) -> i32 {
+    // SAFETY: registration is borrowed during the mod's register call.
+    let staging = unsafe { crate::native::staging(reg) };
+    if staging.item_destroyed.is_some() {
+        return abi::code::DUPLICATE_ID;
+    }
+    staging.item_destroyed = Some(callback);
+    abi::code::OK
+}
+
+pub fn register_item_destroyed(callback: Option<abi::ItemDestroyedFn>) {
+    if let Some(callback) = callback {
+        ITEM_DESTROYED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(callback);
+    }
+}
+
+pub fn item_destroyed(
+    world: &Arc<pumpkin_core::world::World>,
+    stack: &pumpkin_data::item_stack::ItemStack,
+    damage: Option<pumpkin_data::damage::DamageType>,
+) {
+    let callbacks = ITEM_DESTROYED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    if callbacks.is_empty() {
+        return;
+    }
+    let Some(saved) = stack.to_nbt() else { return };
+    let bytes = Nbt::from(saved).write();
+    let cause = match damage {
+        Some(damage) => {
+            let Some(server) = world.server.upgrade() else {
+                return;
+            };
+            crate::mob_ai::damage_type_name(&server, &damage)
+        }
+        None => "despawn".to_owned(),
+    };
+    for callback in callbacks {
+        // SAFETY: world and saved stack/cause bytes remain live until the callback returns.
+        unsafe {
+            callback(
+                Arc::as_ptr(world).cast(),
+                Str::new(&bytes),
+                Str::new(cause.as_bytes()),
+            );
+        }
+    }
+}
+
 /// Vanilla `HangingEntity` subclasses.
 const HANGING: [&EntityType; 3] = [
     &EntityType::PAINTING,

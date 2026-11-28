@@ -19,6 +19,7 @@ const KEYS: &[(&str, &str, u8)] = &[
     ("ability_secondary", "key.keyboard.h", ALL),
     ("toggle_melee", "key.keyboard.x", ACTION_PRESSED),
     ("flex", "ctrl+key.keyboard.4", ACTION_PRESSED),
+    ("open_inventory", "key.keyboard.i", ACTION_PRESSED),
     // Vanilla movement input already follows the player's Space/WASD bindings.
     // Optional alternate bindings must not shadow those vanilla mappings.
     ("dragonlord_jump", "key.keyboard.unknown", ACTION_PRESSED),
@@ -83,6 +84,12 @@ fn rider_action(world: World<'_>, player: Entity<'_>, action: &str, phase: u8) {
         return;
     };
     let _ = entities.with_entity(world, vehicle, |dragon| {
+        if action == "saintsdragons:open_inventory" {
+            if phase == ACTION_PRESSED {
+                crate::taming::cargo::open(world, player, dragon);
+            }
+            return;
+        }
         // DragonRideInputHandler uses the sword binding whenever the player
         // is not controlling a rideable dragon (including other mounts).
         if action == "saintsdragons:ability_primary" && phase == ACTION_PRESSED {

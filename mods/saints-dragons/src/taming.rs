@@ -18,6 +18,8 @@ use moddedmc_api::{
 
 use crate::{EFFECTS, ENTITIES, MOB_AI, MOBS, STACKS, TAGS, ai::random, appearance};
 
+pub(crate) mod cargo;
+
 pub const RIDE_OR_SIT: u64 = 5;
 pub const FOLLOW: u64 = 6;
 const FOOD_TAG: &str = "saintsdragons:foods/cindervane";
@@ -83,6 +85,11 @@ struct InteractionTimers {
 
 // Serializes player clicks and keeps the short interaction cooldowns off disk.
 static TIMERS: Mutex<Option<InteractionTimers>> = Mutex::new(None);
+
+pub(crate) fn with_attachment_lock<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
+    f()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Order {
@@ -1065,7 +1072,7 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
     crate::ivy::forget(mob.id());
     crate::combat_varasuchus::forget(mob.id());
     crate::visuals::death(world, mob);
-    let chest = {
+    let (chest, cargo) = {
         let mut lock = TIMERS.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(timers) = lock.as_mut() {
             timers.feed.remove(&mob.id());
@@ -1081,8 +1088,16 @@ pub fn death(world: World<'_>, mob: Entity<'_>) {
         if !mobs.set_state(mob, &state.encode()) {
             return;
         }
-        chest
+        (
+            chest,
+            if chest {
+                cargo::take_on_death(mob)
+            } else {
+                Vec::new()
+            },
+        )
     };
+    cargo::drop_stacks(world, mob, cargo);
     let (Some(stacks), Some(view)) = (STACKS.get(), mob.view()) else {
         return;
     };

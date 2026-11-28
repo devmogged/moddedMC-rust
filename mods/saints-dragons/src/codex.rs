@@ -212,7 +212,7 @@ pub fn remove(world: World<'_>, dragon: Entity<'_>) {
 }
 
 /// MessageDraconicCodexRemoveEntry: only the requesting owner's record is removed.
-fn remove_record(world: World<'_>, owner: [u8; 16], dragon: [u8; 16]) {
+pub(crate) fn remove_record(world: World<'_>, owner: [u8; 16], dragon: [u8; 16]) {
     let _guard = RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
     let Some(mut records) = records(world) else {
         return;
