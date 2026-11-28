@@ -13,7 +13,7 @@ use moddedmc_api::{
 
 use crate::{
     ENTITIES, MOB_AI, MOBS,
-    abilities::{self, Abilities, Attack},
+    abilities::{self, Abilities, Attack, CombatSnapshot},
 };
 
 pub const TARGETING: u64 = 3;
@@ -48,6 +48,8 @@ struct Combat {
     last_hurt: Option<i32>,
     decision: i32,
     repath: i32,
+    chase_commit: i32,
+    previous_gap: Option<(i32, f64)>,
     abilities: Abilities,
     slash_mode: bool,
     flex_until: u64,
@@ -271,6 +273,8 @@ pub fn ground_combat(phase: u32, world: World<'_>, mob: Entity<'_>) -> bool {
             with_combat(mob, |c| {
                 c.decision = 0;
                 c.repath = 0;
+                c.chase_commit = 12;
+                c.previous_gap = None;
             });
             false
         }
@@ -302,7 +306,12 @@ fn tick(world: World<'_>, mob: Entity<'_>, position: [f64; 3], yaw: f32, target:
     }
     if attacks.busy() {
         attacks.tick_attack(world, mob);
-        with_combat(mob, |c| c.abilities = attacks);
+        with_combat(mob, |c| {
+            if !attacks.busy() {
+                c.chase_commit = c.chase_commit.max(8);
+            }
+            c.abilities = attacks;
+        });
         ai.stop(mob);
         return;
     }
@@ -313,6 +322,53 @@ fn tick(world: World<'_>, mob: Entity<'_>, position: [f64; 3], yaw: f32, target:
     ai.look_at(mob, [at[0], at[1] + 1.0, at[2]]);
     let gap = (distance(at, position) - (WIDTH + width) * 0.5).max(0.0);
     let (dx, dz) = (at[0] - position[0], at[2] - position[2]);
+    let Some(entities) = ENTITIES.get() else {
+        return;
+    };
+    let Some((motion, center, health_ratio)) = entities
+        .with_entity(world, target, |entity| {
+            let view = entity.view()?;
+            let body = entity.body()?;
+            let (health, max) = MOBS.get()?.health(entity)?;
+            Some((
+                view.motion,
+                std::array::from_fn(|i| (body.min[i] + body.max[i]) * 0.5),
+                f64::from(health / max.max(1.0)),
+            ))
+        })
+        .flatten()
+    else {
+        return;
+    };
+    let origin = mob.body().map_or(position, |b| {
+        std::array::from_fn(|i| (b.min[i] + b.max[i]) * 0.5)
+    });
+    let visible = world
+        .raycast(origin, center, Some(mob.id()))
+        .is_some_and(|(block, _)| block.is_none());
+    let target_speed = motion[0].hypot(motion[2]);
+    let horizontal = dx.hypot(dz);
+    let away_speed = if horizontal > 1e-3 {
+        (motion[0] * dx + motion[2] * dz) / horizontal
+    } else {
+        0.0
+    };
+    let committed = with_combat(mob, |c| {
+        let gap_delta = c
+            .previous_gap
+            .replace((target, gap))
+            .filter(|(id, _)| *id == target)
+            .map_or(0.0, |(_, old)| gap - old);
+        if !visible || (gap > 6.25 && (gap_delta > 0.08 || away_speed > 0.16)) {
+            c.chase_commit = c.chase_commit.max(18);
+        }
+        if c.chase_commit > 0 && gap > 6.25 {
+            c.chase_commit -= 1;
+            true
+        } else {
+            false
+        }
+    });
     if gap <= TURN_RANGE && dx * dx + dz * dz > 1.0e-6 {
         let toward = dz.atan2(dx).to_degrees() as f32 - 90.0;
         let turned = yaw + (wrap(toward - yaw)).clamp(-TURN_DEGREES, TURN_DEGREES);
@@ -324,7 +380,7 @@ fn tick(world: World<'_>, mob: Entity<'_>, position: [f64; 3], yaw: f32, target:
         });
     }
     // `SetWalkTargetToAttackTargetBehaviour`: walk until within the stop range.
-    if gap > MELEE_STOP_RANGE {
+    if gap > MELEE_STOP_RANGE || !visible {
         let repath = with_combat(mob, |c| {
             c.repath -= 1;
             if c.repath > 0 {
@@ -339,14 +395,60 @@ fn tick(world: World<'_>, mob: Entity<'_>, position: [f64; 3], yaw: f32, target:
     } else {
         ai.stop(mob);
     }
-    let started = with_combat(mob, |c| {
+    if !visible || committed {
+        return;
+    }
+    let decide = with_combat(mob, |c| {
         if c.decision > 0 {
             c.decision -= 1;
             return false;
         }
         c.decision = DECISION_INTERVAL;
-        c.abilities
-            .choose(moddedmc_api::tick_count(), target, gap, facing(yaw, dx, dz))
+        true
+    });
+    if !decide {
+        return;
+    }
+    let nearby_enemies = mob.body().map_or(1, |body| {
+        let min = std::array::from_fn(|i| body.min[i] - if i == 1 { 4.0 } else { 6.5 });
+        let max = std::array::from_fn(|i| body.max[i] + if i == 1 { 4.0 } else { 6.5 });
+        entities
+            .entities_in(world, min, max, mob.id())
+            .into_iter()
+            .filter(|&id| {
+                entities
+                    .with_entity(world, id, |e| {
+                        abilities::enemy(world, mob, e)
+                            && (id == target
+                                || MOBS.get().is_some_and(|m| {
+                                    m.last_hurt_mob(e)
+                                        .is_some_and(|(other, _)| other == mob.id())
+                                        || m.last_hurt_by_mob(e)
+                                            .is_some_and(|(other, _)| other == mob.id())
+                                }))
+                    })
+                    .unwrap_or(false)
+            })
+            .count()
+    });
+    let started = with_combat(mob, |c| {
+        c.abilities.choose(
+            moddedmc_api::tick_count(),
+            target,
+            CombatSnapshot {
+                gap,
+                facing: facing(
+                    yaw,
+                    dx,
+                    dz,
+                    if gap >= 8.0 { 0.55 } else { CLOSE_FACING_DOT },
+                ),
+                away_speed,
+                target_speed,
+                nearby_enemies,
+                health_ratio,
+            },
+        )
     });
     if started {
         if let Some(attack) = active_attack(mob) {
@@ -516,13 +618,13 @@ pub fn active_attack(mob: Entity<'_>) -> Option<Attack> {
 }
 
 /// `isFacingTarget` at close range: the yaw's direction against the horizontal way to it.
-fn facing(yaw: f32, dx: f64, dz: f64) -> bool {
+fn facing(yaw: f32, dx: f64, dz: f64, threshold: f64) -> bool {
     let length = (dx * dx + dz * dz).sqrt();
     if length <= 1.0e-3 {
         return true;
     }
     let radians = f64::from(yaw).to_radians();
-    (-radians.sin() * dx + radians.cos() * dz) / length >= CLOSE_FACING_DOT
+    (-radians.sin() * dx + radians.cos() * dz) / length >= threshold
 }
 
 /// `Mth.wrapDegrees`.
@@ -544,10 +646,10 @@ mod tests {
     #[test]
     fn facing_and_wrap() {
         // Yaw 0 looks along +z.
-        assert!(facing(0.0, 0.0, 5.0));
-        assert!(!facing(0.0, 0.0, -5.0));
-        assert!(!facing(0.0, 5.0, 0.0));
-        assert!(facing(-90.0, 5.0, 0.0));
+        assert!(facing(0.0, 0.0, 5.0, CLOSE_FACING_DOT));
+        assert!(!facing(0.0, 0.0, -5.0, CLOSE_FACING_DOT));
+        assert!(!facing(0.0, 5.0, 0.0, CLOSE_FACING_DOT));
+        assert!(facing(-90.0, 5.0, 0.0, CLOSE_FACING_DOT));
         assert_eq!(wrap(350.0), -10.0);
         assert_eq!(wrap(-190.0), 170.0);
     }
