@@ -7,6 +7,8 @@
     "create:weathered_iron_block",
     "create:andesite_scaffolding",
     "create:brass_scaffolding",
-    "create:copper_scaffolding"
+    "create:copper_scaffolding",
+    "create:train_trapdoor",
+    "create:framed_glass_trapdoor"
   ]
 }

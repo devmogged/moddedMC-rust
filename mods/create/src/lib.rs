@@ -89,6 +89,7 @@ mod steam_engine;
 mod steam_whistle;
 mod sticker;
 mod threshold_switch;
+mod train_trapdoor;
 mod trains;
 mod water_wheel;
 mod zinc;

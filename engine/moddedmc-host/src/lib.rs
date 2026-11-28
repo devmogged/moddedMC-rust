@@ -19,6 +19,7 @@ mod content_panes;
 mod content_scaffolding;
 mod content_slab;
 mod content_stairs;
+mod content_trapdoors;
 mod content_walls;
 mod crafting;
 mod effects;

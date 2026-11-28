@@ -1,0 +1,85 @@
+# Release trapdoor recipes, hand use, redstone edges and water through restart.
+mods target/mods/create.mmc
+start
+expect-all registered content block create:train_trapdoor \(64 states\) && registered content block create:framed_glass_trapdoor \(64 states\)
+botstart tester
+await 10 \[bot\] joined as tester
+cmd tp tester 1026.5 105 1024.5 0 12
+await 10 \[bot\] teleported to .*1026\.5.*1024\.5
+wait 2
+cmd fill 1024 105 1024 1032 110 1032 minecraft:air
+cmd fill 1024 104 1024 1032 104 1032 minecraft:stone
+await 5 Successfully filled
+cmd gamemode survival tester
+cmd recipe give tester create:crafting/kinetics/train_trapdoor
+await 5 Unlocked 1 recipe
+cmd recipe give tester create:crafting/kinetics/framed_glass_trapdoor
+await 5 Unlocked 1 recipe
+
+cmd setblock 1026 106 1028 minecraft:stone
+await 5 Changed the block
+cmd item replace entity tester hotbar.0 with create:train_trapdoor 1
+wait 0.4
+bot place 1026 106 1028 north main 0.5 0.75 0
+await 5 \[bot\] sound: block.netherite_block.place
+cmd execute if block 1026 106 1027 create:train_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+await 5 Test passed
+bot use 1026 106 1027 north
+await 5 \[bot\] sound: block.iron_trapdoor.open
+cmd execute if block 1026 106 1027 create:train_trapdoor[open=true,powered=false]
+await 5 Test passed
+cmd setblock 1027 106 1027 minecraft:redstone_block
+await 5 Changed the block
+cmd execute if block 1026 106 1027 create:train_trapdoor[open=true,powered=true]
+await 5 Test passed
+bot use 1026 106 1027 north
+await 5 \[bot\] sound: block.iron_trapdoor.close
+cmd execute if block 1026 106 1027 create:train_trapdoor[open=false,powered=true]
+await 5 Test passed
+cmd setblock 1027 106 1027 minecraft:air
+await 5 Changed the block
+cmd execute if block 1026 106 1027 create:train_trapdoor[open=false,powered=false]
+await 5 Test passed
+
+# Wind charges open hand-operated trapdoors only while they are unpowered.
+bot look 0 0
+cmd item replace entity tester hotbar.0 with minecraft:wind_charge
+wait 0.4
+bot use-item main
+await 5 \[bot\] sound: block.iron_trapdoor.open
+cmd execute if block 1026 106 1027 create:train_trapdoor[open=true,powered=false]
+await 5 Test passed
+bot use 1026 106 1027 north
+await 5 \[bot\] sound: block.iron_trapdoor.close
+
+cmd setblock 1027 105 1027 minecraft:water[level=0]
+await 5 Changed the block
+cmd item replace entity tester hotbar.0 with create:framed_glass_trapdoor 1
+wait 0.4
+bot place 1027 104 1027 up
+await 5 \[bot\] sound: block.glass.place
+cmd execute if block 1027 105 1027 create:framed_glass_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=true]
+await 5 Test passed
+bot use 1027 105 1027 up
+await 5 \[bot\] sound: block.iron_trapdoor.open
+cmd save-all flush
+await 10 Saved the game
+stop
+start
+botstart tester
+await 10 \[bot\] joined as tester
+wait 2
+cmd execute if block 1027 105 1027 create:framed_glass_trapdoor[open=true,waterlogged=true] if block 1026 106 1027 create:train_trapdoor[half=top,open=false,powered=false]
+await 5 Test passed
+cmd item replace entity tester hotbar.0 with create:wrench
+wait 0.4
+bot input sneak
+wait 0.4
+bot use 1027 105 1027 up
+wait 0.4
+cmd execute if block 1027 105 1027 minecraft:water[level=0]
+await 5 Test passed
+cmd clear tester create:framed_glass_trapdoor 0
+await 5 Found 1 matching item
+reject (?i)panicked|trapped|failed to register|carrier slots exhausted|\[bot\] error
+stop

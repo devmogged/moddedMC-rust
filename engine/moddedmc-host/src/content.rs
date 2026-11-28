@@ -14,7 +14,7 @@ use pumpkin_config::AdvancedConfiguration;
 use pumpkin_core::{
     block::{
         BlockBehaviour, BlockHitResult, CanPlaceAtArgs, CanUpdateAtArgs, EmitsRedstonePowerArgs,
-        GetComparatorOutputArgs, GetRedstonePowerArgs, GetStateForNeighborUpdateArgs,
+        ExplodeArgs, GetComparatorOutputArgs, GetRedstonePowerArgs, GetStateForNeighborUpdateArgs,
         ItemInputArgs, NormalUseArgs, OnEntityCollisionArgs, OnNeighborUpdateArgs, OnPlaceArgs,
         PathComputationType, PlayerPlacedArgs, PlayerWillDestroyArgs, RandomTickArgs,
         UseWithItemArgs,
@@ -390,6 +390,7 @@ struct RuntimeBlock {
     pane: bool,
     ladder: bool,
     scaffolding: bool,
+    trapdoor: bool,
     weathering: bool,
     placement: Option<abi::ContentPlacement>,
     random_tick: Option<abi::ContentRandomTick>,
@@ -649,6 +650,7 @@ unsafe extern "C" fn add_block(reg: Reg, def: *const abi::ContentBlockDefinition
                 straight_stair_display: false,
                 block_display_carrier: None,
                 scaffolding: None,
+                trapdoor: false,
                 wall: None,
                 pane: false,
             },
@@ -1344,6 +1346,7 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
     let mut pane_carriers = content_panes::CARRIERS.into_iter();
     let mut ladder_carriers = crate::content_ladders::CARRIERS.into_iter();
     let mut scaffolding_carriers = crate::content_ladders::CARRIERS.into_iter();
+    let mut trapdoor_carriers = [false, true].into_iter();
     let mut slab_carriers = crate::content_slab::CARRIERS.into_iter();
     let mut straight_carriers = crate::content_stairs::STRAIGHT_CARRIERS.into_iter();
     let mut corner_carriers = crate::content_stairs::corner_carriers();
@@ -1378,6 +1381,15 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
             } else {
                 None
             };
+        let trapdoor_carrier = if crate::content_trapdoors::has_trapdoor_shape(&block.states) {
+            Some(
+                trapdoor_carriers
+                    .next()
+                    .ok_or_else(|| io::Error::other("custom trapdoor carrier slots exhausted"))?,
+            )
+        } else {
+            None
+        };
         let slab = crate::content_slab::template(&block.states);
         let slab_carrier = slab.and_then(|_| slab_carriers.next());
         let pane = content_panes::has_pane_shape(&block.states);
@@ -1411,6 +1423,9 @@ fn block_definitions(blocks: &mut [(usize, Registration)]) -> io::Result<Vec<Blo
                     crate::content_scaffolding::allocate(state.physical.id, carrier);
                 visual.scaffolding = Some(bottom);
                 (carrier, replacement)
+            } else if let Some(carrier) = trapdoor_carrier {
+                visual.trapdoor = true;
+                crate::content_trapdoors::allocate(state.physical.id, carrier)
             } else if pane {
                 visual.pane = true;
                 content_panes::allocate(state.physical.id, pane_carrier)
@@ -1635,6 +1650,7 @@ pub fn open_world(path: &Path, config: &mut AdvancedConfiguration) -> io::Result
                 stairs: crate::content_stairs::has_stair_shape(&block.states),
                 ladder: crate::content_ladders::has_ladder_shape(&block.states),
                 scaffolding: crate::content_scaffolding::has_scaffolding_shape(&block.states),
+                trapdoor: crate::content_trapdoors::has_trapdoor_shape(&block.states),
                 weathering: matches!(block.copper_stage, Some(0..=2)),
                 wall: content_walls::has_wall_shape(&block.states),
                 pane: content_panes::has_pane_shape(&block.states),
@@ -1793,6 +1809,9 @@ impl BlockBehaviour for Behaviour {
             Some(block) if block.stairs => StairBlock.is_pathfindable(state, computation),
             Some(block) if block.wall => WallBlock.is_pathfindable(state, computation),
             Some(block) if block.pane => IronBarsBlock.is_pathfindable(state, computation),
+            Some(block) if block.trapdoor => {
+                crate::content_trapdoors::is_pathfindable(state, computation)
+            }
             Some(block) if block.slab.is_some() => SlabBlock.is_pathfindable(state, computation),
             _ => DefaultBlockBehaviour.is_pathfindable(state, computation),
         }
@@ -1911,6 +1930,9 @@ impl BlockBehaviour for Behaviour {
         if block.scaffolding {
             return crate::content_scaffolding::neighbor_update(args);
         }
+        if block.trapdoor {
+            return crate::content_trapdoors::neighbor_shape(&args);
+        }
         block.slab.map_or(args.state_id, |slab| {
             crate::content_slab::neighbor_update(&args, slab)
         })
@@ -1927,6 +1949,9 @@ impl BlockBehaviour for Behaviour {
         let Some(callback) = block.placement else {
             if block.scaffolding {
                 return crate::content_scaffolding::on_place(args);
+            }
+            if block.trapdoor {
+                return crate::content_trapdoors::on_place(&args);
             }
             if block.stairs {
                 return StairBlock.on_place(args);
@@ -2079,6 +2104,9 @@ impl BlockBehaviour for Behaviour {
     }
 
     fn normal_use(&self, args: NormalUseArgs<'_>) -> BlockActionResult {
+        if runtime_block(args.block.id).is_some_and(|block| block.trapdoor) {
+            return crate::content_trapdoors::normal_use(&args);
+        }
         let Some(callback) = use_block_callback(args.block) else {
             return BlockActionResult::Pass;
         };
@@ -2100,7 +2128,16 @@ impl BlockBehaviour for Behaviour {
         }
     }
 
+    fn explode(&self, args: ExplodeArgs<'_>) {
+        if runtime_block(args.block.id).is_some_and(|block| block.trapdoor) {
+            crate::content_trapdoors::explode(&args);
+        }
+    }
+
     fn on_neighbor_update(&self, args: OnNeighborUpdateArgs<'_>) {
+        if runtime_block(args.block.id).is_some_and(|block| block.trapdoor) {
+            crate::content_trapdoors::neighbor_update(&args);
+        }
         let state = args.world.get_block_state_id(args.position);
         queue(
             args.world,
