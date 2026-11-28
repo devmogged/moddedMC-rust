@@ -802,7 +802,7 @@ pub unsafe extern "C" fn game_events(
                 uuid,
                 event.flags,
                 event.tick,
-            )
+            );
         };
     }
     cursor
