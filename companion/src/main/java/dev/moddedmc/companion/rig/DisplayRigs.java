@@ -21,6 +21,7 @@ import com.mojang.math.Axis;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import dev.moddedmc.companion.PlayerActions;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.HashMap;
@@ -172,7 +173,8 @@ public final class DisplayRigs {
 
     private record Definition(Identifier geometry, Identifier animations, Identifier texture, String clip,
                               float scale, float yOffset, float yawOffset, List<Identifier> hideParts,
-                              Map<String, Identifier> textures, List<Seat> riderSeats, java.util.Optional<Identifier> previewGeometry, int transitionTicks) {
+                              Map<String, Identifier> textures, List<Seat> riderSeats, java.util.Optional<Identifier> previewGeometry, int transitionTicks,
+                              String reportBone) {
         private static final Codec<Definition> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Identifier.CODEC.fieldOf("geometry").forGetter(Definition::geometry),
                 Identifier.CODEC.fieldOf("animations").forGetter(Definition::animations),
@@ -185,7 +187,8 @@ public final class DisplayRigs {
                 Codec.unboundedMap(Codec.STRING, Identifier.CODEC).optionalFieldOf("textures", Map.of()).forGetter(Definition::textures),
                 Seat.CODEC.listOf().optionalFieldOf("rider_seats", List.of()).forGetter(Definition::riderSeats),
                 Identifier.CODEC.optionalFieldOf("preview_geometry").forGetter(Definition::previewGeometry),
-                Codec.intRange(0, 20).optionalFieldOf("transition_ticks", 3).forGetter(Definition::transitionTicks)
+                Codec.intRange(0, 20).optionalFieldOf("transition_ticks", 3).forGetter(Definition::transitionTicks),
+                Codec.STRING.optionalFieldOf("report_bone", "").forGetter(Definition::reportBone)
         ).apply(instance, Definition::new));
     }
 
@@ -282,7 +285,7 @@ public final class DisplayRigs {
             if (rig.still) definition.previewGeometry().filter(modelCache.cache()::containsKey)
                     .ifPresent(geometry -> state.addGeckolibData(GEOMETRY, geometry));
             state.addGeckolibData(HIDE_GEOMETRY, !rig.preview && rig.hidden);
-            if (!rig.preview && !definition.riderSeats().isEmpty() && rig.mountId >= 0
+            if (!rig.preview && (!definition.riderSeats().isEmpty() || !definition.reportBone().isEmpty()) && rig.mountId >= 0
                     && Minecraft.getInstance().level != null) {
                 Entity mount = Minecraft.getInstance().level.getEntity(rig.mountId);
                 if (mount != null && mount.isVehicle()) {
@@ -318,6 +321,21 @@ public final class DisplayRigs {
                         }
                     }
                     RiderSeats.sample(frame.display(), frame.mount(), positions);
+                    if (!definition.reportBone().isEmpty()) {
+                        var bone = pass.model().getBone(definition.reportBone()).orElse(null);
+                        if (bone != null) {
+                            var pose = pass.poseStack();
+                            pose.pushPose();
+                            try {
+                                RenderUtil.transformToBone(pose, bone);
+                                var point = pose.last().pose().transformPosition(new Vector3f());
+                                Vec3 world = pass.cameraState().pos.add(point.x, point.y, point.z);
+                                PlayerActions.reportRigBone(frame.mount(), definition.reportBone(), world);
+                            } finally {
+                                pose.popPose();
+                            }
+                        }
+                    }
                 });
             }
             if (!Boolean.TRUE.equals(pass.getGeckolibData(HIDE_GEOMETRY))) {

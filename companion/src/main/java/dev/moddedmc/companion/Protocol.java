@@ -1,6 +1,7 @@
 package dev.moddedmc.companion;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
 
 final class Protocol {
@@ -26,6 +27,15 @@ final class Protocol {
         data.get(manifest).get(zip);
         var hex = HexFormat.of();
         return new Answer(flags, new Offer(hex.formatHex(manifest), hex.formatHex(zip)));
+    }
+
+    static byte[] rigBone(int entity, String bone, double x, double y, double z) {
+        if (!bone.matches("[A-Za-z0-9_.:-]{1,64}")
+                || !Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) return null;
+        byte[] name = bone.getBytes(StandardCharsets.UTF_8);
+        return ByteBuffer.allocate(7 + name.length + 24)
+                .put((byte) VERSION).put((byte) 6).putInt(entity).put((byte) name.length)
+                .put(name).putDouble(x).putDouble(y).putDouble(z).array();
     }
 
     record Answer(int flags, Offer offer) {}

@@ -74,14 +74,37 @@ pub static MOBS: abi::MobsV1 = abi::MobsV1 {
     allied,
     set_seat_offset,
     set_dismount_offsets,
+    rig_bone_position,
 };
+
+unsafe extern "C" fn rig_bone_position(
+    raw: EntityRef,
+    bone: Str,
+    reporter: *const [u8; 16],
+    out: *mut Vec3,
+) -> bool {
+    // SAFETY: entity, bone, optional reporter UUID and output are borrowed for the call.
+    let (Some(base), bone, reporter, Some(out)) =
+        (unsafe { (entity(raw), bone.str(), reporter.as_ref(), out.as_mut()) })
+    else {
+        return false;
+    };
+    let Some(position) = crate::player_actions::rig_bone_position(base, bone, reporter) else {
+        return false;
+    };
+    *out = Vec3(position);
+    true
+}
 
 unsafe extern "C" fn pet_owner(raw: EntityRef, out: *mut [u8; 16]) -> bool {
     // SAFETY: entity and output are borrowed for the call.
     let (Some(base), Some(out)) = (unsafe { entity(raw) }, unsafe { out.as_mut() }) else {
         return false;
     };
-    let Some(owner) = base.get_mob().and_then(pumpkin_core::entity::mob::Mob::get_owner_uuid) else {
+    let Some(owner) = base
+        .get_mob()
+        .and_then(pumpkin_core::entity::mob::Mob::get_owner_uuid)
+    else {
         return false;
     };
     *out = *owner.as_bytes();

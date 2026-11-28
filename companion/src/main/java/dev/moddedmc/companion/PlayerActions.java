@@ -26,6 +26,8 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 
 public final class PlayerActions {
     private static final int VERSION = 1, PRESSED = 1, HELD = 2, RELEASED = 4;
@@ -45,6 +47,8 @@ public final class PlayerActions {
     private static int queryTicks;
     private static int boostTicks;
     private static int boostGrace;
+    private static int lastBoneReportTick = Integer.MIN_VALUE;
+    private static int lastBoneReportEntity = -1;
     private static final Properties saved = new Properties();
     private static final java.nio.file.Path SAVE = FabricLoader.getInstance().getConfigDir()
             .resolve("moddedmc-player-actions.properties");
@@ -61,6 +65,8 @@ public final class PlayerActions {
             active.clear();
             resetMounted();
             boostTicks = 0;
+            lastBoneReportTick = Integer.MIN_VALUE;
+            lastBoneReportEntity = -1;
             if (enabled) listener.send(new ServerboundCustomPayloadPacket(new Packet(new byte[] {VERSION, 0})));
         });
         ClientPlayConnectionEvents.DISCONNECT.register((listener, client) -> {
@@ -290,6 +296,21 @@ public final class PlayerActions {
         var data = ByteBuffer.allocate(4 + id.length);
         data.put((byte) VERSION).put((byte) 2).put((byte) phase).put((byte) id.length).put(id);
         client.getConnection().send(new ServerboundCustomPayloadPacket(new Packet(data.array())));
+    }
+
+    /** Report an animated world-space locator from the controlling rider, at most once per tick. */
+    public static void reportRigBone(Entity mount, String bone, Vec3 position) {
+        var client = Minecraft.getInstance();
+        if (!enabled || client.player == null || client.getConnection() == null
+                || client.player.getVehicle() != mount || mount.getPassengers().isEmpty()
+                || mount.getPassengers().getFirst() != client.player) return;
+        int tick = client.player.tickCount;
+        if (lastBoneReportTick == tick && lastBoneReportEntity == mount.getId()) return;
+        byte[] data = Protocol.rigBone(mount.getId(), bone, position.x, position.y, position.z);
+        if (data == null) return;
+        lastBoneReportTick = tick;
+        lastBoneReportEntity = mount.getId();
+        client.getConnection().send(new ServerboundCustomPayloadPacket(new Packet(data)));
     }
 
     private static void persist() {

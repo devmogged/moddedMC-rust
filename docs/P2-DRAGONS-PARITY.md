@@ -155,9 +155,13 @@ rig metadata identifies the bone and model-pixel offset, the body display
 identifies its carrier, and sampled offsets follow the carrier's current yaw.
 All eight dragons have their released locator bones and offsets, including
 Cindervane's two seats, Nulljaw's hanging height and the ground dragons'
-two-tick freshness limit. Cindervane's grabbed passenger retains the neutral
-server attachment: Java's client-reported server bone cache remains out of
-scope. The [mount scenario](../tests/scenarios/p2-mount.txt) records manual companion
+two-tick freshness limit. Cindervane's mounted slash grab uses the controlling
+owner's reported `automountBoneRight` world position and the released neutral
+anchor when a sample is missing or stale. The host additionally validates
+visibility, reporter identity, finite coordinates and distance; the grab itself
+clamps the offset to eight blocks. The [slash-grab scenario](../tests/scenarios/p2-slash-grab.txt)
+exercises the companion report with a headless rider. The
+[mount scenario](../tests/scenarios/p2-mount.txt) records manual companion
 acceptance checks; the bot verifies the logical riding lifecycle only.
 Visual seat and camera behavior still require a real companion client check.
 
@@ -842,7 +846,7 @@ Atroxiia rider melee, movement and frost abilities are ported.
 
 Ignivorus rider movement and abilities are ported.
 
-Cindervane rider combat now dispatches the owner's first-seat left-click, X melee toggle, R double bite, H volley, G hold/release Fire Body and Ctrl+4 flex through the companion. The released timings, cooldowns, forward bite sweep, slash grab motion, rider-aimed volleys, fire aura protection, landing/forward crash blast and flex movement lock are implemented. Remaining gaps: exact flight transitions, animated grab locator, native projectile entity and physics, complete elemental/ally immunity, live furnace cooking acceleration, custom crash explosion and exact custom visuals. [Registration and manual companion scenario](../tests/scenarios/p2c-cindervane-rider.txt).
+Cindervane rider combat now dispatches the owner's first-seat left-click, X melee toggle, R double bite, H volley, G hold/release Fire Body and Ctrl+4 flex through the companion. The released timings, cooldowns, forward bite sweep, slash grab motion and animated grab locator, rider-aimed volleys, fire aura protection, landing/forward crash blast and flex movement lock are implemented. Remaining gaps: exact flight transitions, native projectile entity and physics, complete elemental/ally immunity, live furnace cooking acceleration, custom crash explosion and exact custom visuals. [Registration and manual companion scenario](../tests/scenarios/p2c-cindervane-rider.txt).
 
 
 Fire Body samples terrain six times per tick with a 12% ignition chance. Magma Volley ignites eligible air in its 3-by-3 impact layer; a crash carves the released nine-block-radius parabolic imprint, preserves bedrock and obsidian and awards Tactical Nuke. Terrain honors mob griefing. [Terrain scenario](../tests/scenarios/p2-cindervane-terrain.txt).

@@ -6,6 +6,25 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ProtocolTest {
     @Test
+    void rigBoneUsesBoundedNamesAndFiniteBigEndianCoordinates() {
+        var data = java.nio.ByteBuffer.wrap(Protocol.rigBone(42, "hand", 1, 2, 3));
+        assertEquals(1, data.get());
+        assertEquals(6, data.get());
+        assertEquals(42, data.getInt());
+        assertEquals(4, data.get());
+        byte[] name = new byte[4];
+        data.get(name);
+        assertArrayEquals(new byte[] {'h', 'a', 'n', 'd'}, name);
+        assertEquals(1.0, data.getDouble());
+        assertEquals(2.0, data.getDouble());
+        assertEquals(3.0, data.getDouble());
+        assertFalse(data.hasRemaining());
+        assertNull(Protocol.rigBone(42, "bad bone", 1, 2, 3));
+        assertNull(Protocol.rigBone(42, "x".repeat(65), 1, 2, 3));
+        assertNull(Protocol.rigBone(42, "hand", Double.NaN, 2, 3));
+    }
+
+    @Test
     void advertisesBigEndianVersionAndFlags() {
         assertArrayEquals(new byte[] {0, 1, 0, 0, 0, 3}, Protocol.hello());
     }
