@@ -128,6 +128,7 @@ impl Mod for SaintsDragons {
         content.require_extension(WorldExtension::ContentEntityTransaction)?;
         content.require_extension(WorldExtension::RawBrightness)?;
         content.require_extension(WorldExtension::DescribeState)?;
+        content.require_extension(WorldExtension::GameTime)?;
         spawners::require()?;
         content.require_comparator_output()?;
         content.require_block_material()?;
@@ -471,7 +472,7 @@ fn can_be_affected(
 fn tick(world: content::World<'_>, time: u64, events: &[content::ContentEvent]) {
     flight_route::tick(world, moddedmc_api::tick_count());
     pillars::tick(world, moddedmc_api::tick_count());
-    vfx::tick(world, moddedmc_api::tick_count());
+    vfx::tick(world);
     combat::heat_tick(world);
     ivy::trade_resume_tick(world);
     player_moves::tick(world, moddedmc_api::tick_count());

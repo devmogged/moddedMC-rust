@@ -1,5 +1,5 @@
 //! Short-lived, nonpersistent item display effects. The companion owns rendering.
-use crate::visuals::DISPLAYS;
+use crate::visuals::{DISPLAYS, display_tick};
 use fastnbt::Value;
 use moddedmc_api::{
     RegistrationError, Registry,
@@ -7,7 +7,6 @@ use moddedmc_api::{
     entities::Entity,
     items::{Item, Items},
     stacks::ItemDisplay,
-    tick_count,
 };
 use std::{
     collections::HashMap,
@@ -136,12 +135,12 @@ pub fn projectile(
         && let Some(entry) = active.iter_mut().find(|entry| entry.0 == id)
         && displays.update(world, id, &frame)
     {
-        entry.1 = tick_count() + 2;
+        entry.1 = display_tick(world) + 2;
         return;
     }
     *handle = displays.spawn_item(world, &stack(model, HashMap::new()), &frame);
     if let Some(id) = *handle {
-        active.push((id, tick_count() + 2));
+        active.push((id, display_tick(world) + 2));
     }
 }
 
@@ -253,7 +252,7 @@ fn ribbon(
             .unwrap_or_else(|e| e.into_inner())
             .entry(dimension)
             .or_default()
-            .push((id, tick_count() + lifetime as u64));
+            .push((id, display_tick(world) + lifetime as u64));
     }
 }
 
@@ -384,14 +383,15 @@ pub fn arc(world: World<'_>, from: [f64; 3], to: [f64; 3], blood: bool, lifetime
             .unwrap_or_else(|e| e.into_inner())
             .entry(dimension)
             .or_default()
-            .push((id, tick_count() + lifetime as u64));
+            .push((id, display_tick(world) + lifetime as u64));
     }
 }
 
-pub fn tick(world: World<'_>, now: u64) {
+pub fn tick(world: World<'_>) {
     let Some(dimension) = world.dimension_id() else {
         return;
     };
+    let now = display_tick(world);
     let mut arcs = ARCS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(active) = arcs.get_mut(dimension) {
         active.retain(|&(id, expires)| {
